@@ -1,6 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.250
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.251
 //
+//  v9.251 변경사항 (2026.10.21):
+//  - #507 가격이력 배치 업데이트 D열·E:F열 분리기록 제거.
+//  - 기존 가격·저장시각·출처 D:F 한 행 동시저장, 대상 원본·수식 검사.
+//  - append 목적지 선점 차단, 실패시 부분커밋 검증불가 상태 노출.
+//  - 외부 Sheets API 동일셀 CAS 및 다중행 완전 원자성은 미해결.
 //  v9.250 변경사항 (2026.10.20):
 //  - #507 syncCodes 종목코드 보정의 전체열 stale setValues 제거.
 //  - 원장/가격/Snapshot 코드 변경 대상셀만 원본·수식·행 식별자 검증 후 저장.
@@ -2230,7 +2235,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.250',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.251',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2308,7 +2313,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.250', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.251', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6135,7 +6140,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.250' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.251' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10275,7 +10280,12 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       // ★ [버그수정] 날짜 _normalizeDate() 적용 — Date 객체가 'Mon Apr 13...' 형태로
       //   읽혀 중복 감지 실패하던 문제 수정. 6컬럼(소스)까지 읽어 MANUAL 여부 판단
       var readCols = Math.min(6, ph.getLastColumn());
-      var data = ph.getRange(2, 1, lastRow - 1, readCols).getValues();
+      var data = ph.getRange(2, 1, lastRow - 1, readCols).getValues().map(function(row) {
+        // Legacy sheets may have no populated source column F (getLastColumn()=5).
+        // Compare normalized A:F rows, including their missing empty cells.
+        while (row.length < 6) row.push('');
+        return row;
+      });
       data.forEach(function(row, i) {
         var d = _normalizeDate(row[0]);
         var c = _cleanCode(row[1]) || (row[2]||'').toString().trim();
@@ -10308,38 +10318,101 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       }
     });
 
-    if (toUpdate.length > 0) {
-      toUpdate.sort(function(a, b) { return a.row - b.row; });
-      var i = 0;
-      while (i < toUpdate.length) {
-        var startRow = toUpdate[i].row;
-        var prices   = [toUpdate[i].price];
-        while (i + 1 < toUpdate.length && toUpdate[i + 1].row === toUpdate[i].row + 1) {
-          i++;
-          prices.push(toUpdate[i].price);
-        }
-        ph.getRange(startRow, 4, prices.length, 1).setValues(prices.map(function(p){ return [p]; }));
-        i++;
-      }
-      // ★ savedAt + source 배치 업데이트 — 행마다 2번 setValue → 연속행 묶음 setValues
-      toUpdate.sort(function(a, b) { return a.row - b.row; });
-      var j = 0;
-      while (j < toUpdate.length) {
-        var sr = toUpdate[j].row;
-        var batch = [[toUpdate[j].isManual ? (toUpdate[j].savedAt || '') : '', toUpdate[j].source || '']];
-        while (j + 1 < toUpdate.length && toUpdate[j + 1].row === toUpdate[j].row + 1) {
-          j++;
-          batch.push([toUpdate[j].isManual ? (toUpdate[j].savedAt || '') : '', toUpdate[j].source || '']);
-        }
-        ph.getRange(sr, 5, batch.length, 2).setValues(batch);
-        j++;
-      }
+    // #507: price, timestamp, and source describe ONE observation. The old
+    // two-pass D then E:F writer could expose a new price with stale source,
+    // or overwrite a newer external MANUAL row after a whole-sheet scan.
+    var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
+    var attempts = 0;
+    // Read A:F once per phase, not once per security check per code.
+    // A single large replay may contain many rows; ~6N RPCs risks GAS timeout.
+    var targets = toUpdate.map(function(item) {
+      return { row:item.row, before:data[item.row - 2].slice(0,6),
+        after:[item.price, item.isManual ? (item.savedAt || '') : '', item.source || ''] };
+    }).sort(function(a,b) { return a.row - b.row; });
+    var groups = [];
+    targets.forEach(function(item) {
+      var previous = groups.length ? groups[groups.length-1] : null;
+      if (previous && previous.start + previous.items.length === item.row) previous.items.push(item);
+      else groups.push({start:item.row,items:[item]});
+    });
+    // Never update an unbounded set of disjoint ranges mid-execution.
+    if (groups.length > 80)
+      throw new Error('PRICE_HISTORY_BATCH_TOO_MANY_WRITE_GROUPS:' + groups.length);
+    function inspectTargets(values,formulas,changedCode,formulaCode) {
+      if (!values || !formulas || values.length !== lastRow-1 ||
+          formulas.length !== lastRow-1)
+        throw new Error(changedCode + ':INCOMPLETE_READ');
+      targets.forEach(function(item) {
+        var index = item.row - 2;
+        if (!values[index] || !same(values[index].slice(0,6),item.before))
+          throw new Error(changedCode + ':' + item.row);
+        if (!formulas[index] || formulas[index].length !== 3 ||
+            formulas[index].some(function(value) { return !!value; }))
+          throw new Error(formulaCode + ':' + item.row);
+      });
     }
-    if (toAppend.length > 0) {
-      ph.getRange(ph.getLastRow() + 1, 1, toAppend.length, 6).setValues(_normalizeCodeRows(toAppend, 1));
+    if (targets.length) {
+      inspectTargets(ph.getRange(2,1,lastRow-1,6).getValues(),
+        ph.getRange(2,4,lastRow-1,3).getFormulas(),
+        'PRICE_HISTORY_BATCH_TARGET_CHANGED_BEFORE_WRITE',
+        'PRICE_HISTORY_BATCH_PROTECTED_FORMULA');
     }
-    if (toUpdate.length || toAppend.length) _touchSnapshotIntegritySourceRevision({ from: dateStr });
-    SpreadsheetApp.flush();
+    if (toAppend.length && ph.getLastRow() !== lastRow)
+      throw new Error('PRICE_HISTORY_BATCH_APPEND_ROWCOUNT_CHANGED');
+    try {
+      if (targets.length) {
+        // Recheck before the first mutation; identical-cell external writers
+        // between this read and setValues still require shared CAS/serialization.
+        inspectTargets(ph.getRange(2,1,lastRow-1,6).getValues(),
+          ph.getRange(2,4,lastRow-1,3).getFormulas(),
+          'PRICE_HISTORY_BATCH_COMMIT_TARGET_CHANGED',
+          'PRICE_HISTORY_BATCH_PROTECTED_FORMULA');
+        groups.forEach(function(group) {
+          // Never include an unchanged physical row in a write range.
+          attempts++;
+          ph.getRange(group.start,4,group.items.length,3).setValues(
+            group.items.map(function(item) { return item.after; }));
+        });
+      }
+      if (toAppend.length) {
+        if (ph.getLastRow() !== lastRow)
+          throw new Error('PRICE_HISTORY_BATCH_APPEND_ROWCOUNT_CHANGED');
+        var dest = ph.getRange(lastRow+1,1,toAppend.length,Math.max(6,ph.getLastColumn()));
+        var destValues=dest.getValues(),destFormulas=dest.getFormulas();
+        if (!destValues || !destFormulas || destValues.length !== toAppend.length ||
+            destValues.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }) ||
+            destFormulas.some(function(row) { return row.some(function(v) { return !!v; }); }))
+          throw new Error('PRICE_HISTORY_BATCH_APPEND_DESTINATION_OCCUPIED');
+        attempts++;
+        ph.getRange(lastRow + 1, 1, toAppend.length, 6).setValues(_normalizeCodeRows(toAppend, 1));
+      }
+      if (!attempts) return;
+      SpreadsheetApp.flush();
+      if (targets.length) {
+        // One bounded readback, independent of the number of target symbols.
+        var confirmed=ph.getRange(2,4,lastRow-1,3).getValues();
+        targets.forEach(function(item) {
+          if (!confirmed[item.row-2] || !same(confirmed[item.row-2],item.after))
+            throw new Error('PRICE_HISTORY_BATCH_WRITE_UNVERIFIED:' + item.row);
+        });
+      }
+      if (toAppend.length) {
+        var appended = ph.getRange(lastRow+1,1,toAppend.length,6).getValues();
+        _normalizeCodeRows(toAppend,1).forEach(function(row,index) {
+          if (!same(appended[index],row))
+            throw new Error('PRICE_HISTORY_BATCH_APPEND_UNVERIFIED:' + (lastRow+1+index));
+        });
+      }
+      _touchSnapshotIntegritySourceRevision({ from: dateStr });
+    } catch(writeError) {
+      if (attempts) {
+        // Partial effects may have committed. Never blindly undo another
+        // writer's cells; leave an explicit unverified outcome and revision.
+        try { _touchSnapshotIntegritySourceRevision({ from: dateStr }); } catch(revisionError) {}
+        throw new Error('PRICE_HISTORY_BATCH_COMMIT_UNVERIFIED: ' + String(writeError && writeError.message || writeError));
+      }
+      throw writeError;
+    }
   } catch(err) {
     Logger.log('❌ batchUpsertPriceHistory 실패: ' + err.message);
     throw err;
@@ -12914,7 +12987,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.250',
+    gasVersion: '9.251',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12979,7 +13052,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.250' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.251' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16839,7 +16912,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.250' });
+    return jsonOk({ settings: settings, gasVersion: '9.251' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16869,7 +16942,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.250'
+      gasVersion: '9.251'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
