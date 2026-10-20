@@ -29,9 +29,9 @@ const makeRow=(date,code,qty)=>[
 const row1=makeRow(date1,'000111',2);
 const row2=makeRow(date2,'000222',3);
 const deep=v=>JSON.parse(JSON.stringify(v));
-function makeEnv({onBackup,initialRows,failWriteAt}={}){
+function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead}={}){
   let stored=[Array.from({length:12},(_,i)=>'H'+(i+1)),...deep(initialRows||[row1,row2])];
-  let lockHeld=false,backups=0,writes=0,writeCalls=0,flushes=0,revisionUpdates=0,propertyWrites=0;
+  let lockHeld=false,backups=0,writes=0,writeCalls=0,flushes=0,revisionUpdates=0,propertyWrites=0,appendReadInjected=false;
   const sheet={
     getLastRow:()=>stored.length,
     getLastColumn:()=>12,
@@ -40,9 +40,19 @@ function makeEnv({onBackup,initialRows,failWriteAt}={}){
     getRange:(row,col,height,width)=>({
       getValues:()=>{
         assert.equal(col,1);assert.ok(width>=12);
+        // Inject an out-of-band append after writer's last-row check.
+        if(onAppendRead && !appendReadInjected && row>3){
+          appendReadInjected=true;onAppendRead({stored,row});
+        }
         return Array.from({length:height},(_,i)=>
-          deep(stored[row-1+i]||Array(width).fill('')));
+          deep(stored[row-1+i]||Array(width).fill('')).map(v=>
+            v==='=40+2'?42:v));
       },
+      getFormulas:()=>Array.from({length:height},(_,i)=>
+        Array.from({length:width},(_,j)=>{
+          const v=stored[row-1+i]?.[col-1+j];
+          return typeof v==='string' && v.startsWith('=')?v:'';
+        })),
       setValues:values=>{
         writeCalls++;
         if (failWriteAt===writeCalls) throw Error('SYNTHETIC_INJECTED_WRITE_FAILURE');
@@ -213,4 +223,31 @@ function byKey(e,date,code){
   assert.equal(byKey(x,date1,'000111')[3],2);
   assert.equal(byKey(x,date1,'000555'),undefined);
 }
+// P1 regression: foreign append arrives immediately before the reserved
+// append range is read. The new row must survive and no target write occur.
+{
+  const x=makeEnv({onAppendRead:({stored,row})=>{
+    stored[row-1]=makeRow('2026-01-17','000444',7);
+  }});
+  assert.throws(()=>x.writer('2026-01-16',[
+    makeRow('2026-01-16','000333',4)],false),
+    /Snapshot append 목적지 외부 변경/);
+  assert.equal(x.stats().writes,0);
+  assert.equal(byKey(x,'2026-01-17','000444')[3],7);
+  assert.equal(byKey(x,'2026-01-16','000333'),undefined);
+}
+// P2 regression: a rolled-back cell with a formula must restore the formula,
+// not a getValues() numeric result. The second disjoint write fails.
+{
+  const withFormula=deep(row1);withFormula[7]='=40+2';
+  const x=makeEnv({initialRows:[withFormula,row2,
+    makeRow(date1,'000333',2)],failWriteAt:2});
+  assert.throws(()=>x.writer(date1,[makeRow(date1,'000111',5),
+    makeRow(date1,'000333',6)],true),/SYNTHETIC_INJECTED_WRITE_FAILURE/);
+  assert.equal(byKey(x,date1,'000111')[7],'=40+2',
+    'rollback must retain the original formula rather than the value 42');
+  assert.equal(byKey(x,date1,'000111')[3],2);
+  assert.equal(byKey(x,date2,'000222')[3],3);
+}
+
 console.log('ISSUE507_DATE_SCOPED_PRODUCTION_WRITER_SAFETY_OK');
