@@ -29,9 +29,9 @@ const makeRow=(date,code,qty)=>[
 const row1=makeRow(date1,'000111',2);
 const row2=makeRow(date2,'000222',3);
 const deep=v=>JSON.parse(JSON.stringify(v));
-function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead}={}){
+function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead,onBeforeTargetWrite}={}){
   let stored=[Array.from({length:12},(_,i)=>'H'+(i+1)),...deep(initialRows||[row1,row2])];
-  let lockHeld=false,backups=0,writes=0,writeCalls=0,flushes=0,revisionUpdates=0,propertyWrites=0,appendReadInjected=false;
+  let lockHeld=false,backups=0,writes=0,writeCalls=0,flushes=0,revisionUpdates=0,propertyWrites=0,appendReadInjected=false,concurrentWriteInjected=false;
   const sheet={
     getLastRow:()=>{ // Model actual Sheets: trailing fully blank rows are not data.
       for(let i=stored.length-1;i>=0;i--){
@@ -64,6 +64,12 @@ function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead}={}){
         if (failWriteAt===writeCalls) throw Error('SYNTHETIC_INJECTED_WRITE_FAILURE');
         assert.equal(col,1);
         assert.ok(values.every(v=>v.length===width));
+        // Controlled Sheets API concurrency: inject *after* the writer's
+        // read/validation and immediately before the Sheets commit.
+        if(onBeforeTargetWrite && !concurrentWriteInjected){
+          concurrentWriteInjected=true;
+          onBeforeTargetWrite({stored,row,col,values:deep(values)});
+        }
         for(let i=0;i<values.length;i++)stored[row-1+i]=deep(values[i]);
         writes++;
       },
@@ -285,4 +291,29 @@ function byKey(e,date,code){
   assert.equal(byKey(x,date2,'000222')[3],3);
 }
 
+// KNOWN UNSAFE (not a protection test): ScriptLock cannot exclude an
+// out-of-band Sheets API writer of the same (date,code) between the final
+// getValues/getFormulas read and our Range.setValues. We deliberately assert
+// the lost update is reproduced so reviewers cannot misread green CI as
+// atomic CAS support. Remove this expected-risk assertion only when an
+// independently validated cross-writer exclusion/transaction is deployed.
+{
+  let injected=false;
+  const x=makeEnv({onBeforeTargetWrite:({stored,row})=>{
+    assert.equal(row,2);
+    const foreign=stored.find(r=>r[0]===date1&&r[1]==='000111');
+    assert.ok(foreign);
+    foreign[3]=8; foreign[5]=80; foreign[7]=88;
+    injected=true;
+  }});
+  x.writer(date1,[makeRow(date1,'000111',5)],true);
+  assert.equal(injected,true,'independent external writer actually ran');
+  assert.equal(byKey(x,date1,'000111')[3],5,
+    'KNOWN_UNSAFE: current GAS overwrites later external same-date quantity');
+  assert.notEqual(byKey(x,date1,'000111')[3],8,
+    'KNOWN_UNSAFE: external same-date modification is not preserved');
+  assert.equal(byKey(x,date2,'000222')[3],3,
+    'scope limitation: the unrelated date is still preserved');
+}
+console.log('ISSUE507_KNOWN_UNSAFE_SAME_DATE_TOCTOU_REPRODUCED');
 console.log('ISSUE507_DATE_SCOPED_PRODUCTION_WRITER_SAFETY_OK');
