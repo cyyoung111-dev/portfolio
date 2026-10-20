@@ -5,7 +5,7 @@
 //  - #507 기존 Snapshot 전체시트 재기록을 대상 날짜 행만 수정하는 방식으로 전환.
 //  - 백업 이후 대상 날짜 원본·행수 변경 감지 시 쓰기 전 차단.
 //  - 원장/가격/NAV/MANUAL 보호·백업 상태·pending/deferred 규칙 유지.
-//  - 동일 날짜 변경이 여러 비연속 범위로 분산되면 부분저장 방지를 위해 쓰기 전 보류.
+//  - 타 날짜 보존, 다중 범위 실패 시 대상일 단계별 원본 복원·미확인 차단.
 //  - 외부 동일 날짜 API 경합은 별도 보호 필요. 승인·배포 전 미운영.
 //  v9.244 변경사항 (2026.10.20):
 //  - #507 worker DATE_DISCOVERY의 Snapshot 마지막일 조회 완료 및 다중 소스 날짜 수집 완료를
@@ -14836,7 +14836,7 @@ function getTradingDays(year, month) {
 // #507: 한 날짜의 물리행만 변경합니다. 다른 날짜 행의 셀/수식/순서를
 // 절대 재기록하지 않습니다. 외부 Sheets API의 '같은 날짜' 동시 쓰기는
 // ScriptLock으로 막을 수 없으므로 검출된 변경은 원본 쓰기 전 실패시킵니다.
-function _writeSnapshotDateScoped_(sheet, date, existing, desired, width) {
+function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
   var originalLastRow = existing.length + 1;
   if (sheet.getLastRow() !== originalLastRow)
     throw new Error('Snapshot 행 구조 외부 변경: 날짜별 저장 보류');
@@ -14878,10 +14878,9 @@ function _writeSnapshotDateScoped_(sheet, date, existing, desired, width) {
   Object.keys(queues).forEach(function(key) {
     (queues[key] || []).forEach(function(row) { pending.push(row); });
   });
-  // Sheets Range.setValues 호출을 복수로 쪼개면 첫 범위 저장 후
-  // 다음 범위 실패 시 동일 날짜 원가/수량이 반쯤 갱신됩니다.
-  // 보호 가능한 단일 연속 물리범위가 아니면 BEFORE WRITE에 차단합니다.
-  // 여러 섬으로 분리된 날짜/복수 수정+append는 추후 원자적 API 지원 전 보류.
+  // 인접한 대상일 변경을 한 번의 setValues로 묶습니다.
+  // 비연속 날짜·append를 포함한 다중 범위는 중간 실패에 대비해
+  // 원본 타 날짜를 건드리지 않는 보상 복구(journal)를 준비합니다.
   var blocks = [];
   cursor = 0;
   while (cursor < updates.length) {
@@ -14892,21 +14891,59 @@ function _writeSnapshotDateScoped_(sheet, date, existing, desired, width) {
       rows:updates.slice(first, end + 1).map(function(item) { return item.value; }) });
     cursor = end + 1;
   }
-  if (blocks.length + (pending.length ? 1 : 0) > 1)
-    throw new Error('Snapshot 다중 물리범위 비원자 쓰기 차단: 보호 대기');
-  if (blocks.length) {
-    var block = blocks[0];
-    sheet.getRange(block.rowNumber, 1, block.rows.length, width)
-      .setValues(_normalizeCodeRows(block.rows, 1));
-  }
   if (pending.length) {
     var appendRow = originalLastRow + 1;
     var requiredRows = appendRow + pending.length - 1;
     if (sheet.getMaxRows() < requiredRows)
       sheet.insertRowsAfter(sheet.getMaxRows(), requiredRows - sheet.getMaxRows());
-    _setCodeColumnText(sheet, 2);
-    sheet.getRange(appendRow, 1, pending.length, width)
-      .setValues(_normalizeCodeRows(pending, 1));
+    blocks.push({rowNumber:appendRow, rows:pending});
+  }
+  var attempted = [];
+  try {
+    blocks.forEach(function(block) {
+      var range = sheet.getRange(block.rowNumber, 1, block.rows.length, width);
+      var original = range.getValues();
+      if (original.length !== block.rows.length) {
+        // 최초 append 위치는 물리적 마지막 행보다 뒤에 있는 빈 그리드입니다.
+        if (block.rowNumber <= originalLastRow)
+          throw new Error('Snapshot 복구 원본 범위 확인 실패');
+        original = block.rows.map(function() { return Array(width).fill(''); });
+      }
+      var replacement = _normalizeCodeRows(block.rows, 1);
+      var step = {range:range, before:original, after:replacement};
+      attempted.push(step); // 응답 유실 시에도 이 range를 확인해야 합니다.
+      if (block.rowNumber > originalLastRow) _setCodeColumnText(sheet, 2);
+      range.setValues(replacement);
+    });
+    SpreadsheetApp.flush();
+    var written = _readRawSnapshotRowsByDate(ss, date);
+    var intended = desired.map(_snapshotComparableSignature).sort().join('\n');
+    var actual = written.map(_snapshotComparableSignature).sort().join('\n');
+    if (written.length !== desired.length || actual !== intended)
+      throw new Error('Snapshot 날짜별 저장 확인 실패');
+  } catch (error) {
+    // 이미 성공한 대상일 범위만 역순으로 되돌립니다. 타 날짜 셀은
+    // 어떠한 경우에도 복원 대상으로 포함하지 않습니다.
+    // 외부 Writer가 해당 범위를 다시 수정했다면 임의 덮어쓰기 금지.
+    var rollbackVerified = true;
+    for (var k = attempted.length - 1; k >= 0; k--) {
+      var step = attempted[k];
+      try {
+        var seen = step.range.getValues();
+        if (JSON.stringify(seen) === JSON.stringify(step.before)) continue;
+        if (JSON.stringify(seen) !== JSON.stringify(step.after)) {
+          rollbackVerified = false;
+          continue;
+        }
+        step.range.setValues(step.before);
+      } catch (rollbackError) {
+        rollbackVerified = false;
+      }
+    }
+    try { SpreadsheetApp.flush(); } catch (flushError) { rollbackVerified = false; }
+    if (!rollbackVerified)
+      throw new Error('Snapshot 부분저장 검증 불가: 백업 보호·수동 재검증 필요');
+    throw error;
   }
 }
 
@@ -15040,7 +15077,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);
       // #507: 날짜별 슬롯만 갱신합니다. 다른 날짜를 과거에 읽은 combined 값으로
       // 전체 재기록하면 외부 Sheets API 수정분이 조용히 사라질 수 있습니다.
-      _writeSnapshotDateScoped_(sh, normDate, existing, mergedDate, colSize);
+      _writeSnapshotDateScoped_(ss, sh, normDate, existing, mergedDate, colSize);
       SpreadsheetApp.flush();
       var writtenDateRows = _readRawSnapshotRowsByDate(ss, normDate);
       var intendedSignature = mergedDate.map(_snapshotComparableSignature).sort().join('\n');
