@@ -9996,6 +9996,10 @@ function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
     for (var i = attempted.length - 1; i >= 0; i--) {
       var record = attempted[i];
       try {
+        // The physical row may have been moved or replaced since its write.
+        // Never roll back K:L into a different date/code, even when values
+        // happen to equal our last commit. Treat unverified as a hard stop.
+        verifyRow(record);
         var observed = image(record.range);
         if (same(observed,record.originalImage)) continue;
         // Do not overwrite a newer third-party change during compensation.
