@@ -164,10 +164,10 @@ function create({mode='standard',afterBackup,formula=[],failWriteAt=0}={}){
 {
  const x=create({mode:'triple',failWriteAt:2});
  assert.throws(()=>x.run(),/PRICE_CLEANUP_COMMIT_UNVERIFIED.*SIMULATED_PRICE_CLEANUP_SECOND_WRITE_FAILURE/);
- assert.ok(x.data[1].every(v=>v===''));
- assert.ok(x.data[2].every(v=>v===''));
- assert.equal(x.data[3][1],'000111');
- assert.equal(x.data[4][1],'000222');
+ assert.ok(x.data[1].every(v=>v===''),'first redundant row already cleared');
+ assert.equal(x.data[2][1],'000111','second redundant row unchanged after failed write');
+ assert.equal(x.data[3][1],'000111','keeper preserved');
+ assert.equal(x.data[4][1],'000222','unrelated date preserved');
  assert.deepEqual(x.statuses,['WRITE_FAILED']);
  assert.deepEqual(x.backups,['PREPARED']);
  assert.deepEqual(x.revision,[]);
