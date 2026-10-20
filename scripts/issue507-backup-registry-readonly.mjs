@@ -25,8 +25,10 @@ export function summarizeWorkbook(payload,targets=TARGETS){
   return targets.map(target=>{
     const record=all.find(r=>r?.name===target.name);
     check(record&&record.backup===true&&record.role==='BACKUP'
-      &&record.backupSource==='스냅샷'
       &&typeof record.systemGeneratedBackup==='boolean'
+      &&(record.systemGeneratedBackup
+        ?record.backupSource==='스냅샷'
+        :record.backupSource===''||record.backupSource==='스냅샷')
       &&STATUS.has(record.backupStatus)
       &&CLASSES.has(record.backupClassification)
       &&(record.signatureMatch===null||typeof record.signatureMatch==='boolean')
@@ -96,13 +98,14 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   const after=validateInventory(afterStatus);
   return report(before,after,summarized);
 }
-function productionContract(){
+function productionContract({unregisteredPreRecovery=false}={}){
   // Execute the actual production GAS workbook reader against memory-only
   // simulated sheets. Do not claim an actual workbook was inspected here.
   const gas=fs.readFileSync(new URL('../src/gas/apps_script.gs',import.meta.url),'utf8');
   assert.match(gas,/if \(params\.action === 'diagnoseWorkbookCells'\) return handleDiagnoseWorkbookCells\(\);/);
   assert.match(gas,/'diagnoseWorkbookCells'/);
-  const names=['_diagnoseWorkbookCells','handleDiagnoseWorkbookCells'];
+  const names=['_backupSourceFromSystemName','_diagnoseWorkbookCells',
+    'handleDiagnoseWorkbookCells'];
   const production=names.map(name=>{
     const start=gas.indexOf('function '+name+'(');
     const end=start<0?-1:gas.indexOf('\n}',start);
@@ -115,15 +118,16 @@ function productionContract(){
   const sheets=[source,old,newest];
   const ss={getSheets:()=>sheets,getSheetByName:name=>sheets.find(x=>x.getName()===name)||null};
   const registry=[
-    {name:TARGETS[0].name,source:'스냅샷',status:'COMPLETED',signature:'correct',createdAt:'',completedAt:''},
-    {name:TARGETS[1].name,source:'스냅샷',status:'CREATED',signature:'old-hash',createdAt:'',completedAt:''}
+    ...(!unregisteredPreRecovery?[{name:TARGETS[0].name,source:'스냅샷',
+      status:'COMPLETED',signature:'correct',createdAt:'',completedAt:''}]:[]),
+    {name:TARGETS[1].name,source:'스냅샷',status:'CREATED',
+      signature:'old-hash',createdAt:'',completedAt:''}
   ];
   const sandbox={
     _readSystemBackupRegistry:()=>registry,
     _sheetFormulaReferenceCounts:(_ss,names)=>Object.fromEntries(names.map(n=>[n,0])),
     _sheetContentSignature:sh=>sh.__hash||'source',
     _sheetRole:name=>name==='스냅샷'?'OPERATIONAL':'BACKUP',
-    _backupSourceFromSystemName:name=>name.startsWith('스냅샷_백업_')?'스냅샷':'',
     _isGasReferencedSheet:name=>name==='스냅샷',
     GOOGLE_SHEETS_CELL_LIMIT:10000000,
     SYSTEM_BACKUP_KEEP_BY_SOURCE:{'스냅샷':0},
@@ -142,6 +146,16 @@ export async function selfTest(){
   assert.equal(out[1].registryState,'CREATED');
   assert.equal(out[1].lastRowIncludingHeader,7);
   assert.ok(out.every(x=>!x.restoreAllowed&&!x.sourceAtCopySignatureVerified));
+  // Actual production GAS naming regex does NOT match the 10/19 human
+  // pre-recovery suffix. An unregistered backup must be reported, not crash.
+  const unregistered=productionContract({unregisteredPreRecovery:true});
+  const unregReport=summarizeWorkbook(unregistered);
+  assert.equal(unregReport[0].registryPresent,false);
+  assert.equal(unregReport[0].registryState,'UNREGISTERED');
+  assert.equal(unregReport[0].classification,'USER_MANAGED_BACKUP');
+  assert.equal(unregReport[0].backupContentSignatureMatchesRegistry,null);
+  assert.equal(unregReport[0].restoreAllowed,false);
+  assert.equal(unregReport[1].registryState,'CREATED');
 
   const invalid=structuredClone(fixture);
   invalid.workbook.sheets=invalid.workbook.sheets.filter(x=>x.name!==TARGETS[1].name);
