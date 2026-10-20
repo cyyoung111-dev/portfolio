@@ -1,7 +1,7 @@
 ## GAS v9.244 — Issue #507 worker phase 및 미해결 날짜 전수 진단 (2026-10-20)
 
 - **배포 상태:** 별도 단계 PR/CI/Codex 리뷰 준비. 기존 운영 GAS **v9.243**이며, 본 소스는 사용자 승인 전 병합·배포하지 않습니다.
-- **릴리스 승인:** `gasVersion=9.244`, 전체 GAS 원본 Git blob `91ec55450d5f4c634eb7fbe8321a1ca191a42450`. 이전 v9.243 소스 승인 해시 유지.
+- **릴리스 승인:** `gasVersion=9.244`, 전체 GAS 원본 Git blob `37e9adec9afcd1071f96c3fa640283d44e5592f8`. 이전 v9.243 소스 승인 해시 유지.
 - **운영 관측:** 시간 worker는 `2026-10-20 09:02:31 KST` 시작 후 `DATE_DISCOVERY` 마지막 기록만 남아 종료 미확정. 해당 단계가 Snapshot 마지막일 `_latestConfirmedSnapshotDate`인지 전체 소스일 `_collectDailySnapshotDates`인지 판별 불가.
 - **보류 전수 조사:** 인증된 기존 `getAutomationStatus`에 `tradeSnapshotDeferredDates`(정렬된 600건 이하 날짜 배열)와 `tradeSnapshotDeferredCursor`를 추가했습니다. 새 워크플로 `issue-507-deferred-source-audit-readonly`는 수동 실행 시 전체 보류일을 6일 단위로 `diagnoseSnapshotIntegrityRange`에 전달하고 KRX/FX/NAV/충돌 상태를 날짜/유형/건수만 출력합니다. 호출 전·후 보류 목록 및 각 청크의 원천 revision이 변하면 FAIL-CLOSED로 종료합니다. 합성 계약 검증과 실제 v9.244 배포 이후의 운영 검증을 구분합니다. 아직 가격 원천 보강/보류 해제/시트 쓰기는 **미실행**입니다.
 - **변경:** 기존 `DATE_DISCOVERY`는 Snapshot 마지막일을 읽기 전 유지, 완료 직후 `DATE_SOURCE_COLLECTION` 저장, 여러 원천 날짜 수집 완료 직후 `DATE_DISCOVERY_COMPLETE` 저장. 이 세 단계와 기존 `DATE_DIAGNOSTIC` 전환으로 진입 경계를 구별합니다. `status-only` 정해진 enum 계약도 동일하게 수정합니다.
