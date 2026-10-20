@@ -45,7 +45,9 @@ assert.match(gas, /_isSnapshotIntegritySourceSheet[\s\S]*SHEET_TRADES[\s\S]*SHEE
 assert.match(gas, /_isSnapshotIntegritySourceSheet[\s\S]*SHEET_SNAPSHOT/, 'Snapshot 상세행 변경도 cache revision 대상이어야 합니다.');
 assert.match(gas, /function writeSnapshotRows[\s\S]*_touchSnapshotIntegritySourceRevision\(\)/, 'rewrite를 포함한 Snapshot 저장은 cache revision을 갱신해야 합니다.');
 assert.doesNotMatch(gas.match(/function _backupSheetBeforeWrite[\s\S]*?\n}/)?.[0] || '', /_touchSnapshotIntegritySourceRevision/, '백업 생성 단계에서 실제 쓰기보다 먼저 revision을 갱신하면 안 됩니다.');
-assert.match(gas, /function cleanupPriceHistoryDuplicates[\s\S]*setValues\(_normalizeCodeRows\(deduped[\s\S]*_touchSnapshotIntegritySourceRevision/, '가격 중복 정리는 실제 쓰기 성공 후 invalidate');
+const priceDuplicateCleanupFn = gas.match(/function _cleanupPriceHistoryDuplicatesLocked\([\s\S]*?\n}/)?.[0] || '';
+assert.match(priceDuplicateCleanupFn, /range\.setValues\(\[emptyRow\]\)[\s\S]*_touchSnapshotIntegritySourceRevision/, '가격 중복 정리는 제거 대상 물리행 쓰기 이후 revision 갱신');
+assert.doesNotMatch(priceDuplicateCleanupFn, /ph\.clearContents\(\)|setValues\(_normalizeCodeRows\(deduped/, '가격이력 중복 정리의 전체행 초기화·재배열 금지');
 const scopedSnapshotCleanupBody = gas.match(/function _cleanupSnapshotDuplicatesLocked\([\s\S]*?\n}/)?.[0] || '';
 assert.match(scopedSnapshotCleanupBody, /range\.setValues\(\[blank\(fullWidth\)\]\)[\s\S]*_touchSnapshotIntegritySourceRevision/, 'Snapshot 중복 정리는 검증된 대상 물리행 쓰기 후에만 revision 갱신');
 assert.doesNotMatch(scopedSnapshotCleanupBody, /setValues\(output\)/, '전체 Snapshot 행압축 재기록 금지');
