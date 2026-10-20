@@ -207,10 +207,13 @@ export async function selfTest(){
     assert.ok(a>0&&b>a,'GAS production function boundaries');
     return source.slice(a,b);
   };
+  let revisionRaw=JSON.stringify({revision:541,all:541,dates:{},ranges:[]});
+  let propertyWrites=0;
   const fakeProps={getProperty:k=>k==='trade_snapshot_rebuild_deferred_v1'
-    ?JSON.stringify({dates:dates.slice(),cursor:'2026-01-01'}):'',
-    setProperty:()=>{throw Error('ISSUE507_DEFERRED_FORBIDDEN_PROPERTY_WRITE');},
-    deleteProperty:()=>{throw Error('ISSUE507_DEFERRED_FORBIDDEN_PROPERTY_WRITE');}};
+    ?JSON.stringify({dates:dates.slice(),cursor:'2026-01-01'})
+    :k==='snapshot_integrity_source_revision_v1'?revisionRaw:'',
+    setProperty:()=>{propertyWrites++;throw Error('ISSUE507_DEFERRED_FORBIDDEN_PROPERTY_WRITE');},
+    deleteProperty:()=>{propertyWrites++;throw Error('ISSUE507_DEFERRED_FORBIDDEN_PROPERTY_WRITE');}};
   const ctx={
     PropertiesService:{getScriptProperties:()=>fakeProps},
     TRADE_SNAPSHOT_DEFERRED_DATES_KEY:'trade_snapshot_rebuild_deferred_v1',
@@ -239,6 +242,41 @@ export async function selfTest(){
   assert.equal(JSON.stringify(production.tradeSnapshotDeferredDates),JSON.stringify(dates));
   assert.equal(production.tradeSnapshotDeferredCursor,'2026-01-01');
   assert.equal(production.tradeSnapshotDeferredCount,dates.length);
+  // Actually execute production range diagnosis and the production STRICT
+  // revision accessor with a write-trap. Pre-migration/legacy/damaged state
+  // must fail closed; it must NEVER self-heal ScriptProperties in READ ONLY.
+  ctx.SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY='snapshot_integrity_source_revision_v1';
+  ctx.SNAPSHOT_INTEGRITY_STATE_MAX_CHARS=7000;
+  ctx._buildSnapshotRangeReadContext=()=>({ss:{},readMs:0,
+    metrics:{sheetReads:0,priceHistoryRows:0,snapshotRows:0,tradeRows:0,
+      fundNavRows:0,fxRows:0}});
+  ctx._buildSnapshotRangeIndexes=()=>({priceIntegrityByDate:{},
+    indexBuildMs:0,metrics:{holdingsBuildCount:0,priceSeriesBuildCount:0,
+      priceIntegrityBuildCount:0,snapshotDateLookupCount:0,fundNavLookupCount:0,
+      fxLookupCount:0}});
+  ctx.diagnoseSnapshotIntegrity=(_ss,date)=>({date,status:'SOURCE_INCOMPLETE',
+    sourceDataErrors:['PRIVATE_CODE_DO_NOT_PRINT'],missingCodes:[],
+    duplicateKeys:[],duplicateSummary:{unresolvedConflict:0}});
+  ctx.jsonOk=x=>({status:'ok',...x});
+  ctx._getSnapshotIntegritySourceRevision=()=>{
+    throw Error('ISSUE507_DEFERRED_MUTATING_REVISION_READER_CALLED');};
+  vm.runInContext(extract('_isSnapshotIntegrityRevision','_getSnapshotIntegrityRevisionState')
+    +'\n'+extract('_peekSnapshotIntegritySourceRevisionReadonly_','_isSnapshotIntegrityRevision')
+    +'\n'+extract('handleDiagnoseSnapshotIntegrityRange','_oct08FundSourceOnlyProof_'),ctx);
+  const invoke=()=>vm.runInContext(
+    'handleDiagnoseSnapshotIntegrityRange("", "", "", "2025-12-31")',ctx);
+  const fresh=invoke();
+  assert.equal(fresh.status,'ok');
+  assert.equal(fresh.integritySourceRevision,'541');
+  assert.equal(propertyWrites,0);
+  for(const invalid of ['', '540', '{bad JSON', 'X'.repeat(7001),
+    JSON.stringify({revision:541,all:541,dates:[],ranges:[]})]){
+    revisionRaw=invalid;
+    const blocked=invoke();
+    assert.equal(blocked.status,'error');
+    assert.equal(blocked.errorCode,'RUNTIME_ERROR');
+    assert.equal(propertyWrites,0);
+  }
   console.log('Issue #507 deferred-date all-inventory source audit synthetic/production VM: PASS');
 }
 if(process.argv.includes('--self-test')){
