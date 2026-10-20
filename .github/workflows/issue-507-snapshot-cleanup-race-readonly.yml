@@ -1,0 +1,34 @@
+name: issue-507-snapshot-cleanup-race-readonly
+
+# PASS reproduces the existing production Snapshot cleanup defect.
+# No real spreadsheet, KRX/Toss source or GAS deployment credentials.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-snapshot-duplicate-cleanup-race-repro.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-snapshot-cleanup-race-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-snapshot-duplicate-cleanup-race-repro.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-snapshot-cleanup-race-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-function-synthetic-reproducer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify isolated production cleanup reproducer
+        run: |
+          node --check scripts/issue507-snapshot-duplicate-cleanup-race-repro.mjs
+          node scripts/issue507-snapshot-duplicate-cleanup-race-repro.mjs
