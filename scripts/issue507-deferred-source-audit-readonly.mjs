@@ -74,9 +74,9 @@ export function summarizeBatch(payload,dates){
     seen.add(d.date);
     const dup=d.duplicateSummary;
     const nsource=num(d.sourceDataErrors.length),missing=num(d.missingCodes.length),
-      conflicts=num(dup?.unresolvedConflict),duplicates=num(d.duplicateKeys.length),
-      manualProtected=num(dup?.manualProtected),sourceBlockedDuplicates=num(dup?.sourceIncomplete),
-      autoExactDuplicates=num(dup?.exactDuplicate),autoExpectedMatch=num(dup?.singleExpectedMatch);
+      conflicts=num(dup?.unresolvedConflict??0),duplicates=num(d.duplicateKeys.length),
+      manualProtected=num(dup?.manualProtected??0),sourceBlockedDuplicates=num(dup?.sourceIncomplete??0),
+      autoExactDuplicates=num(dup?.exactDuplicate??0),autoExpectedMatch=num(dup?.singleExpectedMatch??0);
     const kinds=sourceKinds(d.sourceDataErrors);
     // MissingCodes are expected holdings absent from the STORED Snapshot.
     // They do NOT prove an absent KRX price, foreign FX rate or fund NAV.
