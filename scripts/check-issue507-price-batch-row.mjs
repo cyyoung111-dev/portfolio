@@ -11,7 +11,7 @@ const name='batchUpsertPriceHistory';
 const start=gas.indexOf('function '+name+'('),end=gas.indexOf('\n}',start);
 assert.ok(start>=0 && end>start);
 const production=gas.slice(start,end+2);
-assert.match(production,/ph\.getRange\(item\.row,4,1,3\)\.setValues\(\[item\.after\]\)/);
+assert.match(production,/ph\.getRange\(group\.start,4,group\.items\.length,3\)\.setValues/);
 assert.doesNotMatch(production,/getRange\(startRow,\s*4,\s*prices\.length,\s*1\)\.setValues/);
 const copy=x=>JSON.parse(JSON.stringify(x));
 const d1='2026-01-14',d2='2026-01-15';
@@ -20,7 +20,10 @@ const row=(d,code,price,source='KRX',saved='',custom='')=>[d,code,'SYNTHETIC',pr
 const mk=(mode)=>{
  switch(mode){
   case 'normal':return [header,row(d1,'000111',100,'OLD','',''),row(d2,'000222',200,'KRX','','FOREIGN')];
-  case 'two':return [header,row(d1,'000111',100,'OLD','',''),row(d1,'000333',300,'OLD','',''),row(d2,'000222',200,'KRX','','FOREIGN')];
+  case 'two':return [header,row(d1,'000111',100,'OLD','',''),row(d2,'000222',200,'KRX','','FOREIGN'),row(d1,'000333',300,'OLD','','')];
+  case 'contiguous':return [header,row(d1,'000111',100,'OLD','',''),row(d1,'000333',300,'OLD','',''),row(d2,'000222',200,'KRX','','FOREIGN')];
+  case 'legacy5':return [header.slice(0,5),row(d1,'000111',100,'OLD').slice(0,5)];
+  case 'bulk':return [header,...Array.from({length:120},(_,i)=>row(d1,String(100000+i),i+100,'OLD'))];
   case 'manual':return [header,row(d1,'000111',100,' MANUAL ','2026-01-14 12:00:00','KEEP'),
     row(d2,'000222',200,'KRX','','FOREIGN')];
   case 'empty':return [header];
@@ -29,19 +32,25 @@ const mk=(mode)=>{
 };
 function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,formula=[]}={}){
  const stored=copy(mk(mode)), initial=copy(stored);
- const writes=[],revisions=[],formats=[],inserts=[];let attempts=0,preflightCalled=false,appendCalled=false,failed=false,flushes=0;
- const width=mode==='empty'?6:7;
+ const writes=[],reads=[],revisions=[],formats=[],inserts=[];let attempts=0,fullScans=0,appendCalled=false,failed=false,flushes=0;
+ const width=mode==='empty'?6:mode==='legacy5'?5:7;
  const last=()=>{for(let i=stored.length-1;i>=0;i--){
    if(stored[i].some(x=>x!==''&&x!=null))return i+1;
  }return 0};
  const sheet={
   getLastRow:last,getLastColumn:()=>width,
   getRange:(r,c,h=1,w=1)=>{
-   if(c===1&&r===2&&h===1&&!preflightCalled&&beforePreflight){preflightCalled=true;beforePreflight(stored);}
    if(c===1&&r===initial.length+1&&!appendCalled&&atAppendRead){appendCalled=true;atAppendRead(stored);}
    const get=()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>stored[r-1+i]?.[c-1+j]??''));
    return{
-    getValues:()=>copy(get()),
+    getValues:()=>{
+      reads.push({r,c,h,w});
+      if(c===1&&r===2&&h===initial.length-1&&w>=5) {
+        fullScans++;
+        if(fullScans===2&&beforePreflight)beforePreflight(stored);
+      }
+      return copy(get());
+    },
     getFormulas:()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>
       formula.some(f=>f.row===r+i&&f.col===c+j)?'=USER_FORMULA':'')),
     setValues:values=>{
@@ -73,7 +82,7 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
  vm.runInContext(production,ctx,{filename:'production-price-batch.js'});
  const item=(code,price,source='KRX',savedAt='')=>({code,name:'SYNTHETIC',price,source,savedAt});
  return{run:(items,date=d1)=>ctx.batchUpsertPriceHistory(ss,date,items),item,
-  rows:()=>copy(stored),initial,writes,revisions,formats,inserts,stats:()=>({attempts,flushes})};
+  rows:()=>copy(stored),initial,writes,reads,revisions,formats,inserts,stats:()=>({attempts,flushes})};
 }
 // Single row D:F must be written as one range and leave custom/unrelated row untouched.
 {
@@ -85,6 +94,32 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
  assert.deepEqual(e.writes,[{r:2,c:4,h:1,w:3}]);
  assert.deepEqual(e.revisions,[{from:d1}]);
  console.log('ISSUE507_BATCH_PRICE_AND_SOURCE_SINGLE_RANGE');
+}
+// Legacy five populated columns: missing F must normalize to an empty value,
+// not block all updates by comparing a five-element row with A:F (six cells).
+{
+ const e=makeEnv({mode:'legacy5'});
+ e.run([e.item('000111',115)]);
+ assert.deepEqual(e.rows()[1].slice(3,6),[115,'','KRX']);
+ assert.deepEqual(e.writes,[{r:2,c:4,h:1,w:3}]);
+ console.log('ISSUE507_BATCH_LEGACY_FIVE_COLUMN_COMPATIBLE');
+}
+// Consecutive updates share a D:F range; unrelated rows are not overwritten.
+{
+ const e=makeEnv({mode:'contiguous'});
+ e.run([e.item('000111',111),e.item('000333',333)]);
+ assert.deepEqual(e.writes,[{r:2,c:4,h:2,w:3}]);
+ assert.deepEqual(e.rows()[3],e.initial[3]);
+}
+// A 120-symbol batch must not issue per-row read/verify requests.
+{
+ const e=makeEnv({mode:'bulk'});
+ const all=Array.from({length:120},(_,i)=>e.item(String(100000+i),i+500));
+ e.run(all);
+ assert.deepEqual(e.writes,[{r:2,c:4,h:120,w:3}]);
+ assert.ok(e.reads.length<=5,'bulk reads must be O(1), not O(symbols)');
+ assert.equal(e.rows()[120][3],619);
+ console.log('ISSUE507_BATCH_BOUNDED_SHEETS_IO');
 }
 // New MANUAL source injected externally after stale initial read must not be overwritten.
 {
@@ -114,8 +149,8 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
  const e=makeEnv({mode:'two',failWriteNumber:2});
  assert.throws(()=>e.run([e.item('000111',111),e.item('000333',333)]),/PRICE_HISTORY_BATCH_COMMIT_UNVERIFIED.*SIMULATED_SECOND/);
  assert.equal(e.rows()[1][3],111);
- assert.equal(e.rows()[2][3],300);
- assert.deepEqual(e.rows()[3],e.initial[3]);
+ assert.equal(e.rows()[3][3],300);
+ assert.deepEqual(e.rows()[2],e.initial[2]);
  assert.deepEqual(e.revisions,[{from:d1}]);
  console.log('ISSUE507_BATCH_PARTIAL_FAILURE_EXPLICIT');
 }
