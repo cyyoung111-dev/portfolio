@@ -82,7 +82,6 @@ export function evaluate(input) {
   const heldBeforeYearEnd=relevant.some(t=>String(t.date||'').slice(0,10)<='2025-12-30');
   const ready=heldBeforeYearEnd&&!!(yearEnd?.sourceOnlyEligibleForLaterApproval)&&storedMatch.length===0;
   return {mode:'READ_ONLY',gasVersion:automation.automation.gasVersion,
-    sourceReadCoherenceChecked:true,
     firstMissingDistinctCodes:codes.length,earliestCurrentCodePriceDate:last,
     codeHeldBeforeYearEnd:heldBeforeYearEnd,
     carryBoundaryCorporateActionFound:actions.length>0,
@@ -145,7 +144,8 @@ export async function readLive({url,token,fetchImpl=fetch}){
   assertSourceReadsUnchanged(
     [priceHistory,trade,yearEndSnapshot],
     [latestPriceHistory,latestTrade,latestSnapshot]);
-  return evaluate({diagnosis,automation,priceHistory,trade,yearEndSnapshot,proofs});
+  return {...evaluate({diagnosis,automation,priceHistory,trade,yearEndSnapshot,proofs}),
+    sourceReadCoherenceChecked:true};
 }
 export async function selfTest(){
   const code='0046Y0';
@@ -164,7 +164,8 @@ export async function selfTest(){
   const input={diagnosis,automation,priceHistory,trade,yearEndSnapshot,proofs};
   const ok=evaluate(input);
   assert.equal(ok.yearEndCarrySourceReady,true);
-  assert.equal(ok.sourceReadCoherenceChecked,true);
+  assert.notEqual(ok.sourceReadCoherenceChecked,true,
+    'pure evaluator does not independently prove source coherence');
   assert.equal(ok.observations.length,3);
   assert.equal(ok.earliestCurrentCodePriceDate,'2026-01-06');
   assert.ok(ok.observations.every(x=>x.sourceOnlyEligibleForLaterApproval));
@@ -210,6 +211,7 @@ export async function selfTest(){
   };
   const live=await readLive({url:'https://script.google.com/macros/s/TEST/exec',token:'SYNTHETIC_TOKEN',fetchImpl});
   assert.equal(live.yearEndCarrySourceReady,true);
+  assert.equal(live.sourceReadCoherenceChecked,true);
   assert.deepEqual(actions,['getKrxHeldCloseCoverage','diagnoseSnapshotIntegrityRange',
     'getAutomationStatus','getPriceHistory','getTrades','getHistoryDetail',
     'getKrxHeldCloseCoverage','getKrxHeldCloseCoverage','getKrxHeldCloseCoverage',
