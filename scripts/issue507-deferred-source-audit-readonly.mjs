@@ -11,7 +11,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const STATUS=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT',
   'SOURCE_INCOMPLETE','NO_SNAPSHOT','PRICE_SUSPICIOUS']);
 const CHUNK_SIZE=6;
-const SUPPORTED_GAS_VERSION=new Set(['9.244','9.245','9.246','9.247','9.248']);
+const SUPPORTED_GAS_VERSION=new Set(['9.244','9.245','9.246','9.247','9.248','9.249']);
 const MAX_AUDIT_DATES=60;
 function day(s){
   if(typeof s!=='string'||!DATE.test(s))return false;
@@ -281,7 +281,7 @@ export async function selfTest(){
   vm.runInContext(extract('_readTradeSnapshotDeferredState_','_writeTradeSnapshotDeferredState_')
     +'\n'+extract('_getAutomationStatusData','handleGetAutomationStatus'),ctx);
   const production=vm.runInContext('_getAutomationStatusData()',ctx);
-  assert.equal(production.gasVersion,'9.248');
+  assert.equal(production.gasVersion,'9.249');
   assert.equal(JSON.stringify(production.tradeSnapshotDeferredDates),JSON.stringify(dates));
   assert.equal(production.tradeSnapshotDeferredCursor,'2026-01-01');
   assert.equal(production.tradeSnapshotDeferredCount,dates.length);
