@@ -244,4 +244,24 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
   assert.equal(f.calls.filter(x=>x.key==='trade_snapshot_rebuild_pending_v1').length,0);
   assert.equal(f.locks.held,0);
 }
+// Production boundary regressions: in ordinary thrown failures the worker
+// records ERROR, but the last RUNNING phase still identifies the exact helper
+// it was entering. Hard GAS kills may retain the same last RUNNING marker.
+for (const [helper,expected] of [
+  ['_latestConfirmedSnapshotDate','DATE_DISCOVERY'],
+  ['_collectDailySnapshotDates','DATE_SOURCE_COLLECTION']
+]) {
+  const f=fixture({statusByDate:{'2025-12-31':'SOURCE_INCOMPLETE'}});
+  f.ctx[helper]=()=>{throw Error('SYNTHETIC_READ_INTERRUPTED');};
+  assert.equal(f.ctx.runPendingTradeSnapshotRebuild().status,'ERROR');
+  assert.equal(f.phaseMarks.at(-1).phase,expected,
+    'last checkpoint must uniquely localize interrupted helper');
+  assert.equal(f.pending().from,'2025-12-31',
+    'failed read must not move pending cursor');
+  assert.deepEqual(f.deferred().dates,[],
+    'failed read must not silently append deferred dates');
+  assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0,
+    'failed read must not reach any Snapshot write');
+  assert.equal(f.locks.held,0,'ordinary errors must release script lock');
+}
 console.log('Issue #507 deferred ledger worker production VM tests PASS');
