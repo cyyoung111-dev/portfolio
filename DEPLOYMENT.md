@@ -6,6 +6,7 @@
 - **원천/수식 보호:** 날짜 유실 payload는 거래원장 근거 없이 자동 삭제하지 않고 `invalidDateRowsBlocked`로 보고합니다. 제거 후보의 13열 이후 사용자 데이터·수식 또는 MANUAL이 존재하면 **전체 정리를 사전 차단**해 불확실한 삭제를 하지 않습니다. 안전하지 않은 자동정리는 `SNAPSHOT_CLEANUP_UNSAFE_SOURCE_REQUIRES_REVIEW` 오류와 함께 중단합니다.
 - **동시성/부분 실패:** 백업을 확보한 후 각 제거 대상 물리행의 전체 원본 값과 수식을 저장 직전 검증합니다. 외부 대상 행 변화/복수 범위 저장 실패는 `WRITE_FAILED` 백업을 남기고 `SNAPSHOT_CLEANUP_COMMIT_UNVERIFIED`로 명시합니다. **비운 행의 정체성이 사라졌기 때문에 불확실한 롤백은 자동 수행하지 않습니다.** 외부 Writer가 검사와 쓰기 사이 동일 셀을 바꾸는 TOCTOU는 미해결이며 cross-client CAS가 아닙니다.
 - **검증:** 생산 함수 3개를 Node VM으로 실행하는 `scripts/check-issue507-snapshot-cleanup-scoped.mjs`를 GAS/Quality 검증에 포함. 12열 중복의 타 날짜 업데이트 보존, 13열 사용 컬럼 보호/0좌 정리, 중복 custom 열 차단, 날짜 유실 보존, MANUAL·수식 보호, 외부 대상셀 변경 차단, 부분쓰기 실패 백업 보류 등 synthetic cases.
+- **배포 후 확인(별도 사용자 승인 전제):** 실제 운영 `getSettings.gasVersion=9.248` 및 `getAutomationStatus.gasVersion=9.248`을 인증 조회해 릴리스 버전을 확인하고, 거래원장·원천 데이터/사용자 M열 이상 값·수식·Snapshot 대상/다른 날짜 행·가격/NAV/FX·보류 큐·백업 상태 불변성을 **읽기 전용으로** 확인합니다. 실패 시 원본 자동복구·삭제·백업 정리 금지.
 - **후속:** #593의 원본 unsafe 재현은 독립 main 코드 증거로 유지. 실제 운영 상태/백업·23일 보류 원천을 읽기 전용 검증하기 전에는 병합/배포/원본 자동 복구·삭제 불가. 기존 22:10 / 23:10 / 00:30 / 08:45 트리거 동작은 변경하지 않습니다.
 
 ---
