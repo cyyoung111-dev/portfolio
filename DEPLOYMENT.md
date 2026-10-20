@@ -1,3 +1,16 @@
+## GAS v9.244 — Issue #507 worker 날짜 탐색 세부 phase 진단 (2026-10-20)
+
+- **배포 상태:** 별도 단계 PR/CI/Codex 리뷰 준비. 기존 운영 GAS **v9.243**이며, 본 소스는 사용자 승인 전 병합·배포하지 않습니다.
+- **릴리스 승인:** `gasVersion=9.244`, 전체 GAS 원본 Git blob `47eb0e6ef1b5825a0f5022fbed30fbc9fd82b788`. 이전 v9.243 소스 승인 해시 유지.
+- **운영 관측:** 시간 worker는 `2026-10-20 09:02:31 KST` 시작 후 `DATE_DISCOVERY` 마지막 기록만 남아 종료 미확정. 해당 단계가 Snapshot 마지막일 `_latestConfirmedSnapshotDate`인지 전체 소스일 `_collectDailySnapshotDates`인지 판별 불가.
+- **변경:** 기존 `DATE_DISCOVERY`는 Snapshot 마지막일을 읽기 전 유지, 완료 직후 `DATE_SOURCE_COLLECTION` 저장, 여러 원천 날짜 수집 완료 직후 `DATE_DISCOVERY_COMPLETE` 저장. 이 세 단계와 기존 `DATE_DIAGNOSTIC` 전환으로 진입 경계를 구별합니다. `status-only` 정해진 enum 계약도 동일하게 수정합니다.
+- **안전:** 기존 ScriptLock 및 `trade_snapshot_worker_last_v1`의 마지막 RUNNING 체크포인트 외 새로운 속성/시트 생성 없음. 수량·취득원가의 거래원장 우선, 확정 가격/NAV 출처, `MANUAL` 보존, 기존 Snapshot·pending/deferred·백업·worker 선영속 순서는 변경하지 않습니다. 단계별 타임스탬프는 진행 확인용이지 실제 실행 완료/시간초과를 확정하지 않습니다.
+- **기존 KRX 스케줄:** 22:10 / 23:10 / 00:30 / 08:45 유지. Source-only writer나 가격이력·Snapshot을 쓰는 기능은 추가하지 않습니다.
+- **검증:** GAS 실제 worker 생산 함수 VM에서 단계 순서·중단 지점의 마지막 phase·원장 보류 선영속·락·커서 불변 확인. 헤더/설정/웹 응답/배포 승인 blob/manifest 정합·GAS validate/Quality 필수 검사 수행.
+- **배포 후:** `getAutomationStatus.gasVersion=9.244` 및 `getSettings.gasVersion=9.244`로 정확한 배포 확인 후 다음 시간 worker 결과를 읽기 전용 조회합니다. `DATE_DISCOVERY` 정체면 마지막 Snapshot 날짜 조회 단계, `DATE_SOURCE_COLLECTION` 정체면 날짜 원천 탐색 단계로 한정해 조사하며 성공 후에는 종전처럼 Snapshot 정합성 재확인. 근본 성능 개선·원본 날짜 복구는 별도 승인 단계입니다.
+
+---
+
 ## GAS v9.243 — Issue #507 연말 KRX 대상 종목 확정 종가 읽기 전용 검증 (2026-10-20)
 
 - **배포 상태:** PR/CI/Codex 리뷰 검증 단계. 사용자 승인 이전에는 자동 머지·운영 배포·원본 시트 쓰기 없음.
