@@ -13,7 +13,13 @@ function dateValid(s){
     &&Number.isFinite(Date.parse(s+'T00:00:00Z'))
     &&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
 }
-function identifier(v){return typeof v==='string'?v.trim().toUpperCase():'';}
+// Match production _cleanCode() for numeric domestic codes, including cells
+// whose old number format dropped leading zeros (5930 -> 005930).
+function identifier(v){
+  const s=(v===null||v===undefined?'':String(v)).trim().toUpperCase();
+  if(/^\d+$/.test(s))return s.padStart(6,'0');
+  return s;
+}
 function integer(n){return Number.isSafeInteger(n)&&n>=0&&n<=1000000;}
 function requireGuard(ok,code){if(!ok)throw Error('ISSUE507_RAW_GUARD_'+code);}
 function publicCount(n){requireGuard(integer(n),'UNSAFE_COUNT');return n;}
@@ -127,6 +133,11 @@ export function selfTest(){
   const nonTarget=inspect({...base,rawRows:[row('2025-12-30','OTHER_CODE',999)],
     sheetLastRow:2});
   assert.equal(nonTarget.allDatesCandidates,true);
+  // Legacy Sheets cells can be numeric even when the canonical code has
+  // leading zeros. An occupied 005930 row must not be treated as missing.
+  const domestic=inspect({...base,targetCode:'005930',aliases:[],
+    rawRows:[row('2025-12-30',5930,888,'MANUAL')],sheetLastRow:2});
+  assert.equal(domestic.observations[0].decision,'RAW_MANUAL_PROTECTED');
   const stale=structuredClone(base);stale.evidence[0].usedDate='2025-12-29';
   assert.equal(inspect(stale).allDatesCandidates,false);
   for(const override of [
