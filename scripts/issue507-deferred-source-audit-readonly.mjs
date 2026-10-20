@@ -74,23 +74,32 @@ export function summarizeBatch(payload,dates){
     seen.add(d.date);
     const dup=d.duplicateSummary;
     const nsource=num(d.sourceDataErrors.length),missing=num(d.missingCodes.length),
-      conflicts=num(dup?.unresolvedConflict),duplicates=num(d.duplicateKeys.length);
+      conflicts=num(dup?.unresolvedConflict),duplicates=num(d.duplicateKeys.length),
+      manualProtected=num(dup?.manualProtected),sourceBlockedDuplicates=num(dup?.sourceIncomplete),
+      autoExactDuplicates=num(dup?.exactDuplicate),autoExpectedMatch=num(dup?.singleExpectedMatch);
     const kinds=sourceKinds(d.sourceDataErrors);
-    const hasSourceGap=nsource>0||missing>0||d.status==='SOURCE_INCOMPLETE';
-    const hasConflict=conflicts>0||duplicates>0||d.status==='CONFLICT';
-    // Mixed blockers must not be described as a simple source-recovery case.
-    // Do not treat a source price fill as permission to rewrite conflicts.
-    const resolution=hasConflict&&hasSourceGap?'MIXED_SOURCE_AND_CONFLICT'
-      :hasConflict?'UNRESOLVED_CONFLICT'
-      :d.status==='PRICE_SUSPICIOUS'&&hasSourceGap?'MIXED_SOURCE_AND_PRICE_REVIEW'
+    // MissingCodes are expected holdings absent from the STORED Snapshot.
+    // They do NOT prove an absent KRX price, foreign FX rate or fund NAV.
+    const hasUnderlyingSourceError=nsource>0||d.status==='SOURCE_INCOMPLETE';
+    const hasRawDuplicate=duplicates>0||conflicts>0||manualProtected>0||
+      sourceBlockedDuplicates>0||autoExactDuplicates>0||autoExpectedMatch>0;
+    const hasProtectedConflict=conflicts>0||manualProtected>0||d.status==='CONFLICT';
+    const resolution=hasUnderlyingSourceError
+      ?(hasRawDuplicate?'SOURCE_ERROR_WITH_SNAPSHOT_DUPLICATES':'SOURCE_GAP')
+      :hasProtectedConflict
+      ?(missing>0?'SNAPSHOT_CONFLICT_WITH_MISSING_ROWS':'SNAPSHOT_CONFLICT')
+      :hasRawDuplicate
+      ?(missing>0?'SNAPSHOT_DUPLICATES_WITH_MISSING_ROWS':'SNAPSHOT_DUPLICATES_REVIEW')
       :d.status==='PRICE_SUSPICIOUS'?'PRICE_REVIEW_REQUIRED'
-      :hasSourceGap?'SOURCE_GAP'
+      :missing>0?'SNAPSHOT_MISSING_ROWS'
       :d.status==='VALID'?'REVERIFY_WORKER_ELIGIBILITY'
       :'OTHER_DIAGNOSTIC';
     records.push({date:d.date,status:d.status,resolution,sourceKinds:kinds,
       sourceErrors:nsource,missingCodes:missing,unresolvedConflicts:conflicts,
-      duplicateKeys:duplicates,expectedRows:num(d.expectedRowCount),
-      storedRows:num(d.storedRowCount)});
+      duplicateKeys:duplicates,manualProtectedGroups:manualProtected,
+      sourceBlockedDuplicateGroups:sourceBlockedDuplicates,
+      exactDuplicateGroups:autoExactDuplicates,expectedMatchDuplicateGroups:autoExpectedMatch,
+      expectedRows:num(d.expectedRowCount),storedRows:num(d.storedRowCount)});
   }
   return {revision:payload.integritySourceRevision,
     // Internal-only: never emit source digest in user-visible audit output.
@@ -119,7 +128,7 @@ export function buildAudit(before,after,batches){
     sourceRevisionStable:true,records,grouped,
     originalDataWritten:false,deferredQueueChanged:false,
     sourceGapsAutomaticallyResolved:false,
-    next:'Only exact-date confirmed KRX/NAV/FX under a separately approved backed-up writer may resolve genuine source gaps; conflict/manual dates remain protected.'};
+    next:'MissingCodes count means STORED Snapshot rows missing, not missing source prices. Repair verified exact-date KRX/NAV/FX gaps first; protect RAW duplicate/MANUAL groups and use a separate approval-gated backed-up Snapshot reconciliation for conflicts.'};
 }
 async function request(url,token,action,args,fetchImpl){
   let response;
@@ -195,14 +204,35 @@ export async function selfTest(){
   const other=summarizeBatch({...diag(dates.slice(6)),strictSourceDigest:'b'.repeat(64)},dates.slice(6));
   assert.throws(()=>buildAudit(a,a,[one,other]),/DRIFT/);
   const mixed=diag([dates[0]]);
-  mixed.diagnostics[0].status='CONFLICT';
+  mixed.diagnostics[0].status='SOURCE_INCOMPLETE';
   mixed.diagnostics[0].duplicateSummary.unresolvedConflict=1;
-  assert.equal(summarizeBatch(mixed,[dates[0]]).records[0].resolution,'MIXED_SOURCE_AND_CONFLICT');
+  mixed.diagnostics[0].duplicateKeys=['HIDDEN_DUPLICATE_CODE'];
+  assert.equal(summarizeBatch(mixed,[dates[0]]).records[0].resolution,
+    'SOURCE_ERROR_WITH_SNAPSHOT_DUPLICATES');
   const codeOnly=diag([dates[0]]);
   codeOnly.diagnostics[0].sourceDataErrors=[];
   codeOnly.diagnostics[0].status='PARTIAL';
   codeOnly.diagnostics[0].missingCodes=['HIDDEN_CODE'];
-  assert.equal(summarizeBatch(codeOnly,[dates[0]]).records[0].resolution,'SOURCE_GAP');
+  assert.equal(summarizeBatch(codeOnly,[dates[0]]).records[0].resolution,'SNAPSHOT_MISSING_ROWS');
+  const conflict=diag([dates[0]]);
+  conflict.diagnostics[0].status='CONFLICT';
+  conflict.diagnostics[0].sourceDataErrors=[];
+  conflict.diagnostics[0].missingCodes=['HIDDEN_MISSING_CODE'];
+  conflict.diagnostics[0].duplicateKeys=['HIDDEN_DUPLICATE_CODE'];
+  conflict.diagnostics[0].duplicateSummary={unresolvedConflict:1,manualProtected:1,
+    exactDuplicate:0,singleExpectedMatch:0,sourceIncomplete:0};
+  const conflictResult=summarizeBatch(conflict,[dates[0]]).records[0];
+  assert.equal(conflictResult.resolution,'SNAPSHOT_CONFLICT_WITH_MISSING_ROWS');
+  assert.equal(conflictResult.sourceErrors,0);
+  assert.equal(conflictResult.manualProtectedGroups,1);
+  assert.equal(conflictResult.missingCodes,1);
+  assert.ok(!JSON.stringify(conflictResult).includes('HIDDEN_'));
+  const pendingDup=diag([dates[0]]);
+  pendingDup.diagnostics[0].duplicateKeys=['HIDDEN_DUPLICATE_CODE'];
+  pendingDup.diagnostics[0].duplicateSummary={unresolvedConflict:0,
+    sourceIncomplete:1,exactDuplicate:0,singleExpectedMatch:0,manualProtected:0};
+  assert.equal(summarizeBatch(pendingDup,[dates[0]]).records[0].resolution,
+    'SOURCE_ERROR_WITH_SNAPSHOT_DUPLICATES');
   const weird=diag([dates[0]]);weird.diagnostics[0].status='INVALID';
   assert.throws(()=>summarizeBatch(weird,[dates[0]]),/RECORD/);
   // Execute both ACTUAL v9.244 GAS production functions against inert
