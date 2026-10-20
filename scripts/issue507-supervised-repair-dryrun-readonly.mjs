@@ -58,8 +58,13 @@ function signature(row){
     n(row[5]),n(row[6]),n(row[7]),n(row[8]),n(row[9]),
     String(row[10]??'').trim().toUpperCase()]);
 }
+// Exact GAS diagnoseSnapshotIntegrity() comparison precision.
+function storedNumber(value,decimals){
+  const factor=Math.pow(10,Number(decimals)||0);
+  return Math.round((Number(value)||0)*factor)/factor;
+}
 function qtyCost(row){
-  return JSON.stringify([n(row[3]),n(row[5])]);
+  return JSON.stringify([storedNumber(row[3],8),storedNumber(row[5],0)]);
 }
 export function assessDay(d){
   guard(d&&iso(d.date)&&STATUS.has(d.status)
@@ -259,6 +264,25 @@ export async function selfTest(){
   assert.equal(a.expectedRowsWithStoredQtyCost,1);
   assert.equal(a.expectedRowsWithStoredSignature,0);
   assert.equal(a.readyToWrite,false);
+  const near=structuredClone(x);
+  near.expectedRows[0][3]=1;
+  near.expectedRows[0][5]=100;
+  near.storedRows[0][3]=1.000000001;
+  near.storedRows[0][5]=100.4;
+  near.storedRows[1][3]=1.000000001;
+  near.storedRows[1][5]=100.4;
+  const withinPrecision=assessDay(near);
+  assert.equal(withinPrecision.expectedRowsWithStoredQtyCost,1);
+  assert.equal(withinPrecision.expectedRowsWithoutStoredQtyCost,0);
+  assert.equal(withinPrecision.duplicateReasons.EXACT_DUPLICATE_EXPECTED_DRIFT,1);
+  const distinctQty=structuredClone(near);
+  distinctQty.storedRows[0][3]=1.000000011;
+  distinctQty.storedRows[1][3]=1.000000011;
+  assert.equal(assessDay(distinctQty).expectedRowsWithStoredQtyCost,0);
+  const distinctCost=structuredClone(near);
+  distinctCost.storedRows[0][5]=100.51;
+  distinctCost.storedRows[1][5]=100.51;
+  assert.equal(assessDay(distinctCost).expectedRowsWithStoredQtyCost,0);
   const manual=structuredClone(x);manual.storedRows[1][10]='MANUAL';
   assert.equal(assessDay(manual).duplicateReasons.MANUAL_PROTECTED,1);
   const one=structuredClone(x);one.storedRows[1]=structuredClone(one.expectedRows[0]);
