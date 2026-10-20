@@ -34,6 +34,9 @@ jobs:
       - name: Fail-closed classification and synthetic strict-read checks
         run: |
           node --check scripts/issue507-supervised-repair-dryrun-readonly.mjs
+          # Regression for P2: importing this module must not execute any other CLI.
+          # No GAS token or URL is configured in the contract job.
+          test -z "$(node --input-type=module -e "await import('./scripts/issue507-supervised-repair-dryrun-readonly.mjs')")"
           node scripts/issue507-supervised-repair-dryrun-readonly.mjs --self-test
   operational-readonly:
     if: github.event_name == 'workflow_dispatch'
