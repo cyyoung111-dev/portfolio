@@ -33,7 +33,7 @@
 | asOfDate / startedAt / endedAt | 대상일(KST)과 실제 이벤트 시각 |
 | ledgerDigestAtBuild / ledgerDigestBefore / ledgerDigestAfter | **행 계산과 연결된** 원장 지문, 잠금 내 writer 진입/종료 fingerprint(비공개 저장). 행 계산 시점 증명이 없으면 완료 인증 불가 |
 | integrityRevisionBefore / After | 마이그레이션·쓰기 없는 strict-read 사용 |
-| snapshotBeforeSignature / snapshotAfterSignature / signatureScope | 검증된 backup sourceSignature의 재사용 가능 여부, DATE_EXPECTED/DATE_VERIFIED 구분 |
+| snapshotSourceDigestAtRead / AtBackup / PreCommit / PostCommit / signatureScope | **대상일뿐 아니라 다른 날짜까지 포함하는 원본 전체시트** 관찰값을 단계별 비교. 백업 sourceSignature의 정확한 시점·범위 기록, DATE_EXPECTED/DATE_VERIFIED와 FULL_SOURCE_VERIFIED 구분 |
 | backupReferenceState | REGISTERED_VERIFIED / SOURCE_ABSENT_NOT_APPLICABLE / UNKNOWN / FAILED. 원본 시트 최초 생성은 부재를 잠금 내 확인한 경우에만 별도 적용 |
 | state / writeAttempted / persistVerified / sourceStable | PREPARED / NO_OP / COMPLETED / FAILED / SOURCE_CHANGED / COMMIT_UNVERIFIED / TIMEOUT_SUSPECTED |
 | blockedReasonClass | 안전하게 승인된 열거형 분류(민감 문자열 불가) |
@@ -45,21 +45,21 @@
 1. **행 생성 전부터** 기존 ScriptLock이 유효한지 확인하고 원장 digest를 기록하여 그 데이터로 기대행을 생성한다. 호출자가 lock 밖에서 행을 미리 만들었다면 `ledgerDigestAtBuild`를 함께 전달하고 writer 진입 시 digest와 **같은지 반드시 비교**한다. 외부 Sheets API 변경은 GAS ScriptLock으로 막을 수 없으므로, 계산 중 원장 전후 digest까지 일치해야 하며 불확실하면 해당 행을 writer에서 다시 계산하거나 **원본 변경 전 차단**한다. 단지 Writer 진입/종료 fingerprint가 같다고 구버전 원장으로 만든 행을 인증하지 않는다. 경합/시간제한 임박/원천부족/보호 충돌도 원본 쓰기 전 중단한다.
 2. no-op은 writeAttempted=false와 NO_OP로 종료, 정상 Writer 쓰기 통계에 포함하지 않는다.
 3. 실제 쓰기가 예정된 때만 PREPARED 메타 기록. 이미 존재하는 Snapshot 원본의 변경이라면 기존 백업의 sourceSignature·registry 상태와 복원 범위를 검증한다. provenance 메타 저장 실패나 **필수 백업** 실패 시 원본 변경 전 fail closed. **최초 시트 생성**은 잠금 내 `getSheetByName`가 null임을 확인하고 `SOURCE_ABSENT_NOT_APPLICABLE`로 기록한다. 이 분기에는 복사 대상 원본이 없으므로 백업을 강제하지 않되, 시트가 동시에 새로 생겼거나 부재 판정이 불안정하면 차단한다. 최초 생성은 검증된 expected 전체 키집합·행수·저장 성공/실패 시 잔여 신규 시트 처리 기준까지 검사해야 하며, `UNKNOWN/FAILED` 백업을 성공으로 간주하는 예외가 아니다.
-4. 기존 중앙 Writer로 append, 최초 시트 생성, full rewrite를 각 별도 검사하되 기존 코드의 원장/가격/NAV/MANUAL 보호 규칙을 변경하지 않는다.
+4. **full rewrite는 다른 날짜도 다시 쓰므로 별도 고위험 분기**이다. 원본 전체를 읽어 `combined`를 만들 당시의 full-source digest를 기록하고, 쓰기 직전 원본/백업의 생성시각 및 sourceSignature와 다시 비교한다. 다른 날짜의 값·수식·행수가 바뀌었거나 digest가 다르거나 검증 예산이 부족하면 **원본 변경 전에 차단·재계산**한다. 출처가 다른 쓰기는 자체 Writer ScriptLock 밖에서 발생하므로 검사→실제 `setValues` 사이의 race는 사후 검사만으로 증명되지 않는다. 외부 direct Sheets Writer 배제/일시정지를 증명할 수 없는 운영에서 full rewrite를 절대적 `sourceStable=true`/`COMPLETED`로 인증하지 말고, 외부 Writer 통제·선행 합의 또는 최소범위 date-scoped update 설계를 우선 검토한다. append, 최초 시트 생성, full rewrite 각각 별도 검사하되 기존 원장/가격/NAV/MANUAL 보호 규칙을 변경하지 않는다.
 5. SpreadsheetApp.flush 후 저장 데이터/대상일 읽기 검산, 원장 fingerprint 재취득. digest 변동/읽기검산 실패 시 COMPLETED를 기록하지 않고 COMMIT_UNVERIFIED 또는 SOURCE_CHANGED로 표기. **이미 쓰기가 수행됐을 때 무작정 다시 쓰거나 자동 롤백하지 않는다.**
 6. 모든 판정 완료 및 저장 실물 확인 후에만 COMPLETED, persistVerified=true. 상태 기록 실패 후 PREPARED 또는 COMMIT_UNVERIFIED가 남으면 별도 **미해결 journal**에 보존하고, 정상 ring 기록이 많아져도 자동 퇴출하지 않는다. 후속 read-only 검증 후 명시적 해결 시각/근거/결과를 남기며, journal이 꽉 차거나 저장이 불가능하면 다음 신규 writer를 **원본 변경 전 차단**한다.
 7. 재시도마다 새로운 traceId를 부여하되 이전 COMMIT_UNVERIFIED/타임아웃 기록을 그대로 보존한다. `SOURCE_ABSENT_NOT_APPLICABLE`의 최초 생성 실패 후 재시도는 존재 여부·잔여 행/헤더를 재진단해 **기존 시트 업데이트 분기**로 전환하거나 차단한다. queue/lease가 예고 없이 사라지면 성공 대신 미검증 경보를 낸다.
 
 ### 반드시 별도로 증명할 항목
 
-- ScriptLock은 GAS 내 동시 접근의 보호 수단이지 외부 Sheets API 쓰기를 완전히 배제하는 잠금이 아니다. begin/end digest가 같아도 과거 원장 불변까지 증명하지 않는다.
+- ScriptLock은 GAS 내 동시 접근 보호일 뿐 외부 Sheets API 쓰기를 완전히 배제하지 않는다. **원장 및 Snapshot 원본** 모두 별도 경합 위험이 있다. Snapshot 원본의 읽기·백업·commit 전후에 타 날짜 외부 수정을 주입하는 synthetic race 테스트로, 원본 덮어쓰기 또는 허위 COMPLETED가 발생하는 기존 구조를 재현하고 차단 조건을 정한다. full-sheet 시그니처 추가 계산은 GAS 실행한도와 상충하므로 실제 시간·셀 쿼터를 따로 측정해야 한다. begin/end digest 같음만으로 과거 원장 불변이나 외부 동시쓰기 배제가 증명되지 않는다.
 - 출처 계측이 저장돼도 과거 105건 Writer 원인이나 수정자를 **소급 확정할 수 없다**.
 - 중앙 writeSnapshotRows 호출만으로 외부 Google Sheets 직접 수정이나 가격/NAV/FX 별도 Writer의 결과를 증명하지 못한다.
 - 2025-12-31 가격/NAV/FX 이월은 2026-01-01의 검증된 해당 값이 없을 때만 검토한다. 2026-01-01 수량·취득원가는 1월 1일 이하 원장 거래로만 계산한다.
 
 ## 5. 구현·출시 순서
 
-**단계 A — synthetic 계약:** 정상, no-op, 최초 생성(SOURCE_ABSENT_NOT_APPLICABLE), append, full rewrite, 오류/부분실패, lock 충돌, **행 계산 후 외부 원장 변경(기존 writer 진입 전후 지문은 같은 상태)**, 재시도, 타임아웃, 미해결 journal 포화/퇴출 방지, 2025→2026 날짜 경계, 저장용량 한도 테스트. 실제 GAS 함수 실행, 독립 오라클, 삭제 변이 시 실패 테스트를 갖춘다. 신규 check 스크립트는 반드시 package.json check:ci 경로에 등록한다.
+**단계 A — synthetic 계약:** 정상, no-op, 최초 생성(SOURCE_ABSENT_NOT_APPLICABLE), append, full rewrite, 오류/부분실패, lock 충돌, **행 계산 후 외부 원장 변경(기존 writer 진입 전후 지문은 같은 상태)**, **Snapshot full-sheet 읽기와 실제 setValues 사이 다른 날짜 외부 변경 주입**, 재시도, 타임아웃, 미해결 journal 포화/퇴출 방지, 2025→2026 날짜 경계, 저장용량 한도 테스트. 재현한 현행 취약점은 합격으로 꾸미지 말고 반드시 별도 차단 구현의 red→green 증거로 기록한다. 실제 GAS 함수 실행, 독립 오라클, 삭제 변이 시 실패 테스트를 갖춘다. 신규 check 스크립트는 반드시 package.json check:ci 경로에 등록한다.
 
 **단계 B — Writer 통합 PR:** GAS 수정 시 헤더/변경이력, 모든 gasVersion 응답(handleGetSettings 포함), 웹 EXPECTED_GAS_VERSION, DEPLOYMENT.md, manifest/hash, 운영 트리거와 상태 API의 일관성 검사 필요. 여러 Writer 호출자가 해당 함수의 실행을 공유하므로 append/백업 정책과 재시도에 대한 영향 검증 없이 패치하지 않는다.
 
