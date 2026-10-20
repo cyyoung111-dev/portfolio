@@ -6281,6 +6281,7 @@ function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) 
       var first = j;
       while (j < width && JSON.stringify(previous[j]) !== JSON.stringify(desired[j])) j++;
       plans.push({ row:index + 2, col:first + 1,
+        identity:previous.slice(0,3),
         previous:previous.slice(first,j), desired:desired.slice(first,j) });
     }
   });
@@ -6296,6 +6297,11 @@ function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) 
     var height = plan.append ? plan.desired.length : 1;
     var cols = plan.append ? width : plan.desired.length;
     var range = sheet.getRange(plan.row,plan.col,height,cols);
+    // A same-size external row swap can preserve getLastRow yet change the
+    // date/code. Never write fund valuations into another instrument's row.
+    if (!plan.append && JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
+        JSON.stringify(plan.identity))
+      throw new Error('펀드 파생행 날짜/종목 식별자 외부 변경');
     var observed = readImage(range);
     if (plan.append) {
       if (sheet.getLastRow() > originalLastRow ||
@@ -6316,8 +6322,10 @@ function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) 
         if (sheet.getLastRow() > originalLastRow ||
             check.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }))
           throw new Error('펀드 파생행 append 직전 외부 선점');
-      } else if (JSON.stringify(plan.range.getValues()[0]) !== JSON.stringify(plan.previous)) {
-        throw new Error('펀드 파생행 커밋 직전 셀 변경');
+      } else if (JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
+            JSON.stringify(plan.identity) ||
+          JSON.stringify(plan.range.getValues()[0]) !== JSON.stringify(plan.previous)) {
+        throw new Error('펀드 파생행 커밋 직전 날짜/종목/셀 변경');
       }
       attempted.push(plan);
       plan.range.setValues(data);
