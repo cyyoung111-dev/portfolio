@@ -14827,6 +14827,74 @@ function getTradingDays(year, month) {
 // ════════════════════════════════════════════════════════════════════
 //  스냅샷 시트 upsert
 // ════════════════════════════════════════════════════════════════════
+// #507: 한 날짜의 물리행만 변경합니다. 다른 날짜 행의 셀/수식/순서를
+// 절대 재기록하지 않습니다. 외부 Sheets API의 '같은 날짜' 동시 쓰기는
+// ScriptLock으로 막을 수 없으므로 검출된 변경은 원본 쓰기 전 실패시킵니다.
+function _writeSnapshotDateScoped_(sheet, date, existing, desired, width) {
+  var originalLastRow = existing.length + 1;
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('Snapshot 행 구조 외부 변경: 날짜별 저장 보류');
+  var slots = [], queues = {}, consumed = {};
+  (existing || []).forEach(function(row, index) {
+    if (_normalizeDate(row[0]) === date) slots.push({ rowNumber:index + 2, before:row });
+  });
+  (desired || []).forEach(function(row) {
+    var key = _snapshotIntegrityKey(row);
+    if (_normalizeDate(row[0]) !== date || !key)
+      throw new Error('Snapshot 요청 날짜 또는 종목 식별자 불일치');
+    (queues[key] || (queues[key] = [])).push(row);
+  });
+  // 출처를 처음 읽고 백업한 뒤 대상일 행이 외부에서 변했으면
+  // 새로운 자료를 오래된 계산결과로 덮어쓰지 않습니다.
+  var cursor = 0;
+  while (cursor < slots.length) {
+    var start = cursor, last = start;
+    while (last + 1 < slots.length &&
+        slots[last + 1].rowNumber === slots[last].rowNumber + 1) last++;
+    var block = sheet.getRange(slots[start].rowNumber, 1,
+      last - start + 1, width).getValues();
+    for (var i = start; i <= last; i++) {
+      if (JSON.stringify(block[i - start]) !==
+          JSON.stringify(slots[i].before.slice(0, width)))
+        throw new Error('Snapshot 대상일 외부 변경: 원본 쓰기 전 차단');
+    }
+    cursor = last + 1;
+  }
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('Snapshot 저장 직전 행 구조 변경: 원본 쓰기 전 차단');
+  var updates = [], pending = [];
+  slots.forEach(function(slot) {
+    var key = _snapshotIntegrityKey(slot.before), candidates = queues[key] || [];
+    var replacement = candidates.length ? candidates.shift() : Array(width).fill('');
+    if (JSON.stringify(replacement) !== JSON.stringify(slot.before.slice(0, width)))
+      updates.push({ rowNumber:slot.rowNumber, value:replacement });
+  });
+  Object.keys(queues).forEach(function(key) {
+    (queues[key] || []).forEach(function(row) { pending.push(row); });
+  });
+  // 변경된 대상일의 서로 인접한 행만 묶어 전송합니다. 타 날짜 행은
+  // 이 API 호출에 절대 포함되지 않습니다. 시트 row 이동·삭제도 하지 않습니다.
+  cursor = 0;
+  while (cursor < updates.length) {
+    var first = cursor, end = first;
+    while (end + 1 < updates.length &&
+        updates[end + 1].rowNumber === updates[end].rowNumber + 1) end++;
+    var writeRows = updates.slice(first, end + 1).map(function(item) { return item.value; });
+    sheet.getRange(updates[first].rowNumber, 1, writeRows.length, width)
+      .setValues(_normalizeCodeRows(writeRows, 1));
+    cursor = end + 1;
+  }
+  if (pending.length) {
+    var appendRow = originalLastRow + 1;
+    var requiredRows = appendRow + pending.length - 1;
+    if (sheet.getMaxRows() < requiredRows)
+      sheet.insertRowsAfter(sheet.getMaxRows(), requiredRows - sheet.getMaxRows());
+    _setCodeColumnText(sheet, 2);
+    sheet.getRange(appendRow, 1, pending.length, width)
+      .setValues(_normalizeCodeRows(pending, 1));
+  }
+}
+
 function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite) {
   var writeLock = LockService.getScriptLock();
   var ownsWriteLock = false;
@@ -14858,6 +14926,8 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       r[0] = _normalizeDate(r[0]) || normDate;
       return r;
     });
+    if (!normDate || newRows.some(function(r) { return r[0] !== normDate; }))
+      throw new Error('Snapshot 요청일과 저장 대상일 불일치');
     newRows = _dedupeSnapshotRows(newRows);
     var configsForWrite = Array.isArray(lifecycleConfigs) ? lifecycleConfigs : null;
     var incomingHasFundRows = newRows.some(function(row) {
@@ -14953,13 +15023,9 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       var combined = kept.concat(mergedDate);
       if (JSON.stringify(combined) === JSON.stringify(existing)) return;
       snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);
-      // 먼저 비우면 쓰기 실패 때 모든 날짜가 사라집니다. 한 번의 쓰기로 교체합니다.
-      var output = header.concat(combined);
-      while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
-      if (sh.getMaxRows() < output.length) sh.insertRowsAfter(sh.getMaxRows(), output.length - sh.getMaxRows());
-      _setCodeColumnText(sh, 2);
-      output = [output[0]].concat(_normalizeCodeRows(output.slice(1), 1));
-      sh.getRange(1, 1, output.length, colSize).setValues(output);
+      // #507: 날짜별 슬롯만 갱신합니다. 다른 날짜를 과거에 읽은 combined 값으로
+      // 전체 재기록하면 외부 Sheets API 수정분이 조용히 사라질 수 있습니다.
+      _writeSnapshotDateScoped_(sh, normDate, existing, mergedDate, colSize);
       SpreadsheetApp.flush();
       var writtenDateRows = _readRawSnapshotRowsByDate(ss, normDate);
       var intendedSignature = mergedDate.map(_snapshotComparableSignature).sort().join('\n');
