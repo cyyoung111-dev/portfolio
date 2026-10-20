@@ -2,7 +2,7 @@
 
 - **배포 상태:** PR #591을 기반으로 하는 후속 종속 PR 검증 단계. #589 및 #591의 외부 동일셀 경합과 다중시트 부분완료 위험이 남아 **병합/운영 배포 미승인**. v9.247 배포 완료를 선언하지 않습니다.
 - **운영 트리거 시간:** 기존 22:10 / 23:10 / 00:30 / 08:45 유지. 자동 트리거 신규 생성/이동 및 가격 원천 정책 변경 없음.
-- **릴리스 소스 정합성 pin:** `gasVersion=9.247`, 전체 GAS Git blob `65405fa484b66becb5ef6b4e1cce7d6add5fbe4f`. v9.246 이하의 기존 핀 유지. 릴리스 해시 등록은 배포 승인이 아님.
+- **릴리스 소스 정합성 pin:** `gasVersion=9.247`, 전체 GAS Git blob `6c1114ecad634f05a6d84912e3b5d44bb5ed40e5`. v9.246 이하의 기존 핀 유지. 릴리스 해시 등록은 배포 승인이 아님.
 - **변경:** `handleGetPricesCompat`가 `_updateTodaySnapshotSource`를 호출할 때 가격 제공자 **소스가 실제 바뀌는 대상 날짜·코드의 물리행 K:L 두 셀만** 저장. 이전 전체 Snapshot K:L 재기록을 제거하고 MANUAL 소스, 저장일시, 다른 날짜/종목·사용자 열/수식 보존.
 - **원본·실패 검사:** 대상 행 A:C 식별자와 K:L의 원본 값을 저장 직전 확인, 행 구조 변경시 fail closed. 비연속 셀 저장 실패시 **그 작업이 시도한 대상 K:L만** 신중히 보상. 보상 불확실·외부 재수정 겹침은 `COMMIT_UNVERIFIED` 오류로 노출. 현재가 기록은 원래 단일 GET 흐름이며 트랜잭션 저널/지속적 rollback 보증을 추가했다고 주장하지 않음.
 - **검증:** 실제 GAS `_updateTodaySnapshotSource`를 합성 VM에서 실행하는 `scripts/check-issue507-today-source-scoped.mjs`; 타 날짜/같은 날짜 타 코드 외부수정 보존, MANUAL/no-op 보호, 행 교체·K:L drift 차단, 2번째 write 실패·보상 외부수정 차단, revision 메타 기록 확인. 종전 `getRange(2,11,rowCount,2).setValues` 제거 계약 확인.
