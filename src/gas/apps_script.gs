@@ -5,6 +5,7 @@
 //  - #507 기존 Snapshot 전체시트 재기록을 대상 날짜 행만 수정하는 방식으로 전환.
 //  - 백업 이후 대상 날짜 원본·행수 변경 감지 시 쓰기 전 차단.
 //  - 원장/가격/NAV/MANUAL 보호·백업 상태·pending/deferred 규칙 유지.
+//  - 동일 날짜 변경이 여러 비연속 범위로 분산되면 부분저장 방지를 위해 쓰기 전 보류.
 //  - 외부 동일 날짜 API 경합은 별도 보호 필요. 승인·배포 전 미운영.
 //  v9.244 변경사항 (2026.10.20):
 //  - #507 worker DATE_DISCOVERY의 Snapshot 마지막일 조회 완료 및 다중 소스 날짜 수집 완료를
@@ -14877,17 +14878,26 @@ function _writeSnapshotDateScoped_(sheet, date, existing, desired, width) {
   Object.keys(queues).forEach(function(key) {
     (queues[key] || []).forEach(function(row) { pending.push(row); });
   });
-  // 변경된 대상일의 서로 인접한 행만 묶어 전송합니다. 타 날짜 행은
-  // 이 API 호출에 절대 포함되지 않습니다. 시트 row 이동·삭제도 하지 않습니다.
+  // Sheets Range.setValues 호출을 복수로 쪼개면 첫 범위 저장 후
+  // 다음 범위 실패 시 동일 날짜 원가/수량이 반쯤 갱신됩니다.
+  // 보호 가능한 단일 연속 물리범위가 아니면 BEFORE WRITE에 차단합니다.
+  // 여러 섬으로 분리된 날짜/복수 수정+append는 추후 원자적 API 지원 전 보류.
+  var blocks = [];
   cursor = 0;
   while (cursor < updates.length) {
     var first = cursor, end = first;
     while (end + 1 < updates.length &&
         updates[end + 1].rowNumber === updates[end].rowNumber + 1) end++;
-    var writeRows = updates.slice(first, end + 1).map(function(item) { return item.value; });
-    sheet.getRange(updates[first].rowNumber, 1, writeRows.length, width)
-      .setValues(_normalizeCodeRows(writeRows, 1));
+    blocks.push({ rowNumber:updates[first].rowNumber,
+      rows:updates.slice(first, end + 1).map(function(item) { return item.value; }) });
     cursor = end + 1;
+  }
+  if (blocks.length + (pending.length ? 1 : 0) > 1)
+    throw new Error('Snapshot 다중 물리범위 비원자 쓰기 차단: 보호 대기');
+  if (blocks.length) {
+    var block = blocks[0];
+    sheet.getRange(block.rowNumber, 1, block.rows.length, width)
+      .setValues(_normalizeCodeRows(block.rows, 1));
   }
   if (pending.length) {
     var appendRow = originalLastRow + 1;
