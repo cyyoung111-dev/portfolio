@@ -5702,6 +5702,31 @@ function _getSnapshotIntegritySourceRevision() {
   var state = _getSnapshotIntegrityRevisionState();
   return String(state.revision || 0);
 }
+// Strict no-migration reader for authenticated READ-ONLY deferred-date audits.
+// The ordinary revision reader intentionally migrates damaged/legacy state,
+// which writes ScriptProperties. A diagnostic must never trigger that path.
+function _peekSnapshotIntegritySourceRevisionReadonly_() {
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY) || '';
+  if (!raw || raw.length > SNAPSHOT_INTEGRITY_STATE_MAX_CHARS)
+    throw new Error('ISSUE507_REVISION_UNVERIFIED');
+  var state;
+  try { state = JSON.parse(raw); }
+  catch (ignore) { throw new Error('ISSUE507_REVISION_UNVERIFIED'); }
+  if (!state || typeof state !== 'object' || Array.isArray(state)
+    || !_isSnapshotIntegrityRevision(state.revision)
+    || !_isSnapshotIntegrityRevision(state.all)
+    || !state.dates || typeof state.dates !== 'object' || Array.isArray(state.dates)
+    || !Array.isArray(state.ranges)
+    || !Object.keys(state.dates).every(function(date) {
+      return !!_normalizeDate(date) && _isSnapshotIntegrityRevision(state.dates[date]);
+    })
+    || !state.ranges.every(function(item) {
+      return item && !!_normalizeDate(item.from) && _isSnapshotIntegrityRevision(item.revision);
+    }))
+    throw new Error('ISSUE507_REVISION_UNVERIFIED');
+  return String(state.revision);
+}
 
 function _isSnapshotIntegrityRevision(value) {
   var revision = Number(value);
@@ -9441,7 +9466,7 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
       mismatchDates: groups.MISMATCH, conflictDates: groups.CONFLICT,
       sourceIncompleteDates: groups.SOURCE_INCOMPLETE, noSnapshotDates: groups.NO_SNAPSHOT,
       priceSuspiciousDates: groups.PRICE_SUSPICIOUS || [], abnormalCandidates: requestedCandidates, diagnostics: diagnostics,
-      priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows }, integritySourceRevision: _getSnapshotIntegritySourceRevision(),
+      priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows }, integritySourceRevision: _peekSnapshotIntegritySourceRevisionReadonly_(),
       performance: { totalMs: Date.now() - totalStarted, readMs: context.readMs, indexBuildMs: indexed.indexBuildMs, calculationMs: calculationMs,
         checkedDates: dates.length, priceHistoryRows: context.metrics.priceHistoryRows, snapshotRows: context.metrics.snapshotRows,
         tradeRows: context.metrics.tradeRows, fundNavRows: context.metrics.fundNavRows, fxRows: context.metrics.fxRows,
