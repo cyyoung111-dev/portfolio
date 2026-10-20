@@ -3,6 +3,8 @@
 // price/NAV/FX originals or Snapshot. Authenticated GAS v9.244+ inventory only.
 // Never print holdings, individual codes, quantities, amounts or raw source errors.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
@@ -181,7 +183,49 @@ export async function selfTest(){
   assert.throws(()=>buildAudit(a,a,[one]),/DRIFT/);
   const weird=diag([dates[0]]);weird.diagnostics[0].status='INVALID';
   assert.throws(()=>summarizeBatch(weird,[dates[0]]),/RECORD/);
-  console.log('Issue #507 deferred-date all-inventory source audit synthetic contract: PASS');
+  // Execute both ACTUAL v9.244 GAS production functions against inert
+  // ScriptProperties to prove complete deferred dates/cursor are surfaced
+  // without any setProperty/deleteProperty calls.
+  const source=fs.readFileSync(new URL('../src/gas/apps_script.gs',import.meta.url),'utf8');
+  const extract=(start,end)=>{
+    const a=source.indexOf('function '+start+'(');
+    const b=source.indexOf('function '+end+'(',a);
+    assert.ok(a>0&&b>a,'GAS production function boundaries');
+    return source.slice(a,b);
+  };
+  const fakeProps={getProperty:k=>k==='trade_snapshot_rebuild_deferred_v1'
+    ?JSON.stringify({dates:dates.slice(),cursor:'2026-01-01'}):'',
+    setProperty:()=>{throw Error('ISSUE507_DEFERRED_FORBIDDEN_PROPERTY_WRITE');},
+    deleteProperty:()=>{throw Error('ISSUE507_DEFERRED_FORBIDDEN_PROPERTY_WRITE');}};
+  const ctx={
+    PropertiesService:{getScriptProperties:()=>fakeProps},
+    TRADE_SNAPSHOT_DEFERRED_DATES_KEY:'trade_snapshot_rebuild_deferred_v1',
+    CONFIG:{SHEET_SNAPSHOT:'SNAP',SHEET_PH:'PH'},
+    _normalizeDate:x=>x,
+    getss:()=>({getSheetByName:()=>null}),
+    _ensureDailyTriggers:()=>({}),_getLatestLifecycleValidSnapshotDate:()=>'-',
+    _getLatestDateInColumn:()=>'-',_getOfficialKrxPriceHistoryLastDate:()=>'-',
+    _portfolioCloseRunState:()=>({state:'NEVER_RUN'}),
+    _fundAttemptDiagnosticState_:()=>null,
+    _expectedConfirmedSnapshotDate:()=>'-',
+    _expectedPortfolioCloseRunDate:()=>'-',_isPortfolioCloseRunStale:()=>false,
+    _readPendingKrxCloseDates_:()=>[],
+    TRADE_SNAPSHOT_REBUILD_PENDING_KEY:'trade_snapshot_pending',
+    TRADE_SNAPSHOT_WORKER_LAST_KEY:'trade_snapshot_worker_last',
+    TRADE_SNAPSHOT_WORKER_BUSY_KEY:'trade_snapshot_worker_busy',
+    _tradeLedgerWriteUnverified_:()=>false,
+    _getTradeSnapshotWorkerTriggerAudit_:()=>({}),
+    Utilities:{formatDate:()=> '2026-10-20 11:00:00'},
+  };
+  vm.createContext(ctx);
+  vm.runInContext(extract('_readTradeSnapshotDeferredState_','_writeTradeSnapshotDeferredState_')
+    +'\n'+extract('_getAutomationStatusData','handleGetAutomationStatus'),ctx);
+  const production=vm.runInContext('_getAutomationStatusData()',ctx);
+  assert.equal(production.gasVersion,'9.244');
+  assert.equal(JSON.stringify(production.tradeSnapshotDeferredDates),JSON.stringify(dates));
+  assert.equal(production.tradeSnapshotDeferredCursor,'2026-01-01');
+  assert.equal(production.tradeSnapshotDeferredCount,dates.length);
+  console.log('Issue #507 deferred-date all-inventory source audit synthetic/production VM: PASS');
 }
 if(process.argv.includes('--self-test')){
   try{await selfTest();}
