@@ -74,7 +74,7 @@ function environment({books=base,afterBackup,formula=[],failWriteAt=0}={}){
 // An external API write to *another date* after backup must survive.
 {
  const x=environment({afterBackup:(d,name)=>{
-   if(name==='Price'){d.Price[2][3]=777;d.Price[2][5]='EXTERNAL_KRX';d.Price[2][6]='EXTERNAL_CUSTOM';}
+   if(name==='Price'){d.Price[2][1]='EXTERNAL_CODE';d.Price[2][3]=777;d.Price[2][5]='EXTERNAL_KRX';d.Price[2][6]='EXTERNAL_CUSTOM';}
  }});
  const res=x.run();
  assert.equal(res.reduce((sum,y)=>sum+y.repaired,0),2);
@@ -84,6 +84,7 @@ function environment({books=base,afterBackup,formula=[],failWriteAt=0}={}){
  assert.equal(x.data.Trades[2][5],'FOREIGN_EXT');
  assert.equal(x.data.Price[1][1],'000123');
  assert.equal(x.data.Price[1][6],'ORIGINAL_EXT');
+ assert.equal(x.data.Price[2][1],'EXTERNAL_CODE','different date code must not be overwritten');
  assert.equal(x.data.Price[2][3],777);
  assert.equal(x.data.Price[2][5],'EXTERNAL_KRX');
  assert.equal(x.data.Price[2][6],'EXTERNAL_CUSTOM');
