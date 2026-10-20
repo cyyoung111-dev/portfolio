@@ -3,6 +3,8 @@
 // Existing GAS skips malformed dates / blank codes: NOT a full raw-row proof.
 // Never print target code, price, name, row number, account or token.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {DATES} from './issue507-yearend-carry-readonly.mjs';
 import {firstMissingCodes} from './issue507-missing-price-provenance-readonly.mjs';
@@ -123,7 +125,56 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   const statusAfter=await request(endpoint,token,'getAutomationStatus',{},fetchImpl);
   return buildReport(before,evidenceGate(diagAfter,statusAfter),rows);
 }
+
+function checkProductionPriceIntegrityContract(){
+  // Run actual GAS production reader/classifier/handler against inert in-memory
+  // fixtures. A GAS-only PR triggers this contract through workflow paths.
+  const gas=fs.readFileSync(new URL('../src/gas/apps_script.gs',import.meta.url),'utf8');
+  const names=['_priceIntegrityRows','diagnosePriceHistoryIntegrity',
+    'handleDiagnosePriceHistoryIntegrity'];
+  const production=names.map(name=>{
+    const start=gas.indexOf('function '+name+'(');
+    const end=start<0?-1:gas.indexOf('\n}',start);
+    assert.ok(start>=0&&end>start,'GAS price diagnostic production boundary: '+name);
+    return gas.slice(start,end+2);
+  }).join('\n');
+  const code='0046Y0';
+  const context={
+    codeItems:[{code,currency:'KRW'}],byCode:{[code]:{code,currency:'KRW'}},
+    priceRows:[
+      ['2025-12-30',code,'PRIVATE_NAME',0,'','KRX'],
+      ['2025-12-30',code,'PRIVATE_NAME',99,'','MANUAL'],
+      ['2026-01-02',code,'PRIVATE_NAME',100,'','KRX'],
+      ['2026-01-02','OTHER_CODE','OTHER_NAME',105,'','KRX']
+    ],tradeRows:[],fxRows:[],navRows:[]
+  };
+  const sandbox={
+    _readPriceIntegrityContext:()=>context,
+    _cleanCode:s=>String(s||'').trim(),
+    _normalizeDate:s=>String(s||'').slice(0,10),
+    _normalizeDatetime:s=>String(s||''),
+    PRICE_HISTORY_UNVERIFIED_SOURCES:/REALTIME|INDICATIVE|DAILY_CANDLE|UNVERIFIED_CLOSE/i,
+    getss:()=>({}),jsonOk:data=>({status:'ok',...data}),
+    jsonError:msg=>({status:'error',message:msg})
+  };
+  vm.runInNewContext(production,vm.createContext(sandbox),{timeout:3000});
+  const response=sandbox.handleDiagnosePriceHistoryIntegrity(
+    '',TARGET_DATES.join(','),code);
+  const report=summarizeRows(response,code);
+  assert.equal(report[0].normalizedRawRows,2);
+  assert.equal(report[0].nonPositiveOrNonNumericRows,1);
+  assert.equal(report[0].manualProtectedRows,1);
+  assert.equal(report[1].normalizedRawRows,1);
+  assert.equal(report[2].normalizedRawRows,0);
+  assert.equal(response.priceIntegrity.checkedRows,3);
+  assert.equal(response.priceIntegrity.counts.SOURCE_INVALID,1);
+  assert.equal(response.priceIntegrity.counts.MANUAL_PROTECTED,1);
+  assert.equal(response.priceIntegrity.counts.VALID,1);
+  assert.ok(!JSON.stringify(report).includes('PRIVATE_NAME'));
+}
+
 export async function selfTest(){
+  checkProductionPriceIntegrityContract();
   const code='0046Y0';
   const diag={status:'ok',strictSourceDigest:'a'.repeat(64),
     integritySourceRevision:'541',checkedDates:[...DATES],
