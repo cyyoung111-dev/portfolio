@@ -178,9 +178,9 @@ function env({mode='duplicate12',afterBackup,failWriteAt=0,formulaAt=[],sourceOv
 // 7. Any MANUAL duplicate is not an automatic cleanup target.
 {
  const x=env({mode:'manual'});
- const r=x.run();
- assert.equal(r.removedRows,0);
+ assert.throws(()=>x.run(),/SNAPSHOT_CLEANUP_UNSAFE_SOURCE_REQUIRES_REVIEW:.*DUPLICATE_MANUAL/);
  assert.deepEqual(x.data,x.original);
+ assert.deepEqual(x.backs,[]);
 }
 // 8. A formula in the removal target must be blocked before creating backup.
 {
