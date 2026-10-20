@@ -9439,6 +9439,9 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
       }
     }
     if (dates.length > 400) { var datesError = new Error('진단 날짜는 400일 이하여야 합니다.'); datesError.errorCode = 'RANGE_TOO_LARGE'; throw datesError; }
+    // Keep the source revision outside AND inside the expensive sheet read.
+    // A single post-read revision cannot rule out a concurrent writer.
+    var readRevisionBefore = _peekSnapshotIntegritySourceRevisionReadonly_();
     phase = 'sheet_read';
     var context = _buildSnapshotRangeReadContext(getss());
     phase = 'index_build';
@@ -9462,11 +9465,17 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
     diagnostics.forEach(function(item) { (groups[item.status] || (groups[item.status] = [])).push(item.date); });
     var requestedCandidates = String(candidatesStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
     var calculationMs = Date.now() - calculationStarted;
+    var readRevisionAfter = _peekSnapshotIntegritySourceRevisionReadonly_();
+    if (readRevisionBefore !== readRevisionAfter) {
+      var sourceDrift = new Error('ISSUE507_SOURCE_REVISION_CHANGED');
+      sourceDrift.errorCode = 'SOURCE_REVISION_CHANGED';
+      throw sourceDrift;
+    }
     return jsonOk({ checkedDates: dates, validDates: groups.VALID, partialDates: groups.PARTIAL,
       mismatchDates: groups.MISMATCH, conflictDates: groups.CONFLICT,
       sourceIncompleteDates: groups.SOURCE_INCOMPLETE, noSnapshotDates: groups.NO_SNAPSHOT,
       priceSuspiciousDates: groups.PRICE_SUSPICIOUS || [], abnormalCandidates: requestedCandidates, diagnostics: diagnostics,
-      priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows }, integritySourceRevision: _peekSnapshotIntegritySourceRevisionReadonly_(),
+      priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows }, integritySourceRevision: readRevisionAfter,
       performance: { totalMs: Date.now() - totalStarted, readMs: context.readMs, indexBuildMs: indexed.indexBuildMs, calculationMs: calculationMs,
         checkedDates: dates.length, priceHistoryRows: context.metrics.priceHistoryRows, snapshotRows: context.metrics.snapshotRows,
         tradeRows: context.metrics.tradeRows, fundNavRows: context.metrics.fundNavRows, fxRows: context.metrics.fxRows,
