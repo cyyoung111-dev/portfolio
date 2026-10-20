@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.243
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.244
 //
+//  v9.244 변경사항 (2026.10.20):
+//  - #507 worker DATE_DISCOVERY의 Snapshot 마지막일 조회 완료 및 다중 소스 날짜 수집 완료를
+//    별도 phase로 구분. 기존 원장/가격/NAV/Snapshot 계산값·pending·deferred 이동 불변.
+//  - ScriptLock 내부 기존 RUNNING checkpoint에만 비민감 phase enum 추가.
 //  v9.243 변경사항 (2026.10.20):
 //  - #507 인증 KRX held coverage에 대상 1종목의 공식 기준일 종가
 //    존재 여부(bool, usedDate, providerClass)만 추가; 코드/가격 비노출.
@@ -2194,7 +2198,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.243',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.244',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2272,7 +2276,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.243', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.244', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6074,7 +6078,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.243' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.244' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10553,7 +10557,9 @@ function runPendingTradeSnapshotRebuild() {
     }
     markPhase('DATE_DISCOVERY');
     var last = _latestConfirmedSnapshotDate(ss,false);
+    markPhase('DATE_SOURCE_COLLECTION');
     var dates = _collectDailySnapshotDates(ss,pending.from,last,{});
+    markPhase('DATE_DISCOVERY_COMPLETE');
     var ordered = Object.keys(dates).sort(), batch = ordered.slice(0,2);
     var processed = 0, deferredCount = 0;
     for (var i = 0; i < batch.length; i++) {
@@ -12626,7 +12632,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.243',
+    gasVersion: '9.244',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12687,7 +12693,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.243' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.244' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16321,7 +16327,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.243' });
+    return jsonOk({ settings: settings, gasVersion: '9.244' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16351,7 +16357,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.243'
+      gasVersion: '9.244'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
