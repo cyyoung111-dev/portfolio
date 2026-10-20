@@ -101,12 +101,14 @@ function byKey(e,date,code){
   assert.deepEqual(x.stats(),{backups:0,writes:0,flushes:0,revisionUpdates:0,propertyWrites:0});
   assert.equal(byKey(x,date2,'000222')[3],3);
 }
-// Append a new date without touching earlier rows.
+// Adding a new date to a POPULATED snapshot also takes full-sheet rewrite,
+// even with overwrite=false. This expands the external-write race surface.
 {
   const x=makeEnv();
   x.writer('2026-01-16',[makeRow('2026-01-16','000333',4)],false);
-  assert.equal(x.stats().backups,0);
+  assert.equal(x.stats().backups,1,'existing snapshot => full-sheet backup');
   assert.equal(x.stats().writes,1);
+  assert.equal(x.stats().flushes,1,'existing snapshot => full-sheet write and flush');
   assert.equal(byKey(x,date2,'000222')[3],3);
   assert.equal(byKey(x,'2026-01-16','000333')[3],4);
 }
