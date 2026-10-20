@@ -33,7 +33,13 @@ function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead}={}){
   let stored=[Array.from({length:12},(_,i)=>'H'+(i+1)),...deep(initialRows||[row1,row2])];
   let lockHeld=false,backups=0,writes=0,writeCalls=0,flushes=0,revisionUpdates=0,propertyWrites=0,appendReadInjected=false;
   const sheet={
-    getLastRow:()=>stored.length,
+    getLastRow:()=>{ // Model actual Sheets: trailing fully blank rows are not data.
+      for(let i=stored.length-1;i>=0;i--){
+        if((stored[i]||[]).some(cell=>cell!==''&&cell!==null&&cell!==undefined))
+          return i+1;
+      }
+      return 0;
+    },
     getLastColumn:()=>12,
     getMaxRows:()=>100,
     insertRowsAfter:()=>{throw Error('NO_ROW_EXPANSION_EXPECTED')},
@@ -186,6 +192,31 @@ function byKey(e,date,code){
   assert.equal(byKey(x,date1,'000111'),undefined);
   assert.equal(byKey(x,date2,'000222')[3],3);
   assert.equal(x.stats().backups,1);
+}
+// P1 regression: replacing a code on the physical last row first clears
+// that row, so real Sheets getLastRow() shrinks under THIS writer's own write.
+// Appending the new code at originalLastRow+1 must still complete. This is
+// different from a foreign append occupying the destination.
+{
+  const x=makeEnv();
+  x.writer(date2,[makeRow(date2,'000999',6)],true);
+  assert.equal(byKey(x,date2,'000222'),undefined);
+  assert.equal(byKey(x,date2,'000999')[3],6);
+  assert.equal(byKey(x,date1,'000111')[3],2);
+  assert.equal(x.stats().writes,2,'clear own last row then append replacement');
+}
+// This race must still fail closed when a foreign writer places a record in
+// the reserved append destination after the original full-sheet read.
+{
+  const x=makeEnv({onAppendRead:({stored,row})=>{
+    stored[row-1]=makeRow('2026-01-18','000666',7);
+  }});
+  assert.throws(()=>x.writer(date2,[makeRow(date2,'000999',6)],true),
+    /Snapshot append 목적지 외부 변경/);
+  assert.equal(byKey(x,'2026-01-18','000666')[3],7);
+  assert.equal(byKey(x,date2,'000222')[3],3,
+    'writer rolls back its own cleared final row after foreign append');
+  assert.equal(byKey(x,date2,'000999'),undefined);
 }
 // Incorrect input date is fail closed and does not create a backup or write.
 {
