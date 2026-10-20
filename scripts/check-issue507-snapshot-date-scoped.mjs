@@ -29,9 +29,9 @@ const makeRow=(date,code,qty)=>[
 const row1=makeRow(date1,'000111',2);
 const row2=makeRow(date2,'000222',3);
 const deep=v=>JSON.parse(JSON.stringify(v));
-function makeEnv({onBackup,initialRows}={}){
+function makeEnv({onBackup,initialRows,failWriteAt}={}){
   let stored=[Array.from({length:12},(_,i)=>'H'+(i+1)),...deep(initialRows||[row1,row2])];
-  let lockHeld=false,backups=0,writes=0,flushes=0,revisionUpdates=0,propertyWrites=0;
+  let lockHeld=false,backups=0,writes=0,writeCalls=0,flushes=0,revisionUpdates=0,propertyWrites=0;
   const sheet={
     getLastRow:()=>stored.length,
     getLastColumn:()=>12,
@@ -43,6 +43,8 @@ function makeEnv({onBackup,initialRows}={}){
         return deep(stored.slice(row-1,row-1+height));
       },
       setValues:values=>{
+        writeCalls++;
+        if (failWriteAt===writeCalls) throw Error('SYNTHETIC_INJECTED_WRITE_FAILURE');
         assert.equal(col,1);
         assert.ok(values.every(v=>v.length===width));
         for(let i=0;i<values.length;i++)stored[row-1+i]=deep(values[i]);
@@ -182,24 +184,32 @@ function byKey(e,date,code){
   assert.equal(x.stats().writes,0);
   assert.equal(x.stats().backups,0);
 }
-// P1 regression: two disjoint date slots separated by a different date
-// cannot be updated in non-atomic separate Range.setValues calls.
+// P1: two separated date ranges can be updated, but a failure in the
+// second request must restore the first without touching another date.
 {
-  const x=makeEnv({initialRows:[row1,row2,makeRow(date1,'000333',2)]});
-  assert.throws(()=>x.writer(date1,[makeRow(date1,'000111',5),
-    makeRow(date1,'000333',6)],true),/다중 물리범위 비원자 쓰기 차단/);
-  assert.equal(x.stats().writes,0,'no partial update before explicit multi-block decision');
-  assert.equal(byKey(x,date1,'000111')[3],2);
-  assert.equal(byKey(x,date1,'000333')[3],2);
+  const rows=[row1,row2,makeRow(date1,'000333',2)];
+  const x=makeEnv({initialRows:rows});
+  x.writer(date1,[makeRow(date1,'000111',5),makeRow(date1,'000333',6)],true);
+  assert.equal(byKey(x,date1,'000111')[3],5);
+  assert.equal(byKey(x,date1,'000333')[3],6);
   assert.equal(byKey(x,date2,'000222')[3],3);
 }
-// Updating an existing code AND appending a new code would also require
-// two independent writes: reject before the first original-cell mutation.
 {
-  const x=makeEnv();
+  const rows=[row1,row2,makeRow(date1,'000333',2)];
+  const x=makeEnv({initialRows:rows,failWriteAt:2});
   assert.throws(()=>x.writer(date1,[makeRow(date1,'000111',5),
-    makeRow(date1,'000555',6)],true),/다중 물리범위 비원자 쓰기 차단/);
-  assert.equal(x.stats().writes,0);
+    makeRow(date1,'000333',6)],true),/SYNTHETIC_INJECTED_WRITE_FAILURE/);
+  assert.equal(byKey(x,date1,'000111')[3],2,'first update rolled back');
+  assert.equal(byKey(x,date1,'000333')[3],2,'second update never applied');
+  assert.equal(byKey(x,date2,'000222')[3],3,'other date unchanged');
+}
+// Rewriting an existing code and appending a new one are likewise one
+// compensatable operation, not an irreversible partial result.
+{
+  const x=makeEnv({failWriteAt:2});
+  assert.throws(()=>x.writer(date1,[makeRow(date1,'000111',5),
+    makeRow(date1,'000555',6)],true),/SYNTHETIC_INJECTED_WRITE_FAILURE/);
   assert.equal(byKey(x,date1,'000111')[3],2);
+  assert.equal(byKey(x,date1,'000555'),undefined);
 }
 console.log('ISSUE507_DATE_SCOPED_PRODUCTION_WRITER_SAFETY_OK');
