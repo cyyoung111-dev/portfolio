@@ -6322,10 +6322,12 @@ function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) 
         if (sheet.getLastRow() > originalLastRow ||
             check.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }))
           throw new Error('펀드 파생행 append 직전 외부 선점');
-      } else if (JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
-            JSON.stringify(plan.identity) ||
-          JSON.stringify(plan.range.getValues()[0]) !== JSON.stringify(plan.previous)) {
-        throw new Error('펀드 파생행 커밋 직전 날짜/종목/셀 변경');
+      } else {
+        if (JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
+            JSON.stringify(plan.identity))
+          throw new Error('펀드 파생행 커밋 직전 날짜/종목 식별자 변경');
+        if (JSON.stringify(plan.range.getValues()[0]) !== JSON.stringify(plan.previous))
+          throw new Error('펀드 파생행 커밋 직전 대상 셀 변경');
       }
       attempted.push(plan);
       plan.range.setValues(data);
