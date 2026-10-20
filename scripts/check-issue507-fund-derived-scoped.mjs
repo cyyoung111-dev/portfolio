@@ -97,7 +97,7 @@ function createEnvironment({sameDate=false,onSnapshotBackup}={}){
       if(onSnapshotBackup){
         const changed=stored.find(row=>row[1]==='000222');
         assert.ok(changed);
-        onSnapshotBackup(changed);
+        onSnapshotBackup(changed,stored);
         mutationCount++;
       }
       return {name:'SYNTHETIC_BACKUP',source,status:'PREPARED'};
@@ -160,5 +160,18 @@ function assertFundUpdated(e){
   assert.equal(e.foreign()[3],8,'external same-date other-code quantity must survive');
   assert.equal(e.foreign()[10],'EXTERNAL_EDIT','external same-date other-code source must survive');
   console.log('ISSUE507_FUND_DERIVED_SAME_DATE_OTHER_CODE_PRESERVED');
+}
+// A same-length external row identity change is invisible to getLastRow.
+// The fund writer must reject it before writing any valuation cells.
+{
+  const e=createEnvironment({onSnapshotBackup:(_foreign,rows)=>{
+    rows[1][1]='F00999';
+    rows[1][2]='EXTERNAL_REPLACEMENT';
+  }});
+  assert.throws(()=>e.run(),/날짜\/종목 식별자 외부 변경/);
+  assert.equal(e.stats().snapshotWrites,0);
+  assert.equal(e.snapshot()[1][1],'F00999');
+  assert.ok(e.stats().backupStates.includes('WRITE_FAILED'));
+  console.log('ISSUE507_FUND_DERIVED_ROW_IDENTITY_DRIFT_BLOCKED');
 }
 console.log('ISSUE507_FUND_DERIVED_SCOPED_CONTRACT_OK_SAME_CELL_TOCTOU_UNSOLVED');
