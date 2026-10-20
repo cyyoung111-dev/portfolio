@@ -15602,7 +15602,7 @@ function _cleanupPriceHistoryDuplicatesLocked() {
       if (index === winner.index) return;
       var record = rows[index];
       var savedAt = _normalizeDatetime(record[4]);
-      if (String(record[5] || '').toUpperCase() === 'MANUAL' || savedAt)
+      if (String(record[5] || '').trim().toUpperCase() === 'MANUAL' || savedAt)
         blockers.push('MANUAL_OR_TIMESTAMP:' + (index+2));
       if (record.slice(6).some(function(v) { return v !== '' && v != null; }))
         blockers.push('CUSTOM_COLUMNS:' + (index+2));
