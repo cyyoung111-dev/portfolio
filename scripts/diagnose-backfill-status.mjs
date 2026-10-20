@@ -74,7 +74,8 @@ const WORKER_STATES=new Set(['RUNNING','IDLE','LEDGER_WRITE_UNVERIFIED','SOURCE_
 const WORKER_SOURCES=new Set(['','UNCHANGED','BASELINED','CHANGED','UNSTABLE']);
 // Only predefined non-sensitive lifecycle phases can leave the GAS runtime.
 const WORKER_PHASES=new Set(['','ENTRY','LEDGER_FINGERPRINT','QUEUE_READ',
-  'DATE_DISCOVERY','DATE_DIAGNOSTIC','CURSOR_COMMIT','DEFERRED_RETRY']);
+  'DATE_DISCOVERY','DATE_SOURCE_COLLECTION','DATE_DISCOVERY_COMPLETE',
+  'DATE_DIAGNOSTIC','CURSOR_COMMIT','DEFERRED_RETRY']);
 function safeWorkerCheckpoint(raw) {
   if(raw == null)return null;
   if(!raw || typeof raw!=='object' || Array.isArray(raw)
