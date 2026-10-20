@@ -1,3 +1,16 @@
+## GAS v9.251 — Issue #507 가격이력 배치 D:F 동시 저장·목적지 검증 (2026-10-21)
+
+- **배포 상태:** main의 v9.250과 운영 GAS v9.244(마지막 읽기 전용 진단 기준)는 그대로 유지. 본 PR은 미병합 수정 후보이며 실제 운영 배포·원본 정리·복구를 승인하지 않습니다. `gas-deploy.yml`은 명시적 `workflow_dispatch`일 때만 배포 작업을 실행합니다.
+- **릴리스 pin:** `gasVersion=9.251`, GAS Git blob `1af4df97bb467389c6ea60f71a6033cc7dc81483` 및 Web 기대 버전·릴리스 manifest 일치. 이전 v9.250 이하 source pin 유지.
+- **주요 수정:** 실제 시장가격 확정 및 소급 적재에서 호출하는 `batchUpsertPriceHistory`는 종전 **가격(D열)과 저장시각·출처(E:F)를 각각 전역 2차례에 나누어 기록**해 일부 셀만 갱신되거나 가격과 source가 서로 다른 시점에 결합될 수 있었습니다. 지금은 선택된 기존 물리행의 D:F를 **한 번의 `setValues`로 기록**합니다. 타 날짜/코드 행의 내용·수식·확장열은 다시 쓰지 않습니다.
+- **경합·원본 보호:** 원본 전체 A:F 및 대상 수식의 사전·커밋 직전 검증. 기존 MANUAL 가격은 기존 보호 유지하고 외부 writer가 초기 read 후 MANUAL/가격/행 정체성을 수정했다면 자동 덮어쓰지 않고 차단합니다. 신규 append는 초기 lastRow가 바뀌었거나 전체 목적지 값/수식이 비지 않았으면 중단해 다른 날짜 추가값을 덮어쓰지 않습니다.
+- **실패:** 배치의 한 셀 범위라도 시도된 뒤 후속 쓰기/저장 검산이 실패하면 `PRICE_HISTORY_BATCH_COMMIT_UNVERIFIED`를 표시하고 읽기 캐시 revision 갱신을 최선 노력합니다. 타 외부 writer를 덮어쓸 수 있는 물리행 자동 롤백은 수행하지 않습니다. **동일셀 preflight→write TOCTOU와 다중행 원자성, hard GAS timeout 후 영속 상태는 해결되지 않았습니다.**
+- **검증:** 실제 생산 GAS 함수를 synthetic VM에서 실행하는 `scripts/check-issue507-price-batch-row.mjs`를 check:gas 및 Quality에 추가. 가격/출처 D:F 단일 쓰기, 외부 신규 MANUAL 보호, 수식 보호, 타 날짜 외부값 보존, 2번째 물리행 실패 `COMMIT_UNVERIFIED`, append 선점 차단, append 1건과 duplicate-key no-op 계약 검증. 원본 검사 `scripts/check-price-history-integrity.mjs`의 가상 Range에 getFormulas/빈 셀 반환을 보완합니다.
+- **배포 후 검증(별도 승인 필요):** `getSettings.gasVersion=9.251` / `getAutomationStatus.gasVersion=9.251` 인증 조회 후, KRX·Toss 일자 확정 경로/원장·가격이력·Snapshot·NAV·FX·MANUAL·추가 사용자열/수식/backup registry/deferred queue 불변성 read-only 확인. 이전 보류 23일(원천부족/중복/혼합)을 자동 해제하거나 무근거 backfill하지 않습니다.
+- **출시 차단:** Issue #507 OPEN, `restoreAllowed=false`; 운영 writer와 직접 Sheets API writer 공유 serialization/동일셀 CAS, 다중시트 트랜잭션, 부분 실패 recoverability 검증 미완료. 본 변경을 CI 통과만으로 운영 적용하지 않습니다.
+
+---
+
 ## GAS v9.250 — Issue #507 syncCodes 종목코드 교정 단일 셀 한정 (2026-10-20)
 
 - **배포 상태:** PR #595 위에 쌓인 미병합 후보. 운영 GAS 버전 v9.244 변화 없음. 선행 종속 PR #589→#591→#592→#594→#595의 코드가 필요하며 분리 배포 금지.
