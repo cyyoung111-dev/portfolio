@@ -197,7 +197,20 @@ function env({mode='duplicate12',afterBackup,failWriteAt=0,formulaAt=[],sourceOv
  assert.deepEqual(x.writes,[]);
  assert.deepEqual(x.status,['WRITE_FAILED']);
 }
-// 10. Two intended removals, second write fails. First empty physical row
+// 10. A different client changes the keeper row after backup. Deleting
+// the redundant row would silently destroy the only original keeper proof.
+// Reject instead and keep the completed backup marked WRITE_FAILED.
+{
+ const x=env({afterBackup:rows=>{rows[1][10]='EXTERNAL_KEEPER_CHANGE';}});
+ assert.throws(()=>x.run(),/SNAPSHOT_CLEANUP_COMMIT_UNVERIFIED.*KEEP_ROW_CHANGED/);
+ assert.equal(x.data[1][10],'EXTERNAL_KEEPER_CHANGE');
+ assert.equal(x.data[2][1],'000111','redundant original row must remain');
+ assert.deepEqual(x.writes,[]);
+ assert.deepEqual(x.status,['WRITE_FAILED']);
+ assert.deepEqual(x.backs,['BACKUP_PREPARED']);
+ console.log('ISSUE507_CLEANUP_KEEPER_ROW_EXTERNAL_CHANGE_BLOCKED');
+}
+// 11. Two intended removals, second write fails. First empty physical row
 // remains explicitly COMMIT_UNVERIFIED for supervised recovery. Other dates
 // remain unchanged and backup is retained.
 {
