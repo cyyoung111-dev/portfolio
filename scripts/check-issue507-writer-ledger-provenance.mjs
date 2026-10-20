@@ -45,12 +45,12 @@ function context(patches={}){
   let rows=[];
   const sheet={
     getLastRow:()=>rows.length+1,
-    getLastColumn:()=>10,
+    getLastColumn:()=>11,
     getRange:(row,col,height,width)=>{
       assert.equal(row,2);assert.equal(col,1);
-      assert.equal(height,rows.length);assert.equal(width,10);
+      assert.equal(height,rows.length);assert.ok(width===10||width===11);
       rangeReads++;
-      return{getValues:()=>rows.map(r=>r.slice())};
+      return{getValues:()=>rows.map(r=>r.slice(0,width))};
     }
   };
   const spreadsheet={getSheetByName:name=>{
@@ -76,8 +76,8 @@ function context(patches={}){
     version:()=>source.match(/gasVersion:\s*'(\d+\.\d+)'/)?.[1]||''
   };
 }
-const trade=(date,action,name,code,qty,price,ratio='')=>
-  [date,action,'TEST_ACCOUNT',name,code,qty,price,'주식','',ratio];
+const trade=(date,action,name,code,qty,price,ratio='',fractionalCash='')=>
+  [date,action,'TEST_ACCOUNT',name,code,qty,price,'주식','',ratio,fractionalCash];
 const historical=[
   trade('2025-12-31','buy','OLD','1',10,100),
   trade('2026-01-01','buy','SECOND','2',2,200),
@@ -149,9 +149,29 @@ const corrected=historical.map((r,i)=>i===0
 c.setRows(corrected);
 const fp3=p._tradeLedgerContentFingerprint_(c.spreadsheet);
 assert.notEqual(fp0,fp3,'past trade quantity amendment changes fingerprint');
+// Column 11 is fractionalCash. The current production fingerprint must cover
+// it even when holdings quantity and cost do not change.
+const cashChanged=historical.map((r,i)=>i===0
+  ?[...r.slice(0,10),'0.25']:r.slice());
+c.setRows(cashChanged);
+const fp4=p._tradeLedgerContentFingerprint_(c.spreadsheet);
+assert.notEqual(fp0,fp4,'fractionalCash-only amendment changes fingerprint');
+// Independently show that mutating production down to 10 columns silently
+// misses the same amendment. This does not patch the deployed GAS.
+const mutantFp=production._tradeLedgerContentFingerprint_.replace(
+  'Math.min(11, sh.getLastColumn())','Math.min(10, sh.getLastColumn())');
+assert.notEqual(mutantFp,production._tradeLedgerContentFingerprint);
+const fm=context({_tradeLedgerContentFingerprint_:mutantFp});
+fm.setRows(historical);
+const missing11Before=fm.env._tradeLedgerContentFingerprint_(fm.spreadsheet);
+fm.setRows(cashChanged);
+const missing11After=fm.env._tradeLedgerContentFingerprint_(fm.spreadsheet);
+assert.equal(missing11Before,missing11After,
+  'mutation oracle: dropped 11th column conceals fractionalCash-only change');
 assert.equal(c.stats().propertiesMutated,0);
-assert.equal(c.stats().digestCount,4);
-assert.equal(c.stats().rangeReads,4);
+assert.equal(c.stats().digestCount,5);
+assert.equal(c.stats().rangeReads,5);
+assert.equal(fm.stats().propertiesMutated,0);
 // Real production function must FAIL this test when the future-date guard is
 // removed. This is a mutation, never an edit to production GAS.
 const mutantApply=production._applyHoldingTrade.replace(
