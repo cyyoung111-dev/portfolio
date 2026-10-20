@@ -142,6 +142,25 @@ const custom=(e,c)=>byCode(e,c)?.[12];
  assert.deepEqual(x.stats().revisions,[]);
  console.log('ISSUE507_TODAY_SOURCE_PARTIAL_WRITE_COMPENSATED');
 }
+// 8. Regression for Codex P2: after the first physical K:L write, another
+// Sheets writer may replace/sort the row. Its new instrument can coincidentally
+// carry the exact value we just wrote. Compensation must verify A:C BEFORE
+// touching K:L; a matching "KRX" value is not permission to overwrite.
+{
+ const x=makeEnv({failWriteNumber:2,onFailure:rows=>{
+   rows[1][0]=otherDate;
+   rows[1][1]='009999';
+   rows[1][2]='REASSIGNED_EXTERNAL';
+   // K:L intentionally remains ['KRX',''] (the intended first write).
+ }});
+ assert.throws(()=>x.run({'000111':'KRX','000444':'TOSS'}),/COMMIT_UNVERIFIED/);
+ const reassigned=x.rows()[1];
+ assert.equal(reassigned[1],'009999');
+ assert.equal(reassigned[10],'KRX','never roll back other code even when K:L matches our after-image');
+ assert.equal(reassigned[11],'');
+ assert.deepEqual(x.stats().revisions,[],'failed reconciliation must not claim source revision');
+ console.log('ISSUE507_TODAY_SOURCE_ROLLBACK_ROW_REASSIGNMENT_BLOCKED');
+}
 // 8. If an external writer modifies a changed K:L before compensation,
 // do not overwrite it; surface COMMIT_UNVERIFIED for read-only diagnosis.
 {
