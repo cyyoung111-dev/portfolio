@@ -31,11 +31,13 @@ const hdr=Array.from({length:12},(_,i)=>'H'+(i+1));
 const target=[date,fundCode,'SYNTH_FUND',2,50,100,50,100,0,0,'FUND_NAV',''];
 const other=(d)=>[d,'000222','SYNTH_STOCK',3,10,30,11,33,3,10,'SYNTH_PRICE',''];
 
-function createEnvironment({sameDate=false,onSnapshotBackup}={}){
+function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,includeNav=false,includePriceChange=false,zeroUnits=false,manual=false,failSnapWriteAt=0}={}){
   const foreignDate=sameDate?date:otherDate;
-  const initial=clone([hdr,target,other(foreignDate)]);
+  const originalFund=clone(target); if(manual)originalFund[10]='MANUAL';
+  const initial=clone([hdr,originalFund,other(foreignDate)]);
   let stored=clone(initial);
-  let snapshotWrites=0, priceWrites=0, backupCount=0, flushes=0, mutationCount=0;
+  let snapshotWrites=0, priceWrites=0, navWrites=0, backupCount=0, flushes=0, mutationCount=0;
+  let failedOnce=false;
   let finalized=0, backupStates=[];
   const makeSheet=(sheetName,rows,width)=>{
     const data=rows;
@@ -51,6 +53,7 @@ function createEnvironment({sameDate=false,onSnapshotBackup}={}){
           getValues:get,
           getFormulas:()=>get().map(row=>row.map(()=>'')),
           setValues:values=>{
+            if(sheetName==='스냅샷' && failSnapWriteAt && !failedOnce && snapshotWrites+1===failSnapWriteAt){failedOnce=true;throw Error('SYNTHETIC_SNAPSHOT_WRITE_FAILURE');}
             assert.equal(values.length,h);
             values.forEach((row,i)=>{
               assert.equal(row.length,w);
@@ -58,7 +61,8 @@ function createEnvironment({sameDate=false,onSnapshotBackup}={}){
               row.forEach((v,j)=>{data[r-1+i][c-1+j]=v;});
             });
             if(sheetName==='스냅샷')snapshotWrites++;
-            else priceWrites++;
+            else if(sheetName==='가격이력')priceWrites++;
+            else navWrites++;
           },
         };
       },
@@ -67,11 +71,18 @@ function createEnvironment({sameDate=false,onSnapshotBackup}={}){
   const snapshotSheet=makeSheet('스냅샷',stored,12);
   const priceRows=[
     ['D','CODE','NAME','PRICE','SAVED','SOURCE'],
-    [date,fundCode,'SYNTH_FUND',123,'','FUND_NAV'],
+    [date,fundCode,'SYNTH_FUND',includePriceChange?100:123,'',manual?'MANUAL':'FUND_NAV'],
+    [foreignDate,'000222','SYNTH_STOCK',11,'','SYNTH_PRICE'],
   ];
   const priceSheet=makeSheet('가격이력',priceRows,6);
+  const navRows=[
+    ['DATE','CODE','NAME','NAV','SOURCE_DATE','UNITS','EVAL','SAVED','PROVIDER'],
+    [date,fundCode,'SYNTH_FUND',100,date,1,100,'',provider],
+    [foreignDate,'F00002','SYNTH_OTHER_FUND',99,foreignDate,4,396,'',provider],
+  ];
+  const navSheet=makeSheet('펀드기준가격',navRows,9);
   const ss={
-    getSheetByName:(s)=>s==='스냅샷'?snapshotSheet:s==='가격이력'?priceSheet:null,
+    getSheetByName:(s)=>s==='스냅샷'?snapshotSheet:s==='가격이력'?priceSheet:s==='펀드기준가격'&&includeNav?navSheet:null,
     insertSheet:()=>{throw Error('NO_SHEET_CREATION_EXPECTED');},
   };
   const context=vm.createContext({
@@ -79,7 +90,7 @@ function createEnvironment({sameDate=false,onSnapshotBackup}={}){
     CONFIG:{SHEET_SNAPSHOT:'스냅샷',SHEET_PH:'가격이력',SHEET_TRADES:'거래이력'},
     FUND_NAV_SHEET:'펀드기준가격',FUND_UNITS_SHEET:'펀드좌수',
     _readFundUnits:()=>[{code:fundCode,name:'SYNTH_FUND',provider,units:2,startDate:'2026-01-01'}],
-    _fundUnitsAtDate:()=>({units:2}),
+    _fundUnitsAtDate:()=>({units:zeroUnits?0:2}),
     _fundNavEvaluationFromRows:()=>({units:2,evalAmt:123,carried:false}),
     _normalizeDate:s=>String(s||'').slice(0,10),
     _cleanCode:s=>String(s||'').trim(),
@@ -92,14 +103,14 @@ function createEnvironment({sameDate=false,onSnapshotBackup}={}){
     _setCodeColumnText:()=>{},
     _backupSheetBeforeWrite:(_ss,sheet,source)=>{
       backupCount++;
-      assert.equal(source,'스냅샷','only Snapshot backup expected');
-      assert.equal(sheet,snapshotSheet);
-      if(onSnapshotBackup){
+      if(source==='스냅샷' && onSnapshotBackup){
+        assert.equal(sheet,snapshotSheet);
         const changed=stored.find(row=>row[1]==='000222');
         assert.ok(changed);
         onSnapshotBackup(changed,stored);
         mutationCount++;
       }
+      if(source!=='스냅샷' && onDerivedBackup){onDerivedBackup({source,rows:source==='가격이력'?priceRows:navRows}); mutationCount++;}
       return {name:'SYNTHETIC_BACKUP',source,status:'PREPARED'};
     },
     _markSnapshotBackupStatus:(record,state)=>{backupStates.push(state);},
@@ -111,10 +122,12 @@ function createEnvironment({sameDate=false,onSnapshotBackup}={}){
   return {
     run,
     snapshot:()=>clone(stored),
+    price:()=>clone(priceRows),
+    nav:()=>clone(navRows),
     initial:()=>clone(initial),
     foreign:()=>clone(stored.find(r=>r[1]==='000222')),
     fund:()=>clone(stored.find(r=>r[1]===fundCode)),
-    stats:()=>({snapshotWrites,priceWrites,backupCount,flushes,mutationCount,finalized,backupStates}),
+    stats:()=>({snapshotWrites,priceWrites,navWrites,backupCount,flushes,mutationCount,finalized,backupStates}),
   };
 }
 function assertFundUpdated(e){
@@ -173,5 +186,60 @@ function assertFundUpdated(e){
   assert.equal(e.snapshot()[1][1],'F00999');
   assert.ok(e.stats().backupStates.includes('WRITE_FAILED'));
   console.log('ISSUE507_FUND_DERIVED_ROW_IDENTITY_DRIFT_BLOCKED');
+}
+// Full production reconciler: NAV and PRICE target fields may change, but
+// a different date/code edited by another client after backup remains intact.
+{
+  const e=createEnvironment({includeNav:true,includePriceChange:true,
+    onDerivedBackup:({source,rows})=>{
+      const foreign=rows.find(r=>r[1]===(source==='가격이력'?'000222':'F00002'));
+      assert.ok(foreign);
+      if(source==='가격이력')foreign[3]=901;
+      else foreign[5]=77;
+    }});
+  const result=e.run();
+  assert.equal(result.navRows,1);
+  assert.equal(result.priceRows,1);
+  assert.equal(e.nav()[1][5],2);
+  assert.equal(e.nav()[1][6],123);
+  assert.equal(e.nav()[2][5],77,'unrelated NAV rows must not be copied over');
+  assert.equal(e.price()[1][3],123);
+  assert.equal(e.price()[2][3],901,'unrelated price rows must not be copied over');
+  assert.ok(e.stats().navWrites>0 && e.stats().priceWrites>0);
+  assert.equal(e.stats().backupCount,3);
+  assert.deepEqual(e.stats().backupStates,['COMPLETED','COMPLETED','COMPLETED']);
+  console.log('ISSUE507_FUND_DERIVED_NAV_PRICE_UNRELATED_ROWS_PRESERVED');
+}
+// 0 units removes only this fund's Snapshot physical row; never compact or
+// move a different code, and zero NAV is a defined derived value.
+{
+  const e=createEnvironment({zeroUnits:true,sameDate:true});
+  e.run();
+  assert.ok(e.snapshot()[1].every(v=>v===''),'zero-unit target row must be cleared');
+  assert.equal(e.snapshot()[2][1],'000222');
+  assert.equal(e.snapshot()[2][3],3);
+  assert.equal(e.price()[1][3],0);
+  console.log('ISSUE507_FUND_DERIVED_ZERO_UNIT_SNAPSHOT_SLOT_PRESERVED');
+}
+// Manual price and Snapshot fields must remain user-managed.
+{
+  const e=createEnvironment({manual:true});
+  const before=e.snapshot()[1];
+  const pbefore=e.price()[1];
+  const result=e.run();
+  assert.deepEqual(e.snapshot()[1],before);
+  assert.deepEqual(e.price()[1],pbefore);
+  assert.ok(result.manualPreserved>=2);
+  console.log('ISSUE507_FUND_DERIVED_MANUAL_FIELDS_PROTECTED');
+}
+// Inject a failure on the second disjoint fund change. The first changed
+// field range must be restored, not leave a partially updated valuation.
+{
+  const e=createEnvironment({failSnapWriteAt:2});
+  const before=e.snapshot();
+  assert.throws(()=>e.run(),/SYNTHETIC_SNAPSHOT_WRITE_FAILURE/);
+  assert.deepEqual(e.snapshot(),before,'fund Snapshot changes must be compensated');
+  assert.ok(e.stats().backupStates.includes('WRITE_FAILED'));
+  console.log('ISSUE507_FUND_DERIVED_PARTIAL_WRITE_ROLLBACK_CONFIRMED');
 }
 console.log('ISSUE507_FUND_DERIVED_SCOPED_CONTRACT_OK_SAME_CELL_TOCTOU_UNSOLVED');
