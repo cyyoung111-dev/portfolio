@@ -27,6 +27,8 @@ const cases={
   base(d1,'000111',105,'KRX').slice(0,6),base(d2,'000222',200).slice(0,6)],
  unsafeManual:()=>[header.slice(0,6),base(d1,'000111',99,'MANUAL').slice(0,6),
   base(d1,'000111',105,'MANUAL').slice(0,6),base(d2,'000222',200).slice(0,6)],
+ spacedManual:()=>[header.slice(0,6),base(d1,'000111',99,' MANUAL ').slice(0,6),
+  base(d1,'000111',105,'MANUAL','2026-01-14 10:00:00').slice(0,6),base(d2,'000222',200).slice(0,6)],
  timestamp:()=>[header.slice(0,6),base(d1,'000111',90,'KRX','2026-01-14 09:00:00').slice(0,6),
   base(d1,'000111',95,'TOSS','2026-01-14 10:00:00').slice(0,6),
   base(d1,'000111',100,'KRX','').slice(0,6),
@@ -131,6 +133,16 @@ function create({mode='standard',afterBackup,formula=[],failWriteAt=0}={}){
  const x=create({mode:'unsafeManual'});
  assert.throws(()=>x.run(),/PRICE_CLEANUP_UNSAFE_EVIDENCE_REQUIRES_REVIEW.*MANUAL_OR_TIMESTAMP/);
  assert.deepEqual(x.backups,[]);
+}
+{
+ const x=create({mode:'spacedManual'});
+ const before=clone(x.data);
+ assert.throws(()=>x.run(),/PRICE_CLEANUP_UNSAFE_EVIDENCE_REQUIRES_REVIEW.*MANUAL_OR_TIMESTAMP/,
+  'MANUAL with surrounding spaces is preserved just like canonical MANUAL');
+ assert.deepEqual(x.data,before,'no synthetic physical writes on spaced MANUAL');
+ assert.deepEqual(x.backups,[],'unsafe source must stop before backup');
+ assert.deepEqual(x.revision,[],'no revision for blocked cleanup');
+ console.log('ISSUE507_PRICE_CLEANUP_SPACED_MANUAL_PROTECTED');
 }
 {
  const x=create({mode:'timestamp'});
