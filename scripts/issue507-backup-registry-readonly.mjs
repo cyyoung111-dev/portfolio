@@ -46,7 +46,9 @@ export function summarizeWorkbook(payload,targets=TARGETS){
       label:target.label,registryPresent:registered,registryState:record.backupStatus||'UNREGISTERED',
       classification:record.backupClassification,
       backupContentSignatureMatchesRegistry:record.signatureMatch,
-      sourceSheetExists:record.sourceSheetExists,
+      // GAS treats an unregistered backup as source-exists by default. That
+      // is NOT evidence that the actual original source sheet exists.
+      sourceSheetExists:registered?record.sourceSheetExists:null,
       lastRowIncludingHeader:physicalRows,lastColumn:columns,
       // A matching signature attests only backup content vs registry; does not
       // prove the backup covered the whole source at the correct operation.
@@ -98,7 +100,7 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   const after=validateInventory(afterStatus);
   return report(before,after,summarized);
 }
-function productionContract({unregisteredPreRecovery=false}={}){
+function productionContract({unregisteredPreRecovery=false,missingSource=false}={}){
   // Execute the actual production GAS workbook reader against memory-only
   // simulated sheets. Do not claim an actual workbook was inspected here.
   const gas=fs.readFileSync(new URL('../src/gas/apps_script.gs',import.meta.url),'utf8');
@@ -108,14 +110,16 @@ function productionContract({unregisteredPreRecovery=false}={}){
     'handleDiagnoseWorkbookCells'];
   const production=names.map(name=>{
     const start=gas.indexOf('function '+name+'(');
-    const end=start<0?-1:gas.indexOf('\n}',start);
+    const end=start<0?-1:gas.indexOf('
+}',start);
     assert.ok(start>=0&&end>start,'production function missing: '+name);
     return gas.slice(start,end+2);
-  }).join('\n');
+  }).join('
+');
   const source={getName:()=> '스냅샷',getMaxRows:()=>1000,getMaxColumns:()=>12,getLastRow:()=>30,getLastColumn:()=>12};
   const old={getName:()=> TARGETS[0].name,getMaxRows:()=>1000,getMaxColumns:()=>12,getLastRow:()=>100,getLastColumn:()=>12,__hash:'correct'};
   const newest={getName:()=> TARGETS[1].name,getMaxRows:()=>1000,getMaxColumns:()=>12,getLastRow:()=>7,getLastColumn:()=>12,__hash:'changed'};
-  const sheets=[source,old,newest];
+  const sheets=missingSource?[old,newest]:[source,old,newest];
   const ss={getSheets:()=>sheets,getSheetByName:name=>sheets.find(x=>x.getName()===name)||null};
   const registry=[
     ...(!unregisteredPreRecovery?[{name:TARGETS[0].name,source:'스냅샷',
@@ -154,7 +158,20 @@ export async function selfTest(){
   assert.equal(unregReport[0].registryState,'UNREGISTERED');
   assert.equal(unregReport[0].classification,'USER_MANAGED_BACKUP');
   assert.equal(unregReport[0].backupContentSignatureMatchesRegistry,null);
+  assert.equal(unregReport[0].sourceSheetExists,null);
   assert.equal(unregReport[0].restoreAllowed,false);
+  // Important P2 regression: production GAS reports TRUE for unregistered
+  // backup source existence even when the source sheet has been removed.
+  // The public audit must not turn that default into evidence of existence.
+  const withoutSource=productionContract({unregisteredPreRecovery:true,missingSource:true});
+  const rawUnregistered=withoutSource.workbook.sheets.find(x=>x.name===TARGETS[0].name);
+  assert.equal(rawUnregistered.sourceSheetExists,true);
+  const missingReport=summarizeWorkbook(withoutSource);
+  assert.equal(missingReport[0].registryPresent,false);
+  assert.equal(missingReport[0].sourceSheetExists,null);
+  assert.equal(missingReport[0].restoreAllowed,false);
+  assert.equal(missingReport[1].registryPresent,true);
+  assert.equal(missingReport[1].sourceSheetExists,false);
   assert.equal(unregReport[1].registryState,'CREATED');
 
   const invalid=structuredClone(fixture);
