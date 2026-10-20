@@ -51,7 +51,9 @@ assert.doesNotMatch(priceDuplicateCleanupFn, /ph\.clearContents\(\)|setValues\(_
 const scopedSnapshotCleanupBody = gas.match(/function _cleanupSnapshotDuplicatesLocked\([\s\S]*?\n}/)?.[0] || '';
 assert.match(scopedSnapshotCleanupBody, /range\.setValues\(\[blank\(fullWidth\)\]\)[\s\S]*_touchSnapshotIntegritySourceRevision/, 'Snapshot 중복 정리는 검증된 대상 물리행 쓰기 후에만 revision 갱신');
 assert.doesNotMatch(scopedSnapshotCleanupBody, /setValues\(output\)/, '전체 Snapshot 행압축 재기록 금지');
-assert.match(gas, /function _repairKnownCodeColumns[\s\S]*range\.setValues\(values\)[\s\S]*_touchSnapshotIntegritySourceRevision/, '코드 복구는 실제 쓰기 성공 후 invalidate');
+const codeRepairFn=gas.match(/function _repairKnownCodeColumns\([\s\S]*?\n}/)?.[0] || '';
+assert.match(codeRepairFn, /cell\.setValues\(\[\[plan\.desired\]\]\)[\s\S]*_touchSnapshotIntegritySourceRevision/, '코드 복구는 변경 대상 셀 기록 성공 후 invalidate');
+assert.doesNotMatch(codeRepairFn, /range\.setValues\(values\)|_setCodeColumnText\(sheet,\s*column\)/, '코드 복구의 전체 열 재기록/무변경 서식 변경 금지');
 assert.match(pipeline, /미검증 날짜는 저장 Snapshot으로 표시/);
 assert.match(view, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/);
 assert.match(view, /portfolioSnapshots[\s\S]*filter\(_isVerifiedHistoryPoint\)/);
