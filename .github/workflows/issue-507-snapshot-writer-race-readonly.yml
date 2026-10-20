@@ -1,0 +1,34 @@
+name: issue-507-snapshot-writer-race-readonly
+
+# Execute production GAS writer only against synthetic in-memory mocks.
+# PASS means the known pre-fix race reproduced; NOT production safety.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-snapshot-writer-race-repro.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-snapshot-writer-race-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-snapshot-writer-race-repro.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-snapshot-writer-race-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-race-reproducer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Reproduce known existing writer full-rewrite lost-update race
+        run: |
+          node --check scripts/issue507-snapshot-writer-race-repro.mjs
+          node scripts/issue507-snapshot-writer-race-repro.mjs
