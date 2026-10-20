@@ -4,7 +4,7 @@
 // Do not output source rows, codes, names, accounts, amounts, or tokens.
 import assert from 'node:assert/strict';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
-import {validateInventory} from './issue507-deferred-source-audit-readonly.mjs';
+
 
 const STATUS=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT',
   'SOURCE_INCOMPLETE','NO_SNAPSHOT','PRICE_SUSPICIOUS']);
@@ -17,6 +17,31 @@ function iso(s){
     &&Number.isFinite(Date.parse(s+'T00:00:00Z'))
     &&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
 }
+// Deliberately local/pure: issue507-deferred-source-audit-readonly.mjs executes
+// its CLI unconditionally when imported (including authenticated GAS reads).
+// Importing that script here would double-run an operational audit.
+export function validateInventory(payload){
+  const a=payload?.automation;
+  guard(payload?.status==='ok'&&payload.gasVersion==='9.244'&&
+    a?.gasVersion==='9.244'&&
+    Array.isArray(a.tradeSnapshotDeferredDates)&&
+    a.tradeSnapshotDeferredDates.length<=600&&
+    a.tradeSnapshotDeferredCount===a.tradeSnapshotDeferredDates.length&&
+    typeof a.tradeSnapshotDeferredOldestDate==='string'&&
+    typeof a.tradeSnapshotDeferredCursor==='string'&&
+    typeof a.pendingTradeSnapshotRebuildFrom==='string',
+    'INVENTORY_SCHEMA');
+  const dates=a.tradeSnapshotDeferredDates;
+  guard(dates.every(iso)&&
+    dates.every((value,index)=>index===0||value>dates[index-1])&&
+    a.tradeSnapshotDeferredOldestDate===(dates[0]||'')&&
+    (!a.tradeSnapshotDeferredCursor||iso(a.tradeSnapshotDeferredCursor))&&
+    (!a.pendingTradeSnapshotRebuildFrom||iso(a.pendingTradeSnapshotRebuildFrom)),
+    'INVENTORY_DATES');
+  return {dates,cursor:a.tradeSnapshotDeferredCursor,
+    pendingFrom:a.pendingTradeSnapshotRebuildFrom};
+}
+
 function code(raw){
   const s=String(raw??'').trim().toUpperCase();
   if(/^\d+$/.test(s))return s.padStart(6,'0');
@@ -194,6 +219,11 @@ function fixtureDay(date='2026-01-07'){
       manualProtected:0,unresolvedConflict:1,sourceIncomplete:0}};
 }
 export async function selfTest(){
+  const invalidInventory={status:'ok',gasVersion:'9.244',automation:{
+    gasVersion:'9.244',tradeSnapshotDeferredDates:['2026-01-08','2026-01-07'],
+    tradeSnapshotDeferredCount:2,tradeSnapshotDeferredOldestDate:'2026-01-08',
+    tradeSnapshotDeferredCursor:'',pendingTradeSnapshotRebuildFrom:''}};
+  assert.throws(()=>validateInventory(invalidInventory),/INVENTORY_DATES/);
   const x=fixtureDay(),a=assessDay(x);
   assert.equal(a.duplicateGroups,1);
   assert.equal(a.duplicateReasons.VALUATION_OR_SOURCE_DRIFT,1);
