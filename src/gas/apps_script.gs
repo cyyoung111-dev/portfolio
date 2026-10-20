@@ -10280,7 +10280,12 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       // ★ [버그수정] 날짜 _normalizeDate() 적용 — Date 객체가 'Mon Apr 13...' 형태로
       //   읽혀 중복 감지 실패하던 문제 수정. 6컬럼(소스)까지 읽어 MANUAL 여부 판단
       var readCols = Math.min(6, ph.getLastColumn());
-      var data = ph.getRange(2, 1, lastRow - 1, readCols).getValues();
+      var data = ph.getRange(2, 1, lastRow - 1, readCols).getValues().map(function(row) {
+        // Legacy sheets may have no populated source column F (getLastColumn()=5).
+        // Compare normalized A:F rows, including their missing empty cells.
+        while (row.length < 6) row.push('');
+        return row;
+      });
       data.forEach(function(row, i) {
         var d = _normalizeDate(row[0]);
         var c = _cleanCode(row[1]) || (row[2]||'').toString().trim();
@@ -10317,39 +10322,58 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
     // two-pass D then E:F writer could expose a new price with stale source,
     // or overwrite a newer external MANUAL row after a whole-sheet scan.
     var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
-    var attempts = 0, targets = [];
-    toUpdate.forEach(function(item) {
-      targets.push({
-        row:item.row,
-        before:ph.getRange(item.row,1,1,6).getValues()[0],
-        after:[item.price,item.isManual ? (item.savedAt || '') : '',item.source || '']
-      });
-    });
-    // Preflight all selected target identities against the original scan.
-    // This must happen before the first mutation. ScriptLock alone cannot
-    // guard a direct Sheets API writer operating between verification/write.
+    var attempts = 0;
+    // Read A:F once per phase, not once per security check per code.
+    // A single large replay may contain many rows; ~6N RPCs risks GAS timeout.
+    var targets = toUpdate.map(function(item) {
+      return { row:item.row, before:data[item.row - 2].slice(0,6),
+        after:[item.price, item.isManual ? (item.savedAt || '') : '', item.source || ''] };
+    }).sort(function(a,b) { return a.row - b.row; });
+    var groups = [];
     targets.forEach(function(item) {
-      var expected = data[item.row-2].slice(0,6);
-      if (!same(item.before,expected))
-        throw new Error('PRICE_HISTORY_BATCH_TARGET_CHANGED_BEFORE_WRITE:' + item.row);
-      var formulas = ph.getRange(item.row,4,1,3).getFormulas();
-      if (!formulas || !formulas[0] || formulas[0].length !== 3 ||
-          formulas[0].some(function(v) { return !!v; }))
-        throw new Error('PRICE_HISTORY_BATCH_PROTECTED_FORMULA:' + item.row);
+      var previous = groups.length ? groups[groups.length-1] : null;
+      if (previous && previous.start + previous.items.length === item.row) previous.items.push(item);
+      else groups.push({start:item.row,items:[item]});
     });
+    // Never update an unbounded set of disjoint ranges mid-execution.
+    if (groups.length > 80)
+      throw new Error('PRICE_HISTORY_BATCH_TOO_MANY_WRITE_GROUPS:' + groups.length);
+    function inspectTargets(values,formulas,changedCode,formulaCode) {
+      if (!values || !formulas || values.length !== lastRow-1 ||
+          formulas.length !== lastRow-1)
+        throw new Error(changedCode + ':INCOMPLETE_READ');
+      targets.forEach(function(item) {
+        var index = item.row - 2;
+        if (!values[index] || !same(values[index].slice(0,6),item.before))
+          throw new Error(changedCode + ':' + item.row);
+        if (!formulas[index] || formulas[index].length !== 3 ||
+            formulas[index].some(function(value) { return !!value; }))
+          throw new Error(formulaCode + ':' + item.row);
+      });
+    }
+    if (targets.length) {
+      inspectTargets(ph.getRange(2,1,lastRow-1,6).getValues(),
+        ph.getRange(2,4,lastRow-1,3).getFormulas(),
+        'PRICE_HISTORY_BATCH_TARGET_CHANGED_BEFORE_WRITE',
+        'PRICE_HISTORY_BATCH_PROTECTED_FORMULA');
+    }
     if (toAppend.length && ph.getLastRow() !== lastRow)
       throw new Error('PRICE_HISTORY_BATCH_APPEND_ROWCOUNT_CHANGED');
     try {
-      targets.forEach(function(item) {
-        var current = ph.getRange(item.row,1,1,6).getValues()[0];
-        var formulas = ph.getRange(item.row,4,1,3).getFormulas();
-        if (!same(current,item.before) || !formulas || !formulas[0] ||
-            formulas[0].some(function(v) { return !!v; }))
-          throw new Error('PRICE_HISTORY_BATCH_COMMIT_TARGET_CHANGED:' + item.row);
-        // D:F committed together for this physical row, not in 2 passes.
-        attempts++;
-        ph.getRange(item.row,4,1,3).setValues([item.after]);
-      });
+      if (targets.length) {
+        // Recheck before the first mutation; identical-cell external writers
+        // between this read and setValues still require shared CAS/serialization.
+        inspectTargets(ph.getRange(2,1,lastRow-1,6).getValues(),
+          ph.getRange(2,4,lastRow-1,3).getFormulas(),
+          'PRICE_HISTORY_BATCH_COMMIT_TARGET_CHANGED',
+          'PRICE_HISTORY_BATCH_PROTECTED_FORMULA');
+        groups.forEach(function(group) {
+          // Never include an unchanged physical row in a write range.
+          attempts++;
+          ph.getRange(group.start,4,group.items.length,3).setValues(
+            group.items.map(function(item) { return item.after; }));
+        });
+      }
       if (toAppend.length) {
         if (ph.getLastRow() !== lastRow)
           throw new Error('PRICE_HISTORY_BATCH_APPEND_ROWCOUNT_CHANGED');
@@ -10364,10 +10388,14 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       }
       if (!attempts) return;
       SpreadsheetApp.flush();
-      targets.forEach(function(item) {
-        if (!same(ph.getRange(item.row,4,1,3).getValues()[0],item.after))
-          throw new Error('PRICE_HISTORY_BATCH_WRITE_UNVERIFIED:' + item.row);
-      });
+      if (targets.length) {
+        // One bounded readback, independent of the number of target symbols.
+        var confirmed=ph.getRange(2,4,lastRow-1,3).getValues();
+        targets.forEach(function(item) {
+          if (!confirmed[item.row-2] || !same(confirmed[item.row-2],item.after))
+            throw new Error('PRICE_HISTORY_BATCH_WRITE_UNVERIFIED:' + item.row);
+        });
+      }
       if (toAppend.length) {
         var appended = ph.getRange(lastRow+1,1,toAppend.length,6).getValues();
         _normalizeCodeRows(toAppend,1).forEach(function(row,index) {
@@ -10378,13 +10406,14 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       _touchSnapshotIntegritySourceRevision({ from: dateStr });
     } catch(writeError) {
       if (attempts) {
-        // A failed batch may already have committed some rows. Invalidate
-        // read-only caches, but never blindly restore by stale row number.
+        // Partial effects may have committed. Never blindly undo another
+        // writer's cells; leave an explicit unverified outcome and revision.
         try { _touchSnapshotIntegritySourceRevision({ from: dateStr }); } catch(revisionError) {}
         throw new Error('PRICE_HISTORY_BATCH_COMMIT_UNVERIFIED: ' + String(writeError && writeError.message || writeError));
       }
       throw writeError;
     }
+  }
   } catch(err) {
     Logger.log('❌ batchUpsertPriceHistory 실패: ' + err.message);
     throw err;
