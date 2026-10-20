@@ -1,0 +1,33 @@
+name: issue-507-writer-ledger-provenance-contract
+
+# Pure synthetic regression only; no GAS deployment, no live Sheet reads/writes.
+on:
+  pull_request:
+    paths:
+      - 'scripts/check-issue507-writer-ledger-provenance.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-writer-ledger-provenance-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-issue507-writer-ledger-provenance.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-writer-ledger-provenance-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify production ledger replay, fingerprint, and future-date mutations
+        run: |
+          node --check scripts/check-issue507-writer-ledger-provenance.mjs
+          node scripts/check-issue507-writer-ledger-provenance.mjs
