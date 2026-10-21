@@ -154,24 +154,66 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
     codesTradedJan09:0,codesTradedJan10Through17:0,
     codesWithoutTradesJan09Through17:0
   };
-  const tradedJan09=new Set(),tradedLater=new Set();
+  // Production _buildSnapshotRowsFromTradeAndPriceHistory() maps historical
+  // blank-code trades by exact (trimmed) name via master+dated ledger names.
+  // We have no master identity endpoint in this audit: take the union of
+  // *observed* diagnostic expected names and explicit coded trade names,
+  // and treat colliding/unmapped names as unresolved rather than "no trades".
+  const nameCandidates=new Map();
+  const rememberName=(name,c)=>{
+    const value=String(name??'').trim(),code=normCode(c);
+    if(!value||!code)return;
+    if(!nameCandidates.has(value))nameCandidates.set(value,new Set());
+    nameCandidates.get(value).add(code);
+  };
+  for(const day of payload.diagnostics)
+    for(const r of day.expectedRows)rememberName(r[2],r[1]);
   for(const t of tradesResponse.trades){
-    guard(t&&typeof t.code==='string'&&typeof t.date==='string'
-      &&typeof t.tradeType==='string','TRADE_ROW');
+    guard(t&&typeof t.code==='string'&&typeof t.name==='string'
+      &&typeof t.date==='string'&&typeof t.tradeType==='string','TRADE_ROW');
+    if(normCode(t.code))rememberName(t.name,t.code);
+  }
+  const tradedJan09=new Set(),tradedLater=new Set();
+  let codeLessMapped=0,codeLessRelevantMapped=0,
+    codeLessRelevantUnresolved=0,codeLessRelevantAmbiguous=0;
+  for(const t of tradesResponse.trades){
     const date=t.date.slice(0,10);
-    if(!persistent.has(normCode(t.code)))continue;
+    // Validate all ledger dates so malformed code-less records cannot quietly
+    // bypass diagnostic lineage accuracy.
     guard(/^\d{4}-\d{2}-\d{2}$/.test(date)
       &&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date,'TRADE_DATE');
+    const explicit=normCode(t.code);
+    const aliases=nameCandidates.get(t.name.trim());
+    const ambiguous=!explicit&&aliases?.size>1;
+    const mapped=!explicit&&aliases?.size===1?[...aliases][0]:'';
+    const resolved=explicit||mapped;
+    if(!explicit&&mapped)codeLessMapped++;
+    const relevantWindow=date>'2026-01-08'&&date<='2026-01-17';
+    if(relevantWindow&&!explicit&&mapped&&persistent.has(mapped))codeLessRelevantMapped++;
+    if(relevantWindow&&!explicit&&!mapped){
+      codeLessRelevantUnresolved++;
+      if(ambiguous)codeLessRelevantAmbiguous++;
+    }
+    if(!persistent.has(resolved))continue;
     if(date<='2026-01-08')tradeWindows.preOrOnJan08++;
-    else if(date==='2026-01-09'){tradeWindows.jan09++;tradedJan09.add(normCode(t.code));}
-    else if(date<='2026-01-17'){tradeWindows.jan10Through17++;tradedLater.add(normCode(t.code));}
+    else if(date==='2026-01-09'){tradeWindows.jan09++;tradedJan09.add(resolved);}
+    else if(date<='2026-01-17'){tradeWindows.jan10Through17++;tradedLater.add(resolved);}
     else tradeWindows.postJan17++;
   }
   Object.keys(tradeWindows).forEach(k=>{tradeWindows[k]=bounded(tradeWindows[k]);});
   tradeWindows.codesTradedJan09=bounded(tradedJan09.size);
   tradeWindows.codesTradedJan10Through17=bounded(tradedLater.size);
-  tradeWindows.codesWithoutTradesJan09Through17=bounded([...persistent]
+  // An unrelated code-less trade cannot imply a trade in a monitored code.
+  // But if any unmappable blank-code trade falls in the audited interval,
+  // code-level proof of ABSENCE is not available without master mapping.
+  const noMatchedTrade=bounded([...persistent]
     .filter(k=>!tradedJan09.has(k)&&!tradedLater.has(k)).length);
+  tradeWindows.codesWithoutTradesJan09Through17=codeLessRelevantUnresolved?null:noMatchedTrade;
+  tradeWindows.codesWithNoMatchedTradeEvidenceJan09Through17=noMatchedTrade;
+  tradeWindows.codeLessMappedAllDates=bounded(codeLessMapped);
+  tradeWindows.codeLessMappedToPersistentCodesJan09Through17=bounded(codeLessRelevantMapped);
+  tradeWindows.unresolvedCodeLessTradesJan09Through17=bounded(codeLessRelevantUnresolved);
+  tradeWindows.ambiguousNameCodeTradesJan09Through17=bounded(codeLessRelevantAmbiguous);
   // No private codes/dates of individual trades/amounts are ever returned.
   return {mode:'ISSUE507_PERSISTENT_QTY_COST_PRIVATE_LEDGER_TRIAGE',
     recurringMissingQtyCostCodes:bounded(persistent.size),
@@ -179,6 +221,8 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
     categoryCountsAcrossThreeDates:categories,
     crossDateChangedCodeCounts:changed,
     privateLedgerTradeActivity:tradeWindows,
+    ledgerTradeAbsenceCertified:codeLessRelevantUnresolved===0,
+    nameResolutionMatchesProductionMasterCertified:false,
     ledgerTransactionPresenceIsNotCausality:true,
     categoryIsBasedOnNumericPrecisionQty8Cost0:true,
     verifiedLedgerLotReconstruction:false,verifiedHistoricalCorporateActions:false,
@@ -294,6 +338,35 @@ export async function selfTest(){
   assert.equal(qResult.privateLedgerTradeActivity.codesTradedJan09,1);
   assert.equal(qResult.privateLedgerTradeActivity.codesTradedJan10Through17,1);
   assert.equal(qResult.privateLedgerTradeActivity.postJan17,1);
+  assert.equal(qResult.privateLedgerTradeActivity.codesWithoutTradesJan09Through17,0);
+  // If GAS sees a blank-code transaction by recognized name it must count.
+  // Give the recurring code an unambiguous expected name.
+  const named=structuredClone(qtyCostDrift);
+  named.diagnostics.forEach(day=>{
+    day.expectedRows[2][2]='UNIQUE_LEDGER_NAME';
+    day.storedRows[2][2]='UNIQUE_LEDGER_NAME';
+  });
+  const codedByName=structuredClone(tradeFixture);
+  codedByName.trades.push({date:'2026-01-09',code:'',name:'UNIQUE_LEDGER_NAME',tradeType:'buy'});
+  const resolvedNames=analyzePersistentQtyCost(named,codedByName);
+  assert.equal(resolvedNames.privateLedgerTradeActivity.codeLessMappedToPersistentCodesJan09Through17,1);
+  assert.equal(resolvedNames.privateLedgerTradeActivity.jan09,2);
+  assert.equal(resolvedNames.privateLedgerTradeActivity.codesTradedJan09,1);
+  assert.equal(resolvedNames.ledgerTradeAbsenceCertified,true);
+  // Ambiguous or unknown names must NOT produce a false "no trade" claim.
+  const unknown=structuredClone(codedByName);
+  unknown.trades.push({date:'2026-01-10',code:'',name:'UNKNOWN_LEDGER_NAME',tradeType:'buy'});
+  const uncertain=analyzePersistentQtyCost(named,unknown);
+  assert.equal(uncertain.privateLedgerTradeActivity.unresolvedCodeLessTradesJan09Through17,1);
+  assert.equal(uncertain.privateLedgerTradeActivity.codesWithoutTradesJan09Through17,null);
+  assert.equal(uncertain.ledgerTradeAbsenceCertified,false);
+  // Same display name with multiple explicitly coded instruments is ambiguous.
+  const aliasAmbiguous=structuredClone(unknown);
+  aliasAmbiguous.trades.push({date:'2026-01-09',code:'999999',name:'UNIQUE_LEDGER_NAME',tradeType:'buy'});
+  aliasAmbiguous.trades.push({date:'2026-01-10',code:'',name:'UNIQUE_LEDGER_NAME',tradeType:'buy'});
+  const ambiguousResult=analyzePersistentQtyCost(named,aliasAmbiguous);
+  assert.equal(ambiguousResult.privateLedgerTradeActivity.ambiguousNameCodeTradesJan09Through17,2);
+  assert.equal(ambiguousResult.ledgerTradeAbsenceCertified,false);
   assert.equal(qResult.verifiedLedgerLotReconstruction,false);
   assert.equal(qResult.restoreAllowed,false);
   assert.ok(!JSON.stringify(qResult).includes('000003'));
