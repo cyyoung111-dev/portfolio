@@ -26,9 +26,15 @@ function presence(value){
   return value.trim()?'PRESENT':'ABSENT';
 }
 function ageBucket(createdAt,observedAt){
-  const valid=value=>typeof value==='string'
-    &&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)
-    &&Number.isFinite(Date.parse(value));
+  const valid=value=>{
+    if(typeof value!=='string'
+      ||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value))return false;
+    const timestamp=Date.parse(value);
+    // Date.parse normalizes impossible calendar dates (for example Feb 30).
+    // The server reports UTC Z, so round-trip every year/month/day/time field.
+    return Number.isFinite(timestamp)
+      &&new Date(timestamp).toISOString().slice(0,19)===value.slice(0,19);
+  };
   if(!valid(createdAt)||!valid(observedAt))return 'UNVERIFIED';
   const age=Date.parse(observedAt)-Date.parse(createdAt);
   if(age<0)return 'FUTURE_OR_CLOCK_SKEW';
@@ -252,6 +258,14 @@ export async function selfTest(){
   assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.operationIdPresence,'ABSENT');
   noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='INVALID';
   assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-02-30T10:00:00.000Z';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-02-29T10:00:00.000Z';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
+  const leap=structuredClone(metadata);
+  leap.workbook.generatedAt='2024-03-01T00:00:00.000Z';
+  leap.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2024-02-29T23:00:00.000Z';
+  assert.equal(summarizeWorkbook(leap)[2].registrationMetadata.creationAgeBucket,'LESS_THAN_ONE_HOUR');
   const skews=structuredClone(metadata);
   skews.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-10-22T10:00:00.000Z';
   assert.equal(summarizeWorkbook(skews)[2].registrationMetadata.creationAgeBucket,'FUTURE_OR_CLOCK_SKEW');
