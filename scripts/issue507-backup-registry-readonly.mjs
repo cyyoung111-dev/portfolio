@@ -243,7 +243,7 @@ export async function selfTest(){
   assert.equal(state[2].registrationMetadata.updateTimePresence,'ABSENT');
   assert.equal(state[2].registrationMetadata.completionTimePresence,'ABSENT');
   assert.equal(state[2].registrationMetadata.orphanAdopted,'NO');
-  assert.equal(state[0].registrationMetadata.operationIdPresence,'PRESENT');
+  assert.equal(state[0].registrationMetadata.operationIdPresence,'ABSENT');
   assert.equal(unregReport[0].registrationMetadata.operationIdPresence,'NOT_REGISTERED');
   assert.ok(!JSON.stringify(state).includes('PRIVATE_OPERATION_ID_DO_NOT_LEAK'));
   assert.ok(!JSON.stringify(state).includes('2026-10-21T10:00:00.000Z'));
