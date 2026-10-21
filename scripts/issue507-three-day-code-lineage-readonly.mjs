@@ -102,6 +102,91 @@ export function summarizeThreeDays(payload){
     sourceAtCopyVerified:false,allowedToRestore:false,allowedToDelete:false,
     writesPerformed:0,note:'Code joins and row amounts are private to the runner; aggregate source family names are only existing labels, not verified historical prices.'};
 }
+
+// Additional triage: determine whether the six recurring qty/cost mismatches
+// can be explained by a ledger trade in the *interval*. Presence of a trade
+// is context, not proof: this probe does not reconstruct lots or price basis.
+export function analyzePersistentQtyCost(payload,tradesResponse){
+  const baseline=summarizeThreeDays(payload);
+  guard(tradesResponse?.status==='ok'&&Array.isArray(tradesResponse.trades)
+    &&tradesResponse.trades.length<=100000,'TRADE_SCHEMA');
+  const maps=payload.diagnostics.map(day=>{
+    const expected=new Map(day.expectedRows.map(r=>[id(r),r]));
+    const stored=new Map();
+    day.storedRows.forEach(r=>{
+      const k=id(r);
+      if(!stored.has(k))stored.set(k,[]);
+      stored.get(k).push(r);
+    });
+    const mismatch=new Map([...expected].filter(([k,row])=>
+      stored.has(k)&&!stored.get(k).some(sr=>qtyCost(sr)===qtyCost(row))));
+    return {expected,stored,mismatch};
+  });
+  const persistent=new Set([...maps[0].mismatch.keys()]
+    .filter(k=>maps.slice(1).every(m=>m.mismatch.has(k))));
+  const lastOnly=new Set([...maps[2].mismatch.keys()]
+    .filter(k=>!persistent.has(k)));
+  const categories={QTY_ONLY_DRIFT:0,COST_ONLY_DRIFT:0,QTY_AND_COST_DRIFT:0,
+    DIFFERENT_ROWS_MATCH_FIELDS_SEPARATELY:0};
+  const changed={ledgerQtyAcrossDates:0,ledgerCostAcrossDates:0,
+    storedQtyCandidateAcrossDates:0,storedCostCandidateAcrossDates:0};
+  for(const k of persistent){
+    const perDay=maps.map(m=>{
+      const er=m.expected.get(k),candidates=m.stored.get(k);
+      guard(er&&candidates?.length,'CODE_JOIN');
+      const q=pctNumber(er[3],8),cost=pctNumber(er[5],0);
+      const anyQ=candidates.some(r=>pctNumber(r[3],8)===q);
+      const anyCost=candidates.some(r=>pctNumber(r[5],0)===cost);
+      const label=anyQ?(anyCost?'DIFFERENT_ROWS_MATCH_FIELDS_SEPARATELY':'COST_ONLY_DRIFT')
+        :anyCost?'QTY_ONLY_DRIFT':'QTY_AND_COST_DRIFT';
+      return {q,cost,label,
+        storedQty:JSON.stringify([...new Set(candidates.map(r=>pctNumber(r[3],8)))].sort((a,b)=>a-b)),
+        storedCost:JSON.stringify([...new Set(candidates.map(r=>pctNumber(r[5],0)))].sort((a,b)=>a-b))};
+    });
+    for(const v of perDay)categories[v.label]=bounded(categories[v.label]+1);
+    if(new Set(perDay.map(x=>x.q)).size>1)changed.ledgerQtyAcrossDates++;
+    if(new Set(perDay.map(x=>x.cost)).size>1)changed.ledgerCostAcrossDates++;
+    if(new Set(perDay.map(x=>x.storedQty)).size>1)changed.storedQtyCandidateAcrossDates++;
+    if(new Set(perDay.map(x=>x.storedCost)).size>1)changed.storedCostCandidateAcrossDates++;
+  }
+  const tradeWindows={
+    preOrOnJan08:0,jan09:0,jan10Through17:0,postJan17:0,
+    codesTradedJan09:0,codesTradedJan10Through17:0,
+    codesWithoutTradesJan09Through17:0
+  };
+  const tradedJan09=new Set(),tradedLater=new Set();
+  for(const t of tradesResponse.trades){
+    guard(t&&typeof t.code==='string'&&typeof t.date==='string'
+      &&typeof t.tradeType==='string','TRADE_ROW');
+    const date=t.date.slice(0,10);
+    if(!persistent.has(normCode(t.code)))continue;
+    guard(/^\d{4}-\d{2}-\d{2}$/.test(date)
+      &&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date,'TRADE_DATE');
+    if(date<='2026-01-08')tradeWindows.preOrOnJan08++;
+    else if(date==='2026-01-09'){tradeWindows.jan09++;tradedJan09.add(normCode(t.code));}
+    else if(date<='2026-01-17'){tradeWindows.jan10Through17++;tradedLater.add(normCode(t.code));}
+    else tradeWindows.postJan17++;
+  }
+  Object.keys(tradeWindows).forEach(k=>{tradeWindows[k]=bounded(tradeWindows[k]);});
+  tradeWindows.codesTradedJan09=bounded(tradedJan09.size);
+  tradeWindows.codesTradedJan10Through17=bounded(tradedLater.size);
+  tradeWindows.codesWithoutTradesJan09Through17=bounded([...persistent]
+    .filter(k=>!tradedJan09.has(k)&&!tradedLater.has(k)).length);
+  // No private codes/dates of individual trades/amounts are ever returned.
+  return {mode:'ISSUE507_PERSISTENT_QTY_COST_PRIVATE_LEDGER_TRIAGE',
+    recurringMissingQtyCostCodes:bounded(persistent.size),
+    jan17ExtraMismatchCodes:bounded(lastOnly.size),
+    categoryCountsAcrossThreeDates:categories,
+    crossDateChangedCodeCounts:changed,
+    privateLedgerTradeActivity:tradeWindows,
+    ledgerTransactionPresenceIsNotCausality:true,
+    categoryIsBasedOnNumericPrecisionQty8Cost0:true,
+    verifiedLedgerLotReconstruction:false,verifiedHistoricalCorporateActions:false,
+    independentPriceVerification:false,restoreAllowed:false,deleteAllowed:false,
+    writesPerformed:0,sourceDigestStableWithinCall:false,
+    note:'This report only distinguishes qty/cost drift and whether trades exist; it does not approve price substitution or any Snapshot mutations.'};
+}
+
 async function request(url,token,action,args,fetchImpl){
   let res;
   try{
@@ -124,6 +209,9 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   const args={dates:TARGET_DATES.join(','),strictReadonly:'1'};
   const first=await request(endpoint,token,'diagnoseSnapshotIntegrityRange',args,fetchImpl);
   const summary=summarizeThreeDays(first);
+  // Trade-history read is private to the runner and never logged.
+  const trades=await request(endpoint,token,'getTrades',{},fetchImpl);
+  const persistent=analyzePersistentQtyCost(first,trades);
   const second=await request(endpoint,token,'diagnoseSnapshotIntegrityRange',args,fetchImpl);
   // Validate both actual responses; do not echo raw source digests.
   summarizeThreeDays(second);
@@ -132,8 +220,9 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   const after=validateInventory(await request(endpoint,token,'getAutomationStatus',{},fetchImpl));
   guard(before.dates.join('|')===after.dates.join('|')
     &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom,'QUEUE_CHANGED');
-  return {...summary,sourceStableWithinThisRead:true,queueStableWithinThisRead:true,
-    crossRunSourceStabilityCertified:false};
+  return {...summary,recurringQtyCostTriage:{...persistent,
+      sourceDigestStableWithinCall:true},sourceStableWithinThisRead:true,
+    queueStableWithinThisRead:true,crossRunSourceStabilityCertified:false};
 }
 function fixtureDay(date){
   const row=(c,qty,evalAmount,source='KRX')=>
@@ -181,6 +270,37 @@ export async function selfTest(){
   assert.ok(!JSON.stringify(result).includes('SYNTH'));
   const drift=structuredClone(data);drift.diagnostics[1].missingCodes=[];
   assert.throws(()=>summarizeThreeDays(drift),/DRIFT/);
+
+  const qtyCostDrift=structuredClone(data);
+  qtyCostDrift.diagnostics.forEach(day=>{
+    // Separate original ledger expected from an *older* Snapshot record.
+    day.storedRows[2][3]=2;
+    day.storedRows[2][5]=20;
+  });
+  // On 01-17 another stored code mismatches without being a three-day issue.
+  qtyCostDrift.diagnostics[2].storedRows[0][3]=2;
+  qtyCostDrift.diagnostics[2].storedRows[1][3]=2;
+  const tradeFixture={status:'ok',trades:[
+    {date:'2025-12-30',code:'000003',name:'SYNTH',tradeType:'buy'},
+    {date:'2026-01-09',code:'000003',name:'SYNTH',tradeType:'sell'},
+    {date:'2026-01-11',code:'000003',name:'SYNTH',tradeType:'buy'},
+    {date:'2026-01-20',code:'000003',name:'SYNTH',tradeType:'buy'},
+    {date:'2026-01-10',code:'123456',name:'OTHER',tradeType:'buy'}
+  ]};
+  const qResult=analyzePersistentQtyCost(qtyCostDrift,tradeFixture);
+  assert.equal(qResult.recurringMissingQtyCostCodes,1);
+  assert.equal(qResult.jan17ExtraMismatchCodes,1);
+  assert.equal(qResult.categoryCountsAcrossThreeDates.QTY_AND_COST_DRIFT,3);
+  assert.equal(qResult.privateLedgerTradeActivity.codesTradedJan09,1);
+  assert.equal(qResult.privateLedgerTradeActivity.codesTradedJan10Through17,1);
+  assert.equal(qResult.privateLedgerTradeActivity.postJan17,1);
+  assert.equal(qResult.verifiedLedgerLotReconstruction,false);
+  assert.equal(qResult.restoreAllowed,false);
+  assert.ok(!JSON.stringify(qResult).includes('000003'));
+  assert.ok(!JSON.stringify(qResult).includes('SYNTH'));
+  const malformedTrades=structuredClone(tradeFixture);
+  malformedTrades.trades[0].tradeType=null;
+  assert.throws(()=>analyzePersistentQtyCost(qtyCostDrift,malformedTrades),/TRADE_ROW/);
   const status={status:'ok',gasVersion:'9.244',automation:{
     gasVersion:'9.244',tradeSnapshotDeferredDates:dates,
     tradeSnapshotDeferredCount:3,tradeSnapshotDeferredOldestDate:dates[0],
@@ -191,20 +311,21 @@ export async function selfTest(){
     calls.push(action);
     return {ok:true,json:async()=>t!=='TEST_TOKEN'
       ?{status:'error',message:'인증 실패'}
-      :action==='getAutomationStatus'?status:data};
+      :action==='getAutomationStatus'?status:action==='getTrades'?tradeFixture:data};
   };
   const live=await runReadonly({url:'https://script.google.com/macros/s/TEST/exec',
     token:'TEST_TOKEN',fetchImpl:stub});
   assert.equal(live.sourceStableWithinThisRead,true);
   assert.equal(live.queueStableWithinThisRead,true);
   assert.deepEqual(calls,['getAutomationStatus','getAutomationStatus',
-    'diagnoseSnapshotIntegrityRange','diagnoseSnapshotIntegrityRange','getAutomationStatus']);
+    'diagnoseSnapshotIntegrityRange','getTrades','diagnoseSnapshotIntegrityRange','getAutomationStatus']);
   const mutated=structuredClone(data);mutated.strictSourceDigest='b'.repeat(64);
   let countCalls=0;
   const changed=async(_url,options)=>{
     const action=options.body.get('action'),token=options.body.get('accessToken');
     const response=token!=='TEST_TOKEN'?{status:'error',message:'인증 실패'}
-      :action==='getAutomationStatus'?status:++countCalls===1?data:mutated;
+      :action==='getAutomationStatus'?status:action==='getTrades'?tradeFixture:
+        ++countCalls===1?data:mutated;
     return {ok:true,json:async()=>response};
   };
   await assert.rejects(runReadonly({url:'https://script.google.com/macros/s/TEST/exec',
