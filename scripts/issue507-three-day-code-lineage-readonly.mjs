@@ -531,9 +531,9 @@ export async function selfTest(){
   assert.equal(priorProbe.earliestDivergenceDateProven,false);
   const incomplete=structuredClone(reconstructed);
   incomplete.diagnostics[0].sourceDataErrors=['PRIVATE_PRICE_SOURCE_INCOMPLETE'];
-  const unknown=comparePriorBaseline(qtyCostDrift,incomplete);
-  assert.equal(unknown.days[0].status,'SOURCE_UNVERIFIABLE');
-  assert.equal(unknown.days[0].mismatchedQtyCost,null);
+  const unverifiableBaseline=comparePriorBaseline(qtyCostDrift,incomplete);
+  assert.equal(unverifiableBaseline.days[0].status,'SOURCE_UNVERIFIABLE');
+  assert.equal(unverifiableBaseline.days[0].mismatchedQtyCost,null);
   assert.ok(!JSON.stringify(priorProbe).includes('000003'));
   assert.ok(!JSON.stringify(priorProbe).includes('SYNTH'));
   const wrongDates=structuredClone(reconstructed);
