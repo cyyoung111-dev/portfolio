@@ -3,6 +3,7 @@
 - **배포 상태:** PR #609 Draft 검증 후보. `main` 소스 v9.252와 **실제 운영 GAS**는 별개이며 운영 최근 확인 v9.244 이후 실제 배포 버전은 재확인 필요. 이 커밋은 GAS 배포·트리거 변경·실운영 Snapshot/거래이력·원천 수정이 아닙니다. 실행 가능한 배포는 병합·별도 명시적 승인과 workflow_dispatch 뒤에만 검토합니다.
 - **릴리스 pin 후보:** `gasVersion=9.253`, 전체 `src/gas/apps_script.gs` Git blob `cc4b5509ef86bc48096c0127d84e8ff82c743e9d`. `scripts/deploy-gas.mjs`, `scripts/check-gas-deploy.mjs`, 웹 `EXPECTED_GAS_VERSION`과 일치해야 하며 이전 버전의 승인 지문은 유지. 이 지문을 등록해도 Code/Codex 리뷰 및 운영 배포 승인이 완료된 것은 아닙니다.
 - **수정 범위:** 외부 `saveSnapshot` handler의 입력 수량·취득원가를 해당 요청일 이하 거래원장 reducer 및 펀드좌수 적용값과 비교. 부재/미매수/원가변경/종목 alias 충돌/좌수 0/원장 읽기 실패 시 **fail-closed**; Snapshot 재작성 계획이나 백업·쓰기 전에 차단. 코드는 당일 ScriptLock 내부에서 원장 읽기→보호 충돌 판정→date-scoped Snapshot Writer 호출까지 실행. 수동 평가단가·평가액 소스는 변경하지 않습니다.
+- **트리거 계약(변경 없음):** Portfolio close 22:10, historical backfill 23:10, midnight recovery 00:30, morning KRX 08:45 (KST). PR #609는 스케줄·트리거 등록 함수를 수정하지 않으며 기존 실행시간 회귀시험을 유지합니다.
 - **검증:** [PR #609](https://github.com/cyyoung111-dev/portfolio/pull/609)에 실제 GAS 함수를 합성 거래원장으로 실행하는 오프라인 회귀시험을 `check:ci`에 추가. 보호 누락 RED 확인 후 수정, CI/Quality·웹·gas-deploy·기존 Writer 보호 회귀 및 Codex 판단을 병합 전 완료해야 합니다. 외부 Sheets API가 동일 셀에 직접 쓰는 TOCTOU, 백업 생성의 완전 원자성은 이 변경만으로 해결되지 않습니다.
 - **배포 후 검증(별도 승인 필요):** 운영 `getSettings.gasVersion=9.253`/`getAutomationStatus.gasVersion=9.253` read-only 교차확인, 기존 원장/가격/NAV/FX/펀드좌수/Snapshot/백업·registry·큐 변경 없음 재확인, 수량·원가 오입력에 대한 synthetic CI 및 운영 관측 분리. **원본 과거 4,195행 자동 복원·삭제·날짜 채우기 금지**, `restoreAllowed=false`, `deleteAllowed=false`.
 
