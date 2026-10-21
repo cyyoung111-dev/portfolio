@@ -34,8 +34,8 @@ const make=(code,name,qty,costAmt,evalAmt=costAmt)=>({
 });
 const standard=make('000001','Alpha New',10,1000,1350);
 
-function fixture({ledger=trades,units=[],ledgerReadError=false}={}){
-  let locked=false,planCalls=0,writes=0,readCalls=0,lockWaits=0,lockReleases=0;
+function fixture({ledger=trades,units=[],ledgerReadError=false,unsafe=false}={}){
+  let locked=false,planCalls=0,writes=0,readCalls=0,lockWaits=0,lockReleases=0,savedRows=null;
   const tradeSheet={
     getLastRow:()=>ledger.length+1,
     getLastColumn:()=>11,
@@ -69,14 +69,14 @@ function fixture({ledger=trades,units=[],ledgerReadError=false}={}){
     ],
     _readFundUnits:()=>units.map(x=>({...x})),
     _isFundCode:code=>/^F\d{5}$/.test(String(code)),
-    _snapshotRewritePlan:()=>{planCalls++;assert.equal(locked,true);return {unsafe:[]};},
-    writeSnapshotRows:()=>{assert.equal(locked,true,'writer must share guard lock');writes++;},
+    _snapshotRewritePlan:()=>{planCalls++;assert.equal(locked,true);return {unsafe:unsafe?[{classification:'SYNTHETIC',reason:'PROTECTED'}]:[]};},
+    writeSnapshotRows:(sheet,day,rows)=>{assert.equal(locked,true,'writer must share guard lock');savedRows=JSON.parse(JSON.stringify(rows));writes++;},
     jsonOk:value=>({status:'ok',...value}),
     jsonError:message=>({status:'error',message:String(message)})
   });
   vm.runInContext(production,ctx,{filename:'actual-gas-save-snapshot.js'});
   const send=(day,rows)=>ctx.handleSaveSnapshot(day,encodeURIComponent(JSON.stringify(rows)));
-  return {send,stats:()=>({locked,planCalls,writes,readCalls,lockWaits,lockReleases})};
+  return {send,stats:()=>({locked,planCalls,writes,readCalls,lockWaits,lockReleases}),savedRows:()=>savedRows};
 }
 function expectBlocked(label,day,rows,opts){
   const e=fixture(opts),result=e.send(day,rows),stats=e.stats();
@@ -84,7 +84,9 @@ function expectBlocked(label,day,rows,opts){
   assert.equal(stats.planCalls,0,label+': no rewrite plan on invalid payload');
   assert.equal(stats.writes,0,label+': do not write original Snapshot');
   assert.equal(stats.locked,false,label+': release lock after error');
-  assert.ok(stats.readCalls>=1,label+': consult source ledger');
+  if (['not a number qty','not a date'].includes(label))
+    assert.equal(stats.readCalls,0,label+': malformed payload blocks before ledger read');
+  else assert.ok(stats.readCalls>=1,label+': consult source ledger');
 }
 
 expectBlocked('future position before first buy','2026-03-01',[standard]);
@@ -92,6 +94,7 @@ expectBlocked('qty drift','2026-03-11',[make('000001','Alpha New',11,1000)]);
 expectBlocked('cost drift','2026-03-11',[make('000001','Alpha New',10,1001)]);
 expectBlocked('different-date position','2026-03-11',[make('000001','Alpha New',15,1600)]);
 expectBlocked('unknown holding','2026-03-11',[make('000999','Unknown',1,10)]);
+expectBlocked('code and name alias conflict','2026-03-11',[make('000002','Alpha New',5,1000)]);
 expectBlocked('atomic mixed payload','2026-03-11',[
   standard,make('000002','Beta',999,1000)]);
 expectBlocked('not a number qty','2026-03-11',[make('000001','Alpha New','NaN',1000)]);
@@ -113,6 +116,15 @@ expectBlocked('ledger cost revised after stale client read','2026-03-11',[standa
   assert.equal(e.stats().locked,false);
   assert.equal(e.stats().lockWaits,1);
   assert.equal(e.stats().lockReleases,1);
+  assert.equal(e.savedRows()?.[0]?.[7],1350,'MANUAL valuation must stay editable');
+  assert.equal(e.savedRows()?.[0]?.[10],'MANUAL','MANUAL source must be preserved');
+}
+{
+  const e=fixture({unsafe:true}),r=e.send('2026-03-11',[standard]);
+  assert.equal(r.status,'error','existing Snapshot protection collision remains blocking');
+  assert.equal(e.stats().writes,0);
+  assert.equal(e.stats().planCalls,1);
+  assert.equal(e.stats().locked,false,'collision must release lock');
 }
 {
   const e=fixture(),r=e.send('2026-03-11',[make('000001','Alpha New',10,1000),
