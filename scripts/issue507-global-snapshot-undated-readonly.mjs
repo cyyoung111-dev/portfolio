@@ -182,8 +182,17 @@ export async function selfTest(){
   // Keep this allowlist tied to actual producer literals; unknown source
   // schema changes must fail the contract rather than silently misclassify.
   const gasSource=fs.readFileSync(new URL('../src/gas/apps_script.gs',import.meta.url),'utf8');
-  assert.ok(gasSource.includes('snap.appendRow('+JSON.stringify(legacy)
-    .replaceAll('"',"'")+');'),'GAS fund creator legacy header drift');
+  // Test oracle: compare this allowlist with BOTH real production sheet creators.
+  // No generated test header is allowed to silently differ from its producer.
+  const actualHeader=expression=>{
+    const match=gasSource.match(expression);
+    assert.ok(match,'GAS Snapshot producer header must be found');
+    return JSON.parse(match[1].replaceAll("'",'"'));
+  };
+  const actualFund=actualHeader(/snap\.appendRow\((\['날짜'[^\]\n]*\])\)/);
+  const actualNormal=actualHeader(/snap\.getRange\(1,1,1,12\)\.setValues\(\[(\['날짜'[^\]\n]*\])\]\)/);
+  assert.deepEqual(actualFund,legacy,'actual fund Snapshot creator schema drift');
+  assert.deepEqual(actualNormal,H,'actual regular Snapshot creator schema drift');
   assert.equal(legacyCheck.datedMaterialRows,1);
   assert.equal(legacyCheck.repeatedHeaderRows,1);
   assert.equal(legacyCheck.globalIntegrityClear,false);
