@@ -31,9 +31,14 @@ function key(v){
   if(/^\d+$/.test(s))return s.padStart(6,'0');
   return /^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/.test(s)&&s.length<=30&&/[A-Z]/.test(s)?s:'';
 }
-const HEADER=['날짜','종목코드','종목명','수량','매수단가','매수원금'];
-// Both combinations are emitted by actual GAS Snapshot creation paths.
-const LEGACY_FUND_HEADER=['날짜','종목코드','종목명','수량','매입단가','매입원금'];
+// Snapshot read paths use two known cost-label variants. Validate all A:K
+// semantic positions before interpreting valuation or provenance columns.
+// L (savedAt) is optional historical metadata and never a classified value.
+const SNAPSHOT_TAIL=['평가단가','평가금액','손익','수익률(%)','평가단가소스'];
+const HEADER=['날짜','종목코드','종목명','수량','매수단가','매수원금',
+  ...SNAPSHOT_TAIL];
+const LEGACY_FUND_HEADER=['날짜','종목코드','종목명','수량','매입단가','매입원금',
+  ...SNAPSHOT_TAIL];
 const header=row=>[HEADER,LEGACY_FUND_HEADER].some(expected=>
   expected.every((x,i)=>String(row?.[i]??'').trim()===x));
 
@@ -43,10 +48,18 @@ const header=row=>[HEADER,LEGACY_FUND_HEADER].some(expected=>
 const FINANCIAL_COLUMNS=[3,4,5,6,7,8,9];
 const QTY_COST_COLUMNS=[3,4,5];
 const VALUATION_COLUMNS=[6,7,8,9];
+// Do not coerce booleans, arrays, dates, hexadecimal, Infinity or arbitrary
+// strings into financial figures. Permit primitive finite numbers, canonical
+// decimal strings and strictly grouped thousands separators only.
+const DECIMAL=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+const GROUPED_DECIMAL=/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d*)?(?:[eE][+-]?\d+)?$/;
 function financialNumber(row,index){
   const raw=row?.[index];
-  if(raw===null||raw===undefined||String(raw).trim()==='')return null;
-  const number=Number(raw);
+  if(typeof raw==='number')return Number.isFinite(raw)?raw:null;
+  if(typeof raw!=='string')return null;
+  const value=raw.trim();
+  if(!DECIMAL.test(value)&&!GROUPED_DECIMAL.test(value))return null;
+  const number=Number(value.replaceAll(',',''));
   return Number.isFinite(number)?number:null;
 }
 function columnSignature(row,columns){
@@ -146,7 +159,7 @@ function getProd(names){
   }).join('\n');
 }
 export async function selfTest(){
-  const H=HEADER.concat(['평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']);
+  const H=HEADER.concat(['저장일시']);
   const row=(d,c,q=1,cost=10)=>[d,c,'SYNTH',q,10,cost,11,11,1,10,'SYNTH',''];
   const fixtures=[H,row('2026-09-15','000111'),row('2026-09-16','000222'),
     row('', '000333',2,20),row(null,'000444',3,30),
@@ -159,6 +172,21 @@ export async function selfTest(){
   assert.equal(legacyCheck.globalIntegrityClear,false);
   const invalidPair=H.slice();invalidPair[4]='매입단가';
   assert.throws(()=>auditGlobalSnapshot([invalidPair,row('2026-09-15','1')]),
+    /HEADER_SCHEMA/);
+  // Each G:K semantic position is required, including legacy cost labels.
+  for(let col=6;col<=10;col++){
+    const tampered=H.slice();tampered[col]=H[col+1]||'ALTERED';
+    assert.throws(()=>auditGlobalSnapshot([tampered,
+      row('2026-09-15','000001'),row('2026-09-15','000001')]),
+      /HEADER_SCHEMA/);
+    const legacyTampered=legacy.slice();legacyTampered[col]='BAD';
+    assert.throws(()=>auditGlobalSnapshot([legacyTampered,row('2026-09-15','1')]),
+      /HEADER_SCHEMA/);
+  }
+  const shuffled=H.slice();[shuffled[6],shuffled[7]]=[shuffled[7],shuffled[6]];
+  assert.throws(()=>auditGlobalSnapshot([shuffled,row('2026-09-15','1')]),
+    /HEADER_SCHEMA/);
+  assert.throws(()=>auditGlobalSnapshot([H.slice(0,6),row('2026-09-15','1')]),
     /HEADER_SCHEMA/);
   const z=auditGlobalSnapshot(fixtures);
   assert.equal(z.undatedMaterialRows,2);
@@ -192,6 +220,29 @@ export async function selfTest(){
   assert.equal(classified.duplicateQtyCostConflictGroups,1);
   assert.equal(classified.duplicateNumericUnverifiedGroups,1);
   assert.equal(classified.duplicateExtraRows,5);
+  // Old Number(raw) silently turned booleans and hex into valid figures.
+  // Each invalid cell must fail closed even when its counterpart is numeric.
+  const malformed=[true,false,'0x10','0b10','Infinity','NaN','1_000',
+    '12,34','1e999',{},[],null,'   ','1 2','1.2.3'];
+  for(const [index,value] of malformed.entries()){
+    const first=row('2026-09-19','099991');
+    const second=first.slice();first[3]=index===0?1:16;second[3]=value;
+    const result=auditGlobalSnapshot([H,first,second]);
+    assert.equal(result.duplicateNumericUnverifiedGroups,1);
+    assert.equal(result.duplicateSameComparableGroups,0);
+    assert.equal(result.restoreAllowed,false);
+  }
+  const validNumberCases=[
+    ['-2.5',-2.5],['0',0],['+0.50',0.5],['1.25e3',1250],
+    ['1,234.50',1234.5],['0.000001',0.000001],['-1,000',-1000]
+  ];
+  for(const [formatted,number] of validNumberCases){
+    const first=row('2026-09-19','099992');
+    const second=first.slice();first[3]=number;second[3]=formatted;
+    const result=auditGlobalSnapshot([H,first,second]);
+    assert.equal(result.duplicateSameComparableGroups,1);
+    assert.equal(result.duplicateNumericUnverifiedGroups,0);
+  }
   assert.equal(classified.restoreAllowed,false);
   assert.equal(classified.deleteAllowed,false);
   assert.equal(classified.fullSheetAtomicallyRead,false);
