@@ -3,6 +3,27 @@
 // diagnose-backfill-status.mjs. Never call a GAS write endpoint or log secrets.
 import fs from 'node:fs';
 
+// The prior READ_ONLY sanitizer already classifies these values; never
+// forward free-form GAS exception text or an unrecognized reason to logs.
+const HISTORICAL_REASONS=new Set(['STARTED','COMPLETE','FAILED','NO_WORK',
+  'FUND_ACTIVE','CLOSE_ACTIVE','BACKFILL_BUSY','LEASE_CONFLICT',
+  'BLOCKED_PRECONDITION','EXCEPTION']);
+const BACKFILL_FAILURE_CLASSES=new Set([
+  'DETAIL_NOT_EXPOSED','SAVED_SNAPSHOT_DATE_INVALID',
+  'SAVED_SNAPSHOT_INTEGRITY_FAILED','SAVED_KRX_OR_SNAPSHOT_PROOF_FAILED',
+  'CLOSE_RECONCILIATION_FAILED','BACKUP_SAFETY_FAILED',
+  'PRICE_WRITE_NOT_CONFIRMED','KRX_PRICE_SOURCE_OR_COVERAGE',
+  'SNAPSHOT_SAVE_OR_PROOF','LEASE_OR_WRITER_CONFLICT',
+  'FUND_OR_NAV_PRECONDITION','OTHER_UNCLASSIFIED']);
+const safeBucket=(value,allowed)=>value==null?'NOT_REPORTED':
+  allowed.has(value)?value:'UNVERIFIED';
+const safeRunDate=value=>{
+  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return '-';
+  const parsed=new Date(value+'T00:00:00Z');
+  return Number.isFinite(parsed.getTime())
+    &&parsed.toISOString().slice(0,10)===value?value:'-';
+};
+
 function kstDay(now) {
   return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',
     year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
@@ -39,12 +60,19 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   const today=kstDay(now), prior=previousDay(today);
   const expectedSlots=[['2310',prior],['0030',today]];
   const slotStates={};
+  const historicalSlotReasons={};
+  const historicalSlotRunDates={};
   for(const [slot,date] of expectedSlots) {
     const record=data['historical'+slot];
     if(!checkpointRelease||!record){
       issues.push('HISTORICAL_'+slot+'_NOT_OBSERVED');
-      slotStates[slot]='NOT_OBSERVED';continue;
+      slotStates[slot]='NOT_OBSERVED';
+      historicalSlotReasons[slot]='NOT_OBSERVED';
+      historicalSlotRunDates[slot]='-';
+      continue;
     }
+    historicalSlotReasons[slot]=safeBucket(record.reason,HISTORICAL_REASONS);
+    historicalSlotRunDates[slot]=safeRunDate(record.runDate);
     const state=String(record.state||'');
     if(record.runDate!==date){
       issues.push('HISTORICAL_'+slot+'_STALE');
@@ -71,6 +99,13 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
     gasVersion:String(data.gasVersion||''),
     issues,
     historicalSlotStates:slotStates,
+    // Supplemental provenance of a checkpoint, not Apps Script Executions.
+    historicalSlotReasons,
+    historicalSlotRunDates,
+    lastBackfillFailureClass:safeBucket(
+      data.latestBackfill?.failureClass,BACKFILL_FAILURE_CLASSES),
+    lastHistoricalFailureClass:safeBucket(
+      data.latestHistoricalBackfill?.failureClass,BACKFILL_FAILURE_CLASSES),
     pendingCount:data.pendingCount,
     pendingDates:data.pendingDates,
     pendingTradeSnapshotRebuildFrom:ledgerPending||'-',
@@ -103,8 +138,15 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| Snapshot 마지막 날 | '+result.snapshotLastDate+' |',
         '| 점검 코드 | '+(result.issues.join(', ')||'없음')+' |',
         '| 23:10 결과 | '+result.historicalSlotStates['2310']+' |',
+        '| 23:10 기록일·사유 | '+result.historicalSlotRunDates['2310']+
+          ' / '+result.historicalSlotReasons['2310']+' |',
         '| 00:30 결과 | '+result.historicalSlotStates['0030']+' |',
+        '| 00:30 기록일·사유 | '+result.historicalSlotRunDates['0030']+
+          ' / '+result.historicalSlotReasons['0030']+' |',
+        '| KRX 백필 장애 분류 | '+result.lastBackfillFailureClass+' |',
+        '| 과거 재처리 장애 분류 | '+result.lastHistoricalFailureClass+' |',
         '',
+        '기록일·사유는 비식별 저장 체크포인트 기준이며 실제 GAS 실행 로그나 원인 확정이 아닙니다.',
         '가격이력·Snapshot·ScriptProperties를 변경하지 않는 점검입니다.'
       ];
       fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join('\n')+'\n');
