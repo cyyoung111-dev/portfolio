@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.252
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.253
 //
+//  v9.253 변경사항 (2026.10.21):
+//  - #507 클라이언트 saveSnapshot에 거래일 원장 수량·취득원가 검증 추가.
+//  - 수동 평가가격은 유지, 첫 매수 이전·stale 입력·펀드 0좌·원장 조회 실패는 저장 차단.
+//  - ledger 검증~Snapshot write까지 ScriptLock 유지(외부 API 동일셀 CAS는 미해결).
 //  v9.252 변경사항 (2026.10.21):
 //  - #507 등록 전 실패 백업 orphan의 무증거 COMPLETED 자동승격 차단.
 //  - 백업 진단의 orphan 삭제 후보 제외 및 과거 adopted orphan 보호.
@@ -2239,7 +2243,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.252',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.253',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2317,7 +2321,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.252', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.253', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -3433,32 +3437,111 @@ function handleNameLookup(code, serviceKey) {
 // ════════════════════════════════════════════════════════════════════
 //  스냅샷 저장
 // ════════════════════════════════════════════════════════════════════
+// Issue #507: direct saveSnapshot requests must not be able to materialize
+// a future/stale holding on an earlier trade date. Check *only* ledger-derived
+// identity, quantity and cost here; the user's MANUAL evaluation stays editable.
+// Caller holds ScriptLock through validation, rewrite plan and the actual write.
+function _validateClientSnapshotAgainstLedger_(ss, dateStr, rows) {
+  var normDate = _normalizeDate(dateStr || '');
+  var parsed = /^\d{4}-\d{2}-\d{2}$/.test(normDate)
+    ? new Date(normDate + 'T00:00:00Z') : null;
+  if (!parsed || isNaN(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== normDate) {
+    throw new Error('Snapshot 거래일 형식 오류');
+  }
+  var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!tradeSh || tradeSh.getLastRow() < 2 || tradeSh.getLastColumn() < 7) {
+    throw new Error('거래원장 부재로 Snapshot 저장 보류');
+  }
+  var tradeRows = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1,
+    Math.min(11, tradeSh.getLastColumn())).getValues();
+  var nameToCode = {}, displayByCode = {};
+  getCodeItems(ss, true).forEach(function(item) {
+    if (item.name && item.code) nameToCode[item.name] = item.code;
+    if (item.code && item.name) displayByCode[_cleanCode(item.code)] = item.name;
+  });
+  tradeRows.forEach(function(row) {
+    var name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || String(row[4] || '').trim();
+    if (name && code && !nameToCode[name]) nameToCode[name] = code;
+  });
+  var expected = _calcCodeHoldingsAtDate(tradeRows, normDate, nameToCode, displayByCode);
+  _applyFundUnitLifecycleToSnapshotHoldings(expected, _readFundUnits(ss), normDate);
+  var seen = {};
+  (rows || []).forEach(function(row) {
+    var name = String(row[2] || '').trim();
+    var suppliedCode = _cleanCode(row[1]) || String(row[1] || '').trim();
+    var mappedCode = _cleanCode(nameToCode[name]) || nameToCode[name] || '';
+    if (suppliedCode && mappedCode && suppliedCode !== mappedCode) {
+      throw new Error('Snapshot 종목명/코드 원장 매핑 충돌');
+    }
+    var key = suppliedCode || mappedCode || name;
+    if (!key || Object.prototype.hasOwnProperty.call(seen, key)) {
+      throw new Error('Snapshot 원장 식별자 누락·중복');
+    }
+    seen[key] = true;
+    var holding = expected[key];
+    var qty = Number(row[3]), cost = Number(row[5]);
+    if (!holding || !isFinite(qty) || !(qty > 0) ||
+        !isFinite(cost) || !(cost >= 0) ||
+        Math.abs(qty - Number(holding.qty)) > 0.0000001 ||
+        Math.abs(cost - Number(holding.costAmt)) > 0.5) {
+      throw new Error('Snapshot 거래일 원장 수량·취득원가 불일치: 저장 보류');
+    }
+  });
+  // overwrite=true removes same-date rows absent from the request. Reject a
+  // partial client payload rather than silently deleting ledger-held positions.
+  Object.keys(expected).forEach(function(key) {
+    if (expected[key] && Number(expected[key].qty) > 0 &&
+        !Object.prototype.hasOwnProperty.call(seen, key)) {
+      throw new Error('Snapshot 요청에 거래일 원장 보유종목 누락: 저장 보류');
+    }
+  });
+}
+
 function handleSaveSnapshot(dateStr, dataJson) {
+  var writeLock = null, ownsWriteLock = false;
   try {
     if (!dateStr || !dataJson) return jsonError('date, data 필요');
     var rows = JSON.parse(decodeURIComponent(dataJson));
     if (!Array.isArray(rows) || rows.length === 0) return jsonError('빈 데이터');
 
-    var ss        = getss();
-    var normDate  = _normalizeDate(dateStr);
+    var ss       = getss();
+    var normDate = _normalizeDate(dateStr);
     var newRows = rows.map(function(r) {
-      var qty = parseFloat(r.qty) || 0;
-      var costAmt = parseFloat(r.costAmt) || 0;
+      // Do not silently turn malformed client values into zero with parseFloat.
+      if (!r || !isFinite(Number(r.qty)) || !(Number(r.qty) > 0) ||
+          !isFinite(Number(r.costAmt)) || Number(r.costAmt) < 0) {
+        throw new Error('Snapshot 입력 수량·취득원가 오류');
+      }
+      var qty = Number(r.qty);
+      var costAmt = Number(r.costAmt);
       var evalAmt = parseFloat(r.evalAmt) || 0;
-      var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
-      var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
-      // ★ 12콸럼: 소스는 프론트가 전달한 값 사용, savedAt은 프론트 전달값 인정
+      var costUnit = parseFloat((costAmt / qty).toFixed(2));
+      var evalUnit = parseFloat((evalAmt / qty).toFixed(2));
       return [normDate, r.code||'', r.name||'', qty,
               costUnit, costAmt, evalUnit, evalAmt, r.pnl||0,
               r.pct ? parseFloat(r.pct.toFixed(2)) : 0,
               r.source || '', r.savedAt || ''];
     });
+
+    // Keep source replay, conflict check and commit in the same GAS lock.
+    // writeSnapshotRows reuses an already-held ScriptLock without releasing it.
+    writeLock = LockService.getScriptLock();
+    if (!writeLock.hasLock()) {
+      writeLock.waitLock(30000);
+      ownsWriteLock = true;
+    }
+    _validateClientSnapshotAgainstLedger_(ss, normDate, newRows);
     var savePlan = _snapshotRewritePlan(ss, normDate, newRows);
-    if (savePlan.unsafe.length) return jsonError('Snapshot 보호 충돌: ' + savePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
+    if (savePlan.unsafe.length) return jsonError('Snapshot 보호 충돌: ' +
+      savePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
     writeSnapshotRows(ss, normDate, newRows, true);
     return jsonOk({ saved: newRows.length, date: normDate });
   } catch(err) {
     return jsonError('스냅샷 저장 실패: ' + err.message);
+  } finally {
+    if (ownsWriteLock && writeLock) writeLock.releaseLock();
   }
 }
 
@@ -6144,7 +6227,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.252' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.253' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12999,7 +13082,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.252',
+    gasVersion: '9.253',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13064,7 +13147,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.252' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.253' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16924,7 +17007,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.252' });
+    return jsonOk({ settings: settings, gasVersion: '9.253' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16954,7 +17037,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.252'
+      gasVersion: '9.253'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

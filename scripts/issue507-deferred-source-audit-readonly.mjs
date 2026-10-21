@@ -11,7 +11,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const STATUS=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT',
   'SOURCE_INCOMPLETE','NO_SNAPSHOT','PRICE_SUSPICIOUS']);
 const CHUNK_SIZE=6;
-const SUPPORTED_GAS_VERSION=new Set(['9.244','9.245','9.246','9.247','9.248','9.249','9.250','9.251','9.252']);
+const SUPPORTED_GAS_VERSION=new Set(['9.244','9.245','9.246','9.247','9.248','9.249','9.250','9.251','9.252','9.253']);
 const MAX_AUDIT_DATES=60;
 function day(s){
   if(typeof s!=='string'||!DATE.test(s))return false;
@@ -198,6 +198,10 @@ export async function selfTest(){
   const changed=snapshot();changed.automation.tradeSnapshotDeferredDates.pop();
   assert.throws(()=>validateInventory(changed),/INVENTORY_SCHEMA/);
   assert.throws(()=>validateInventory({...snapshot(),gasVersion:'9.243'}),/INVENTORY_SCHEMA/);
+  const prior=snapshot();
+  prior.gasVersion='9.252';prior.automation.gasVersion='9.252';
+  assert.doesNotThrow(()=>validateInventory(prior),
+    'read-only inventory must remain compatible with earlier approved GAS v9.252');
   const a=validateInventory(snapshot());
   assert.throws(()=>buildAudit(a,{...a,pendingFrom:'2026-01-10'},[]),/QUEUE_MOVED/);
   const one=summarizeBatch(diag(dates.slice(0,6)),dates.slice(0,6));
@@ -281,7 +285,7 @@ export async function selfTest(){
   vm.runInContext(extract('_readTradeSnapshotDeferredState_','_writeTradeSnapshotDeferredState_')
     +'\n'+extract('_getAutomationStatusData','handleGetAutomationStatus'),ctx);
   const production=vm.runInContext('_getAutomationStatusData()',ctx);
-  assert.equal(production.gasVersion,'9.252');
+  assert.equal(production.gasVersion,'9.253');
   assert.equal(JSON.stringify(production.tradeSnapshotDeferredDates),JSON.stringify(dates));
   assert.equal(production.tradeSnapshotDeferredCursor,'2026-01-01');
   assert.equal(production.tradeSnapshotDeferredCount,dates.length);
