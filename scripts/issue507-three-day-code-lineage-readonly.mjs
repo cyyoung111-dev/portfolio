@@ -425,7 +425,8 @@ export function analyzeJan07Transition(threeDay,baseline,tradesResponse){
   }
   const involved=new Set(),tradeActivity={validPotentialRows:0,
     buyRows:0,sellRows:0,splitRows:0,reverseSplitRows:0,
-    codeLessMappedRows:0,unresolvedCodeLessRows:0,ambiguousCodeLessRows:0,
+    codeLessMappedRows:0,nameOnlyIdentityRows:0,
+    unresolvedCodeLessRows:0,ambiguousCodeLessRows:0,
     ignoredInvalidTypeOrNameRows:0,ignoredNonEffectiveRows:0,
     negativeQuantityRows:0};
   for(const t of tradesResponse.trades){
@@ -446,16 +447,23 @@ export function analyzeJan07Transition(threeDay,baseline,tradesResponse){
       continue;
     }
     if((type==='buy'||type==='sell')&&qty<0)tradeActivity.negativeQuantityRows++;
-    const explicit=normCode(t.code),candidates=names.get(t.name.trim());
+    const label=t.name.trim(),explicit=normCode(t.code),candidates=names.get(label);
     const mapped=!explicit&&candidates?.size===1?[...candidates][0]:'';
-    if(!explicit&&!mapped){
+    // GAS _applyHoldingTrade uses 'code || name': when BOTH expected position
+    // and ledger trade have no code, the exact trimmed name is the identity.
+    // Only fall back to that name when no coded alias exists; if any name->code
+    // candidate exists but does not match our audited position, retain
+    // uncertainty instead of asserting a fabricated trade match.
+    const nameOnly=!explicit&&!candidates?.size&&compared.has(label)?label:'';
+    const resolved=explicit||mapped||nameOnly;
+    if(!resolved){
       tradeActivity.unresolvedCodeLessRows++;
       if(candidates?.size>1)tradeActivity.ambiguousCodeLessRows++;
       continue;
     }
-    const resolved=explicit||mapped;
     if(!compared.has(resolved))continue;
     if(mapped)tradeActivity.codeLessMappedRows++;
+    if(nameOnly)tradeActivity.nameOnlyIdentityRows++;
     involved.add(resolved);
     tradeActivity.validPotentialRows++;
     const kind={buy:'buyRows',sell:'sellRows',split:'splitRows',
@@ -706,6 +714,36 @@ export async function selfTest(){
   assert.equal(evidence.restoreAllowed,false);
   assert.ok(!JSON.stringify(evidence).includes('000003'));
   assert.ok(!JSON.stringify(evidence).includes('SYNTH'));
+  // Review regression: _applyHoldingTrade preserves exact name as the
+  // identity when both expected holding and original trade lack a code.
+  const nameOnlyThree=structuredClone(qtyCostDrift);
+  const nameOnlyPrior=structuredClone(transition);
+  for(const day of [...nameOnlyThree.diagnostics,...nameOnlyPrior.diagnostics]){
+    day.expectedRows[2][1]='';
+    day.expectedRows[2][2]='UNIQUE_NAME_ONLY';
+    day.storedRows[2][1]='';
+    day.storedRows[2][2]='UNIQUE_NAME_ONLY';
+  }
+  const nameOnlyLedger={status:'ok',trades:[
+    {date:'2026-01-07',code:'',name:'UNIQUE_NAME_ONLY',tradeType:'buy',qty:1,price:10}
+  ]};
+  const nameOnlyProbe=analyzeJan07Transition(nameOnlyThree,nameOnlyPrior,nameOnlyLedger);
+  assert.equal(nameOnlyProbe.counts.comparableCodes,1);
+  assert.equal(nameOnlyProbe.matchingCodesWithTradesJan07,1);
+  assert.equal(nameOnlyProbe.tradeActivity.validPotentialRows,1);
+  assert.equal(nameOnlyProbe.tradeActivity.nameOnlyIdentityRows,1);
+  assert.equal(nameOnlyProbe.tradeActivity.unresolvedCodeLessRows,0);
+  assert.ok(!JSON.stringify(nameOnlyProbe).includes('UNIQUE_NAME_ONLY'));
+  // Ambiguous name associated with a DIFFERENT explicitly coded instrument
+  // must not override current expected name-only identity.
+  const aliasCollision=structuredClone(nameOnlyLedger);
+  aliasCollision.trades.push({date:'2026-01-01',code:'999999',
+    name:'UNIQUE_NAME_ONLY',tradeType:'buy',qty:1,price:10});
+  const collided=analyzeJan07Transition(nameOnlyThree,nameOnlyPrior,aliasCollision);
+  assert.equal(collided.matchingCodesWithTradesJan07,0);
+  assert.equal(collided.tradeActivity.nameOnlyIdentityRows,0);
+  assert.equal(collided.comparableCodesWithNoMatchedTradeEvidence,1);
+  assert.equal(collided.ledgerTradeAbsenceCertified,false);
   // On January 7 a stored-only mutation creates divergence without any
   // observed effective ledger trade: do not claim historical causality.
   const storeOnly=structuredClone(baseline);
