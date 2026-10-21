@@ -16,7 +16,8 @@ function productionFunction(name){
   return source.slice(start,end+2);
 }
 const production=[
-  '_backupSheetBeforeWrite','_reconcileSystemBackups'
+  '_backupSheetBeforeWrite','_reconcileSystemBackups',
+  '_settleSnapshotBackupOperation','_markSnapshotBackupStatus'
 ].map(productionFunction).join('\n');
 const HEADER=['날짜','종목코드','종목명','수량','매수단가','매수원금',
   '평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시'];
@@ -75,7 +76,7 @@ function makeEnvironment(failurePoint){
     SNAPSHOT_REPAIR_STATE_KEY:'SYNTHETIC_REPAIR',
     SYSTEM_BACKUP_SIGNATURE_VERSION:2,
     _snapshotBackupOperationId:'',
-    Utilities:{formatDate:()=> '20261021_090701',getUuid:()=> 'f7a0f4-TEST'},
+    Utilities:{formatDate:()=> '20261021_090701',getUuid:()=> String(tracking.created+1).padStart(6,'0')+'-TEST'},
     PropertiesService:{getScriptProperties:()=>({
       getProperty:k=>props[k]||null,
       setProperty:(k,v)=>{props[k]=v;},
@@ -88,8 +89,10 @@ function makeEnvironment(failurePoint){
     },
     _registerSystemBackup:record=>{
       tracking.registered++;
-      registry.push(record);
+      const old=registry.findIndex(x=>x.name===record.name);
+      if(old<0)registry.push(record);else registry[old]=record;
     },
+    _cleanupCompletedOperationBackups:()=>[],
     _fundSheetCapacity:()=>({remainingCells:9500000}),
     _cleanupSystemBackups:()=>{throw Error('NO_CLEANUP_EXPECTED')},
     _sheetContentSignature:sh=>sh===sourceSheet?'source-fingerprint':
@@ -148,5 +151,57 @@ for(const failurePoint of ['trim','copy']){
   assert.equal(e.tracking.deleted,0,'original orphan must remain recoverable as evidence');
   assert.equal(e.tracking.sourceWrites,0,'no original Snapshot modification');
 }
+// Real production backup lifecycle regression: another operation with the
+// same source signature must not inherit an old registry owner. Otherwise
+// _settleSnapshotBackupOperation cannot find the new operation's record.
+{
+  const e=makeEnvironment();
+  e.context._snapshotBackupOperationId='backfill|SYNTH_A';
+  const first=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  assert.equal(e.registry.length,1);
+  assert.equal(first.operationId,'backfill|SYNTH_A');
+  const firstRetried=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  assert.equal(firstRetried.name,first.name,'same operation must reuse its self-signed copy');
+  assert.equal(e.tracking.created,1);
+  e.context._snapshotBackupOperationId='backfill|SYNTH_B';
+  const second=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  assert.notEqual(second.name,first.name,'different operation must own a new backup');
+  assert.equal(second.operationId,'backfill|SYNTH_B');
+  assert.equal(e.registry.length,2,'new operation requires its own registry record');
+  assert.equal(e.tracking.created,2);
+  e.context._settleSnapshotBackupOperation(e.ss,'backfill|SYNTH_B',true);
+  assert.equal(e.registry.find(x=>x.name===second.name).status,'COMPLETED');
+  assert.equal(e.registry.find(x=>x.name===first.name).status,'CREATED',
+    'old CREATED backup remains protected until its own operation settles');
+  assert.equal(e.tracking.sourceWrites,0);
+  assert.equal(e.tracking.deleted,0);
+}
+// An operation-less legacy flow may still reuse its own operation-less copy.
+{
+  const e=makeEnvironment();
+  const first=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  const second=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  assert.equal(first.operationId,'');
+  assert.equal(second.name,first.name);
+  assert.equal(e.tracking.created,1);
+  assert.equal(e.tracking.sourceWrites,0);
+}
+// An operation-less caller must not inherit a different old operation's
+// backup ID; nor may a stale WRITE_FAILED backup acquire a new owner.
+for(const oldStatus of ['CREATED','WRITE_FAILED']){
+  const e=makeEnvironment();
+  e.context._snapshotBackupOperationId='backfill|SYNTH_OLD';
+  const old=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  e.registry[0].status=oldStatus;
+  e.context._snapshotBackupOperationId='';
+  const fresh=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  assert.notEqual(fresh.name,old.name,
+    'operation-less caller cannot mutate another owned backup');
+  assert.equal(fresh.operationId,'');
+  assert.equal(e.registry.find(x=>x.name===old.name).status,oldStatus);
+  assert.equal(e.tracking.created,2);
+  assert.equal(e.tracking.sourceWrites,0);
+}
+console.log('ISSUE507_BACKUP_OPERATION_OWNER_ISOLATION_PASS');
 console.log('ISSUE507_BACKUP_PRE_REGISTRY_ORPHAN_FAIL_CLOSED');
 console.log('ISSUE507_BACKUP_ORPHAN_READONLY_CONTRACT_PASS');
