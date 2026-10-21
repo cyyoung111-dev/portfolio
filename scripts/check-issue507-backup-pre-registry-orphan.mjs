@@ -186,6 +186,22 @@ for(const failurePoint of ['trim','copy']){
   assert.equal(e.tracking.created,1);
   assert.equal(e.tracking.sourceWrites,0);
 }
+// An operation-less caller must not inherit a different old operation's
+// backup ID; nor may a stale WRITE_FAILED backup acquire a new owner.
+for(const oldStatus of ['CREATED','WRITE_FAILED']){
+  const e=makeEnvironment();
+  e.context._snapshotBackupOperationId='backfill|SYNTH_OLD';
+  const old=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  e.registry[0].status=oldStatus;
+  e.context._snapshotBackupOperationId='';
+  const fresh=e.context._backupSheetBeforeWrite(e.ss,e.sourceSheet,'스냅샷');
+  assert.notEqual(fresh.name,old.name,
+    'operation-less caller cannot mutate another owned backup');
+  assert.equal(fresh.operationId,'');
+  assert.equal(e.registry.find(x=>x.name===old.name).status,oldStatus);
+  assert.equal(e.tracking.created,2);
+  assert.equal(e.tracking.sourceWrites,0);
+}
 console.log('ISSUE507_BACKUP_OPERATION_OWNER_ISOLATION_PASS');
 console.log('ISSUE507_BACKUP_PRE_REGISTRY_ORPHAN_FAIL_CLOSED');
 console.log('ISSUE507_BACKUP_ORPHAN_READONLY_CONTRACT_PASS');
