@@ -37,6 +37,34 @@ const LEGACY_FUND_HEADER=['날짜','종목코드','종목명','수량','매입�
 const header=row=>[HEADER,LEGACY_FUND_HEADER].some(expected=>
   expected.every((x,i)=>String(row?.[i]??'').trim()===x));
 
+// Classification is only an offline comparison of displayed Snapshot fields.
+// L (savedAt) is not comparable finance/source data; historical row provenance
+// and the correct ledger-based row cannot be inferred from duplicate frequency.
+const FINANCIAL_COLUMNS=[3,4,5,6,7,8,9];
+const QTY_COST_COLUMNS=[3,4,5];
+const VALUATION_COLUMNS=[6,7,8,9];
+function financialNumber(row,index){
+  const raw=row?.[index];
+  if(raw===null||raw===undefined||String(raw).trim()==='')return null;
+  const number=Number(raw);
+  return Number.isFinite(number)?number:null;
+}
+function columnSignature(row,columns){
+  return JSON.stringify(columns.map(index=>financialNumber(row,index)));
+}
+function duplicateClass(rows){
+  if(rows.some(row=>FINANCIAL_COLUMNS.some(index=>financialNumber(row,index)===null)))
+    return 'NUMERIC_UNVERIFIED';
+  if(new Set(rows.map(row=>columnSignature(row,QTY_COST_COLUMNS))).size>1)
+    return 'QTY_COST_CONFLICT';
+  if(new Set(rows.map(row=>columnSignature(row,VALUATION_COLUMNS))).size>1)
+    return 'VALUATION_CONFLICT';
+  if(new Set(rows.map(row=>JSON.stringify([
+    String(row[2]??'').trim(),String(row[10]??'').trim().toUpperCase()
+  ]))).size>1)return 'PROVENANCE_ONLY';
+  return 'SAME_COMPARABLE';
+}
+
 export function auditGlobalSnapshot(rows,{withHeader=true}={}){
   if(!Array.isArray(rows)||rows.length<1||rows.length>MAX_ROWS+1)fail('ROW_COUNT');
   if(rows.some(row=>!Array.isArray(row)||row.length>26))fail('ROW_SCHEMA');
@@ -47,7 +75,10 @@ export function auditGlobalSnapshot(rows,{withHeader=true}={}){
     inspectedPhysicalRows:records.length,materialRows:0,emptyRows:0,
     datedMaterialRows:0,undatedMaterialRows:0,undatedTradeLikeRows:0,
     undatedPartialRows:0,unparseableDateRows:0,repeatedHeaderRows:0,
-    invalidIdentityRows:0,duplicateDateCodeGroups:0,duplicateExtraRows:0
+    invalidIdentityRows:0,duplicateDateCodeGroups:0,duplicateExtraRows:0,
+    duplicateSameComparableGroups:0,duplicateProvenanceOnlyGroups:0,
+    duplicateValuationConflictGroups:0,duplicateQtyCostConflictGroups:0,
+    duplicateNumericUnverifiedGroups:0
   };
   for(const row of records){
     if(row.every(x=>!isPopulated(x))){totals.emptyRows++;continue;}
@@ -66,18 +97,30 @@ export function auditGlobalSnapshot(rows,{withHeader=true}={}){
     if(code){
       let group=keysByDay.get(d);
       if(!group){group=new Map();keysByDay.set(d,group);}
-      group.set(code,(group.get(code)||0)+1);
+      if(!group.has(code))group.set(code,[]);
+      group.get(code).push(row);
     }
   }
   for(const codes of keysByDay.values()){
-    for(const n of codes.values()){
-      if(n>1){totals.duplicateDateCodeGroups++;totals.duplicateExtraRows+=n-1;}
+    for(const rows of codes.values()){
+      if(rows.length<=1)continue;
+      totals.duplicateDateCodeGroups++;
+      totals.duplicateExtraRows+=rows.length-1;
+      const category=duplicateClass(rows);
+      if(category==='SAME_COMPARABLE')totals.duplicateSameComparableGroups++;
+      else if(category==='PROVENANCE_ONLY')totals.duplicateProvenanceOnlyGroups++;
+      else if(category==='VALUATION_CONFLICT')totals.duplicateValuationConflictGroups++;
+      else if(category==='QTY_COST_CONFLICT')totals.duplicateQtyCostConflictGroups++;
+      else totals.duplicateNumericUnverifiedGroups++;
     }
   }
   if(totals.materialRows>ACTIVE_LIMIT||
     totals.materialRows+totals.emptyRows!==totals.inspectedPhysicalRows||
     totals.datedMaterialRows+totals.undatedMaterialRows+
-      totals.unparseableDateRows+totals.repeatedHeaderRows!==totals.materialRows)
+      totals.unparseableDateRows+totals.repeatedHeaderRows!==totals.materialRows||
+    totals.duplicateSameComparableGroups+totals.duplicateProvenanceOnlyGroups+
+      totals.duplicateValuationConflictGroups+totals.duplicateQtyCostConflictGroups+
+      totals.duplicateNumericUnverifiedGroups!==totals.duplicateDateCodeGroups)
     fail('INTERNAL_COUNT_INVARIANT');
   return {
     mode:'ISSUE507_GLOBAL_SNAPSHOT_OFFLINE_READ_ONLY',
@@ -86,6 +129,8 @@ export function auditGlobalSnapshot(rows,{withHeader=true}={}){
     globalIntegrityClear:totals.undatedMaterialRows===0&&
       totals.unparseableDateRows===0&&totals.repeatedHeaderRows===0&&
       totals.invalidIdentityRows===0&&totals.duplicateDateCodeGroups===0,
+    // C:K comparable values only. Same values are not a restore/delete proof.
+    duplicateClassificationScope:'OFFLINE_C_TO_K_NO_EXPECTED_LEDGER',
     ledgerSourceVerified:false,backupRegistryVerified:false,
     sourceSignatureVerified:false,fullSheetAtomicallyRead:false,
     restoreAllowed:false,deleteAllowed:false,writesPerformed:0,
@@ -124,6 +169,34 @@ export async function selfTest(){
   assert.equal(z.invalidIdentityRows,1);
   assert.equal(z.duplicateDateCodeGroups,1);
   assert.equal(z.duplicateExtraRows,1);
+  assert.equal(z.duplicateSameComparableGroups,1);
+  assert.equal(z.duplicateQtyCostConflictGroups,0);
+  // Five mutually exclusive duplicate classes from synthetic rows only.
+  const pair=(code,edit)=>{
+    const first=row('2026-09-17',code);
+    const second=first.slice();
+    if(edit)edit(second);
+    return [first,second];
+  };
+  const classified=auditGlobalSnapshot([H,
+    ...pair('000101'),
+    ...pair('000102',r=>{r[10]='NAV';}),
+    ...pair('000103',r=>{r[6]=12;r[7]=12;r[8]=2;r[9]=20;}),
+    ...pair('000104',r=>{r[3]=2;r[5]=20;}),
+    ...pair('000105',r=>{r[3]='';})
+  ]);
+  assert.equal(classified.duplicateDateCodeGroups,5);
+  assert.equal(classified.duplicateSameComparableGroups,1);
+  assert.equal(classified.duplicateProvenanceOnlyGroups,1);
+  assert.equal(classified.duplicateValuationConflictGroups,1);
+  assert.equal(classified.duplicateQtyCostConflictGroups,1);
+  assert.equal(classified.duplicateNumericUnverifiedGroups,1);
+  assert.equal(classified.duplicateExtraRows,5);
+  assert.equal(classified.restoreAllowed,false);
+  assert.equal(classified.deleteAllowed,false);
+  assert.equal(classified.fullSheetAtomicallyRead,false);
+  assert.ok(!JSON.stringify(classified).includes('000101'));
+  assert.ok(!JSON.stringify(classified).includes('000105'));
   assert.equal(z.emptyRows,1);
   assert.equal(z.globalIntegrityClear,false);
   assert.equal(z.restoreAllowed,false);
