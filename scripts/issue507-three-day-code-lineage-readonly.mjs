@@ -176,7 +176,8 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
   const tradedJan09=new Set(),tradedLater=new Set();
   let codeLessMapped=0,codeLessRelevantMapped=0,
     codeLessRelevantUnresolved=0,codeLessRelevantAmbiguous=0,
-    ignoredUnsupportedTypeRowsInWindow=0,ignoredNoEffectRowsInWindow=0;
+    ignoredUnsupportedTypeRowsInWindow=0,ignoredNoEffectRowsInWindow=0,
+    nonstandardNegativeQtyRowsInWindow=0;
   for(const t of tradesResponse.trades){
     const date=t.date.slice(0,10);
     // Validate all ledger dates so malformed code-less records cannot quietly
@@ -191,8 +192,14 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
     // realized position/cost changes (which requires lot replay).
     const type=t.tradeType.trim();
     const supported=['buy','sell','split','reverse_split'].includes(type);
+    // Production can actually apply negative buy/sell quantities as written;
+    // they are abnormal inputs, not harmless zero-effect rows.
+    const quantity=Number(t.qty??0),ratio=Number(t.ratio??0);
+    guard(Number.isFinite(quantity)&&Number.isFinite(ratio),'TRADE_NUMERIC');
     const effectPossible=!!t.name.trim()&&(type==='buy'||type==='sell'
-      ? Number(t.qty)>0 : Number(t.ratio)>0);
+      ? quantity!==0 : ratio>0);
+    if(relevantWindow&&(type==='buy'||type==='sell')&&quantity<0)
+      nonstandardNegativeQtyRowsInWindow++;
     if(!supported||!t.name.trim()){
       if(relevantWindow)ignoredUnsupportedTypeRowsInWindow++;
       continue;
@@ -236,6 +243,7 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
   tradeWindows.ambiguousNameCodeTradesJan09Through17=bounded(codeLessRelevantAmbiguous);
   tradeWindows.ignoredUnsupportedTypeRowsJan09Through17=bounded(ignoredUnsupportedTypeRowsInWindow);
   tradeWindows.ignoredNonEffectiveRowsJan09Through17=bounded(ignoredNoEffectRowsInWindow);
+  tradeWindows.negativeQtyPotentialMutationRowsJan09Through17=bounded(nonstandardNegativeQtyRowsInWindow);
   // No private codes/dates of individual trades/amounts are ever returned.
   return {mode:'ISSUE507_PERSISTENT_QTY_COST_PRIVATE_LEDGER_TRIAGE',
     recurringMissingQtyCostCodes:bounded(persistent.size),
@@ -381,6 +389,13 @@ export async function selfTest(){
   const split=structuredClone(ignore);
   split.trades.push({date:'2026-01-10',code:'000003',name:'SYNTH',tradeType:'split',ratio:2});
   assert.equal(analyzePersistentQtyCost(qtyCostDrift,split).privateLedgerTradeActivity.jan10Through17,2);
+  // Production reducer does not reject negative qty: preserve as potentially
+  // mutating malformed ledger evidence rather than silently dropping it.
+  const negative=structuredClone(split);
+  negative.trades.push({date:'2026-01-10',code:'000003',name:'SYNTH',tradeType:'buy',qty:-1});
+  const negativeResult=analyzePersistentQtyCost(qtyCostDrift,negative);
+  assert.equal(negativeResult.privateLedgerTradeActivity.negativeQtyPotentialMutationRowsJan09Through17,1);
+  assert.equal(negativeResult.privateLedgerTradeActivity.jan10Through17,3);
   // If GAS sees a blank-code transaction by recognized name it must count.
   // Give the recurring code an unambiguous expected name.
   const named=structuredClone(qtyCostDrift);
