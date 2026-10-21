@@ -291,6 +291,77 @@ function byKey(e,date,code){
   assert.equal(byKey(x,date2,'000222')[3],3);
 }
 
+// Issue #507 global undated-row preservation regression.
+// Real Snapshot currently has populated B/D/F rows with empty column A.
+// This reproducer intentionally provides NO inferred date: a date-scoped
+// writer must not silently fill, delete, shift or overwrite those rows.
+// Historical provenance and recovery eligibility remain UNVERIFIED.
+{
+  const undated=makeRow('','000777',12);
+  undated[5]=120;
+  undated[10]='KRX_SYNTHETIC';
+  const otherUndated=makeRow(null,'000778',4);
+  otherUndated[5]=44;
+  otherUndated[10]='FUND_SYNTHETIC';
+  const x=makeEnv({initialRows:[row1,undated,row2,otherUndated]});
+  const before=[deep(undated),deep(otherUndated)];
+  x.writer(date1,[makeRow(date1,'000111',5)],true);
+  assert.equal(byKey(x,date1,'000111')[3],5);
+  assert.equal(byKey(x,date2,'000222')[3],3);
+  assert.deepEqual([byKey(x,'','000777'),byKey(x,null,'000778')],before,
+    'normal targeted rewrite must preserve both undated rows byte-for-byte');
+  assert.equal(x.stats().writes,1,'only the requested dated row is written');
+}
+// No-op must not churn backups or touch any undated row.
+{
+  const undated=makeRow('','000777',12);
+  const x=makeEnv({initialRows:[row1,undated,row2]});
+  x.writer(date1,[row1],true);
+  assert.deepEqual(byKey(x,'','000777'),undated);
+  assert.deepEqual(x.stats(),{
+    backups:0,writes:0,flushes:0,revisionUpdates:0,propertyWrites:0
+  });
+}
+// Out-of-band mutation to an undated row after backup must survive the
+// subsequent independent dated write. ScriptLock does NOT guard Sheets API.
+{
+  let injected=false;
+  const undated=makeRow('','000777',12);
+  const x=makeEnv({
+    initialRows:[row1,undated,row2],
+    onBackup:({stored})=>{
+      const target=stored.find(row=>row[0]===''&&row[1]==='000777');
+      assert.ok(target);
+      target[3]=91;target[5]=910;target[10]='EXTERNAL_SYNTHETIC';
+      injected=true;
+    }
+  });
+  x.writer(date1,[makeRow(date1,'000111',5)],true);
+  assert.equal(injected,true);
+  assert.equal(byKey(x,'','000777')[3],91);
+  assert.equal(byKey(x,'','000777')[5],910);
+  assert.equal(byKey(x,'','000777')[10],'EXTERNAL_SYNTHETIC');
+  assert.equal(byKey(x,date1,'000111')[3],5);
+}
+// A disjoint second target-date range can fail after the first range has
+// already written. Rollback must preserve intervening undated data.
+{
+  const undated=makeRow('','000777',12);
+  const target2=makeRow(date1,'000333',2);
+  const x=makeEnv({
+    initialRows:[row1,undated,target2,row2],
+    failWriteAt:2
+  });
+  assert.throws(()=>x.writer(date1,[
+    makeRow(date1,'000111',5),makeRow(date1,'000333',6)],true),
+    /SYNTHETIC_INJECTED_WRITE_FAILURE/);
+  assert.equal(byKey(x,date1,'000111')[3],2);
+  assert.equal(byKey(x,date1,'000333')[3],2);
+  assert.deepEqual(byKey(x,'','000777'),undated,
+    'undated row separating two target blocks must remain unchanged');
+  assert.equal(byKey(x,date2,'000222')[3],3);
+}
+console.log('ISSUE507_UNDATED_ROW_PRODUCTION_WRITER_PRESERVED');
 // KNOWN UNSAFE (not a protection test): ScriptLock cannot exclude an
 // out-of-band Sheets API writer of the same (date,code) between the final
 // getValues/getFormulas read and our Range.setValues. We deliberately assert
