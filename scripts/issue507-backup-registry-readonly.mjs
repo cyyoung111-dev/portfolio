@@ -19,6 +19,45 @@ const CLASSES=new Set(['REGISTERED_COMPLETED','REGISTERED_INCOMPLETE',
 function check(ok,code){if(!ok)throw Error('ISSUE507_BACKUP_READONLY_'+code);}
 function count(n){check(Number.isSafeInteger(n)&&n>=0&&n<10000000,'BAD_COUNT');return n;}
 
+// Only report categorical provenance metadata already returned by GAS.
+// Do not reveal raw operation IDs, timestamps, sheet names or registry records.
+function presence(value){
+  if(typeof value!=='string')return 'UNKNOWN';
+  return value.trim()?'PRESENT':'ABSENT';
+}
+function ageBucket(createdAt,observedAt){
+  const valid=value=>{
+    if(typeof value!=='string'
+      ||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value))return false;
+    const timestamp=Date.parse(value);
+    // Date.parse normalizes impossible calendar dates (for example Feb 30).
+    // The server reports UTC Z, so round-trip every year/month/day/time field.
+    return Number.isFinite(timestamp)
+      &&new Date(timestamp).toISOString().slice(0,19)===value.slice(0,19);
+  };
+  if(!valid(createdAt)||!valid(observedAt))return 'UNVERIFIED';
+  const age=Date.parse(observedAt)-Date.parse(createdAt);
+  if(age<0)return 'FUTURE_OR_CLOCK_SKEW';
+  if(age<3600000)return 'LESS_THAN_ONE_HOUR';
+  if(age<86400000)return 'ONE_TO_24_HOURS';
+  return 'AT_LEAST_24_HOURS';
+}
+function provenanceSummary(record,observedAt){
+  if(!record.systemGeneratedBackup)return {
+    operationIdPresence:'NOT_REGISTERED',creationAgeBucket:'NOT_REGISTERED',
+    updateTimePresence:'NOT_REGISTERED',completionTimePresence:'NOT_REGISTERED',
+    orphanAdopted:'UNVERIFIED'
+  };
+  return {
+    operationIdPresence:presence(record.operationId),
+    creationAgeBucket:ageBucket(record.createdAt,observedAt),
+    updateTimePresence:presence(record.updatedAt),
+    completionTimePresence:presence(record.completedAt),
+    orphanAdopted:record.orphanAdopted===true?'YES':
+      record.orphanAdopted===false?'NO':'UNVERIFIED'
+  };
+}
+
 export function summarizeWorkbook(payload,targets=TARGETS){
   const workbook=payload?.workbook, all=workbook?.sheets;
   check(payload?.status==='ok'&&workbook&&Array.isArray(all)
@@ -47,6 +86,9 @@ export function summarizeWorkbook(payload,targets=TARGETS){
     return {
       label:target.label,registryPresent:registered,registryState:record.backupStatus||'UNREGISTERED',
       classification:record.backupClassification,
+      // A CREATED backup may have no settling operation ID. This is an
+      // observation only; neither absence nor age establishes why it stalled.
+      registrationMetadata:provenanceSummary(record,workbook.generatedAt),
       backupContentSignatureMatchesRegistry:record.signatureMatch,
       // GAS defaults unregistered backups to source-exists=true.
       // That does not prove the original sheet actually exists.
@@ -189,6 +231,46 @@ export async function selfTest(){
   assert.equal(missingReport[1].registryPresent,true);
   assert.equal(missingReport[1].sourceSheetExists,false);
   assert.equal(unregReport[1].registryState,'CREATED');
+
+  // Real GAS includes provenance metadata on each backup diagnostic row.
+  // Only presence/category is retained; raw identifiers and times must not leak.
+  const metadata=structuredClone(fixture);
+  metadata.workbook.generatedAt='2026-10-21T13:06:00.000Z';
+  const created=metadata.workbook.sheets.find(x=>x.name===TARGETS[2].name);
+  created.backupStatus='CREATED';
+  created.backupClassification='REGISTERED_INCOMPLETE';
+  created.createdAt='2026-10-21T10:00:00.000Z';
+  created.updatedAt='';created.completedAt='';
+  created.operationId='PRIVATE_OPERATION_ID_DO_NOT_LEAK';
+  created.orphanAdopted=false;
+  const state=summarizeWorkbook(metadata);
+  assert.equal(state[2].registrationMetadata.operationIdPresence,'PRESENT');
+  assert.equal(state[2].registrationMetadata.creationAgeBucket,'ONE_TO_24_HOURS');
+  assert.equal(state[2].registrationMetadata.updateTimePresence,'ABSENT');
+  assert.equal(state[2].registrationMetadata.completionTimePresence,'ABSENT');
+  assert.equal(state[2].registrationMetadata.orphanAdopted,'NO');
+  assert.equal(state[0].registrationMetadata.operationIdPresence,'ABSENT');
+  assert.equal(unregReport[0].registrationMetadata.operationIdPresence,'NOT_REGISTERED');
+  assert.ok(!JSON.stringify(state).includes('PRIVATE_OPERATION_ID_DO_NOT_LEAK'));
+  assert.ok(!JSON.stringify(state).includes('2026-10-21T10:00:00.000Z'));
+  const noOperation=structuredClone(metadata);
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).operationId='';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.operationIdPresence,'ABSENT');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='INVALID';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-02-30T10:00:00.000Z';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-02-29T10:00:00.000Z';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
+  const leap=structuredClone(metadata);
+  leap.workbook.generatedAt='2024-03-01T00:00:00.000Z';
+  leap.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2024-02-29T23:30:00.000Z';
+  assert.equal(summarizeWorkbook(leap)[2].registrationMetadata.creationAgeBucket,'LESS_THAN_ONE_HOUR');
+  const skews=structuredClone(metadata);
+  skews.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-10-22T10:00:00.000Z';
+  assert.equal(summarizeWorkbook(skews)[2].registrationMetadata.creationAgeBucket,'FUTURE_OR_CLOCK_SKEW');
+  // Preservation gate: provenance categorization must never imply restoration.
+  assert.ok(state.every(x=>x.restoreAllowed===false&&x.deleteAllowed===false));
 
   const invalid=structuredClone(fixture);
   invalid.workbook.sheets=invalid.workbook.sheets.filter(x=>x.name!==TARGETS[1].name);
