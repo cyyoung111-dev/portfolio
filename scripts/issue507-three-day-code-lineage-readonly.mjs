@@ -208,7 +208,9 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
   // code-level proof of ABSENCE is not available without master mapping.
   const noMatchedTrade=bounded([...persistent]
     .filter(k=>!tradedJan09.has(k)&&!tradedLater.has(k)).length);
-  tradeWindows.codesWithoutTradesJan09Through17=codeLessRelevantUnresolved?null:noMatchedTrade;
+  // Missing a raw matched trade is NOT proof that the master would not map
+  // another historical name to this code. Never certify transaction absence.
+  tradeWindows.codesWithoutTradesJan09Through17=null;
   tradeWindows.codesWithNoMatchedTradeEvidenceJan09Through17=noMatchedTrade;
   tradeWindows.codeLessMappedAllDates=bounded(codeLessMapped);
   tradeWindows.codeLessMappedToPersistentCodesJan09Through17=bounded(codeLessRelevantMapped);
@@ -221,7 +223,7 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
     categoryCountsAcrossThreeDates:categories,
     crossDateChangedCodeCounts:changed,
     privateLedgerTradeActivity:tradeWindows,
-    ledgerTradeAbsenceCertified:codeLessRelevantUnresolved===0,
+    ledgerTradeAbsenceCertified:false,
     nameResolutionMatchesProductionMasterCertified:false,
     ledgerTransactionPresenceIsNotCausality:true,
     categoryIsBasedOnNumericPrecisionQty8Cost0:true,
@@ -338,7 +340,8 @@ export async function selfTest(){
   assert.equal(qResult.privateLedgerTradeActivity.codesTradedJan09,1);
   assert.equal(qResult.privateLedgerTradeActivity.codesTradedJan10Through17,1);
   assert.equal(qResult.privateLedgerTradeActivity.postJan17,1);
-  assert.equal(qResult.privateLedgerTradeActivity.codesWithoutTradesJan09Through17,0);
+  assert.equal(qResult.privateLedgerTradeActivity.codesWithoutTradesJan09Through17,null);
+  assert.equal(qResult.privateLedgerTradeActivity.codesWithNoMatchedTradeEvidenceJan09Through17,0);
   // If GAS sees a blank-code transaction by recognized name it must count.
   // Give the recurring code an unambiguous expected name.
   const named=structuredClone(qtyCostDrift);
@@ -352,7 +355,8 @@ export async function selfTest(){
   assert.equal(resolvedNames.privateLedgerTradeActivity.codeLessMappedToPersistentCodesJan09Through17,1);
   assert.equal(resolvedNames.privateLedgerTradeActivity.jan09,2);
   assert.equal(resolvedNames.privateLedgerTradeActivity.codesTradedJan09,1);
-  assert.equal(resolvedNames.ledgerTradeAbsenceCertified,true);
+  assert.equal(resolvedNames.ledgerTradeAbsenceCertified,false);
+  assert.equal(resolvedNames.privateLedgerTradeActivity.codesWithNoMatchedTradeEvidenceJan09Through17,0);
   // Ambiguous or unknown names must NOT produce a false "no trade" claim.
   const unknown=structuredClone(codedByName);
   unknown.trades.push({date:'2026-01-10',code:'',name:'UNKNOWN_LEDGER_NAME',tradeType:'buy'});
