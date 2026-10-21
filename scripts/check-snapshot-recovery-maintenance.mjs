@@ -117,10 +117,10 @@ for (const classification of ['EXACT_DUPLICATE','SINGLE_EXPECTED_MATCH','MANUAL_
 assert.match(gas, /rawDuplicateDecisions[\s\S]*!rawDuplicateDecisions\.length/, 'dedupe signature가 raw 중복을 숨기면 안 됩니다.');
 assert.match(gas, /SpreadsheetApp\.flush\(\);[\s\S]*diagnoseSnapshotIntegrity\(ss, snapshotDate\)/, 'full repair는 flush 뒤 raw 재진단해야 합니다.');
 assert.match(gas, /SYSTEM_BACKUP_KEEP_BY_SOURCE = \{[^\n]*'스냅샷': 0/);
-assert.match(gas, /_systemBackupTimestampFromName\(name\)/, 'orphan 생성 시각은 이름에서 보존해야 합니다.');
+assert.doesNotMatch(gas.match(/function _reconcileSystemBackups[\s\S]*?\n}/)?.[0] || '', /_systemBackupTimestampFromName\(name\)|status: 'COMPLETED'|_writeSystemBackupRegistry/, '미등록 orphan은 원본 생성시각/서명 추측 없이 보호만 보고해야 합니다.');
 assert.match(gas, /remainingCells < minimumCreationCells[\s\S]*_cleanupSystemBackups\(ss, sourceName, false\)[\s\S]*_fundSheetCapacity\(ss\)/, '셀 부족 cleanup은 orphan reconciliation 없이 재계산해야 합니다.');
 assert.match(gas, /가격이력 쓰기 후 검증 실패[\s\S]*_cleanupCurrentSystemBackup\(ss, backup\)/, '가격이력 repair 성공 후 현재 operation backup을 정리해야 합니다.');
-assert.match(gas, /safeClass && registeredSourceExists && \(item\.signatureMatch \|\| legacySupersededByTrustedV2\)/, '일반 COMPLETED는 signature 검증을 유지하고 trusted-v2 legacy 예외만 허용해야 합니다.');
+assert.match(gas, /safeClass && registeredSourceExists && !item\.orphanAdopted &&[\s\S]*\(item\.signatureMatch \|\| legacySupersededByTrustedV2\)/, '등록된 신뢰 완료본만 서명 검증 후 정리하고 adopted orphan은 보호');
 assert.match(gas, /Snapshot 중복 정리 후 raw 검증 실패[\s\S]*_markSnapshotBackupStatus\(backup, 'COMPLETED'\)/, 'raw 검증이 COMPLETED 및 backup 삭제보다 먼저여야 합니다.');
 const currentCleanupBody=gas.match(/function _cleanupCurrentSystemBackup[\s\S]*?\n}/)?.[0] || '';
 assert.doesNotMatch(currentCleanupBody, /_reconcileSystemBackups|getSheets\(/, '현재 operation FAST PATH는 orphan/workbook sheet scan을 하면 안 됩니다.');
@@ -144,7 +144,7 @@ assert.match(gas, /Object\.assign\(\{\}, operationRecord, \{ reused: true \}\)/,
 assert.match(gas, /var complete = Object\.assign\(\{\}, existing, record\)/, '상태 전환은 기존 registry metadata와 병합');
 assert.match(gas, /sourceName === CONFIG\.SHEET_SNAPSHOT && repairState/, 'Snapshot repair operationId는 Snapshot source에만 자동 적용');
 assert.match(gas, /validatedOperationIds\[item\.operationId\][\s\S]*item\.source === CONFIG\.SHEET_SNAPSHOT/, 'validated cleanup은 실제 VALID operationId와 Snapshot source로 제한');
-assert.match(gas, /item\.status === 'COMPLETED' && signatureMatches\(item\)/, '용량 cleanup COMPLETED 후보는 registry signature 일치 필수');
+assert.match(gas, /item\.status === 'COMPLETED' && item\.orphanAdopted !== true && signatureMatches\(item\)/, '용량 cleanup은 기존 adopted orphan 제외·registry signature 일치 필요');
 assert.match(gas, /expected\.length === 0[\s\S]*lifecycleRemovedRows === 0[\s\S]*writeSnapshotRows\(ss, snapshotDate, existing, true, null, repairFundConfigs\)[\s\S]*afterDuplicateCleanup\.duplicateKeys\.length/, 'expected 없는 EXACT_DUPLICATE 또는 0좌 lifecycle 잔존도 실제 축약 후 raw 재진단');
 assert.match(gas, /function\(record\)[\s\S]*record\.operationId !== operationId[\s\S]*_sheetContentSignature\(candidate\) === record\.signature/, '동일 operation backup은 backup 자체 signature 검증 후 재사용');
 assert.match(gas, /fundRewritePlan\.unsafe\.length[\s\S]*snapshotOperationUnsafe = true/, '펀드 평가 protected conflict 성공 집계 금지');
@@ -160,3 +160,94 @@ assert.match(gas, /emptyBackfillPlan\.lifecycleRemovedRows > 0[\s\S]*writeSnapsh
 assert.match(gas, /backfillOperationId[\s\S]*writeSnapshotRows\(ss, dateStr[\s\S]*batchUpsertPriceHistory[\s\S]*_finalizeBackfillSnapshotOperation\(ss, dateStr, backfillOperationId\)[\s\S]*totalSuccess\+\+/, 'backfill 연관 write·검증 완료 전 성공 집계 금지');
 assert.match(gas, /function _snapshotIntegritySatisfied[\s\S]*status === 'NO_SNAPSHOT'[\s\S]*expectedRowCount[\s\S]*storedRowCount/, '기대·저장 모두 0인 NO_SNAPSHOT만 정상 빈 상태로 인정');
 assert.match(gas, /function _finalizeBackfillSnapshotOperation[\s\S]*SpreadsheetApp\.flush\(\)[\s\S]*diagnoseSnapshotIntegrity[\s\S]*_snapshotIntegritySatisfied\(integrity\)[\s\S]*_settleSnapshotBackupOperation\(ss, operationId, true\)/, 'backfill은 검증된 정상 또는 0\/0 빈 Snapshot 뒤에만 success settle');
+
+
+// #507 production VM: orphan has no source-at-copy provenance. Neither the
+// registry reconciler nor the maintenance planner may promote or auto-delete
+// it, including historical orphanAdopted COMPLETED records. No live resources.
+{
+  const grab=name=>{
+    const a=gas.indexOf('function '+name+'('),end=gas.indexOf('\n}',a);
+    assert.ok(a>=0&&end>a,'missing production backup function '+name);
+    return gas.slice(a,end+2);
+  };
+  const names=['_reconcileSystemBackups','_planSystemBackupMaintenance',
+    '_cleanupSystemBackups','_cleanupCurrentSystemBackup','_systemBackupProtectionReason_'];
+  const original=names.map(grab).join('\n');
+  const target='스냅샷_백업_20261021_090701_f7a0f4';
+  function makeOrphanFixture(initialRegistry=[]){
+    const state={registry:JSON.parse(JSON.stringify(initialRegistry)),
+      registryWrites:0,deleted:[],reads:0};
+    const source={getName:()=> '스냅샷'};
+    const backup={getName:()=>target,getMaxRows:()=>1000,
+      getMaxColumns:()=>12};
+    const sheets=[source,backup];
+    const ss={getSheets:()=>sheets,
+      getSheetByName:name=>sheets.find(x=>x.getName()===name)||null,
+      deleteSheet:sheet=>{state.deleted.push(sheet.getName());sheets.splice(sheets.indexOf(sheet),1)}};
+    const ctx=vm.createContext({
+      JSON,Object,Array,Number,String,Date,Math,
+      CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
+      SYSTEM_BACKUP_SIGNATURE_VERSION:'backup-content-v2',
+      SYSTEM_BACKUP_KEEP_BY_SOURCE:{'스냅샷':0},
+      _readSystemBackupRegistry:()=>JSON.parse(JSON.stringify(state.registry)),
+      _writeSystemBackupRegistry:records=>{state.registryWrites++;state.registry=JSON.parse(JSON.stringify(records))},
+      _backupSourceFromSystemName:name=>name===target?'스냅샷':'',
+      _isGasReferencedSheet:()=>false,
+      _sheetFormulaReferenceCount:()=>0,
+      _sheetFormulaReferenceCounts:()=>({}),
+      _sheetContentSignature:sheet=>sheet===backup?'SELF_SIGNED':'SOURCE_SIGNED',
+      _sheetHeaderSignature:sheet=>sheet===backup||sheet===source?'SCHEMA_V12':'',
+      _backupTimeMillis:()=>1,
+      _diagnoseWorkbookCells:()=>({totalCells:12000,remainingCells:9000000,
+        sheets:[{name:target,backup:true,allocatedCells:12000,
+          formulaReferenceCount:0,signatureMatch:true}],
+        backupSummary:{sheetCount:1}})
+    });
+    vm.runInContext(original,ctx,{timeout:3000});
+    return{ss,ctx,state};
+  }
+  const orphan=makeOrphanFixture();
+  const result=orphan.ctx._reconcileSystemBackups(orphan.ss);
+  assert.equal(result.reconciled.length,0,'unregistered orphan is never marked completed');
+  assert.equal(result.unresolved.length,1);
+  assert.equal(result.unresolved[0].classification,'ORPHAN_LIKELY_SYSTEM');
+  assert.equal(orphan.state.registryWrites,0,'read-only reconciler must never touch Properties');
+  assert.equal(orphan.state.registry.length,0);
+  const plan=orphan.ctx._planSystemBackupMaintenance(orphan.ss,{});
+  assert.equal(plan.backupSheets[0].classification,'ORPHAN_LIKELY_SYSTEM');
+  assert.equal(plan.backupSheets[0].autoCleanupEligible,false);
+  assert.equal(plan.expectedReleasedCells,0,'unregistered orphan is never deletion candidate');
+  assert.match(plan.backupSheets[0].protectionReason,/미등록 backup/);
+  const dry=orphan.ctx._cleanupSystemBackups(orphan.ss,'스냅샷');
+  assert.equal(dry.deletedCount,0);
+  assert.equal(orphan.state.deleted.length,0);
+  const adopted={name:target,source:'스냅샷',operationId:'reconciled-orphan',
+    systemGenerated:true,orphanAdopted:true,status:'COMPLETED',
+    signature:'SELF_SIGNED',signatureVersion:'backup-content-v2',
+    sourceSignature:'',createdAt:'2026-10-21T00:07:01.000Z'};
+  const older=makeOrphanFixture([adopted]);
+  const adoptedPlan=older.ctx._planSystemBackupMaintenance(older.ss,{});
+  assert.equal(adoptedPlan.backupSheets[0].classification,'REGISTERED_COMPLETED');
+  assert.equal(adoptedPlan.backupSheets[0].autoCleanupEligible,false);
+  assert.equal(adoptedPlan.expectedReleasedCells,0);
+  assert.match(adoptedPlan.backupSheets[0].protectionReason,/adopted orphan/);
+  assert.equal(older.ctx._cleanupSystemBackups(older.ss,'스냅샷').deletedCount,0);
+  assert.equal(older.state.deleted.length,0);
+  const fast=older.ctx._cleanupCurrentSystemBackup(older.ss,adopted);
+  assert.equal(fast.deleted,false);
+  assert.match(fast.reason,/adopted orphan/);
+  assert.equal(older.state.deleted.length,0);
+  // Existing genuine registered completed backup remains eligible for
+  // the current-source retention policy (here: keep 0).
+  const real={...adopted,orphanAdopted:false,operationId:'operation-real',
+    sourceSignature:'SOURCE_SIGNED'};
+  const normal=makeOrphanFixture([real]);
+  const normalPlan=normal.ctx._planSystemBackupMaintenance(normal.ss,{});
+  assert.equal(normalPlan.backupSheets[0].autoCleanupEligible,true);
+  assert.equal(normalPlan.expectedReleasedCells,12000);
+  assert.equal(normal.ctx._cleanupSystemBackups(normal.ss,'스냅샷').deletedCount,1);
+  assert.deepEqual(normal.state.deleted,[target]);
+  // No real account IDs, codes, Snapshot values or GAS deployment touched.
+  console.log('ISSUE507_ORPHAN_FAIL_CLOSED_PRODUCTION_CONTRACT_PASS');
+}

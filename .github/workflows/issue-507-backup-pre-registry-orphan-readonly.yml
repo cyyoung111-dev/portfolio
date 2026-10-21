@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Confirm pre-registry orphan and incomplete protection behavior
+      - name: Verify fail-closed orphan recovery after registry failure
         run: |
           node --check scripts/check-issue507-backup-pre-registry-orphan.mjs
           node scripts/check-issue507-backup-pre-registry-orphan.mjs

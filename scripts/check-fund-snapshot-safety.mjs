@@ -1385,6 +1385,32 @@ const validatedMaintenance=clone(context.maintainSystemBackups({apply:true,valid
 assert(!maintenanceSheets['스냅샷_백업_failed_op'],'최종 VALID operationId 증거가 있는 Snapshot WRITE_FAILED cleanup 허용');
 assert(validatedMaintenance.deletedSheetNames.includes('스냅샷_백업_failed_op'));
 
+// Public workbook diagnostics must agree with the maintenance planner:
+// an historically adopted orphan may be self-signed but has no source-at-copy proof.
+const adoptedPublicName='스냅샷_백업_20261021_090701_synthetic';
+const adoptedPublicSheets={ '스냅샷':new Sheet([header]), [adoptedPublicName]:new Sheet([header]) };
+const adoptedPublicSs=ssFor(adoptedPublicSheets);
+const adoptedPublicRecord={name:adoptedPublicName,source:'스냅샷',
+  signature:context._sheetContentSignature(adoptedPublicSheets[adoptedPublicName]),
+  status:'COMPLETED',systemGenerated:true,orphanAdopted:true,
+  sourceSignature:'',operationId:'reconciled-orphan'};
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([adoptedPublicRecord]));
+const adoptedPublicDiagnosis=clone(context._diagnoseWorkbookCells(adoptedPublicSs,true));
+const adoptedPublicRow=adoptedPublicDiagnosis.sheets.find(row=>row.name===adoptedPublicName);
+assert.equal(adoptedPublicRow.backupClassification,'REGISTERED_COMPLETED');
+assert.equal(adoptedPublicRow.orphanAdopted,true);
+assert.equal(adoptedPublicRow.signatureMatch,true,'self-signature does not establish historical origin');
+assert.equal(adoptedPublicRow.autoCleanupEligible,false,'public diagnosis cannot suggest deleting adopted orphan');
+assert.match(adoptedPublicRow.protectionReason,/adopted orphan/);
+assert.equal(adoptedPublicDiagnosis.backupSummary.bySource['스냅샷'].autoCleanupEligible,0);
+assert.equal(adoptedPublicDiagnosis.backupSummary.bySource['스냅샷'].protected,1);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([{...adoptedPublicRecord,
+  orphanAdopted:false,sourceSignature:'SOURCE_AT_COPY_SYNTHETIC'}]));
+const trustedPublicRow=clone(context._diagnoseWorkbookCells(adoptedPublicSs,true))
+  .sheets.find(row=>row.name===adoptedPublicName);
+assert.equal(trustedPublicRow.orphanAdopted,false);
+assert.equal(trustedPublicRow.autoCleanupEligible,true,'normally registered complete record remains diagnosable');
+
 const sourceMissingMaintenanceSheets={ '스냅샷_백업_source_missing_completed':new Sheet([header]), '스냅샷_백업_source_missing_failed':new Sheet([header]) };
 const sourceMissingMaintenanceSs=ssFor(sourceMissingMaintenanceSheets);
 const sourceMissingMaintenanceSignature=context._sheetContentSignature(sourceMissingMaintenanceSheets['스냅샷_백업_source_missing_completed']);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Issue #507: synthetic, read-only reproduction of an orphaned system backup.
 // Executes the real production functions; all Sheets/Properties are in-memory.
-// A passing test identifies a CURRENTLY UNSAFE creation gap, not a recovery.
+// A passing test verifies orphan creation failure remains protected without registry trust.
 // It never accesses Google Sheets, GAS, trade data, credentials or the network.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -126,10 +126,9 @@ for(const failurePoint of ['trim','copy']){
   assert.equal(reconciled.unresolved.length,1);
   assert.equal(reconciled.unresolved[0].classification,'UNKNOWN');
 }
-// A fully copied, unregistered sheet can be automatically classified as a
-// COMPLETED orphan by the current reconciling implementation. This synthetic
-// reproducer must remain labelled KNOWN_UNSAFE until source-at-copy provenance
-// is independently verified; success does not authorize backup restoration.
+// Even a fully copied, self-signed orphan without a registry record must
+// remain untrusted, because source-at-copy provenance is missing.
+// The registry-writing failure must not be hidden by reconciliation.
 {
   const e=makeEnvironment('register');
   e.context._registerSystemBackup=()=>{throw Error('INJECTED_REGISTRATION_FAILURE');};
@@ -139,12 +138,15 @@ for(const failurePoint of ['trim','copy']){
   assert.equal(e.sheets[1].dataCopied,true);
   assert.equal(e.registry.length,0);
   const recovered=e.context._reconcileSystemBackups(e.ss);
-  assert.equal(recovered.reconciled.length,1,
-    'KNOWN_UNSAFE: current reconciler adopts complete-looking unregistered tab');
-  assert.equal(e.registry[0].status,'COMPLETED');
-  assert.equal(e.registry[0].orphanAdopted,true);
-  assert.equal(e.registry[0].sourceSignature,'',
-    'KNOWN_UNSAFE: adopted tab cannot prove original source-at-copy signature');
+  assert.equal(recovered.reconciled.length,0,
+    'complete-looking unregistered backup must never be promoted');
+  assert.equal(recovered.unresolved.length,1);
+  assert.equal(recovered.unresolved[0].classification,'ORPHAN_LIKELY_SYSTEM');
+  assert.match(recovered.unresolved[0].reason,/sourceSignature/);
+  assert.equal(e.tracking.registered,0,'reconciler must never write a trusted registry row');
+  assert.equal(e.registry.length,0,'pre-registry failure remains unregistered');
+  assert.equal(e.tracking.deleted,0,'original orphan must remain recoverable as evidence');
+  assert.equal(e.tracking.sourceWrites,0,'no original Snapshot modification');
 }
-console.log('ISSUE507_BACKUP_PRE_REGISTRY_ORPHAN_KNOWN_UNSAFE_REPRODUCED');
+console.log('ISSUE507_BACKUP_PRE_REGISTRY_ORPHAN_FAIL_CLOSED');
 console.log('ISSUE507_BACKUP_ORPHAN_READONLY_CONTRACT_PASS');
