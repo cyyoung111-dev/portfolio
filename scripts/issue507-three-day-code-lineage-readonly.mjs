@@ -7,6 +7,7 @@ import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {validateInventory,assessBatch} from './issue507-supervised-repair-dryrun-readonly.mjs';
 
 export const TARGET_DATES=Object.freeze(['2026-01-08','2026-01-09','2026-01-17']);
+export const BASELINE_DATES=Object.freeze(['2026-01-06','2026-01-07']);
 const DIGEST=/^[0-9a-f]{64}$/;
 const fail=reason=>{throw Error('ISSUE507_THREE_DAY_'+reason);};
 function guard(ok,reason){if(!ok)fail(reason);}
@@ -261,6 +262,80 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
     note:'This report only distinguishes qty/cost drift and whether trades exist; it does not approve price substitution or any Snapshot mutations.'};
 }
 
+
+// A source-complete prior-date Snapshot is needed to infer whether the same
+// six qty/cost mismatches predate January 8. This read-only comparison NEVER
+// infers historical causation, price validity, or a restorable baseline.
+export function comparePriorBaseline(threeDay,baseline){
+  summarizeThreeDays(threeDay);
+  guard(baseline?.status==='ok'&&Array.isArray(baseline.checkedDates)
+    &&baseline.checkedDates.join('|')===BASELINE_DATES.join('|')
+    &&Array.isArray(baseline.diagnostics)
+    &&baseline.diagnostics.length===BASELINE_DATES.length
+    &&DIGEST.test(baseline.strictSourceDigest||'')
+    &&typeof baseline.integritySourceRevision==='string'
+    &&baseline.integritySourceRevision.length>0,'BASELINE_SCHEMA');
+  const mismatches=threeDay.diagnostics.map(day=>{
+    const exp=new Map(day.expectedRows.map(r=>[id(r),r])),stored=new Map();
+    for(const r of day.storedRows){
+      const k=id(r);guard(k,'BASELINE_ID');
+      if(!stored.has(k))stored.set(k,[]);
+      stored.get(k).push(r);
+    }
+    return new Set([...exp].filter(([k,row])=>stored.has(k)
+      &&!stored.get(k).some(v=>qtyCost(v)===qtyCost(row))).map(([k])=>k));
+  });
+  const persistent=[...mismatches[0]]
+    .filter(k=>mismatches.slice(1).every(set=>set.has(k)));
+  const days=baseline.diagnostics.map((d,i)=>{
+    guard(d?.date===BASELINE_DATES[i]&&Array.isArray(d.expectedRows)
+      &&Array.isArray(d.storedRows)&&Array.isArray(d.sourceDataErrors)
+      &&typeof d.status==='string','BASELINE_DAY_SCHEMA');
+    // Source-incomplete results cannot establish a pre-existing mismatch.
+    if(d.sourceDataErrors.length||d.status==='SOURCE_INCOMPLETE')
+      return {date:BASELINE_DATES[i],status:'SOURCE_UNVERIFIABLE',
+        checkedRecurringCodes:bounded(persistent.length),
+        matchedQtyCost:null,mismatchedQtyCost:null,missingExpected:null,
+        missingStored:null,missingBoth:null,priceProven:false};
+    if(d.status==='NO_SNAPSHOT'||d.storedRows.length===0)
+      return {date:BASELINE_DATES[i],status:'STORED_SNAPSHOT_UNAVAILABLE',
+        checkedRecurringCodes:bounded(persistent.length),
+        matchedQtyCost:null,mismatchedQtyCost:null,missingExpected:null,
+        missingStored:null,missingBoth:null,priceProven:false};
+    const expected=new Map();
+    for(const r of d.expectedRows){
+      const k=id(r);guard(k&&!expected.has(k),'BASELINE_EXPECTED_ID');
+      expected.set(k,r);
+    }
+    const stored=new Map();
+    for(const r of d.storedRows){
+      const k=id(r);guard(k,'BASELINE_STORED_ID');
+      if(!stored.has(k))stored.set(k,[]);
+      stored.get(k).push(r);
+    }
+    const counts={matchedQtyCost:0,mismatchedQtyCost:0,missingExpected:0,
+      missingStored:0,missingBoth:0};
+    for(const k of persistent){
+      const e=expected.get(k),v=stored.get(k);
+      if(!e&&!v)counts.missingBoth++;
+      else if(!e)counts.missingExpected++;
+      else if(!v)counts.missingStored++;
+      else if(v.some(r=>qtyCost(r)===qtyCost(e)))counts.matchedQtyCost++;
+      else counts.mismatchedQtyCost++;
+    }
+    guard(Object.values(counts).reduce((a,b)=>a+b,0)===persistent.length,'BASELINE_COUNTS');
+    return {date:BASELINE_DATES[i],status:'ASSESSED',checkedRecurringCodes:bounded(persistent.length),
+      ...Object.fromEntries(Object.entries(counts).map(([k,v])=>[k,bounded(v)])),
+      priceProven:false};
+  });
+  return {mode:'ISSUE507_JAN06_07_PRIOR_BASELINE_READONLY',days,
+    recurringCodesCompared:bounded(persistent.length),
+    earliestDivergenceDateProven:false,independentSourcePriceVerification:false,
+    sourceAtHistoricalWriteVerified:false,canRecoverFromPriorSnapshot:false,
+    restoreAllowed:false,deleteAllowed:false,writesPerformed:0,
+    note:'Historical expected values are derived from the CURRENT ledger, not from a dated saved ledger version. Mismatch does not prove when the ledger was edited.'};
+}
+
 async function request(url,token,action,args,fetchImpl){
   let res;
   try{
@@ -286,16 +361,25 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   // Trade-history read is private to the runner and never logged.
   const trades=await request(endpoint,token,'getTrades',{},fetchImpl);
   const persistent=analyzePersistentQtyCost(first,trades);
+  // Read exactly two preceding trading days. Reuses GAS strict snapshot
+  // source digest, which covers the full source, independent of date scope.
+  const prior=await request(endpoint,token,'diagnoseSnapshotIntegrityRange',
+    {dates:BASELINE_DATES.join(','),strictReadonly:'1'},fetchImpl);
+  const priorSummary=comparePriorBaseline(first,prior);
   const second=await request(endpoint,token,'diagnoseSnapshotIntegrityRange',args,fetchImpl);
   // Validate both actual responses; do not echo raw source digests.
   summarizeThreeDays(second);
-  guard(first.strictSourceDigest===second.strictSourceDigest
+  guard(first.strictSourceDigest===prior.strictSourceDigest
+    &&first.strictSourceDigest===second.strictSourceDigest
+    &&first.integritySourceRevision===prior.integritySourceRevision
     &&first.integritySourceRevision===second.integritySourceRevision,'SOURCE_CHANGED');
   const after=validateInventory(await request(endpoint,token,'getAutomationStatus',{},fetchImpl));
   guard(before.dates.join('|')===after.dates.join('|')
     &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom,'QUEUE_CHANGED');
   return {...summary,recurringQtyCostTriage:{...persistent,
-      sourceDigestStableWithinCall:true},sourceStableWithinThisRead:true,
+      sourceDigestStableWithinCall:true},
+    jan06Jan07Baseline:{...priorSummary,strictSourceDigestStableWithinCall:true},
+    sourceStableWithinThisRead:true,
     queueStableWithinThisRead:true,crossRunSourceStabilityCertified:false};
 }
 function fixtureDay(date){
@@ -432,6 +516,29 @@ export async function selfTest(){
   const malformedTrades=structuredClone(tradeFixture);
   malformedTrades.trades[0].tradeType=null;
   assert.throws(()=>analyzePersistentQtyCost(qtyCostDrift,malformedTrades),/TRADE_ROW/);
+
+  const baseline={status:'ok',checkedDates:BASELINE_DATES,
+    diagnostics:BASELINE_DATES.map(fixtureDay),
+    strictSourceDigest:d,integritySourceRevision:'1'};
+  const reconstructed=structuredClone(baseline);
+  // Repeated mismatch on 01/06, but matching qty+cost on 01/07.
+  reconstructed.diagnostics[0].storedRows[2][3]=2;
+  reconstructed.diagnostics[0].storedRows[2][5]=20;
+  const priorProbe=comparePriorBaseline(qtyCostDrift,reconstructed);
+  assert.equal(priorProbe.recurringCodesCompared,1);
+  assert.equal(priorProbe.days[0].mismatchedQtyCost,1);
+  assert.equal(priorProbe.days[1].matchedQtyCost,1);
+  assert.equal(priorProbe.earliestDivergenceDateProven,false);
+  const incomplete=structuredClone(reconstructed);
+  incomplete.diagnostics[0].sourceDataErrors=['PRIVATE_PRICE_SOURCE_INCOMPLETE'];
+  const unknown=comparePriorBaseline(qtyCostDrift,incomplete);
+  assert.equal(unknown.days[0].status,'SOURCE_UNVERIFIABLE');
+  assert.equal(unknown.days[0].mismatchedQtyCost,null);
+  assert.ok(!JSON.stringify(priorProbe).includes('000003'));
+  assert.ok(!JSON.stringify(priorProbe).includes('SYNTH'));
+  const wrongDates=structuredClone(reconstructed);
+  wrongDates.checkedDates=['2026-01-06','2026-01-08'];
+  assert.throws(()=>comparePriorBaseline(qtyCostDrift,wrongDates),/BASELINE_SCHEMA/);
   const status={status:'ok',gasVersion:'9.244',automation:{
     gasVersion:'9.244',tradeSnapshotDeferredDates:dates,
     tradeSnapshotDeferredCount:3,tradeSnapshotDeferredOldestDate:dates[0],
@@ -442,20 +549,23 @@ export async function selfTest(){
     calls.push(action);
     return {ok:true,json:async()=>t!=='TEST_TOKEN'
       ?{status:'error',message:'인증 실패'}
-      :action==='getAutomationStatus'?status:action==='getTrades'?tradeFixture:data};
+      :action==='getAutomationStatus'?status:action==='getTrades'?tradeFixture:
+        options.body.get('dates')===BASELINE_DATES.join(',')?baseline:data};
   };
   const live=await runReadonly({url:'https://script.google.com/macros/s/TEST/exec',
     token:'TEST_TOKEN',fetchImpl:stub});
   assert.equal(live.sourceStableWithinThisRead,true);
   assert.equal(live.queueStableWithinThisRead,true);
   assert.deepEqual(calls,['getAutomationStatus','getAutomationStatus',
-    'diagnoseSnapshotIntegrityRange','getTrades','diagnoseSnapshotIntegrityRange','getAutomationStatus']);
+    'diagnoseSnapshotIntegrityRange','getTrades','diagnoseSnapshotIntegrityRange',
+    'diagnoseSnapshotIntegrityRange','getAutomationStatus']);
   const mutated=structuredClone(data);mutated.strictSourceDigest='b'.repeat(64);
   let countCalls=0;
   const changed=async(_url,options)=>{
     const action=options.body.get('action'),token=options.body.get('accessToken');
     const response=token!=='TEST_TOKEN'?{status:'error',message:'인증 실패'}
       :action==='getAutomationStatus'?status:action==='getTrades'?tradeFixture:
+        options.body.get('dates')===BASELINE_DATES.join(',')?baseline:
         ++countCalls===1?data:mutated;
     return {ok:true,json:async()=>response};
   };
