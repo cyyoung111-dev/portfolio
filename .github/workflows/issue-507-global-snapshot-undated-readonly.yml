@@ -1,0 +1,32 @@
+name: issue-507-global-snapshot-undated-readonly
+
+# Synthetic contract only. Never uses GAS credentials or actual Sheets data.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-global-snapshot-undated-readonly.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-global-snapshot-undated-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-global-snapshot-undated-readonly.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-global-snapshot-undated-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify actual GAS date filtering excludes undated rows
+        run: |
+          node --check scripts/issue507-global-snapshot-undated-readonly.mjs
+          node scripts/issue507-global-snapshot-undated-readonly.mjs --self-test

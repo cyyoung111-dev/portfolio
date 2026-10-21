@@ -1,0 +1,32 @@
+name: issue-507-backup-pre-registry-orphan-readonly
+
+# Synthetic-only: no GAS URL, secrets, real Sheets or financial source writes.
+on:
+  pull_request:
+    paths:
+      - 'scripts/check-issue507-backup-pre-registry-orphan.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-backup-pre-registry-orphan-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-issue507-backup-pre-registry-orphan.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-backup-pre-registry-orphan-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-production-repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify fail-closed orphan recovery after registry failure
+        run: |
+          node --check scripts/check-issue507-backup-pre-registry-orphan.mjs
+          node scripts/check-issue507-backup-pre-registry-orphan.mjs

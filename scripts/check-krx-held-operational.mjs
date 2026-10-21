@@ -80,7 +80,7 @@ const deployedAt=deployment.indexOf('run: node scripts/deploy-gas.mjs');
 const probeAt=deployment.indexOf('run: node scripts/diagnose-krx-held-coverage.mjs');
 assert.ok(deployedAt>0&&probeAt>deployedAt,
   '37-code coverage must follow the live GAS deployment');
-assert.match(deployment,/name: Verify KRX 37-code source coverage after live GAS deployment\n\s+if: github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED == 'true'/);
+assert.match(deployment,/name: Verify KRX 37-code source coverage after live GAS deployment\n\s+if: github\.event_name == 'workflow_dispatch' && !inputs\.dry_run/, 'KRX live deployment check must require explicit non-dry manual deploy');
 assert.doesNotMatch(generic,/node scripts\/diagnose-krx-held-coverage\.mjs/);
 const holidayWorkflow=fs.readFileSync('.github/workflows/krx-holiday-september-readonly.yml','utf8');
 assert.match(holidayWorkflow,/node scripts\/diagnose-krx-held-coverage\.mjs --dates "2026-10-16"/);

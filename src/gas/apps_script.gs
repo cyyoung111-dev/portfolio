@@ -1,6 +1,47 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.244
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.252
 //
+//  v9.252 변경사항 (2026.10.21):
+//  - #507 등록 전 실패 백업 orphan의 무증거 COMPLETED 자동승격 차단.
+//  - 백업 진단의 orphan 삭제 후보 제외 및 과거 adopted orphan 보호.
+//  - 정상 등록 COMPLETED 백업 처리 유지, 원본/큐/배포/복원 작업 없음.
+//  v9.251 변경사항 (2026.10.21):
+//  - #507 가격이력 배치 업데이트 D열·E:F열 분리기록 제거.
+//  - 기존 가격·저장시각·출처 D:F 한 행 동시저장, 대상 원본·수식 검사.
+//  - append 목적지 선점 차단, 실패시 부분커밋 검증불가 상태 노출.
+//  - 외부 Sheets API 동일셀 CAS 및 다중행 완전 원자성은 미해결.
+//  v9.250 변경사항 (2026.10.20):
+//  - #507 syncCodes 종목코드 보정의 전체열 stale setValues 제거.
+//  - 원장/가격/Snapshot 코드 변경 대상셀만 원본·수식·행 식별자 검증 후 저장.
+//  - 사용자·다른 날짜 셀 및 열 서식 보존, 오류 backup WRITE_FAILED 보류.
+//  - 외부 동일셀 CAS·다중시트 원자성 미해결, 운영 배포 미승인.
+//  v9.249 변경사항 (2026.10.20):
+//  - #507 가격이력 중복 정리 clearContents/전체 재작성 제거.
+//  - 원본 MANUAL·timestamp·수식·확장열 보전, 중복 물리행만 검증 후 빈 슬롯.
+//  - 기준행·대상행 외부수정 차단, 실패한 backup WRITE_FAILED 보존.
+//  - 외부 Sheets API 동일셀 TOCTOU는 미해결·실제 운영 배포 미승인.
+//  v9.248 변경사항 (2026.10.20):
+//  - #507 Snapshot 중복/0좌 정리 전체 A:L 행압축 제거. 검증된 행만 빈 슬롯 처리.
+//  - 날짜누락 행·사용자확장열·수식·MANUAL 자동삭제 보류, 타 날짜 행 보존.
+//  - 대상행 외부 변경시 fail-closed, 일부 실패 backup WRITE_FAILED 유지.
+//  - 직접 Sheets API 동일셀 경합/CAS 문제는 미해결이며 배포 금지.
+//  v9.247 변경사항 (2026.10.20):
+//  - #507 getPrices Snapshot 소스 재기록의 전체일 K:L 덮어쓰기 제거.
+//  - 변경 대상 날짜·종목의 물리행만 검사·쓰기, 다른 날짜/코드 보존.
+//  - 행 식별자·K:L 변경 감지, 범위 실패시 시도한 셀만 제한 보상.
+//  - 외부 동일셀 TOCTOU와 다중 Writer 중앙화는 아직 미해결.
+//  v9.246 변경사항 (2026.10.20):
+//  - #507 펀드 좌수 재계산시 NAV·가격이력·Snapshot 전체행 덮어쓰기 대신
+//    변경 대상 셀/행만 검증·저장. 0좌수 행은 빈 물리 슬롯으로 남김.
+//  - 외부 타 종목/타 날짜 값·수식 보존, 실패시 기록 대상만 보상 복원.
+//  - 외부 동일 셀의 검사→커밋 TOCTOU는 미해결, 운영 배포/복구 금지.
+//  v9.245 변경사항 (2026.10.20):
+//  - #507 기존 Snapshot 전체시트 재기록을 대상 날짜 행만 수정하는 방식으로 전환.
+//  - 백업 이후 대상 날짜 원본·행수 변경 감지 시 쓰기 전 차단.
+//  - 원장/가격/NAV/MANUAL 보호·백업 상태·pending/deferred 규칙 유지.
+//  - 타 날짜 보존, 다중 범위 실패 시 대상일 단계별 원본 복원·미확인 차단.
+//  - #507 append 직전 외부 행 경합 차단·롤백시 수식/값 원본 이미지 보존.
+//  - 외부 동일 날짜 API 경합은 별도 보호 필요. 승인·배포 전 미운영.
 //  v9.244 변경사항 (2026.10.20):
 //  - #507 worker DATE_DISCOVERY의 Snapshot 마지막일 조회 완료 및 다중 소스 날짜 수집 완료를
 //    별도 phase로 구분. 기존 원장/가격/NAV/Snapshot 계산값·pending·deferred 이동 불변.
@@ -2198,7 +2239,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.244',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.252',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2276,7 +2317,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.244', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.252', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6103,7 +6144,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.244' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.252' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6235,6 +6276,136 @@ function _fundUnitsImpactEnd(ss, configs, code, startDate) {
   return latest;
 }
 
+
+/**
+ * #507 FUND_UNITS: only overwrite cells that actually changed for the affected
+ * fund.  Never serialize and rewrite an unrelated physical row/date/code.
+ * The caller holds ScriptLock. External Sheets clients do not obey that lock:
+ * unchanged target cells and append destinations are preflighted; same-cell
+ * read-to-write TOCTOU still requires a shared external writer contract.
+ */
+function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) {
+  if (before.length !== after.length)
+    throw new Error('펀드 파생행 물리 위치 변경 차단');
+  var originalLastRow = before.length + 1;
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('펀드 파생시트 행 구조 외부 변경');
+  var plans = [], attempted = [];
+  var readImage = function(range) {
+    var values = range.getValues(), formulas = range.getFormulas();
+    if (!values || !formulas || values.length !== formulas.length)
+      throw new Error('펀드 파생행 원본 값/수식 조회 실패');
+    return values.map(function(row, i) {
+      return row.map(function(value, j) { return formulas[i][j] || value; });
+    });
+  };
+  (before || []).forEach(function(previous, index) {
+    var desired = after[index];
+    if (!Array.isArray(previous) || !Array.isArray(desired) ||
+        previous.length < width || desired.length < width)
+      throw new Error('펀드 파생행 열 구조 불일치');
+    // Clearing a zero-unit row must be ONE physical-range operation. A
+    // code-less legacy row otherwise generates separated date/name blocks;
+    // its first block removes its own identity and falsely trips the second.
+    if (desired.slice(0,width).every(function(v) { return v === '' || v == null; })) {
+      if (previous.slice(0,width).some(function(v) { return v !== '' && v != null; }))
+        plans.push({row:index+2,col:1,identity:previous.slice(0,3),
+          previous:previous.slice(0,width),desired:desired.slice(0,width)});
+      return;
+    }
+    if (JSON.stringify(previous.slice(0,3)) !== JSON.stringify(desired.slice(0,3)))
+      throw new Error('펀드 파생행 날짜/종목 식별자 이동 금지');
+    var j = 0;
+    while (j < width) {
+      if (JSON.stringify(previous[j]) === JSON.stringify(desired[j])) { j++; continue; }
+      var first = j;
+      while (j < width && JSON.stringify(previous[j]) !== JSON.stringify(desired[j])) j++;
+      plans.push({ row:index + 2, col:first + 1,
+        identity:previous.slice(0,3),
+        previous:previous.slice(first,j), desired:desired.slice(first,j) });
+    }
+  });
+  if ((additions || []).length) {
+    var requiredLast = originalLastRow + additions.length;
+    if (sheet.getMaxRows() < requiredLast)
+      sheet.insertRowsAfter(sheet.getMaxRows(), requiredLast - sheet.getMaxRows());
+    // A Snapshot may have custom columns beyond the standard 12.  GAS
+    // Range.setValues requires exactly the physical sheet width on append.
+    // Preserve unrelated existing rows and pad only newly derived rows.
+    var appendRows = additions.map(function(row) {
+      if (!Array.isArray(row) || row.length > width)
+        throw new Error('펀드 파생행 추가 열 구조 불일치');
+      var padded = row.slice();
+      while (padded.length < width) padded.push('');
+      return padded;
+    });
+    plans.push({ row:originalLastRow + 1, col:1, append:true,
+      previous:null, desired:appendRows });
+  }
+  // Validate every changed range before touching any source row.
+  plans.forEach(function(plan) {
+    var height = plan.append ? plan.desired.length : 1;
+    var cols = plan.append ? width : plan.desired.length;
+    var range = sheet.getRange(plan.row,plan.col,height,cols);
+    // A same-size external row swap can preserve getLastRow yet change the
+    // date/code. Never write fund valuations into another instrument's row.
+    if (!plan.append && JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
+        JSON.stringify(plan.identity))
+      throw new Error('펀드 파생행 날짜/종목 식별자 외부 변경');
+    var observed = readImage(range);
+    if (plan.append) {
+      if (sheet.getLastRow() > originalLastRow ||
+          observed.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }))
+        throw new Error('펀드 파생행 append 목적지 외부 변경');
+    } else {
+      var current = range.getValues();
+      if (JSON.stringify(current[0]) !== JSON.stringify(plan.previous))
+        throw new Error('펀드 파생행 대상 셀 외부 변경');
+    }
+    plan.range = range; plan.imageBefore = observed;
+  });
+  try {
+    plans.forEach(function(plan) {
+      var data = plan.append ? plan.desired : [plan.desired];
+      if (plan.append) {
+        var check = readImage(plan.range);
+        if (sheet.getLastRow() > originalLastRow ||
+            check.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }))
+          throw new Error('펀드 파생행 append 직전 외부 선점');
+      } else {
+        if (JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
+            JSON.stringify(plan.identity))
+          throw new Error('펀드 파생행 커밋 직전 날짜/종목 식별자 변경');
+        if (JSON.stringify(plan.range.getValues()[0]) !== JSON.stringify(plan.previous))
+          throw new Error('펀드 파생행 커밋 직전 대상 셀 변경');
+      }
+      attempted.push(plan);
+      plan.range.setValues(data);
+    });
+    SpreadsheetApp.flush();
+    plans.forEach(function(plan) {
+      var target = plan.append ? plan.desired : [plan.desired];
+      if (JSON.stringify(plan.range.getValues()) !== JSON.stringify(target))
+        throw new Error('펀드 파생행 변경 범위 저장 검증 실패');
+    });
+  } catch(err) {
+    var restored = true;
+    for (var i = attempted.length - 1; i >= 0; i--) {
+      var op = attempted[i];
+      try {
+        var seen = readImage(op.range);
+        var intended = op.append ? op.desired : [op.desired];
+        if (JSON.stringify(seen) === JSON.stringify(op.imageBefore)) continue;
+        if (JSON.stringify(seen) !== JSON.stringify(intended)) { restored = false; continue; }
+        op.range.setValues(op.imageBefore);
+      } catch(rollbackErr) { restored = false; }
+    }
+    try { SpreadsheetApp.flush(); } catch(flushErr) { restored = false; }
+    if (!restored) throw new Error('펀드 파생행 부분 저장·보상 검증 불가');
+    throw err;
+  }
+}
+
 function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var result = { from:fromDate, to:toDate || '', navRows:0, priceRows:0, snapshotRows:0, manualPreserved:0, missingNav:0 };
   var navBackup = null, priceBackup = null, snapshotBackup = null;
@@ -6242,6 +6413,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var configs = _readFundUnits(ss);
   var navSh = ss.getSheetByName(FUND_NAV_SHEET);
   var navRows = navSh && navSh.getLastRow() > 1 ? navSh.getRange(2, 1, navSh.getLastRow() - 1, Math.min(9, navSh.getLastColumn())).getValues() : [];
+  var originalNavRows = navRows.map(function(row) { return row.slice(); });
   var evalCache = {}, candidateDates = {}, confirmedNavDates = {};
   function inRange(date) { return date && date >= fromDate && date <= toDate; }
   function evalAt(date) {
@@ -6278,10 +6450,8 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   if (navChanged) {
     navBackup = navSh && navSh.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, navSh, FUND_NAV_SHEET) : null;
     try {
-      var normalizedNavRows = _normalizeCodeRows(navRows.map(function(row) { return row.slice(0,9); }), 1);
-      navSh.getRange(2, 1, normalizedNavRows.length, 9).setValues(normalizedNavRows);
-      SpreadsheetApp.flush();
-      _verifyFundNavWrittenRange(navSh, 2, normalizedNavRows);
+      if (!navBackup) throw new Error('펀드 NAV 원본 백업 확보 실패');
+      _writeFundDerivedChangedCells_(navSh,originalNavRows,navRows,[],9);
       _markSnapshotBackupStatus(navBackup, 'COMPLETED');
     } catch (navError) {
       _markSnapshotBackupStatus(navBackup, 'WRITE_FAILED', navError.message);
@@ -6291,6 +6461,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, Math.min(6, ph.getLastColumn())).getValues() : [];
+  var originalPriceRows = prices.map(function(row) { return row.slice(); });
   var priceChanged = false, priceByDate = {};
   prices.forEach(function(row) {
     var date = _normalizeDate(row[0]), rowCode = _fundConfiguredCodeForPriceRow(row, configs);
@@ -6311,6 +6482,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var width = snap ? Math.max(12, snap.getLastColumn()) : 12;
   var snapshots = snap && snap.getLastRow() > 1 ? snap.getRange(2, 1, snap.getLastRow() - 1, width).getValues() : [];
+  var originalSnapshots = snapshots.map(function(row) { return row.slice(); });
   var snapChanged = false, reconciledSnapshots = [], snapshotByDate = {};
   var nameByCode = {};
   configs.forEach(function(c) { if (c.code === code && c.name) nameByCode[c.name] = true; });
@@ -6323,6 +6495,8 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     var value = evalAt(date);
     if (!value) { reconciledSnapshots.push(row); snapshotByDate[date] = true; return; }
     if (value.zero) {
+      // Empty this fund's original physical slot rather than shift unrelated rows.
+      reconciledSnapshots.push(Array(width).fill(''));
       snapChanged = true; result.snapshotRows++;
       return;
     }
@@ -6385,14 +6559,9 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     try {
       if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
       _setCodeColumnText(ph, 2);
-      if (priceChanged && prices.length) {
-        var normalizedPrices = _normalizeCodeRows(prices.map(function(row) { return row.slice(0,6); }), 1);
-        ph.getRange(2, 1, normalizedPrices.length, 6).setValues(normalizedPrices);
-      }
-      if (priceAppend.length) {
-        ph.getRange(ph.getLastRow() + 1, 1, priceAppend.length, 6).setValues(_normalizeCodeRows(priceAppend, 1));
-      }
-      SpreadsheetApp.flush();
+      if (originalPriceRows.length && !priceBackup) throw new Error('펀드 가격이력 백업 확보 실패');
+      _writeFundDerivedChangedCells_(ph,originalPriceRows,prices,
+        _normalizeCodeRows(priceAppend,1),6);
       _markSnapshotBackupStatus(priceBackup, 'COMPLETED');
     } catch (priceError) {
       _markSnapshotBackupStatus(priceBackup, 'WRITE_FAILED', priceError.message);
@@ -6406,12 +6575,11 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     try {
       if (!snap) { snap = ss.insertSheet(CONFIG.SHEET_SNAPSHOT); snap.appendRow(['날짜','종목코드','종목명','수량','매입단가','매입원금','평가단가','평가금액','손익','수익률','소스','저장일시']); }
       _setCodeColumnText(snap, 2);
-      var originalCount = snapshots.length, writeCount = Math.max(originalCount, finalSnapshots.length);
-      while (finalSnapshots.length < writeCount) finalSnapshots.push(Array(width).fill(''));
-      snap.getRange(2, 1, writeCount, width).setValues(finalSnapshots.map(function(row) {
-        var copy = row.slice(0, width); while (copy.length < width) copy.push(''); return copy;
-      }));
-      SpreadsheetApp.flush();
+      if (originalSnapshots.length && !snapshotBackup) throw new Error('펀드 Snapshot 백업 확보 실패');
+      if (reconciledSnapshots.length !== originalSnapshots.length)
+        throw new Error('펀드 Snapshot 다른 날짜 행 이동 차단');
+      _writeFundDerivedChangedCells_(snap,originalSnapshots,reconciledSnapshots,
+        _normalizeCodeRows(snapshotAppend,1),width);
       _markSnapshotBackupStatus(snapshotBackup, 'COMPLETED');
     } catch (snapshotError) {
       _markSnapshotBackupStatus(snapshotBackup, 'WRITE_FAILED', snapshotError.message);
@@ -7358,6 +7526,8 @@ function _cleanupCurrentSystemBackup(ss, record) {
       item.systemGenerated === true && item.status === 'COMPLETED';
   })[0];
   if (!registered) return { deleted: false, reason: '검증된 현재 operation backup record 없음' };
+  if (registered.orphanAdopted === true) return { deleted: false, name: registered.name,
+    reason: '과거 adopted orphan · 생성 당시 sourceSignature 없음 · 자동삭제 금지' };
   if (!registered.source || !Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, registered.source) || !ss.getSheetByName(registered.source)) {
     return { deleted: false, name: registered.name, reason: '원본 source sheet 없음 · backup 보호' };
   }
@@ -7386,7 +7556,7 @@ function _cleanupCurrentSystemBackup(ss, record) {
   var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
   var staleCandidates = items.filter(function(item) {
     if (item.name === registered.name || item.source !== registered.source || item.systemGenerated !== true) return false;
-    if (item.status !== 'COMPLETED') return false;
+    if (item.status !== 'COMPLETED' || item.orphanAdopted === true) return false;
     return currentCompletedAt && _backupTimeMillis(item.completedAt || item.updatedAt || item.createdAt) < currentCompletedAt;
   });
   var staleDeleted = [], missingRecords = [], legacyMigratedDeleted = [];
@@ -7399,7 +7569,7 @@ function _cleanupCurrentSystemBackup(ss, record) {
   if (staleCandidates.length) formulaReferenceTargets.unshift(registered.name);
   var staleFormulaCounts = staleCandidates.length ? _sheetFormulaReferenceCounts(ss, formulaReferenceTargets) : {};
   var currentSchemaMatch = !!(sourceHeaderSignature && _sheetHeaderSignature(sheet) === sourceHeaderSignature);
-  var currentTrustedV2 = registered.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION &&
+  var currentTrustedV2 = registered.orphanAdopted !== true && registered.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION &&
     !operationsWithCreatedBackup[registered.operationId] && currentSchemaMatch &&
     Number(staleFormulaCounts[registered.name] || 0) === 0;
   if (staleCandidates.length) staleCandidates.forEach(function(item) {
@@ -7541,12 +7711,11 @@ function _reconcileSystemBackups(ss) {
         _sheetHeaderSignature(sheet) !== _sheetHeaderSignature(sourceSheet)) {
       unresolved.push({ name: name, classification: 'UNKNOWN', reason: '원본/schema/formula/signature 안전 검증 불충족' }); return;
     }
-    var record = { name: name, source: source, signature: signature, sourceSignature: '', signatureVersion: SYSTEM_BACKUP_SIGNATURE_VERSION,
-      operationId: 'reconciled-orphan', status: 'COMPLETED', systemGenerated: true, orphanAdopted: true,
-      createdAt: _systemBackupTimestampFromName(name), completedAt: _systemBackupTimestampFromName(name), updatedAt: new Date().toISOString() };
-    items.push(record); byName[name] = record; reconciled.push({ name: name, classification: 'ORPHAN_LIKELY_SYSTEM' });
+    // 헤더·자기서명 일치만으로는 생성 당시 원본 일치가 증명되지 않습니다.
+    // orphan을 COMPLETED로 승격하거나 등록하지 않고 보호 상태만 보고합니다.
+    unresolved.push({ name: name, classification: 'ORPHAN_LIKELY_SYSTEM',
+      reason: '미등록 backup · 생성 당시 sourceSignature/operation 검증 없음 · 자동승격 금지' });
   });
-  if (reconciled.length) _writeSystemBackupRegistry(items);
   return { reconciled: reconciled, unresolved: unresolved };
 }
 
@@ -7559,7 +7728,7 @@ function _cleanupSystemBackups(ss, sourceName, reconcileOrphans) {
     var sheet = item && ss.getSheetByName(item.name);
     return !!(sheet && item.signature && _sheetContentSignature(sheet) === item.signature);
   };
-  var candidates = sourceItems.filter(function(item) { return item.status === 'COMPLETED' && signatureMatches(item); })
+  var candidates = sourceItems.filter(function(item) { return item.status === 'COMPLETED' && item.orphanAdopted !== true && signatureMatches(item); })
     .sort(function(a, b) { return String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)); });
   var protectedNames = {};
   candidates.slice(0, keep).forEach(function(item) { protectedNames[item.name] = true; });
@@ -7649,7 +7818,9 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences, backupReferencesOn
       (role === 'BACKUP' ? (inferredSource ? 'ORPHAN_LIKELY_SYSTEM' : 'USER_MANAGED_BACKUP') : 'UNKNOWN');
     var formulaReferenceCount = includeFormulaReferences && Object.prototype.hasOwnProperty.call(formulaCounts, name) ? formulaCounts[name] : null;
     var registeredSourceExists = !backupRecord || (!!inferredSource && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, inferredSource) && !!ss.getSheetByName(inferredSource));
-    var eligible = classification === 'REGISTERED_COMPLETED' && registeredSourceExists && formulaReferenceCount === 0;
+    // Historical adopted orphans have no source-at-copy provenance, even when self-signed.
+    var adoptedOrphan = !!(backupRecord && backupRecord.orphanAdopted === true);
+    var eligible = classification === 'REGISTERED_COMPLETED' && registeredSourceExists && !adoptedOrphan && formulaReferenceCount === 0;
     sheets.push({ name: name, role: role, maxRows: maxRows, maxColumns: maxColumns,
       lastRow: lastRow, lastColumn: lastColumn, allocatedCells: allocatedCells,
       usedRangeCells: usedRangeCells, unusedCells: allocatedCells - usedRangeCells,
@@ -7659,8 +7830,10 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences, backupReferencesOn
       createdAt: backupRecord ? backupRecord.createdAt || '' : '', completedAt: backupRecord ? backupRecord.completedAt || '' : '',
       updatedAt: backupRecord ? backupRecord.updatedAt || '' : '', operationId: backupRecord ? backupRecord.operationId || '' : '',
       signatureMatch: backupRecord ? _sheetContentSignature(sheet) === backupRecord.signature : null,
-      sourceSheetExists: registeredSourceExists, autoCleanupEligible: eligible, protectionReason: eligible ? '' :
-        (!registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정')) });
+      sourceSheetExists: registeredSourceExists, orphanAdopted: adoptedOrphan,
+      autoCleanupEligible: eligible, protectionReason: eligible ? '' :
+        (adoptedOrphan ? '과거 adopted orphan · 생성 당시 sourceSignature 없음 · 자동삭제 금지' :
+        (!registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정'))) });
   });
   sheets.forEach(function(item) { item.workbookOccupancyPercent = totalCells ? Number((item.allocatedCells * 100 / totalCells).toFixed(4)) : 0; });
   var backupsBySource = {};
@@ -7695,6 +7868,8 @@ function handleDiagnoseWorkbookCells() {
 // 전체 백업을 한 번에 분류합니다. apply=false 경로는 registry 기록도 바꾸지 않습니다.
 function _systemBackupProtectionReason_(item, context) {
   context = context || {};
+  if (item.orphanAdopted) return '과거 adopted orphan · 원본 당시 서명 확인 불가 · 보호';
+  if (item.classification === 'ORPHAN_LIKELY_SYSTEM') return '미등록 backup · 생성 당시 서명 미확인 · 보호';
   if (!context.registeredSourceExists) return '원본 source sheet 없음 · backup 보호';
   if (item.formulaReferenceCount) return '수식 참조 존재';
   if (!context.safeClass) return 'USER_MANAGED/UNKNOWN 보호';
@@ -7736,6 +7911,7 @@ function _planSystemBackupMaintenance(ss, options) {
       operationId: record ? record.operationId || '' : '', operationHasCreatedBackup: operationHasCreatedBackup,
       signatureVersion: record ? record.signatureVersion || '' : '', copySignatureDrift: !!(record && record.copySignatureDrift),
       createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
+      orphanAdopted: !!(record && record.orphanAdopted === true),
       autoCleanupEligible: false, protectionReason: '' };
   });
   var bySource = {};
@@ -7744,7 +7920,7 @@ function _planSystemBackupMaintenance(ss, options) {
   Object.keys(bySource).forEach(function(source) {
     var list = bySource[source];
     var trustedV2CompletedAt = list.reduce(function(latest, item) {
-      if (item.classification !== 'REGISTERED_COMPLETED' || item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION ||
+      if (item.classification !== 'REGISTERED_COMPLETED' || item.orphanAdopted || item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION ||
           !item.signatureMatch || !item.schemaMatch || !item.sourceSheetExists || item.formulaReferenceCount !== 0 ||
           item.operationHasCreatedBackup) return latest;
       return Math.max(latest, _backupTimeMillis(item.completedAt || item.createdAt));
@@ -7764,8 +7940,8 @@ function _planSystemBackupMaintenance(ss, options) {
       // 다른 source의 실패/미완료 CREATED backup까지 광범위하게 정리하지 않습니다.
       var validatedStale = !!validatedOperationIds[item.operationId] && item.source === CONFIG.SHEET_SNAPSHOT &&
         (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
-      item.autoCleanupEligible = !!(safeClass && registeredSourceExists && (item.signatureMatch || legacySupersededByTrustedV2) &&
-        (registeredCompleted || validatedStale || (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
+      item.autoCleanupEligible = !!(safeClass && registeredSourceExists && !item.orphanAdopted &&
+        (item.signatureMatch || legacySupersededByTrustedV2) && (registeredCompleted || validatedStale) &&
         (!item.operationHasCreatedBackup || validatedStale) && item.formulaReferenceCount === 0);
       if (!item.autoCleanupEligible) item.protectionReason = _systemBackupProtectionReason_(item, {
         safeClass: safeClass,
@@ -9790,24 +9966,86 @@ function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
   if (!sourceByCode || Object.keys(sourceByCode).length === 0) return 0;
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) return 0;
-  var rowCount = sh.getLastRow() - 1;
+  var originalLastRow = sh.getLastRow();
+  var rowCount = originalLastRow - 1;
   var data = sh.getRange(2, 1, rowCount, Math.max(12, sh.getLastColumn())).getValues();
-  var sourceCells = data.map(function(row) { return [(row[10] || '').toString().trim(), (row[11] || '').toString().trim()]; });
-  var changed = 0;
+  var changes = [];
   data.forEach(function(row, index) {
     if (_normalizeDate(row[0]) !== dateStr) return;
     var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
     var nextSource = code ? (sourceByCode[code] || '') : '';
     var currentSource = (row[10] || '').toString().trim();
     if (!nextSource || currentSource === 'MANUAL' || currentSource === nextSource) return;
-    sourceCells[index] = [nextSource, ''];
-    changed++;
+    changes.push({
+      physicalRow:index + 2,
+      identity:row.slice(0,3),
+      before:row.slice(10,12),
+      after:[nextSource,'']
+    });
   });
-  if (changed > 0) {
-    sh.getRange(2, 11, rowCount, 2).setValues(sourceCells);
-    _touchSnapshotIntegritySourceRevision({ date: dateStr });
+  if (!changes.length) return 0;
+
+  // #507: a price-provider source refresh must not rewrite K:L of every date.
+  // ScriptLock alone does not exclude external Sheets API clients, so verify
+  // each affected physical row and its original K:L before commit.
+  var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
+  var image = function(range) {
+    var values = range.getValues(), formulas = range.getFormulas();
+    if (!values || !formulas || !values.length || !formulas.length)
+      throw new Error('Snapshot 가격소스 원본 수식/값 조회 실패');
+    return values[0].map(function(value,i) { return formulas[0][i] || value; });
+  };
+  var verifyRow = function(change) {
+    if (sh.getLastRow() !== originalLastRow)
+      throw new Error('Snapshot 가격소스 행 구조 외부 변경');
+    if (!same(sh.getRange(change.physicalRow,1,1,3).getValues()[0],change.identity))
+      throw new Error('Snapshot 가격소스 날짜/종목 외부 변경');
+  };
+  var attempted = [];
+  changes.forEach(function(change) {
+    verifyRow(change);
+    change.range = sh.getRange(change.physicalRow,11,1,2);
+    if (!same(change.range.getValues()[0],change.before))
+      throw new Error('Snapshot 가격소스 대상셀 외부 변경');
+    change.originalImage = image(change.range);
+  });
+  try {
+    changes.forEach(function(change) {
+      verifyRow(change);
+      if (!same(change.range.getValues()[0],change.before))
+        throw new Error('Snapshot 가격소스 커밋 직전 대상셀 변경');
+      attempted.push(change);
+      change.range.setValues([change.after]);
+    });
+    SpreadsheetApp.flush();
+    changes.forEach(function(change) {
+      verifyRow(change);
+      if (!same(change.range.getValues()[0],change.after))
+        throw new Error('Snapshot 가격소스 저장 후 검증 실패');
+    });
+  } catch (error) {
+    var compensated = true;
+    for (var i = attempted.length - 1; i >= 0; i--) {
+      var record = attempted[i];
+      try {
+        // The physical row may have been moved or replaced since its write.
+        // Never roll back K:L into a different date/code, even when values
+        // happen to equal our last commit. Treat unverified as a hard stop.
+        verifyRow(record);
+        var observed = image(record.range);
+        if (same(observed,record.originalImage)) continue;
+        // Do not overwrite a newer third-party change during compensation.
+        if (!same(observed,record.after)) { compensated = false; continue; }
+        record.range.setValues([record.originalImage]);
+      } catch (rollbackError) { compensated = false; }
+    }
+    try { SpreadsheetApp.flush(); } catch (flushError) { compensated = false; }
+    if (!compensated)
+      throw new Error('Snapshot 가격소스 COMMIT_UNVERIFIED: ' + String(error && error.message || error));
+    throw error;
   }
-  return changed;
+  _touchSnapshotIntegritySourceRevision({ date: dateStr });
+  return changes.length;
 }
 
 function _isManualKeepLatestEnabled() {
@@ -10054,7 +10292,12 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       // ★ [버그수정] 날짜 _normalizeDate() 적용 — Date 객체가 'Mon Apr 13...' 형태로
       //   읽혀 중복 감지 실패하던 문제 수정. 6컬럼(소스)까지 읽어 MANUAL 여부 판단
       var readCols = Math.min(6, ph.getLastColumn());
-      var data = ph.getRange(2, 1, lastRow - 1, readCols).getValues();
+      var data = ph.getRange(2, 1, lastRow - 1, readCols).getValues().map(function(row) {
+        // Legacy sheets may have no populated source column F (getLastColumn()=5).
+        // Compare normalized A:F rows, including their missing empty cells.
+        while (row.length < 6) row.push('');
+        return row;
+      });
       data.forEach(function(row, i) {
         var d = _normalizeDate(row[0]);
         var c = _cleanCode(row[1]) || (row[2]||'').toString().trim();
@@ -10087,38 +10330,101 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       }
     });
 
-    if (toUpdate.length > 0) {
-      toUpdate.sort(function(a, b) { return a.row - b.row; });
-      var i = 0;
-      while (i < toUpdate.length) {
-        var startRow = toUpdate[i].row;
-        var prices   = [toUpdate[i].price];
-        while (i + 1 < toUpdate.length && toUpdate[i + 1].row === toUpdate[i].row + 1) {
-          i++;
-          prices.push(toUpdate[i].price);
-        }
-        ph.getRange(startRow, 4, prices.length, 1).setValues(prices.map(function(p){ return [p]; }));
-        i++;
-      }
-      // ★ savedAt + source 배치 업데이트 — 행마다 2번 setValue → 연속행 묶음 setValues
-      toUpdate.sort(function(a, b) { return a.row - b.row; });
-      var j = 0;
-      while (j < toUpdate.length) {
-        var sr = toUpdate[j].row;
-        var batch = [[toUpdate[j].isManual ? (toUpdate[j].savedAt || '') : '', toUpdate[j].source || '']];
-        while (j + 1 < toUpdate.length && toUpdate[j + 1].row === toUpdate[j].row + 1) {
-          j++;
-          batch.push([toUpdate[j].isManual ? (toUpdate[j].savedAt || '') : '', toUpdate[j].source || '']);
-        }
-        ph.getRange(sr, 5, batch.length, 2).setValues(batch);
-        j++;
-      }
+    // #507: price, timestamp, and source describe ONE observation. The old
+    // two-pass D then E:F writer could expose a new price with stale source,
+    // or overwrite a newer external MANUAL row after a whole-sheet scan.
+    var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
+    var attempts = 0;
+    // Read A:F once per phase, not once per security check per code.
+    // A single large replay may contain many rows; ~6N RPCs risks GAS timeout.
+    var targets = toUpdate.map(function(item) {
+      return { row:item.row, before:data[item.row - 2].slice(0,6),
+        after:[item.price, item.isManual ? (item.savedAt || '') : '', item.source || ''] };
+    }).sort(function(a,b) { return a.row - b.row; });
+    var groups = [];
+    targets.forEach(function(item) {
+      var previous = groups.length ? groups[groups.length-1] : null;
+      if (previous && previous.start + previous.items.length === item.row) previous.items.push(item);
+      else groups.push({start:item.row,items:[item]});
+    });
+    // Never update an unbounded set of disjoint ranges mid-execution.
+    if (groups.length > 80)
+      throw new Error('PRICE_HISTORY_BATCH_TOO_MANY_WRITE_GROUPS:' + groups.length);
+    function inspectTargets(values,formulas,changedCode,formulaCode) {
+      if (!values || !formulas || values.length !== lastRow-1 ||
+          formulas.length !== lastRow-1)
+        throw new Error(changedCode + ':INCOMPLETE_READ');
+      targets.forEach(function(item) {
+        var index = item.row - 2;
+        if (!values[index] || !same(values[index].slice(0,6),item.before))
+          throw new Error(changedCode + ':' + item.row);
+        if (!formulas[index] || formulas[index].length !== 3 ||
+            formulas[index].some(function(value) { return !!value; }))
+          throw new Error(formulaCode + ':' + item.row);
+      });
     }
-    if (toAppend.length > 0) {
-      ph.getRange(ph.getLastRow() + 1, 1, toAppend.length, 6).setValues(_normalizeCodeRows(toAppend, 1));
+    if (targets.length) {
+      inspectTargets(ph.getRange(2,1,lastRow-1,6).getValues(),
+        ph.getRange(2,4,lastRow-1,3).getFormulas(),
+        'PRICE_HISTORY_BATCH_TARGET_CHANGED_BEFORE_WRITE',
+        'PRICE_HISTORY_BATCH_PROTECTED_FORMULA');
     }
-    if (toUpdate.length || toAppend.length) _touchSnapshotIntegritySourceRevision({ from: dateStr });
-    SpreadsheetApp.flush();
+    if (toAppend.length && ph.getLastRow() !== lastRow)
+      throw new Error('PRICE_HISTORY_BATCH_APPEND_ROWCOUNT_CHANGED');
+    try {
+      if (targets.length) {
+        // Recheck before the first mutation; identical-cell external writers
+        // between this read and setValues still require shared CAS/serialization.
+        inspectTargets(ph.getRange(2,1,lastRow-1,6).getValues(),
+          ph.getRange(2,4,lastRow-1,3).getFormulas(),
+          'PRICE_HISTORY_BATCH_COMMIT_TARGET_CHANGED',
+          'PRICE_HISTORY_BATCH_PROTECTED_FORMULA');
+        groups.forEach(function(group) {
+          // Never include an unchanged physical row in a write range.
+          attempts++;
+          ph.getRange(group.start,4,group.items.length,3).setValues(
+            group.items.map(function(item) { return item.after; }));
+        });
+      }
+      if (toAppend.length) {
+        if (ph.getLastRow() !== lastRow)
+          throw new Error('PRICE_HISTORY_BATCH_APPEND_ROWCOUNT_CHANGED');
+        var dest = ph.getRange(lastRow+1,1,toAppend.length,Math.max(6,ph.getLastColumn()));
+        var destValues=dest.getValues(),destFormulas=dest.getFormulas();
+        if (!destValues || !destFormulas || destValues.length !== toAppend.length ||
+            destValues.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }) ||
+            destFormulas.some(function(row) { return row.some(function(v) { return !!v; }); }))
+          throw new Error('PRICE_HISTORY_BATCH_APPEND_DESTINATION_OCCUPIED');
+        attempts++;
+        ph.getRange(lastRow + 1, 1, toAppend.length, 6).setValues(_normalizeCodeRows(toAppend, 1));
+      }
+      if (!attempts) return;
+      SpreadsheetApp.flush();
+      if (targets.length) {
+        // One bounded readback, independent of the number of target symbols.
+        var confirmed=ph.getRange(2,4,lastRow-1,3).getValues();
+        targets.forEach(function(item) {
+          if (!confirmed[item.row-2] || !same(confirmed[item.row-2],item.after))
+            throw new Error('PRICE_HISTORY_BATCH_WRITE_UNVERIFIED:' + item.row);
+        });
+      }
+      if (toAppend.length) {
+        var appended = ph.getRange(lastRow+1,1,toAppend.length,6).getValues();
+        _normalizeCodeRows(toAppend,1).forEach(function(row,index) {
+          if (!same(appended[index],row))
+            throw new Error('PRICE_HISTORY_BATCH_APPEND_UNVERIFIED:' + (lastRow+1+index));
+        });
+      }
+      _touchSnapshotIntegritySourceRevision({ from: dateStr });
+    } catch(writeError) {
+      if (attempts) {
+        // Partial effects may have committed. Never blindly undo another
+        // writer's cells; leave an explicit unverified outcome and revision.
+        try { _touchSnapshotIntegritySourceRevision({ from: dateStr }); } catch(revisionError) {}
+        throw new Error('PRICE_HISTORY_BATCH_COMMIT_UNVERIFIED: ' + String(writeError && writeError.message || writeError));
+      }
+      throw writeError;
+    }
   } catch(err) {
     Logger.log('❌ batchUpsertPriceHistory 실패: ' + err.message);
     throw err;
@@ -12693,7 +12999,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.244',
+    gasVersion: '9.252',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12758,7 +13064,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.244' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.252' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14827,6 +15133,137 @@ function getTradingDays(year, month) {
 // ════════════════════════════════════════════════════════════════════
 //  스냅샷 시트 upsert
 // ════════════════════════════════════════════════════════════════════
+// #507: 한 날짜의 물리행만 변경합니다. 다른 날짜 행의 셀/수식/순서를
+// 절대 재기록하지 않습니다. 외부 Sheets API의 '같은 날짜' 동시 쓰기는
+// ScriptLock으로 막을 수 없으므로 검출된 변경은 원본 쓰기 전 실패시킵니다.
+function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
+  var originalLastRow = existing.length + 1;
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('Snapshot 행 구조 외부 변경: 날짜별 저장 보류');
+  var slots = [], queues = {}, consumed = {};
+  (existing || []).forEach(function(row, index) {
+    if (_normalizeDate(row[0]) === date) slots.push({ rowNumber:index + 2, before:row });
+  });
+  (desired || []).forEach(function(row) {
+    var key = _snapshotIntegrityKey(row);
+    if (_normalizeDate(row[0]) !== date || !key)
+      throw new Error('Snapshot 요청 날짜 또는 종목 식별자 불일치');
+    (queues[key] || (queues[key] = [])).push(row);
+  });
+  // 출처를 처음 읽고 백업한 뒤 대상일 행이 외부에서 변했으면
+  // 새로운 자료를 오래된 계산결과로 덮어쓰지 않습니다.
+  var cursor = 0;
+  while (cursor < slots.length) {
+    var start = cursor, last = start;
+    while (last + 1 < slots.length &&
+        slots[last + 1].rowNumber === slots[last].rowNumber + 1) last++;
+    var block = sheet.getRange(slots[start].rowNumber, 1,
+      last - start + 1, width).getValues();
+    for (var i = start; i <= last; i++) {
+      if (JSON.stringify(block[i - start]) !==
+          JSON.stringify(slots[i].before.slice(0, width)))
+        throw new Error('Snapshot 대상일 외부 변경: 원본 쓰기 전 차단');
+    }
+    cursor = last + 1;
+  }
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('Snapshot 저장 직전 행 구조 변경: 원본 쓰기 전 차단');
+  var updates = [], pending = [];
+  slots.forEach(function(slot) {
+    var key = _snapshotIntegrityKey(slot.before), candidates = queues[key] || [];
+    var replacement = candidates.length ? candidates.shift() : Array(width).fill('');
+    if (JSON.stringify(replacement) !== JSON.stringify(slot.before.slice(0, width)))
+      updates.push({ rowNumber:slot.rowNumber, value:replacement });
+  });
+  Object.keys(queues).forEach(function(key) {
+    (queues[key] || []).forEach(function(row) { pending.push(row); });
+  });
+  // 인접한 대상일 변경을 한 번의 setValues로 묶습니다.
+  // 비연속 날짜·append를 포함한 다중 범위는 중간 실패에 대비해
+  // 원본 타 날짜를 건드리지 않는 보상 복구(journal)를 준비합니다.
+  var blocks = [];
+  cursor = 0;
+  while (cursor < updates.length) {
+    var first = cursor, end = first;
+    while (end + 1 < updates.length &&
+        updates[end + 1].rowNumber === updates[end].rowNumber + 1) end++;
+    blocks.push({ rowNumber:updates[first].rowNumber,
+      rows:updates.slice(first, end + 1).map(function(item) { return item.value; }) });
+    cursor = end + 1;
+  }
+  if (pending.length) {
+    var appendRow = originalLastRow + 1;
+    var requiredRows = appendRow + pending.length - 1;
+    if (sheet.getMaxRows() < requiredRows)
+      sheet.insertRowsAfter(sheet.getMaxRows(), requiredRows - sheet.getMaxRows());
+    blocks.push({rowNumber:appendRow, rows:pending});
+  }
+  // getValues()만 읽으면 수식이 결과값으로 변환됩니다. 실패 보상은
+  // 원래 셀의 수식과 리터럴을 혼합해서 복원해야 합니다.
+  var readCellImage = function(range, height) {
+    var values = range.getValues(), formulas = range.getFormulas();
+    if (values.length !== height || formulas.length !== height)
+      throw new Error('Snapshot 원본 셀 이미지 읽기 실패');
+    return values.map(function(row, i) {
+      if (row.length !== width || !formulas[i] || formulas[i].length !== width)
+        throw new Error('Snapshot 원본 수식 이미지 불일치');
+      return row.map(function(cell, j) { return formulas[i][j] || cell; });
+    });
+  };
+  var attempted = [];
+  try {
+    if (blocks.length) _setCodeColumnText(sheet, 2);
+    blocks.forEach(function(block) {
+      var range = sheet.getRange(block.rowNumber, 1, block.rows.length, width);
+      var original = readCellImage(range, block.rows.length);
+      // append 목적지에 외부 Writer가 이미 행을 추가했다면 *절대* 덮지 않습니다.
+      // 앞서 자신의 대상일 마지막 행을 빈칸으로 쓰면 getLastRow()가 감소할 수
+      // 있습니다. 따라서 원래 행수보다 '증가'했는지와 목적지 점유를 검사하며,
+      // 자신의 행수 축소를 외부 변경으로 오판해 무한 재시도하지 않습니다.
+      // ScriptLock은 다른 Sheets API의 appendRow/setValues를 막지 못합니다.
+      if (block.rowNumber > originalLastRow &&
+          (sheet.getLastRow() > originalLastRow ||
+           original.some(function(row) { return row.some(function(v) {
+             return v !== '' && v !== null;
+           }); })))
+        throw new Error('Snapshot append 목적지 외부 변경: 원본 쓰기 전 차단');
+      var replacement = _normalizeCodeRows(block.rows, 1);
+      var step = {range:range, before:original, after:replacement};
+      attempted.push(step); // 응답 유실 시에도 이 range를 확인해야 합니다.
+      range.setValues(replacement);
+    });
+    SpreadsheetApp.flush();
+    var written = _readRawSnapshotRowsByDate(ss, date);
+    var intended = desired.map(_snapshotComparableSignature).sort().join('\n');
+    var actual = written.map(_snapshotComparableSignature).sort().join('\n');
+    if (written.length !== desired.length || actual !== intended)
+      throw new Error('Snapshot 날짜별 저장 확인 실패');
+  } catch (error) {
+    // 이미 성공한 대상일 범위만 역순으로 되돌립니다. 타 날짜 셀은
+    // 어떠한 경우에도 복원 대상으로 포함하지 않습니다.
+    // 외부 Writer가 해당 범위를 다시 수정했다면 임의 덮어쓰기 금지.
+    var rollbackVerified = true;
+    for (var k = attempted.length - 1; k >= 0; k--) {
+      var step = attempted[k];
+      try {
+        var seen = readCellImage(step.range, step.after.length);
+        if (JSON.stringify(seen) === JSON.stringify(step.before)) continue;
+        if (JSON.stringify(seen) !== JSON.stringify(step.after)) {
+          rollbackVerified = false;
+          continue;
+        }
+        step.range.setValues(step.before);
+      } catch (rollbackError) {
+        rollbackVerified = false;
+      }
+    }
+    try { SpreadsheetApp.flush(); } catch (flushError) { rollbackVerified = false; }
+    if (!rollbackVerified)
+      throw new Error('Snapshot 부분저장 검증 불가: 백업 보호·수동 재검증 필요');
+    throw error;
+  }
+}
+
 function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite) {
   var writeLock = LockService.getScriptLock();
   var ownsWriteLock = false;
@@ -14858,6 +15295,8 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       r[0] = _normalizeDate(r[0]) || normDate;
       return r;
     });
+    if (!normDate || newRows.some(function(r) { return r[0] !== normDate; }))
+      throw new Error('Snapshot 요청일과 저장 대상일 불일치');
     newRows = _dedupeSnapshotRows(newRows);
     var configsForWrite = Array.isArray(lifecycleConfigs) ? lifecycleConfigs : null;
     var incomingHasFundRows = newRows.some(function(row) {
@@ -14953,18 +15392,10 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       var combined = kept.concat(mergedDate);
       if (JSON.stringify(combined) === JSON.stringify(existing)) return;
       snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);
-      // 먼저 비우면 쓰기 실패 때 모든 날짜가 사라집니다. 한 번의 쓰기로 교체합니다.
-      var output = header.concat(combined);
-      while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
-      if (sh.getMaxRows() < output.length) sh.insertRowsAfter(sh.getMaxRows(), output.length - sh.getMaxRows());
-      _setCodeColumnText(sh, 2);
-      output = [output[0]].concat(_normalizeCodeRows(output.slice(1), 1));
-      sh.getRange(1, 1, output.length, colSize).setValues(output);
-      SpreadsheetApp.flush();
-      var writtenDateRows = _readRawSnapshotRowsByDate(ss, normDate);
-      var intendedSignature = mergedDate.map(_snapshotComparableSignature).sort().join('\n');
-      var writtenSignature = writtenDateRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (writtenDateRows.length !== mergedDate.length || writtenSignature !== intendedSignature) throw new Error('Snapshot 쓰기 후 raw 검증 실패: ' + normDate);
+      // #507: 날짜별 슬롯만 갱신합니다. 다른 날짜를 과거에 읽은 combined 값으로
+      // 전체 재기록하면 외부 Sheets API 수정분이 조용히 사라질 수 있습니다.
+      // helper 내부에서 flush·대상일 raw 검증하고 실패 범위를 보상 복구합니다.
+      _writeSnapshotDateScoped_(ss, sh, normDate, existing, mergedDate, colSize);
       _touchSnapshotIntegritySourceRevision({ date: normDate });
       if (!_snapshotBackupOperationId) _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
       if (snapshotBackupRecord) {
@@ -15222,77 +15653,112 @@ function _cleanupPriceHistoryDuplicatesLocked() {
     try { SpreadsheetApp.getUi().alert('가격이력 데이터가 없습니다.'); } catch(e) { Logger.log('가격이력 데이터가 없습니다.'); }
     return;
   }
-
-  var colSize = Math.max(6, ph.getLastColumn());
-  var header = [['날짜','종목코드','종목명','가격','입력일시','가격소스']];
-  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, colSize).getValues();
-
-  var bestByKey = {};
-  rows.forEach(function(r, idx) {
-    var date = _normalizeDate(r[0]);
-    if (!date) return;
-    var code = _cleanCode(r[1]) || '';
-    var name = (r[2] || '').toString().trim();
-    var keyId = code || name;
-    if (!keyId) return;
-    var key = date + '|' + keyId;
-
-    var savedAt = _normalizeDatetime(r[4]);
-    var src = (r[5] || '').toString().trim().toUpperCase();
-    var isManual = (src === 'MANUAL') || !!savedAt;
-
-    var rowOut = [date, code, name, Number(r[3] || 0), savedAt || '', (r[5] || '')];
-    var cand = { row: rowOut, idx: idx, isManual: isManual, savedAt: savedAt };
+  var fullWidth = Math.max(6, ph.getLastColumn());
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, fullWidth).getValues();
+  var bestByKey = {}, groups = {}, planned = [], kept = [], blockers = [];
+  var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
+  var dateCodeKey = function(row) {
+    var date = _normalizeDate(row[0]);
+    if (!date) return '';
+    var code = _cleanCode(row[1]) || '';
+    var name = (row[2] || '').toString().trim();
+    return code || name ? date + '|' + (code || name) : '';
+  };
+  rows.forEach(function(row, index) {
+    var key = dateCodeKey(row);
+    if (!key) return;
+    (groups[key] || (groups[key] = [])).push(index);
+    var savedAt = _normalizeDatetime(row[4]);
+    var src = (row[5] || '').toString().trim().toUpperCase();
+    var isManual = src === 'MANUAL' || !!savedAt;
+    var candidate = {index:index, isManual:isManual, savedAt:savedAt};
     var prev = bestByKey[key];
-    if (!prev) { bestByKey[key] = cand; return; }
-
-    // 우선순위: MANUAL > savedAt 최신 > 뒤에 나온 행
-    if (cand.isManual && !prev.isManual) { bestByKey[key] = cand; return; }
-    if (!cand.isManual && prev.isManual) return;
-    if (cand.savedAt && prev.savedAt && cand.savedAt > prev.savedAt) { bestByKey[key] = cand; return; }
-    if (!prev.savedAt && cand.savedAt) { bestByKey[key] = cand; return; }
-    if (cand.idx > prev.idx) bestByKey[key] = cand;
+    // Preserve existing priority: MANUAL/saved timestamp > latest timestamp
+    // > later physical occurrence. Retain the winner IN PLACE.
+    if (!prev || isManual && !prev.isManual ||
+        isManual === prev.isManual && savedAt && prev.savedAt && savedAt > prev.savedAt ||
+        isManual === prev.isManual && savedAt && !prev.savedAt ||
+        isManual === prev.isManual && (!savedAt || !prev.savedAt || savedAt === prev.savedAt) && index > prev.index)
+      bestByKey[key] = candidate;
   });
-
-  var deduped = Object.keys(bestByKey)
-    .map(function(k){ return bestByKey[k]; })
-    .sort(function(a,b){
-      var d = (a.row[0] || '').localeCompare(b.row[0] || '');
-      if (d !== 0) return d;
-      var ca = _cleanCode(a.row[1]) || (a.row[2] || '');
-      var cb = _cleanCode(b.row[1]) || (b.row[2] || '');
-      return String(ca).localeCompare(String(cb));
-    })
-    .map(function(v){ return v.row; });
-
-  var removed = rows.length - deduped.length;
-  if (removed <= 0) {
+  Object.keys(groups).sort().forEach(function(key) {
+    var indexes = groups[key];
+    if (indexes.length < 2) return;
+    var winner = bestByKey[key];
+    if (!winner || indexes.indexOf(winner.index) < 0)
+      throw new Error('PRICE_CLEANUP_KEEPER_IDENTITY_UNVERIFIED:' + key);
+    kept.push({row:winner.index+2, before:rows[winner.index].slice()});
+    indexes.forEach(function(index) {
+      if (index === winner.index) return;
+      var record = rows[index];
+      var savedAt = _normalizeDatetime(record[4]);
+      if (String(record[5] || '').trim().toUpperCase() === 'MANUAL' || savedAt)
+        blockers.push('MANUAL_OR_TIMESTAMP:' + (index+2));
+      if (record.slice(6).some(function(v) { return v !== '' && v != null; }))
+        blockers.push('CUSTOM_COLUMNS:' + (index+2));
+      planned.push({row:index+2,before:record.slice(),key:key});
+    });
+  });
+  if (!planned.length) {
     try { SpreadsheetApp.getUi().alert('가격이력 중복이 없습니다.'); } catch(e) { Logger.log('가격이력 중복이 없습니다.'); }
     return;
   }
-
-  var backup = _backupSheetBeforeWrite(ss, ph, CONFIG.SHEET_PH);
-  try {
-    ph.clearContents();
-    _setCodeColumnText(ph, 2);
-    ph.getRange(1, 1, 1, 6).setValues(header);
-    ph.getRange(1, 1, 1, 6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-    if (deduped.length > 0) ph.getRange(2, 1, deduped.length, 6).setValues(_normalizeCodeRows(deduped, 1));
-    SpreadsheetApp.flush();
-    var verifiedRows = ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
-    var priceSignature = function(row) { return JSON.stringify([_normalizeDate(row[0]), _cleanCode(row[1]) || String(row[2] || '').trim(), String(row[2] || '').trim(), Number(row[3]) || 0, _normalizeDatetime(row[4]) || '', String(row[5] || '').trim().toUpperCase()]); };
-    if (verifiedRows.length !== deduped.length || verifiedRows.map(priceSignature).sort().join('\n') !== deduped.map(priceSignature).sort().join('\n')) throw new Error('가격이력 중복 정리 후 전체 read-back 검증 실패');
-    var verifiedKeys = {};
-    verifiedRows.forEach(function(row) {
-      var date = _normalizeDate(row[0]), code = _cleanCode(row[1]) || String(row[2] || '').trim(), key = date + '|' + code;
-      if (date && code && verifiedKeys[key]) throw new Error('가격이력 중복 정리 후 검증 실패: ' + key);
-      if (date && code) verifiedKeys[key] = true;
+  var read = function(row) { return ph.getRange(row,1,1,fullWidth).getValues()[0]; };
+  var verifyKeepers = function() {
+    kept.forEach(function(proof) {
+      if (!same(read(proof.row),proof.before))
+        throw new Error('PRICE_CLEANUP_KEEPER_CHANGED:' + proof.row);
     });
-    _touchSnapshotIntegritySourceRevision({ all: true });
-    _markSnapshotBackupStatus(backup, 'COMPLETED');
-    _cleanupCurrentSystemBackup(ss, backup);
-  } catch (error) { _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message); throw error; }
-  try { SpreadsheetApp.getUi().alert('가격이력 중복 정리 완료: ' + removed + '행 삭제'); } catch(e) { Logger.log('가격이력 중복 정리 완료: ' + removed + '행 삭제'); }
+  };
+  // Preflight *all* removal candidates before creating a backup or writing.
+  // Formulas, manual entries and custom columns are original evidence, not
+  // interchangeable duplicates to discard without ledger-level approval.
+  planned.forEach(function(plan) {
+    var range = ph.getRange(plan.row,1,1,fullWidth);
+    if (!same(range.getValues()[0],plan.before))
+      throw new Error('PRICE_CLEANUP_TARGET_CHANGED:' + plan.row);
+    var formulas = range.getFormulas();
+    if (!formulas || !formulas[0] || formulas[0].length !== fullWidth ||
+        formulas[0].some(function(v) { return !!v; }))
+      blockers.push('FORMULA_OR_UNVERIFIED:' + plan.row);
+  });
+  if (blockers.length)
+    throw new Error('PRICE_CLEANUP_UNSAFE_EVIDENCE_REQUIRES_REVIEW:' + blockers.join(','));
+  verifyKeepers();
+  var backup = _backupSheetBeforeWrite(ss,ph,CONFIG.SHEET_PH);
+  if (!backup) throw new Error('PRICE_CLEANUP_BACKUP_REQUIRED');
+  try {
+    var emptyRow = Array(fullWidth).fill('');
+    planned.forEach(function(plan) {
+      verifyKeepers();
+      var range = ph.getRange(plan.row,1,1,fullWidth);
+      var formulas = range.getFormulas();
+      if (!same(range.getValues()[0],plan.before) || !formulas || !formulas[0] ||
+          formulas[0].some(function(v) { return !!v; }))
+        throw new Error('PRICE_CLEANUP_COMMIT_TARGET_CHANGED:' + plan.row);
+      range.setValues([emptyRow]);
+    });
+    SpreadsheetApp.flush();
+    verifyKeepers();
+    planned.forEach(function(plan) {
+      if (!read(plan.row).every(function(v) { return v === '' || v == null; }))
+        throw new Error('PRICE_CLEANUP_WRITE_UNVERIFIED:' + plan.row);
+    });
+    // Invalidate only affected dates; unrelated externally-updated rows are
+    // neither rewritten nor compared to stale whole-sheet snapshots.
+    var dates = {}, num = planned.length;
+    planned.forEach(function(plan) { dates[plan.key.split('|')[0]] = true; });
+    _touchSnapshotIntegritySourceRevision({dates:Object.keys(dates).sort()});
+    _markSnapshotBackupStatus(backup,'COMPLETED');
+    _cleanupCurrentSystemBackup(ss,backup);
+    try { SpreadsheetApp.getUi().alert('가격이력 중복 정리 완료: ' + num + '행 빈 슬롯 처리'); }
+    catch(e) { Logger.log('가격이력 중복 정리 완료: ' + num + '행 빈 슬롯 처리'); }
+  } catch(error) {
+    // Once a source identity was cleared, automatic restore could overwrite
+    // an external writer's newly claimed physical row. Preserve the backup.
+    _markSnapshotBackupStatus(backup,'WRITE_FAILED',error.message);
+    throw new Error('PRICE_CLEANUP_COMMIT_UNVERIFIED: ' + error.message);
+  }
 }
 
 function cleanupSnapshotDuplicates() {
@@ -15352,33 +15818,87 @@ function _cleanupSnapshotDuplicatesLocked() {
     decisions = decisions.concat(_classifyRawSnapshotDuplicateGroups(date, raw, expected, error));
   });
 
-  var replacementByKey = {}, duplicateRowsRemoved = 0, affectedDates = {};
+  // #507: Never compact the physical Snapshot table. Keep every unrelated
+  // row and its custom columns in place; clear only a proven redundant row.
+  // Missing-date payloads have no trustworthy ledger lineage: preserve them
+  // for supervised source recovery instead of erasing evidence.
+  var cleanupPlans = [], keptRowProofs = [], duplicateRowsRemoved = 0, affectedDates = {};
+  var blockedInvalidDateRows = invalidDateRows;
+  var blockedUnsafeGroups = [], plannedIndexes = {};
+  var fullWidth = Math.max(colSize, sh.getLastColumn());
+  var blank = function(n) { return Array(n).fill(''); };
+  var rowKey = function(row) { return _normalizeDate(row[0]) + '|' + _snapshotIntegrityKey(row); };
+  var planned = function(index,kind) {
+    if (plannedIndexes[index]) throw new Error('SNAPSHOT_CLEANUP_DUPLICATE_PHYSICAL_PLAN');
+    plannedIndexes[index] = true;
+    cleanupPlans.push({ physicalRow:index+2, before:rows[index].slice(0,fullWidth), kind:kind });
+    var date = _normalizeDate(rows[index][0]);
+    if (date) affectedDates[date] = true;
+  };
+
+  rows.forEach(function(row, index) {
+    if (!isZeroUnitFundRow(row)) return;
+    if (String(row[10] || '').toUpperCase() === 'MANUAL') {
+      blockedUnsafeGroups.push('ZERO_UNIT_MANUAL:' + (index+2));
+      return;
+    }
+    planned(index,'ZERO_UNIT');
+  });
+
   decisions.filter(function(item) { return item.autoResolvable; }).forEach(function(item) {
-    replacementByKey[item.date + '|' + item.key] = item.keepRow;
-    duplicateRowsRemoved += item.rawRowCount - 1;
-    affectedDates[item.date] = true;
-  });
-
-  var emitted = {}, outputRows = [];
-  rows.forEach(function(row) {
-    var date = _normalizeDate(row[0]);
-    if (!date) return;
-    if (isZeroUnitFundRow(row)) {
-      affectedDates[date] = true;
+    var dateKey = item.date + '|' + item.key;
+    var positions = [];
+    rows.forEach(function(row, index) {
+      if (rowKey(row) === dateKey && !isZeroUnitFundRow(row)) positions.push(index);
+    });
+    if (positions.length !== item.rawRowCount)
+      throw new Error('SNAPSHOT_CLEANUP_DUPLICATE_PHYSICAL_MISMATCH:' + dateKey);
+    if (positions.some(function(index) { return String(rows[index][10] || '').toUpperCase() === 'MANUAL'; })) {
+      blockedUnsafeGroups.push('DUPLICATE_MANUAL:' + dateKey);
       return;
     }
-    var key = _snapshotIntegrityKey(row), groupKey = date + '|' + key;
-    if (!replacementByKey[groupKey]) {
-      outputRows.push(row.slice(0, colSize));
-      return;
-    }
-    if (!emitted[groupKey]) {
-      outputRows.push(replacementByKey[groupKey]);
-      emitted[groupKey] = true;
-    }
+    var expectedSignature = _snapshotComparableSignature(item.keepRow);
+    var keepIndex = -1;
+    positions.some(function(index) {
+      if (_snapshotComparableSignature(rows[index]) === expectedSignature) {
+        keepIndex = index; return true;
+      }
+      return false;
+    });
+    if (keepIndex < 0) throw new Error('SNAPSHOT_CLEANUP_KEEP_ROW_NOT_FOUND:' + dateKey);
+    keptRowProofs.push({physicalRow:keepIndex+2,before:rows[keepIndex].slice(0,fullWidth)});
+    positions.forEach(function(index) {
+      if (index === keepIndex) return;
+      planned(index,'DUPLICATE');
+      duplicateRowsRemoved++;
+    });
   });
 
-  var removedRows = invalidDateRows + zeroUnitFundRows + duplicateRowsRemoved;
+  // Fail closed for *any* unsafe selected row before making a backup or
+  // altering a cell. The backup path is not an atomic multi-row transaction.
+  cleanupPlans.forEach(function(plan) {
+    var range = sh.getRange(plan.physicalRow,1,1,fullWidth);
+    var observed = range.getValues()[0], formulas = range.getFormulas()[0];
+    if (JSON.stringify(observed) !== JSON.stringify(plan.before))
+      throw new Error('SNAPSHOT_CLEANUP_PREFLIGHT_EXTERNAL_ROW_CHANGE:' + plan.physicalRow);
+    if (!formulas || formulas.some(function(value) { return !!value; }))
+      blockedUnsafeGroups.push('FORMULA_ROW:' + plan.physicalRow);
+    if (plan.before.slice(colSize).some(function(value) { return value !== '' && value != null; }))
+      blockedUnsafeGroups.push('CUSTOM_COLUMN_ROW:' + plan.physicalRow);
+  });
+  if (blockedUnsafeGroups.length)
+    throw new Error('SNAPSHOT_CLEANUP_UNSAFE_SOURCE_REQUIRES_REVIEW:' + blockedUnsafeGroups.join(','));
+  var originalLastRow = sh.getLastRow();
+  var verifyKeptRows = function() {
+    keptRowProofs.forEach(function(proof) {
+      var observed = sh.getRange(proof.physicalRow,1,1,fullWidth).getValues()[0];
+      if (JSON.stringify(observed) !== JSON.stringify(proof.before))
+        throw new Error('SNAPSHOT_CLEANUP_KEEP_ROW_CHANGED:' + proof.physicalRow);
+    });
+  };
+  verifyKeptRows();
+  var zeroUnitFundRowsRemoved = cleanupPlans.filter(function(plan) { return plan.kind === 'ZERO_UNIT'; }).length;
+  var removedRows = cleanupPlans.length;
   var counts = function(classification) { return decisions.filter(function(item) { return item.classification === classification; }).length; };
   var unresolvedDates = {}, beforeConflictDates = {};
   decisions.forEach(function(item) {
@@ -15389,30 +15909,38 @@ function _cleanupSnapshotDuplicatesLocked() {
   var actualByDate = {};
   if (removedRows) {
     var backup = _backupSnapshotBeforeWrite(ss, sh);
+    if (!backup) throw new Error('SNAPSHOT_CLEANUP_BACKUP_REQUIRED');
     try {
-      var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']];
-      var output = header.concat(outputRows);
-      while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
-      sh.getRange(1, 1, output.length, colSize).setValues(output);
+      // Preflight and write each affected physical row only. If a write
+      // fails after another row was cleared, preserve WRITE_FAILED backup
+      // rather than blindly restoring a row whose identity is now blank.
+      cleanupPlans.forEach(function(plan) {
+        // The proof/kept row is part of the same duplicate group. A competing
+        // client must not change the only row we elected to retain.
+        verifyKeptRows();
+        var range = sh.getRange(plan.physicalRow,1,1,fullWidth);
+        var observed = range.getValues()[0], formulas = range.getFormulas()[0];
+        if (JSON.stringify(observed) !== JSON.stringify(plan.before) ||
+            !formulas || formulas.some(function(v) { return !!v; }))
+          throw new Error('SNAPSHOT_CLEANUP_TARGET_CHANGED:' + plan.physicalRow);
+        range.setValues([blank(fullWidth)]);
+      });
       SpreadsheetApp.flush();
+      verifyKeptRows();
+      cleanupPlans.forEach(function(plan) {
+        var actual = sh.getRange(plan.physicalRow,1,1,fullWidth).getValues()[0];
+        if (actual.some(function(v) { return v !== '' && v != null; }))
+          throw new Error('SNAPSHOT_CLEANUP_WRITE_UNVERIFIED:' + plan.physicalRow);
+      });
 
       var actualAll = sh.getLastRow() > 1
-        ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues()
+        ? sh.getRange(2, 1, sh.getLastRow() - 1, fullWidth).getValues()
         : [];
-      var remainingInvalid = actualAll.filter(function(row) { return !_normalizeDate(row[0]) && rowHasPayload(row); });
-      var remainingZeroUnit = actualAll.filter(isZeroUnitFundRow);
-      if (remainingInvalid.length || remainingZeroUnit.length) {
-        throw new Error('Snapshot 정리 후 검증 실패: 날짜유실=' + remainingInvalid.length + ', 0좌펀드=' + remainingZeroUnit.length);
-      }
-
+      // #507: do not compare untouched dates to a stale global snapshot.
+      // Another writer may legitimately update their values during backup.
+      // Only affected physical rows are blanked and read back above.
       var isValidSnapshotRow = function(row) { return !!_normalizeDate(row[0]) && !!_snapshotIntegrityKey(row); };
-      var intendedRows = outputRows.filter(isValidSnapshotRow);
       var actualRows = actualAll.filter(isValidSnapshotRow);
-      var intendedSignature = intendedRows.map(_snapshotComparableSignature).sort().join('\n');
-      var actualSignature = actualRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (actualRows.length !== intendedRows.length || actualSignature !== intendedSignature) {
-        throw new Error('Snapshot 전체 정리 후 read-back 검증 실패');
-      }
 
       actualRows.forEach(function(row) {
         var date = _normalizeDate(row[0]);
@@ -15421,18 +15949,21 @@ function _cleanupSnapshotDuplicatesLocked() {
       Object.keys(affectedDates).forEach(function(date) {
         var remaining = _classifyRawSnapshotDuplicateGroups(date, actualByDate[date] || [], expectedByDate[date] || [], sourceErrorByDate[date] || '');
         var targetKeys = {};
-        decisions.filter(function(item) { return item.date === date && item.autoResolvable; }).forEach(function(item) { targetKeys[item.key] = true; });
+        decisions.filter(function(item) { return item.date === date && item.autoResolvable; })
+          .forEach(function(item) { targetKeys[item.key] = true; });
         var failed = remaining.filter(function(item) { return targetKeys[item.key]; });
         if (failed.length) throw new Error('Snapshot 중복 정리 후 raw 검증 실패: ' + failed.map(function(item) { return item.key; }).join(', '));
       });
-
       var revisionImpact = Object.keys(affectedDates).length ? { dates: Object.keys(affectedDates) } : { all: true };
       _touchSnapshotIntegritySourceRevision(revisionImpact);
       _markSnapshotBackupStatus(backup, 'COMPLETED');
       _cleanupCurrentSystemBackup(ss, backup);
     } catch (error) {
       _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message);
-      throw error;
+      // Each blanked row no longer contains its original date/code and may
+      // have been reused by an external writer. Manual evidence-based
+      // recovery is necessary; blind compensation would destroy that writer.
+      throw new Error('SNAPSHOT_CLEANUP_COMMIT_UNVERIFIED: ' + error.message);
     }
   }
 
@@ -15453,8 +15984,9 @@ function _cleanupSnapshotDuplicatesLocked() {
     manualProtectedGroups: counts('MANUAL_PROTECTED'),
     unresolvedConflictGroups: counts('UNRESOLVED_CONFLICT'),
     sourceIncompleteGroups: counts('SOURCE_INCOMPLETE'),
-    invalidDateRowsRemoved: invalidDateRows,
-    zeroUnitFundRowsRemoved: zeroUnitFundRows,
+    invalidDateRowsRemoved: 0,
+    invalidDateRowsBlocked: blockedInvalidDateRows,
+    zeroUnitFundRowsRemoved: zeroUnitFundRowsRemoved,
     duplicateRowsRemoved: duplicateRowsRemoved,
     removedRows: removedRows,
     affectedDates: Object.keys(affectedDates).sort(),
@@ -15464,7 +15996,7 @@ function _cleanupSnapshotDuplicatesLocked() {
     groups: decisions
   };
   alertResult('스냅샷 정리 완료: ' + removedRows + '행 삭제'
-    + '\n- 날짜 유실: ' + invalidDateRows
+    + '\n- 날짜 유실 보존(원장 대조 필요): ' + blockedInvalidDateRows
     + '\n- 0좌 펀드 잔존: ' + zeroUnitFundRows
     + '\n- 중복 자동해결: ' + duplicateRowsRemoved
     + '\n- 미해결 보호: ' + result.unresolvedDates.length + '일');
@@ -16392,7 +16924,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.244' });
+    return jsonOk({ settings: settings, gasVersion: '9.252' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16422,7 +16954,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.244'
+      gasVersion: '9.252'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -17358,7 +17890,16 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
       }
     }
     var codeRepair = _repairKnownCodeColumns(ss);
-    return jsonOk({ synced: synced, updated: updated, total: Object.keys(existingByCode).length, codeRepair: codeRepair });
+    // #507: bounded repairs are resumable by repeating syncCodes; do not
+    // claim completion while eligible code corrections remain.
+    var codeRepairPending = codeRepair.reduce(function(sum,item) {
+      return sum + Number(item.deferred || 0);
+    },0);
+    return jsonOk({
+      synced: synced, updated: updated, total: Object.keys(existingByCode).length,
+      codeRepair: codeRepair, codeRepairPending: codeRepairPending,
+      codeRepairContinueRequired: codeRepairPending > 0
+    });
   } catch(err) {
     return jsonError('syncCodes 실패: ' + err.message);
   } finally {
@@ -17371,32 +17912,92 @@ function _repairKnownCodeColumns(ss) {
   getCodeItems(ss, true).forEach(function(item) { canonical[item.code] = true; });
   var targets = [CONFIG.SHEET_CODES, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_SNAPSHOT, FUND_NAV_SHEET, FUND_UNITS_SHEET];
   var results = [];
+  // #507 P1: restrict cell-by-cell GAS calls. The remaining physical rows
+  // stay untouched and are rediscovered on the next explicit syncCodes call;
+  // there is no hidden cursor, timer, or background write.
+  var MAX_REPAIRS_PER_CALL = 24;
+  var budget = MAX_REPAIRS_PER_CALL;
+  var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
   targets.forEach(function(name) {
     var sheet = ss.getSheetByName(name), column = _codeColumnForSheet(name);
     if (!sheet || !column) return;
-    _setCodeColumnText(sheet, column);
-    if (sheet.getLastRow() < 2) { results.push({ sheet: name, repaired: 0 }); return; }
-    var range = sheet.getRange(2, column, sheet.getLastRow() - 1, 1);
-    var values = range.getValues(), repaired = 0;
-    values.forEach(function(row) {
-      var raw = row[0];
+    if (sheet.getLastRow() < 2) { results.push({ sheet:name, repaired:0 }); return; }
+    var originalLastRow = sheet.getLastRow();
+    var rowCount = originalLastRow - 1;
+    var identityWidth = Math.max(column, 3);
+    var data = sheet.getRange(2,1,rowCount,identityWidth).getValues();
+    var changes = [];
+    data.forEach(function(row,index) {
+      var raw = row[column-1];
       if (raw === '' || raw == null) return;
-      var text = String(raw).trim();
-      var candidate = _cleanCode(text);
-      // 숫자로 손상된 코드도 종목 마스터의 정확한 정규 코드와 일치할 때만 복구합니다.
-      if (candidate && canonical[candidate] && text !== candidate) { row[0] = candidate; repaired++; }
-      else row[0] = text;
+      var text = String(raw).trim(), candidate = _cleanCode(text);
+      // Only canonical codes known to the master are eligible for correction.
+      if (candidate && canonical[candidate] && text !== candidate)
+        changes.push({row:index+2,before:row.slice(),after:candidate,originalCode:raw});
     });
-    if (repaired) {
-      var backup = _backupSheetBeforeWrite(ss, sheet, name);
-      try {
-        range.setValues(values);
-        _touchSnapshotIntegritySourceRevision({ all: true });
-        _verifyWrittenRange(sheet, 2, column, values, '종목코드 열 쓰기 후 검증 실패: ' + name);
-        _markSnapshotBackupStatus(backup, 'COMPLETED');
-        results.push({ sheet: name, repaired: repaired, backupCleanup: _cleanupCurrentSystemBackup(ss, backup) });
-      } catch (error) { _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message); throw error; }
-    } else results.push({ sheet: name, repaired: 0 });
+    if (!changes.length) { results.push({sheet:name,repaired:0,deferred:0}); return; }
+    // Count all eligible repairs but write only a bounded prefix of physical
+    // rows. Successful repairs become no-ops on the next invocation.
+    var totalEligible = changes.length;
+    var selectedCount = Math.min(totalEligible,budget);
+    var deferredCount = totalEligible - selectedCount;
+    changes = changes.slice(0,selectedCount);
+    budget -= selectedCount;
+    if (!changes.length) {
+      results.push({sheet:name,repaired:0,deferred:deferredCount,continueRequired:true});
+      return;
+    }
+
+    var verifyRow = function(change) {
+      if (sheet.getLastRow() !== originalLastRow)
+        throw new Error('CODE_REPAIR_ROW_STRUCTURE_CHANGED:' + name);
+      var observed = sheet.getRange(change.row,1,1,identityWidth).getValues()[0];
+      if (!same(observed,change.before))
+        throw new Error('CODE_REPAIR_TARGET_IDENTITY_CHANGED:' + name + ':' + change.row);
+    };
+    // No whole-column format rewrite. Only repaired code cells get plain-text
+    // formatting so leading zeros survive; other dates/rows remain untouched.
+    changes.forEach(function(change) {
+      verifyRow(change);
+      var target = sheet.getRange(change.row,column,1,1);
+      var formulas = target.getFormulas();
+      if (!formulas || !formulas[0] || formulas[0].length !== 1 ||
+          formulas[0][0])
+        throw new Error('CODE_REPAIR_FORMULA_PROTECTED:' + name + ':' + change.row);
+    });
+    var backup = _backupSheetBeforeWrite(ss,sheet,name);
+    if (!backup) throw new Error('CODE_REPAIR_BACKUP_REQUIRED:' + name);
+    try {
+      changes.forEach(function(change) {
+        verifyRow(change);
+        var target = sheet.getRange(change.row,column,1,1);
+        var formulas = target.getFormulas();
+        if (!formulas || !formulas[0] || formulas[0][0])
+          throw new Error('CODE_REPAIR_TARGET_FORMULA_CHANGED:' + name + ':' + change.row);
+        target.setNumberFormat('@');
+        target.setValues([[change.after]]);
+      });
+      SpreadsheetApp.flush();
+      changes.forEach(function(change) {
+        var expected = change.before.slice();
+        expected[column-1] = change.after;
+        if (sheet.getLastRow() !== originalLastRow ||
+            !same(sheet.getRange(change.row,1,1,identityWidth).getValues()[0],expected))
+          throw new Error('CODE_REPAIR_COMMIT_UNVERIFIED:' + name + ':' + change.row);
+      });
+      _touchSnapshotIntegritySourceRevision({all:true});
+      _markSnapshotBackupStatus(backup,'COMPLETED');
+      results.push({
+        sheet:name,repaired:changes.length,deferred:deferredCount,
+        continueRequired:deferredCount>0,backupCleanup:_cleanupCurrentSystemBackup(ss,backup)
+      });
+    } catch(error) {
+      // After a scoped cell write the target row may be reused by a different
+      // Sheets API client. Preserve backup; never blind-write a stale full
+      // column or compensate another instrument's code.
+      _markSnapshotBackupStatus(backup,'WRITE_FAILED',error.message);
+      throw new Error('CODE_REPAIR_COMMIT_UNVERIFIED:' + error.message);
+    }
   });
   return results;
 }

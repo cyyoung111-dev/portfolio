@@ -45,9 +45,15 @@ assert.match(gas, /_isSnapshotIntegritySourceSheet[\s\S]*SHEET_TRADES[\s\S]*SHEE
 assert.match(gas, /_isSnapshotIntegritySourceSheet[\s\S]*SHEET_SNAPSHOT/, 'Snapshot 상세행 변경도 cache revision 대상이어야 합니다.');
 assert.match(gas, /function writeSnapshotRows[\s\S]*_touchSnapshotIntegritySourceRevision\(\)/, 'rewrite를 포함한 Snapshot 저장은 cache revision을 갱신해야 합니다.');
 assert.doesNotMatch(gas.match(/function _backupSheetBeforeWrite[\s\S]*?\n}/)?.[0] || '', /_touchSnapshotIntegritySourceRevision/, '백업 생성 단계에서 실제 쓰기보다 먼저 revision을 갱신하면 안 됩니다.');
-assert.match(gas, /function cleanupPriceHistoryDuplicates[\s\S]*setValues\(_normalizeCodeRows\(deduped[\s\S]*_touchSnapshotIntegritySourceRevision/, '가격 중복 정리는 실제 쓰기 성공 후 invalidate');
-assert.match(gas, /function cleanupSnapshotDuplicates[\s\S]*setValues\(output\)[\s\S]*_touchSnapshotIntegritySourceRevision/, 'Snapshot 중복 정리는 실제 쓰기 성공 후 invalidate');
-assert.match(gas, /function _repairKnownCodeColumns[\s\S]*range\.setValues\(values\)[\s\S]*_touchSnapshotIntegritySourceRevision/, '코드 복구는 실제 쓰기 성공 후 invalidate');
+const priceDuplicateCleanupFn = gas.match(/function _cleanupPriceHistoryDuplicatesLocked\([\s\S]*?\n}/)?.[0] || '';
+assert.match(priceDuplicateCleanupFn, /range\.setValues\(\[emptyRow\]\)[\s\S]*_touchSnapshotIntegritySourceRevision/, '가격 중복 정리는 제거 대상 물리행 쓰기 이후 revision 갱신');
+assert.doesNotMatch(priceDuplicateCleanupFn, /ph\.clearContents\(\)|setValues\(_normalizeCodeRows\(deduped/, '가격이력 중복 정리의 전체행 초기화·재배열 금지');
+const scopedSnapshotCleanupBody = gas.match(/function _cleanupSnapshotDuplicatesLocked\([\s\S]*?\n}/)?.[0] || '';
+assert.match(scopedSnapshotCleanupBody, /range\.setValues\(\[blank\(fullWidth\)\]\)[\s\S]*_touchSnapshotIntegritySourceRevision/, 'Snapshot 중복 정리는 검증된 대상 물리행 쓰기 후에만 revision 갱신');
+assert.doesNotMatch(scopedSnapshotCleanupBody, /setValues\(output\)/, '전체 Snapshot 행압축 재기록 금지');
+const codeRepairFn = gas.match(/function _repairKnownCodeColumns\([\s\S]*?\n}/)?.[0] || '';
+assert.match(codeRepairFn, /target\.setValues\(\[\[change\.after\]\]\)[\s\S]*_touchSnapshotIntegritySourceRevision/, '코드 복구는 개별 확인된 코드 셀 저장 이후 revision 갱신');
+assert.doesNotMatch(codeRepairFn, /range\.setValues\(values\)|_setCodeColumnText\(sheet,\s*column\)/, '코드 열 전체의 쓰기·서식 덮어쓰기 금지');
 assert.match(pipeline, /미검증 날짜는 저장 Snapshot으로 표시/);
 assert.match(view, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/);
 assert.match(view, /portfolioSnapshots[\s\S]*filter\(_isVerifiedHistoryPoint\)/);
@@ -81,7 +87,8 @@ console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Sna
  const mockSheet={
   getLastRow:()=>stored.length,getLastColumn:()=>6,
   getRange:(r,c,n=1,w=1)=>({
-   getValues:()=>stored.slice(r-1,r-1+n).map(row=>row.slice(c-1,c-1+w)),
+   getValues:()=>Array.from({length:n},(_,i)=>Array.from({length:w},(_,j)=>stored[r-1+i]?.[c-1+j]??'')),
+   getFormulas:()=>Array.from({length:n},()=>Array(w).fill('')),
    setValues:arr=>{arr.forEach((row,i)=>{const pos=r-1+i;while(stored.length<=pos)stored.push([]);
     row.forEach((v,j)=>{stored[pos][c-1+j]=v;});});}
   })

@@ -1,0 +1,33 @@
+name: issue-507-snapshot-date-scoped-safety
+
+# Production GAS functions execute only in Node synthetic memory.
+# No live GAS or Sheets access and no deployment.
+on:
+  pull_request:
+    paths:
+      - 'scripts/check-issue507-snapshot-date-scoped.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-snapshot-date-scoped-safety.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-issue507-snapshot-date-scoped.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-snapshot-date-scoped-safety.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  production-synthetic-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Assert unaffected dates are preserved by real GAS writer
+        run: |
+          node --check scripts/check-issue507-snapshot-date-scoped.mjs
+          node scripts/check-issue507-snapshot-date-scoped.mjs
