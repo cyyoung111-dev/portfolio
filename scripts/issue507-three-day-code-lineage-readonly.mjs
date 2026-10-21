@@ -461,7 +461,16 @@ export function analyzeJan07Transition(threeDay,baseline,tradesResponse){
       if(candidates?.size>1)tradeActivity.ambiguousCodeLessRows++;
       continue;
     }
-    if(!compared.has(resolved))continue;
+    if(!compared.has(resolved)){
+      // The audited position is still keyed by this un-coded name, yet a
+      // separate coded alias points elsewhere. Its trade identity is unknown
+      // without the GAS master; do not silently classify it as unrelated.
+      if(!explicit&&compared.has(label)){
+        tradeActivity.unresolvedCodeLessRows++;
+        tradeActivity.ambiguousCodeLessRows++;
+      }
+      continue;
+    }
     if(mapped)tradeActivity.codeLessMappedRows++;
     if(nameOnly)tradeActivity.nameOnlyIdentityRows++;
     involved.add(resolved);
@@ -742,6 +751,8 @@ export async function selfTest(){
   const collided=analyzeJan07Transition(nameOnlyThree,nameOnlyPrior,aliasCollision);
   assert.equal(collided.matchingCodesWithTradesJan07,0);
   assert.equal(collided.tradeActivity.nameOnlyIdentityRows,0);
+  assert.equal(collided.tradeActivity.unresolvedCodeLessRows,1);
+  assert.equal(collided.tradeActivity.ambiguousCodeLessRows,1);
   assert.equal(collided.comparableCodesWithNoMatchedTradeEvidence,1);
   assert.equal(collided.ledgerTradeAbsenceCertified,false);
   // On January 7 a stored-only mutation creates divergence without any
