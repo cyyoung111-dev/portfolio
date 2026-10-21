@@ -28,7 +28,11 @@ function intersectCount(sets){
 function classSource(row){
   const s=String(row?.[10]??'').toUpperCase().trim();
   if(s==='MANUAL')return 'MANUAL';
-  if(s.startsWith('FUND_NAV'))return 'FUND_NAV';
+  // A carried NAV is historical/indicative evidence, NOT a fresh published
+  // NAV. Preserve missing-input state as an independent blocker.
+  if(s.startsWith('FUND_NAV_CARRY_INPUT_REQUIRED'))return 'FUND_NAV_CARRY_INPUT_REQUIRED';
+  if(s.startsWith('FUND_NAV_CARRY'))return 'FUND_NAV_CARRY';
+  if(s==='FUND_NAV')return 'FUND_NAV_PUBLISHED_CLAIM_UNVERIFIED';
   if(s.includes('CARRY'))return 'CARRY_UNCONFIRMED';
   if(s.includes('KRX')||s.includes('TOSS')||s.includes('CONFIRMED'))return 'CONFIRMED_CLAIM_UNVERIFIED';
   if(s==='PRICE_HISTORY')return 'PRICE_HISTORY_UNVERIFIED';
@@ -155,6 +159,22 @@ export async function selfTest(){
   assert.equal(result.days[0].existingWithNoQtyCostCandidate,0);
   assert.equal(result.days[0].existingWithQtyCostCandidate,2);
   assert.equal(result.allowedToRestore,false);
+  // Production GAS source labels: carry is NOT the same as published NAV.
+  const carried=structuredClone(data);
+  carried.diagnostics.forEach(d=>{
+    d.expectedRows[0][10]='FUND_NAV_CARRY@2026-01-07';
+    d.storedRows[0][10]='FUND_NAV_CARRY_INPUT_REQUIRED';
+    d.storedRows[1][10]='FUND_NAV';
+    d.expectedRows[1][10]='PRICE_HISTORY';
+    d.storedRows[2][10]='KRX_CONFIRMED_CLOSE';
+  });
+  const sourceClassified=summarizeThreeDays(carried);
+  assert.equal(sourceClassified.days[0].expectedSourceClaims.FUND_NAV_CARRY,1);
+  assert.equal(sourceClassified.days[0].storedSourceClaims.FUND_NAV_CARRY_INPUT_REQUIRED,1);
+  assert.equal(sourceClassified.days[0].storedSourceClaims.FUND_NAV_PUBLISHED_CLAIM_UNVERIFIED,1);
+  assert.equal(sourceClassified.days[0].storedSourceClaims.CONFIRMED_CLAIM_UNVERIFIED,1);
+  assert.equal(sourceClassified.days[0].storedSourceClaims.FUND_NAV_CARRY,undefined);
+  assert.equal(sourceClassified.days[0].storedSourceClaims.CARRY_UNCONFIRMED,undefined);
   assert.ok(!JSON.stringify(result).includes('000001'));
   assert.ok(!JSON.stringify(result).includes('SYNTH'));
   const drift=structuredClone(data);drift.diagnostics[1].missingCodes=[];
