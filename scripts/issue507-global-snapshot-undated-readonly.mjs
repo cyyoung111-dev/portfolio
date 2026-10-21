@@ -32,7 +32,10 @@ function key(v){
   return /^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/.test(s)&&s.length<=30&&/[A-Z]/.test(s)?s:'';
 }
 const HEADER=['날짜','종목코드','종목명','수량','매수단가','매수원금'];
-const header=row=>HEADER.every((x,i)=>String(row?.[i]??'').trim()===x);
+// Both combinations are emitted by actual GAS Snapshot creation paths.
+const LEGACY_FUND_HEADER=['날짜','종목코드','종목명','수량','매입단가','매입원금'];
+const header=row=>[HEADER,LEGACY_FUND_HEADER].some(expected=>
+  expected.every((x,i)=>String(row?.[i]??'').trim()===x));
 
 export function auditGlobalSnapshot(rows,{withHeader=true}={}){
   if(!Array.isArray(rows)||rows.length<1||rows.length>MAX_ROWS+1)fail('ROW_COUNT');
@@ -104,6 +107,14 @@ export async function selfTest(){
     row('', '000333',2,20),row(null,'000444',3,30),
     row('2026-09-15','000111'),H,row('not-a-date','000555'),
     row('2026-09-15',''),[],row(46314,'000666')];
+  const legacy=H.slice();legacy[4]='매입단가';legacy[5]='매입원금';
+  const legacyCheck=auditGlobalSnapshot([legacy,row('2026-09-15','1'),legacy]);
+  assert.equal(legacyCheck.datedMaterialRows,1);
+  assert.equal(legacyCheck.repeatedHeaderRows,1);
+  assert.equal(legacyCheck.globalIntegrityClear,false);
+  const invalidPair=H.slice();invalidPair[4]='매입단가';
+  assert.throws(()=>auditGlobalSnapshot([invalidPair,row('2026-09-15','1')]),
+    /HEADER_SCHEMA/);
   const z=auditGlobalSnapshot(fixtures);
   assert.equal(z.undatedMaterialRows,2);
   assert.equal(z.undatedTradeLikeRows,2);
