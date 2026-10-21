@@ -1,3 +1,14 @@
+## GAS v9.252 — Issue #507 미등록 백업 무증거 승격·자동삭제 차단 (2026-10-21)
+
+- **배포 상태:** `main` GAS 소스 v9.251, 운영 GAS 최근 인증 기준 v9.244로 추정되나 실제 최신 배포 버전은 재확인 필요. v9.252는 **별도 PR 리뷰 중인 배포 미승인 후보**이며 운영 GAS/시트/백업/큐 실제 변경 없음. 배포 작업은 명시적 `workflow_dispatch` 승인에서만 동작합니다.
+- **릴리스 pin:** `gasVersion=9.252`, 전체 GAS Git blob `3ae317297a2e3ae70187a7833bd22ba1bff40994`. Web `EXPECTED_GAS_VERSION`, `scripts/deploy-gas.mjs` 승인 원본 SHA 및 `scripts/check-gas-deploy.mjs` 검사 일치. 이전 v9.251 이하 source pin을 유지합니다. **pin 추가는 실제 운영 배포 승인이 아닙니다.**
+- **변경 범위:** `_reconcileSystemBackups`는 시스템 이름/헤더/백업 자기서명과 현재 원본 존재만으로 미등록 orphan을 `COMPLETED`로 레지스트리 승격하지 않습니다. `ORPHAN_LIKELY_SYSTEM` 또는 `UNKNOWN` 보호 대상만 보고합니다. `_planSystemBackupMaintenance`는 등록되지 않은 orphan을 자동삭제 후보로 선택하지 않고, 과거에 `orphanAdopted=true`로 승격된 등록 백업도 신뢰할 수 있는 완료본으로 취급하지 않습니다. `_cleanupSystemBackups` 및 `_cleanupCurrentSystemBackup`에서도 과거 채택 orphan의 자동 정리를 차단합니다.
+- **불변:** 정상 생성 후 등록된 `COMPLETED` 백업의 기존 검증·정리, `WRITE_FAILED`/CREATED 보호, 원본 Snapshot/거래원장/가격이력/NAV/FX, deferred·pending, 스케줄·트리거·메뉴/설정 및 사용자 확장열의 데이터 계약은 변경하지 않습니다. 실운영의 09:07 **빈 백업 1000×26**은 생성 원인 및 registry status가 아직 미확정이며 자동 복구·승격·삭제 대상 아님.
+- **검증:** 실제 GAS 생산 함수 VM을 실행해 미등록 정상형 백업·빈 orphan·과거 자동 채택 orphan 각각의 registry 쓰기 0 / 자동삭제 후보 0 / 실제 시트 삭제 0, 정상 등록 백업 유지, 레지스트리 완결성 및 코드 버전/릴리스 지문을 확인합니다. 외부 동일셀 TOCTOU, 백업 보장 원자성, 역사 23일/날짜 결측 3,721행, 원본 생성 당시 보증 및 복원 적격성은 여전히 미검증입니다.
+- **배포 후 검증(별도 승인 필요):** 운영 `getSettings.gasVersion=9.252` 및 `getAutomationStatus.gasVersion=9.252`를 별도 인증 조회하고, 09:07 orphan 레지스트리 `status` / `signatureMatch` / `sourceSignature`, 거래원장·Snapshot·가격/NAV/FX·백업/보류 큐의 읽기 전용 불변성을 확인합니다. 별도 복구 승인 전 `restoreAllowed=false`, `deleteAllowed=false` 유지.
+
+---
+
 ## GAS v9.251 — Issue #507 가격이력 배치 D:F 동시 저장·목적지 검증 (2026-10-21)
 
 - **배포 상태:** main의 v9.250과 운영 GAS v9.244(마지막 읽기 전용 진단 기준)는 그대로 유지. 본 PR은 미병합 수정 후보이며 실제 운영 배포·원본 정리·복구를 승인하지 않습니다. `gas-deploy.yml`은 명시적 `workflow_dispatch`일 때만 배포 작업을 실행합니다.
