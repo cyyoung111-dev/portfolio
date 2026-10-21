@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.253
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.254
 //
+//  v9.254 변경사항 (2026.10.21):
+//  - #507 동일 source 서명의 다른 operationId 백업 교차 재사용을 차단.
+//  - 완료/실패 상태전이의 operationId 소유권 유지, 합성 RED→GREEN 회귀.
+//  - 운영 배포/원본 재생성·백업 삭제·트리거 변경 없이 릴리스 후보 코드만 갱신.
 //  v9.253 변경사항 (2026.10.21):
 //  - #507 클라이언트 saveSnapshot에 거래일 원장 수량·취득원가 검증 추가.
 //  - 수동 평가가격은 유지, 첫 매수 이전·stale 입력·펀드 0좌·원장 조회 실패는 저장 차단.
@@ -2243,7 +2247,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.253',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.254',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2321,7 +2325,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.253', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.254', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6227,7 +6231,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.253' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.254' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13082,7 +13086,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.253',
+    gasVersion: '9.254',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13147,7 +13151,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.253' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.254' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15552,6 +15556,11 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   // legacy record는 sourceSignature이 없으므로 과거 signature을 원본 힌트로만 사용합니다.
   var reusableRecord = registry.filter(function(record) {
     if (!record || record.systemGenerated !== true || record.source !== sourceName) return false;
+    // Registry completion is keyed by operationId. A matching source signature
+    // alone cannot transfer ownership of an older backup to another operation:
+    // that leaves the new operation with no record to settle (CREATED forever).
+    // Missing legacy IDs are equivalent only to an operation-less caller.
+    if (String(record.operationId || '') !== operationId) return false;
     var expectedSourceSignature = String(record.sourceSignature || record.signature || '');
     if (expectedSourceSignature !== sourceSignature && (!operationId || record.operationId !== operationId)) return false;
     if (record.status !== 'CREATED' && record.status !== 'COMPLETED' && record.status !== 'WRITE_FAILED') return false;
@@ -17007,7 +17016,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.253' });
+    return jsonOk({ settings: settings, gasVersion: '9.254' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17037,7 +17046,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.253'
+      gasVersion: '9.254'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
