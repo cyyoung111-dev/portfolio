@@ -1,0 +1,34 @@
+name: issue-507-date-discovery-read-profile
+
+# Synthetic production-VM instrumentation only. NO GAS / Sheet API access.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-date-discovery-read-profile.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-date-discovery-read-profile.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-date-discovery-read-profile.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-date-discovery-read-profile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Production function synthetic read-only proof
+        run: |
+          node --check scripts/issue507-date-discovery-read-profile.mjs
+          node scripts/issue507-date-discovery-read-profile.mjs --self-test
+          node scripts/issue507-date-discovery-read-profile.mjs
