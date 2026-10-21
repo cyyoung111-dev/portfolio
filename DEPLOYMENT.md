@@ -1,3 +1,14 @@
+## GAS v9.254 — Issue #507 작업 ID 다른 Snapshot 백업 교차 재사용 차단 (2026-10-21)
+
+- **배포 상태:** [PR #613](https://github.com/cyyoung111-dev/portfolio/pull/613) 검토 후보. `main` 기존 GAS 소스 v9.253과 **실운영 v9.244**는 별개. 이 PR은 운영 GAS 배포·트리거·원본 거래원장/Snapshot·가격/NAV/FX/registry/queue 수정이나 복원/삭제를 실행하지 않습니다. 실제 운영 배포는 별도 사용자 명시적 승인과 `workflow_dispatch` 이후에만 검토합니다.
+- **릴리스 소스 pin 후보:** `gasVersion=9.254`, `src/gas/apps_script.gs` 전체 Git blob `1f44d05f179cd20b27e12130003d1d1fd25197f2`. 이전 v9.253 이하 릴리스 해시·정책은 보존. `scripts/deploy-gas.mjs`, GAS getSettings/automation 응답, 웹 `EXPECTED_GAS_VERSION`, 배포 CI 계약과 정합 여부를 검증합니다. 이 pin은 Codex 최종 검토나 운영 배포 승인 자체가 아닙니다.
+- **실제 원인 재현(합성):** 기존 `_backupSheetBeforeWrite`는 `sourceSignature`만 같으면 **서로 다른 `operationId`의 오래된 `CREATED/COMPLETED/WRITE_FAILED` 백업을 재사용**할 수 있었고, `_settleSnapshotBackupOperation`은 **새 `operationId`의 레지스트리 항목만** 전이하여 0건으로 끝날 수 있습니다. [PR #613 RED CI](https://github.com/cyyoung111-dev/portfolio/actions/runs/39613223913)에서 실제 생산함수 기반 'different operation must own a new backup' 회귀가 실패함을 확인했습니다. 다만 10/21 19:08/19:47 실백업이 바로 이 원인으로 남았다는 **운영 인과는 미검증**입니다.
+- **수정:** `_backupSheetBeforeWrite`의 기존 백업 재사용은 **동일 작업 ID(미지정이면 기존 작업 ID도 미지정)**일 때만 허용. 다른 작업 ID 또는 한쪽만 ID가 있으면 신규 시스템 백업을 생성하고 해당 새 작업 소유권으로 완료/실패 상태전이. 이전 작업의 CREATED/WRITE_FAILED 복구 증거를 불필요하게 승격하거나 변경하지 않습니다. 시트 셀 용량이 부족하면 신규 백업 생성 단계에서 기존처럼 원본 쓰기 전에 실패 보존합니다. 동일 작업 내 올바른 서명 재사용은 유지합니다.
+- **회귀:** `scripts/check-issue507-backup-pre-registry-orphan.mjs`가 실제 생산 백업 3함수와 합성 Spreadsheet/Registry를 실행. 동일 작업 재호출 reuse, 서로 다른 작업 간 신규 백업·현재 작업 완료/과거 CREATED 불변, 작업 ID가 없는 레거시 reuse, 사전 등록 실패 orphan 보존. GAS/Quality 및 릴리스 pin/웹 버전 일치 검사·Codex 리뷰 후 병합 적격 여부 판단. **동일셀 외부 Sheets API TOCTOU와 다중시트 원자성은 해결하지 못함**.
+- **배포·데이터 차단:** 운영은 최근 실측 v9.244; 새 소스 합성/CI 통과만으로 자동 배포 금지. 운영 GAS 배포 전 외부 writer 직렬화, GAS Executions·registry provenance·sourceSignature의 독립 증명 및 별도 승인 필요. 보호 23일, Snapshot 날짜 공란 4,195행, 불완전 백업 두 건을 자동 보정/복원/삭제하지 않으며 `restoreAllowed=false` / `deleteAllowed=false` 유지.
+
+---
+
 ## GAS v9.253 — Issue #507 수동 Snapshot 거래원장 기준시점 가드 (2026-10-21)
 
 - **배포 상태:** PR #609 Draft 검증 후보. `main` 소스 v9.252와 **실제 운영 GAS**는 별개이며 운영 최근 확인 v9.244 이후 실제 배포 버전은 재확인 필요. 이 커밋은 GAS 배포·트리거 변경·실운영 Snapshot/거래이력·원천 수정이 아닙니다. 실행 가능한 배포는 병합·별도 명시적 승인과 workflow_dispatch 뒤에만 검토합니다.
