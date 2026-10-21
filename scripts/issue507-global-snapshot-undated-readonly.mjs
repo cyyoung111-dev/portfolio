@@ -34,11 +34,12 @@ function key(v){
 // Snapshot read paths use two known cost-label variants. Validate all A:K
 // semantic positions before interpreting valuation or provenance columns.
 // L (savedAt) is optional historical metadata and never a classified value.
-const SNAPSHOT_TAIL=['평가단가','평가금액','손익','수익률(%)','평가단가소스'];
 const HEADER=['날짜','종목코드','종목명','수량','매수단가','매수원금',
-  ...SNAPSHOT_TAIL];
+  '평가단가','평가금액','손익','수익률(%)','평가단가소스'];
+// Production _reconcileFundUnitDerivedRows creates a separate legacy
+// Snapshot header, including J/K labels. Never mix the two variants.
 const LEGACY_FUND_HEADER=['날짜','종목코드','종목명','수량','매입단가','매입원금',
-  ...SNAPSHOT_TAIL];
+  '평가단가','평가금액','손익','수익률','소스'];
 const header=row=>[HEADER,LEGACY_FUND_HEADER].some(expected=>
   expected.every((x,i)=>String(row?.[i]??'').trim()===x));
 
@@ -165,8 +166,24 @@ export async function selfTest(){
     row('', '000333',2,20),row(null,'000444',3,30),
     row('2026-09-15','000111'),H,row('not-a-date','000555'),
     row('2026-09-15',''),[],row(46314,'000666')];
-  const legacy=H.slice();legacy[4]='매입단가';legacy[5]='매입원금';
+  const legacy=LEGACY_FUND_HEADER.concat(['저장일시']);
   const legacyCheck=auditGlobalSnapshot([legacy,row('2026-09-15','1'),legacy]);
+  assert.equal(legacyCheck.writesPerformed,0);
+  const legacyPair=auditGlobalSnapshot([legacy,
+    row('2026-09-16','1'),row('2026-09-16','1')]);
+  assert.equal(legacyPair.duplicateSameComparableGroups,1);
+  // Mixed modern/legacy labels are not genuine producer schemas.
+  const mixedCost=H.slice();mixedCost[4]='매입단가';mixedCost[5]='매입원금';
+  assert.throws(()=>auditGlobalSnapshot([mixedCost,row('2026-09-15','1')]),
+    /HEADER_SCHEMA/);
+  const mixedTail=legacy.slice();mixedTail[9]=H[9];mixedTail[10]=H[10];
+  assert.throws(()=>auditGlobalSnapshot([mixedTail,row('2026-09-15','1')]),
+    /HEADER_SCHEMA/);
+  // Keep this allowlist tied to actual producer literals; unknown source
+  // schema changes must fail the contract rather than silently misclassify.
+  const gasSource=fs.readFileSync(new URL('../src/gas/apps_script.gs',import.meta.url),'utf8');
+  assert.ok(gasSource.includes('snap.appendRow('+JSON.stringify(legacy)
+    .replaceAll('"',"'")+');'),'GAS fund creator legacy header drift');
   assert.equal(legacyCheck.datedMaterialRows,1);
   assert.equal(legacyCheck.repeatedHeaderRows,1);
   assert.equal(legacyCheck.globalIntegrityClear,false);
