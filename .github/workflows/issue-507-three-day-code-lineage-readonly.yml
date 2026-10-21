@@ -1,0 +1,51 @@
+name: issue-507-three-day-code-lineage-readonly
+
+# Only synthetic contract on PR/push. Live authenticated GAS reads require
+# explicit workflow_dispatch; no writer, queue, registry or deploy endpoints.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-three-day-code-lineage-readonly.mjs'
+      - 'scripts/issue507-supervised-repair-dryrun-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
+      - '.github/workflows/issue-507-three-day-code-lineage-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-three-day-code-lineage-readonly.mjs'
+      - 'scripts/issue507-supervised-repair-dryrun-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
+      - '.github/workflows/issue-507-three-day-code-lineage-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify private three-day source joins and fail-closed mutation policy
+        run: |
+          node --check scripts/issue507-three-day-code-lineage-readonly.mjs
+          node scripts/issue507-three-day-code-lineage-readonly.mjs --self-test
+  operational-readonly:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Diagnose Jan 08 09 and 17 by aggregate lineage only (READ ONLY)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-three-day-code-lineage-readonly.mjs
