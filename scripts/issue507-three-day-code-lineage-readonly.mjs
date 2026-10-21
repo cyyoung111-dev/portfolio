@@ -336,6 +336,162 @@ export function comparePriorBaseline(threeDay,baseline){
     note:'Historical expected values are derived from the CURRENT ledger, not from a dated saved ledger version. Mismatch does not prove when the ledger was edited.'};
 }
 
+
+// The January 6 -> January 7 boundary is the first observed mismatch in the
+// current-ledger-vs-stored comparison; this is NOT proof of mutation time.
+// All per-code quantities, costs, trade names and identifiers remain in memory.
+export function analyzeJan07Transition(threeDay,baseline,tradesResponse){
+  const checked=comparePriorBaseline(threeDay,baseline);
+  guard(tradesResponse?.status==='ok'&&Array.isArray(tradesResponse.trades)
+    &&tradesResponse.trades.length<=100000,'TRANSITION_TRADES_SCHEMA');
+  if(checked.days.some(d=>d.status!=='ASSESSED')){
+    return {mode:'ISSUE507_JAN07_TRANSITION_READ_ONLY',state:'BASELINE_NOT_ASSESSABLE',
+      baselineStatuses:checked.days.map(d=>d.status),
+      possibleLedgerTradeRowsJan07:null,matchingCodesWithTradesJan07:null,
+      restoreAllowed:false,deleteAllowed:false,writesPerformed:0};
+  }
+  const rowsForDay=d=>{
+    const expected=new Map(),stored=new Map();
+    for(const row of d.expectedRows){
+      const key=id(row);guard(key&&!expected.has(key),'TRANSITION_EXPECTED_KEY');
+      expected.set(key,row);
+    }
+    for(const row of d.storedRows){
+      const key=id(row);guard(key,'TRANSITION_STORED_KEY');
+      if(!stored.has(key))stored.set(key,[]);
+      stored.get(key).push(row);
+    }
+    return {expected,stored};
+  };
+  const later=threeDay.diagnostics.map(rowsForDay);
+  const recurring=[...later[0].expected].filter(([key,row])=>
+    later.every(item=>item.expected.has(key)&&item.stored.has(key)
+      &&!item.stored.get(key).some(r=>qtyCost(r)===qtyCost(item.expected.get(key)))))
+    .map(([key])=>key);
+  const prior=baseline.diagnostics.map(rowsForDay),compared=new Set(),ambiguous=new Set();
+  const counts={commonCodes:bounded(recurring.length),comparableCodes:0,
+    missingEitherBaselineCode:0,multipleStoredCandidates:0,
+    matchedJan06:0,mismatchedJan07:0,
+    expectedQtyChanged:0,expectedCostChanged:0,
+    storedQtyChanged:0,storedCostChanged:0,
+    expectedQtyChangedStoredUnchanged:0,expectedCostChangedStoredUnchanged:0,
+    jan07QtyMismatch:0,jan07CostMismatch:0,jan07BothMismatch:0,
+    jan07StoredEqualsJan06Expected:0,jan07ExpectedEqualsJan06Stored:0};
+  for(const key of recurring){
+    const e0=prior[0].expected.get(key),e1=prior[1].expected.get(key);
+    const s0=prior[0].stored.get(key),s1=prior[1].stored.get(key);
+    if(!e0||!e1||!s0||!s1){counts.missingEitherBaselineCode++;continue;}
+    if(s0.length!==1||s1.length!==1){
+      counts.multipleStoredCandidates++;
+      ambiguous.add(key);
+      continue;
+    }
+    compared.add(key);counts.comparableCodes++;
+    const [v0,v1]=[s0[0],s1[0]];
+    const eq=(a,b,col,n)=>pctNumber(a[col],n)===pctNumber(b[col],n);
+    const q=(a,b)=>eq(a,b,3,8),cost=(a,b)=>eq(a,b,5,0);
+    const expectedQChanged=!q(e0,e1),expectedCChanged=!cost(e0,e1);
+    const storedQChanged=!q(v0,v1),storedCChanged=!cost(v0,v1);
+    if(q(e0,v0)&&cost(e0,v0))counts.matchedJan06++;
+    if(!q(e1,v1)||!cost(e1,v1))counts.mismatchedJan07++;
+    if(expectedQChanged)counts.expectedQtyChanged++;
+    if(expectedCChanged)counts.expectedCostChanged++;
+    if(storedQChanged)counts.storedQtyChanged++;
+    if(storedCChanged)counts.storedCostChanged++;
+    if(expectedQChanged&&!storedQChanged)counts.expectedQtyChangedStoredUnchanged++;
+    if(expectedCChanged&&!storedCChanged)counts.expectedCostChangedStoredUnchanged++;
+    if(!q(e1,v1))counts.jan07QtyMismatch++;
+    if(!cost(e1,v1))counts.jan07CostMismatch++;
+    if(!q(e1,v1)&&!cost(e1,v1))counts.jan07BothMismatch++;
+    if(q(v1,e0)&&cost(v1,e0))counts.jan07StoredEqualsJan06Expected++;
+    if(q(e1,v0)&&cost(e1,v0))counts.jan07ExpectedEqualsJan06Stored++;
+  }
+  // The GAS master code table is not exposed here. Name matches are therefore
+  // only candidates; mapped activity must never certify absence of a trade.
+  const names=new Map();
+  const associate=(name,code)=>{
+    const label=String(name??'').trim(),resolved=normCode(code);
+    if(!label||!resolved)return;
+    if(!names.has(label))names.set(label,new Set());
+    names.get(label).add(resolved);
+  };
+  for(const d of [...baseline.diagnostics,...threeDay.diagnostics])
+    for(const r of d.expectedRows)associate(r[2],r[1]);
+  for(const t of tradesResponse.trades){
+    guard(t&&typeof t.code==='string'&&typeof t.name==='string'
+      &&typeof t.date==='string'&&typeof t.tradeType==='string',
+      'TRANSITION_TRADE_ROW');
+    if(normCode(t.code))associate(t.name,t.code);
+  }
+  const involved=new Set(),tradeActivity={validPotentialRows:0,
+    buyRows:0,sellRows:0,splitRows:0,reverseSplitRows:0,
+    codeLessMappedRows:0,nameOnlyIdentityRows:0,
+    unresolvedCodeLessRows:0,ambiguousCodeLessRows:0,
+    ignoredInvalidTypeOrNameRows:0,ignoredNonEffectiveRows:0,
+    negativeQuantityRows:0};
+  for(const t of tradesResponse.trades){
+    const date=t.date.slice(0,10);
+    guard(/^\d{4}-\d{2}-\d{2}$/.test(date)
+      &&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date,
+      'TRANSITION_DATE');
+    if(date!=='2026-01-07')continue;
+    const type=t.tradeType.trim();
+    if(!['buy','sell','split','reverse_split'].includes(type)||!t.name.trim()){
+      tradeActivity.ignoredInvalidTypeOrNameRows++;
+      continue;
+    }
+    const qty=Number(t.qty??0),ratio=Number(t.ratio??0);
+    guard(Number.isFinite(qty)&&Number.isFinite(ratio),'TRANSITION_NUMERIC');
+    if(type==='buy'||type==='sell'?qty===0:ratio<=0){
+      tradeActivity.ignoredNonEffectiveRows++;
+      continue;
+    }
+    if((type==='buy'||type==='sell')&&qty<0)tradeActivity.negativeQuantityRows++;
+    const label=t.name.trim(),explicit=normCode(t.code),candidates=names.get(label);
+    const mapped=!explicit&&candidates?.size===1?[...candidates][0]:'';
+    // GAS _applyHoldingTrade uses 'code || name': when BOTH expected position
+    // and ledger trade have no code, the exact trimmed name is the identity.
+    // Only fall back to that name when no coded alias exists; if any name->code
+    // candidate exists but does not match our audited position, retain
+    // uncertainty instead of asserting a fabricated trade match.
+    const nameOnly=!explicit&&!candidates?.size&&compared.has(label)?label:'';
+    const resolved=explicit||mapped||nameOnly;
+    if(!resolved){
+      tradeActivity.unresolvedCodeLessRows++;
+      if(candidates?.size>1)tradeActivity.ambiguousCodeLessRows++;
+      continue;
+    }
+    if(!compared.has(resolved)){
+      // The audited position is still keyed by this un-coded name, yet a
+      // separate coded alias points elsewhere. Its trade identity is unknown
+      // without the GAS master; do not silently classify it as unrelated.
+      if(!explicit&&compared.has(label)){
+        tradeActivity.unresolvedCodeLessRows++;
+        tradeActivity.ambiguousCodeLessRows++;
+      }
+      continue;
+    }
+    if(mapped)tradeActivity.codeLessMappedRows++;
+    if(nameOnly)tradeActivity.nameOnlyIdentityRows++;
+    involved.add(resolved);
+    tradeActivity.validPotentialRows++;
+    const kind={buy:'buyRows',sell:'sellRows',split:'splitRows',
+      reverse_split:'reverseSplitRows'}[type];
+    tradeActivity[kind]++;
+  }
+  for(const key of Object.keys(counts))counts[key]=bounded(counts[key]);
+  for(const key of Object.keys(tradeActivity))
+    tradeActivity[key]=bounded(tradeActivity[key]);
+  return {mode:'ISSUE507_JAN07_TRANSITION_READ_ONLY',state:'ASSESSED',
+    counts,tradeActivity,matchingCodesWithTradesJan07:bounded(involved.size),
+    comparableCodesWithNoMatchedTradeEvidence:bounded(compared.size-involved.size),
+    ledgerTradeAbsenceCertified:false,masterNameCodeMappingVerified:false,
+    historicalWriteRevisionVerified:false,independentPriceVerified:false,
+    tradePresenceEstablishesCausality:false,
+    restoreAllowed:false,deleteAllowed:false,writesPerformed:0,
+    note:'Observed current-ledger-versus-stored boundary only. An unmatched trade is not proven absent; no historical ledger revision or independent valuation has been certified.'};
+}
+
 async function request(url,token,action,args,fetchImpl){
   let res;
   try{
@@ -366,6 +522,7 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   const prior=await request(endpoint,token,'diagnoseSnapshotIntegrityRange',
     {dates:BASELINE_DATES.join(','),strictReadonly:'1'},fetchImpl);
   const priorSummary=comparePriorBaseline(first,prior);
+  const jan07Transition=analyzeJan07Transition(first,prior,trades);
   const second=await request(endpoint,token,'diagnoseSnapshotIntegrityRange',args,fetchImpl);
   // Validate both actual responses; do not echo raw source digests.
   summarizeThreeDays(second);
@@ -379,6 +536,7 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   return {...summary,recurringQtyCostTriage:{...persistent,
       sourceDigestStableWithinCall:true},
     jan06Jan07Baseline:{...priorSummary,strictSourceDigestStableWithinCall:true},
+    jan07Transition,
     sourceStableWithinThisRead:true,
     queueStableWithinThisRead:true,crossRunSourceStabilityCertified:false};
 }
@@ -539,6 +697,87 @@ export async function selfTest(){
   const wrongDates=structuredClone(reconstructed);
   wrongDates.checkedDates=['2026-01-06','2026-01-08'];
   assert.throws(()=>comparePriorBaseline(qtyCostDrift,wrongDates),/BASELINE_SCHEMA/);
+
+  // Boundary regression: 01-06 match, 01-07 current expected changed after
+  // a possible effective 01-07 buy, but the stored row remains at 01-06 basis.
+  const transition=structuredClone(baseline);
+  const b7=transition.diagnostics[1];
+  b7.expectedRows[2][3]=4;b7.expectedRows[2][5]=40;
+  const withJan07Trade=structuredClone(tradeFixture);
+  withJan07Trade.trades.push({date:'2026-01-07',code:'000003',name:'SYNTH',
+    tradeType:'buy',qty:1,price:10});
+  const evidence=analyzeJan07Transition(qtyCostDrift,transition,withJan07Trade);
+  assert.equal(evidence.counts.commonCodes,1);
+  assert.equal(evidence.counts.comparableCodes,1);
+  assert.equal(evidence.counts.matchedJan06,1);
+  assert.equal(evidence.counts.mismatchedJan07,1);
+  assert.equal(evidence.counts.expectedQtyChanged,1);
+  assert.equal(evidence.counts.expectedCostChanged,1);
+  assert.equal(evidence.counts.storedQtyChanged,0);
+  assert.equal(evidence.counts.storedCostChanged,0);
+  assert.equal(evidence.counts.jan07BothMismatch,1);
+  assert.equal(evidence.counts.jan07StoredEqualsJan06Expected,1);
+  assert.equal(evidence.tradeActivity.buyRows,1);
+  assert.equal(evidence.matchingCodesWithTradesJan07,1);
+  assert.equal(evidence.ledgerTradeAbsenceCertified,false);
+  assert.equal(evidence.restoreAllowed,false);
+  assert.ok(!JSON.stringify(evidence).includes('000003'));
+  assert.ok(!JSON.stringify(evidence).includes('SYNTH'));
+  // Review regression: _applyHoldingTrade preserves exact name as the
+  // identity when both expected holding and original trade lack a code.
+  const nameOnlyThree=structuredClone(qtyCostDrift);
+  const nameOnlyPrior=structuredClone(transition);
+  for(const day of [...nameOnlyThree.diagnostics,...nameOnlyPrior.diagnostics]){
+    day.expectedRows[2][1]='';
+    day.expectedRows[2][2]='UNIQUE_NAME_ONLY';
+    day.storedRows[2][1]='';
+    day.storedRows[2][2]='UNIQUE_NAME_ONLY';
+  }
+  const nameOnlyLedger={status:'ok',trades:[
+    {date:'2026-01-07',code:'',name:'UNIQUE_NAME_ONLY',tradeType:'buy',qty:1,price:10}
+  ]};
+  const nameOnlyProbe=analyzeJan07Transition(nameOnlyThree,nameOnlyPrior,nameOnlyLedger);
+  assert.equal(nameOnlyProbe.counts.comparableCodes,1);
+  assert.equal(nameOnlyProbe.matchingCodesWithTradesJan07,1);
+  assert.equal(nameOnlyProbe.tradeActivity.validPotentialRows,1);
+  assert.equal(nameOnlyProbe.tradeActivity.nameOnlyIdentityRows,1);
+  assert.equal(nameOnlyProbe.tradeActivity.unresolvedCodeLessRows,0);
+  assert.ok(!JSON.stringify(nameOnlyProbe).includes('UNIQUE_NAME_ONLY'));
+  // Ambiguous name associated with a DIFFERENT explicitly coded instrument
+  // must not override current expected name-only identity.
+  const aliasCollision=structuredClone(nameOnlyLedger);
+  aliasCollision.trades.push({date:'2026-01-01',code:'999999',
+    name:'UNIQUE_NAME_ONLY',tradeType:'buy',qty:1,price:10});
+  const collided=analyzeJan07Transition(nameOnlyThree,nameOnlyPrior,aliasCollision);
+  assert.equal(collided.matchingCodesWithTradesJan07,0);
+  assert.equal(collided.tradeActivity.nameOnlyIdentityRows,0);
+  assert.equal(collided.tradeActivity.unresolvedCodeLessRows,1);
+  assert.equal(collided.tradeActivity.ambiguousCodeLessRows,1);
+  assert.equal(collided.comparableCodesWithNoMatchedTradeEvidence,1);
+  assert.equal(collided.ledgerTradeAbsenceCertified,false);
+  // On January 7 a stored-only mutation creates divergence without any
+  // observed effective ledger trade: do not claim historical causality.
+  const storeOnly=structuredClone(baseline);
+  storeOnly.diagnostics[1].storedRows[2][3]=1;
+  storeOnly.diagnostics[1].storedRows[2][5]=10;
+  const noJan07Trade=analyzeJan07Transition(qtyCostDrift,storeOnly,tradeFixture);
+  assert.equal(noJan07Trade.counts.expectedQtyChanged,0);
+  assert.equal(noJan07Trade.counts.storedQtyChanged,1);
+  assert.equal(noJan07Trade.matchingCodesWithTradesJan07,0);
+  assert.equal(noJan07Trade.ledgerTradeAbsenceCertified,false);
+  const uncertainJan07=structuredClone(withJan07Trade);
+  uncertainJan07.trades.push({date:'2026-01-07',code:'',name:'UNKNOWN_NAME',
+    tradeType:'buy',qty:1});
+  const uncertainTransition=analyzeJan07Transition(qtyCostDrift,transition,uncertainJan07);
+  assert.equal(uncertainTransition.tradeActivity.unresolvedCodeLessRows,1);
+  const invalidJan07=structuredClone(withJan07Trade);
+  invalidJan07.trades.push({date:'2026-01-07',code:'000003',name:'SYNTH',
+    tradeType:'dividend',qty:1});
+  assert.equal(analyzeJan07Transition(qtyCostDrift,transition,invalidJan07)
+    .tradeActivity.ignoredInvalidTypeOrNameRows,1);
+  const incompleteTransition=analyzeJan07Transition(qtyCostDrift,incomplete,tradeFixture);
+  assert.equal(incompleteTransition.state,'BASELINE_NOT_ASSESSABLE');
+  assert.equal(incompleteTransition.possibleLedgerTradeRowsJan07,null);
   const status={status:'ok',gasVersion:'9.244',automation:{
     gasVersion:'9.244',tradeSnapshotDeferredDates:dates,
     tradeSnapshotDeferredCount:3,tradeSnapshotDeferredOldestDate:dates[0],
