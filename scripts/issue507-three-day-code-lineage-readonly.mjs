@@ -175,20 +175,38 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
   }
   const tradedJan09=new Set(),tradedLater=new Set();
   let codeLessMapped=0,codeLessRelevantMapped=0,
-    codeLessRelevantUnresolved=0,codeLessRelevantAmbiguous=0;
+    codeLessRelevantUnresolved=0,codeLessRelevantAmbiguous=0,
+    ignoredUnsupportedTypeRowsInWindow=0,ignoredNoEffectRowsInWindow=0;
   for(const t of tradesResponse.trades){
     const date=t.date.slice(0,10);
     // Validate all ledger dates so malformed code-less records cannot quietly
     // bypass diagnostic lineage accuracy.
     guard(/^\d{4}-\d{2}-\d{2}$/.test(date)
       &&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date,'TRADE_DATE');
+    const relevantWindow=date>'2026-01-08'&&date<='2026-01-17';
+    // Mirror production _applyHoldingTrade: blank names/types skip, and only
+    // buy/sell/split/reverse_split mutate its holdings reducer. A zero-quantity
+    // buy/sell and a non-positive split ratio also cannot change holdings.
+    // Even accepted rows are only *potential* contributors, not proof of
+    // realized position/cost changes (which requires lot replay).
+    const type=t.tradeType.trim();
+    const supported=['buy','sell','split','reverse_split'].includes(type);
+    const effectPossible=!!t.name.trim()&&(type==='buy'||type==='sell'
+      ? Number(t.qty)>0 : Number(t.ratio)>0);
+    if(!supported||!t.name.trim()){
+      if(relevantWindow)ignoredUnsupportedTypeRowsInWindow++;
+      continue;
+    }
+    if(!effectPossible){
+      if(relevantWindow)ignoredNoEffectRowsInWindow++;
+      continue;
+    }
     const explicit=normCode(t.code);
     const aliases=nameCandidates.get(t.name.trim());
     const ambiguous=!explicit&&aliases?.size>1;
     const mapped=!explicit&&aliases?.size===1?[...aliases][0]:'';
     const resolved=explicit||mapped;
     if(!explicit&&mapped)codeLessMapped++;
-    const relevantWindow=date>'2026-01-08'&&date<='2026-01-17';
     if(relevantWindow&&!explicit&&mapped&&persistent.has(mapped))codeLessRelevantMapped++;
     if(relevantWindow&&!explicit&&!mapped){
       codeLessRelevantUnresolved++;
@@ -216,6 +234,8 @@ export function analyzePersistentQtyCost(payload,tradesResponse){
   tradeWindows.codeLessMappedToPersistentCodesJan09Through17=bounded(codeLessRelevantMapped);
   tradeWindows.unresolvedCodeLessTradesJan09Through17=bounded(codeLessRelevantUnresolved);
   tradeWindows.ambiguousNameCodeTradesJan09Through17=bounded(codeLessRelevantAmbiguous);
+  tradeWindows.ignoredUnsupportedTypeRowsJan09Through17=bounded(ignoredUnsupportedTypeRowsInWindow);
+  tradeWindows.ignoredNonEffectiveRowsJan09Through17=bounded(ignoredNoEffectRowsInWindow);
   // No private codes/dates of individual trades/amounts are ever returned.
   return {mode:'ISSUE507_PERSISTENT_QTY_COST_PRIVATE_LEDGER_TRIAGE',
     recurringMissingQtyCostCodes:bounded(persistent.size),
@@ -327,11 +347,11 @@ export async function selfTest(){
   qtyCostDrift.diagnostics[2].storedRows[0][3]=2;
   qtyCostDrift.diagnostics[2].storedRows[1][3]=2;
   const tradeFixture={status:'ok',trades:[
-    {date:'2025-12-30',code:'000003',name:'SYNTH',tradeType:'buy'},
-    {date:'2026-01-09',code:'000003',name:'SYNTH',tradeType:'sell'},
-    {date:'2026-01-11',code:'000003',name:'SYNTH',tradeType:'buy'},
-    {date:'2026-01-20',code:'000003',name:'SYNTH',tradeType:'buy'},
-    {date:'2026-01-10',code:'123456',name:'OTHER',tradeType:'buy'}
+    {date:'2025-12-30',code:'000003',name:'SYNTH',tradeType:'buy',qty:1},
+    {date:'2026-01-09',code:'000003',name:'SYNTH',tradeType:'sell',qty:1},
+    {date:'2026-01-11',code:'000003',name:'SYNTH',tradeType:'buy',qty:1},
+    {date:'2026-01-20',code:'000003',name:'SYNTH',tradeType:'buy',qty:1},
+    {date:'2026-01-10',code:'123456',name:'OTHER',tradeType:'buy',qty:1}
   ]};
   const qResult=analyzePersistentQtyCost(qtyCostDrift,tradeFixture);
   assert.equal(qResult.recurringMissingQtyCostCodes,1);
@@ -342,6 +362,25 @@ export async function selfTest(){
   assert.equal(qResult.privateLedgerTradeActivity.postJan17,1);
   assert.equal(qResult.privateLedgerTradeActivity.codesWithoutTradesJan09Through17,null);
   assert.equal(qResult.privateLedgerTradeActivity.codesWithNoMatchedTradeEvidenceJan09Through17,0);
+  // Review regression: GAS ignores unknown/empty types, empty names, zero
+  // quantity buy/sell, and non-positive split ratios (they change no holdings).
+  const ignore=structuredClone(tradeFixture);
+  ignore.trades.push(
+    {date:'2026-01-09',code:'000003',name:'SYNTH',tradeType:''},
+    {date:'2026-01-09',code:'000003',name:'SYNTH',tradeType:'dividend',qty:1},
+    {date:'2026-01-10',code:'000003',name:'',tradeType:'buy',qty:1},
+    {date:'2026-01-10',code:'000003',name:'SYNTH',tradeType:'buy',qty:0},
+    {date:'2026-01-10',code:'000003',name:'SYNTH',tradeType:'split',ratio:0},
+    {date:'2026-01-10',code:'000003',name:'SYNTH',tradeType:'reverse_split',ratio:0}
+  );
+  const ignored=analyzePersistentQtyCost(qtyCostDrift,ignore);
+  assert.equal(ignored.privateLedgerTradeActivity.jan09,1);
+  assert.equal(ignored.privateLedgerTradeActivity.jan10Through17,1);
+  assert.equal(ignored.privateLedgerTradeActivity.ignoredUnsupportedTypeRowsJan09Through17,3);
+  assert.equal(ignored.privateLedgerTradeActivity.ignoredNonEffectiveRowsJan09Through17,3);
+  const split=structuredClone(ignore);
+  split.trades.push({date:'2026-01-10',code:'000003',name:'SYNTH',tradeType:'split',ratio:2});
+  assert.equal(analyzePersistentQtyCost(qtyCostDrift,split).privateLedgerTradeActivity.jan10Through17,2);
   // If GAS sees a blank-code transaction by recognized name it must count.
   // Give the recurring code an unambiguous expected name.
   const named=structuredClone(qtyCostDrift);
@@ -350,7 +389,7 @@ export async function selfTest(){
     day.storedRows[2][2]='UNIQUE_LEDGER_NAME';
   });
   const codedByName=structuredClone(tradeFixture);
-  codedByName.trades.push({date:'2026-01-09',code:'',name:'UNIQUE_LEDGER_NAME',tradeType:'buy'});
+  codedByName.trades.push({date:'2026-01-09',code:'',name:'UNIQUE_LEDGER_NAME',tradeType:'buy',qty:1});
   const resolvedNames=analyzePersistentQtyCost(named,codedByName);
   assert.equal(resolvedNames.privateLedgerTradeActivity.codeLessMappedToPersistentCodesJan09Through17,1);
   assert.equal(resolvedNames.privateLedgerTradeActivity.jan09,2);
@@ -359,15 +398,15 @@ export async function selfTest(){
   assert.equal(resolvedNames.privateLedgerTradeActivity.codesWithNoMatchedTradeEvidenceJan09Through17,0);
   // Ambiguous or unknown names must NOT produce a false "no trade" claim.
   const unknown=structuredClone(codedByName);
-  unknown.trades.push({date:'2026-01-10',code:'',name:'UNKNOWN_LEDGER_NAME',tradeType:'buy'});
+  unknown.trades.push({date:'2026-01-10',code:'',name:'UNKNOWN_LEDGER_NAME',tradeType:'buy',qty:1});
   const uncertain=analyzePersistentQtyCost(named,unknown);
   assert.equal(uncertain.privateLedgerTradeActivity.unresolvedCodeLessTradesJan09Through17,1);
   assert.equal(uncertain.privateLedgerTradeActivity.codesWithoutTradesJan09Through17,null);
   assert.equal(uncertain.ledgerTradeAbsenceCertified,false);
   // Same display name with multiple explicitly coded instruments is ambiguous.
   const aliasAmbiguous=structuredClone(unknown);
-  aliasAmbiguous.trades.push({date:'2026-01-09',code:'999999',name:'UNIQUE_LEDGER_NAME',tradeType:'buy'});
-  aliasAmbiguous.trades.push({date:'2026-01-10',code:'',name:'UNIQUE_LEDGER_NAME',tradeType:'buy'});
+  aliasAmbiguous.trades.push({date:'2026-01-09',code:'999999',name:'UNIQUE_LEDGER_NAME',tradeType:'buy',qty:1});
+  aliasAmbiguous.trades.push({date:'2026-01-10',code:'',name:'UNIQUE_LEDGER_NAME',tradeType:'buy',qty:1});
   const ambiguousResult=analyzePersistentQtyCost(named,aliasAmbiguous);
   assert.equal(ambiguousResult.privateLedgerTradeActivity.ambiguousNameCodeTradesJan09Through17,2);
   assert.equal(ambiguousResult.ledgerTradeAbsenceCertified,false);
