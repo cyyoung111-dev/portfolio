@@ -7818,7 +7818,9 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences, backupReferencesOn
       (role === 'BACKUP' ? (inferredSource ? 'ORPHAN_LIKELY_SYSTEM' : 'USER_MANAGED_BACKUP') : 'UNKNOWN');
     var formulaReferenceCount = includeFormulaReferences && Object.prototype.hasOwnProperty.call(formulaCounts, name) ? formulaCounts[name] : null;
     var registeredSourceExists = !backupRecord || (!!inferredSource && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, inferredSource) && !!ss.getSheetByName(inferredSource));
-    var eligible = classification === 'REGISTERED_COMPLETED' && registeredSourceExists && formulaReferenceCount === 0;
+    // Historical adopted orphans have no source-at-copy provenance, even when self-signed.
+    var adoptedOrphan = !!(backupRecord && backupRecord.orphanAdopted === true);
+    var eligible = classification === 'REGISTERED_COMPLETED' && registeredSourceExists && !adoptedOrphan && formulaReferenceCount === 0;
     sheets.push({ name: name, role: role, maxRows: maxRows, maxColumns: maxColumns,
       lastRow: lastRow, lastColumn: lastColumn, allocatedCells: allocatedCells,
       usedRangeCells: usedRangeCells, unusedCells: allocatedCells - usedRangeCells,
@@ -7828,8 +7830,10 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences, backupReferencesOn
       createdAt: backupRecord ? backupRecord.createdAt || '' : '', completedAt: backupRecord ? backupRecord.completedAt || '' : '',
       updatedAt: backupRecord ? backupRecord.updatedAt || '' : '', operationId: backupRecord ? backupRecord.operationId || '' : '',
       signatureMatch: backupRecord ? _sheetContentSignature(sheet) === backupRecord.signature : null,
-      sourceSheetExists: registeredSourceExists, autoCleanupEligible: eligible, protectionReason: eligible ? '' :
-        (!registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정')) });
+      sourceSheetExists: registeredSourceExists, orphanAdopted: adoptedOrphan,
+      autoCleanupEligible: eligible, protectionReason: eligible ? '' :
+        (adoptedOrphan ? '과거 adopted orphan · 생성 당시 sourceSignature 없음 · 자동삭제 금지' :
+        (!registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정'))) });
   });
   sheets.forEach(function(item) { item.workbookOccupancyPercent = totalCells ? Number((item.allocatedCells * 100 / totalCells).toFixed(4)) : 0; });
   var backupsBySource = {};
