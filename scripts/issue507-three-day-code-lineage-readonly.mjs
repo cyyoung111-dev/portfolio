@@ -140,7 +140,9 @@ function fixtureDay(date){
     [date,c,'SYNTH',qty,10,qty*10,evalAmount,evalAmount,evalAmount-qty*10,0,source,''];
   const a=row('000001',1,21), b=row('000001',1,22);
   const c=row('000003',3,50), missing=row('000002',2,35);
-  return {date,status:'CONFLICT',expectedRows:[a,missing,c],
+  // Expected ledger rows and stored Snapshot must not share references:
+  // otherwise mutation tests silently change both source and target.
+  return {date,status:'CONFLICT',expectedRows:[a.slice(),missing.slice(),c.slice()],
     storedRows:[a,b,c],sourceDataErrors:[],
     duplicateKeys:[date+'|000001'],missingCodes:['000002'],unexpectedCodes:[],
     duplicateSummary:{groups:1,exactDuplicate:0,singleExpectedMatch:0,
