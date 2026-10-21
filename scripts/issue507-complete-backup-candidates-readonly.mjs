@@ -12,7 +12,7 @@ function guard(ok,code){if(!ok)throw Error('ISSUE507_BACKUP_CANDIDATES_'+code);}
 function bounded(n){guard(Number.isSafeInteger(n)&&n>=0&&n<10000000,'BAD_SIZE');return n;}
 
 export function classifyCandidates(payload){
-  // Also validates both previously audited target backups against production schema.
+  // Validate every explicitly targeted backup before inspecting other backups.
   summarizeWorkbook(payload);
   const all=payload.workbook.sheets;
   const exclude=new Set(TARGETS.map(x=>x.name));
@@ -91,6 +91,15 @@ export async function selfTest(){
         systemGeneratedBackup:true,backupSource:'스냅샷',backupStatus:'WRITE_FAILED',
         backupClassification:'REGISTERED_WRITE_FAILED',signatureMatch:true,
         sourceSheetExists:true,lastRow:55,lastColumn:12},
+      // These are already-targeted backups, not additional candidates.
+      {name:TARGETS[2].name,role:'BACKUP',backup:true,
+        systemGeneratedBackup:true,backupSource:'스냅샷',backupStatus:'COMPLETED',
+        backupClassification:'REGISTERED_COMPLETED',signatureMatch:true,
+        sourceSheetExists:true,lastRow:10728,lastColumn:12},
+      {name:TARGETS[3].name,role:'BACKUP',backup:true,
+        systemGeneratedBackup:true,backupSource:'스냅샷',backupStatus:'WRITE_FAILED',
+        backupClassification:'REGISTERED_WRITE_FAILED',signatureMatch:false,
+        sourceSheetExists:true,lastRow:9105,lastColumn:12},
       {name:'스냅샷_백업_20261017_120000_abc123',role:'BACKUP',backup:true,
         systemGeneratedBackup:true,backupSource:'스냅샷',backupStatus:'COMPLETED',
         backupClassification:'REGISTERED_COMPLETED',signatureMatch:true,
@@ -113,10 +122,10 @@ export async function selfTest(){
   assert.ok(!JSON.stringify(found).includes('abc123'));
   assert.ok(!JSON.stringify(found).includes('def456'));
   const corrupt=structuredClone(original);
-  corrupt.workbook.sheets[2].backupClassification='REGISTERED_WRITE_FAILED';
+  corrupt.workbook.sheets[4].backupClassification='REGISTERED_WRITE_FAILED';
   assert.throws(()=>classifyCandidates(corrupt),/INVALID_REGISTRY_CLASS/);
   const missing=structuredClone(original);
-  missing.workbook.sheets[2].signatureMatch=false;
+  missing.workbook.sheets[4].signatureMatch=false;
   assert.equal(classifyCandidates(missing).completedSelfMatchedWithExistingSource,0);
   const date='2026-01-14';
   const status={status:'ok',gasVersion:'9.244',automation:{
