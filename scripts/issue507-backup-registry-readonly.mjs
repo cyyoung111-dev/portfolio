@@ -264,7 +264,7 @@ export async function selfTest(){
   assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
   const leap=structuredClone(metadata);
   leap.workbook.generatedAt='2024-03-01T00:00:00.000Z';
-  leap.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2024-02-29T23:00:00.000Z';
+  leap.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2024-02-29T23:30:00.000Z';
   assert.equal(summarizeWorkbook(leap)[2].registrationMetadata.creationAgeBucket,'LESS_THAN_ONE_HOUR');
   const skews=structuredClone(metadata);
   skews.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-10-22T10:00:00.000Z';
