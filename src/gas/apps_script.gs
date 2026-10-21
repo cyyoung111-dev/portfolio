@@ -3489,6 +3489,14 @@ function _validateClientSnapshotAgainstLedger_(ss, dateStr, rows) {
       throw new Error('Snapshot 거래일 원장 수량·취득원가 불일치: 저장 보류');
     }
   });
+  // overwrite=true removes same-date rows absent from the request. Reject a
+  // partial client payload rather than silently deleting ledger-held positions.
+  Object.keys(expected).forEach(function(key) {
+    if (expected[key] && Number(expected[key].qty) > 0 &&
+        !Object.prototype.hasOwnProperty.call(seen, key)) {
+      throw new Error('Snapshot 요청에 거래일 원장 보유종목 누락: 저장 보류');
+    }
+  });
 }
 
 function handleSaveSnapshot(dateStr, dataJson) {
