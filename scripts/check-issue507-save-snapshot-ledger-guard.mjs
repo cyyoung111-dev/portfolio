@@ -33,6 +33,8 @@ const make=(code,name,qty,costAmt,evalAmt=costAmt)=>({
   code,name,qty,costAmt,evalAmt,pnl:evalAmt-costAmt,pct:0,source:'MANUAL'
 });
 const standard=make('000001','Alpha New',10,1000,1350);
+const complete=[standard,make('000002','Beta',5,1000),
+  make('F00001','Fund',1,1000)];
 
 function fixture({ledger=trades,units=[],ledgerReadError=false,unsafe=false}={}){
   let locked=false,planCalls=0,writes=0,readCalls=0,lockWaits=0,lockReleases=0,savedRows=null;
@@ -95,6 +97,9 @@ expectBlocked('cost drift','2026-03-11',[make('000001','Alpha New',10,1001)]);
 expectBlocked('different-date position','2026-03-11',[make('000001','Alpha New',15,1600)]);
 expectBlocked('unknown holding','2026-03-11',[make('000999','Unknown',1,10)]);
 expectBlocked('code and name alias conflict','2026-03-11',[make('000002','Alpha New',5,1000)]);
+expectBlocked('partial payload omits Beta and Fund','2026-03-11',[standard]);
+expectBlocked('partial payload omits active Fund','2026-03-11',[
+  standard,make('000002','Beta',5,1000)]);
 expectBlocked('atomic mixed payload','2026-03-11',[
   standard,make('000002','Beta',999,1000)]);
 expectBlocked('not a number qty','2026-03-11',[make('000001','Alpha New','NaN',1000)]);
@@ -108,7 +113,7 @@ expectBlocked('ledger cost revised after stale client read','2026-03-11',[standa
 });
 
 {
-  const e=fixture(),r=e.send('2026-03-11',[standard]);
+  const e=fixture(),r=e.send('2026-03-11',complete);
   assert.equal(r.status,'ok','legitimate manual evaluation is allowed when ledger qty/cost match');
   assert.equal(e.stats().writes,1);
   assert.equal(e.stats().planCalls,1);
@@ -120,20 +125,19 @@ expectBlocked('ledger cost revised after stale client read','2026-03-11',[standa
   assert.equal(e.savedRows()?.[0]?.[10],'MANUAL','MANUAL source must be preserved');
 }
 {
-  const e=fixture({unsafe:true}),r=e.send('2026-03-11',[standard]);
+  const e=fixture({unsafe:true}),r=e.send('2026-03-11',complete);
   assert.equal(r.status,'error','existing Snapshot protection collision remains blocking');
   assert.equal(e.stats().writes,0);
   assert.equal(e.stats().planCalls,1);
   assert.equal(e.stats().locked,false,'collision must release lock');
 }
 {
-  const e=fixture(),r=e.send('2026-03-11',[make('000001','Alpha New',10,1000),
-    make('000002','Beta',5,1000)]);
+  const e=fixture(),r=e.send('2026-03-11',complete);
   assert.equal(r.status,'ok','multiple ledger-valid rows may be saved together');
   assert.equal(e.stats().writes,1);
 }
 {
-  const e=fixture(),r=e.send('2026-03-11',[make('F00001','Fund',1,1000)]);
+  const e=fixture({ledger:[trades[2]]}),r=e.send('2026-03-11',[make('F00001','Fund',1,1000)]);
   assert.equal(r.status,'ok','fund lifecycle permits synthetic active fund snapshot');
   assert.equal(e.stats().writes,1);
 }
