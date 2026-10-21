@@ -32,6 +32,7 @@ const deep=v=>JSON.parse(JSON.stringify(v));
 function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead,onBeforeTargetWrite}={}){
   let stored=[Array.from({length:12},(_,i)=>'H'+(i+1)),...deep(initialRows||[row1,row2])];
   let lockHeld=false,backups=0,writes=0,writeCalls=0,flushes=0,revisionUpdates=0,propertyWrites=0,appendReadInjected=false,concurrentWriteInjected=false;
+  const writtenRanges=[];
   const sheet={
     getLastRow:()=>{ // Model actual Sheets: trailing fully blank rows are not data.
       for(let i=stored.length-1;i>=0;i--){
@@ -70,6 +71,7 @@ function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead,onBeforeTargetWr
           concurrentWriteInjected=true;
           onBeforeTargetWrite({stored,row,col,values:deep(values)});
         }
+        writtenRanges.push({row,col,height:values.length,width});
         for(let i=0;i<values.length;i++)stored[row-1+i]=deep(values[i]);
         writes++;
       },
@@ -115,6 +117,7 @@ function makeEnv({onBackup,initialRows,failWriteAt,onAppendRead,onBeforeTargetWr
     writer:(date,newRows,overwrite,allowEmpty=false)=>context.writeSnapshotRows(
       ss,date,deep(newRows),overwrite,null,null,allowEmpty),
     rows:()=>deep(stored),
+    writtenRanges:()=>deep(writtenRanges),
     stats:()=>({backups,writes,flushes,revisionUpdates,propertyWrites}),
   };
 }
@@ -291,6 +294,15 @@ function byKey(e,date,code){
   assert.equal(byKey(x,date2,'000222')[3],3);
 }
 
+// Synthetic ranges are recorded at the actual mock setValues boundary;
+// do not infer which physical cells were touched from setValues call counts.
+function assertPhysicallyUntouched(env,physicalRows){
+  const ranges=env.writtenRanges();
+  for(const rowNumber of physicalRows){
+    assert.ok(ranges.every(x=>x.row>rowNumber||x.row+x.height<=rowNumber),
+      'undated physical row '+rowNumber+' must not appear in any write range');
+  }
+}
 // Issue #507 global undated-row preservation regression.
 // Real Snapshot currently has populated B/D/F rows with empty column A.
 // This reproducer intentionally provides NO inferred date: a date-scoped
@@ -305,7 +317,11 @@ function byKey(e,date,code){
   otherUndated[10]='FUND_SYNTHETIC';
   const x=makeEnv({initialRows:[row1,undated,row2,otherUndated]});
   const before=[deep(undated),deep(otherUndated)];
+  const previousPhysicalOrder=x.rows().map(row=>row[1]);
   x.writer(date1,[makeRow(date1,'000111',5)],true);
+  assert.deepEqual(x.rows().map(row=>row[1]),previousPhysicalOrder,
+    'physical Snapshot row order must remain identical');
+  assertPhysicallyUntouched(x,[3,5]);
   assert.equal(byKey(x,date1,'000111')[3],5);
   assert.equal(byKey(x,date2,'000222')[3],3);
   assert.deepEqual([byKey(x,'','000777'),byKey(x,null,'000778')],before,
@@ -318,6 +334,8 @@ function byKey(e,date,code){
   const x=makeEnv({initialRows:[row1,undated,row2]});
   x.writer(date1,[row1],true);
   assert.deepEqual(byKey(x,'','000777'),undated);
+  assert.deepEqual(x.rows()[2],undated,'no-op must retain undated physical row 3');
+  assert.deepEqual(x.writtenRanges(),[]);
   assert.deepEqual(x.stats(),{
     backups:0,writes:0,flushes:0,revisionUpdates:0,propertyWrites:0
   });
@@ -341,6 +359,8 @@ function byKey(e,date,code){
   assert.equal(byKey(x,'','000777')[3],91);
   assert.equal(byKey(x,'','000777')[5],910);
   assert.equal(byKey(x,'','000777')[10],'EXTERNAL_SYNTHETIC');
+  assert.equal(x.rows()[2][1],'000777','external undated physical position must remain 3');
+  assertPhysicallyUntouched(x,[3]);
   assert.equal(byKey(x,date1,'000111')[3],5);
 }
 // A disjoint second target-date range can fail after the first range has
@@ -359,6 +379,8 @@ function byKey(e,date,code){
   assert.equal(byKey(x,date1,'000333')[3],2);
   assert.deepEqual(byKey(x,'','000777'),undated,
     'undated row separating two target blocks must remain unchanged');
+  assert.deepEqual(x.rows()[2],undated,'rollback must retain physical row 3');
+  assertPhysicallyUntouched(x,[3]);
   assert.equal(byKey(x,date2,'000222')[3],3);
 }
 console.log('ISSUE507_UNDATED_ROW_PRODUCTION_WRITER_PRESERVED');
