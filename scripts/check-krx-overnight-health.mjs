@@ -15,6 +15,42 @@ const good={
   historical2310:slot('2026-10-18'),historical0030:slot('2026-10-19'),
 };
 assert.equal(assess(good).status,'HEALTHY');
+assert.equal(assess(good).historicalSlotReasons['2310'],'NOT_REPORTED');
+assert.equal(assess(good).historicalSlotRunDates['0030'],'2026-10-19');
+assert.equal(assess(good).lastBackfillFailureClass,'NOT_REPORTED');
+// Real diagnostics already sanitize these fixed-enum fields. Confirm they
+// survive the health assessor without requiring free-form GAS exceptions.
+const annotated=assess({...good,
+  historical2310:{...slot('2026-10-18'),reason:'COMPLETE'},
+  historical0030:{...slot('2026-10-19','FAILED'),reason:'EXCEPTION'},
+  latestBackfill:{attempted:true,ok:false,failureClass:'BACKUP_SAFETY_FAILED'},
+  latestHistoricalBackfill:{attempted:true,ok:false,
+    failureClass:'SAVED_KRX_OR_SNAPSHOT_PROOF_FAILED'}
+});
+assert.deepEqual(annotated.historicalSlotReasons,
+  {'2310':'COMPLETE','0030':'EXCEPTION'});
+assert.deepEqual(annotated.historicalSlotRunDates,
+  {'2310':'2026-10-18','0030':'2026-10-19'});
+assert.equal(annotated.lastBackfillFailureClass,'BACKUP_SAFETY_FAILED');
+assert.equal(annotated.lastHistoricalFailureClass,
+  'SAVED_KRX_OR_SNAPSHOT_PROOF_FAILED');
+assert.deepEqual(annotated.issues,['HISTORICAL_0030_FAILED']);
+const stale=assess({...good,
+  historical2310:{...slot('2026-10-16','FAILED'),reason:'LEASE_CONFLICT'}});
+assert.deepEqual(stale.issues,['HISTORICAL_2310_STALE']);
+assert.equal(stale.historicalSlotRunDates['2310'],'2026-10-16');
+assert.equal(stale.historicalSlotReasons['2310'],'LEASE_CONFLICT');
+const unsafe=assess({...good,
+  historical2310:{...slot('2026-10-18'),reason:'SECRET_RAW_GAS_EXCEPTION'},
+  historical0030:{...slot('2026-02-30'),reason:'FAILED'},
+  latestBackfill:{attempted:true,ok:false,
+    failureClass:'SECRET_RAW_GAS_EXCEPTION'}});
+assert.equal(unsafe.historicalSlotReasons['2310'],'UNVERIFIED');
+assert.equal(unsafe.historicalSlotRunDates['0030'],'-');
+assert.equal(unsafe.lastBackfillFailureClass,'UNVERIFIED');
+assert.doesNotMatch(JSON.stringify(unsafe),/SECRET_RAW_GAS_EXCEPTION/);
+assert.equal(assess({...good,historical0030:null}).historicalSlotReasons['0030'],
+  'NOT_OBSERVED');
 assert.deepEqual(assess({...good,tradeLedgerWriteUnverified:true}).issues,
   ['TRADE_LEDGER_WRITE_UNVERIFIED']);
 const withPendingLedger=assess({...good,pendingTradeSnapshotRebuildFrom:'2026-06-05'});
