@@ -25,6 +25,21 @@ function presence(value){
   if(typeof value!=='string')return 'UNKNOWN';
   return value.trim()?'PRESENT':'ABSENT';
 }
+// Verifiable operation families from GAS v9.244 Snapshot write callers.
+// The suffix may contain dates, UUIDs or caller tokens: NEVER serialize it.
+const SNAPSHOT_BACKUP_OPERATION_FAMILIES=new Set([
+  'refreshFundValuations','rebuildDailySnapshots','repairOct08FundSourceOnly',
+  'rewriteSnapshotDate','targetedKrxRecovery','saveDailyPriceHistory',
+  'snapshotConsistencyRepair','repairPriceAndSnapshotForDate','backfill'
+]);
+function operationFamily(value){
+  if(typeof value!=='string')return 'UNKNOWN';
+  if(!value.trim())return 'ABSENT';
+  const separator=value.indexOf('|');
+  if(separator<=0)return 'UNCLASSIFIED';
+  const candidate=value.slice(0,separator);
+  return SNAPSHOT_BACKUP_OPERATION_FAMILIES.has(candidate)?candidate:'UNCLASSIFIED';
+}
 function ageBucket(createdAt,observedAt){
   const valid=value=>{
     if(typeof value!=='string'
@@ -45,11 +60,13 @@ function ageBucket(createdAt,observedAt){
 function provenanceSummary(record,observedAt){
   if(!record.systemGeneratedBackup)return {
     operationIdPresence:'NOT_REGISTERED',creationAgeBucket:'NOT_REGISTERED',
+    operationFamily:'NOT_REGISTERED',
     updateTimePresence:'NOT_REGISTERED',completionTimePresence:'NOT_REGISTERED',
     orphanAdopted:'UNVERIFIED'
   };
   return {
     operationIdPresence:presence(record.operationId),
+    operationFamily:operationFamily(record.operationId),
     creationAgeBucket:ageBucket(record.createdAt,observedAt),
     updateTimePresence:presence(record.updatedAt),
     completionTimePresence:presence(record.completedAt),
@@ -241,21 +258,33 @@ export async function selfTest(){
   created.backupClassification='REGISTERED_INCOMPLETE';
   created.createdAt='2026-10-21T10:00:00.000Z';
   created.updatedAt='';created.completedAt='';
-  created.operationId='PRIVATE_OPERATION_ID_DO_NOT_LEAK';
+  created.operationId='rewriteSnapshotDate|PRIVATE_OPERATION_ID_DO_NOT_LEAK';
   created.orphanAdopted=false;
   const state=summarizeWorkbook(metadata);
   assert.equal(state[2].registrationMetadata.operationIdPresence,'PRESENT');
+  assert.equal(state[2].registrationMetadata.operationFamily,'rewriteSnapshotDate');
   assert.equal(state[2].registrationMetadata.creationAgeBucket,'ONE_TO_24_HOURS');
   assert.equal(state[2].registrationMetadata.updateTimePresence,'ABSENT');
   assert.equal(state[2].registrationMetadata.completionTimePresence,'ABSENT');
   assert.equal(state[2].registrationMetadata.orphanAdopted,'NO');
   assert.equal(state[0].registrationMetadata.operationIdPresence,'ABSENT');
   assert.equal(unregReport[0].registrationMetadata.operationIdPresence,'NOT_REGISTERED');
+  assert.equal(unregReport[0].registrationMetadata.operationFamily,'NOT_REGISTERED');
   assert.ok(!JSON.stringify(state).includes('PRIVATE_OPERATION_ID_DO_NOT_LEAK'));
   assert.ok(!JSON.stringify(state).includes('2026-10-21T10:00:00.000Z'));
   const noOperation=structuredClone(metadata);
   noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).operationId='';
   assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.operationIdPresence,'ABSENT');
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.operationFamily,'ABSENT');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).operationId='rewriteSnapshotDateTypo|PRIVATE_OPERATION_ID_DO_NOT_LEAK';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.operationFamily,'UNCLASSIFIED');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).operationId='2026-10-21T10:00:00Z';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.operationFamily,'UNCLASSIFIED');
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).operationId='snapshotConsistencyRepair|PRIVATE_OPERATION_ID_DO_NOT_LEAK';
+  assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.operationFamily,'snapshotConsistencyRepair');
+  assert.ok(!JSON.stringify(summarizeWorkbook(noOperation)).includes('PRIVATE_OPERATION_ID_DO_NOT_LEAK'));
+  noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).operationId='';
+
   noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='INVALID';
   assert.equal(summarizeWorkbook(noOperation)[2].registrationMetadata.creationAgeBucket,'UNVERIFIED');
   noOperation.workbook.sheets.find(x=>x.name===TARGETS[2].name).createdAt='2026-02-30T10:00:00.000Z';
