@@ -3433,32 +3433,103 @@ function handleNameLookup(code, serviceKey) {
 // ════════════════════════════════════════════════════════════════════
 //  스냅샷 저장
 // ════════════════════════════════════════════════════════════════════
+// Issue #507: direct saveSnapshot requests must not be able to materialize
+// a future/stale holding on an earlier trade date. Check *only* ledger-derived
+// identity, quantity and cost here; the user's MANUAL evaluation stays editable.
+// Caller holds ScriptLock through validation, rewrite plan and the actual write.
+function _validateClientSnapshotAgainstLedger_(ss, dateStr, rows) {
+  var normDate = _normalizeDate(dateStr || '');
+  var parsed = /^\d{4}-\d{2}-\d{2}$/.test(normDate)
+    ? new Date(normDate + 'T00:00:00Z') : null;
+  if (!parsed || isNaN(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== normDate) {
+    throw new Error('Snapshot 거래일 형식 오류');
+  }
+  var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!tradeSh || tradeSh.getLastRow() < 2 || tradeSh.getLastColumn() < 7) {
+    throw new Error('거래원장 부재로 Snapshot 저장 보류');
+  }
+  var tradeRows = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1,
+    Math.min(11, tradeSh.getLastColumn())).getValues();
+  var nameToCode = {}, displayByCode = {};
+  getCodeItems(ss, true).forEach(function(item) {
+    if (item.name && item.code) nameToCode[item.name] = item.code;
+    if (item.code && item.name) displayByCode[_cleanCode(item.code)] = item.name;
+  });
+  tradeRows.forEach(function(row) {
+    var name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || String(row[4] || '').trim();
+    if (name && code && !nameToCode[name]) nameToCode[name] = code;
+  });
+  var expected = _calcCodeHoldingsAtDate(tradeRows, normDate, nameToCode, displayByCode);
+  _applyFundUnitLifecycleToSnapshotHoldings(expected, _readFundUnits(ss), normDate);
+  var seen = {};
+  (rows || []).forEach(function(row) {
+    var name = String(row[2] || '').trim();
+    var suppliedCode = _cleanCode(row[1]) || String(row[1] || '').trim();
+    var mappedCode = _cleanCode(nameToCode[name]) || nameToCode[name] || '';
+    if (suppliedCode && mappedCode && suppliedCode !== mappedCode) {
+      throw new Error('Snapshot 종목명/코드 원장 매핑 충돌');
+    }
+    var key = suppliedCode || mappedCode || name;
+    if (!key || Object.prototype.hasOwnProperty.call(seen, key)) {
+      throw new Error('Snapshot 원장 식별자 누락·중복');
+    }
+    seen[key] = true;
+    var holding = expected[key];
+    var qty = Number(row[3]), cost = Number(row[5]);
+    if (!holding || !isFinite(qty) || !(qty > 0) ||
+        !isFinite(cost) || !(cost >= 0) ||
+        Math.abs(qty - Number(holding.qty)) > 0.0000001 ||
+        Math.abs(cost - Number(holding.costAmt)) > 0.5) {
+      throw new Error('Snapshot 거래일 원장 수량·취득원가 불일치: 저장 보류');
+    }
+  });
+}
+
 function handleSaveSnapshot(dateStr, dataJson) {
+  var writeLock = null, ownsWriteLock = false;
   try {
     if (!dateStr || !dataJson) return jsonError('date, data 필요');
     var rows = JSON.parse(decodeURIComponent(dataJson));
     if (!Array.isArray(rows) || rows.length === 0) return jsonError('빈 데이터');
 
-    var ss        = getss();
-    var normDate  = _normalizeDate(dateStr);
+    var ss       = getss();
+    var normDate = _normalizeDate(dateStr);
     var newRows = rows.map(function(r) {
-      var qty = parseFloat(r.qty) || 0;
-      var costAmt = parseFloat(r.costAmt) || 0;
+      // Do not silently turn malformed client values into zero with parseFloat.
+      if (!r || !isFinite(Number(r.qty)) || !(Number(r.qty) > 0) ||
+          !isFinite(Number(r.costAmt)) || Number(r.costAmt) < 0) {
+        throw new Error('Snapshot 입력 수량·취득원가 오류');
+      }
+      var qty = Number(r.qty);
+      var costAmt = Number(r.costAmt);
       var evalAmt = parseFloat(r.evalAmt) || 0;
-      var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
-      var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
-      // ★ 12콸럼: 소스는 프론트가 전달한 값 사용, savedAt은 프론트 전달값 인정
+      var costUnit = parseFloat((costAmt / qty).toFixed(2));
+      var evalUnit = parseFloat((evalAmt / qty).toFixed(2));
       return [normDate, r.code||'', r.name||'', qty,
               costUnit, costAmt, evalUnit, evalAmt, r.pnl||0,
               r.pct ? parseFloat(r.pct.toFixed(2)) : 0,
               r.source || '', r.savedAt || ''];
     });
+
+    // Keep source replay, conflict check and commit in the same GAS lock.
+    // writeSnapshotRows reuses an already-held ScriptLock without releasing it.
+    writeLock = LockService.getScriptLock();
+    if (!writeLock.hasLock()) {
+      writeLock.waitLock(30000);
+      ownsWriteLock = true;
+    }
+    _validateClientSnapshotAgainstLedger_(ss, normDate, newRows);
     var savePlan = _snapshotRewritePlan(ss, normDate, newRows);
-    if (savePlan.unsafe.length) return jsonError('Snapshot 보호 충돌: ' + savePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
+    if (savePlan.unsafe.length) return jsonError('Snapshot 보호 충돌: ' +
+      savePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
     writeSnapshotRows(ss, normDate, newRows, true);
     return jsonOk({ saved: newRows.length, date: normDate });
   } catch(err) {
     return jsonError('스냅샷 저장 실패: ' + err.message);
+  } finally {
+    if (ownsWriteLock && writeLock) writeLock.releaseLock();
   }
 }
 
