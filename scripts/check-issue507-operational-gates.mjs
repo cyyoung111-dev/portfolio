@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
 
-const exact = "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch';
+const exact = "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'";
 const workflows = [
   'issue-507-source-only-preflight-readonly.yml',
   'issue-507-price-history-row-audit-readonly.yml',
