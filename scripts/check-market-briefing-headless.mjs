@@ -24,18 +24,6 @@ assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 0 * * 1-5'
   '2026-10-16','배포 이후 지연된 schedule도 최초 예약일 기준 전영업일 확정');
 assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 0 * * 1-5',
   '--scheduled-at','2026-10-19T00:15:30Z']).requireKrxOfficialNight,true);
-assert.equal(scheduledTradingDate('45 0 * * 1-5',new Date('2026-10-19T00:45:30Z')),
-  '2026-10-16','T+1 09:45 KRX_FINAL 월요일에는 직전 금요일 공식일');
-assert.equal(scheduledTradingDate('45 0 * * 1-5',new Date('2026-10-13T00:45:30Z')),
-  '2026-10-12','T+1 09:45 KRX_FINAL 당일이 아닌 직전 정상 거래일');
-assert.equal(parseArgs(['--checkpoint','KRX_FINAL','--schedule','45 0 * * 1-5',
-  '--scheduled-at','2026-10-19T00:45:30Z']).tradingDate,
-  '2026-10-16','생성시각 기준으로 지연 실행되어도 이전 공식 거래일 고정');
-assert.equal(parseArgs(['--checkpoint','KRX_FINAL','--schedule','45 0 * * 1-5',
-  '--scheduled-at','2026-10-19T00:45:30Z']).requireKrxOfficialNight,false,
-  '주간 공식 종가 보완과 야간 공식 종가 보완은 구분');
-assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','45 0 * * 1-5']),
-  /schedule과 checkpoint/,'새 T+1 slot의 다른 checkpoint 재사용 금지');
 assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 21 * * 0-4',
   '--scheduled-at','2026-10-18T21:15:30Z']).requireKrxOfficialNight,false);
 assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--date',date]).schedule,'',
@@ -360,8 +348,7 @@ result=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:date,request:finalR
 assert.equal(result.decision.publishable,true,'가격이력 없이 exact-date KRX 종가로 KRX_FINAL publish 가능');
 assert.equal(snapshots[0].values.SAMSUNG.finality,'REGULAR_CLOSE');assert.equal(snapshots[0].values.SKHYNIX.source,'KRX_OFFICIAL');
 globalThis.localStorage.clear(); observations=[]; snapshots=[];
-const t1CloseDate=scheduledTradingDate('45 0 * * 1-5',new Date('2026-09-21T00:45:30Z'));
-assert.equal(t1CloseDate,date,'T+1 실행은 금요일 정확 종가를 조회');
+const t1CloseDate=date; // Existing 08:45 KRX held probe supplies its prior-OPEN target date.
 // A next-morning quote cannot be recorded as if it had been available
 // at the previous day's 15:30 immutable snapshot cut-off.
 const t1Actions=[];
@@ -381,7 +368,7 @@ const t1ReadOnlyRequest=async (action,params={})=>{
  throw new Error('T1_WRITE_OR_UNNECESSARY_READ_FORBIDDEN');
 };
 result=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:t1CloseDate,request:t1ReadOnlyRequest,
-  schedule:'45 0 * * 1-5',receivedAt:'2026-09-21T09:45:30+09:00'});
+  sourceReadOnlyT1:true,receivedAt:'2026-09-21T09:45:30+09:00'});
 assert.equal(result.sourceReadOnly,true,'T+1는 소급 15:30 발행이 아닌 공식 원천 확인');
 assert.equal(result.successful,true,'정확일 공식 지수/종목 소스 4개 인증');
 assert.deepEqual(t1Actions.sort(),['getBenchmarks','getKrxOfficialStockCloses']);
@@ -397,7 +384,7 @@ const staleOfficial=async (action,params)=>{
  return response;
 };
 const staleResult=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:date,
- request:staleOfficial,schedule:'45 0 * * 1-5'});
+ request:staleOfficial,sourceReadOnlyT1:true});
 assert.equal(staleResult.successful,false,'전일보다 오래된 officialDate를 승인하지 않음');
 assert.equal(headlessSucceeded(staleResult),false,'누락 소스는 실패로 남음');
 const missingOfficial=async (action,params)=>{
@@ -407,9 +394,16 @@ const missingOfficial=async (action,params)=>{
  return response;
 };
 const incompleteT1=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:date,
- request:missingOfficial,schedule:'45 0 * * 1-5'});
+ request:missingOfficial,sourceReadOnlyT1:true});
 assert.equal(incompleteT1.successful,false,'한 종목 공식 숫자 누락 시 실패');
 assert.equal(snapshots.length,0,'실패 이후에도 소급 발행 금지');
+await assert.rejects(()=>runHeadless({checkpoint:'MORNING',tradingDate:date,
+ request:t1ReadOnlyRequest,sourceReadOnlyT1:true}),/T1_KRX_CHECKPOINT_MISMATCH/,
+ 'T+1 source read-only cannot be invoked under other checkpoint');
+assert.throws(()=>parseArgs(['--checkpoint','KRX_FINAL','--schedule','45 0 * * 1-5']),
+ /지원하지 않는 schedule/,'중복된 T+1 09:45 slot은 완전히 삭제');
+assert.doesNotMatch(fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8'),
+ /cron: '45 0 \* \* 1-5'/,'기존 08:45 재사용, 신규 09:45 cron 금지');
 result=await runHeadless({checkpoint:'EVENING',tradingDate:date,request:finalRequest,receivedAt:`${date}T20:15:30+09:00`});
 assert.equal(result.decision.publishable,true);assert.equal(snapshots.find(row=>row.checkpoint==='EVENING').values.SAMSUNG.value,80500);
 globalThis.localStorage.clear(); observations=[];snapshots=[];
@@ -478,8 +472,6 @@ result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:coldStar
 assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재조회 실패 후에도 사용');
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
 assert.match(workflow,/secrets\.GAS_ACCESS_TOKEN/);assert.doesNotMatch(workflow,/echo .*GAS_ACCESS_TOKEN/);
-assert.match(workflow,/cron: '45 0 \* \* 1-5'/,'T+1 KRX_FINAL 예약이 실제 YAML에 존재');
-assert.match(workflow,/'45 0 \* \* 1-5'\) checkpoint=KRX_FINAL/,'수동/예약 결정 분기 일치');
 const runner=fs.readFileSync('scripts/run-market-briefing-headless.mjs','utf8');assert.doesNotMatch(runner,/console\.log\([^\n]*(?:token|url)/i);
 for(const field of ['masterPersistence','snapshotPersistence','readinessSeries']) assert.match(runner,new RegExp(field),'최종 diagnostic 필드 복원: '+field);
 console.log('브리핑 headless hydrate·collect·readiness·immutable snapshot 회귀검사 통과');
