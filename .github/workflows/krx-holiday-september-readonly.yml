@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   diagnose:
+    environment: portfolio-production-gas
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name != 'workflow_run' ||

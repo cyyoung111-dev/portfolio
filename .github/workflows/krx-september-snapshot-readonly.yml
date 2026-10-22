@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   september-snapshot:
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:

@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   recovery:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Existing authenticated preflight/auth probe/one write have 4-minute
