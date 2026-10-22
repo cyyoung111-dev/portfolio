@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Install locked test dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
       - name: Run synthetic source-only raw-row protection test
         run: |
           node --check scripts/issue507-source-only-raw-guard.mjs
