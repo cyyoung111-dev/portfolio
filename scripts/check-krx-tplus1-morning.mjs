@@ -95,6 +95,20 @@ assert.match("on:\n  schedule:\n    - cron: '45 0 * * 1-5'",
 const wf=fs.readFileSync('.github/workflows/krx-tplus1-morning-readonly.yml','utf8');
 assert.match(wf,/cron: '45 23 \* \* 0-4'/);
 assert.match(wf,/permissions:\s+contents: read/);
+const exactGate="github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')";
+const actualGate=wf.match(/^  source-readonly:\r?\n    #[^\r\n]+\r?\n    #[^\r\n]+\r?\n    if: ([^\r\n]+)/m)?.[1];
+assert.equal(actualGate,exactGate,'Authenticated 08:45 probe must run only on main for schedule/manual');
+assert.doesNotMatch(wf,/^  push:/m,'No automatic push credentialed probe');
+for (const weaker of [
+  exactGate.replace("github.ref == 'refs/heads/main' && ", ''),
+  "github.event_name == 'workflow_dispatch'",
+  "github.ref == 'refs/heads/main'",
+]) {
+  const mutated=wf.replace(exactGate,weaker);
+  assert.notEqual(mutated,wf,'Guard-negative mutation must change actual source');
+  assert.notEqual(mutated.match(/^    if: ([^\r\n]+)/m)?.[1],exactGate,
+    'Feature-branch or unguarded event must not pass production GAS guard');
+}
 assert.match(wf,/node scripts\/diagnose-krx-tplus1-morning\.mjs/);
 assert.doesNotMatch(wf,/apply=1|recoverPendingKrxClose|reconcileCompletedKrxPending|saveSnapshot|runPortfolioHistoricalBackfill/);
 assert.equal(calls,3);
