@@ -88,7 +88,9 @@ assert.equal(sourceCalls,2);
 assert.match(fs.readFileSync('scripts/diagnose-krx-tplus1-morning.mjs','utf8'),
  /sourceReadOnlyT1:true/,'Source-only flag must be present on integrated 08:45 path');
 assert.doesNotMatch(fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8'),
- /cron: '45 0 \\* \\* 1-5'/,'No duplicate 09:45 scheduled run');
+ /cron: '45 0 [*] [*] 1-5'/,'No duplicate 09:45 scheduled run');
+assert.match("on:\n  schedule:\n    - cron: '45 0 * * 1-5'",
+ /cron: '45 0 [*] [*] 1-5'/,'Must catch reintroduced duplicate 09:45 schedule');
 
 const wf=fs.readFileSync('.github/workflows/krx-tplus1-morning-readonly.yml','utf8');
 assert.match(wf,/cron: '45 23 \* \* 0-4'/);
