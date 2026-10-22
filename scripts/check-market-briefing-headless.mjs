@@ -527,13 +527,13 @@ for(const weaker of [
 }
 const approvedShellEnd='node scripts/run-market-briefing-headless.mjs "${args[@]}"';
 const mutation=workflow.replace(approvedShellEnd,approvedShellEnd+
- '\\n          node scripts/run-krx-targeted-recovery.mjs');
+ '\n          node scripts/run-krx-targeted-recovery.mjs');
 assert.notEqual(mutation,workflow,'writer injection mutation must alter workflow');
 assert.throws(()=>validateBriefingWorkflow(mutation),
  /single approved briefing shell script only/);
 const credentials='          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+
  '{{ secrets.GAS_ACCESS_TOKEN }}';
-const injectedEnv=workflow.replace(credentials,credentials+'\\n          RECOVERY_APPLY: "true"');
+const injectedEnv=workflow.replace(credentials,credentials+'\n          RECOVERY_APPLY: "true"');
 assert.notEqual(injectedEnv,workflow,'recovery env mutation must alter workflow');
 assert.throws(()=>validateBriefingWorkflow(injectedEnv),
  /no unapproved recovery\/apply configuration/);
