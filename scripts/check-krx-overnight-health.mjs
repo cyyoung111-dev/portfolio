@@ -173,13 +173,13 @@ for (const weaker of [
 const approvedCommand='node scripts/diagnose-backfill-status.mjs > "'
   +String.fromCharCode(36)+'{RUNNER_TEMP}/krx-nightly-status.json"';
 const appendedRecovery=nightlySource.replace(approvedCommand,
-  approvedCommand+'\\n          node scripts/run-krx-targeted-recovery.mjs');
+  approvedCommand+'\n          node scripts/run-krx-targeted-recovery.mjs');
 assert.notEqual(appendedRecovery,nightlySource,'must mutate actual YAML');
 assert.throws(()=>assertNightlyWorkflowGuard(appendedRecovery),
   /single approved READ ONLY command/);
 const extraRecoveryEnv=nightlySource.replace(
   '          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}',
-  '          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}'+'\\n          RECOVERY_APPLY: "true"');
+  '          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}'+'\n          RECOVERY_APPLY: "true"');
 assert.notEqual(extraRecoveryEnv,nightlySource,'must mutate actual env');
 assert.throws(()=>assertNightlyWorkflowGuard(extraRecoveryEnv),
   /no recovery-control variables/);
