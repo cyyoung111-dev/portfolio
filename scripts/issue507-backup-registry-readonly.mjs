@@ -363,6 +363,19 @@ export async function selfTest(){
   const before=validateInventory(status),after=validateInventory(drift);
   assert.throws(()=>report(before,after,out),/QUEUE_CHANGED/);
   assert.ok(!JSON.stringify(live).includes('correct'));
+  // Live GAS credentials may only be accessed by an explicitly dispatched
+  // main workflow. Both workflows invoke this self-test in their contracts.
+  const requiredRuntimeGate="github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'";
+  const runtimeGate=yaml=>yaml.match(/^  operational-readonly:\r?\n    if: ([^\r\n]+)\r?$/m)?.[1];
+  for(const workflowName of [
+    'issue-507-backup-registry-readonly.yml',
+    'issue-507-complete-backup-candidates-readonly.yml']){
+    const yaml=fs.readFileSync(new URL('../.github/workflows/'+workflowName,import.meta.url),'utf8');
+    assert.equal(runtimeGate(yaml),requiredRuntimeGate,'main-only operational workflow required');
+    assert.notEqual(runtimeGate(yaml.replace(requiredRuntimeGate,
+      "github.event_name == 'workflow_dispatch'")),requiredRuntimeGate,
+    'feature-branch manual dispatch must not pass');
+  }
   console.log('Issue #507 backup registry READ ONLY contract: PASS');
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
