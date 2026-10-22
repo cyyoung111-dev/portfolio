@@ -144,10 +144,17 @@ function assertNightlyWorkflowGuard(source) {
   assert.equal(credentialed.length,1,'exactly one authenticated read-only step');
   assert.equal(credentialed[0].env.GAS_ACCESS_TOKEN,
     String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}');
-  assert.ok(String(credentialed[0].run||'').includes('node scripts/diagnose-backfill-status.mjs'),
-    'only sanitized read-only GAS diagnostic may use credentials');
-  assert.doesNotMatch(String(credentialed[0].run||''),
-    /apply=1|saveSnapshot|recoverPendingKrxClose|reconcileCompletedKrxPending/);
+  // P2: allow exactly the approved command, not a substring plus a
+  // credentialed recovery invocation. Preserve the quoted output path.
+  const expectedCommand='node scripts/diagnose-backfill-status.mjs > "'
+    +String.fromCharCode(36)+'{RUNNER_TEMP}/krx-nightly-status.json"';
+  assert.equal(String(credentialed[0].run||'').trim(),expectedCommand,
+    'credentialed step must contain the single approved READ ONLY command');
+  assert.deepEqual(Object.keys(credentialed[0].env).sort(),
+    ['GAS_ACCESS_TOKEN','GAS_WEB_APP_URL'],'no recovery-control variables');
+  assert.equal(credentialed[0].env.GAS_WEB_APP_URL,
+    String.fromCharCode(36)+'{{ vars.GAS_WEB_APP_URL }}',
+    'approved endpoint only');
 }
 const nightlySource=fs.readFileSync(workflowPath,'utf8');
 assertNightlyWorkflowGuard(nightlySource);
@@ -161,4 +168,19 @@ for (const weaker of [
  assert.throws(()=>assertNightlyWorkflowGuard(mutated),
    /nightly GAS credentialed job must be main-only/);
 }
+// Codex P2 regression: both a recovery command chained to the approved
+// command and a recovery-control environment variable must fail closed.
+const approvedCommand='node scripts/diagnose-backfill-status.mjs > "'
+  +String.fromCharCode(36)+'{RUNNER_TEMP}/krx-nightly-status.json"';
+const appendedRecovery=nightlySource.replace(approvedCommand,
+  approvedCommand+'\\n          node scripts/run-krx-targeted-recovery.mjs');
+assert.notEqual(appendedRecovery,nightlySource,'must mutate actual YAML');
+assert.throws(()=>assertNightlyWorkflowGuard(appendedRecovery),
+  /single approved READ ONLY command/);
+const extraRecoveryEnv=nightlySource.replace(
+  '          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}',
+  '          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}'+'\\n          RECOVERY_APPLY: "true"');
+assert.notEqual(extraRecoveryEnv,nightlySource,'must mutate actual env');
+assert.throws(()=>assertNightlyWorkflowGuard(extraRecoveryEnv),
+  /no recovery-control variables/);
 console.log('KRX overnight health: read-only contract, queued/failed/mismatched/healthy checks PASS');
