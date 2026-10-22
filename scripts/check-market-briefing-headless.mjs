@@ -26,6 +26,8 @@ assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 0 * * 1-5'
   '--scheduled-at','2026-10-19T00:15:30Z']).requireKrxOfficialNight,true);
 assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 21 * * 0-4',
   '--scheduled-at','2026-10-18T21:15:30Z']).requireKrxOfficialNight,false);
+assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--date',date]).schedule,'',
+ 'manual NIGHT_FINAL must be distinct from scheduled 06:15');
 assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','15 0 * * 1-5']),
   /schedule과 checkpoint/,'NIGHT_FINAL catch-up은 MORNING과 혼동 금지');
 assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
@@ -273,13 +275,34 @@ assert.equal(result.decision.publishable,false,'Toss 과거 미확정 candle로 
 assert.ok(result.decision.data.missing.includes('KOSPI') || result.decision.data.issues.includes('KOSPI:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE'), 'Toss 미확정 종가는 누락 또는 확정 실패로 차단');
 assert.equal(snapshots.length,0,'비확정 Toss 장전은 snapshot 기록 없음');
 globalThis.localStorage.clear(); observations=[];snapshots=[];snapshotPosts=0;
-result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request});
-assert.equal(result.successful,true,'NIGHT_FINAL 관측값을 확보하고 저장해야 성공');
+result=await runHeadless({...parseArgs(['--checkpoint','NIGHT_FINAL','--date',date]),request});
+assert.equal(result.successful,true,'manual NIGHT_FINAL exact-source collection must succeed');
+assert.equal(requestParams.getKrxK200NightClose.date,date,
+ 'manual NIGHT_FINAL --date must not shift source BAS_DD backwards');
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,
-  requireKrxOfficialNight:true});
+ schedule:'15 21 * * 0-4'});
+assert.equal(requestParams.getKrxK200NightClose.date,prior,
+ '06:15 scheduled NIGHT_FINAL must use the preceding KRX session');
+assert.equal(result.successful,true,'scheduled NIGHT_FINAL must retain the briefing-day identity');
+result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,
+  requireKrxOfficialNight:true,schedule:'15 0 * * 1-5'});
+assert.equal(requestParams.getKrxK200NightClose.date,date,
+ '09:15 T+1 catch-up must fetch the requested source BAS_DD');
 assert.equal(result.successful,true,'T+1는 요청한 정확한 날짜의 KRX 공식 종가로만 성공');
 assert.ok(observations.some(row=>row.seriesId==='K200_NIGHT'&&row.finality==='NIGHT_FINAL'));
 assert.equal(snapshotPosts,0,'NIGHT_FINAL은 snapshot을 저장하지 않음');
+globalThis.localStorage.clear();observations=[];snapshots=[];
+const wrongManualSource=async(action,params={})=>{
+ const response=await request(action,params);
+ return action==='getKrxK200NightClose'
+  ? {...response,observation:{...response.observation,tradingDate:prior,sourceDate:prior}}
+  : response;
+};
+result=await runHeadless({...parseArgs(['--checkpoint','NIGHT_FINAL','--date',date]),
+ request:wrongManualSource});
+assert.equal(result.successful,false,'wrong-date official reply must not satisfy manual recovery');
+assert.equal(observations.filter(row=>row.seriesId==='K200_NIGHT').length,0,
+ 'wrong-date official reply must not be persisted as a confirmed night close');
 globalThis.localStorage.clear(); observations=[];snapshots=[];
 const missingNight=async(action,params)=>action==='getKrxK200NightClose'?{status:'ok',observation:null}:request(action,params);
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:missingNight});
