@@ -57,15 +57,39 @@ function sourceKinds(errors){
   }
   return [...result].sort();
 }
+// Production GAS v9.244 returns {status:'error',errorCode,phase} when a
+// STRICT READ_ONLY range diagnosis cannot complete. Never log the returned
+// message, diagnostic cells, script metadata, account data or raw payload.
+// A non-success response must still fail closed; distinguish it from an
+// actual response-contract mismatch so the next action is diagnosable.
+const GAS_ERROR_CODES=new Set(['RUNTIME_ERROR','SOURCE_DATA_ERROR',
+  'SOURCE_CONTENT_CHANGED','SOURCE_REVISION_CHANGED','RANGE_TOO_LARGE']);
+const GAS_ERROR_PHASES=new Set(['request_validation','sheet_read',
+  'index_build','snapshot_integrity']);
+export function assertDiagnosticEnvelope(payload,dates){
+  if(payload?.status==='error'){
+    const code=GAS_ERROR_CODES.has(payload.errorCode)?payload.errorCode:'UNKNOWN';
+    const phase=GAS_ERROR_PHASES.has(payload.phase)
+      ?payload.phase.toUpperCase():'UNKNOWN';
+    throw Error('ISSUE507_DEFERRED_GAS_'+code+'_'+phase);
+  }
+  if(payload?.status!=='ok')throw Error('ISSUE507_DEFERRED_RESPONSE_STATUS_SCHEMA');
+  if(!Array.isArray(payload.checkedDates)||!Array.isArray(payload.diagnostics))
+    throw Error('ISSUE507_DEFERRED_RESPONSE_ARRAY_SCHEMA');
+  if(payload.checkedDates.length!==dates.length||
+    payload.diagnostics.length!==dates.length)
+    throw Error('ISSUE507_DEFERRED_RESPONSE_LENGTH_SCHEMA');
+  if(typeof payload.integritySourceRevision!=='string' ||
+    !payload.integritySourceRevision)
+    throw Error('ISSUE507_DEFERRED_REVISION_SCHEMA');
+  if(typeof payload.strictSourceDigest!=='string' ||
+    !/^[a-f0-9]{64}$/.test(payload.strictSourceDigest))
+    throw Error('ISSUE507_DEFERRED_DIGEST_SCHEMA');
+  if(payload.checkedDates.slice().sort().join('|')!==dates.slice().sort().join('|'))
+    throw Error('ISSUE507_DEFERRED_DATES_SCHEMA');
+}
 export function summarizeBatch(payload,dates){
-  if(payload?.status!=='ok'||!Array.isArray(payload.checkedDates)||
-    !Array.isArray(payload.diagnostics)||payload.checkedDates.length!==dates.length||
-    payload.diagnostics.length!==dates.length||
-    typeof payload.integritySourceRevision!=='string' ||
-    typeof payload.strictSourceDigest!=='string' ||
-    !/^[a-f0-9]{64}$/.test(payload.strictSourceDigest) ||
-    payload.checkedDates.slice().sort().join('|')!==dates.slice().sort().join('|'))
-    throw Error('ISSUE507_DEFERRED_DIAGNOSTIC_SCHEMA');
+  assertDiagnosticEnvelope(payload,dates);
   const seen=new Set(),records=[];
   for(const d of payload.diagnostics){
     if(!d||!dates.includes(d.date)||seen.has(d.date)||!STATUS.has(d.status)||
@@ -195,6 +219,36 @@ export async function selfTest(){
   assert.ok(!JSON.stringify(audit).includes('SECRET_CODE'));
   assert.ok(!JSON.stringify(audit).includes('SECRET_COST'));
   assert.ok(!JSON.stringify(audit).includes('SYNTHETIC_TOKEN'));
+  // Error buckets must distinguish GAS's server-side fail-closed result
+  // from a response schema mismatch, while never printing untrusted messages.
+  for(const [code,phase] of [
+    ['SOURCE_DATA_ERROR','sheet_read'],['RUNTIME_ERROR','snapshot_integrity'],
+    ['SOURCE_CONTENT_CHANGED','snapshot_integrity'],
+    ['SOURCE_REVISION_CHANGED','snapshot_integrity'],
+    ['RANGE_TOO_LARGE','request_validation']
+  ]){
+    const payload={status:'error',errorCode:code,phase,
+      message:'SECRET_HOLDING_AND_PRICE',failedDate:dates[0]};
+    const expected='ISSUE507_DEFERRED_GAS_'+code+'_'+phase.toUpperCase();
+    assert.throws(()=>summarizeBatch(payload,dates),e=>
+      e.message===expected&&!e.message.includes('SECRET_'));
+  }
+  assert.throws(()=>summarizeBatch({status:'error',errorCode:'SECRET_ACCOUNT',
+    phase:'SECRET_PHASE',message:'SECRET_HOLDING'},dates),
+    e=>e.message==='ISSUE507_DEFERRED_GAS_UNKNOWN_UNKNOWN');
+  assert.throws(()=>summarizeBatch({status:'unexpected'},dates),
+    /ISSUE507_DEFERRED_RESPONSE_STATUS_SCHEMA/);
+  assert.throws(()=>summarizeBatch({status:'ok'},dates),
+    /ISSUE507_DEFERRED_RESPONSE_ARRAY_SCHEMA/);
+  assert.throws(()=>summarizeBatch({...diag(dates),diagnostics:[]},dates),
+    /ISSUE507_DEFERRED_RESPONSE_LENGTH_SCHEMA/);
+  assert.throws(()=>summarizeBatch({...diag(dates),integritySourceRevision:null},dates),
+    /ISSUE507_DEFERRED_REVISION_SCHEMA/);
+  assert.throws(()=>summarizeBatch({...diag(dates),strictSourceDigest:undefined},dates),
+    /ISSUE507_DEFERRED_DIGEST_SCHEMA/);
+  assert.throws(()=>summarizeBatch({...diag(dates),checkedDates:dates.map((d,i)=>
+    i===0?'2026-01-09':d)},dates),
+    /ISSUE507_DEFERRED_DATES_SCHEMA/);
   const changed=snapshot();changed.automation.tradeSnapshotDeferredDates.pop();
   assert.throws(()=>validateInventory(changed),/INVENTORY_SCHEMA/);
   assert.throws(()=>validateInventory({...snapshot(),gasVersion:'9.243'}),/INVENTORY_SCHEMA/);
