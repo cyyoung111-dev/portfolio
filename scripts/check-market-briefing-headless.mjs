@@ -102,7 +102,13 @@ const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots};
  if(action==='getBenchmarks'){requestParams.getBenchmarks=params;return {status:'ok',series:{KOSPI:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSDAQ:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]},seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'},KOSDAQ:{confirmedClose:true,source:'KRX_OFFICIAL'}}};}
- if(action==='getKrxK200NightClose')return {status:'ok',observation:{seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:350,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:15:00+09:00`}};
+ if(action==='getKrxK200NightClose'){
+  requestParams.getKrxK200NightClose=params;
+  const sourceDate=params.date;
+  return {status:'ok',observation:{seriesId:'K200_NIGHT',tradingDate:sourceDate,sourceDate,value:350,
+   market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',
+   observedAt:`${sourceDate}T06:00:00+09:00`,receivedAt:`${date}T06:15:00+09:00`}};
+ }
  if(action==='getExchangeRateHistory'){requestParams.getExchangeRateHistory=params;return {status:'ok',history:[{date:prior,value:1380}]};}
  if(action==='getPrices')return {status:'ok',prices:{}};
  if(action==='getPriceHistory')return {status:'ok',prices:{}};
@@ -242,7 +248,15 @@ assert.equal(fallbackOnAuth,0,'An auth failure must never be hidden by FX Yahoo 
 
 globalThis.localStorage.clear(); observations=[]; snapshots=[]; snapshotPosts=0;
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
-assert.equal(result.decision.publishable,true,'KIS 없이 KRX 공식 NIGHT_FINAL로 MORNING publish 가능');
+assert.equal(result.decision.publishable,true,'KRX prior-night final may be used only after its receipt');
+assert.equal(requestParams.getKrxK200NightClose.date,prior,'MORNING must query preceding verified KRX session');
+const acceptedNight=result.decision.data.snapshot.values.K200_NIGHT;
+assert.equal(acceptedNight.tradingDate,date,'briefing applicability date must remain today');
+assert.equal(acceptedNight.sourceDate,prior,'KRX source BAS_DD must remain prior exchange date');
+assert.equal(acceptedNight.observedAt,null,'GAS source-day 06:00 does not prove publication');
+assert.equal(acceptedNight.timestampQuality,'RECEIVE_ONLY');
+assert.equal(acceptedNight.receivedAt,new Date(`${date}T06:15:00+09:00`).toISOString(),
+ 'keep server receipt without backdating');
 assert.equal(requestParams.getBenchmarks.to,prior,'MORNING benchmark는 전일까지 조회');
 assert.equal(requestParams.getBenchmarks.fresh,'1','MORNING에서도 직전 KRX 정규장 종가를 강제 조회');
 assert.equal(requestParams.getExchangeRateHistory.to,date,'MORNING FX는 당일까지 조회');
@@ -270,6 +284,18 @@ globalThis.localStorage.clear(); observations=[];snapshots=[];
 const missingNight=async(action,params)=>action==='getKrxK200NightClose'?{status:'ok',observation:null}:request(action,params);
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:missingNight});
 assert.equal(result.decision.publishable,false);assert.equal(snapshots.length,0,'K200_NIGHT 누락 시 false publish 금지');
+globalThis.localStorage.clear(); observations=[]; snapshots=[]; snapshotPosts=0;
+const lateNight=async (action,params)=>{
+ const response=await request(action,params);
+ if(action==='getKrxK200NightClose')return {...response,observation:{...response.observation,
+  receivedAt:`${date}T08:00:00+09:00`}};
+ return response;
+};
+result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:lateNight});
+assert.equal(result.decision.publishable,false,'08:00 receipt is future to 07:30');
+assert.ok(result.decision.data.missing.includes('K200_NIGHT') ||
+ result.decision.data.issues.some(x=>x.startsWith('K200_NIGHT')),
+ 'late official close must not retroactively mark 07:30 READY');
 globalThis.localStorage.clear(); observations=[];snapshots=[];
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request:missingNight});
 assert.equal(result.successful,false,'NIGHT_FINAL 누락은 scheduled CLI 실패 조건');assert.equal(snapshots.length,0);
