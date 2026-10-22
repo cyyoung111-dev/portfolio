@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
 import fs from 'node:fs';
+import YAML from 'yaml';
 import { createRequest, diagnosticFor, headlessSucceeded, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
 
 globalThis.localStorage.clear();
@@ -470,8 +471,72 @@ const coldStart=async(action,params={})=>{
 globalThis.localStorage.clear();observations=[];snapshots=[];
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:coldStart});
 assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재조회 실패 후에도 사용');
+// Credentialed MARKET_MASTER / MARKET_SNAPSHOTS publishing must be
+// restricted to main's scheduled/manual invocation. A feature branch can
+// otherwise use workflow_dispatch with production GAS credentials.
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
-assert.match(workflow,/secrets\.GAS_ACCESS_TOKEN/);assert.doesNotMatch(workflow,/echo .*GAS_ACCESS_TOKEN/);
+const guard="github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')";
+const schedules=['15 21 * * 0-4','15 0 * * 1-5','30 22 * * 0-4',
+ '30 7 * * 1-5','15 11 * * 1-5'];
+const fnv32=str=>{
+ let h=2166136261;
+ for(let i=0;i<str.length;i++)h=Math.imul(h^str.charCodeAt(i),16777619)>>>0;
+ return h.toString(16).padStart(8,'0');
+};
+function validateBriefingWorkflow(source){
+ const doc=YAML.parseDocument(source,{uniqueKeys:true,version:'1.2'});
+ assert.equal(doc.errors.length,0,'Briefing YAML parses without duplicate keys');
+ const wf=doc.toJS({maxAliasCount:0});
+ assert.deepEqual(wf.on.schedule.map(x=>x.cron),schedules,'original 5 checkpoints unchanged');
+ assert.ok(Object.hasOwn(wf.on,'workflow_dispatch'),'manual route preserved');
+ assert.ok(!Object.hasOwn(wf.on,'push'),'no push event with production credentials');
+ assert.equal(wf.permissions.contents,'read');
+ assert.equal(wf.permissions.actions,'read');
+ assert.deepEqual(Object.keys(wf.jobs),['briefing'],'no unguarded credentialed job');
+ const job=wf.jobs.briefing;
+ assert.equal(job.if,guard,'production GAS job must be main schedule/manual only');
+ assert.equal(job.env,undefined,'no job-wide credential propagation');
+ assert.equal(job.steps.length,3,'no additional unaudited steps');
+ const credentialed=job.steps.filter(step=>
+   String(step.env?.GAS_ACCESS_TOKEN||'').includes('secrets.GAS_ACCESS_TOKEN'));
+ assert.equal(credentialed.length,1,'one credentialed market briefing step');
+ const step=credentialed[0];
+ assert.deepEqual(Object.keys(step.env).sort(),
+  ['GAS_ACCESS_TOKEN','GAS_WEB_APP_URL','GH_API_URL','GH_REPOSITORY',
+   'GH_RUN_ID','GH_TOKEN','MANUAL_CHECKPOINT','MANUAL_DATE','RUN_SCHEDULE'].sort(),
+  'no unapproved recovery/apply configuration');
+ const dollar=String.fromCharCode(36);
+ assert.equal(step.env.GAS_ACCESS_TOKEN,dollar+'{{ secrets.GAS_ACCESS_TOKEN }}');
+ assert.equal(step.env.GAS_WEB_APP_URL,dollar+'{{ vars.GAS_WEB_APP_URL }}');
+ assert.equal(step.env.GH_TOKEN,dollar+'{{ github.token }}');
+ // Regression fingerprint for the exact reviewed shell block, including
+ // safe cron-to-checkpoint mapping and a single headless execution command.
+ // Any added recovery command must fail this offline contract.
+ assert.equal(fnv32(String(step.run||'').trim()),'96abdd4a',
+  'single approved briefing shell script only');
+}
+validateBriefingWorkflow(workflow);
+for(const weaker of [
+ "github.event_name == 'workflow_dispatch'",
+ "github.ref == 'refs/heads/main'",
+ "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')"
+]){
+ const changed=workflow.replace(guard,weaker);
+ assert.notEqual(changed,workflow,'guard mutation must alter actual YAML');
+ assert.throws(()=>validateBriefingWorkflow(changed),/main schedule\/manual only/);
+}
+const approvedShellEnd='node scripts/run-market-briefing-headless.mjs "${args[@]}"';
+const mutation=workflow.replace(approvedShellEnd,approvedShellEnd+
+ '\\n          node scripts/run-krx-targeted-recovery.mjs');
+assert.notEqual(mutation,workflow,'writer injection mutation must alter workflow');
+assert.throws(()=>validateBriefingWorkflow(mutation),
+ /single approved briefing shell script only/);
+const credentials='          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+
+ '{{ secrets.GAS_ACCESS_TOKEN }}';
+const injectedEnv=workflow.replace(credentials,credentials+'\\n          RECOVERY_APPLY: "true"');
+assert.notEqual(injectedEnv,workflow,'recovery env mutation must alter workflow');
+assert.throws(()=>validateBriefingWorkflow(injectedEnv),
+ /no unapproved recovery\/apply configuration/);
 const runner=fs.readFileSync('scripts/run-market-briefing-headless.mjs','utf8');assert.doesNotMatch(runner,/console\.log\([^\n]*(?:token|url)/i);
 for(const field of ['masterPersistence','snapshotPersistence','readinessSeries']) assert.match(runner,new RegExp(field),'최종 diagnostic 필드 복원: '+field);
 console.log('브리핑 headless hydrate·collect·readiness·immutable snapshot 회귀검사 통과');
