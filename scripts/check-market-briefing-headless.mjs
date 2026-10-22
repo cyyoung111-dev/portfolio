@@ -377,7 +377,10 @@ assert.equal(rolledBack.length,102,'POST 실패 시 신규 5건 rollback 및 hyd
 assert.ok(rolledBack.some(row=>row.seriesId==='PENDING'),'POST 실패 후 pending 보존');
 
 // cold-start에서도 서버의 NIGHT_FINAL을 우선 보존하여 공급자 재조회 실패를 견딘다.
-const storedNight={seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:351,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:01:00+09:00`};
+const storedNight={seriesId:'K200_NIGHT',tradingDate:date,sourceDate:prior,value:351,
+ market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',
+ finality:'NIGHT_FINAL',observedAt:null,receivedAt:`${date}T06:01:00+09:00`,
+ fallback:false,quality:'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'};
 const coldStart=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations:[storedNight]};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots:[]};
