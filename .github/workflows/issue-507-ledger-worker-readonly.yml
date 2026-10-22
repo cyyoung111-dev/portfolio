@@ -37,6 +37,7 @@ jobs:
         run: node scripts/check-issue507-worker-trigger-audit.mjs
 
   operational-readonly:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest
@@ -56,6 +57,7 @@ jobs:
   # legitimately time out while GAS has a busy pending worker. Never let that
   # obscure the worker's already persisted heartbeat / deferred queue progress.
   status-only:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest

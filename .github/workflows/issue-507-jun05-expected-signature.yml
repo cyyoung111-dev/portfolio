@@ -31,6 +31,7 @@ jobs:
         run: node scripts/issue507-jun05-expected-signature.mjs --self-test
 
   live-readonly:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest

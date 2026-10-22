@@ -39,6 +39,7 @@ jobs:
           test -z "$(node --input-type=module -e "await import('./scripts/issue507-supervised-repair-dryrun-readonly.mjs')")"
           node scripts/issue507-supervised-repair-dryrun-readonly.mjs --self-test
   operational-readonly:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     needs: contract
     runs-on: ubuntu-latest
