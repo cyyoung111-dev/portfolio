@@ -37,7 +37,7 @@ jobs:
           node scripts/issue507-source-only-preflight-readonly.mjs --self-test
 
   operational-readonly:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 18
