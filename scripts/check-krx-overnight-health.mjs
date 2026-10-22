@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import YAML from 'yaml';
 import {assessKrxOvernightHealth} from './assess-krx-overnight-health.mjs';
 
 const now=new Date('2026-10-19T02:40:00+09:00');
@@ -120,4 +122,65 @@ assert.deepEqual(assess({...good,historical0030:slot('2026-10-19','FAILED')}).is
 assert.deepEqual(assess({...good,historical0030:slot('2026-10-19','NO_WORK')}).issues,[]);
 assert.deepEqual(assess({...good,gasVersion:'9.235'}).issues,
   ['HISTORICAL_2310_NOT_OBSERVED','HISTORICAL_0030_NOT_OBSERVED']);
+// An authenticated nightly workflow is NOT safe on a feature-branch
+// workflow_dispatch. Check the actual workflow, not a copied test fixture.
+const workflowPath='.github/workflows/krx-nightly-health.yml';
+const authGate="github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')";
+function assertNightlyWorkflowGuard(source) {
+  const doc=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
+  assert.equal(doc.errors.length,0,'nightly workflow must parse');
+  const wf=doc.toJS({maxAliasCount:0});
+  assert.equal(wf.permissions?.contents,'read','nightly workflow read rights');
+  assert.ok(wf.on && Object.hasOwn(wf.on,'workflow_dispatch'),'nightly manual event');
+  assert.deepEqual(wf.on.schedule?.map(x=>x.cron),['30 17 * * *'],
+    '02:30 KST nightly schedule must not drift');
+  assert.ok(!Object.hasOwn(wf.on,'push'),'push must not run GAS secrets');
+  assert.deepEqual(Object.keys(wf.jobs||{}),['check'],'no unguarded extra jobs');
+  const job=wf.jobs.check;
+  assert.equal(job.if,authGate,'nightly GAS credentialed job must be main-only');
+  assert.equal(job.env,undefined,'credential only on reviewed read-only step');
+  const credentialed=(job.steps||[]).filter(step=>
+    String(step.env?.GAS_ACCESS_TOKEN||'').includes('secrets.GAS_ACCESS_TOKEN'));
+  assert.equal(credentialed.length,1,'exactly one authenticated read-only step');
+  assert.equal(credentialed[0].env.GAS_ACCESS_TOKEN,
+    String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}');
+  // P2: allow exactly the approved command, not a substring plus a
+  // credentialed recovery invocation. Preserve the quoted output path.
+  const expectedCommand='node scripts/diagnose-backfill-status.mjs > "'
+    +String.fromCharCode(36)+'{RUNNER_TEMP}/krx-nightly-status.json"';
+  assert.equal(String(credentialed[0].run||'').trim(),expectedCommand,
+    'credentialed step must contain the single approved READ ONLY command');
+  assert.deepEqual(Object.keys(credentialed[0].env).sort(),
+    ['GAS_ACCESS_TOKEN','GAS_WEB_APP_URL'],'no recovery-control variables');
+  assert.equal(credentialed[0].env.GAS_WEB_APP_URL,
+    String.fromCharCode(36)+'{{ vars.GAS_WEB_APP_URL }}',
+    'approved endpoint only');
+}
+const nightlySource=fs.readFileSync(workflowPath,'utf8');
+assertNightlyWorkflowGuard(nightlySource);
+for (const weaker of [
+ "github.event_name == 'workflow_dispatch'",
+ "github.ref == 'refs/heads/main'",
+ "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')",
+]) {
+ const mutated=nightlySource.replace(authGate,weaker);
+ assert.notEqual(mutated,nightlySource);
+ assert.throws(()=>assertNightlyWorkflowGuard(mutated),
+   /nightly GAS credentialed job must be main-only/);
+}
+// Codex P2 regression: both a recovery command chained to the approved
+// command and a recovery-control environment variable must fail closed.
+const approvedCommand='node scripts/diagnose-backfill-status.mjs > "'
+  +String.fromCharCode(36)+'{RUNNER_TEMP}/krx-nightly-status.json"';
+const appendedRecovery=nightlySource.replace(approvedCommand,
+  approvedCommand+'\n          node scripts/run-krx-targeted-recovery.mjs');
+assert.notEqual(appendedRecovery,nightlySource,'must mutate actual YAML');
+assert.throws(()=>assertNightlyWorkflowGuard(appendedRecovery),
+  /single approved READ ONLY command/);
+const extraRecoveryEnv=nightlySource.replace(
+  '          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}',
+  '          GAS_ACCESS_TOKEN: '+String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}'+'\n          RECOVERY_APPLY: "true"');
+assert.notEqual(extraRecoveryEnv,nightlySource,'must mutate actual env');
+assert.throws(()=>assertNightlyWorkflowGuard(extraRecoveryEnv),
+  /no recovery-control variables/);
 console.log('KRX overnight health: read-only contract, queued/failed/mismatched/healthy checks PASS');
