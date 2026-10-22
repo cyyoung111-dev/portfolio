@@ -73,7 +73,15 @@
       if (scheduledDelay) warnings.push(`${id}:SCHEDULED_DELAY_TOLERANCE`);
     });
     const k200 = snapshot.values.K200_NIGHT;
-    if (checkpoint === 'MORNING' && k200 && !(k200.tradingDate === tradingDate && k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
+    if (checkpoint === 'MORNING' && k200 && !(
+      k200.tradingDate === tradingDate && k200.sourceDate < tradingDate
+      && k200.source === 'KRX_OFFICIAL' && k200.market === 'KRX'
+      && k200.session === 'NIGHT' && k200.status === 'FINAL'
+      && k200.finality === 'NIGHT_FINAL' && k200.fallback !== true
+      && k200.observedAt == null && k200.quality === 'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'
+      && Number.isFinite(Date.parse(k200.receivedAt))
+      && Date.parse(k200.receivedAt) <= Date.parse(snapshot.asOf)
+    )) bad.push('K200_NIGHT:UNVERIFIED_PRIOR_SESSION');
     if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL' && k200.tradingDate === tradingDate) warnings.push('K200_NIGHT:COMPLETED_NIGHT_FINAL');
     if (checkpoint === 'MORNING') {
       // 기존 master에서 오래된 FINAL이 PARTIAL보다 우선 선택되더라도
