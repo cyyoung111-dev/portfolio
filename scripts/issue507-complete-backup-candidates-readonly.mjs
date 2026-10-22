@@ -100,6 +100,12 @@ export async function selfTest(){
         systemGeneratedBackup:true,backupSource:'스냅샷',backupStatus:'WRITE_FAILED',
         backupClassification:'REGISTERED_WRITE_FAILED',signatureMatch:false,
         sourceSheetExists:true,lastRow:9105,lastColumn:12},
+      // Explicit Oct 22 target must be excluded from 'additional' candidates.
+      // CREATED here is synthetic and does not assert the live registry state.
+      {name:TARGETS[4].name,role:'BACKUP',backup:true,
+        systemGeneratedBackup:true,backupSource:'스냅샷',backupStatus:'CREATED',
+        backupClassification:'REGISTERED_INCOMPLETE',signatureMatch:true,
+        sourceSheetExists:true,lastRow:9825,lastColumn:12},
       {name:'스냅샷_백업_20261017_120000_abc123',role:'BACKUP',backup:true,
         systemGeneratedBackup:true,backupSource:'스냅샷',backupStatus:'COMPLETED',
         backupClassification:'REGISTERED_COMPLETED',signatureMatch:true,
@@ -112,6 +118,11 @@ export async function selfTest(){
   };
   const found=classifyCandidates(original);
   assert.equal(found.additionalRegisteredSnapshotBackups,2);
+  assert.ok(!JSON.stringify(found).includes('000401_d36bf1'));
+  const missingTarget=structuredClone(original);
+  missingTarget.workbook.sheets=missingTarget.workbook.sheets.filter(
+    x=>x.name!==TARGETS[4].name);
+  assert.throws(()=>classifyCandidates(missingTarget),/TARGET_SCHEMA/);
   assert.equal(found.additionalRegisteredCompleted,2);
   assert.equal(found.completedSelfMatchedWithExistingSource,1);
   assert.equal(found.completedUnverified,1);
@@ -122,10 +133,10 @@ export async function selfTest(){
   assert.ok(!JSON.stringify(found).includes('abc123'));
   assert.ok(!JSON.stringify(found).includes('def456'));
   const corrupt=structuredClone(original);
-  corrupt.workbook.sheets[4].backupClassification='REGISTERED_WRITE_FAILED';
+  corrupt.workbook.sheets[5].backupClassification='REGISTERED_WRITE_FAILED';
   assert.throws(()=>classifyCandidates(corrupt),/INVALID_REGISTRY_CLASS/);
   const missing=structuredClone(original);
-  missing.workbook.sheets[4].signatureMatch=false;
+  missing.workbook.sheets[5].signatureMatch=false;
   assert.equal(classifyCandidates(missing).completedSelfMatchedWithExistingSource,0);
   const date='2026-01-14';
   const status={status:'ok',gasVersion:'9.244',automation:{
