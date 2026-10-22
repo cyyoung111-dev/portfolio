@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import YAML from 'yaml';
 
 export const TARGET_DATES=Object.freeze(['2025-12-30','2026-01-02','2026-01-05']);
 const OFFICIAL=new Set(['KRX_OPENAPI','KRX_OTP']);
@@ -342,15 +343,18 @@ export function selfTest(){
   const workflow=fs.readFileSync(new URL(
     '../.github/workflows/issue-507-source-only-raw-guard.yml',import.meta.url),'utf8');
   function gasChangeTriggers(source,event){
-    const lines=source.split(/\r?\n/);
-    const start=lines.findIndex(x=>x==='  '+event+':');
-    if(start<0)return false;
-    let end=start+1;
-    while(end<lines.length
-      && !/^  (?:pull_request|push|workflow_dispatch):$/.test(lines[end])
-      && !/^permissions:$/.test(lines[end]))end++;
-    const scoped=lines.slice(start+1,end);
-    return scoped.some(x=>x==="      - 'src/gas/apps_script.gs'");
+    const doc=YAML.parseDocument(source,{uniqueKeys:true,version:'1.2'});
+    assert.equal(doc.errors.length,0,'actual workflow YAML must parse');
+    const cfg=doc.toJS({maxAliasCount:0});
+    const trigger=cfg?.on?.[event];
+    // Only the POSITIVE paths list schedules workflows on changed GAS source.
+    // Matching a string elsewhere or in paths-ignore does NOT suffice.
+    return Array.isArray(trigger?.paths)
+      &&trigger.paths.includes('src/gas/apps_script.gs')
+      &&!trigger.paths.some(v=>typeof v==='string'
+        &&v.startsWith('!src/gas/apps_script.gs'))
+      &&(event!=='push'||(Array.isArray(trigger.branches)
+        &&trigger.branches.includes('main')));
   }
   for(const event of ['pull_request','push']){
     assert.equal(gasChangeTriggers(workflow,event),true,
@@ -359,6 +363,17 @@ export function selfTest(){
       "      - 'src/gas/apps_script.gs'", "      - 'unrelated/no-source.js'");
     assert.equal(gasChangeTriggers(withoutGas,event),false,
       'negative GAS trigger mutation must be rejected');
+    const wrongEvent=workflow.replace(
+      '  '+event+':\n    '+(event==='push'?'branches: [main]\n    ':'')+'paths:',
+      '  '+event+':\n    '+(event==='push'?'branches: [main]\n    ':'')+'paths-ignore:');
+    assert.notEqual(wrongEvent,workflow,'negative paths-ignore mutation must apply');
+    assert.equal(gasChangeTriggers(wrongEvent,event),false,
+      'paths-ignore must never count as a positive source trigger');
+    const withoutEventPaths=workflow.replace(
+      '  '+event+':\n    '+(event==='push'?'branches: [main]\n    ':'')+'paths:',
+      '  '+event+':\n    '+(event==='push'?'branches: [main]\n    ':'')+'ignored-only:');
+    assert.equal(gasChangeTriggers(withoutEventPaths,event),false,
+      'missing positive paths must fail closed');
   }
   console.log('Issue #507 raw full-row historical SOURCE-ONLY policy oracle: PASS');
 }
