@@ -26,8 +26,8 @@ concurrency:
 
 jobs:
   finalize:
-    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     # Max requests: two previews x (1 auth + 3 dates) x 90 s,
     # plus 3 apply requests x 120 s = 18 min. Reserve 7 min for runner,

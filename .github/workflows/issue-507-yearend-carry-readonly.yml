@@ -33,8 +33,8 @@ jobs:
         run: node scripts/issue507-yearend-carry-readonly.mjs --self-test
 
   operational-readonly:
-    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: portfolio-production-gas
     needs: production-contract
     runs-on: ubuntu-latest
     timeout-minutes: 18

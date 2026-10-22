@@ -37,8 +37,8 @@ jobs:
           node scripts/issue507-stored-snapshot-provenance-readonly.mjs --self-test
 
   operational-readonly:
-    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: portfolio-production-gas
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 18
