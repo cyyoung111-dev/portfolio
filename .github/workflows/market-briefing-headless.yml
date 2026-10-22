@@ -3,8 +3,7 @@ name: market-briefing-headless
 on:
   schedule:
     - cron: '15 21 * * 0-4' # 06:15 KST, same-date provider not always published
-    - cron: '15 0 * * 1-5'  # 09:15 KST T+1 confirmed PRIOR KRX night catch-up
-    - cron: '45 0 * * 1-5'  # 09:45 KST T+1 prior session official coverage READ ONLY; no retroactive snapshot
+    - cron: '15 0 * * 1-5'  # 09:15 KST T+1 confirmed PRIOR KRX session catch-up
     - cron: '30 22 * * 0-4' # 07:30 KST
     - cron: '30 7 * * 1-5'   # 16:30 KST
     - cron: '15 11 * * 1-5' # 20:15 KST
@@ -51,7 +50,6 @@ jobs:
             case "${{ github.event.schedule }}" in
               '15 21 * * 0-4') checkpoint=NIGHT_FINAL ;;
               '15 0 * * 1-5') checkpoint=NIGHT_FINAL ;;
-              '45 0 * * 1-5') checkpoint=KRX_FINAL ;;
               '30 22 * * 0-4') checkpoint=MORNING ;;
               '30 7 * * 1-5') checkpoint=KRX_FINAL ;;
               '15 11 * * 1-5') checkpoint=EVENING ;;
