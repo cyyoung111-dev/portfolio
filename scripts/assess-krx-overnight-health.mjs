@@ -2,6 +2,7 @@
 // Post-backfill monitoring: consume ONLY the sanitized READ_ONLY output from
 // diagnose-backfill-status.mjs. Never call a GAS write endpoint or log secrets.
 import fs from 'node:fs';
+import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 // The prior READ_ONLY sanitizer already classifies these values; never
 // forward free-form GAS exception text or an unrecognized reason to logs.
@@ -40,9 +41,20 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
       || !['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN'].includes(data.overallStatus)) {
     throw new Error('KRX_OVERNIGHT_BAD_DIAGNOSTIC');
   }
+  // The pending queue is an all-asset Snapshot recovery queue, NOT a
+  // KRX-open-only price backlog. A holiday entry can require a legitimate
+  // foreign/fund Snapshot. Classify without clearing or treating it as READY.
+  const pendingSessionCounts={open:0,closed:0,unknown:0};
+  for (const date of data.pendingDates) {
+    const session=krxSessionStatus(date);
+    if (session==='OPEN') pendingSessionCounts.open++;
+    else if (session==='CLOSED') pendingSessionCounts.closed++;
+    else pendingSessionCounts.unknown++;
+  }
   const issues=[];
   if (!data.triggerReady) issues.push('TRIGGERS_NOT_READY');
   if (data.pendingCount>0) issues.push('PENDING_KRX_DATES');
+  if (pendingSessionCounts.unknown>0) issues.push('PENDING_KRX_SESSION_UNVERIFIED');
   if(data.tradeLedgerWriteUnverified===true)issues.push('TRADE_LEDGER_WRITE_UNVERIFIED');
   const ledgerPending=data.pendingTradeSnapshotRebuildFrom;
   if (ledgerPending!==undefined && ledgerPending!=='-' && ledgerPending!=='') {
@@ -108,6 +120,7 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
       data.latestHistoricalBackfill?.failureClass,BACKFILL_FAILURE_CLASSES),
     pendingCount:data.pendingCount,
     pendingDates:data.pendingDates,
+    pendingSessionCounts,
     pendingTradeSnapshotRebuildFrom:ledgerPending||'-',
     tradeLedgerWriteUnverified:data.tradeLedgerWriteUnverified===true,
     officialKrxPriceHistoryLastDate:official,
@@ -134,6 +147,9 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| 운영 판정 | '+result.status+' |',
         '| GAS 버전 | '+result.gasVersion.replace(/[^0-9.]/g,'')+' |',
         '| 잔여 큐 | '+result.pendingCount+'건 |',
+        '| KRX 개장일 대기 | '+result.pendingSessionCounts.open+'건 |',
+        '| KRX 휴장일 대기 (전체 Snapshot 검증 필요) | '+result.pendingSessionCounts.closed+'건 |',
+        '| 거래일 확인 불가 대기 | '+result.pendingSessionCounts.unknown+'건 |',
         '| 공식 KRX 마지막 날 | '+result.officialKrxPriceHistoryLastDate+' |',
         '| Snapshot 마지막 날 | '+result.snapshotLastDate+' |',
         '| 점검 코드 | '+(result.issues.join(', ')||'없음')+' |',

@@ -15,6 +15,7 @@ const good={
   historical2310:slot('2026-10-18'),historical0030:slot('2026-10-19'),
 };
 assert.equal(assess(good).status,'HEALTHY');
+assert.deepEqual(assess(good).pendingSessionCounts,{open:0,closed:0,unknown:0});
 assert.equal(assess(good).historicalSlotReasons['2310'],'NOT_REPORTED');
 assert.equal(assess(good).historicalSlotRunDates['0030'],'2026-10-19');
 assert.equal(assess(good).lastBackfillFailureClass,'NOT_REPORTED');
@@ -67,7 +68,25 @@ const waiting=assess(stillQueued);
 assert.equal(waiting.status,'ACTION_REQUIRED');
 assert.deepEqual(waiting.issues,['PENDING_KRX_DATES','AUTOMATION_NOT_NORMAL']);
 assert.equal(waiting.pendingCount,3);
+assert.deepEqual(waiting.pendingSessionCounts,{open:2,closed:1,unknown:0});
 assert.equal(waiting.lastBackfillOk,false);
+// Oct 10 was KRX CLOSED. It cannot be used as an official KRX close date,
+// but may still need a foreign/fund Snapshot. Do NOT clear it or mark healthy.
+const holidayPending=assess({...good,pendingCount:1,pendingDates:['2026-10-10']});
+assert.deepEqual(holidayPending.pendingSessionCounts,{open:0,closed:1,unknown:0});
+assert.equal(holidayPending.status,'ACTION_REQUIRED');
+assert.deepEqual(holidayPending.issues,['PENDING_KRX_DATES']);
+assert.deepEqual(holidayPending.pendingDates,['2026-10-10']);
+const mixedPending=assess({...good,pendingCount:2,
+  pendingDates:['2026-10-10','2026-10-21']});
+assert.deepEqual(mixedPending.pendingSessionCounts,{open:1,closed:1,unknown:0});
+assert.deepEqual(mixedPending.pendingDates,['2026-10-10','2026-10-21']);
+const unknownCalendar=assess({...good,pendingCount:1,
+  pendingDates:['2028-01-04']});
+assert.deepEqual(unknownCalendar.pendingSessionCounts,{open:0,closed:0,unknown:1});
+assert.deepEqual(unknownCalendar.issues,
+  ['PENDING_KRX_DATES','PENDING_KRX_SESSION_UNVERIFIED']);
+assert.equal(unknownCalendar.status,'ACTION_REQUIRED');
 assert.doesNotMatch(JSON.stringify(waiting),/accessToken|apiKey|SECRET/);
 assert.deepEqual(assess({...good,triggerReady:false}).issues,
   ['TRIGGERS_NOT_READY']);
