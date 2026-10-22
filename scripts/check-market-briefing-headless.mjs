@@ -362,11 +362,54 @@ assert.equal(snapshots[0].values.SAMSUNG.finality,'REGULAR_CLOSE');assert.equal(
 globalThis.localStorage.clear(); observations=[]; snapshots=[];
 const t1CloseDate=scheduledTradingDate('45 0 * * 1-5',new Date('2026-09-21T00:45:30Z'));
 assert.equal(t1CloseDate,date,'T+1 실행은 금요일 정확 종가를 조회');
-result=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:t1CloseDate,request:finalRequest,
+// A next-morning quote cannot be recorded as if it had been available
+// at the previous day's 15:30 immutable snapshot cut-off.
+const t1Actions=[];
+const t1ReadOnlyRequest=async (action,params={})=>{
+ t1Actions.push(action);
+ if(action==='getBenchmarks'){
+  const base=await finalRequest(action,params);
+  return {...base,seriesMeta:Object.fromEntries(['KOSPI','KOSDAQ'].map(key=>[key,
+   {...base.seriesMeta[key],source:'KRX_OFFICIAL',officialDate:date}]))};
+ }
+ if(action==='getKrxOfficialStockCloses'){
+  const base=await finalRequest(action,params);
+  return {...base,requestedDate:date,closes:Object.fromEntries(
+   Object.entries(base.closes).map(([code,row])=>[code,
+    {...row,requestedDate:date,providerSource:'KRX'}]))};
+ }
+ throw new Error('T1_WRITE_OR_UNNECESSARY_READ_FORBIDDEN');
+};
+result=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:t1CloseDate,request:t1ReadOnlyRequest,
   schedule:'45 0 * * 1-5',receivedAt:'2026-09-21T09:45:30+09:00'});
-assert.equal(result.decision.publishable,true,'T+1 실제 전 거래일 공식지수/종목 종가가 모두 있으면 발행');
-assert.equal(snapshots.length,1,'T+1 추가 발행은 해당 거래일에만 저장');
-assert.equal(snapshots[0].tradingDate,date,'T+1에 오늘 날짜로 공식 종가를 잘못 귀속하지 않음');
+assert.equal(result.sourceReadOnly,true,'T+1는 소급 15:30 발행이 아닌 공식 원천 확인');
+assert.equal(result.successful,true,'정확일 공식 지수/종목 소스 4개 인증');
+assert.deepEqual(t1Actions.sort(),['getBenchmarks','getKrxOfficialStockCloses']);
+assert.equal(diagnosticFor(result).published,false,'익일 확인을 전일 발행으로 표시 금지');
+assert.equal(diagnosticFor(result).writesPerformed,0,'원본 MASTER/SNAPSHOT 쓰기 금지');
+assert.equal(snapshots.length,0,'T+1 소급 Snapshot 생성 금지');
+assert.equal(observations.length,0,'T+1 MASTER append 금지');
+const staleOfficial=async (action,params)=>{
+ const response=await t1ReadOnlyRequest(action,params);
+ if(action==='getBenchmarks')
+  return {...response,seriesMeta:{...response.seriesMeta,
+   KOSPI:{...response.seriesMeta.KOSPI,officialDate:prior}}};
+ return response;
+};
+const staleResult=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:date,
+ request:staleOfficial,schedule:'45 0 * * 1-5'});
+assert.equal(staleResult.successful,false,'전일보다 오래된 officialDate를 승인하지 않음');
+assert.equal(headlessSucceeded(staleResult),false,'누락 소스는 실패로 남음');
+const missingOfficial=async (action,params)=>{
+ const response=await t1ReadOnlyRequest(action,params);
+ if(action==='getKrxOfficialStockCloses')
+  return {...response,closes:{'005930':response.closes['005930']}};
+ return response;
+};
+const incompleteT1=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:date,
+ request:missingOfficial,schedule:'45 0 * * 1-5'});
+assert.equal(incompleteT1.successful,false,'한 종목 공식 숫자 누락 시 실패');
+assert.equal(snapshots.length,0,'실패 이후에도 소급 발행 금지');
 result=await runHeadless({checkpoint:'EVENING',tradingDate:date,request:finalRequest,receivedAt:`${date}T20:15:30+09:00`});
 assert.equal(result.decision.publishable,true);assert.equal(snapshots.find(row=>row.checkpoint==='EVENING').values.SAMSUNG.value,80500);
 globalThis.localStorage.clear(); observations=[];snapshots=[];
