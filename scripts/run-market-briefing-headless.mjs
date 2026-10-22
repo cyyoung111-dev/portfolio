@@ -108,6 +108,7 @@ function maskSecrets(value, secrets = []) {
 }
 function persistenceCounts(value) { return value ? { saved:Number(value.saved)||0, duplicates:Number(value.duplicates)||0, rejected:Number(value.rejected)||0 } : null; }
 function headlessSucceeded(result) {
+  if (result.sourceReadOnly === true) return result.successful === true;
   if (result.skippedDomestic === true)
     return result.checkpoint === 'KRX_FINAL'
       || (result.checkpoint === 'EVENING' && result.successful === true);
@@ -116,6 +117,16 @@ function headlessSucceeded(result) {
 }
 function diagnosticFor(result, secrets = []) {
   const successful = headlessSucceeded(result);
+  // A next-session provider check must never masquerade as a 15:30 release.
+  if (result.sourceReadOnly === true) return {
+    checkpoint:result.checkpoint, tradingDate:result.tradingDate,
+    status:successful?'SOURCE_VERIFIED_NO_PUBLISH':'SOURCE_NOT_READY',
+    published:false, sourceReadOnly:true, writesPerformed:0,
+    officialIndexCount:result.officialIndexCount||0,
+    officialStockCount:result.officialStockCount||0,
+    masterPersistence:null, snapshotPersistence:null,
+    restoreAllowed:false, deleteAllowed:false,
+  };
   return { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.skippedDomestic ? (successful ? 'SKIPPED_DOMESTIC_CLOSED' : 'FOREIGN_CONTEXT_MISSING') : result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
     ...(result.skippedDomestic ? { skipReason:'KRX_CONFIRMED_NON_TRADING_DAY' } : {}),
     masterPersistence:persistenceCounts(result.sync?.persistence), snapshotPersistence:persistenceCounts(result.persistence),
@@ -146,9 +157,50 @@ function createRequest(url, token, fetchImpl = fetch) {
     return result;
   };
 }
+// The operational MARKET_SNAPSHOTS schema is immutable and stores an asOf
+// of 15:30 KST but no actual T+1 publication/receipt timestamp. Writing a
+// next-morning close through that checkpoint would create look-ahead history.
+// Until publication provenance has its own reviewed schema, only verify the
+// exact official source dates here. Do not hydrate, persist or release.
+async function checkT1KrxOfficialReadOnly(request, tradingDate) {
+  if (krxSessionStatus(tradingDate) !== 'OPEN')
+    return {checkpoint:'KRX_FINAL',tradingDate,sourceReadOnly:true,successful:false,
+      officialIndexCount:0,officialStockCount:0};
+  const [benchResult, stockResult] = await Promise.allSettled([
+    request('getBenchmarks',{benchmarks:'KOSPI,KOSDAQ',from:tradingDate,to:tradingDate,fresh:'1'},{timeoutMs:45000,retry:0}),
+    request('getKrxOfficialStockCloses',{date:tradingDate,codes:'005930,000660'},{timeoutMs:45000,retry:0}),
+  ]);
+  const bench=benchResult.status==='fulfilled'?benchResult.value:null;
+  const stock=stockResult.status==='fulfilled'?stockResult.value:null;
+  const officialIndexCount=['KOSPI','KOSDAQ'].filter(key=>{
+    const meta=bench?.seriesMeta?.[key], rows=bench?.series?.[key];
+    return bench?.status==='ok' && meta?.confirmedClose===true
+      && meta?.officialDate===tradingDate && meta?.source==='KRX_OFFICIAL'
+      && Array.isArray(rows) && rows.some(row=>row?.date===tradingDate
+        && row?.source==='KRX_OFFICIAL' && typeof row.value==='number'
+        && Number.isFinite(row.value) && row.value>0);
+  }).length;
+  const officialStockCount=['005930','000660'].filter(code=>{
+    const row=stock?.closes?.[code];
+    return stock?.status==='ok' && stock.requestedDate===tradingDate
+      && row?.code===code && row?.requestedDate===tradingDate
+      && row?.usedDate===tradingDate && row?.source==='KRX_OFFICIAL'
+      && ['KRX','KRX_OTP'].includes(row?.providerSource)
+      && typeof row.price==='number' && Number.isFinite(row.price)
+      && row.price>0 && Number.isFinite(Date.parse(row?.receivedAt||''));
+  }).length;
+  return {checkpoint:'KRX_FINAL',tradingDate,sourceReadOnly:true,
+    successful:officialIndexCount===2 && officialStockCount===2,
+    officialIndexCount,officialStockCount,persistence:null,sync:null,decision:null};
+}
+
 export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt,
   requireKrxOfficialNight = false, schedule = '', fxFallback = fetchUsdKrwYahooDaily }) {
   const request = suppliedRequest || createRequest(url, token);
+  if (schedule === '45 0 * * 1-5') {
+    if (checkpoint !== 'KRX_FINAL') throw new Error('T1_KRX_CHECKPOINT_MISMATCH');
+    return checkT1KrxOfficialReadOnly(request,tradingDate);
+  }
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
   // KRX_FINAL has no same-day domestic close on exchange holidays/weekends.
   // Keep EVENING foreign/FX collection running, but do not publish a false
