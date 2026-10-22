@@ -26,6 +26,15 @@ function dateOffset(date, days) {
   const value = new Date(`${date}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10);
 }
 
+function previousKrxOpenSession(date) {
+  let candidate=dateOffset(date,-1);
+  for(let i=0;i<25;i++,candidate=dateOffset(candidate,-1)){
+    const state=krxSessionStatus(candidate);
+    if(state==='OPEN')return candidate;
+    if(state==='UNKNOWN')throw new Error('K200_PRIOR_KRX_SESSION_UNVERIFIED');
+  }
+  throw new Error('K200_PRIOR_KRX_SESSION_NOT_FOUND');
+}
 function previousWeekday(date) {
   let candidate=dateOffset(date,-1);
   for(let i=0;i<7;i++){
@@ -69,13 +78,7 @@ function scheduledTradingDate(schedule, now = new Date()) {
     if (slot.weekdays.includes(candidate.getUTCDay()) && candidate <= now) {
       const scheduledDate=kstDate(candidate);
       if (!slot.publishedPriorSession) return scheduledDate;
-      let prior=dateOffset(scheduledDate,-1);
-      for (let step=0;step<25;step++,prior=dateOffset(prior,-1)) {
-        const market=krxSessionStatus(prior);
-        if (market==='OPEN') return prior;
-        if (market==='UNKNOWN') throw new Error('KRX_PRIOR_SESSION_UNVERIFIED');
-      }
-      throw new Error('KRX_PRIOR_SESSION_NOT_FOUND');
+      return previousKrxOpenSession(scheduledDate);
     }
   }
   throw new Error('schedule tradingDate를 계산할 수 없습니다.');
@@ -148,6 +151,13 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
   // Keep EVENING foreign/FX collection running, but do not publish a false
   // same-day KRX final. UNKNOWN dates must not be silently skipped.
   const domesticClosed = krxSessionStatus(tradingDate) === 'CLOSED';
+  // KRX BAS_DD denotes the prior night-session trading date, not the
+  // next morning's briefing date. Unknown/closed calendar days fail closed.
+  // T+1 catch-up collects only its explicitly requested historical date.
+  const nightSourceDate = checkpoint==='NIGHT_FINAL'||checkpoint==='MORNING'
+    ? (requireKrxOfficialNight ? tradingDate
+      : krxSessionStatus(tradingDate)==='OPEN' ? previousKrxOpenSession(tradingDate) : '')
+    : '';
   if (domesticClosed && checkpoint === 'KRX_FINAL')
     return { checkpoint, tradingDate, skippedDomestic:true, sync:null, decision:null, persistence:null };
   const benchmarkTo = checkpoint === 'MORNING' ? dateOffset(tradingDate, -1) : tradingDate;
@@ -177,7 +187,8 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
     }
   };
   const sync = await runtime.syncServerMaster(scopedRequest, scopedRequest, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10),
-    to:benchmarkTo, benchmarkTo, fxTo, scheduledToleranceSeconds:300, receivedAt });
+    to:benchmarkTo, benchmarkTo, fxTo, nightSourceDate,
+    scheduledToleranceSeconds:300, receivedAt });
   if (domesticClosed && checkpoint === 'EVENING') {
     // Domestic Snapshot is suppressed, but the scheduled foreign-market / FX
     // collection must fail visibly when its independent sources are unavailable.
