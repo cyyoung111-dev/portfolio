@@ -1,4 +1,16 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const workflow = readFileSync('.github/workflows/krx-operational-diagnostics.yml', 'utf8');
+const nightBlock = workflow.split('      - name: Read-only KRX K200 night match diagnostics\n')[1]
+  ?.split('      - name: Preview stale KRX pending dates without mutation\n')[0];
+assert.ok(nightBlock, 'K200 diagnostic workflow step must exist');
+assert.match(nightBlock, /DIAGNOSTIC_DATES:\s*\$\{\{\s*inputs\.dates\s*\}\}/,
+  'manual diagnostic date input must reach K200 step');
+assert.match(nightBlock, /--dates "\$\{DIAGNOSTIC_DATES:-2026-10-13,2026-10-14\}"/,
+  'K200 step must use manual dates with safe push-only fallback');
+assert.doesNotMatch(nightBlock, /--dates "2026-10-13,2026-10-14"/,
+  'K200 step must not discard user-selected dates');
 import {runNightDiagnosis,summarizeK200Diagnostic,summarizeNightFinal} from './diagnose-k200-night-operational.mjs';
 
 const url='https://script.google.com/macros/s/test-id/exec';

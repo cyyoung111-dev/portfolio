@@ -46,8 +46,9 @@ jobs:
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          DIAGNOSTIC_DATES: ${{ inputs.dates }}
         run: |
-          node scripts/diagnose-k200-night-operational.mjs --dates "2026-10-13,2026-10-14"
+          node scripts/diagnose-k200-night-operational.mjs --dates "${DIAGNOSTIC_DATES:-2026-10-13,2026-10-14}"
 
       - name: Preview stale KRX pending dates without mutation
         if: always()
