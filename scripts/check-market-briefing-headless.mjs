@@ -435,8 +435,8 @@ result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:coldStar
 assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재조회 실패 후에도 사용');
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
 assert.match(workflow,/secrets\.GAS_ACCESS_TOKEN/);assert.doesNotMatch(workflow,/echo .*GAS_ACCESS_TOKEN/);
-assert.match(workflow,/cron: '45 0 \\* \\* 1-5'/,'T+1 KRX_FINAL 예약이 실제 YAML에 존재');
-assert.match(workflow,/'45 0 \\* \\* 1-5'\\) checkpoint=KRX_FINAL/,'수동/예약 결정 분기 일치');
+assert.match(workflow,/cron: '45 0 \* \* 1-5'/,'T+1 KRX_FINAL 예약이 실제 YAML에 존재');
+assert.match(workflow,/'45 0 \* \* 1-5'\) checkpoint=KRX_FINAL/,'수동/예약 결정 분기 일치');
 const runner=fs.readFileSync('scripts/run-market-briefing-headless.mjs','utf8');assert.doesNotMatch(runner,/console\.log\([^\n]*(?:token|url)/i);
 for(const field of ['masterPersistence','snapshotPersistence','readinessSeries']) assert.match(runner,new RegExp(field),'최종 diagnostic 필드 복원: '+field);
 console.log('브리핑 headless hydrate·collect·readiness·immutable snapshot 회귀검사 통과');
