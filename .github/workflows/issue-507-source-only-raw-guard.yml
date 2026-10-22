@@ -5,11 +5,13 @@ on:
   pull_request:
     paths:
       - 'scripts/issue507-source-only-raw-guard.mjs'
+      - 'src/gas/apps_script.gs'
       - '.github/workflows/issue-507-source-only-raw-guard.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/issue507-source-only-raw-guard.mjs'
+      - 'src/gas/apps_script.gs'
       - '.github/workflows/issue-507-source-only-raw-guard.yml'
   workflow_dispatch:
 
