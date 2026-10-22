@@ -369,6 +369,9 @@ export function analyzeJan07Transition(threeDay,baseline,tradesResponse){
       &&!item.stored.get(key).some(r=>qtyCost(r)===qtyCost(item.expected.get(key)))))
     .map(([key])=>key);
   const prior=baseline.diagnostics.map(rowsForDay),compared=new Set(),ambiguous=new Set();
+  // The keys below are never emitted; they only join source/stored drift and
+  // potential 01/07 trade membership within this single private runner.
+  const comparisonPatternByKey=new Map();
   const counts={commonCodes:bounded(recurring.length),comparableCodes:0,
     missingEitherBaselineCode:0,multipleStoredCandidates:0,
     matchedJan06:0,mismatchedJan07:0,
@@ -392,6 +395,10 @@ export function analyzeJan07Transition(threeDay,baseline,tradesResponse){
     const q=(a,b)=>eq(a,b,3,8),cost=(a,b)=>eq(a,b,5,0);
     const expectedQChanged=!q(e0,e1),expectedCChanged=!cost(e0,e1);
     const storedQChanged=!q(v0,v1),storedCChanged=!cost(v0,v1);
+    comparisonPatternByKey.set(key,{
+      ledgerChanged:expectedQChanged||expectedCChanged,
+      storedChanged:storedQChanged||storedCChanged
+    });
     if(q(e0,v0)&&cost(e0,v0))counts.matchedJan06++;
     if(!q(e1,v1)||!cost(e1,v1))counts.mismatchedJan07++;
     if(expectedQChanged)counts.expectedQtyChanged++;
@@ -479,11 +486,42 @@ export function analyzeJan07Transition(threeDay,baseline,tradesResponse){
       reverse_split:'reverseSplitRows'}[type];
     tradeActivity[kind]++;
   }
+  // Cross-check the change pattern and Jan 07 trade membership on the SAME
+  // private identity. A match is only evidence of an applicable trade row;
+  // it is not proof that the production lot/cost state changed.
+  const cohorts={
+    ledgerStableStoredChanged:0,ledgerChangedStoredChanged:0,
+    ledgerStableStoredStable:0,ledgerChangedStoredStable:0,
+    ledgerStableStoredChangedWithTradeEvidence:0,
+    ledgerStableStoredChangedWithoutMatchedTradeEvidence:0,
+    ledgerChangedStoredChangedWithTradeEvidence:0,
+    ledgerChangedStoredChangedWithoutMatchedTradeEvidence:0,
+    ledgerChangedStoredStableWithTradeEvidence:0,
+    ledgerChangedStoredStableWithoutMatchedTradeEvidence:0,
+    ledgerStableStoredStableWithTradeEvidence:0,
+    ledgerStableStoredStableWithoutMatchedTradeEvidence:0
+  };
+  for(const [key,pattern] of comparisonPatternByKey){
+    const classification=pattern.ledgerChanged
+      ?(pattern.storedChanged?'ledgerChangedStoredChanged':'ledgerChangedStoredStable')
+      :(pattern.storedChanged?'ledgerStableStoredChanged':'ledgerStableStoredStable');
+    cohorts[classification]++;
+    cohorts[classification+(involved.has(key)?'WithTradeEvidence':'WithoutMatchedTradeEvidence')]++;
+  }
+  guard(['ledgerStableStoredChanged','ledgerChangedStoredChanged',
+    'ledgerStableStoredStable','ledgerChangedStoredStable']
+    .reduce((total,k)=>total+cohorts[k],0)===counts.comparableCodes,
+    'TRANSITION_COHORT_PARTITION');
+  for(const label of ['ledgerStableStoredChanged','ledgerChangedStoredChanged',
+    'ledgerStableStoredStable','ledgerChangedStoredStable'])
+    guard(cohorts[label]===cohorts[label+'WithTradeEvidence']+
+      cohorts[label+'WithoutMatchedTradeEvidence'],'TRANSITION_COHORT_DRIFT');
+  for(const key of Object.keys(cohorts))cohorts[key]=bounded(cohorts[key]);
   for(const key of Object.keys(counts))counts[key]=bounded(counts[key]);
   for(const key of Object.keys(tradeActivity))
     tradeActivity[key]=bounded(tradeActivity[key]);
   return {mode:'ISSUE507_JAN07_TRANSITION_READ_ONLY',state:'ASSESSED',
-    counts,tradeActivity,matchingCodesWithTradesJan07:bounded(involved.size),
+    counts,cohorts,tradeActivity,matchingCodesWithTradesJan07:bounded(involved.size),
     comparableCodesWithNoMatchedTradeEvidence:bounded(compared.size-involved.size),
     ledgerTradeAbsenceCertified:false,masterNameCodeMappingVerified:false,
     historicalWriteRevisionVerified:false,independentPriceVerified:false,
@@ -719,6 +757,9 @@ export async function selfTest(){
   assert.equal(evidence.counts.jan07StoredEqualsJan06Expected,1);
   assert.equal(evidence.tradeActivity.buyRows,1);
   assert.equal(evidence.matchingCodesWithTradesJan07,1);
+  assert.equal(evidence.cohorts.ledgerChangedStoredStable,1);
+  assert.equal(evidence.cohorts.ledgerChangedStoredStableWithTradeEvidence,1);
+  assert.equal(evidence.cohorts.ledgerStableStoredChanged,0);
   assert.equal(evidence.ledgerTradeAbsenceCertified,false);
   assert.equal(evidence.restoreAllowed,false);
   assert.ok(!JSON.stringify(evidence).includes('000003'));
@@ -754,6 +795,7 @@ export async function selfTest(){
   assert.equal(collided.tradeActivity.unresolvedCodeLessRows,1);
   assert.equal(collided.tradeActivity.ambiguousCodeLessRows,1);
   assert.equal(collided.comparableCodesWithNoMatchedTradeEvidence,1);
+  assert.equal(collided.cohorts.ledgerChangedStoredStableWithoutMatchedTradeEvidence,1);
   assert.equal(collided.ledgerTradeAbsenceCertified,false);
   // On January 7 a stored-only mutation creates divergence without any
   // observed effective ledger trade: do not claim historical causality.
@@ -764,7 +806,15 @@ export async function selfTest(){
   assert.equal(noJan07Trade.counts.expectedQtyChanged,0);
   assert.equal(noJan07Trade.counts.storedQtyChanged,1);
   assert.equal(noJan07Trade.matchingCodesWithTradesJan07,0);
+  assert.equal(noJan07Trade.cohorts.ledgerStableStoredChanged,1);
+  assert.equal(noJan07Trade.cohorts.ledgerStableStoredChangedWithoutMatchedTradeEvidence,1);
+  assert.equal(noJan07Trade.cohorts.ledgerStableStoredChangedWithTradeEvidence,0);
   assert.equal(noJan07Trade.ledgerTradeAbsenceCertified,false);
+  // A same-code ledger trade can coincide with stale-expected/stored-only
+  // drift: record overlap without claiming the trade CAUSED the stored change.
+  const storeOnlyWithTrade=analyzeJan07Transition(qtyCostDrift,storeOnly,withJan07Trade);
+  assert.equal(storeOnlyWithTrade.cohorts.ledgerStableStoredChangedWithTradeEvidence,1);
+  assert.equal(storeOnlyWithTrade.cohorts.ledgerStableStoredChangedWithoutMatchedTradeEvidence,0);
   const uncertainJan07=structuredClone(withJan07Trade);
   uncertainJan07.trades.push({date:'2026-01-07',code:'',name:'UNKNOWN_NAME',
     tradeType:'buy',qty:1});
