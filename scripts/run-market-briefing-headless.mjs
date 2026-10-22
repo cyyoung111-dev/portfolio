@@ -64,9 +64,6 @@ const SCHEDULE_SLOTS = Object.freeze({
   // At next open session 09:15 KST, retry ONLY the preceding official KRX
   // trading session; do not pretend this repairs the earlier 07:30 briefing.
   '15 0 * * 1-5': { hour:0, minute:15, weekdays:[1,2,3,4,5], checkpoint:'NIGHT_FINAL', publishedPriorSession:true },
-  // OpenAPI daily index/stock records can lag the 16:30 checkpoint. Retry
-  // *only* the previous calendar-confirmed KRX session, never current quotes.
-  '45 0 * * 1-5': { hour:0, minute:45, weekdays:[1,2,3,4,5], checkpoint:'KRX_FINAL', publishedPriorSession:true },
   '30 22 * * 0-4': { hour:22, minute:30, weekdays:[0,1,2,3,4], checkpoint:'MORNING' },
   '30 7 * * 1-5': { hour:7, minute:30, weekdays:[1,2,3,4,5], checkpoint:'KRX_FINAL' },
   '15 11 * * 1-5': { hour:11, minute:15, weekdays:[1,2,3,4,5], checkpoint:'EVENING' },
@@ -195,10 +192,11 @@ async function checkT1KrxOfficialReadOnly(request, tradingDate) {
 }
 
 export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt,
-  requireKrxOfficialNight = false, schedule = '', fxFallback = fetchUsdKrwYahooDaily }) {
+  requireKrxOfficialNight = false, schedule = '', sourceReadOnlyT1 = false,
+  fxFallback = fetchUsdKrwYahooDaily }) {
   const request = suppliedRequest || createRequest(url, token);
-  if (schedule === '45 0 * * 1-5') {
-    if (checkpoint !== 'KRX_FINAL') throw new Error('T1_KRX_CHECKPOINT_MISMATCH');
+  if (sourceReadOnlyT1 === true) {
+    if (checkpoint !== 'KRX_FINAL' || schedule) throw new Error('T1_KRX_CHECKPOINT_MISMATCH');
     return checkT1KrxOfficialReadOnly(request,tradingDate);
   }
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
