@@ -4,6 +4,7 @@
 // Reuse the production ledger-based exact-held-code universe via GAS.
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {runCoverage} from './diagnose-krx-held-coverage.mjs';
+import {runHeadless} from './run-market-briefing-headless.mjs';
 
 function isoUtcDay(date) {
   return new Date(date+'T00:00:00Z');
@@ -62,12 +63,37 @@ export async function runMorning({now=new Date(),url,token,coverageFn=runCoverag
     expected:valid?c.expected:null,officialExact:valid?c.exact:null,
     missing:valid?c.missing:null,providerReady};
 }
+// Reuse this existing 08:45 source probe rather than adding a second,
+ // similarly delayed GitHub schedule. The extra two-index/two-stock check
+ // never hydrates MARKET_MASTER, appends a snapshot, or backdates asOf.
+export async function runMorningWithBriefingSources({now=new Date(),url,token,
+  coverageFn=runCoverage, officialFn=async ({tradingDate,url,token})=>
+    runHeadless({checkpoint:'KRX_FINAL',tradingDate,url,token,sourceReadOnlyT1:true})}={}) {
+  const held=await runMorning({now,url,token,coverageFn});
+  if(held.status!=='PROVIDER_READY')
+    return {...held,published:false,writesPerformed:0,
+      briefingOfficialReady:false,officialIndexCount:0,officialStockCount:0};
+  const proof=await officialFn({tradingDate:held.targetDate,url,token});
+  if(proof?.sourceReadOnly!==true||proof?.checkpoint!=='KRX_FINAL'
+    ||proof.tradingDate!==held.targetDate||proof?.persistence)
+    throw new Error('KRX_MORNING_BRIEFING_PROOF_INVALID');
+  const ready=proof.successful===true&&proof.officialIndexCount===2
+    &&proof.officialStockCount===2;
+  return {...held,heldProviderReady:held.providerReady,
+    status:ready?'PROVIDER_READY':'BRIEFING_SOURCE_NOT_READY',
+    providerReady:ready,briefingOfficialReady:ready,
+    officialIndexCount:proof.officialIndexCount,
+    officialStockCount:proof.officialStockCount,
+    published:false,writesPerformed:0};
+}
+
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
-    const result=await runMorning({url:process.env.GAS_WEB_APP_URL,
+    const result=await runMorningWithBriefingSources({url:process.env.GAS_WEB_APP_URL,
       token:process.env.GAS_ACCESS_TOKEN});
     console.log(JSON.stringify(result));
-    if(result.status==='PROVIDER_NOT_READY')process.exitCode=1;
+    if(result.status==='PROVIDER_NOT_READY'||result.status==='BRIEFING_SOURCE_NOT_READY')
+      process.exitCode=1;
   }catch(e){
     const name=String(e?.message||'');
     const safe=/^KRX_MORNING_[A-Z_]+$/.test(name)?name:'KRX_MORNING_PROBE_FAILED';
