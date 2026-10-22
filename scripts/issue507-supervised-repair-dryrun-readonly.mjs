@@ -3,6 +3,7 @@
 // No commands to mutate GAS, Apps Script properties, Sheets, or backlog exist.
 // Do not output source rows, codes, names, accounts, amounts, or tokens.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
 
@@ -263,6 +264,15 @@ function fixtureDay(date='2026-01-07'){
       manualProtected:0,unresolvedConflict:1,sourceIncomplete:0}};
 }
 export async function selfTest(){
+  // The operational job has GAS credentials: feature-branch dispatch must not run it.
+  const workflow=fs.readFileSync(new URL(
+    '../.github/workflows/issue-507-supervised-repair-dryrun-readonly.yml',
+    import.meta.url),'utf8');
+  const runtimeIf=text=>text.match(/^  operational-readonly:\r?\n    if: ([^\r\n]+)\r?$/m)?.[1];
+  const expectedIf="github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'";
+  assert.equal(runtimeIf(workflow),expectedIf,'supervised live audit must be main-only and manual');
+  const branchUnsafe=workflow.replace(expectedIf,"github.event_name == 'workflow_dispatch'");
+  assert.notEqual(runtimeIf(branchUnsafe),expectedIf,'feature branch live audit must be blocked');
   const invalidInventory={status:'ok',gasVersion:'9.244',automation:{
     gasVersion:'9.244',tradeSnapshotDeferredDates:['2026-01-08','2026-01-07'],
     tradeSnapshotDeferredCount:2,tradeSnapshotDeferredOldestDate:'2026-01-08',
