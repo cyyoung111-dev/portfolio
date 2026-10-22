@@ -337,6 +337,29 @@ export function selfTest(){
   assert.ok(!JSON.stringify(checked).includes('SYNTHETIC01'));
   assert.ok(!JSON.stringify(checked).includes('"price":101'));
   assert.ok(!JSON.stringify(blocked).includes('SECRET_COMPANY'));
+  // This test executes the actual production fetchPricesKrx function.
+  // GAS-only PRs MUST trigger the synthetic contract on both PR and main push.
+  const workflow=fs.readFileSync(new URL(
+    '../.github/workflows/issue-507-source-only-raw-guard.yml',import.meta.url),'utf8');
+  function gasChangeTriggers(source,event){
+    const lines=source.split(/\r?\n/);
+    const start=lines.findIndex(x=>x==='  '+event+':');
+    if(start<0)return false;
+    let end=start+1;
+    while(end<lines.length
+      && !/^  (?:pull_request|push|workflow_dispatch):$/.test(lines[end])
+      && !/^permissions:$/.test(lines[end]))end++;
+    const scoped=lines.slice(start+1,end);
+    return scoped.some(x=>x==="      - 'src/gas/apps_script.gs'");
+  }
+  for(const event of ['pull_request','push']){
+    assert.equal(gasChangeTriggers(workflow,event),true,
+      'GAS-only '+event+' changes must run production numeric contract');
+    const withoutGas=workflow.replaceAll(
+      "      - 'src/gas/apps_script.gs'", "      - 'unrelated/no-source.js'");
+    assert.equal(gasChangeTriggers(withoutGas,event),false,
+      'negative GAS trigger mutation must be rejected');
+  }
   console.log('Issue #507 raw full-row historical SOURCE-ONLY policy oracle: PASS');
 }
 if(process.argv.includes('--self-test'))selfTest();
