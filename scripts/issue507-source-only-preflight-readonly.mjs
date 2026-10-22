@@ -21,7 +21,7 @@ export function evaluate(input) {
   const codes=[...new Set(missing.map(x=>x.code).filter(Boolean))];
   if(codes.length!==1)throw Error('ISSUE507_PREFLIGHT_SCOPE');
   const code=codes[0];
-  if(automation?.status!=='ok'||automation?.automation?.gasVersion!=='9.243')
+  if(automation?.status!=='ok'||!['9.243','9.244'].includes(automation?.automation?.gasVersion))
     throw Error('ISSUE507_PREFLIGHT_GAS_VERSION');
   if(priceHistory?.status!=='ok'||!priceHistory.prices||typeof priceHistory.prices!=='object'
     ||Array.isArray(priceHistory.prices))
@@ -161,6 +161,20 @@ export async function selfTest(){
     coverage:{mode:'READ_ONLY',requestedDate:date,expectedHeldCodes:30},
     targetEvidence:{requested:true,eligibleHeldDomestic:true,
       exactDateConfirmed:true,usedDate:date,providerClass:'KRX_OPENAPI'}}));
+  // Supported deployed versions share this read-only endpoint contract.
+  // Never accept future versions without checking their actual response schema.
+  const currentlyDeployed=structuredClone(automation);
+  currentlyDeployed.automation.gasVersion='9.244';
+  assert.equal(evaluate({diagnosis,automation:currentlyDeployed,
+    priceHistory,trade,yearEndSnapshot,proofs}).yearEndCarrySourceReady,true);
+  const unknownVersion=structuredClone(automation);
+  unknownVersion.automation.gasVersion='9.245';
+  assert.throws(()=>evaluate({diagnosis,automation:unknownVersion,
+    priceHistory,trade,yearEndSnapshot,proofs}),/ISSUE507_PREFLIGHT_GAS_VERSION/);
+  const blankVersion=structuredClone(automation);
+  blankVersion.automation.gasVersion='';
+  assert.throws(()=>evaluate({diagnosis,automation:blankVersion,
+    priceHistory,trade,yearEndSnapshot,proofs}),/ISSUE507_PREFLIGHT_GAS_VERSION/);
   const input={diagnosis,automation,priceHistory,trade,yearEndSnapshot,proofs};
   const ok=evaluate(input);
   assert.equal(ok.yearEndCarrySourceReady,true);
