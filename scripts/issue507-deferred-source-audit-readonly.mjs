@@ -66,12 +66,28 @@ const GAS_ERROR_CODES=new Set(['RUNTIME_ERROR','SOURCE_DATA_ERROR',
   'SOURCE_CONTENT_CHANGED','SOURCE_REVISION_CHANGED','RANGE_TOO_LARGE']);
 const GAS_ERROR_PHASES=new Set(['request_validation','sheet_read',
   'index_build','snapshot_integrity']);
+// The running GAS v9.244 handler places both ScriptLock acquisition and its
+// strict, non-mutating revision-state check in "request_validation".
+// Only map known server error signatures to CONSTANT categories; never print
+// GAS response.message, holding codes, balances, or other untrusted details.
+// Lock-timeout is a reported hint, not a proven exception stack trace.
+export function safeRequestValidationCause(payload,code,phase){
+  if(code!=='RUNTIME_ERROR'||phase!=='REQUEST_VALIDATION')return '';
+  const message=payload?.message;
+  if(message==='ISSUE507_REVISION_UNVERIFIED')
+    return '_REVISION_UNVERIFIED';
+  if(typeof message==='string'&&message.length<=180 &&
+    /^(?:Exception: )?Lock timeout(?::|$)/.test(message))
+    return '_LOCK_TIMEOUT_REPORTED';
+  return '';
+}
 export function assertDiagnosticEnvelope(payload,dates){
   if(payload?.status==='error'){
     const code=GAS_ERROR_CODES.has(payload.errorCode)?payload.errorCode:'UNKNOWN';
     const phase=GAS_ERROR_PHASES.has(payload.phase)
       ?payload.phase.toUpperCase():'UNKNOWN';
-    throw Error('ISSUE507_DEFERRED_GAS_'+code+'_'+phase);
+    throw Error('ISSUE507_DEFERRED_GAS_'+code+'_'+phase+
+      safeRequestValidationCause(payload,code,phase));
   }
   if(payload?.status!=='ok')throw Error('ISSUE507_DEFERRED_RESPONSE_STATUS_SCHEMA');
   if(!Array.isArray(payload.checkedDates)||!Array.isArray(payload.diagnostics))
@@ -240,6 +256,26 @@ export async function selfTest(){
     assert.throws(()=>summarizeBatch(payload,dates),e=>
       e.message===expected&&!e.message.includes('SECRET_'));
   }
+  // Production revision-state corruption/missing metadata and Apps Script
+  // lock contention share REQUEST_VALIDATION until a known safe signature is
+  // recognized. Unknown/sensitive text must remain invisible and fail closed.
+  assert.throws(()=>summarizeBatch({status:'error',errorCode:'RUNTIME_ERROR',
+    phase:'request_validation',message:'ISSUE507_REVISION_UNVERIFIED'},dates),
+    e=>e.message==='ISSUE507_DEFERRED_GAS_RUNTIME_ERROR_REQUEST_VALIDATION_REVISION_UNVERIFIED');
+  assert.throws(()=>summarizeBatch({status:'error',errorCode:'RUNTIME_ERROR',
+    phase:'request_validation',
+    message:'Exception: Lock timeout: another process was holding the lock for too long.'},dates),
+    e=>e.message==='ISSUE507_DEFERRED_GAS_RUNTIME_ERROR_REQUEST_VALIDATION_LOCK_TIMEOUT_REPORTED');
+  assert.throws(()=>summarizeBatch({status:'error',errorCode:'RUNTIME_ERROR',
+    phase:'request_validation',message:'ISSUE507_REVISION_UNVERIFIED SECRET_TOKEN'},dates),
+    e=>e.message==='ISSUE507_DEFERRED_GAS_RUNTIME_ERROR_REQUEST_VALIDATION');
+  assert.throws(()=>summarizeBatch({status:'error',errorCode:'RUNTIME_ERROR',
+    phase:'request_validation',message:'Lock timeout: ACCOUNT=SECRET_HOLDINGS'},dates),
+    e=>e.message==='ISSUE507_DEFERRED_GAS_RUNTIME_ERROR_REQUEST_VALIDATION_LOCK_TIMEOUT_REPORTED'
+      &&!e.message.includes('SECRET_'));
+  assert.throws(()=>summarizeBatch({status:'error',errorCode:'SOURCE_DATA_ERROR',
+    phase:'sheet_read',message:'ISSUE507_REVISION_UNVERIFIED'},dates),
+    e=>e.message==='ISSUE507_DEFERRED_GAS_SOURCE_DATA_ERROR_SHEET_READ');
   assert.throws(()=>summarizeBatch({status:'error',errorCode:'SECRET_ACCOUNT',
     phase:'SECRET_PHASE',message:'SECRET_HOLDING'},dates),
     e=>e.message==='ISSUE507_DEFERRED_GAS_UNKNOWN_UNKNOWN');
