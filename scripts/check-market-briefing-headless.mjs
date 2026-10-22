@@ -401,7 +401,7 @@ await assert.rejects(()=>runHeadless({checkpoint:'MORNING',tradingDate:date,
  request:t1ReadOnlyRequest,sourceReadOnlyT1:true}),/T1_KRX_CHECKPOINT_MISMATCH/,
  'T+1 source read-only cannot be invoked under other checkpoint');
 assert.throws(()=>parseArgs(['--checkpoint','KRX_FINAL','--schedule','45 0 * * 1-5']),
- /지원하지 않는 schedule/,'중복된 T+1 09:45 slot은 완전히 삭제');
+ /schedule과 checkpoint가 일치하지 않습니다/,'중복된 T+1 09:45 slot은 완전히 삭제');
 assert.doesNotMatch(fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8'),
  /cron: '45 0 \* \* 1-5'/,'기존 08:45 재사용, 신규 09:45 cron 금지');
 result=await runHeadless({checkpoint:'EVENING',tradingDate:date,request:finalRequest,receivedAt:`${date}T20:15:30+09:00`});
