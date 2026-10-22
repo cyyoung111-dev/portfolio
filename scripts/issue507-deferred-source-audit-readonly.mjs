@@ -186,6 +186,13 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   return buildAudit(before,after,batches);
 }
 export async function selfTest(){
+  // Manual workflow_dispatch can select a non-main branch. Its runtime uses a
+  // real GAS token, so contract-only PR checks must never reach live GAS.
+  const workflow=fs.readFileSync(new URL(
+    '../.github/workflows/issue-507-deferred-source-audit-readonly.yml',
+    import.meta.url),'utf8');
+  assert.match(workflow,/operational-readonly:\s*\n\s*if: github\.ref == 'refs\/heads\/main' && github\.event_name == 'workflow_dispatch'/,
+    'live audit must run only from approved main via explicit dispatch');
   const dates=['2025-12-31','2026-01-01','2026-01-02',
     '2026-01-05','2026-01-06','2026-01-07','2026-01-08'];
   const snapshot=()=>({status:'ok',gasVersion:'9.244',automation:{
