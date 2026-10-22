@@ -143,8 +143,9 @@ function assertNightlyWorkflowGuard(source) {
     String(step.env?.GAS_ACCESS_TOKEN||'').includes('secrets.GAS_ACCESS_TOKEN'));
   assert.equal(credentialed.length,1,'exactly one authenticated read-only step');
   assert.equal(credentialed[0].env.GAS_ACCESS_TOKEN,
-    '+'{{ secrets.GAS_ACCESS_TOKEN }}');
-  assert.match(String(credentialed[0].run||''),/diagnose-backfill-status\\.mjs/);
+    String.fromCharCode(36)+'{{ secrets.GAS_ACCESS_TOKEN }}');
+  assert.ok(String(credentialed[0].run||'').includes('node scripts/diagnose-backfill-status.mjs'),
+    'only sanitized read-only GAS diagnostic may use credentials');
   assert.doesNotMatch(String(credentialed[0].run||''),
     /apply=1|saveSnapshot|recoverPendingKrxClose|reconcileCompletedKrxPending/);
 }
