@@ -4,6 +4,8 @@
 // directly under the eventual GAS ScriptLock. This does NOT query live Sheets.
 // NEVER print codes, names, quantities, prices, credentials or source rows.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 
 export const TARGET_DATES=Object.freeze(['2025-12-30','2026-01-02','2026-01-05']);
 const OFFICIAL=new Set(['KRX_OPENAPI','KRX_OTP']);
@@ -128,6 +130,10 @@ export function inspectRawHistory({targetCode,aliases=[],rawRows,sheetLastRow,
 // getKrxHeldCloseCoverage exposes only sanitized providerClass evidence.
 // Caller-controlled fields are NOT proof of an authenticated provider result.
 // This oracle NEVER reads GAS, acquires locks, or authorizes any append.
+// Inspect the ACTUAL keyed fetchPricesKrx result (key=code, value has
+// {price,usedDate,source}) plus the separately supplied request date.
+// This is NOT an authenticated KRX call: callers can forge these objects.
+// Never authorize a write based on this synthetic shape contract.
 export function inspectOfficialNumericCloses({targetCode,scan,quotes}={}){
   const target=identifier(targetCode);
   requireGuard(!!target&&target.length<=64,'QUOTE_TARGET');
@@ -142,10 +148,15 @@ export function inspectOfficialNumericCloses({targetCode,scan,quotes}={}){
     const slot=scan.allDatesCandidates===true&&raw?.date===date
       &&raw.decision==='EXACT_SOURCE_CANDIDATE'
       &&raw.rawOccupiedRows===0;
-    const exact=!!q&&identifier(q.code)===target&&q.date===date
-      &&q.usedDate===date&&['KRX','KRX_OTP'].includes(q.source)
-      &&typeof q.price==='number'&&Number.isFinite(q.price)&&q.price>0;
-    return {date,rawSlotCandidate:slot,numericQuoteShapeValid:exact,
+    const map=q?.pricesByCode;
+    const keys=map&&typeof map==='object'&&!Array.isArray(map)
+      ?Object.keys(map):[];
+    const row=keys.length===1&&identifier(keys[0])===target?map[keys[0]]:null;
+    const exact=q?.requestedDate===date&&!!row
+      &&row.usedDate===date&&['KRX','KRX_OTP'].includes(row.source)
+      &&typeof row.price==='number'&&Number.isFinite(row.price)
+      &&row.price>0;
+    return {date,rawSlotCandidate:slot,numericQuoteShapeValid:!!exact,
       decision:!slot?'RAW_PROTECTION_BLOCK'
         :!exact?'QUOTE_NOT_EXACT_OR_NOT_NUMERIC':'FORMAT_CANDIDATE_ONLY'};
   });
@@ -231,11 +242,40 @@ export function selfTest(){
   assert.ok(!JSON.stringify(manual).includes('SECRET_COMPANY'));
   assert.ok(!JSON.stringify(manual).includes('SYNTHETIC01'));
   assert.ok(!JSON.stringify(manual).includes('888'));
-  // Real fetchPricesKrx uses KRX (OpenAPI) and KRX_OTP, NOT
-  // the sanitized KRX_OPENAPI providerClass returned by the coverage API.
+  // Execute the ACTUAL production fetchPricesKrx body under synthetic
+  // provider mocks. Its return value is a keyed map, NOT [{code,date,price}].
+  const gas=fs.readFileSync(new URL('../src/gas/apps_script.gs',import.meta.url),'utf8');
+  const fnStart=gas.indexOf('function fetchPricesKrx(');
+  const fnEnd=gas.indexOf('\n}',fnStart);
+  assert.ok(fnStart>=0&&fnEnd>fnStart,'production KRX function must be present');
+  let viaOtp=false;
+  const context=vm.createContext({
+    Logger:{log(){}},Object,Number,String,
+    _getKrxApiConfig:()=>({apiKey:viaOtp?'':'SYNTHETIC_KEY'}),
+    _getKrxAuthKeySlots_:()=>({alternative:null}),
+    _fetchKrxMarketsParallelWithFallback:(_markets,ymd)=>({
+      KOSPI:{rows:[{ISU_CD:'SYNTHETIC01',TDD_CLSPRC:'101'}],usedYmd:ymd},
+      KOSDAQ:{rows:[],usedYmd:ymd},ETF:{rows:[],usedYmd:ymd}
+    }),
+    _parseKrxNumber:v=>Number(v),
+    _cleanCode:v=>String(v||'').trim().toUpperCase(),
+    _krxCalendarStatus_:()=> 'OPEN',
+    _normalizeDate:v=>String(v||'').slice(0,10),
+    fetchPricesKrxViaOtp:(_items,date)=>({
+      SYNTHETIC01:{price:101,source:'KRX_OTP',usedDate:date,name:'TEST'}
+    })
+  });
+  vm.runInContext(gas.slice(fnStart,fnEnd+2),context);
   const sampleQuotes=TARGET_DATES.map(date=>({
-    code:'SYNTHETIC01',date,usedDate:date,source:'KRX',price:101
+    requestedDate:date,
+    pricesByCode:context.fetchPricesKrx([{code:'SYNTHETIC01',
+      name:'SYNTHETIC',market:'KOSPI',currency:'KRW'}],date)
   }));
+  assert.deepEqual(Object.keys(sampleQuotes[0].pricesByCode),['SYNTHETIC01']);
+  assert.equal(sampleQuotes[0].pricesByCode.SYNTHETIC01.source,'KRX');
+  assert.equal(sampleQuotes[0].pricesByCode.SYNTHETIC01.usedDate,'2025-12-30');
+  assert.equal(Object.hasOwn(sampleQuotes[0].pricesByCode.SYNTHETIC01,'code'),false);
+  assert.equal(Object.hasOwn(sampleQuotes[0].pricesByCode.SYNTHETIC01,'date'),false);
   const checked=inspectOfficialNumericCloses({
     targetCode:base.targetCode,scan:clean,quotes:sampleQuotes});
   assert.equal(checked.allFormatCandidates,true);
@@ -244,14 +284,18 @@ export function selfTest(){
   assert.equal(checked.officialProviderAuthenticated,false);
   assert.equal(checked.sourceAtCopyVerified,false);
   assert.equal(checked.externalWriterExclusive,false);
-  assert.ok(checked.observations.every(x=>x.decision==='FORMAT_CANDIDATE_ONLY'));
-  const otpQuotes=structuredClone(sampleQuotes);
-  otpQuotes[0].source='KRX_OTP';
+  viaOtp=true;
+  const otpQuotes=TARGET_DATES.map(date=>({
+    requestedDate:date,
+    pricesByCode:context.fetchPricesKrx([{code:'SYNTHETIC01',
+      name:'SYNTHETIC',market:'KOSPI',currency:'KRW'}],date)
+  }));
+  assert.equal(otpQuotes[0].pricesByCode.SYNTHETIC01.source,'KRX_OTP');
   assert.equal(inspectOfficialNumericCloses({
     targetCode:base.targetCode,scan:clean,quotes:otpQuotes}).allFormatCandidates,true);
-  function mutatedQuote(field,value){
+  function mutatedRow(field,value){
     const quotes=structuredClone(sampleQuotes);
-    quotes[1][field]=value;
+    quotes[1].pricesByCode.SYNTHETIC01[field]=value;
     const result=inspectOfficialNumericCloses({
       targetCode:base.targetCode,scan:clean,quotes});
     assert.equal(result.allFormatCandidates,false,'unsafe '+field+' must fail closed');
@@ -260,13 +304,23 @@ export function selfTest(){
     assert.equal(result.writePermitted,false);
   }
   for(const price of [0,-1,NaN,Infinity,-Infinity,'100',null,undefined])
-    mutatedQuote('price',price);
+    mutatedRow('price',price);
   for(const value of ['2026-01-01','2026-01-06',''])
-    mutatedQuote('usedDate',value);
+    mutatedRow('usedDate',value);
   for(const value of ['GOOGLEFINANCE','FUND_NAV','KRX_OPENAPI','MANUAL','KRX_CARRY',''])
-    mutatedQuote('source',value);
-  mutatedQuote('code','UNRELATED');
-  mutatedQuote('date','2026-01-03');
+    mutatedRow('source',value);
+  const shifted=structuredClone(sampleQuotes);
+  shifted[1].requestedDate='2026-01-03';
+  assert.equal(inspectOfficialNumericCloses({
+    targetCode:base.targetCode,scan:clean,quotes:shifted}).allFormatCandidates,false);
+  const extraCode=structuredClone(sampleQuotes);
+  extraCode[1].pricesByCode.UNRELATED={price:101,source:'KRX',usedDate:'2026-01-02'};
+  assert.equal(inspectOfficialNumericCloses({
+    targetCode:base.targetCode,scan:clean,quotes:extraCode}).allFormatCandidates,false);
+  const wrongCode=structuredClone(sampleQuotes);
+  wrongCode[1].pricesByCode={UNRELATED:{price:101,source:'KRX',usedDate:'2026-01-02'}};
+  assert.equal(inspectOfficialNumericCloses({
+    targetCode:base.targetCode,scan:clean,quotes:wrongCode}).allFormatCandidates,false);
   for(const unsafe of [[],sampleQuotes.slice(0,2),
     [...sampleQuotes,sampleQuotes[0]]]){
     assert.throws(()=>inspectOfficialNumericCloses({
