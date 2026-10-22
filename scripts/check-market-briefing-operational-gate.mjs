@@ -7,7 +7,10 @@ const add=(id,status='FINAL',session='REGULAR',time='06:30:00',finality=null,mar
 for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT')) add(id,id==='NDX'?'DELAYED':'FINAL');
 rows=rows.filter(row=>!['KOSPI','KOSDAQ','KOSPI200'].includes(row.seriesId));
 for(const id of ['KOSPI','KOSDAQ','KOSPI200'])rows=master.upsertObservation(rows,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:'KRX',session:'REGULAR',source:'KRX_OFFICIAL',status:'FINAL',finality:'REGULAR_CLOSE',observedAt:'2026-09-17T15:30:00+09:00',receivedAt:`${d}T07:20:00+09:00`});
-add('K200_NIGHT','FINAL','NIGHT','06:00:00','NIGHT_FINAL','KRX');
+rows=master.upsertObservation(rows,{seriesId:'K200_NIGHT',tradingDate:d,
+ sourceDate:'2026-09-17',value:1,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',
+ status:'FINAL',finality:'NIGHT_FINAL',observedAt:null,receivedAt:`${d}T06:15:00+09:00`,
+ fallback:false,quality:'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'});
 let decision=gate.releaseDecision(master,storeApi,rows,[],d,'MORNING');
 assert.equal(decision.publishable,true); assert.equal(decision.status,'READY_WITH_CONTEXT_GAP');
 let snapshots=storeApi.appendSnapshot([],{tradingDate:'2026-09-17',checkpoint:'EVENING',asOf:'2026-09-17T20:15:00+09:00',values:{}},{scenario:{next:'context'}});
@@ -66,7 +69,9 @@ assert.ok(gate.evaluate(master,[unscoped],'2026-10-12','MORNING').issues.include
 let lateBackfill=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT'))lateBackfill=master.upsertObservation(lateBackfill,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:id==='USDKRW'?'FX':((id==='KOSPI'||id==='KOSDAQ')?'KRX':'TEST'),session:id==='USDKRW'?'FX':'REGULAR',source:(id==='KOSPI'||id==='KOSDAQ')?'KRX_OFFICIAL':'HISTORY',status:'FINAL',finality:id==='USDKRW'?'HISTORICAL_CLOSE':'REGULAR_CLOSE',observedAt:(id==='KOSPI'||id==='KOSDAQ')?'2026-09-17T15:30:00+09:00':undefined,receivedAt:`${d}T07:35:00+09:00`});
 lateBackfill=master.upsertObservation(lateBackfill,{seriesId:'K200_NIGHT',tradingDate:d,sourceDate:d,value:1,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:00+09:00`});
-decision=gate.releaseDecision(master,storeApi,lateBackfill,snapshots,d,'MORNING'); assert.equal(decision.publishable,true); assert.ok(!decision.data.issues.some(issue=>issue.endsWith(':LOOKAHEAD')));
+decision=gate.releaseDecision(master,storeApi,lateBackfill,snapshots,d,'MORNING');
+assert.equal(decision.publishable,false,'KIS night must not masquerade as official prior-session KRX');
+assert.ok(decision.data.issues.includes('K200_NIGHT:UNVERIFIED_PRIOR_SESSION'));
 rows=rows.filter(r=>r.seriesId!=='K200_NIGHT'); decision=gate.releaseDecision(master,storeApi,rows,snapshots,d,'MORNING'); assert.equal(decision.publishable,false); assert.ok(decision.data.missing.includes('K200_NIGHT'));
 rows=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.KRX_FINAL) add(id,'FINAL','REGULAR','15:30:00',gate.KRX_FINAL_SERIES.includes(id)?'REGULAR_CLOSE':null,'KRX');

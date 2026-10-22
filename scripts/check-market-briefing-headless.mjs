@@ -26,6 +26,8 @@ assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 0 * * 1-5'
   '--scheduled-at','2026-10-19T00:15:30Z']).requireKrxOfficialNight,true);
 assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 21 * * 0-4',
   '--scheduled-at','2026-10-18T21:15:30Z']).requireKrxOfficialNight,false);
+assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--date',date]).schedule,'',
+ 'manual NIGHT_FINAL must be distinct from scheduled 06:15');
 assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','15 0 * * 1-5']),
   /schedule과 checkpoint/,'NIGHT_FINAL catch-up은 MORNING과 혼동 금지');
 assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
@@ -102,7 +104,13 @@ const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots};
  if(action==='getBenchmarks'){requestParams.getBenchmarks=params;return {status:'ok',series:{KOSPI:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSDAQ:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]},seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'},KOSDAQ:{confirmedClose:true,source:'KRX_OFFICIAL'}}};}
- if(action==='getKrxK200NightClose')return {status:'ok',observation:{seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:350,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:15:00+09:00`}};
+ if(action==='getKrxK200NightClose'){
+  requestParams.getKrxK200NightClose=params;
+  const sourceDate=params.date;
+  return {status:'ok',observation:{seriesId:'K200_NIGHT',tradingDate:sourceDate,sourceDate,value:350,
+   market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',
+   observedAt:`${sourceDate}T06:00:00+09:00`,receivedAt:`${date}T06:15:00+09:00`}};
+ }
  if(action==='getExchangeRateHistory'){requestParams.getExchangeRateHistory=params;return {status:'ok',history:[{date:prior,value:1380}]};}
  if(action==='getPrices')return {status:'ok',prices:{}};
  if(action==='getPriceHistory')return {status:'ok',prices:{}};
@@ -242,7 +250,15 @@ assert.equal(fallbackOnAuth,0,'An auth failure must never be hidden by FX Yahoo 
 
 globalThis.localStorage.clear(); observations=[]; snapshots=[]; snapshotPosts=0;
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
-assert.equal(result.decision.publishable,true,'KIS 없이 KRX 공식 NIGHT_FINAL로 MORNING publish 가능');
+assert.equal(result.decision.publishable,true,'KRX prior-night final may be used only after its receipt');
+assert.equal(requestParams.getKrxK200NightClose.date,prior,'MORNING must query preceding verified KRX session');
+const acceptedNight=result.decision.data.snapshot.values.K200_NIGHT;
+assert.equal(acceptedNight.tradingDate,date,'briefing applicability date must remain today');
+assert.equal(acceptedNight.sourceDate,prior,'KRX source BAS_DD must remain prior exchange date');
+assert.equal(acceptedNight.observedAt,null,'GAS source-day 06:00 does not prove publication');
+assert.equal(acceptedNight.timestampQuality,'RECEIVE_ONLY');
+assert.equal(acceptedNight.receivedAt,new Date(`${date}T06:15:00+09:00`).toISOString(),
+ 'keep server receipt without backdating');
 assert.equal(requestParams.getBenchmarks.to,prior,'MORNING benchmark는 전일까지 조회');
 assert.equal(requestParams.getBenchmarks.fresh,'1','MORNING에서도 직전 KRX 정규장 종가를 강제 조회');
 assert.equal(requestParams.getExchangeRateHistory.to,date,'MORNING FX는 당일까지 조회');
@@ -259,17 +275,50 @@ assert.equal(result.decision.publishable,false,'Toss 과거 미확정 candle로 
 assert.ok(result.decision.data.missing.includes('KOSPI') || result.decision.data.issues.includes('KOSPI:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE'), 'Toss 미확정 종가는 누락 또는 확정 실패로 차단');
 assert.equal(snapshots.length,0,'비확정 Toss 장전은 snapshot 기록 없음');
 globalThis.localStorage.clear(); observations=[];snapshots=[];snapshotPosts=0;
-result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request});
-assert.equal(result.successful,true,'NIGHT_FINAL 관측값을 확보하고 저장해야 성공');
+result=await runHeadless({...parseArgs(['--checkpoint','NIGHT_FINAL','--date',date]),request});
+assert.equal(result.successful,true,'manual NIGHT_FINAL exact-source collection must succeed');
+assert.equal(requestParams.getKrxK200NightClose.date,date,
+ 'manual NIGHT_FINAL --date must not shift source BAS_DD backwards');
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,
-  requireKrxOfficialNight:true});
+ schedule:'15 21 * * 0-4'});
+assert.equal(requestParams.getKrxK200NightClose.date,prior,
+ '06:15 scheduled NIGHT_FINAL must use the preceding KRX session');
+assert.equal(result.successful,true,'scheduled NIGHT_FINAL must retain the briefing-day identity');
+result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,
+  requireKrxOfficialNight:true,schedule:'15 0 * * 1-5'});
+assert.equal(requestParams.getKrxK200NightClose.date,date,
+ '09:15 T+1 catch-up must fetch the requested source BAS_DD');
 assert.equal(result.successful,true,'T+1는 요청한 정확한 날짜의 KRX 공식 종가로만 성공');
 assert.ok(observations.some(row=>row.seriesId==='K200_NIGHT'&&row.finality==='NIGHT_FINAL'));
 assert.equal(snapshotPosts,0,'NIGHT_FINAL은 snapshot을 저장하지 않음');
+globalThis.localStorage.clear();observations=[];snapshots=[];
+const wrongManualSource=async(action,params={})=>{
+ const response=await request(action,params);
+ return action==='getKrxK200NightClose'
+  ? {...response,observation:{...response.observation,tradingDate:prior,sourceDate:prior}}
+  : response;
+};
+result=await runHeadless({...parseArgs(['--checkpoint','NIGHT_FINAL','--date',date]),
+ request:wrongManualSource});
+assert.equal(result.successful,false,'wrong-date official reply must not satisfy manual recovery');
+assert.equal(observations.filter(row=>row.seriesId==='K200_NIGHT').length,0,
+ 'wrong-date official reply must not be persisted as a confirmed night close');
 globalThis.localStorage.clear(); observations=[];snapshots=[];
 const missingNight=async(action,params)=>action==='getKrxK200NightClose'?{status:'ok',observation:null}:request(action,params);
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:missingNight});
 assert.equal(result.decision.publishable,false);assert.equal(snapshots.length,0,'K200_NIGHT 누락 시 false publish 금지');
+globalThis.localStorage.clear(); observations=[]; snapshots=[]; snapshotPosts=0;
+const lateNight=async (action,params)=>{
+ const response=await request(action,params);
+ if(action==='getKrxK200NightClose')return {...response,observation:{...response.observation,
+  receivedAt:`${date}T08:00:00+09:00`}};
+ return response;
+};
+result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:lateNight});
+assert.equal(result.decision.publishable,false,'08:00 receipt is future to 07:30');
+assert.ok(result.decision.data.missing.includes('K200_NIGHT') ||
+ result.decision.data.issues.some(x=>x.startsWith('K200_NIGHT')),
+ 'late official close must not retroactively mark 07:30 READY');
 globalThis.localStorage.clear(); observations=[];snapshots=[];
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request:missingNight});
 assert.equal(result.successful,false,'NIGHT_FINAL 누락은 scheduled CLI 실패 조건');assert.equal(snapshots.length,0);
@@ -351,7 +400,10 @@ assert.equal(rolledBack.length,102,'POST 실패 시 신규 5건 rollback 및 hyd
 assert.ok(rolledBack.some(row=>row.seriesId==='PENDING'),'POST 실패 후 pending 보존');
 
 // cold-start에서도 서버의 NIGHT_FINAL을 우선 보존하여 공급자 재조회 실패를 견딘다.
-const storedNight={seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:351,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:01:00+09:00`};
+const storedNight={seriesId:'K200_NIGHT',tradingDate:date,sourceDate:prior,value:351,
+ market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',
+ finality:'NIGHT_FINAL',observedAt:null,receivedAt:`${date}T06:01:00+09:00`,
+ fallback:false,quality:'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'};
 const coldStart=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations:[storedNight]};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots:[]};

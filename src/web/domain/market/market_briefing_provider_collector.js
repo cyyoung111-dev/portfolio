@@ -68,9 +68,27 @@ async function collect(request,tradingDate,options={}){
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}
  if(options.checkpoint==='NIGHT_FINAL'||options.checkpoint==='MORNING'){
   try{
-   const night=await request('getKrxK200NightClose',{date:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});
-   if(night&&night.observation)payload.K200_NIGHT=night.observation;
-   else{missing.push('K200_NIGHT');if(night&&night.error)errors.K200_NIGHT=String(night.error);}
+   const nightDate=String(options.nightSourceDate||'');
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(nightDate))
+    throw new Error('K200_NIGHT_SOURCE_DATE_UNVERIFIED');
+   const night=await request('getKrxK200NightClose',{date:nightDate},{timeoutMs:options.timeoutMs||45000,retry:0});
+   const item=night?.observation,received=Date.parse(item?.receivedAt||'');
+   const exact=!!item && item.seriesId==='K200_NIGHT'
+     && item.tradingDate===nightDate && item.sourceDate===nightDate
+     && item.source==='KRX_OFFICIAL' && item.market==='KRX'
+     && item.session==='NIGHT' && item.status==='FINAL'
+     && item.finality==='NIGHT_FINAL' && item.fallback!==true
+     && Number(item.value)>0 && Number.isFinite(received);
+   if(exact){
+    // GAS dateT06:00 observedAt is not independent publication evidence.
+    // Preserve BAS_DD as sourceDate and rely on actual receipt for 07:30.
+    payload.K200_NIGHT={...item,tradingDate,sourceDate:nightDate,
+      observedAt:null,quality:nightDate<tradingDate
+       ? 'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT':'KRX_NIGHT_SOURCE_ONLY'};
+   }else{
+    missing.push('K200_NIGHT');
+    errors.K200_NIGHT=night?.error||'K200_NIGHT_SOURCE_NOT_VERIFIED';
+   }
   }catch(error){missing.push('K200_NIGHT');errors.K200_NIGHT=String(error&&error.message||error);}
  }
  try{
