@@ -35,7 +35,7 @@ jobs:
   operational-readonly:
     # A new GAS version must be deployed and its identity confirmed BEFORE using
     # this live action; do not auto-run against old server after a main push.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 16
