@@ -25,10 +25,10 @@ permissions:
 
 jobs:
   briefing:
-    environment: portfolio-production-gas
     # Prevent workflow_dispatch on a feature branch from accessing production
     # GAS credentials or writing MARKET_MASTER / MARKET_SNAPSHOTS.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

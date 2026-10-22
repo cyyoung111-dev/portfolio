@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   recover:
-    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

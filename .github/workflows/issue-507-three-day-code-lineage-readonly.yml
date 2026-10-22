@@ -35,8 +35,8 @@ jobs:
           node --check scripts/issue507-three-day-code-lineage-readonly.mjs
           node scripts/issue507-three-day-code-lineage-readonly.mjs --self-test
   operational-readonly:
-    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: portfolio-production-gas
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 16

@@ -23,8 +23,8 @@ permissions:
 
 jobs:
   diagnose:
-    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     # Three preview batches = 10 sequential HTTP calls (max 90s each),
     # plus market/K200 probes and job setup. Preserve time for all steps.
