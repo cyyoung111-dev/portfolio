@@ -35,6 +35,7 @@ jobs:
           node scripts/issue507-missing-price-provenance-readonly.mjs --self-test
 
   operational-readonly:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest

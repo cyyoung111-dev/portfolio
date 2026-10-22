@@ -36,6 +36,7 @@ jobs:
           node --check scripts/issue507-price-history-row-audit-readonly.mjs
           node scripts/issue507-price-history-row-audit-readonly.mjs --self-test
   operational-readonly:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     needs: contract
     runs-on: ubuntu-latest
