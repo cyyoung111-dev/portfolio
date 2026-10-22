@@ -123,6 +123,43 @@ export function inspectRawHistory({targetCode,aliases=[],rawRows,sheetLastRow,
     next:'Re-read all raw rows and verify exact official numerical closes INSIDE GAS ScriptLock; source backup/signature, post-append verification and user write approval are separate mandatory gates.'
   };
 }
+// Validate quote SHAPE without exposing the numerical prices. Production
+// fetchPricesKrx returns source=KRX (OpenAPI) or KRX_OTP (OTP/CSV), whereas
+// getKrxHeldCloseCoverage exposes only sanitized providerClass evidence.
+// Caller-controlled fields are NOT proof of an authenticated provider result.
+// This oracle NEVER reads GAS, acquires locks, or authorizes any append.
+export function inspectOfficialNumericCloses({targetCode,scan,quotes}={}){
+  const target=identifier(targetCode);
+  requireGuard(!!target&&target.length<=64,'QUOTE_TARGET');
+  requireGuard(scan?.mode==='SYNTHETIC_POLICY_ORACLE'
+    &&scan.readOnly===true&&scan.writePermitted===false
+    &&Array.isArray(scan.observations)
+    &&scan.observations.length===TARGET_DATES.length,'QUOTE_SCAN');
+  requireGuard(Array.isArray(quotes)&&quotes.length===TARGET_DATES.length,
+    'QUOTE_SCOPE');
+  const observations=TARGET_DATES.map((date,index)=>{
+    const raw=scan.observations[index],q=quotes[index];
+    const slot=scan.allDatesCandidates===true&&raw?.date===date
+      &&raw.decision==='EXACT_SOURCE_CANDIDATE'
+      &&raw.rawOccupiedRows===0;
+    const exact=!!q&&identifier(q.code)===target&&q.date===date
+      &&q.usedDate===date&&['KRX','KRX_OTP'].includes(q.source)
+      &&typeof q.price==='number'&&Number.isFinite(q.price)&&q.price>0;
+    return {date,rawSlotCandidate:slot,numericQuoteShapeValid:exact,
+      decision:!slot?'RAW_PROTECTION_BLOCK'
+        :!exact?'QUOTE_NOT_EXACT_OR_NOT_NUMERIC':'FORMAT_CANDIDATE_ONLY'};
+  });
+  return {mode:'SYNTHETIC_NUMERIC_FORMAT_ORACLE',readOnly:true,
+    numericValuesExposed:false,privateIdentifiersExposed:false,
+    officialProviderAuthenticated:false,sourceAtCopyVerified:false,
+    ledgerUnderLockVerified:false,externalWriterExclusive:false,
+    writerInstalled:false,writePermitted:false,
+    formattedQuoteCandidates:publicCount(observations.filter(
+      x=>x.decision==='FORMAT_CANDIDATE_ONLY').length),
+    allFormatCandidates:observations.every(
+      x=>x.decision==='FORMAT_CANDIDATE_ONLY'),observations,
+    next:'Re-fetch provider numbers under GAS ScriptLock and validate exact source date, source history/backup signature, external-writer control, then require separate user authorization.'};
+}
 export function selfTest(){
   const base={
     targetCode:'SYNTHETIC01', aliases:['SYNTHETIC_ALIAS'],
@@ -194,6 +231,58 @@ export function selfTest(){
   assert.ok(!JSON.stringify(manual).includes('SECRET_COMPANY'));
   assert.ok(!JSON.stringify(manual).includes('SYNTHETIC01'));
   assert.ok(!JSON.stringify(manual).includes('888'));
+  // Real fetchPricesKrx uses KRX (OpenAPI) and KRX_OTP, NOT
+  // the sanitized KRX_OPENAPI providerClass returned by the coverage API.
+  const sampleQuotes=TARGET_DATES.map(date=>({
+    code:'SYNTHETIC01',date,usedDate:date,source:'KRX',price:101
+  }));
+  const checked=inspectOfficialNumericCloses({
+    targetCode:base.targetCode,scan:clean,quotes:sampleQuotes});
+  assert.equal(checked.allFormatCandidates,true);
+  assert.equal(checked.formattedQuoteCandidates,3);
+  assert.equal(checked.writePermitted,false);
+  assert.equal(checked.officialProviderAuthenticated,false);
+  assert.equal(checked.sourceAtCopyVerified,false);
+  assert.equal(checked.externalWriterExclusive,false);
+  assert.ok(checked.observations.every(x=>x.decision==='FORMAT_CANDIDATE_ONLY'));
+  const otpQuotes=structuredClone(sampleQuotes);
+  otpQuotes[0].source='KRX_OTP';
+  assert.equal(inspectOfficialNumericCloses({
+    targetCode:base.targetCode,scan:clean,quotes:otpQuotes}).allFormatCandidates,true);
+  function mutatedQuote(field,value){
+    const quotes=structuredClone(sampleQuotes);
+    quotes[1][field]=value;
+    const result=inspectOfficialNumericCloses({
+      targetCode:base.targetCode,scan:clean,quotes});
+    assert.equal(result.allFormatCandidates,false,'unsafe '+field+' must fail closed');
+    assert.equal(result.formattedQuoteCandidates,2);
+    assert.equal(result.observations[1].decision,'QUOTE_NOT_EXACT_OR_NOT_NUMERIC');
+    assert.equal(result.writePermitted,false);
+  }
+  for(const price of [0,-1,NaN,Infinity,-Infinity,'100',null,undefined])
+    mutatedQuote('price',price);
+  for(const value of ['2026-01-01','2026-01-06',''])
+    mutatedQuote('usedDate',value);
+  for(const value of ['GOOGLEFINANCE','FUND_NAV','KRX_OPENAPI','MANUAL','KRX_CARRY',''])
+    mutatedQuote('source',value);
+  mutatedQuote('code','UNRELATED');
+  mutatedQuote('date','2026-01-03');
+  for(const unsafe of [[],sampleQuotes.slice(0,2),
+    [...sampleQuotes,sampleQuotes[0]]]){
+    assert.throws(()=>inspectOfficialNumericCloses({
+      targetCode:base.targetCode,scan:clean,quotes:unsafe}),
+    /ISSUE507_RAW_GUARD_QUOTE_SCOPE/);
+  }
+  const occupiedScan=inspect({...base,
+    rawRows:[row('2025-12-30','SYNTHETIC01',99,'MANUAL')],
+    sheetLastRow:2});
+  const blocked=inspectOfficialNumericCloses({
+    targetCode:base.targetCode,scan:occupiedScan,quotes:sampleQuotes});
+  assert.equal(blocked.allFormatCandidates,false);
+  assert.equal(blocked.observations[0].decision,'RAW_PROTECTION_BLOCK');
+  assert.ok(!JSON.stringify(checked).includes('SYNTHETIC01'));
+  assert.ok(!JSON.stringify(checked).includes('"price":101'));
+  assert.ok(!JSON.stringify(blocked).includes('SECRET_COMPANY'));
   console.log('Issue #507 raw full-row historical SOURCE-ONLY policy oracle: PASS');
 }
 if(process.argv.includes('--self-test'))selfTest();
