@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   diagnose:
+    environment: portfolio-production-gas
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Three preview batches = 10 sequential HTTP calls (max 90s each),

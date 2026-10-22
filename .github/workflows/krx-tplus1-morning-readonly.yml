@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   source-readonly:
+    environment: portfolio-production-gas
     # #507: feature-branch manual dispatch must never receive production GAS
     # credentials. The workflow is scheduled from main or explicitly run on main.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')

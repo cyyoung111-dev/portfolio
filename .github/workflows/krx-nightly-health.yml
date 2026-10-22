@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   check:
+    environment: portfolio-production-gas
     # Live GAS credentials are restricted to main's scheduled or manual runs.
     # A feature-branch workflow_dispatch must skip the entire job.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
