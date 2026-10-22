@@ -11,7 +11,8 @@ export const TARGETS=Object.freeze([
   {label:'PRE_RECOVERY_20261019',name:'스냅샷_백업_20261019_507_0605복구전'},
   {label:'SYSTEM_20261020_1507',name:'스냅샷_백업_20261020_150704_df4655'},
   {label:'SYSTEM_20261021_1908',name:'스냅샷_백업_20261021_190811_803bd0'},
-  {label:'SYSTEM_20261021_1947',name:'스냅샷_백업_20261021_194723_ebc4c5'}
+  {label:'SYSTEM_20261021_1947',name:'스냅샷_백업_20261021_194723_ebc4c5'},
+  {label:'SYSTEM_20261022_0004',name:'스냅샷_백업_20261022_000401_d36bf1'}
 ]);
 const STATUS=new Set(['','CREATED','COMPLETED','WRITE_FAILED']);
 const CLASSES=new Set(['REGISTERED_COMPLETED','REGISTERED_INCOMPLETE',
@@ -184,7 +185,10 @@ function productionContract({unregisteredPreRecovery=false,missingSource=false}=
     getMaxColumns:()=>12,getLastRow:()=>10728,getLastColumn:()=>12,__hash:'oct1908-mock'};
   const oct1947={getName:()=>TARGETS[3].name,getMaxRows:()=>12000,
     getMaxColumns:()=>12,getLastRow:()=>9105,getLastColumn:()=>12,__hash:'oct1947-mock'};
-  const sheets=missingSource?[old,newest,oct1908,oct1947]:[source,old,newest,oct1908,oct1947];
+  const oct0004={getName:()=>TARGETS[4].name,getMaxRows:()=>12000,
+    getMaxColumns:()=>12,getLastRow:()=>9825,getLastColumn:()=>12,__hash:'oct0004-mock'};
+  const sheets=missingSource?[old,newest,oct1908,oct1947,oct0004]
+    :[source,old,newest,oct1908,oct1947,oct0004];
   const ss={getSheets:()=>sheets,getSheetByName:name=>sheets.find(x=>x.getName()===name)||null};
   const registry=[
     ...(!unregisteredPreRecovery?[{name:TARGETS[0].name,source:'스냅샷',
@@ -194,7 +198,10 @@ function productionContract({unregisteredPreRecovery=false,missingSource=false}=
     {name:TARGETS[2].name,source:'스냅샷',status:'COMPLETED',
       signature:'oct1908-mock',createdAt:'',completedAt:''},
     {name:TARGETS[3].name,source:'스냅샷',status:'WRITE_FAILED',
-      signature:'not-a-match',createdAt:'',completedAt:''}
+      signature:'not-a-match',createdAt:'',completedAt:''},
+    // Synthetic CREATED state tests classification only; not the live status.
+    {name:TARGETS[4].name,source:'스냅샷',status:'CREATED',
+      signature:'oct0004-mock',createdAt:'',completedAt:''}
   ];
   const sandbox={
     _readSystemBackupRegistry:()=>registry,
@@ -225,6 +232,11 @@ export async function selfTest(){
   assert.equal(out[3].classification,'REGISTERED_WRITE_FAILED');
   assert.equal(out[3].backupContentSignatureMatchesRegistry,false);
   assert.equal(out[3].restoreAllowed,false);
+  assert.equal(out[4].registryState,'CREATED');
+  assert.equal(out[4].classification,'REGISTERED_INCOMPLETE');
+  assert.equal(out[4].backupContentSignatureMatchesRegistry,true);
+  assert.equal(out[4].sourceAtCopySignatureVerified,false);
+  assert.equal(out[4].restoreAllowed,false);
   assert.ok(out.every(x=>!x.restoreAllowed&&!x.sourceAtCopySignatureVerified));
   // Actual production GAS naming regex does NOT match the 10/19 human
   // pre-recovery suffix. An unregistered backup must be reported, not crash.
@@ -308,6 +320,10 @@ export async function selfTest(){
   missingOct21.workbook.sheets=missingOct21.workbook.sheets.filter(
     x=>x.name!==TARGETS[3].name);
   assert.throws(()=>summarizeWorkbook(missingOct21),/TARGET_SCHEMA/);
+  const missingOct22=structuredClone(fixture);
+  missingOct22.workbook.sheets=missingOct22.workbook.sheets.filter(
+    x=>x.name!==TARGETS[4].name);
+  assert.throws(()=>summarizeWorkbook(missingOct22),/TARGET_SCHEMA/);
   const duplicate=structuredClone(fixture);
   duplicate.workbook.sheets.push(structuredClone(duplicate.workbook.sheets[0]));
   assert.throws(()=>summarizeWorkbook(duplicate),/DUPLICATE_SHEET_NAMES/);
@@ -336,6 +352,8 @@ export async function selfTest(){
   assert.equal(live.backups.length,TARGETS.length);
   assert.equal(live.backups[2].registryState,'COMPLETED');
   assert.equal(live.backups[3].registryState,'WRITE_FAILED');
+  assert.equal(live.backups[4].registryState,'CREATED');
+  assert.equal(live.backups[4].sourceAtCopySignatureVerified,false);
   assert.ok(live.backups.every(x=>x.sourceAtCopySignatureVerified===false));
   assert.equal(live.restoreAllowed,false);
   assert.equal(live.deleteAllowed,false);
