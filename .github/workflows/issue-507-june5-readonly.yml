@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   june5-snapshot:
-    environment: portfolio-production-gas
     runs-on: ubuntu-latest
+    environment: portfolio-production-gas
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
