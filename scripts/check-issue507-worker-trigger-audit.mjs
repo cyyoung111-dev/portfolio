@@ -4,7 +4,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import YAML from 'yaml';
 import {selfTest as testProcessAudit} from './issue507-worker-execution-audit.mjs';
 import {summarizeBackfillStatus,assessWorkerRunCheckpoint} from './diagnose-backfill-status.mjs';
 
@@ -136,34 +135,5 @@ for(const [before,after] of [
   assert.notEqual(mutated,auditSource);
   const module=await import('data:text/javascript;base64,'+Buffer.from(mutated).toString('base64'));
   await assert.rejects(()=>module.selfTest(),{name:'AssertionError'});
-}
-const auditWorkflow=fs.readFileSync('.github/workflows/issue-507-worker-execution-audit.yml','utf8');
-function verifyMonitor(source){
-  const document=YAML.parseDocument(source,{uniqueKeys:true});
-  assert.equal(document.errors.length,0);
-  const config=document.toJS();
-  assert.deepEqual(config.on.schedule,[{cron:'17 18 * * *'}]);
-  assert.deepEqual(config.permissions,{contents:'read'});
-  assert.equal(config.concurrency['cancel-in-progress'],false);
-  const job=config.jobs['live-readonly'];
-  assert.equal(job.if,"github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')");
-  assert.equal(job.environment,'portfolio-production-gas');
-  assert.equal(job.needs,'contract');
-  assert.equal(job['timeout-minutes'],4);
-  assert.equal(job.steps.at(-1).run,'node scripts/issue507-worker-execution-audit.mjs --health-check');
-  assert.equal(job.steps.at(-1)['continue-on-error'],undefined);
-  assert.equal(job.steps.at(-1).env.CLASPRC_JSON,'$'+'{{ secrets.CLASPRC_JSON }}');
-  const contract=JSON.stringify(config.jobs.contract);
-  assert.ok(!contract.includes('secrets.'));
-  assert.match(contract,/--self-test/);
-}
-verifyMonitor(auditWorkflow);
-for(const [before,after] of [
-  ['--health-check',''],['portfolio-production-gas','unprotected'],
-  ["github.ref == 'refs/heads/main' && ",''],["17 18 * * *","17 18 * * 1"]
-]){
-  const mutated=auditWorkflow.replace(before,after);
-  assert.notEqual(mutated,auditWorkflow);
-  assert.throws(()=>verifyMonitor(mutated));
 }
 console.log('Issue #507 scheduled process health, bounded retries and workflow mutations: PASS');

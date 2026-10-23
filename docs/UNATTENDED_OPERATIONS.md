@@ -9,6 +9,7 @@
 - [OAuth 감사 #39900963389](https://github.com/cyyoung111-dev/portfolio/actions/runs/39900963389), attempt 2의 live-readonly job `120257876358` 성공. JSON 파싱·refresh token 교환·Process API 호출까지 검증됐다. 최신 50건 표본은 COMPLETED 4 / FAILED 4 / TIMED_OUT 42, 최신 TIME_DRIVEN 완료 2026-10-23 14:02 KST. 전체 이력 통계나 Snapshot 내용 정상의 증거가 아니다.
 - 최신 인계의 실운영 웹앱 v9.244와 저장소 GAS v9.254는 다르다. 이 점검에서는 새 인증 호출이나 배포로 재측정하지 않았다. main/CI/Pages 성공으로 운영 GAS가 바뀌었다고 판단하지 않는다.
 - #507 최신 인계에는 deferred 29일, 원천 부족 6일, 누락 5일·충돌 18일, COMPLETED 백업 0이 남아 있다. 과거 원본을 무인 복원·삭제할 근거가 없다.
+- [기존 main 운영 상태 #39896537840](https://github.com/cyyoung111-dev/portfolio/actions/runs/39896537840), status-only job `120228224973`의 12:44 KST 기록도 직접 확인했다. v9.244, 마감/감시/백필 트리거 각 1개, hourly CLOCK 1개, pending 10/10·10/22, deferred 29일, 공식 KRX 10/22 대비 Snapshot 10/21, overall ERROR였다. worker는 12:02 시작·12:06 `DATE_SOURCE_COLLECTION`에서 마지막 기록을 남겨 STALE_RUNNING_TIMEOUT_SUSPECTED였고 00:30은 KRX_PRICE_SOURCE_OR_COVERAGE 실패였다. 이후 14:02 Process COMPLETED와 다른 관측 시점이다. 이 기록으로 현재도 같은 단계에 멈춰 있다거나 특정 함수가 42건 TIMEOUT의 전부 원인이라고 단정하지 않는다.
 - `gas-deploy.yml`의 deploy job은 의도적으로 workflow_dispatch만 허용한다. `deploy-gas.mjs`는 사용자 OAuth refresh token을 **자동 교환**하고 소스 blob·프로젝트 전체 파일·새 버전·웹앱 응답을 검증한다. 매번 access token을 사람이 갱신할 구조는 아니다.
 
 ## 선택한 경로
