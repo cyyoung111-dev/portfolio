@@ -30,10 +30,30 @@ export function summarizeProcesses(payload){
     // the OAuth account may not have visibility of the trigger owner's runs.
     absenceProvesNoExecution:false};
 }
+// Decode credentials locally and return *only static classifications*.
+// Never include the JSON, parser error text, OAuth tokens, or secret fragments
+// in public Actions logs. Keep the parser in deploy-gas.mjs authoritative.
+export function parseAuditClaspCredentials(value){
+  if(typeof value!=='string'||!value.trim())
+    throw Error('ISSUE507_CLASP_SECRET_MISSING');
+  let decoded;
+  try{decoded=JSON.parse(value);}
+  catch{throw Error('ISSUE507_CLASP_JSON_INVALID');}
+  if(!decoded||typeof decoded!=='object'||Array.isArray(decoded))
+    throw Error('ISSUE507_CLASP_FIELDS_MISSING');
+  try{return parseClaspCredentials(value);}
+  catch(error){
+    // This parser message is a controlled constant, not user text.
+    // Never forward any other parser message; it could expose secrets.
+    if(error?.message==='CLASPRC_JSON에 여러 clasp 사용자 토큰이 있습니다. default 사용자로 clasp login하거나 default 항목만 포함해 저장하세요.')
+      throw Error('ISSUE507_CLASP_ACCOUNT_AMBIGUOUS');
+    throw Error('ISSUE507_CLASP_FIELDS_MISSING');
+  }
+}
 export async function audit({credentials,scriptId,fetchImpl=fetch}){
-  if(!credentials||!scriptId||!/^[a-zA-Z0-9_-]{15,}$/.test(scriptId))
+  if(!scriptId||!/^[a-zA-Z0-9_-]{15,}$/.test(scriptId))
     throw Error('ISSUE507_CONFIG_MISSING');
-  const {clientId,clientSecret,refreshToken}=parseClaspCredentials(credentials);
+  const {clientId,clientSecret,refreshToken}=parseAuditClaspCredentials(credentials);
   let response;
   try {
     response=await fetchImpl('https://oauth2.googleapis.com/token',{
@@ -87,7 +107,34 @@ export function selfTest(){
   assert.deepEqual(summarizeProcesses({processes:[]}).latest,null);
   assert.equal(summarizeProcesses({processes:[]}).absenceProvesNoExecution,false);
   assert.throws(()=>summarizeProcesses({processes:[{...sample.processes[0],processStatus:'SECRET'}]}),/ISSUE507_PROCESS_RECORD/);
-  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:7};
+  // These are synthetic placeholders, never a real token or account.
+  const c={client_id:'FAKE_CLIENT',client_secret:'FAKE_SECRET',refresh_token:'FAKE_REFRESH'};
+  assert.deepEqual(parseAuditClaspCredentials(JSON.stringify(c)),{
+    clientId:c.client_id,clientSecret:c.client_secret,refreshToken:c.refresh_token});
+  assert.deepEqual(parseAuditClaspCredentials(JSON.stringify({tokens:{default:c}})),{
+    clientId:c.client_id,clientSecret:c.client_secret,refreshToken:c.refresh_token});
+  assert.deepEqual(parseAuditClaspCredentials(JSON.stringify({tokens:{profile:c}})),{
+    clientId:c.client_id,clientSecret:c.client_secret,refreshToken:c.refresh_token});
+  assert.deepEqual(parseAuditClaspCredentials(JSON.stringify({
+    token:{refresh_token:c.refresh_token},
+    oauth2ClientSettings:{clientId:c.client_id,clientSecret:c.client_secret}
+  })),{clientId:c.client_id,clientSecret:c.client_secret,refreshToken:c.refresh_token});
+  assert.throws(()=>parseAuditClaspCredentials(''),/ISSUE507_CLASP_SECRET_MISSING/);
+  assert.throws(()=>parseAuditClaspCredentials(undefined),/ISSUE507_CLASP_SECRET_MISSING/);
+  assert.throws(()=>parseAuditClaspCredentials('C:\\\\Users\\\\PRIVATE\\\\.clasprc.json'),
+    /ISSUE507_CLASP_JSON_INVALID/);
+  assert.throws(()=>parseAuditClaspCredentials('{private-refresh-token-should-never-leak'),
+    /ISSUE507_CLASP_JSON_INVALID/);
+  assert.throws(()=>parseAuditClaspCredentials('null'),/ISSUE507_CLASP_FIELDS_MISSING/);
+  assert.throws(()=>parseAuditClaspCredentials('[]'),/ISSUE507_CLASP_FIELDS_MISSING/);
+  assert.throws(()=>parseAuditClaspCredentials(JSON.stringify({tokens:{default:{client_id:'fake'}}})),
+    /ISSUE507_CLASP_FIELDS_MISSING/);
+  assert.throws(()=>parseAuditClaspCredentials(JSON.stringify({
+    tokens:{first:c,second:c}})),/ISSUE507_CLASP_ACCOUNT_AMBIGUOUS/);
+  const unknown='PRIVATE_DYNAMIC_VALUE_MUST_NOT_BE_PRINTED';
+  assert.throws(()=>parseAuditClaspCredentials(JSON.stringify({tokens:{default:{
+    client_id:unknown}}})),/ISSUE507_CLASP_FIELDS_MISSING/);
+  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:20};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try {
