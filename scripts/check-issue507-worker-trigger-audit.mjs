@@ -143,11 +143,12 @@ for(const writerFails of [false,true]) {
       assert.equal(assessWorkerRunCheckpoint(checkpoint,Date.parse(checkpoint.at)+600001),
         'STALE_RUNNING_TIMEOUT_SUSPECTED');
     }})},
+    _buildSnapshotRangeReadContext:ss=>({ss}),
     diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:33,storedRowCount:33,
       duplicateKeys:[],sourceDataErrors:[]}),
     _rebuildDailySnapshotsLocked:()=>({errors:writerFails?['SYNTHETIC_ERROR']:[],skipped:0})
   });
-  vm.runInContext(['_markTradeSnapshotWorkerResult_','_assessTradeSnapshotWorkerDate_']
+  vm.runInContext(['_markTradeSnapshotWorkerResult_','_diagnoseTradeSnapshotWorkerDate_','_assessTradeSnapshotWorkerDate_']
     .map(productionFunction).join('\n'),context);
   const started=new Date().toISOString();
   context._assessTradeSnapshotWorkerDate_({},'2026-02-25',(phase,date)=>
