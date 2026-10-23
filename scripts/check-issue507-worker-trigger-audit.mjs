@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {selfTest as testProcessAudit} from './issue507-worker-execution-audit.mjs';
 import {summarizeBackfillStatus,assessWorkerRunCheckpoint} from './diagnose-backfill-status.mjs';
 
 const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -122,3 +123,18 @@ assert.equal(summarizeBackfillStatus(staleResponse).tradeSnapshotWorkerRuntimeAs
 assert.equal(summarizeBackfillStatus(status(good)).tradeSnapshotWorkerRuntimeAssessment,
   'NO_CHECKPOINT');
 console.log('Issue #507 real GAS CLOCK trigger audit and fail-closed read-only schema: PASS');
+
+await testProcessAudit();
+const auditSource=fs.readFileSync('scripts/issue507-worker-execution-audit.mjs','utf8')
+  .replace("'./deploy-gas.mjs'",JSON.stringify(new URL('./deploy-gas.mjs',import.meta.url).href));
+for(const [before,after] of [
+  ["if(failed)issues.push('RECENT_WORKER_FAILURE')","if(false)issues.push('RECENT_WORKER_FAILURE')"],
+  ['>3*60*60*1000','>300*60*60*1000'],
+  ['pause,now,clock=Date.now','pause,now=Date.now(),clock=Date.now']
+]){
+  const mutated=auditSource.replace(before,after);
+  assert.notEqual(mutated,auditSource);
+  const module=await import('data:text/javascript;base64,'+Buffer.from(mutated).toString('base64'));
+  await assert.rejects(()=>module.selfTest(),{name:'AssertionError'});
+}
+console.log('Issue #507 scheduled process health, bounded retries and workflow mutations: PASS');
