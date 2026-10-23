@@ -137,7 +137,7 @@ export async function selfTest(){
   assert.equal(DATES.length,23);
   assert.equal(manifestFromJson(manifestJson)[DATES[0]].length,64);
   assert.throws(()=>manifestFromJson(JSON.stringify({...manifest,extra:'a'.repeat(64)})),/MANIFEST_COVERAGE/);
-  assert.throws(()=>digestRows(rows(DATES[0]).map((r,i)=>i===1?[...r.slice(0,1),r[0],...r.slice(2)]:r),DATES[0]),/DUPLICATE_CODE|ROW_ID/);
+  assert.throws(()=>digestRows(rows(DATES[0]).map((r,i)=>i===1?[...r.slice(0,1),String(1).padStart(6,'0'),...r.slice(2)]:r),DATES[0]),/DUPLICATE_CODE|ROW_ID/);
   const changed=rows(DATES[0]);changed[0][6]+=1;
   assert.notEqual(digestRows(changed,DATES[0]),manifest[DATES[0]]);
   assert.throws(()=>digestRows(rows(DATES[0]).map((r,i)=>i===0?[...r.slice(0,10),'KRX_CARRY@2026-12-30','']:r),DATES[0]),/FUTURE_CARRY/);
