@@ -11,6 +11,9 @@ on:
     branches: [ main ]
     paths:
       - 'scripts/check-*.mjs'
+      - 'src/gas/apps_script.gs'
+      - 'scripts/deploy-gas.mjs'
+      - 'scripts/gas-release-gate.mjs'
       - 'package.json'
       - '.github/workflows/quality-check.yml'
       - '.github/workflows/gas-deploy.yml'

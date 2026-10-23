@@ -76,7 +76,7 @@ export function fixture(rowsPerSheet=1200) {
     Utilities:{formatDate:date=>date.toISOString().slice(0,10)},
     Logger:{log:()=>{}},Date});
   vm.runInContext(productionCode,ctx);
-  return {ss,ctx,reading,mutations};
+  return {ss,ctx,reading,mutations,values};
 }
 
 export function readVolume(rows=1200){

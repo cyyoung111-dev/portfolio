@@ -65,10 +65,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.255');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.256');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.255','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.256','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -96,7 +96,7 @@ assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a se
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
   'newest GAS release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.254') && latestReleaseNotes.includes('Snapshot'),
+assert.ok(latestReleaseNotes.includes('gasVersion=9.255') && latestReleaseNotes.includes('Snapshot'),
   'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -574,7 +574,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='1f44d05f179cd20b27e12130003d1d1fd25197f2';
+const approvedFullSourceBlob='457404f695edb101e8923d2fe3bd42f258aada35';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -618,7 +618,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.254',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.255',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
@@ -742,15 +742,15 @@ assert.ok(versionValidationPos > 0 && publishPos > versionValidationPos,
 
 
 const workflow = fs.readFileSync('.github/workflows/gas-deploy.yml', 'utf8');
-assert.match(workflow, /push:\s*[\s\S]*branches:\s*\[\s*main\s*\][\s\S]*src\/gas\/apps_script\.gs/);
+assert.match(workflow, /workflow_run:/);
 assert.match(workflow, /pull_request:/);
 assert.match(workflow, /workflow_dispatch:/);
-assert.match(workflow, /npm run check:gas/);
+assert.match(workflow, /npm run check:ci/);
 assert.match(workflow, /CLASPRC_JSON/);
 assert.doesNotMatch(workflow, /GOOGLE_OAUTH_CLIENT_ID|GOOGLE_OAUTH_CLIENT_SECRET|GOOGLE_OAUTH_REFRESH_TOKEN/);
 assert.match(workflow, /GAS_SCRIPT_ID/);
 assert.match(workflow, /GAS_WEB_APP_URL/);
-assert.match(workflow, /deploy:\s*\n\s*# #507:[^\n]*\n\s*# [^\n]*\n\s*if:\s*github\.event_name == 'workflow_dispatch'/, 'main push must not invoke live GAS deployment');
+assert.match(workflow, /GAS_AUTO_DEPLOY_ENABLED/, 'automatic release must require administrator opt-in');
 assert.doesNotMatch(workflow, /github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED/, 'auto production deployment on push is forbidden');
 assert.match(workflow, /deploy:\s*[\s\S]*concurrency:/);
 assert.match(workflow, /gas-deploy-dry-run/);
