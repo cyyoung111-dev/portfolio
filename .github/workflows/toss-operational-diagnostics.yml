@@ -19,6 +19,7 @@ permissions:
 jobs:
   verify-live-toss:
     if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

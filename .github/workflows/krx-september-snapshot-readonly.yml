@@ -14,6 +14,7 @@ concurrency:
 jobs:
   september-snapshot:
     runs-on: ubuntu-latest
+    environment: portfolio-production-gas
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7

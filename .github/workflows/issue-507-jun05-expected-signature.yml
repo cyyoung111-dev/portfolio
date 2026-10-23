@@ -32,6 +32,7 @@ jobs:
 
   live-readonly:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: portfolio-production-gas
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 10

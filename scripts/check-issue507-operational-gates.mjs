@@ -66,3 +66,55 @@ for (const name of workflows) {
     name + ': push-only bypass must FAIL CLOSED');
 }
 console.log('Issue #507 credentialed GAS workflow gates: PASS (' + workflows.length + ' workflows)');
+
+// A workflow-level if guard is NOT sufficient against older or modified
+// feature branches. The GitHub *settings*-enforced protected environment
+// must be selected on every job that can read the operational GAS secret.
+// This is a source-code preflight only: it cannot certify that the GitHub
+// environment branch policy and environment secret were installed.
+const productionEnvironment='portfolio-production-gas';
+// Both credentials can access production GAS, including Apps Script deployment.
+const protectedSecrets=['secrets.GAS_ACCESS_TOKEN','secrets.CLASPRC_JSON'];
+const dir=new URL('../.github/workflows/',import.meta.url);
+const workflowFiles=fs.readdirSync(dir).filter(file=>/\.ya?ml$/.test(file)).sort();
+function auditEnvironmentGuard(name,source){
+  const document=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
+  assert.equal(document.errors.length,0,name+': workflow YAML must parse');
+  const config=document.toJS({maxAliasCount:0});
+  const credentialedJobs=[];
+  for(const [jobName,job] of Object.entries(config.jobs||{})){
+    if(!protectedSecrets.some(secret=>JSON.stringify(job).includes(secret)))continue;
+    credentialedJobs.push(jobName);
+    assert.equal(job.environment,productionEnvironment,
+      name+'/'+jobName+': secret-consuming job must use selected-branches protected Environment');
+  }
+  return credentialedJobs;
+}
+const protectedWorkflowNames=[];
+let protectedJobs=0;
+for(const name of workflowFiles){
+  const yaml=fs.readFileSync(new URL(name,dir),'utf8');
+  const jobs=auditEnvironmentGuard(name,yaml);
+  if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
+}
+assert.equal(protectedWorkflowNames.length,34,
+  'migration inventory: all 34 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,35,
+  'migration inventory: all 35 secret-consuming jobs must be protected');
+const sample='issue-507-three-day-code-lineage-readonly.yml';
+const sampleSource=fs.readFileSync(new URL(sample,dir),'utf8');
+const removed=sampleSource.replace('    environment: '+productionEnvironment+'\n','');
+assert.notEqual(removed,sampleSource,'negative mutation must actually remove guard');
+assert.throws(()=>auditEnvironmentGuard(sample,removed),/protected Environment/);
+const switched=sampleSource.replace(
+  '    environment: '+productionEnvironment,
+  '    environment: unrestricted-environment');
+assert.throws(()=>auditEnvironmentGuard(sample,switched),/protected Environment/);
+const oauthWorkflow='issue-507-worker-execution-audit.yml';
+const oauthSource=fs.readFileSync(new URL(oauthWorkflow,dir),'utf8');
+const oauthWithoutGuard=oauthSource.replace('    environment: '+productionEnvironment+'\n','');
+assert.notEqual(oauthWithoutGuard,oauthSource,'Apps Script OAuth worker guard mutation must apply');
+assert.throws(()=>auditEnvironmentGuard(oauthWorkflow,oauthWithoutGuard),/protected Environment/);
+console.log('Issue #507 GAS environment source-contract: '+protectedWorkflowNames.length
+ +' workflow files / '+protectedJobs+' secret-consuming jobs. GitHub Settings policy NOT VERIFIED.');
+

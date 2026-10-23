@@ -26,6 +26,7 @@ concurrency:
 jobs:
   recovery:
     if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     # Existing authenticated preflight/auth probe/one write have 4-minute
     # request timeouts each (12 min maximum); preserve runner headroom.

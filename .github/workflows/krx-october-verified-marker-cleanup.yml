@@ -27,6 +27,7 @@ concurrency:
 jobs:
   finalize:
     if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     # Three preflight batches of (1+N)*90s, seven apply*120s,
     # three postflight batches (1+N)*90s: worst 44m, plus overhead.

@@ -18,6 +18,7 @@ concurrency:
 jobs:
   activate:
     if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
