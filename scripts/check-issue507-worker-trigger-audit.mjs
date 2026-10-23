@@ -122,6 +122,45 @@ assert.equal(summarizeBackfillStatus(staleResponse).tradeSnapshotWorkerRuntimeAs
   'STALE_RUNNING_TIMEOUT_SUSPECTED');
 assert.equal(summarizeBackfillStatus(status(good)).tradeSnapshotWorkerRuntimeAssessment,
   'NO_CHECKPOINT');
+// Connect actual assessor emissions and actual persisted checkpoint encoding
+// to the production read-only consumer. Unknown phases remain fail-closed.
+const productionFunction=n=>{
+  const m=source.match(new RegExp('function '+n+'\\([\\s\\S]*?\\n}', 'm'));
+  assert.ok(m,'missing production function '+n);return m[0];
+};
+const emitted=new Set();
+for(const writerFails of [false,true]) {
+  const context=vm.createContext({
+    TRADE_SNAPSHOT_WORKER_LAST_KEY:'checkpoint',
+    PropertiesService:{getScriptProperties:()=>({setProperty:(_key,value)=>{
+      const checkpoint=JSON.parse(value),input=status(good,'9.256');
+      emitted.add(checkpoint.phase);
+      input.automation.tradeSnapshotWorkerLastResult={...checkpoint,secret:'MUST_NOT_LEAK'};
+      const output=summarizeBackfillStatus(input);
+      assert.equal(output.tradeSnapshotWorkerLastResult.phase,checkpoint.phase);
+      assert.equal(output.tradeSnapshotWorkerLastResult.blockedDate,'2026-02-25');
+      assert.ok(!JSON.stringify(output).includes('MUST_NOT_LEAK'));
+      assert.equal(assessWorkerRunCheckpoint(checkpoint,Date.parse(checkpoint.at)+600001),
+        'STALE_RUNNING_TIMEOUT_SUSPECTED');
+    }})},
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:33,storedRowCount:33,
+      duplicateKeys:[],sourceDataErrors:[]}),
+    _rebuildDailySnapshotsLocked:()=>({errors:writerFails?['SYNTHETIC_ERROR']:[],skipped:0})
+  });
+  vm.runInContext(['_markTradeSnapshotWorkerResult_','_assessTradeSnapshotWorkerDate_']
+    .map(productionFunction).join('\n'),context);
+  const started=new Date().toISOString();
+  context._assessTradeSnapshotWorkerDate_({},'2026-02-25',(phase,date)=>
+    context._markTradeSnapshotWorkerResult_({status:'RUNNING',processed:0,
+      phase,blockedDate:date,runStartedAt:started}));
+}
+assert.deepEqual([...emitted].sort(),['DATE_PRECHECK','DATE_PRECHECK_COMPLETE',
+  'DATE_REBUILD','DATE_REBUILD_COMPLETE','DATE_POSTCHECK','DATE_POSTCHECK_COMPLETE',
+  'DATE_FAILURE_RECHECK','DATE_FAILURE_RECHECK_COMPLETE'].sort());
+const invalidPhase=status(good,'9.256');
+invalidPhase.automation.tradeSnapshotWorkerLastResult={...staleWorker,phase:'UNTRUSTED_PHASE'};
+assert.throws(()=>summarizeBackfillStatus(invalidPhase),
+  /AUTOMATION_DIAG_BAD_LEDGER_WORKER_CHECKPOINT/);
 console.log('Issue #507 real GAS CLOCK trigger audit and fail-closed read-only schema: PASS');
 
 await testProcessAudit();
