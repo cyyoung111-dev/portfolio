@@ -129,7 +129,8 @@ const auditSource=fs.readFileSync('scripts/issue507-worker-execution-audit.mjs',
   .replace("'./deploy-gas.mjs'",JSON.stringify(new URL('./deploy-gas.mjs',import.meta.url).href));
 for(const [before,after] of [
   ["if(failed)issues.push('RECENT_WORKER_FAILURE')","if(false)issues.push('RECENT_WORKER_FAILURE')"],
-  ['>3*60*60*1000','>300*60*60*1000']
+  ['>3*60*60*1000','>300*60*60*1000'],
+  ['pause,now,clock=Date.now','pause,now=Date.now(),clock=Date.now']
 ]){
   const mutated=auditSource.replace(before,after);
   assert.notEqual(mutated,auditSource);

@@ -88,7 +88,7 @@ export function parseAuditClaspCredentials(value){
     throw Error('ISSUE507_CLASP_FIELDS_MISSING');
   }
 }
-export async function audit({credentials,scriptId,fetchImpl=fetch,pause,now=Date.now()}){
+export async function audit({credentials,scriptId,fetchImpl=fetch,pause,now,clock=Date.now}){
   if(!scriptId||!/^[a-zA-Z0-9_-]{15,}$/.test(scriptId))
     throw Error('ISSUE507_CONFIG_MISSING');
   const {clientId,clientSecret,refreshToken}=parseAuditClaspCredentials(credentials);
@@ -124,7 +124,9 @@ export async function audit({credentials,scriptId,fetchImpl=fetch,pause,now=Date
   if(!Array.isArray(raw?.processes))raw={...raw,processes:raw?.processes??[]};
   const summary=summarizeProcesses(raw);
   return {...summary,result:summary.processCount?'PROCESS_EXECUTION_FOUND':'NO_VISIBLE_PROCESS',
-    health:assessProcessHealth(raw,{now}),
+    // Requests/retries can span a new hourly invocation. Observe only after
+    // the process response arrives, otherwise a normal new run looks future.
+    health:assessProcessHealth(raw,{now:now??clock()}),
     workerExecutionVerified:summary.processCount>0,
     mayHaveMorePages:typeof raw.nextPageToken==='string'&&!!raw.nextPageToken};
 }
@@ -214,6 +216,15 @@ export async function selfTest(){
   assert.equal(live.health.status,'ACTION_REQUIRED');
   assert.equal(urls.length,2);assert.match(urls[1],/processes:listScriptProcesses/);
   assert.doesNotMatch(JSON.stringify(live),/SYNTHETIC_ACCESS|FAKE_SECRET|PRIVATE/);
+  let responseRead=false,clockCalls=0,requests=0;
+  const afterNetwork=await audit({credentials:JSON.stringify(c),scriptId:'synthetic_script_id',
+    clock:()=>{clockCalls++;assert.equal(responseRead,true);return now;},
+    fetchImpl:async()=>({ok:true,status:200,json:async()=>{
+      if(++requests===1)return {access_token:'SYNTHETIC_ACCESS'};
+      responseRead=true;return {processes:[sample.processes[0]]};
+    }})});
+  assert.equal(clockCalls,1);
+  assert.equal(afterNetwork.health.status,'PROCESS_HEALTHY');
   return{mode:'LOCAL_CONTRACT_TEST',result:'PASS'};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
