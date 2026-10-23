@@ -1,0 +1,48 @@
+name: issue-507-23day-expected-signature-readonly
+
+# One-time authenticated diagnostic only after the protected environment exists.
+# No historical Snapshot writer, change, cleanup or restore action is called.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-23day-expected-signature-readonly.mjs'
+      - '.github/workflows/issue-507-23day-expected-signature-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate read-only parser and fail-closed scenarios
+        run: |
+          node --check scripts/issue507-23day-expected-signature-readonly.mjs
+          node scripts/issue507-23day-expected-signature-readonly.mjs --self-test
+
+  operational-readonly:
+    # In-workflow branch guard alone is NOT a secret boundary.
+    # The GitHub Environment must allow ONLY main and must hold credentials;
+    # any repo/org-level production GAS credentials must be removed separately.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: portfolio-production-gas
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Compare official GAS expected rows to protected trial manifest
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          ISSUE507_TRIAL_MANIFEST_JSON: ${{ secrets.ISSUE507_TRIAL_MANIFEST_JSON }}
+        run: node scripts/issue507-23day-expected-signature-readonly.mjs
