@@ -44,7 +44,8 @@ export function summarizeDiagnostics(payload,dates) {
 }
 export function summarizeEvidence(automation,diagnostics){
   if(!automation||automation.mode!=='READ_ONLY'
-    ||!['9.237','9.238','9.239','9.240','9.241','9.242','9.243','9.244'].includes(automation.gasVersion)
+    ||!['9.237','9.238','9.239','9.240','9.241','9.242','9.243','9.244',
+      '9.255','9.256'].includes(automation.gasVersion)
     ||typeof automation.triggerReady!=='boolean'
     ||!Array.isArray(automation.triggerMissing)
     ||!Array.isArray(diagnostics)||diagnostics.length!==8)
@@ -179,6 +180,19 @@ export function selfTest(){
       phase:'DATE_DIAGNOSTIC',processed:0,deferred:0,
       blockedDate:'2025-12-31',sourceCheck:''}},evidence);
   assert.equal(phased.workerLastPhase,'DATE_DIAGNOSTIC');
+  for(const gasVersion of ['9.255','9.256']) {
+    const current=summarizeEvidence({...a,gasVersion,
+      tradeSnapshotWorkerLastResult:{status:'RUNNING',
+        at:'2026-10-19T11:07:00.000Z',runStartedAt:'2026-10-19T11:02:23.565Z',
+        phase:'DATE_REBUILD',processed:0,deferred:0,blockedDate:'2026-03-02'}},evidence);
+    assert.equal(current.gasVersion,gasVersion);
+    assert.equal(current.workerLastPhase,'DATE_REBUILD');
+    assert.equal(current.workerCompletedVerified,false);
+    assert.equal(current.operationallyComplete,false);
+  }
+  for(const gasVersion of ['9.245','9.257','10.0'])
+    assert.throws(()=>summarizeEvidence({...a,gasVersion},evidence),
+      /ISSUE507_AUTOMATION_SCHEMA/);
   assert.equal(phased.workerOriginalStartedAt,'2026-10-19T11:02:23.565Z');
   assert.ok(!JSON.stringify(phased).includes('SECRET'));
   assert.equal(executing.workerLastLockBusyAt,'2026-10-19T08:03:00.000Z');
@@ -198,7 +212,7 @@ export function selfTest(){
   const mismatched=evidence.slice();
   mismatched[6]={...mismatched[6],expectedRows:39,storedRows:38};
   assert.equal(summarizeEvidence(a,mismatched).septemberRegressionReady,false);
-  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:16};
+  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:21};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
