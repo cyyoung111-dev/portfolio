@@ -15,7 +15,11 @@ const STATUSES=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT','NO_SNAPSHOT']);
 const CHUNK=5;
 const HASH=/^[a-f0-9]{64}$/;
 const DATE=/^20\d{2}-\d{2}-\d{2}$/;
-function fail(code){throw new Error('ISSUE507_23DAY_'+code);}
+function fail(code,date){
+  const error=new Error('ISSUE507_23DAY_'+code);
+  if(DATES.includes(date))error.diagnosticDate=date;
+  throw error;
+}
 function guard(ok,code){if(!ok)fail(code);}
 function iso(value){
   return typeof value==='string'&&DATE.test(value)&&
@@ -76,7 +80,7 @@ function checkBatch(payload,selected,manifest,previous){
       Array.isArray(d.sourceDataErrors)&&d.sourceDataErrors.length===0&&
       d.expectedRowCount===33,'GAS_EXPECTED_INVALID');
     const sha=digestRows(d.expectedRows,date);
-    guard(sha===manifest[date],'EXPECTED_MANIFEST_MISMATCH');
+    if(sha!==manifest[date])fail('EXPECTED_MANIFEST_MISMATCH',date);
   }
   return {digest:payload.strictSourceDigest,revision:payload.integritySourceRevision,
     dates:selected.length,rows:selected.length*33};
@@ -128,6 +132,14 @@ export async function verify({url,token,manifestJson,fetchImpl=fetch}){
     checkedDates:23,checkedRows:759,sourceStableWithinRun:true,
     trialManifestMatched:true,restoreAllowed:false,deleteAllowed:false,writes:0};
 }
+export function safeFailureReport(error){
+  const message=String(error?.message||'');
+  const code=/^ISSUE507_23DAY_[A-Z_]+$/.test(message)?message:'ISSUE507_23DAY_UNKNOWN';
+  const result={mode:'READ_ONLY_23DAY_EXPECTED_PROOF',status:'FAIL',code};
+  if(code==='ISSUE507_23DAY_EXPECTED_MANIFEST_MISMATCH'&&DATES.includes(error?.diagnosticDate))
+    result.date=error.diagnosticDate;
+  return result;
+}
 export async function selfTest(){
   const rows=day=>Array.from({length:33},(_,i)=>[
     day,i<30?String(i+1).padStart(6,'0'):'F'+String(i-29).padStart(5,'0'),
@@ -169,8 +181,23 @@ export async function selfTest(){
   const badManifest={...manifest,[DATES[0]]:'b'.repeat(64)};
   await assert.rejects(()=>verify({url:'https://script.google.com/macros/s/TEST/exec',
     token:'TEST_TOKEN',manifestJson:JSON.stringify(badManifest),fetchImpl:stub}),
-    /EXPECTED_MANIFEST_MISMATCH/);
-  return {mode:'LOCAL_CONTRACT',status:'PASS',days:23,cases:9,writeEndpoints:0};
+    error=>{
+      assert.equal(error.message,'ISSUE507_23DAY_EXPECTED_MANIFEST_MISMATCH');
+      assert.deepEqual(safeFailureReport(error),{mode:'READ_ONLY_23DAY_EXPECTED_PROOF',
+        status:'FAIL',code:error.message,date:DATES[0]});
+      assert.ok(!JSON.stringify(safeFailureReport(error)).includes(badManifest[DATES[0]]));
+      return true;
+    });
+  const unsafe=new Error('PRIVATE_TOKEN_AND_PAYLOAD');
+  unsafe.diagnosticDate='PRIVATE_FINANCIAL_VALUE';
+  assert.deepEqual(safeFailureReport(unsafe),{mode:'READ_ONLY_23DAY_EXPECTED_PROOF',
+    status:'FAIL',code:'ISSUE507_23DAY_UNKNOWN'});
+  const invalidDate=new Error('ISSUE507_23DAY_EXPECTED_MANIFEST_MISMATCH');
+  invalidDate.diagnosticDate='2026-02-01';
+  assert.equal(safeFailureReport(invalidDate).date,undefined);
+  const unrelated=new Error('ISSUE507_23DAY_NETWORK');unrelated.diagnosticDate=DATES[0];
+  assert.equal(safeFailureReport(unrelated).date,undefined);
+  return {mode:'LOCAL_CONTRACT',status:'PASS',days:23,cases:12,writeEndpoints:0};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
@@ -179,8 +206,7 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
         manifestJson:process.env.ISSUE507_TRIAL_MANIFEST_JSON});
     console.log(JSON.stringify(data));
   }catch(e){
-    const msg=String(e?.message||'');
-    console.error(/^ISSUE507_23DAY_[A-Z_]+$/.test(msg)?msg:'ISSUE507_23DAY_UNKNOWN');
+    console.error(JSON.stringify(safeFailureReport(e)));
     process.exitCode=1;
   }
 }
