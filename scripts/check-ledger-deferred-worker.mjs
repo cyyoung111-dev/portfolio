@@ -278,4 +278,49 @@ for (const [helper,expected] of [
   assert.equal(f.calls.filter(x=>x.op==='rebuild').length,1);
   assert.equal(f.pending().from,'2026-01-01');assert.equal(f.locks.held,0);
 }
+// The same production assessor with/without observation must keep its result
+// and writer calls. Only phase names and the requested date reach the observer.
+{
+  const plain=fixture(),observed=fixture(),phases=[];
+  const a=plain.ctx._assessTradeSnapshotWorkerDate_({},'2026-01-06');
+  const b=observed.ctx._assessTradeSnapshotWorkerDate_({},'2026-01-06',
+    (phase,date)=>phases.push([phase,date]));
+  assert.equal(JSON.stringify(a),JSON.stringify(b));
+  assert.deepEqual(observed.calls,plain.calls);
+  assert.deepEqual(phases.map(x=>x[0]),['DATE_PRECHECK','DATE_PRECHECK_COMPLETE',
+    'DATE_REBUILD','DATE_REBUILD_COMPLETE','DATE_POSTCHECK','DATE_POSTCHECK_COMPLETE']);
+  assert.ok(phases.every(x=>x.length===2&&x[1]==='2026-01-06'));
+}
+{
+  const f=fixture({writerErrorDate:'2026-01-06'}),phases=[];
+  const r=f.ctx._assessTradeSnapshotWorkerDate_({},'2026-01-06',p=>phases.push(p));
+  assert.equal(r.state,'BLOCKED');assert.equal(r.reason,'REBUILD_ERROR');
+  assert.deepEqual(phases,['DATE_PRECHECK','DATE_PRECHECK_COMPLETE','DATE_REBUILD',
+    'DATE_REBUILD_COMPLETE','DATE_FAILURE_RECHECK','DATE_FAILURE_RECHECK_COMPLETE']);
+}
+// Interrupt each actual stage and assert the last reached phase and cursor
+// preservation. This distinguishes precheck, writer and postcheck hard stops.
+for(const stage of ['DATE_PRECHECK','DATE_REBUILD','DATE_POSTCHECK']){
+  const f=fixture();let reads=0;
+  const diagnose=f.ctx.diagnoseSnapshotIntegrity;
+  f.ctx.diagnoseSnapshotIntegrity=(...args)=>{
+    reads++;
+    if((stage==='DATE_PRECHECK'&&reads===1)||(stage==='DATE_POSTCHECK'&&reads===2))
+      throw Error('SYNTHETIC_INTERRUPT');
+    return diagnose(...args);
+  };
+  if(stage==='DATE_REBUILD')f.ctx._rebuildDailySnapshotsLocked=()=>{throw Error('SYNTHETIC_INTERRUPT');};
+  assert.equal(f.ctx.runPendingTradeSnapshotRebuild().status,'ERROR');
+  assert.equal(f.phaseMarks.at(-1).phase,stage);
+  assert.equal(f.pending().from,'2025-12-31');assert.deepEqual(f.deferred().dates,[]);
+  assert.equal(f.locks.held,0);
+}
+{
+  const f=fixture({statusByDate:{'2025-12-31':'SOURCE_INCOMPLETE'}});
+  f.props.delete('trade_snapshot_rebuild_pending_v1');
+  f.props.set('trade_snapshot_rebuild_deferred_v1',JSON.stringify({dates:['2025-12-31'],cursor:''}));
+  assert.equal(f.ctx.runPendingTradeSnapshotRebuild().status,'DEFERRED_RETRY');
+  assert.ok(f.phaseMarks.some(x=>x.phase==='DATE_PRECHECK'&&x.blockedDate==='2025-12-31'));
+  assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0);
+}
 console.log('Issue #507 deferred ledger worker production VM tests PASS');

@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.255
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.256
 //
+//  v9.256 변경사항 (2026.10.24):
+//  - #507 worker 사전진단/재계산/실패 재진단/사후검산 heartbeat 구분.
+//  - 계산·writer·대기열 정책은 유지하고 시간 초과 마지막 단계만 기록.
 //  v9.255 변경사항 (2026.10.23):
 //  - #507 원천 날짜 수집 500행 분할·진행 위치 저장·두 번째 서명 검증 후 Snapshot 처리.
 //  - 같은 실행의 KST 날짜 계산 재사용, 원천 변경 시 재시작·대기 날짜 보존.
@@ -2251,7 +2254,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.255',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.256',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2329,7 +2332,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.255', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.256', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6235,7 +6238,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.255' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.256' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10912,8 +10915,14 @@ function _markTradeSnapshotWorkerResult_(result) {
       runStartedAt:result.runStartedAt || '' }));
   return result;
 }
-function _assessTradeSnapshotWorkerDate_(ss, target) {
+function _assessTradeSnapshotWorkerDate_(ss, target, markPhase) {
+  // Optional phase-only observer. No values, quantities or prices are passed.
+  var phase = function(name) {
+    if (typeof markPhase === 'function') markPhase(name,target);
+  };
+  phase('DATE_PRECHECK');
   var before = diagnoseSnapshotIntegrity(ss,target);
+  phase('DATE_PRECHECK_COMPLETE');
   var deferrable = function(proof) {
     return proof && ['SOURCE_INCOMPLETE','CONFLICT','PRICE_SUSPICIOUS'].indexOf(proof.status) !== -1;
   };
@@ -10939,15 +10948,21 @@ function _assessTradeSnapshotWorkerDate_(ss, target) {
   var beforeEmpty = before.status === 'NO_SNAPSHOT' && before.expectedRowCount === 0
     && before.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss,target) === false;
   if (beforeEmpty) return {state:'VALID'};
+  phase('DATE_REBUILD');
   var result = _rebuildDailySnapshotsLocked(target,target,{});
+  phase('DATE_REBUILD_COMPLETE');
   if (!result || (result.errors || []).length || result.skipped) {
     // An unrelated writer failure is NOT a source-gap exemption.
+    phase('DATE_FAILURE_RECHECK');
     var incomplete = diagnoseSnapshotIntegrity(ss,target);
+    phase('DATE_FAILURE_RECHECK_COMPLETE');
     var incompleteReason = deferredReason(incomplete);
     if (incompleteReason) return {state:'DEFERRED',reason:incompleteReason};
     return {state:'BLOCKED',reason:'REBUILD_ERROR'};
   }
+  phase('DATE_POSTCHECK');
   var proof = diagnoseSnapshotIntegrity(ss,target);
+  phase('DATE_POSTCHECK_COMPLETE');
   var verifiedEmpty = proof.status === 'NO_SNAPSHOT' && proof.expectedRowCount === 0
     && proof.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss,target) === false;
   if ((proof.status === 'VALID' || verifiedEmpty) && !proof.duplicateKeys.length && !proof.sourceDataErrors.length)
@@ -11098,7 +11113,7 @@ function runPendingTradeSnapshotRebuild() {
       // forever starvation when multiple historical dates need user input.
       var next = deferred.dates.filter(function(date) { return date > deferred.cursor; })[0] || deferred.dates[0];
       markPhase('DEFERRED_RETRY',next);
-      var retry = _assessTradeSnapshotWorkerDate_(ss,next);
+      var retry = _assessTradeSnapshotWorkerDate_(ss,next,markPhase);
       if (retry.state === 'VALID') {
         _clearTradeSnapshotDeferredDate_(next);
         return _markTradeSnapshotWorkerResult_({status:'DEFERRED_RESOLVED',processed:1,blockedDate:next});
@@ -11128,7 +11143,7 @@ function runPendingTradeSnapshotRebuild() {
         return _markTradeSnapshotWorkerResult_({status:'PENDING',processed:processed,deferred:deferredCount});
       var target = batch[i];
       markPhase('DATE_DIAGNOSTIC',target);
-      var attempt = _assessTradeSnapshotWorkerDate_(ss,target);
+      var attempt = _assessTradeSnapshotWorkerDate_(ss,target,markPhase);
       if (attempt.state === 'BLOCKED') {
         Logger.log('거래원장 재계산 안전 중단: ' + target + ' / ' + attempt.reason);
         return _markTradeSnapshotWorkerResult_({status:'BLOCKED',processed:processed,blockedDate:target,deferred:deferredCount});
@@ -13195,7 +13210,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.255',
+    gasVersion: '9.256',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13260,7 +13275,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.255' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.256' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -17125,7 +17140,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.255' });
+    return jsonOk({ settings: settings, gasVersion: '9.256' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17155,7 +17170,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.255'
+      gasVersion: '9.256'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
