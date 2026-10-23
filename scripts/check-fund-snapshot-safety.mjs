@@ -181,7 +181,7 @@ assert.deepEqual(clone(context._storedFundNavRows([
 // 빈 거래원장은 시트 부재와 달리 실제 무보유(false)로 판정합니다.
 const emptyTradeSs=ssFor({'거래이력':new Sheet([Array(11).fill('header')])});
 assert.equal(context._hasSnapshotHoldingsAtDate(emptyTradeSs,'2026-02-10'),false,'헤더만 남은 거래원장은 보유 0');
-assert.match(source, /function _latestConfirmedSnapshotDate\(ss, includeToday\)[\s\S]*includeToday === true && date === today\(\)/,
+assert.match(source, /function _latestConfirmedSnapshotDate\(ss, includeToday\)[\s\S]*includeToday === true && date === currentDay/,
   '명시적 빈 원장 삭제 재시도에서는 오늘 Snapshot도 영향 종료일로 포함');
 assert.match(source, /function _collectDailySnapshotDates\(ss, fromDate, toDate, options\)[\s\S]*includeToday = options\.includeToday === true/,
   '일일 재생성은 explicit empty 옵션에서만 당일 후보를 허용');

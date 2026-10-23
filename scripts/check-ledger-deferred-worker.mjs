@@ -58,7 +58,7 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
     },
     _clearPendingTradeSnapshotRebuild:()=>scriptProps.deleteProperty('trade_snapshot_rebuild_pending_v1'),
     _latestConfirmedSnapshotDate:()=> '2026-01-06',
-    _collectDailySnapshotDates:(_ss,from,to)=>Object.fromEntries(dates.filter(d=>d>=from&&d<=to).map(d=>[d,true])),
+    _collectTradeSnapshotWorkerDates_:(_ss,from,to)=>({complete:true,dates:Object.fromEntries(dates.filter(d=>d>=from&&d<=to).map(d=>[d,true]))}),
     getss:()=>{
       assert.equal(JSON.parse(props.get('trade_snapshot_worker_last_v1')).status,'RUNNING',
         'worker MUST persist RUNNING before reading any sheet');
@@ -249,7 +249,7 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
 // it was entering. Hard GAS kills may retain the same last RUNNING marker.
 for (const [helper,expected] of [
   ['_latestConfirmedSnapshotDate','DATE_DISCOVERY'],
-  ['_collectDailySnapshotDates','DATE_SOURCE_COLLECTION']
+  ['_collectTradeSnapshotWorkerDates_','DATE_SOURCE_COLLECTION']
 ]) {
   const f=fixture({statusByDate:{'2025-12-31':'SOURCE_INCOMPLETE'}});
   f.ctx[helper]=()=>{throw Error('SYNTHETIC_READ_INTERRUPTED');};
@@ -263,5 +263,19 @@ for (const [helper,expected] of [
   assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0,
     'failed read must not reach any Snapshot write');
   assert.equal(f.locks.held,0,'ordinary errors must release script lock');
+}
+// Once the first date consumed the soft budget, preserve the next date for
+// another hourly invocation instead of starting a second expensive writer.
+{
+  const f=fixture();let elapsed=0;
+  f.ctx.Date=class extends Date {static now(){return elapsed;}};
+  const assess=f.ctx._assessTradeSnapshotWorkerDate_;
+  f.ctx._assessTradeSnapshotWorkerDate_=(ss,date)=>{
+    const result=assess(ss,date);elapsed+=181000;return result;
+  };
+  const result=f.ctx.runPendingTradeSnapshotRebuild();
+  assert.equal(result.status,'PENDING');assert.equal(result.processed,1);
+  assert.equal(f.calls.filter(x=>x.op==='rebuild').length,1);
+  assert.equal(f.pending().from,'2026-01-01');assert.equal(f.locks.held,0);
 }
 console.log('Issue #507 deferred ledger worker production VM tests PASS');

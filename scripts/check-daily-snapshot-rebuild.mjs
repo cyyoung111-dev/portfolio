@@ -521,7 +521,7 @@ assert.match(gas, /_recordTradeLedgerFingerprint_\(ss\);[\s\S]*_clearPendingTrad
   'pending 재계산은 원장 기반 Snapshot 검증 성공 후에만 해제');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
   '마지막 거래 삭제에서는 당일 Snapshot까지 재계산 범위에 포함');
-assert.match(gas, /date < today\(\) \|\| \(includeToday && date === today\(\)\)/,
+assert.match(gas, /date < currentDay \|\| \(includeToday && date === currentDay\)/,
   '일반 재생성은 전일까지만 유지하고 explicit empty에서만 오늘 날짜 허용');
 assert.match(gas, /rebuildOperationId = 'rebuildDailySnapshots\|'[\s\S]*_snapshotBackupOperationId = rebuildOperationId/,'다일자 재생성은 작업 단위 백업 재사용');
 
@@ -591,7 +591,7 @@ function ledgerSnippet(name) {
       _normalizeDate:x=>String(x||''),
       _tradeLedgerWriteUnverified_:()=>unverified,
       _detectExternalTradeLedgerChanges_:()=>({state:'UNCHANGED'}),
-      _collectDailySnapshotDates:()=>Object.fromEntries(dates.map(x=>[x,true])),
+      _collectTradeSnapshotWorkerDates_:()=>({complete:true,dates:Object.fromEntries(dates.map(x=>[x,true]))}),
 
       _readPendingTradeSnapshotRebuild:()=>from?{from}:null,
       _clearPendingTradeSnapshotRebuild:()=>{from='';},

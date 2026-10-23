@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.254
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.255
 //
+//  v9.255 변경사항 (2026.10.23):
+//  - #507 원천 날짜 수집 500행 분할·진행 위치 저장·두 번째 서명 검증 후 Snapshot 처리.
+//  - 같은 실행의 KST 날짜 계산 재사용, 원천 변경 시 재시작·대기 날짜 보존.
+//  - 시간 예산 경계에서 다음 hourly 실행으로 양보. 금융 복원/삭제는 추가하지 않음.
 //  v9.254 변경사항 (2026.10.21):
 //  - #507 동일 source 서명의 다른 operationId 백업 교차 재사용을 차단.
 //  - 완료/실패 상태전이의 operationId 소유권 유지, 합성 RED→GREEN 회귀.
@@ -2247,7 +2251,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.254',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.255',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2325,7 +2329,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.254', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.255', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6231,7 +6235,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.254' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.255' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8959,11 +8963,12 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr, options) {
 
 function _collectDailySnapshotDates(ss, fromDate, toDate, options) {
   options = options || {};
+  var currentDay = today();
   var includeToday = options.includeToday === true;
   var dates = {};
   var add = function(value) {
     var date = _normalizeDate(value);
-    if (date && date >= fromDate && date <= toDate && (date < today() || (includeToday && date === today()))) dates[date] = true;
+    if (date && date >= fromDate && date <= toDate && (date < currentDay || (includeToday && date === currentDay))) dates[date] = true;
   };
   var addSheetDates = function(sheetName, indexes) {
     var sh = ss.getSheetByName(sheetName);
@@ -8995,8 +9000,8 @@ function _collectDailySnapshotDates(ss, fromDate, toDate, options) {
   if (sourceDates.length) {
     var cursor = fromDate > sourceDates[0] ? fromDate : sourceDates[0];
     var end = includeToday
-      ? (toDate <= today() ? toDate : today())
-      : (toDate < today() ? toDate : _dateOffset(today(), -1));
+      ? (toDate <= currentDay ? toDate : currentDay)
+      : (toDate < currentDay ? toDate : _dateOffset(currentDay, -1));
     while (cursor <= end) {
       var day = new Date(cursor + 'T00:00:00Z').getUTCDay();
       if (day !== 0 && day !== 6) dates[cursor] = true;
@@ -10952,11 +10957,111 @@ function _assessTradeSnapshotWorkerDate_(ss, target) {
   return {state:'BLOCKED',reason:proof.status};
 }
 
+// Date discovery alone can exhaust GAS execution time on large source grids.
+// Persist only dates, row offsets and hashes (never ledger/price payloads).
+// A second bounded pass verifies the exact scanned content before use.
+function _collectTradeSnapshotWorkerDates_(ss, from, to, deadline) {
+  var key = 'trade_snapshot_date_scan_v1', props = PropertiesService.getScriptProperties();
+  var day = today(), revision = _getSnapshotIntegritySourceRevision();
+  var specs = [[CONFIG.SHEET_PH,[0]], [CONFIG.SHEET_SNAPSHOT,[0]],
+    [FUND_NAV_SHEET,[0,4]], [CONFIG.SHEET_ETF_DIVIDENDS,[3,4]],
+    ['환율이력',[0]], [CONFIG.SHEET_TRADES,[0]], [CONFIG.SHEET_SETTINGS,[]]];
+  var shape = specs.map(function(spec) {
+    var sh = ss.getSheetByName(spec[0]);
+    return [spec[0],sh ? sh.getLastRow() : 0,sh ? sh.getLastColumn() : 0];
+  });
+  var identity = JSON.stringify([from,to,day,revision,shape]);
+  var raw = props.getProperty(key), state;
+  try { state = raw ? JSON.parse(raw) : null; } catch (ignore) { state = null; }
+  if (!state || state.identity !== identity) state = {
+    identity:identity,pass:0,sheet:0,row:2,hash:'',expected:'',dates:[],settingsDates:[]
+  };
+  if ([0,1].indexOf(state.pass) < 0 || !Number.isInteger(state.sheet)
+    || state.sheet < 0 || state.sheet > specs.length || !Number.isInteger(state.row)
+    || state.row < 2 || !Array.isArray(state.dates) || !Array.isArray(state.settingsDates)
+    || typeof state.hash !== 'string' || typeof state.expected !== 'string')
+    throw new Error('TRADE_DATE_SCAN_STATE_INVALID');
+  var save = function() {
+    var value = JSON.stringify(state);
+    if (value.length > 7500) throw new Error('TRADE_DATE_SCAN_CAPACITY');
+    props.setProperty(key,value);
+  };
+  var add = function(value, list) {
+    var date = _normalizeDate(value);
+    if (date && date >= from && date <= to && date < day && list.indexOf(date) < 0) {
+      list.push(date); list.sort();
+      // Worker consumes two dates. A third proves pending work remains;
+      // later source dates cannot change this ordered prefix. Keep state
+      // bounded even for decades of history, then rescan from the new cursor.
+      if (list.length > 3) list.length = 3;
+    }
+  };
+  while (state.sheet < specs.length || !state.pass) {
+    if (state.sheet === specs.length) {
+      state.expected = state.hash; state.hash = ''; state.pass = 1; state.sheet = 0; state.row = 2;
+      save(); continue;
+    }
+    if (Date.now() >= deadline) { save(); return {complete:false}; }
+    var spec = specs[state.sheet], meta = shape[state.sheet], sh = ss.getSheetByName(spec[0]);
+    if (!sh || meta[1] < state.row || !meta[2]) {
+      state.sheet++; state.row = 2; continue;
+    }
+    var width = spec[1].length ? Math.min(Math.max.apply(null,spec[1])+1,meta[2]) : Math.min(2,meta[2]);
+    var count = Math.min(500,meta[1]-state.row+1);
+    var rows = sh.getRange(state.row,1,count,width).getValues();
+    if (rows.length !== count) throw new Error('TRADE_DATE_SCAN_READ_INCOMPLETE');
+    var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
+      state.hash + JSON.stringify([state.sheet,state.row,rows]));
+    state.hash = bytes.map(function(b) { return ('0'+(b&255).toString(16)).slice(-2); }).join('');
+    if (!state.pass) rows.forEach(function(row) {
+      spec[1].forEach(function(index) { if (index < row.length) add(row[index],state.dates); });
+      if (!spec[1].length && String(row[0] || '').trim() === 'DIVDATA' && String(row[1] || '').trim()) {
+        // Match _readSettingsMap: the last nonempty DIVDATA value wins.
+        var data;
+        try { data = JSON.parse(String(row[1]).trim()); } catch (ignore) { data = null; }
+        state.settingsDates = [];
+        if (data && typeof data === 'object') Object.keys(data).forEach(function(code) {
+          (Array.isArray(data[code] && data[code].events) ? data[code].events : []).forEach(function(event) {
+            add(event && event.date,state.settingsDates); add(event && event.payDate,state.settingsDates);
+          });
+        });
+      }
+    });
+    state.row += count;
+    save(); // Hard stop after this point resumes at the next unread chunk.
+    if (state.row > meta[1]) { state.sheet++; state.row = 2; }
+  }
+  var unchanged = state.hash === state.expected && revision === _getSnapshotIntegritySourceRevision()
+    && shape.every(function(meta) {
+      var sh = ss.getSheetByName(meta[0]);
+      return meta[1] === (sh ? sh.getLastRow() : 0) && meta[2] === (sh ? sh.getLastColumn() : 0);
+    });
+  if (!unchanged) { props.deleteProperty(key); return {complete:false}; }
+  var candidates = [];
+  state.dates.concat(state.settingsDates).forEach(function(date) { add(date,candidates); });
+  var sourceDates = candidates.slice();
+  if (sourceDates.length) {
+    var cursor = from > sourceDates[0] ? from : sourceDates[0];
+    var end = to < day ? to : _dateOffset(day,-1);
+    while (cursor <= end) {
+      var weekday = new Date(cursor+'T00:00:00Z').getUTCDay();
+      if (weekday !== 0 && weekday !== 6) add(cursor,candidates);
+      if (candidates.length === 3 && cursor >= candidates[2]) break;
+      cursor = _dateOffset(cursor,1);
+    }
+  }
+  props.deleteProperty(key);
+  var dates = {};
+  candidates.forEach(function(date) { dates[date] = true; });
+  return {complete:true,dates:dates};
+}
+
 // 설치형 hourly worker: 최대 2개 전진 날짜를 검증, 모호한 역사일은
 // 영속 미해결 목록에 기록한 후에만 다음 날짜로 이동합니다.
 // 전진할 날짜가 없을 때 오래된 미해결 날짜를 round-robin 1개씩 재검증해,
 // 가격/NAV 원천이 나중에 추가되면 과거 항목도 자동으로 해소됩니다.
 function runPendingTradeSnapshotRebuild() {
+  var startedMs = Date.now(), deadline = startedMs + 240000;
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
     // A colliding trigger must not overwrite the active worker's RUNNING
@@ -11012,11 +11117,15 @@ function runPendingTradeSnapshotRebuild() {
     markPhase('DATE_DISCOVERY');
     var last = _latestConfirmedSnapshotDate(ss,false);
     markPhase('DATE_SOURCE_COLLECTION');
-    var dates = _collectDailySnapshotDates(ss,pending.from,last,{});
+    var discovery = _collectTradeSnapshotWorkerDates_(ss,pending.from,last,startedMs + 120000);
+    if (!discovery.complete) return _markTradeSnapshotWorkerResult_({status:'PENDING',processed:0});
+    var dates = discovery.dates;
     markPhase('DATE_DISCOVERY_COMPLETE');
     var ordered = Object.keys(dates).sort(), batch = ordered.slice(0,2);
     var processed = 0, deferredCount = 0;
     for (var i = 0; i < batch.length; i++) {
+      if (Date.now() >= deadline - 60000)
+        return _markTradeSnapshotWorkerResult_({status:'PENDING',processed:processed,deferred:deferredCount});
       var target = batch[i];
       markPhase('DATE_DIAGNOSTIC',target);
       var attempt = _assessTradeSnapshotWorkerDate_(ss,target);
@@ -11099,10 +11208,10 @@ function _earliestChangedTradeDate(beforeRows, afterRows) {
 function _latestConfirmedSnapshotDate(ss, includeToday) {
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) return '';
-  var latest = '';
+  var latest = '', currentDay = today();
   sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function(row) {
     var date = _normalizeDate(row[0]);
-    var allowed = date && (date < today() || (includeToday === true && date === today()));
+    var allowed = date && (date < currentDay || (includeToday === true && date === currentDay));
     if (allowed && date > latest) latest = date;
   });
   return latest;
@@ -13086,7 +13195,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.254',
+    gasVersion: '9.255',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13151,7 +13260,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.254' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.255' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -17016,7 +17125,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.254' });
+    return jsonOk({ settings: settings, gasVersion: '9.255' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17046,7 +17155,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.254'
+      gasVersion: '9.255'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

@@ -9,12 +9,6 @@ on:
   pull_request:
   push:
     branches: [ main ]
-    paths:
-      - 'scripts/check-*.mjs'
-      - 'package.json'
-      - '.github/workflows/quality-check.yml'
-      - '.github/workflows/gas-deploy.yml'
-      - '.github/workflows/web-check.yml'
   workflow_dispatch:
 
 permissions:

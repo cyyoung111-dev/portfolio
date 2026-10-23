@@ -6,15 +6,18 @@ on:
     paths:
       - 'src/gas/apps_script.gs'
       - 'scripts/deploy-gas.mjs'
+      - 'scripts/gas-release-gate.mjs'
       - 'AGENTS.md'
       - 'docs/QUALITY_GATES.md'
       - '.github/pull_request_template.md'
       - 'package.json'
       - '.github/workflows/gas-deploy.yml'
-  push:
-    branches: [ main ]
-    paths:
-      - 'src/gas/apps_script.gs'
+  # Automatic release is an initial administrator opt-in. Only successful
+  # full CI for a trusted main push can reach production; never PR workflow_run.
+  workflow_run:
+    workflows: ['quality-check']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -29,6 +32,7 @@ permissions:
 
 jobs:
   validate:
+    if: github.event_name != 'workflow_run' || (vars.GAS_AUTO_DEPLOY_ENABLED == 'true' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -37,6 +41,18 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Select trusted current main release
+        id: release
+        if: github.event_name != 'pull_request'
+        env:
+          GAS_AUTO_DEPLOY_ENABLED: ${{ vars.GAS_AUTO_DEPLOY_ENABLED }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/gas-release-gate.mjs
+      - name: Checkout selected immutable release
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.sha }}
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
@@ -44,16 +60,20 @@ jobs:
           else
             npm install --no-package-lock --no-audit --no-fund --ignore-scripts
           fi
-      - name: GAS checks
-        run: npm run check:gas
+      - name: Full release checks
+        env:
+          npm_config_script_shell: /bin/bash
+        run: npm run check:ci
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
 
   deploy:
-    # #507: merging source code must NEVER deploy to the live GAS web app.
-    # Explicit workflow_dispatch is the only permitted deployment trigger.
-    if: github.event_name == 'workflow_dispatch'
+    # One-time opt-in permits CI-approved main releases without daily dispatch.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && vars.GAS_AUTO_DEPLOY_ENABLED == 'true' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository))
     environment: portfolio-production-gas
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
       group: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'gas-deploy-dry-run' || 'gas-production-deploy' }}
       cancel-in-progress: false
@@ -65,10 +85,14 @@ jobs:
       GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
       GAS_DEPLOY_DRY_RUN: ${{ inputs.dry_run || false }}
-      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_SHA: ${{ needs.validate.outputs.sha }}
+      GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
       - name: Setup Node
         uses: actions/setup-node@v7
         with:

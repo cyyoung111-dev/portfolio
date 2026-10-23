@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
+import {assertCurrentMainRelease} from './gas-release-gate.mjs';
+import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -31,6 +33,7 @@ export function extractExpectedGasVersion(source) {
 // this manifest with the reviewed full-file blob SHA in the same reviewed PR.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.255': 'd74f4b7fdbef6952bbd2ce77e42a5c3db63e0ad2',
   '9.193': '811ef56ede77cd040819941e73e4729826de935b',
   '9.194': '8082cf7b1f988b008799f8be1439cf4d54a3b51e',
   '9.195': '3ec29f63058b7f12eacb2de32303e65c2584b4ac',
@@ -207,7 +210,7 @@ async function requestJson(url, { method = 'GET', token, body, form } = {}) {
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
     payload = new URLSearchParams(form).toString();
   }
-  const response = await fetch(url, { method, headers, body: payload, redirect: 'follow' });
+  const response = await fetch(url, { method, headers, body: payload, redirect: 'follow', signal:AbortSignal.timeout(60000) });
   const responseText = await response.text();
   let parsed = null;
   try { parsed = responseText ? JSON.parse(responseText) : {}; }
@@ -296,6 +299,7 @@ async function verifyWebApp(url, accessToken, expectedVersion) {
           ...(accessToken ? { accessToken } : {}),
         }).toString(),
         redirect: 'follow',
+        signal:AbortSignal.timeout(30000),
       });
       const responseText = await response.text();
       if (response.ok) {
@@ -336,6 +340,28 @@ export async function verifyDeploymentVersionWithRetry({
   throw new Error(`deployment version 검증 실패: expected=${expectedVersion}, observed=${lastVersion}`);
 }
 
+// Roll back only our exact candidate. A third-party edit/version must never
+// be overwritten by automatic recovery. Financial data is never restored here.
+export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployment,newVersion,
+  readFiles,writeFiles,readDeployment,writeDeployment}){
+  const canonical=files=>JSON.stringify(sanitizeFiles(files).map(f=>({...f,
+    source:f.source.replace(/\r\n/g,'\n')})).sort((a,b)=>(a.name+a.type).localeCompare(b.name+b.type)));
+  const current=await readFiles(),deployment=await readDeployment();
+  const version=deployment?.deploymentConfig?.versionNumber;
+  const oldVersion=beforeDeployment?.deploymentConfig?.versionNumber;
+  if(!oldVersion||![oldVersion,newVersion].includes(version)
+    ||![canonical(beforeFiles),canonical(candidateFiles)].includes(canonical(current)))
+    throw Error('GAS_ROLLBACK_CONCURRENT_CHANGE');
+  if(canonical(current)!==canonical(beforeFiles))await writeFiles(sanitizeFiles(beforeFiles));
+  // A publish PUT may have committed even when its response was lost and
+  // the first GET is stale. Reassert the known previous version in that case.
+  if(newVersion || version!==oldVersion)await writeDeployment(beforeDeployment.deploymentConfig);
+  if(canonical(await readFiles())!==canonical(beforeFiles)
+    ||(await readDeployment())?.deploymentConfig?.versionNumber!==oldVersion)
+    throw Error('GAS_ROLLBACK_UNVERIFIED');
+  return {headRestored:true,deploymentRestored:true,dataWrites:0};
+}
+
 export async function deploy() {
   const dryRun = String(process.env.GAS_DEPLOY_DRY_RUN || '').toLowerCase() === 'true';
   const scriptId = env('GAS_SCRIPT_ID');
@@ -347,6 +373,13 @@ export async function deploy() {
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
+  const checkCurrentMain=async()=>{
+    const expected=process.env.GAS_EXPECTED_MAIN_SHA;
+    if(process.env.GITHUB_ACTIONS==='true'&&!expected)throw Error('GAS_RELEASE_SHA_INVALID');
+    if(expected)await assertCurrentMainRelease({sha:expected,repository:process.env.GITHUB_REPOSITORY,
+      token:process.env.GITHUB_TOKEN});
+  };
+  await checkCurrentMain();
   const accessToken = await getAccessToken();
 
   const currentContent = await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`, { token: accessToken });
@@ -366,11 +399,13 @@ export async function deploy() {
   // Validate *all* files before checking alreadyDeployed or starting any write.
   // A malicious extra SERVER_JS cannot ride along with a pinned apps_script.gs.
   if (!dryRun) assertGasProjectFileSet(currentContent.files, target.name, deployedContent.files);
-  const alreadyDeployed = sameSource(deployedTarget.source, source);
+  const alreadyDeployed = sameSource(deployedTarget.source, source) && sameSource(target.source, source);
 
   console.log(`GAS 자동배포 사전확인 · version=${expectedVersion} · file=${target.name} · currentDeploymentVersion=${currentVersionNumber} · dryRun=${dryRun}`);
   if (alreadyDeployed) {
     const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
+    const automation=await runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')});
+    if(automation.gasVersion!==expectedVersion)throw Error('GAS_AUTOMATION_VERSION_MISMATCH');
     console.log(`배포 생략 · 현재 웹앱 deployment가 이미 GAS v${expectedVersion} 소스와 일치하며 운영 endpoint 검증도 통과했습니다.`);
     return { deployed: false, alreadyDeployed: true, version: expectedVersion, deploymentVersion: currentVersionNumber, webAppCheck };
   }
@@ -379,6 +414,11 @@ export async function deploy() {
     return { deployed: false, dryRun: true, version: expectedVersion, deploymentVersion: currentVersionNumber };
   }
 
+  const candidateFiles=buildUpdatedFiles(currentContent.files,target.name,source);
+  let newVersionNumber=0,mutationStarted=false;
+  try {
+  await checkCurrentMain();
+  mutationStarted=true;
   if (!sameSource(target.source, source)) {
     const files = buildUpdatedFiles(currentContent.files, target.name, source);
     await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`, {
@@ -396,7 +436,7 @@ export async function deploy() {
     token: accessToken,
     body: { description: `GitHub ${sha} · GAS v${expectedVersion}` },
   });
-  const newVersionNumber = Number(version.versionNumber || 0);
+  newVersionNumber = Number(version.versionNumber || 0);
   if (!newVersionNumber) throw new Error('새 Apps Script versionNumber를 확인하지 못했습니다.');
 
   // Never publish a version we did not inspect. Another GAS editor may
@@ -406,6 +446,7 @@ export async function deploy() {
     { token: accessToken },
   );
   assertGasCreatedVersionReady(createdVersionContent.files, target.name, source, deployedContent.files);
+  await checkCurrentMain();
 
   await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, {
     method: 'PUT',
@@ -428,8 +469,22 @@ export async function deploy() {
   });
 
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
+  const automation=await runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')});
+  if(automation.gasVersion!==expectedVersion)throw Error('GAS_AUTOMATION_VERSION_MISMATCH');
   console.log(`GAS 자동배포 완료 · GAS v${expectedVersion} · Apps Script version=${newVersionNumber} · webApp=verified`);
   return { deployed: true, version: expectedVersion, deploymentVersion: newVersionNumber, webAppCheck };
+  } catch(error) {
+    if(!mutationStarted)throw error;
+    try{
+      await rollbackGasCode({beforeFiles:currentContent.files,candidateFiles,beforeDeployment:deployment,
+        newVersion:newVersionNumber,
+        readFiles:async()=> (await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`,{token:accessToken})).files,
+        writeFiles:files=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`,{method:'PUT',token:accessToken,body:{files}}),
+        readDeployment:()=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,{token:accessToken}),
+        writeDeployment:deploymentConfig=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,{method:'PUT',token:accessToken,body:{deploymentConfig}})});
+    }catch{throw Error('GAS_RELEASE_FAILED_ROLLBACK_UNVERIFIED');}
+    throw Error('GAS_RELEASE_FAILED_ROLLBACK_VERIFIED');
+  }
 }
 
 const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
