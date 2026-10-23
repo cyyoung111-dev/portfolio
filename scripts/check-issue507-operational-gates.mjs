@@ -17,6 +17,7 @@ const workflows = [
   'issue-507-deferred-source-audit-readonly.yml',
   'issue-507-backup-registry-readonly.yml',
   'issue-507-complete-backup-candidates-readonly.yml',
+  'issue-507-23day-expected-signature-readonly.yml',
 ];
 
 function validate(name, source) {
@@ -97,10 +98,10 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,34,
-  'migration inventory: all 34 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,35,
-  'migration inventory: all 35 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,35,
+  'migration inventory: all 35 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,36,
+  'migration inventory: all 36 secret-consuming jobs must be protected');
 const sample='issue-507-three-day-code-lineage-readonly.yml';
 const sampleSource=fs.readFileSync(new URL(sample,dir),'utf8');
 const removed=sampleSource.replace('    environment: '+productionEnvironment+'\n','');
@@ -118,3 +119,34 @@ assert.throws(()=>auditEnvironmentGuard(oauthWorkflow,oauthWithoutGuard),/protec
 console.log('Issue #507 GAS environment source-contract: '+protectedWorkflowNames.length
  +' workflow files / '+protectedJobs+' secret-consuming jobs. GitHub Settings policy NOT VERIFIED.');
 
+
+// Daily worker monitor uses the existing protected credential boundary.
+const auditWorkflow=fs.readFileSync('.github/workflows/issue-507-worker-execution-audit.yml','utf8');
+function verifyMonitor(source){
+  const document=YAML.parseDocument(source,{uniqueKeys:true});
+  assert.equal(document.errors.length,0);
+  const config=document.toJS();
+  assert.deepEqual(config.on.schedule,[{cron:'17 18 * * *'}]);
+  assert.deepEqual(config.permissions,{contents:'read'});
+  assert.equal(config.concurrency['cancel-in-progress'],false);
+  const job=config.jobs['live-readonly'];
+  assert.equal(job.if,"github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')");
+  assert.equal(job.environment,'portfolio-production-gas');
+  assert.equal(job.needs,'contract');
+  assert.equal(job['timeout-minutes'],4);
+  assert.equal(job.steps.at(-1).run,'node scripts/issue507-worker-execution-audit.mjs --health-check');
+  assert.equal(job.steps.at(-1)['continue-on-error'],undefined);
+  assert.equal(job.steps.at(-1).env.CLASPRC_JSON,'$'+'{{ secrets.CLASPRC_JSON }}');
+  const contract=JSON.stringify(config.jobs.contract);
+  assert.ok(!contract.includes('secrets.'));
+  assert.match(contract,/--self-test/);
+}
+verifyMonitor(auditWorkflow);
+for(const [before,after] of [
+  ['--health-check',''],['portfolio-production-gas','unprotected'],
+  ["github.ref == 'refs/heads/main' && ",''],["17 18 * * *","17 18 * * 1"]
+]){
+  const mutated=auditWorkflow.replace(before,after);
+  assert.notEqual(mutated,auditWorkflow);
+  assert.throws(()=>verifyMonitor(mutated));
+}

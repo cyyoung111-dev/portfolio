@@ -2,6 +2,9 @@ name: issue-507-worker-execution-audit
 
 # Read-only Apps Script execution history. NO script.run or Sheet writes.
 on:
+  # 03:17 KST, independently observe the hourly trigger and refresh OAuth.
+  schedule:
+    - cron: '17 18 * * *'
   pull_request:
     paths:
       - 'scripts/issue507-worker-execution-audit.mjs'
@@ -15,6 +18,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: issue507-worker-execution-audit-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   contract:
@@ -31,7 +38,7 @@ jobs:
           node scripts/issue507-worker-execution-audit.mjs --self-test
 
   live-readonly:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: portfolio-production-gas
     needs: contract
     runs-on: ubuntu-latest
@@ -45,4 +52,4 @@ jobs:
         env:
           GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
-        run: node scripts/issue507-worker-execution-audit.mjs
+        run: node scripts/issue507-worker-execution-audit.mjs --health-check
