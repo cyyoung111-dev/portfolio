@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {fixture} from './issue507-date-discovery-read-profile.mjs';
 
 const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+assert.match(gas,/TIMEZONE:\s*['"]Asia\/Seoul['"]/);
 const start=gas.indexOf('function _collectTradeSnapshotWorkerDates_(');
 assert.ok(start>=0,'resumable production helper missing');
 const code=gas.slice(start,gas.indexOf('\n}',start)+2);
@@ -83,6 +84,15 @@ function setup(rows=1200,production=code){
   const f=setup();Object.values(f.values).forEach(rows=>rows.splice(0));
   assert.deepEqual(Object.keys(f.finish().dates),[]);
   assert.equal(f.calls(),0);assert.equal(f.properties.size,0);
+}
+{
+  const f=setup();
+  f.ctx.Utilities.formatDate=(date,zone)=>new Intl.DateTimeFormat('en-CA',{
+    timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
+  // Sheets DATE at KST midnight is the previous UTC calendar date.
+  f.values.PRICE_HISTORY[0][0]=new Date('2026-01-17T15:00:00Z');
+  assert.equal(f.finish().dates['2026-01-18'],true);
+  assert.equal(f.oracle()['2026-01-18'],true);
 }
 // Interrupted date discovery must not advance either the financial cursor
 // or deferred dates. The actual worker retains both on a bounded yield.
