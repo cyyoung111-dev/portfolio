@@ -1,3 +1,15 @@
+## GAS v9.256 — #507 worker 날짜 처리 단계 구분 (2026-10-24)
+
+- **배포 상태:** 검증 후보이며 운영 배포 미실행. 현재 실측 운영은 #633의 GAS v9.255 / Apps Script version 297. 10/24 00:02 KST 첫 worker는 DATE_DIAGNOSTIC에서 TIMEOUT이 확인됐다.
+- **릴리스 pin:** gasVersion=9.256, src/gas/apps_script.gs 전체 Git blob `ec9a8f7d10fc5af768355c350f532e8072a81ef6`. 이전 v9.255 pin 보존.
+- **변경:** worker의 사전 진단·재계산·실패 재진단·사후 검산 앞뒤에 phase-only heartbeat를 기록한다. 원래 runStartedAt과 요청 날짜를 유지하고 수량·금액·종목·인증정보는 추가하지 않는다. 일반 전진과 deferred 재시도 모두 적용한다.
+- **Snapshot 보호:** 기존 계산, writer, lock, 날짜 예산, pending/deferred 상태전이, 백업/복원/삭제 정책은 변경하지 않는다. 이 계측만으로 TIMEOUT 해결이나 원본 복구를 선언하지 않는다.
+- **검증:** 실제 생산 assessor의 관측 유무 결과/호출 동일성, 성공·writer 오류·단계별 중단·deferred 경로, cursor/deferred 보존 및 기존 회귀를 확인한다.
+- **기존 트리거 일정 유지:** KST 22:10 당일 / 23:10 과거 / 00:30 과거 / 08:45 오전 및 hourly worker. 트리거 생성·삭제는 없다.
+- **배포 후 검증:** 승인된 배포 뒤 getSettings/getAutomationStatus의 gasVersion=9.256을 확인하고 다음 예약 실행의 마지막 세부 phase와 Process API 종료 상태를 대조한다. 23일 시험본 일치는 운영 복원 허용이 아니다.
+
+---
+
 ## GAS v9.255 — #507 원천 날짜 수집 분할·재개 및 opt-in 자동 배포 (2026-10-23)
 
 - **배포 상태:** 구현·검증 후보이며 운영 배포 미실행. 운영 금융 원본/큐/트리거/Secrets 변경 0건. 기존 실측 웹앱 v9.244와 다르며 실제 복원·삭제를 승인하지 않는다.
