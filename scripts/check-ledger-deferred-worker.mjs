@@ -11,7 +11,7 @@ function prod(name) {
 const names=[
   '_readTradeSnapshotDeferredState_','_writeTradeSnapshotDeferredState_',
   '_deferTradeSnapshotDate_','_clearTradeSnapshotDeferredDate_',
-  '_markTradeSnapshotWorkerResult_','_assessTradeSnapshotWorkerDate_',
+  '_markTradeSnapshotWorkerResult_','_diagnoseTradeSnapshotWorkerDate_','_assessTradeSnapshotWorkerDate_',
   'runPendingTradeSnapshotRebuild'
 ];
 const compiled=names.map(prod).join('\n');
@@ -64,6 +64,7 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
         'worker MUST persist RUNNING before reading any sheet');
       return {getSheetByName:()=>({getLastRow:()=>100})};
     },
+    _buildSnapshotRangeReadContext:ss=>({ss}),
     diagnoseSnapshotIntegrity:(_ss,date)=>{
       const entry=activeStatus[date]||'VALID';
       const status=typeof entry==='string'?entry:entry.status;
@@ -323,4 +324,96 @@ for(const stage of ['DATE_PRECHECK','DATE_REBUILD','DATE_POSTCHECK']){
   assert.ok(f.phaseMarks.some(x=>x.phase==='DATE_PRECHECK'&&x.blockedDate==='2025-12-31'));
   assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0);
 }
+{
+  const f=fixture(),seen=[];let revision=0;
+  f.ctx._buildSnapshotRangeReadContext=()=>({ss:{revision}});
+  const diagnose=f.ctx.diagnoseSnapshotIntegrity;
+  f.ctx.diagnoseSnapshotIntegrity=(ss,date)=>{seen.push(ss.revision);return diagnose(ss,date);};
+  f.ctx._rebuildDailySnapshotsLocked=()=>{revision++;return {errors:[],skipped:0};};
+  assert.equal(f.ctx._assessTradeSnapshotWorkerDate_({},'2026-01-06').state,'VALID');
+  assert.deepEqual(seen,[0,1],'postcheck must read a new view after writer');
+}
+{
+  const f=fixture();
+  f.ctx._buildSnapshotRangeReadContext=()=>{throw Error('SYNTHETIC_READ_FAILURE');};
+  assert.equal(f.ctx.runPendingTradeSnapshotRebuild().status,'ERROR');
+  assert.equal(f.pending().from,'2025-12-31');
+  assert.deepEqual(f.deferred().dates,[]);
+  assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0);
+  assert.equal(f.locks.held,0);
+}
 console.log('Issue #507 deferred ledger worker production VM tests PASS');
+
+// Full production diagnostic and read-view parity, synthetic data only.
+{
+const reads=[],logs=[];
+const ctx=vm.createContext({console,Logger:{log:x=>logs.push(x)},
+  Utilities:{formatDate:(d,tz,format)=>new Date(d).toISOString().slice(0,10)},
+  PropertiesService:{getScriptProperties:()=>({getProperty:()=>null})}});
+vm.runInContext(fs.readFileSync('src/gas/apps_script.gs','utf8'),ctx);
+const codes=Array.from({length:30},(_,i)=>[String(i+1).padStart(6,'0'),'S'+i,'주식','','KRW','KRX']);
+codes.push(...Array.from({length:3},(_,i)=>['F0000'+(i+1),'F'+i,'펀드','','KRW','']));
+const target='2026-03-02', data={};
+data[ctx.CONFIG.SHEET_CODES]=[['code','name','type','sector','currency','market'],...codes];
+data[ctx.CONFIG.SHEET_TRADES]=[Array(11).fill('H'),...codes.map(c=>['2025-12-30','buy','TEST',c[1],c[0],10,100,'주식','','',''])];
+data[ctx.CONFIG.SHEET_PH]=[Array(6).fill('H'),...Array.from({length:300},(_,i)=>{
+  const date=new Date(Date.UTC(2025,4,1+i)).toISOString().slice(0,10);
+  return codes.map(c=>[date,c[0],c[1],100,'','KRX_CONFIRMED_CLOSE']);
+}).flat()];
+data[ctx.CONFIG.SHEET_SNAPSHOT]=[Array(12).fill('H')];
+data[ctx.CONFIG.SHEET_HOLD]=[Array(9).fill('H')];
+const provider=Object.keys(ctx.FUND_PROVIDERS)[0];
+data[ctx.FUND_NAV_SHEET]=[Array(9).fill('H'),...codes.filter(c=>c[0].startsWith('F')).map(c=>
+  ['2026-02-27',c[0],c[1],100,'2026-02-27','','','',provider])];
+data[ctx.FUND_UNITS_SHEET]=[Array(6).fill('H'),...codes.filter(c=>c[0].startsWith('F')).map(c=>
+  [c[0],c[1],provider,'2025-12-30',1000,''])];
+data['환율이력']=[Array(3).fill('H')];
+let writes=0;
+const ss={getSheetByName:name=>{
+  const values=data[name];if(!values)return null;
+  return {getLastRow:()=>values.length,getLastColumn:()=>values[0].length,
+    getRange:(r,c,n,m)=>({getValues:()=>{reads.push({name,cells:n*m});
+      return Array.from({length:n},(_,i)=>Array.from({length:m},(_,j)=>values[r+i-1]?.[c+j-1]??''));},
+      setValues:()=>{writes++;throw Error('WRITE_PROHIBITED');}})};
+}};
+const direct=ctx.diagnoseSnapshotIntegrity(ss,target);
+assert.equal(direct.expectedRowCount,33);
+const directReads=reads.splice(0);
+
+// Use the same single-date production calculator with a read-only Sheet view;
+// no indexed arithmetic replacement or shared cache across writes.
+reads.length=0;
+const cached=ctx._diagnoseTradeSnapshotWorkerDate_(ss,target);
+const cachedReads=reads.splice(0);
+assert.equal(JSON.stringify(direct),JSON.stringify(cached));
+assert.equal(writes,0);
+for(const row of direct.expectedRows) {
+  assert.equal(row[7],String(row[1]).startsWith('F')?100:1000,
+    'independent synthetic quantity/price oracle');
+}
+const baseline=JSON.parse(JSON.stringify(data));
+const variants={
+  noPrices:()=>{data[ctx.CONFIG.SHEET_PH]=data[ctx.CONFIG.SHEET_PH].slice(0,1);},
+  noNav:()=>{data[ctx.FUND_NAV_SHEET]=data[ctx.FUND_NAV_SHEET].slice(0,1);},
+  conflictingNav:()=>{const row=data[ctx.FUND_NAV_SHEET][1].slice();row[3]=200;data[ctx.FUND_NAV_SHEET].push(row);},
+  storedDuplicates:()=>{data[ctx.CONFIG.SHEET_SNAPSHOT].push(direct.expectedRows[0].slice(),direct.expectedRows[0].slice());},
+  zeroFundUnits:()=>{for(const row of data[ctx.FUND_UNITS_SHEET].slice(1))row[4]=0;},
+  foreignFx:()=>{data[ctx.CONFIG.SHEET_CODES][1][4]='USD';data['환율이력'].push(['2026-02-27','USD',1300]);}
+};
+for(const [name,mutate] of Object.entries(variants)) {
+  Object.assign(data,JSON.parse(JSON.stringify(baseline)));mutate();
+  const a=ctx.diagnoseSnapshotIntegrity(ss,target);
+
+  const b=ctx._diagnoseTradeSnapshotWorkerDate_(ss,target);
+  assert.equal(JSON.stringify(a),JSON.stringify(b),name+' full result parity');
+  assert.equal(writes,0);
+}
+assert.equal(cachedReads.length,8);
+assert.ok(cachedReads.reduce((n,r)=>n+r.cells,0)<directReads.reduce((n,r)=>n+r.cells,0));
+console.log('Six source-gap/duplicate/lifecycle/FX scenarios: full production output parity; no writes');
+console.log(JSON.stringify({syntheticOnly:true,productionLatencyProven:false,
+  expectedRows:direct.expectedRowCount,writes,
+  direct:{calls:directReads.length,cells:directReads.reduce((n,r)=>n+r.cells,0)},
+  readView:{calls:cachedReads.length,cells:cachedReads.reduce((n,r)=>n+r.cells,0)},
+  outputIdentical:true,errors:direct.sourceDataErrors}));
+}
