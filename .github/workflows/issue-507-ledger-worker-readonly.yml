@@ -52,6 +52,14 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue507-ledger-worker-readonly.mjs
+      # User-requested source-gap follow-up: keep aggregate source evidence
+      # available even when the independent eight-date proof fails.
+      - name: Read only exact deferred source gaps and protected conflicts
+        if: ${{ !cancelled() }}
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-deferred-source-audit-readonly.mjs
 
   # Lightweight independent status probe: the eight-date historical proof can
   # legitimately time out while GAS has a busy pending worker. Never let that

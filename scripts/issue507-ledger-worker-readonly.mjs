@@ -12,6 +12,50 @@ export const REGRESSION=['2026-06-05','2026-09-15','2026-09-16'];
 const STATES=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT',
   'SOURCE_INCOMPLETE','NO_SNAPSHOT','PRICE_SUSPICIOUS']);
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
+// Only exact, source-defined error codes may leave the process. Never emit
+// dependency messages or accept arbitrary strings merely sharing a prefix.
+const SAFE_FAILURE_CODES=new Set([
+  'AUTOMATION_DIAG_AUTH_DISABLED',
+  'AUTOMATION_DIAG_BAD_CHECKPOINT',
+  'AUTOMATION_DIAG_BAD_DATE',
+  'AUTOMATION_DIAG_BAD_DEFERRED_COUNT',
+  'AUTOMATION_DIAG_BAD_DEFERRED_DATE',
+  'AUTOMATION_DIAG_BAD_HISTORICAL_CHECKPOINT',
+  'AUTOMATION_DIAG_BAD_LEDGER_PENDING',
+  'AUTOMATION_DIAG_BAD_LEDGER_WORKER_BUSY',
+  'AUTOMATION_DIAG_BAD_LEDGER_WORKER_CHECKPOINT',
+  'AUTOMATION_DIAG_BAD_LEDGER_WRITE',
+  'AUTOMATION_DIAG_BAD_OBSERVATION_TIME',
+  'AUTOMATION_DIAG_BAD_QUEUE',
+  'AUTOMATION_DIAG_BAD_RESPONSE',
+  'AUTOMATION_DIAG_BAD_TRIGGER',
+  'AUTOMATION_DIAG_BAD_WORKER_TRIGGER_AUDIT',
+  'AUTOMATION_DIAG_HTTP_FAILED',
+  'AUTOMATION_DIAG_NETWORK_FAILED',
+  'AUTOMATION_DIAG_NON_JSON',
+  'AUTOMATION_DIAG_TOKEN_MISSING',
+  'ISSUE507_AUTOMATION_SCHEMA',
+  'ISSUE507_BAD_EXPECTED_ROWS',
+  'ISSUE507_BAD_STORED_ROWS',
+  'ISSUE507_BAD_DUPLICATE_GROUPS',
+  'ISSUE507_BAD_UNRESOLVED_CONFLICTS',
+  'ISSUE507_DIAGNOSTIC_DATE_OR_STATUS',
+  'ISSUE507_DIAGNOSTIC_INVALID',
+  'ISSUE507_DIAGNOSTIC_MISSING',
+  'ISSUE507_DIAGNOSTIC_SOURCE_SCHEMA',
+  'ISSUE507_HTTP_ERROR',
+  'ISSUE507_JSON_ERROR',
+  'ISSUE507_MISSING_DATE',
+  'ISSUE507_NETWORK_ERROR',
+  'ISSUE507_PENDING_DATE_INVALID',
+  'ISSUE507_TOKEN_MISSING',
+  'KRX_DIAG_INVALID_WEB_APP_URL',
+]);
+export function safeReadonlyFailureCode(error) {
+  const code=typeof error?.message==='string'?error.message:'';
+  return SAFE_FAILURE_CODES.has(code)?code:'ISSUE507_UNKNOWN_FAILURE';
+}
+
 function count(x,name){
   if(!Number.isSafeInteger(x)||x<0)throw new Error('ISSUE507_BAD_'+name);
   return x;
@@ -127,7 +171,7 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   }
   return summarizeEvidence(automation,payloads.flat());
 }
-export function selfTest(){
+export async function selfTest(){
   const sample=(date,status='VALID',countRows=33)=>({
     date,status,expectedRowCount:countRows,storedRowCount:countRows,
     duplicateSummary:{groups:0,unresolvedConflict:0},sourceDataErrors:[]
@@ -212,20 +256,47 @@ export function selfTest(){
   const mismatched=evidence.slice();
   mismatched[6]={...mismatched[6],expectedRows:39,storedRows:38};
   assert.equal(summarizeEvidence(a,mismatched).septemberRegressionReady,false);
-  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:22};
+  for(const [response,expected] of [
+    [async()=>{throw Error('PRIVATE_TOKEN_AND_ACCOUNT');},'AUTOMATION_DIAG_NETWORK_FAILED'],
+    [async()=>({ok:false}),'AUTOMATION_DIAG_HTTP_FAILED'],
+    [async()=>({ok:true,json:async()=>{throw Error('PRIVATE_JSON');}}),'AUTOMATION_DIAG_NON_JSON'],
+    [async()=>({ok:true,json:async()=>({status:'ok'})}),'AUTOMATION_DIAG_AUTH_DISABLED']
+  ]) {
+    let caught;
+    try {await runReadonly({url:'https://script.google.com/macros/s/Fixture/exec',
+      token:'PRIVATE_TEST_TOKEN',fetchImpl:response});} catch(error){caught=error;}
+    assert.ok(caught,'failed dependency must fail the real read-only entry point');
+    assert.equal(safeReadonlyFailureCode(caught),expected);
+  }
+  for(const message of ['AUTOMATION_DIAG_PRIVATE_SECRET','ISSUE507_PRIVATE_SECRET',
+    'AUTOMATION_DIAG_NON_JSON PRIVATE_ACCOUNT','private account 123'])
+    assert.equal(safeReadonlyFailureCode(new Error(message)),'ISSUE507_UNKNOWN_FAILURE');
+  for(const [field,code] of [
+    ['expectedRowCount','ISSUE507_BAD_EXPECTED_ROWS'],
+    ['storedRowCount','ISSUE507_BAD_STORED_ROWS'],
+    ['groups','ISSUE507_BAD_DUPLICATE_GROUPS'],
+    ['unresolvedConflict','ISSUE507_BAD_UNRESOLVED_CONFLICTS']
+  ]) {
+    const rows=early.map(x=>({...x,duplicateSummary:{...x.duplicateSummary}}));
+    if(field in rows[0])rows[0][field]=null;
+    else rows[0].duplicateSummary[field]=null;
+    assert.throws(()=>summarizeDiagnostics({status:'ok',checkedDates:EARLY,
+      diagnostics:rows},EARLY),error=>safeReadonlyFailureCode(error)===code,
+      'actual dynamically constructed schema errors must remain classifiable');
+  }
+  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:34};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
     const data=process.argv.includes('--self-test')
-      ?selfTest()
+      ?await selfTest()
       :await runReadonly({url:process.env.GAS_WEB_APP_URL,
         token:process.env.GAS_ACCESS_TOKEN});
     console.log(JSON.stringify(data));
   }catch(error){
-    const x=String(error?.message||'');
     // Local-only contract failures may expose assertion details; live errors never do.
     if(process.argv.includes('--self-test')) console.error(String(error?.stack||error));
-    else console.error(/^ISSUE507_[A-Z_]+$/.test(x)?x:'ISSUE507_UNKNOWN_FAILURE');
+    else console.error(safeReadonlyFailureCode(error));
     process.exitCode=1;
   }
 }
