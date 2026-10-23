@@ -35,7 +35,10 @@ const SAFE_FAILURE_CODES=new Set([
   'AUTOMATION_DIAG_NON_JSON',
   'AUTOMATION_DIAG_TOKEN_MISSING',
   'ISSUE507_AUTOMATION_SCHEMA',
-  'ISSUE507_BAD_',
+  'ISSUE507_BAD_EXPECTED_ROWS',
+  'ISSUE507_BAD_STORED_ROWS',
+  'ISSUE507_BAD_DUPLICATE_GROUPS',
+  'ISSUE507_BAD_UNRESOLVED_CONFLICTS',
   'ISSUE507_DIAGNOSTIC_DATE_OR_STATUS',
   'ISSUE507_DIAGNOSTIC_INVALID',
   'ISSUE507_DIAGNOSTIC_MISSING',
@@ -268,7 +271,20 @@ export async function selfTest(){
   for(const message of ['AUTOMATION_DIAG_PRIVATE_SECRET','ISSUE507_PRIVATE_SECRET',
     'AUTOMATION_DIAG_NON_JSON PRIVATE_ACCOUNT','private account 123'])
     assert.equal(safeReadonlyFailureCode(new Error(message)),'ISSUE507_UNKNOWN_FAILURE');
-  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:30};
+  for(const [field,code] of [
+    ['expectedRowCount','ISSUE507_BAD_EXPECTED_ROWS'],
+    ['storedRowCount','ISSUE507_BAD_STORED_ROWS'],
+    ['groups','ISSUE507_BAD_DUPLICATE_GROUPS'],
+    ['unresolvedConflict','ISSUE507_BAD_UNRESOLVED_CONFLICTS']
+  ]) {
+    const rows=early.map(x=>({...x,duplicateSummary:{...x.duplicateSummary}}));
+    if(field in rows[0])rows[0][field]=null;
+    else rows[0].duplicateSummary[field]=null;
+    assert.throws(()=>summarizeDiagnostics({status:'ok',checkedDates:EARLY,
+      diagnostics:rows},EARLY),error=>safeReadonlyFailureCode(error)===code,
+      'actual dynamically constructed schema errors must remain classifiable');
+  }
+  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:34};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
