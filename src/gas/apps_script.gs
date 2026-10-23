@@ -10988,7 +10988,13 @@ function _collectTradeSnapshotWorkerDates_(ss, from, to, deadline) {
   };
   var add = function(value, list) {
     var date = _normalizeDate(value);
-    if (date && date >= from && date <= to && date < day && list.indexOf(date) < 0) list.push(date);
+    if (date && date >= from && date <= to && date < day && list.indexOf(date) < 0) {
+      list.push(date); list.sort();
+      // Worker consumes two dates. A third proves pending work remains;
+      // later source dates cannot change this ordered prefix. Keep state
+      // bounded even for decades of history, then rescan from the new cursor.
+      if (list.length > 3) list.length = 3;
+    }
   };
   while (state.sheet < specs.length || !state.pass) {
     if (state.sheet === specs.length) {
@@ -11031,19 +11037,22 @@ function _collectTradeSnapshotWorkerDates_(ss, from, to, deadline) {
       return meta[1] === (sh ? sh.getLastRow() : 0) && meta[2] === (sh ? sh.getLastColumn() : 0);
     });
   if (!unchanged) { props.deleteProperty(key); return {complete:false}; }
-  var dates = {};
-  state.dates.concat(state.settingsDates).forEach(function(date) { dates[date] = true; });
-  var sourceDates = Object.keys(dates).sort();
+  var candidates = [];
+  state.dates.concat(state.settingsDates).forEach(function(date) { add(date,candidates); });
+  var sourceDates = candidates.slice();
   if (sourceDates.length) {
     var cursor = from > sourceDates[0] ? from : sourceDates[0];
     var end = to < day ? to : _dateOffset(day,-1);
     while (cursor <= end) {
       var weekday = new Date(cursor+'T00:00:00Z').getUTCDay();
-      if (weekday !== 0 && weekday !== 6) dates[cursor] = true;
+      if (weekday !== 0 && weekday !== 6) add(cursor,candidates);
+      if (candidates.length === 3 && cursor >= candidates[2]) break;
       cursor = _dateOffset(cursor,1);
     }
   }
   props.deleteProperty(key);
+  var dates = {};
+  candidates.forEach(function(date) { dates[date] = true; });
   return {complete:true,dates:dates};
 }
 

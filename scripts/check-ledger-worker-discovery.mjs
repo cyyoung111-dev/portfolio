@@ -9,7 +9,7 @@ assert.match(gas,/TIMEZONE:\s*['"]Asia\/Seoul['"]/);
 const start=gas.indexOf('function _collectTradeSnapshotWorkerDates_(');
 assert.ok(start>=0,'resumable production helper missing');
 const code=gas.slice(start,gas.indexOf('\n}',start)+2);
-function setup(rows=1200,production=code){
+function setup(rows=1200,production=code,bounds={from:'2026-01-16',to:'2026-01-23'}){
   const f=fixture(rows),properties=new Map();let time=0,revision='1',calls=0;
   const writes=[];
   f.ctx.PropertiesService={getScriptProperties:()=>({
@@ -31,11 +31,11 @@ function setup(rows=1200,production=code){
     }};
   };
   vm.runInContext(production,f.ctx);
-  const step=()=>f.ctx._collectTradeSnapshotWorkerDates_(f.ss,'2026-01-16','2026-01-23',time+800);
+  const step=()=>f.ctx._collectTradeSnapshotWorkerDates_(f.ss,bounds.from,bounds.to,time+800);
   const finish=()=>{for(let i=0;i<100;i++){const x=step();if(x.complete)return x;}
     assert.fail('bounded scanner must eventually finish');};
   return {...f,properties,writes,step,finish,revision:v=>revision=v,calls:()=>calls,
-    oracle:()=>f.ctx._collectDailySnapshotDates({getSheetByName:get},'2026-01-16','2026-01-23',{})};
+    oracle:()=>f.ctx._collectDailySnapshotDates({getSheetByName:get},bounds.from,bounds.to,{}),bounds};
 }
 {
   const f=setup();
@@ -47,9 +47,25 @@ function setup(rows=1200,production=code){
   // Independent oracle: the existing full collector preserves weekday and
   // explicit weekend/nav confirmation/dividend/FX/trade candidate behavior.
   const oracle=Object.keys(f.oracle()).sort();
-  assert.deepEqual(Object.keys(result.dates).sort(),oracle);
+  assert.deepEqual(Object.keys(result.dates).sort(),oracle.slice(0,3));
   assert.equal(f.properties.size,0);assert.equal(f.mutations.length,0);
   assert.ok(f.writes.every(x=>x.key==='trade_snapshot_date_scan_v1'));
+}
+{
+  const f=setup(1200,code,{from:'2020-01-01',to:'2025-12-31'});
+  f.values.PRICE_HISTORY.forEach((row,i)=>{row[0]=new Date(Date.UTC(2020,0,1+i)).toISOString().slice(0,10);});
+  for(let batch=0;batch<3;batch++){
+    const expected=Object.keys(f.oracle()).sort().slice(0,3);
+    const result=Object.keys(f.finish().dates).sort();
+    assert.deepEqual(result,expected);
+    const cursor=new Date(result[1]+'T00:00:00Z');cursor.setUTCDate(cursor.getUTCDate()+1);
+    f.bounds.from=cursor.toISOString().slice(0,10);
+  }
+  for(const write of f.writes){
+    const state=JSON.parse(write.value);
+    assert.ok(state.dates.length<=3&&state.settingsDates.length<=3);
+    assert.ok(write.value.length<2000,'multi-year history must have constant-sized state');
+  }
 }
 {
   const f=setup();f.step();

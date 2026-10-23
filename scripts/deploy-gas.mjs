@@ -33,7 +33,7 @@ export function extractExpectedGasVersion(source) {
 // this manifest with the reviewed full-file blob SHA in the same reviewed PR.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
-  '9.255': '457404f695edb101e8923d2fe3bd42f258aada35',
+  '9.255': 'd74f4b7fdbef6952bbd2ce77e42a5c3db63e0ad2',
   '9.193': '811ef56ede77cd040819941e73e4729826de935b',
   '9.194': '8082cf7b1f988b008799f8be1439cf4d54a3b51e',
   '9.195': '3ec29f63058b7f12eacb2de32303e65c2584b4ac',

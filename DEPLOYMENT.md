@@ -1,7 +1,7 @@
 ## GAS v9.255 — #507 원천 날짜 수집 분할·재개 및 opt-in 자동 배포 (2026-10-23)
 
 - **배포 상태:** 구현·검증 후보이며 운영 배포 미실행. 운영 금융 원본/큐/트리거/Secrets 변경 0건. 기존 실측 웹앱 v9.244와 다르며 실제 복원·삭제를 승인하지 않는다.
-- **릴리스 pin:** gasVersion=9.255, src/gas/apps_script.gs 전체 Git blob `457404f695edb101e8923d2fe3bd42f258aada35`. 이전 릴리스 pin 유지.
+- **릴리스 pin:** gasVersion=9.255, src/gas/apps_script.gs 전체 Git blob `d74f4b7fdbef6952bbd2ce77e42a5c3db63e0ad2`. 이전 릴리스 pin 유지.
 - **Snapshot 원인/수정:** DATE_SOURCE_COLLECTION의 전체 일괄 날짜 탐색을 worker 전용 500행 단위 수집·Script Properties 진행 위치 저장·두 번째 원천 서명 검증으로 대체. 미완료·원천 변화 때 pending/deferred/원본을 보존하고 다음 기존 hourly 트리거에서 재개. 일반 일괄 진단의 날짜 선택은 유지하고 KST today 계산은 호출당 1회로 제한한다. 수집 예산 120초, worker 240초의 날짜 사이 경계에서 양보하며 단일 Google 호출·기존 날짜별 writer 자체를 강제 선점할 수는 없다.
 - **자동 배포:** `GAS_AUTO_DEPLOY_ENABLED=true` 최초 설정 후, trusted main push의 전체 quality-check 성공 → 최신 main SHA 확인 → 같은 커밋 전체 CI → 기존 OAuth 자동 교환·소스 pin/프로젝트 검증 → HEAD/버전 배포·getSettings/getAutomationStatus 버전 확인. PR/fork/실패 CI/오래된 SHA는 배포하지 않는다. 초기 기본값은 꺼짐이다.
 - **실패 복구:** 원래 HEAD 파일과 deployment 설정을 메모리에 보관하고 정확히 본 작업의 후보 코드/버전인 경우에만 복구·재조회한다. 다른 편집은 보존하며 불확정이면 경보/실패. 금융 데이터 롤백·백업 삭제·무한 배포 재시도는 없다. runner 강제 종료에는 메모리 기반 rollback을 보장하지 않는다.

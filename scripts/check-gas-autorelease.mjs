@@ -47,6 +47,11 @@ for(const concurrent of ['head','deployment']){
   assert.equal(writes,0,'concurrent changes must be preserved before any rollback write');
 }
 const source=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+function checkReleaseCoverage(quality){
+  assert.deepEqual(quality.on.push.branches,['main']);
+  assert.equal(quality.on.push.paths,undefined,'every main push needs a release check');
+  assert.equal(quality.on.push['paths-ignore'],undefined);
+}
 function checkWorkflow(source){
   const doc=YAML.parseDocument(source,{uniqueKeys:true});assert.equal(doc.errors.length,0);
   const workflow=doc.toJS();
@@ -65,10 +70,14 @@ function checkWorkflow(source){
   assert.ok(validate.steps.some(s=>s.run==='npm run check:ci'));
   assert.ok(!JSON.stringify(validate).includes('secrets.CLASPRC_JSON'));
   const quality=YAML.parse(fs.readFileSync('.github/workflows/quality-check.yml','utf8'));
-  for(const path of ['src/gas/apps_script.gs','scripts/deploy-gas.mjs','scripts/gas-release-gate.mjs'])
-    assert.ok(quality.on.push.paths.includes(path));
+  checkReleaseCoverage(quality);
 }
 checkWorkflow(source);
+{
+  const quality=YAML.parse(fs.readFileSync('.github/workflows/quality-check.yml','utf8'));
+  quality.on.push.paths=['src/gas/apps_script.gs'];
+  assert.throws(()=>checkReleaseCoverage(quality));
+}
 for(const [before,after] of [["vars.GAS_AUTO_DEPLOY_ENABLED == 'true'","true"],
   ["head_branch == 'main'","head_branch != 'main'"],['portfolio-production-gas','other'],
   ['npm run check:ci','npm run check:gas']]){
