@@ -22,7 +22,7 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
   const status=summarizeBackfillStatus(await req('getAutomationStatus'));
   emit({iteration:i+1,...status});
   if(status.close.state==='COMPLETE')return {complete:true,status};
-  if(r.status!=='ok')throw Error('RESUME_CONTINUE_BLOCKED_VERIFY_STATUS');
+  if(r.status!=='ok'||r.continued!==true)throw Error('RESUME_CONTINUE_BLOCKED_VERIFY_STATUS');
  }
  throw Error('RESUME_BOUNDED_PROGRESS_EXHAUSTED');
 }

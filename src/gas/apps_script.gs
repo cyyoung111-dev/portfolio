@@ -19212,7 +19212,8 @@ function handleResumeIncompletePortfolioClose(apply, phase) {
       var scheduled = _portfolioFundState_(props,PORTFOLIO_FUND_SCHEDULE_KEY);
       var roster = scheduled ? [scheduled].concat(scheduled.additional || []) : [];
       var pending = roster.filter(function(p) { return p.date === date && p.owner && p.owner.runId === id; })[0];
-      if (phase === 'continue' && !pending) throw new Error('reservation');
+      if (phase === 'continue' && (!pending || Number(pending.until || 0) <= now
+          || !(Number(pending.attempts || 0) < 3))) throw new Error('reservation');
       if (apply === '1' && phase === 'schedule') {
         props.setProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,
           JSON.stringify({token:token,date:date,until:now+420000}));
@@ -19223,7 +19224,9 @@ function handleResumeIncompletePortfolioClose(apply, phase) {
     });
     if (owner.complete || apply === '0') return jsonOk({mode:apply==='1'?'APPLY':'DRY_RUN',date:owner.date,complete:!!owner.complete});
     if (phase === 'continue') {
-      runDeferredFundAfterPortfolioCloseFailure({triggerUid:owner.triggerId});
+      var progress = runDeferredFundAfterPortfolioCloseFailure({triggerUid:owner.triggerId});
+      if (!progress || (progress.skipped && progress.conflict !== 'CONTINUATION'))
+        return jsonError('CLOSE_RESUME_NO_PROGRESS');
       return jsonOk({mode:'APPLY',date:owner.date,continued:true});
     }
     var price = saveDailyPriceHistory(owner.date,{deferQueueCompletion:true});

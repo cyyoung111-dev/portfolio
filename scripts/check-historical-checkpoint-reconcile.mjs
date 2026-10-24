@@ -29,7 +29,7 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
   jsonOk:x=>({status:'ok',...x}),jsonError:message=>({status:'error',message}),
   saveDailyPriceHistory:date=>{producer++;assert.equal(date,'2026-10-24');return {ok:true,date:'2026-10-23',rows:2,krxCloseRequired:false};},
   _scheduleFundAfterFailedPortfolioPrice_:owner=>{scheduled++;assert.equal(owner.runId,'current');assert.equal(owner.priceDate,'2026-10-23');},
-  runDeferredFundAfterPortfolioCloseFailure:e=>{continued++;assert.equal(e.triggerUid,'uid');}
+  runDeferredFundAfterPortfolioCloseFailure:e=>{continued++;assert.equal(e.triggerUid,'uid');return {completionStatus:'ok'};}
  });
  vm.runInContext(extract('_portfolioCloseRunState')+'\n'+extract('handleResumeIncompletePortfolioClose'),cx);
  const reset=()=>{store=new Map([['access_token','TEST'],['portfolio_close_run_date','2026-10-24'],['portfolio_close_run_started_ms','100000'],['portfolio_close_run_started_at','2026-10-24 19:00:00'],['portfolio_close_run_id','current'],['portfolio_close_stage','FUND']]);producer=scheduled=continued=0;};
@@ -39,8 +39,19 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
  reset();store.set('portfolio_close_run_started_ms','1999999');assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error');assert.equal(producer,0);
  reset();store.set('access_token','');assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error');assert.equal(producer,0);
  reset();assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').status,'error');assert.equal(continued,0);
- store.set('schedule',JSON.stringify({date:'2026-10-24',owner:{runId:'current'},triggerId:'uid'}));
+ store.set('schedule',JSON.stringify({date:'2026-10-24',owner:{runId:'current'},triggerId:'uid',until:3000000,attempts:0}));
  assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').continued,true);assert.equal(continued,1);assert.equal(producer,0);
+ for(const pending of [{until:1999999,attempts:0},{until:3000000,attempts:3}]){
+  continued=0;store.set('schedule',JSON.stringify({date:'2026-10-24',owner:{runId:'current'},triggerId:'uid',...pending}));
+  assert.equal(cx.handleResumeIncompletePortfolioClose('0','continue').status,'error');
+  assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').status,'error');assert.equal(continued,0);
+ }
+ store.set('schedule',JSON.stringify({date:'2026-10-24',owner:{runId:'current'},triggerId:'uid',until:3000000,attempts:0}));
+ cx.runDeferredFundAfterPortfolioCloseFailure=()=>({skipped:true,reason:'RETRY_EXHAUSTED'});
+ assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').status,'error','no false progress after expiry race');
+ cx.runDeferredFundAfterPortfolioCloseFailure=()=>({skipped:true,conflict:'CONTINUATION'});
+ assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').continued,true,'actual bounded progress remains resumable');
+
 }
 console.log('Actual GAS close resume: dry-run, exact owner/date, active lease, age, auth, reservation, independent continuation PASS');
 
