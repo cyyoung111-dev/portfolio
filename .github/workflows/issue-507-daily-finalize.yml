@@ -1,0 +1,62 @@
+name: issue-507-daily-finalize
+on:
+  workflow_run:
+    workflows: [gas-deploy]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: '10월22·23일 공식 원천 검증 후 누락 복구와 대기열 해제'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: issue507-backlog-reconcile
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+        (github.event.workflow_run.event == 'workflow_run' || github.event.workflow_run.event == 'workflow_dispatch') &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+      - name: Prove approved first installation
+        id: first
+        if: github.event_name == 'workflow_run'
+        env:
+          DEPLOYED_SHA: ${{ github.event.workflow_run.head_sha }}
+          APPROVED_PARENT: 78f4b15173b087acf58b4d64e1ea7d1ba74cb42a
+        run: |
+          set -euo pipefail
+          echo 'apply=false' >> "$GITHUB_OUTPUT"
+          [ "$(git rev-parse HEAD)" = "$DEPLOYED_SHA" ] || exit 1
+          [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
+          if git cat-file -e "$APPROVED_PARENT:.github/workflows/issue-507-daily-finalize.yml" 2>/dev/null; then exit 0; fi
+          echo 'apply=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify exact-date sources, recover empty date, clear verified markers
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          APPLY: ${{ ((github.event_name == 'workflow_dispatch' && inputs.apply) || (github.event_name == 'workflow_run' && steps.first.outputs.apply == 'true')) && '1' || '0' }}
+        run: |
+          if [ "$APPLY" = '1' ]; then
+            node scripts/run-issue507-daily-finalize.mjs
+          else
+            node scripts/run-issue507-daily-finalize.mjs
+          fi
