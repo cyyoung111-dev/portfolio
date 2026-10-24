@@ -34,18 +34,17 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
-      - name: Prove approved first installation
+      - name: Prove approved one-shot maintenance revision
         id: first
         if: github.event_name == 'workflow_run'
         env:
           DEPLOYED_SHA: ${{ github.event.workflow_run.head_sha }}
-          APPROVED_PARENT: f11e2f7241ff6bd0f4a6a6e4a7501caf54382f67
+          APPROVED_PARENT: 04acdc28181d170f2f2800b22d165db914d6d884
         run: |
           set -euo pipefail
           echo 'apply=false' >> "$GITHUB_OUTPUT"
           [ "$(git rev-parse HEAD)" = "$DEPLOYED_SHA" ] || exit 1
           [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
-          if git cat-file -e "$APPROVED_PARENT:.github/workflows/issue-507-approved-maintenance.yml" 2>/dev/null; then exit 0; fi
           echo 'apply=true' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v7
         with:

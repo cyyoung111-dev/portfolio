@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {selfTest} from './run-issue507-maintenance.mjs';
+import {selfTest,run} from './run-issue507-maintenance.mjs';
 import {selfTest as ledgerProofSelfTest} from './issue507-ledger-worker-readonly.mjs';
 import {execFileSync} from 'node:child_process';
 const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -31,7 +31,7 @@ function setup(options={}) {
     batchUpsertPriceHistory:(_ss,date,items)=>{writes++;for(const x of items)ph.rows.push([date,x.code,x.name,x.price,'',x.source]);}
   });
   if(options.productionWriter) {context.batchUpsertPriceHistory=actualWriter;context._setCodeColumnText=()=>{};context._touchSnapshotIntegritySourceRevision=()=>{};}
-  return {run:(mode='reconcile',apply='1')=>context.handleIssue507Maintenance(mode,apply),props,ph,old,
+  return {context,run:(mode='reconcile',apply='1')=>context.handleIssue507Maintenance(mode,apply),props,ph,old,
     stats:()=>({copies,released,reads,fetches,writes})};
 }
 let f=setup();let r=f.run();assert.equal(r.removed,2);assert.equal(r.remaining,1);assert.equal(JSON.parse(f.props.get('trade_snapshot_rebuild_deferred_v1')).dates[0],'2025-12-31');assert.ok(f.props.has('issue507_deferred_reconcile_backup_v1'));assert.equal(f.props.get('trade_snapshot_rebuild_pending_v1'),'UNCHANGED');assert.deepEqual(f.ph.rows,f.old);assert.equal(f.run().removed,0);assert.equal(f.stats().released,2);
@@ -48,8 +48,20 @@ assert.match(source,/if \(params.action === 'issue507Maintenance'\) return jsonE
 const wf=fs.readFileSync('.github/workflows/issue-507-approved-maintenance.yml','utf8');
 assert.ok(wf.includes("github.event.workflow_run.event == 'workflow_run'"),'automatic GAS deployments arrive as workflow_run, not push');
 assert.ok(wf.includes("github.ref == 'refs/heads/main'"));
-assert.ok(wf.includes('APPROVED_PARENT: f11e2f7241ff6bd0f4a6a6e4a7501caf54382f67'));
-assert.ok(wf.includes('git cat-file -e'));
+assert.ok(wf.includes('APPROVED_PARENT: 04acdc28181d170f2f2800b22d165db914d6d884'));
+assert.ok(wf.includes('git rev-parse HEAD^')); 
+
+// End-to-end protocol test: client -> real doPost parser -> real request
+// authentication -> real maintenance -> persisted queue -> real status route.
+f=setup({productionWriter:true});
+f.context._getAutomationStatusData=()=>({tradeSnapshotDeferredCount:JSON.parse(f.props.get('trade_snapshot_rebuild_deferred_v1')||'{"dates":[]}').dates.length});
+const realFetch=async(_url,options)=>({ok:true,json:async()=>f.context.doPost({postData:{contents:String(options.body)}})});
+const integration=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:realFetch});
+assert.equal(integration.summaries[0].removed,2);assert.equal(integration.summaries[1].added,1);assert.equal(integration.deferredCount,1);
+assert.deepEqual(f.ph.rows.slice(0,2),f.old);
+f=setup();f.context._getAutomationStatusData=()=>({tradeSnapshotDeferredCount:3});
+await assert.rejects(()=>run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(u,o)=>{const bad=new URLSearchParams(o.body);const token=bad.get('accessToken');bad.delete('accessToken');bad.set('token',token);return realFetch(u,{...o,body:bad});}}),/MAINTENANCE_VERSION/,'old token field must fail the real authentication route before writes');
+assert.equal(f.stats().writes,0);assert.equal(JSON.parse(f.props.get('trade_snapshot_rebuild_deferred_v1')).dates.length,3);
 await selfTest();
 await ledgerProofSelfTest();
 execFileSync(process.execPath,['scripts/issue507-deferred-source-audit-readonly.mjs','--self-test'],{stdio:'inherit'});

@@ -7,7 +7,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
   if(typeof token!=='string'||!token.trim())throw Error('MAINTENANCE_AUTH_MISSING');
   async function request(action,args={},credential=token) {
     let r;
-    try {r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',body:new URLSearchParams({action,token:credential,...args}),signal:AbortSignal.timeout(300000)});}
+    try {r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:credential}),signal:AbortSignal.timeout(300000)});}
     catch {throw Error('MAINTENANCE_NETWORK');}
     if(!r.ok)throw Error('MAINTENANCE_HTTP');
     try {return await r.json();}catch {throw Error('MAINTENANCE_JSON');}
@@ -23,7 +23,8 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
     catch {summaries.push({mode,status:'UNVERIFIED'});continue;}
     if(r.status==='error') {
       // Never forward raw GAS error text to public Actions logs.
-      summaries.push({mode,status:'BLOCKED'});continue;
+      const safeCodes=new Set(['ISSUE507_AUTH_REQUIRED','ISSUE507_BAD_MAINTENANCE_REQUEST','ISSUE507_MAINTENANCE_BUSY','ISSUE507_LEDGER_UNVERIFIED','ISSUE507_MAINTENANCE_SOURCE_CHANGED','ISSUE507_QUEUE_WRITE_UNVERIFIED','ISSUE507_BACKUP_UNVERIFIED','ISSUE507_PRICE_APPEND_UNVERIFIED','ISSUE507_MAINTENANCE_FAILED']);
+      summaries.push({mode,status:'BLOCKED',reason:safeCodes.has(r.message)?r.message:'UNCLASSIFIED'});continue;
     }
     if(r.status!=='ok'||r.mode!==mode||typeof r.applied!=='boolean')throw Error('MAINTENANCE_BAD_RESULT');
     const keys=mode==='reconcile'?['checked','verifiedValid','removed','before','remaining']:['needed','available','added'];
@@ -43,7 +44,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
 export async function selfTest() {
   let count=0;
   const fixture=async(_url,opts)=>{const a=Object.fromEntries(opts.body);count++;let d;
-    if(a.token==='ISSUE507_BAD_AUTH')d={status:'error',message:'인증 실패'};
+    if(a.accessToken==='ISSUE507_BAD_AUTH')d={status:'error',message:'인증 실패'};
     else if(a.action==='getAutomationStatus')d={status:'ok',gasVersion:'9.258',automation:{tradeSnapshotDeferredCount:count<4?31:1}};
     else if(a.mode==='yearendPrices')d={status:'ok',mode:a.mode,applied:true,needed:3,available:3,added:3,private:'NOT_FOR_LOGS'};
     else d={status:'ok',mode:a.mode,applied:true,checked:31,verifiedValid:30,removed:30,before:31,remaining:1,originalDataWritten:false};
@@ -56,8 +57,8 @@ export async function selfTest() {
   assert.equal(partial.complete,false);
   assert.equal(r.complete,true);
   assert.equal(partial.summaries[0].removed,30);assert.equal(partial.summaries[1].status,'UNVERIFIED');assert.equal(partial.deferredCount,1);
-  const blocked=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(_u,o)=>({ok:true,json:async()=>o.body.get('token')==='ISSUE507_BAD_AUTH'?{status:'error',message:'인증 실패'}:o.body.get('action')==='getAutomationStatus'?{status:'ok',gasVersion:'9.258',automation:{tradeSnapshotDeferredCount:31}}:{status:'error',message:'PRIVATE_BUSY'}})});
-  assert.equal(blocked.complete,false);assert.equal(blocked.deferredCount,31);assert.ok(blocked.summaries.every(x=>x.status==='BLOCKED'));assert.ok(!JSON.stringify(blocked).includes('PRIVATE_BUSY'));
+  const blocked=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(_u,o)=>({ok:true,json:async()=>o.body.get('accessToken')==='ISSUE507_BAD_AUTH'?{status:'error',message:'인증 실패'}:o.body.get('action')==='getAutomationStatus'?{status:'ok',gasVersion:'9.258',automation:{tradeSnapshotDeferredCount:31}}:{status:'error',message:'PRIVATE_BUSY'}})});
+  assert.equal(blocked.complete,false);assert.equal(blocked.deferredCount,31);assert.ok(blocked.summaries.every(x=>x.status==='BLOCKED'));assert.ok(!JSON.stringify(blocked).includes('PRIVATE_BUSY'));assert.ok(blocked.summaries.every(x=>x.reason==='UNCLASSIFIED'));
   await assert.rejects(()=>run({url:'https://example.com',token:'TEST',fetchImpl:fixture}));
   await assert.rejects(()=>run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl:async()=>{throw Error('PRIVATE');}}),/^Error: MAINTENANCE_NETWORK$/);
   console.log('✅ #507 유지보수 실행기: 인증·버전·집계 전용 출력·큐 재조회');
@@ -69,5 +70,8 @@ if(import.meta.url===pathToFileURL(process.argv[1]||'').href) {
     console.log(JSON.stringify(r));
     if(!r.complete)process.exitCode=1;
   }
-  catch {console.error('ISSUE507_MAINTENANCE_RUN_FAILED');process.exitCode=1;}
+  catch (error) {
+    const allowed=new Set(['MAINTENANCE_AUTH_MISSING','MAINTENANCE_NETWORK','MAINTENANCE_HTTP','MAINTENANCE_JSON','MAINTENANCE_AUTH_GUARD','MAINTENANCE_VERSION','MAINTENANCE_BAD_RESULT','MAINTENANCE_BAD_COUNTS','MAINTENANCE_BAD_QUEUE_PROOF','MAINTENANCE_BAD_PRICE_PROOF','MAINTENANCE_POSTCHECK','MAINTENANCE_QUEUE_READBACK']);
+    console.error(allowed.has(error?.message)?error.message:'ISSUE507_MAINTENANCE_RUN_FAILED');process.exitCode=1;
+  }
 }
