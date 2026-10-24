@@ -4,7 +4,7 @@ import {runBackfillStatus,summarizeBackfillStatus} from './diagnose-backfill-sta
 export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
  const endpoint=validateWebAppUrl(url);
  const initial=await runBackfillStatus({url:endpoint,token,fetchImpl});
- if(initial.gasVersion!=='9.261')throw Error('RESUME_VERSION');
+ if(initial.gasVersion!=='9.262')throw Error('RESUME_VERSION');
  if(initial.close.state==='COMPLETE')return {complete:true,status:initial};
  async function req(action,args={}) {
   try {

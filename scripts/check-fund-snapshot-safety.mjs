@@ -1948,3 +1948,29 @@ console.log('✅ #507 운영 39종목·77행 유형: 충돌 35종목 보호·dry
  context._refreshFundValuations=saved;context.today=oldToday;context._buildSnapshotRowsFromTradeAndPriceHistory=oldBuild;
 }
 console.log('Daily NAV bounded Snapshot writes, latest-first resume, no false DONE: PASS');
+
+// Production carry provenance must be equivalent only for its exact source date.
+{
+ const value={date:'2026-09-21',sourceDate:'2026-09-18',nav:1200,units:1000,evalAmt:1200,carried:true,inputRequired:false};
+ const price=['2026-09-21','F00001','한화',1200,'','FUND_NAV_CARRY'];
+ const snapshot=['2026-09-21','F00001','한화',1,1000,1000,1200,1200,200,20,'FUND_NAV_CARRY@2026-09-18',''];
+ assert.equal(context._fundValueNeedsProcessing(value,null,price,snapshot),false,'exact dated carry is already complete');
+ const wrong=snapshot.slice();wrong[10]='FUND_NAV_CARRY@2026-09-17';
+ assert.equal(context._fundValueNeedsProcessing(value,null,price,wrong),true,'wrong publication date cannot be normalized away');
+ const changed=snapshot.slice();changed[7]=1300;
+ assert.equal(context._fundValueNeedsProcessing(value,null,price,changed),true,'valuation mismatch still requires processing');
+ assert.equal(context._fundSnapshotSourceMatches('FUND_NAV@2026-09-18','FUND_NAV','2026-09-18'),false,'confirmed NAV never gains carry equivalence');
+ const oldToday=context.today;context.today=()=> '2026-09-21';
+ const carrySs=ssFor({
+  '펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00001','한화','HANWHA_2045_CRPE','2026-09-01',1000,'']]),
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-18','F00001','한화',1200,'2026-09-18',1000,1200,'','HANWHA_2045_CRPE']]),
+  '가격이력':new Sheet([['date','code','name','price','at','source'],price]),'스냅샷':new Sheet([header,snapshot])
+ });
+ assert.equal(context._getFundValuationStatus(carrySs,value.date,value.date,'F00001').dates[0].snapshotState,'EXISTING_VALID');
+ const before=JSON.stringify(carrySs.getSheetByName('스냅샷').rows);
+ const result=context._refreshFundValuations(carrySs,value.date,value.date,'F00001',true,null,1);
+ assert.equal(result.snapshots,0);assert.equal(result.continuation,false);assert.equal(result.fundResults.F00001.completedSkipped,1);
+ assert.equal(JSON.stringify(carrySs.getSheetByName('스냅샷').rows),before,'preserve publication provenance and all values');
+ context.today=oldToday;
+}
+console.log('Actual NAV carry publication-date equivalence: no repeated write, wrong date/value rejected, source preserved PASS');
