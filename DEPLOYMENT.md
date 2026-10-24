@@ -1,3 +1,16 @@
+## GAS v9.259 — #507 전체 backlog 메타데이터 정리·수기 보호 (2026-10-24)
+
+- **배포 상태:** 현재 운영 v9.258. 후보 v9.259의 배포 후 큐 및 원본 무변경을 별도 검증한다.
+- **소스 pin:** gasVersion=9.259, 전체 GAS Git blob `f6e2161aec5cc9813d3300be0181661e5267ad24`. 이전 pin 보존.
+- **변경:** 기존 계산 view를 바꾸지 않고 날짜 탐색용 ETF 분배금·설정 view를 별도로 고정한다. 전체 기간의 같은 생산 진단 결과로 VALID만 제외하고 미해결일을 영속 보류한 후에만 전진 커서를 정리한다. 원천 이중 digest/revision·pending/deferred 동일성·ScriptLock·상태 백업·readback 검증이 필수다.
+- **원본 보호:** Snapshot·가격이력·거래원장·NAV/좌수는 쓰지 않는다. 배포 후 source integrity 및 Snapshot 원본 무변경과 전체 정합성 집계를 확인한다.
+- **수기 보호:** 중복이 없는 MANUAL 행도 원장/NAV 기대와 다르면 PARTIAL/MISMATCH에서 writer 진입 전에 보류한다. 기존 금융 writer·금액 계산 변경 없이 금융 원본 쓰기 0.
+- **일회 실행:** 승인된 parent SHA의 최초 workflow 설치 및 성공한 main GAS 배포 뒤 메타데이터만 apply. 후속 자동 실행은 dry-run, 수동 main apply는 명시 선택.
+- **기존 일정 유지:** KST 22:10 당일 / 23:10 과거 / 00:30 과거 / 08:45 오전 및 hourly worker.
+- **검증:** 실제 doPost/인증/생산 진단·큐 상태 전이 통합, dry-run·원천 변화·잠금·미검증 원장·커서 삭제 실패 시 예외 보존·단독 MANUAL 보호. 배포 후 날짜/보류 집계와 원본 무변경을 확인한다.
+
+---
+
 ## GAS v9.258 — #507 승인 보류 큐 재판정·연말 가격 보완 (2026-10-24)
 
 - **배포 상태:** PR #639 병합 후 GAS v9.258 / Apps Script version 300 / webApp 검증 완료. 최초 실행은 실행기 인증 필드 불일치로 쓰기 전에 차단됐으며, 후속 수정의 실제 보완·큐 해제는 배포 후 별도 확인한다.
