@@ -9,25 +9,28 @@ function setup(options={}) {
   const dates=['2025-12-31','2026-01-01','2026-01-02'];
   const props=new Map([['access_token','TEST'],['trade_snapshot_rebuild_deferred_v1',JSON.stringify({dates,cursor:''})],['trade_snapshot_rebuild_pending_v1','UNCHANGED']]);
   const old=[['date','code','name','price','at','source'],['2025-12-30','000001','EXISTING',10,'','MANUAL']];
-  const ph={rows:structuredClone(old),getLastRow(){return this.rows.length;},getRange(r,c,h,w){return {getValues:()=>this.rows.slice(r-1,r-1+h).map(x=>x.slice(c-1,c-1+w))};},copyTo(){copies++;const clone=structuredClone(this.rows);return {setName(){return {getRange:()=>({getValues:()=>options.badBackup?[]:clone})};}};}};
+  if(options.zeroExisting)old.push(['2025-12-30','000002','EXISTING_ZERO',0,'KEPT','ORIGINAL']);
+  const ph={rows:structuredClone(old),getLastRow(){return this.rows.length;},getLastColumn:()=>6,getRange(r,c,h,w){return {getValues:()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>this.rows[r-1+i]?.[c-1+j]??'')),getFormulas:()=>Array.from({length:h},()=>Array(w).fill('')),setValues:values=>{writes++;values.forEach((v,i)=>{this.rows[r-1+i]??=[];v.forEach((x,j)=>this.rows[r-1+i][c-1+j]=x);});}};},copyTo(){copies++;const clone=structuredClone(this.rows);return {setName(){return {getRange:()=>({getValues:()=>options.badBackup?[]:clone})};}};}};
   const ss={getSheetByName:n=>n==='가격이력'?ph:null};let copies=0,released=0,reads=0,fetches=0,writes=0;
   const context=vm.createContext({Date,console,Logger:{log(){}},PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k)})},LockService:{getScriptLock:()=>({tryLock:()=>!options.busy,releaseLock:()=>released++})},SpreadsheetApp:{flush(){}},Utilities:{formatDate:()=> '20261024_120000'}});
-  vm.runInContext(source,context);
+  vm.runInContext(options.omitExistingGuard?source.replace(" || existingKeys[used+'|'+item.code]",''):source,context);
+  const actualWriter=context.batchUpsertPriceHistory;
   Object.assign(context,{jsonOk:x=>({status:'ok',...x}),jsonError:message=>({status:'error',message}),getss:()=>ss,
     _tradeLedgerWriteUnverified_:()=>!!options.unverified,
-    _buildSnapshotRangeReadContext:()=>({ss,read:++reads}),
+    _buildSnapshotRangeReadContext:()=>({ss,read:++reads,valuesByName:{'가격이력':ph.rows}}),
     _issue507StrictReadSourceDigest_:x=>options.drift?String(x.read):'SAME',
     _peekSnapshotIntegritySourceRevisionReadonly_:()=> 'SAME',
     _buildSnapshotRangeIndexes:()=>({holdingsByRequestedDate:{'2025-12-31':{
-      A:{code:'000001'},B:{code:'000002'},C:{code:'000003'},F:{code:'F00001'}}},
+      A:{code:'000001'},B:{code:'000002'},C:{code:'000003'},F:{code:'F00001'},...(options.foreign?{U:{code:'US_CODE'}}:{})}},
       positivePriceSeriesByCode:{'000001':[{date:'2025-12-30',price:10}]},
-      codeItems:['000001','000002','000003'].map(code=>({code,name:'PRIVATE_NAME',currency:'KRW'}))}),
+      codeItems:[...['000001','000002','000003'].map(code=>({code,name:'PRIVATE_NAME',currency:'KRW'})),...(options.foreign?[{code:'US_CODE',name:'PRIVATE_US',currency:'USD'}]:[])]}),
     diagnoseSnapshotIntegrity:(_s,d)=>({date:d,status:d==='2025-12-31'?'SOURCE_INCOMPLETE':options.conflict?'CONFLICT':'VALID',expectedRowCount:33,sourceDataErrors:options.hiddenError?['PRIVATE']:[],duplicateKeys:options.duplicate?['X']:[],conflictKeys:[]}),
     fetchPricesKrx:(items,date)=>{fetches++;assert.equal(date,'2025-12-30');assert.deepEqual(Array.from(items,x=>x.code),['000002','000003']);return {
       '000002':{price:20,usedDate:options.future?'2026-01-02':'2025-12-30',source:options.untrusted?'CURRENT':'KRX'},
       '000003':{price:30,usedDate:'2026-01-01',source:'KRX'}};},
     batchUpsertPriceHistory:(_ss,date,items)=>{writes++;for(const x of items)ph.rows.push([date,x.code,x.name,x.price,'',x.source]);}
   });
+  if(options.productionWriter) {context.batchUpsertPriceHistory=actualWriter;context._setCodeColumnText=()=>{};context._touchSnapshotIntegritySourceRevision=()=>{};}
   return {run:(mode='reconcile',apply='1')=>context.handleIssue507Maintenance(mode,apply),props,ph,old,
     stats:()=>({copies,released,reads,fetches,writes})};
 }
@@ -38,6 +41,9 @@ f=setup();r=f.run('yearendPrices');assert.equal(r.added,1);assert.equal(f.stats(
 for(const options of [{future:true},{untrusted:true},{drift:true},{badBackup:true}]) {f=setup(options);r=f.run('yearendPrices');assert.deepEqual(f.ph.rows,f.old);assert.equal(f.stats().writes,0);}
 f=setup();r=f.run('yearendPrices','0');assert.equal(r.available,1);assert.equal(r.added,0);assert.equal(f.stats().copies,0);assert.deepEqual(f.ph.rows,f.old);
 f=setup();r=f.run('invalid');assert.equal(r.status,'error');assert.equal(f.stats().reads,0);
+f=setup({foreign:true,productionWriter:true});r=f.run('yearendPrices');assert.equal(r.added,1);assert.equal(f.stats().fetches,1);assert.deepEqual(f.ph.rows.slice(0,2),f.old);
+f=setup({zeroExisting:true,productionWriter:true});r=f.run('yearendPrices');assert.equal(r.available,0);assert.equal(f.stats().writes,0);assert.deepEqual(f.ph.rows,f.old);
+f=setup({zeroExisting:true,productionWriter:true,omitExistingGuard:true});r=f.run('yearendPrices');assert.equal(r.status,'error');assert.notDeepEqual(f.ph.rows,f.old,'regression oracle must expose the real upsert mutation without the new preflight');
 assert.match(source,/if \(params.action === 'issue507Maintenance'\) return jsonError\('POST_ONLY'\)/);
 const wf=fs.readFileSync('.github/workflows/issue-507-approved-maintenance.yml','utf8');
 assert.ok(wf.includes("github.event.workflow_run.event == 'workflow_run'"),'automatic GAS deployments arrive as workflow_run, not push');

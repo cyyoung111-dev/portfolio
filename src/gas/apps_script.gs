@@ -18960,16 +18960,20 @@ function handleIssue507Maintenance(mode, apply) {
       var code=_cleanCode(h.code);
       return code && !_isFundCode(code) && !_indexedLatest(indexed.positivePriceSeriesByCode[code]||[],target);
     }).map(function(h) {
-      var item=indexed.codeItems.filter(function(item) { return _cleanCode(item.code)===_cleanCode(h.code); })[0];
-      if (!item || String(item.currency||'KRW').toUpperCase()!=='KRW') throw new Error('unsupported');
-      return item;
-    });
+      return indexed.codeItems.filter(function(item) { return _cleanCode(item.code)===_cleanCode(h.code); })[0] || null;
+    }).filter(function(item) { return item && String(item.currency||'KRW').toUpperCase()==='KRW'; });
     if (!wanted.length) return jsonOk({mode:mode,applied:apply==='1',needed:0,available:0,added:0});
+    // A non-positive/blank existing row is NOT a missing key. Never let the
+    // shared upsert writer silently turn this append-only task into a repair.
+    var existingKeys={};
+    (context.valuesByName[CONFIG.SHEET_PH] || []).slice(1).forEach(function(row) {
+      existingKeys[_normalizeDate(row[0])+'|'+_cleanCode(row[1])]=true;
+    });
     var fetched=fetchPricesKrx(wanted,quoteDate), groups={}, available=0;
     wanted.forEach(function(item) {
       var row=fetched[item.code], used=_normalizeDate(row && row.usedDate||'');
       if (!row || !(Number(row.price)>0) || used>quoteDate || used<'2025-12-23'
-          || ['KRX','KRX_OTP'].indexOf(row.source)<0) return;
+          || ['KRX','KRX_OTP'].indexOf(row.source)<0 || existingKeys[used+'|'+item.code]) return;
       (groups[used]||(groups[used]=[])).push({code:item.code,name:item.name,price:Number(row.price),source:row.source});
       available++;
     });

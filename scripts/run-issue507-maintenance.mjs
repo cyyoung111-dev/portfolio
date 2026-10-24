@@ -36,7 +36,8 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
   if(after.status!=='ok'||after.gasVersion!=='9.258')throw Error('MAINTENANCE_POSTCHECK');
   const q=summaries.find(x=>x.mode==='reconcile');
   if(q.status==='OK'&&after.automation?.tradeSnapshotDeferredCount!==q.remaining)throw Error('MAINTENANCE_QUEUE_READBACK');
-  return {mode:apply?'APPLY':'DRY_RUN',summaries,deferredCount:after.automation?.tradeSnapshotDeferredCount};
+  const complete=summaries.every(r=>r.status==='OK' && (!apply || r.mode==='reconcile' || r.added===r.needed));
+  return {mode:apply?'APPLY':'DRY_RUN',complete,summaries,deferredCount:after.automation?.tradeSnapshotDeferredCount};
 }
 
 export async function selfTest() {
@@ -52,13 +53,21 @@ export async function selfTest() {
   assert.equal(r.deferredCount,1);assert.ok(!JSON.stringify(r).includes('NOT_FOR_LOGS'));
   count=0;
   const partial=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(u,o)=>{if(o.body.get('mode')==='yearendPrices'){count++;throw Error('PRIVATE');}return fixture(u,o);}});
+  assert.equal(partial.complete,false);
+  assert.equal(r.complete,true);
   assert.equal(partial.summaries[0].removed,30);assert.equal(partial.summaries[1].status,'UNVERIFIED');assert.equal(partial.deferredCount,1);
+  const blocked=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(_u,o)=>({ok:true,json:async()=>o.body.get('token')==='ISSUE507_BAD_AUTH'?{status:'error',message:'인증 실패'}:o.body.get('action')==='getAutomationStatus'?{status:'ok',gasVersion:'9.258',automation:{tradeSnapshotDeferredCount:31}}:{status:'error',message:'PRIVATE_BUSY'}})});
+  assert.equal(blocked.complete,false);assert.equal(blocked.deferredCount,31);assert.ok(blocked.summaries.every(x=>x.status==='BLOCKED'));assert.ok(!JSON.stringify(blocked).includes('PRIVATE_BUSY'));
   await assert.rejects(()=>run({url:'https://example.com',token:'TEST',fetchImpl:fixture}));
   await assert.rejects(()=>run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl:async()=>{throw Error('PRIVATE');}}),/^Error: MAINTENANCE_NETWORK$/);
   console.log('✅ #507 유지보수 실행기: 인증·버전·집계 전용 출력·큐 재조회');
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href) {
   if(process.argv.includes('--self-test'))await selfTest();
-  else try {console.log(JSON.stringify(await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')})));}
+  else try {
+    const r=await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')});
+    console.log(JSON.stringify(r));
+    if(!r.complete)process.exitCode=1;
+  }
   catch {console.error('ISSUE507_MAINTENANCE_RUN_FAILED');process.exitCode=1;}
 }
