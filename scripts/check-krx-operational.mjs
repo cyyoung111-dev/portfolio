@@ -277,7 +277,7 @@ assert.ok(!JSON.stringify(continuedOnTimeout).includes('sensitive transport deta
 console.log('KRX authenticated production diagnostic is read-only and sanitized: PASS');
 
 
-import { runBackfillStatus, summarizeBackfillStatus, classifyBackfillFailure } from './diagnose-backfill-status.mjs';
+import { runBackfillStatus, summarizeBackfillStatus, summarizeCloseStatus, classifyBackfillFailure } from './diagnose-backfill-status.mjs';
 const statusFixture=()=>({status:'ok',gasVersion:'9.224',automation:{
   gasVersion:'9.224',overallStatus:'WARNING',
   trigger:{
@@ -507,3 +507,15 @@ assert.deepEqual(targetedRequests,['0','0','1']);
 await assert.rejects(()=>runTargetedRecovery({...targetedConfig,date:'2026-10-12,2026-10-13'}),/TARGET_INVALID_INPUT/);
 await assert.rejects(()=>runTargetedRecovery({...targetedConfig,apply:'false'}),/TARGET_INVALID_APPLY/);
 console.log('✅ 지정일 복구 클라이언트: 기본 dry-run·인증 거부 확인·단일 날짜·명시 apply 계약');
+
+// Close lifecycle diagnosis must explain INCOMPLETE without leaking raw errors.
+const closePrivate={closeRun:{state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-23',private:'SECRET'},portfolioClose:{runDate:'2026-10-23',priceOk:true,fundOk:false,errors:['SECRET_ACCOUNT']},portfolioCloseLastError:'SECRET',fundLastError:'SECRET',fundAttempt:{state:'TIMEOUT_SUSPECTED',date:'2026-10-23',token:'SECRET'}};
+const closeSafe=summarizeCloseStatus(closePrivate);
+assert.equal(closeSafe.state,'INCOMPLETE');assert.equal(closeSafe.stage,'FUND');
+assert.equal(closeSafe.priceOk,true);assert.equal(closeSafe.fundOk,false);
+assert.equal(closeSafe.closeErrorCount,1);assert.equal(closeSafe.fundState,'TIMEOUT_SUSPECTED');
+assert.ok(!JSON.stringify(closeSafe).includes('SECRET'));
+assert.equal(summarizeCloseStatus({closeRun:{stage:'SECRET'}}).stage,'UNKNOWN');
+assert.throws(()=>summarizeCloseStatus({fundLastDate:'2026-02-30'}),/AUTOMATION_DIAG_BAD_DATE/);
+assert.equal(summarizeBackfillStatus({...statusFixture(),automation:{...statusFixture().automation,...closePrivate}}).close.stage,'FUND');
+console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, private data exclusion PASS');

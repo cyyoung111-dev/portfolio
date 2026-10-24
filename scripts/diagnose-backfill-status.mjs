@@ -150,6 +150,31 @@ export function assessWorkerRunCheckpoint(checkpoint,observedAt=Date.now()) {
     ? 'STALE_RUNNING_TIMEOUT_SUSPECTED'
     : 'RUNNING_RECENT_UNCONFIRMED';
 }
+// Only lifecycle enums, dates and booleans; never raw errors or run IDs.
+export function summarizeCloseStatus(a) {
+  const pick=(value,allowed)=>allowed.includes(value)?value:'UNKNOWN';
+  const c=a.portfolioClose, r=a.closeRun, f=a.fundAttempt;
+  return {
+    state:pick(r?.state,['COMPLETE','INCOMPLETE','ERROR','NEVER_RUN']),
+    stage:pick(r?.stage,['PRICE','FUND','COMPLETE','ERROR']),
+    runDate:safeDate(r?.runDate),
+    summaryPresent:!!c,
+    summaryRunDate:safeDate(c?.runDate),
+    priceOk:typeof c?.priceOk==='boolean'?c.priceOk:null,
+    fundOk:typeof c?.fundOk==='boolean'?c.fundOk:null,
+    closeErrorCount:Array.isArray(c?.errors)?c.errors.length:null,
+    closeErrorPresent:!!a.portfolioCloseLastError,
+    runStale:typeof a.portfolioCloseRunStale==='boolean'?a.portfolioCloseRunStale:null,
+    snapshotStale:typeof a.snapshotStale==='boolean'?a.snapshotStale:null,
+    expectedRunDate:safeDate(a.expectedPortfolioCloseRunDate),
+    expectedSnapshotDate:safeDate(a.expectedSnapshotDate),
+    fundDate:safeDate(a.fundLastDate),
+    fundState:pick(f?.state,['DONE','ERROR','UNKNOWN_LEGACY','TIMEOUT_SUSPECTED','IN_PROGRESS']),
+    fundAttemptDate:safeDate(f?.date),
+    fundErrorPresent:!!a.fundLastError,
+    fundWarningPresent:!!a.fundLastWarning
+  };
+}
 export function summarizeBackfillStatus(payload) {
   const a = payload?.automation;
   if (payload?.status !== 'ok' || !a || typeof a !== 'object'
@@ -233,6 +258,7 @@ export function summarizeBackfillStatus(payload) {
   return {
     mode:'READ_ONLY', gasVersion:a.gasVersion, minGasVersion:'9.235',
     gasVersionReady:hasMorningRelease, overallStatus,
+    close:summarizeCloseStatus(a),
     triggerReady:complete, triggerCounts, triggerMissing, duplicateTriggerFlags:duplicates,
     legacySplitTriggers:trigger.hasLegacySplitTriggers,
     pendingDates:pending, pendingCount:pending.length,
