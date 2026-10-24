@@ -17,8 +17,10 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
   const before=await request('getAutomationStatus');
   if(before.status!=='ok'||before.gasVersion!=='9.258')throw Error('MAINTENANCE_VERSION');
   const summaries=[];
-  for(const mode of ['yearendPrices','reconcile']) {
-    const r=await request('issue507Maintenance',{mode,apply:apply?'1':'0'});
+  for(const mode of ['reconcile','yearendPrices']) {
+    let r;
+    try {r=await request('issue507Maintenance',{mode,apply:apply?'1':'0'});}
+    catch {summaries.push({mode,status:'UNVERIFIED'});continue;}
     if(r.status==='error') {
       // Never forward raw GAS error text to public Actions logs.
       summaries.push({mode,status:'BLOCKED'});continue;
@@ -46,7 +48,11 @@ export async function selfTest() {
     else d={status:'ok',mode:a.mode,applied:true,checked:31,verifiedValid:30,removed:30,before:31,remaining:1,originalDataWritten:false};
     return {ok:true,json:async()=>d};};
   const r=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:fixture});
+  assert.equal(r.summaries[0].mode,'reconcile');
   assert.equal(r.deferredCount,1);assert.ok(!JSON.stringify(r).includes('NOT_FOR_LOGS'));
+  count=0;
+  const partial=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(u,o)=>{if(o.body.get('mode')==='yearendPrices'){count++;throw Error('PRIVATE');}return fixture(u,o);}});
+  assert.equal(partial.summaries[0].removed,30);assert.equal(partial.summaries[1].status,'UNVERIFIED');assert.equal(partial.deferredCount,1);
   await assert.rejects(()=>run({url:'https://example.com',token:'TEST',fetchImpl:fixture}));
   await assert.rejects(()=>run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl:async()=>{throw Error('PRIVATE');}}),/^Error: MAINTENANCE_NETWORK$/);
   console.log('✅ #507 유지보수 실행기: 인증·버전·집계 전용 출력·큐 재조회');
