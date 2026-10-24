@@ -36,6 +36,7 @@ const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   '9.256': 'ec9a8f7d10fc5af768355c350f532e8072a81ef6',
   '9.257': '8ae1913bc04946c49fa0ee686c05c77f9fc8d965',
   '9.258': 'ae155c0b45dadeb2f55bc3442fdf371baac0fe37',
+  '9.261': 'c3ac85786ce987aeb6ec895baa82754dcfabee42',
   '9.260': '6fc3a09b27f9d2e8bede794a762b2f3c53eacdb4',
   '9.259': 'f6e2161aec5cc9813d3300be0181661e5267ad24',
   '9.255': 'd74f4b7fdbef6952bbd2ce77e42a5c3db63e0ad2',

@@ -519,3 +519,27 @@ assert.equal(summarizeCloseStatus({closeRun:{stage:'SECRET'}}).stage,'UNKNOWN');
 assert.throws(()=>summarizeCloseStatus({fundLastDate:'2026-02-30'}),/AUTOMATION_DIAG_BAD_DATE/);
 assert.equal(summarizeBackfillStatus({...statusFixture(),automation:{...statusFixture().automation,...closePrivate}}).close.stage,'FUND');
 console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, private data exclusion PASS');
+
+// End-to-end client orchestration uses real auth/status parser and bounded POSTs.
+{
+ const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
+ const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.261';
+ fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
+ fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
+ let scheduled=0,continued=0;const emitted=[];
+ const fetchImpl=async(_url,o)=>{
+  const p=Object.fromEntries(o.body);let data;
+  if(p.accessToken==='AUTOMATION_READONLY_AUTH_PROBE')data={status:'error',message:'인증 실패'};
+  else if(p.action==='getAutomationStatus')data=fixture;
+  else if(p.action==='resumeIncompletePortfolioClose'&&p.phase==='continue'&&p.apply==='0')data={status:'error',message:'PRIVATE'};
+  else if(p.action==='resumeIncompletePortfolioClose'&&p.phase==='schedule'){scheduled++;data={status:'ok',scheduled:true};}
+  else if(p.action==='resumeIncompletePortfolioClose'&&p.phase==='continue'&&p.apply==='1'){
+   continued++;fixture.automation.closeRun.state='COMPLETE';fixture.automation.closeRun.stage='COMPLETE';data={status:'ok',continued:true};
+  }else throw Error('Unexpected action');
+  return {ok:true,json:async()=>structuredClone(data)};
+ };
+ const done=await resumeClose({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl,emit:x=>emitted.push(x)});
+ assert.equal(done.complete,true);assert.equal(scheduled,1);assert.equal(continued,1);
+ assert.equal(emitted.length,1);assert.ok(!JSON.stringify(done).includes('PRIVATE'));
+}
+console.log('Incomplete close client: authentication, explicit schedule, bounded continuation, verified completion PASS');

@@ -1,0 +1,47 @@
+name: issue-507-fund-close-resume
+on:
+  workflow_run:
+    workflows: [gas-deploy]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue507-fund-close-resume
+  cancel-in-progress: false
+jobs:
+  resume:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+      - name: Check approved first installation
+        id: first
+        if: github.event_name == 'workflow_run'
+        env:
+          APPROVED_PARENT: ca19d7b385d044130fac4b8ba0118fdd4686a882
+        run: |
+          echo 'apply=false' >> "$GITHUB_OUTPUT"
+          [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
+          if git cat-file -e "$APPROVED_PARENT:.github/workflows/issue-507-fund-close-resume.yml" 2>/dev/null; then exit 0; fi
+          echo 'apply=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Resume latest close in bounded NAV attempts
+        if: github.event_name == 'workflow_dispatch' || steps.first.outputs.apply == 'true'
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/run-incomplete-close-resume.mjs

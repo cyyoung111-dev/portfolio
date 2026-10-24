@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.260
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.261
+//
+//  v9.261 변경사항 (2026.10.25):
+//  • 일일 NAV Snapshot 한 번 쓰기 후 기존 트리거로 분할 재개·진행 시 실패 횟수 보존
+//  • PRICE 장시간 실행 뒤 NAV 독립 예약·실제 증거로만 중단 마감 재개
 //
 //  v9.260 변경사항 (2026.10.24):
 //  • 가격이력 append DATE 셀 자동변환을 날짜 기준으로 검증, 나머지 필드는 엄격 유지
@@ -1305,6 +1309,7 @@ function doGet(e) {
   if (params.action === 'issue507Maintenance') return jsonError('POST_ONLY');
   if (params.action === 'reconcileTradeSnapshotBacklog') return jsonError('POST_ONLY');
   if (params.action === 'reconcileHistoricalCheckpoints') return jsonError('POST_ONLY');
+  if (params.action === 'resumeIncompletePortfolioClose') return jsonError('POST_ONLY');
   if (params.action === 'reconcileCompletedKrxPending') return jsonError('POST_ONLY');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
@@ -1387,6 +1392,7 @@ function doPost(e) {
   if (params.action === 'issue507Maintenance') return handleIssue507Maintenance(params.mode || '', params.apply || '0');
   if (params.action === 'reconcileTradeSnapshotBacklog') return handleReconcileTradeSnapshotBacklog(params.apply || '0');
   if (params.action === 'reconcileHistoricalCheckpoints') return handleReconcileHistoricalCheckpoints(params.apply || '0');
+  if (params.action === 'resumeIncompletePortfolioClose') return handleResumeIncompletePortfolioClose(params.apply || '0', params.phase || 'schedule');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'previewFundNavImport') return handlePreviewFundNavImport(params.data || '{}');
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
@@ -2277,7 +2283,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.260',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.261',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2355,7 +2361,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.260', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.261', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6261,7 +6267,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.260' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.261' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7139,7 +7145,7 @@ function _fundRecoveryDiagnosticFinish(diagnostic, status, error, detail, keepCu
   if (!keepCurrent) diagnostic.current = null;
 }
 
-function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic) {
+function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic, maxSnapshotWrites) {
   _fundDate(from); _fundDate(to);
   if (from > to || to > today() || to > _fundDateOffset(from, 31)) throw new Error('한 번에 과거 32일 이내를 조회하세요.');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'fundUnitsRead', '_readFundUnits');
@@ -7404,11 +7410,13 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   });
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'snapshotWrite', 'writeSnapshotRows');
-  var snapshotCount = 0, snapshotValidatedNoOp = 0, snapshotOperationUnsafe = false;
+  var snapshotCount = 0, snapshotValidatedNoOp = 0, snapshotOperationUnsafe = false, snapshotDeferred = 0;
   var previousSnapshotOperationId = _snapshotBackupOperationId;
   var fundSnapshotOperationId = 'refreshFundValuations|' + (onlyCode || 'ALL') + '|' + from + '|' + to + '|' + Utilities.getUuid();
   _snapshotBackupOperationId = fundSnapshotOperationId;
-  try { Object.keys(byDate).sort().forEach(function(date) {
+  try { Object.keys(byDate).sort(function(a,b) { return maxSnapshotWrites ? b.localeCompare(a) : a.localeCompare(b); }).forEach(function(date) {
+    // One whole-Sheet Snapshot commit per daily attempt; manual repair is unchanged.
+    if (maxSnapshotWrites && snapshotCount >= maxSnapshotWrites) { snapshotDeferred++; return; }
     var existing = _filterSnapshotRowsByFundLifecycle(_readSnapshotRowsByDate(ss, date), configs, date);
     var rebuilt = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true);
     var combined = _mergeSnapshotRowsSafely(rebuilt, byDate[date], true);
@@ -7462,6 +7470,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'resultAggregate', '_refreshFundValuations');
   var result = {
+    continuation: snapshotDeferred > 0, deferredSnapshotDates: snapshotDeferred,
     completionStatus: Object.keys(fundResults).some(function(code) { return fundResults[code].status !== 'ok'; }) ? 'partial' : 'ok',
     saved: append.length, navSaved: newNav.length, snapshots: snapshotCount,
     processing: {
@@ -8649,7 +8658,7 @@ function runDailyFundValuations(targetDate) {
       p.setProperty('fund_last_attempt_date', runDate);
       p.setProperty('fund_last_attempt_token', attemptId);
     });
-    var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate);
+    var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate, undefined, false, null, 1);
     // Historical data repairs always run, even when their status is stale.
     publishIfOwner(function(p) {
       p.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
@@ -8670,6 +8679,11 @@ function runDailyFundValuations(targetDate) {
       if (!fund || fund.status === 'ok') return;
       warnings.push(code + ' ' + ((fund.inputRequiredDates || []).length ? 'NAV 미확보 ' + fund.inputRequiredDates.length + '일' : '부분 완료'));
     });
+    if (result.continuation) {
+      var continuation = new Error('FUND_BUSY: FUND_CONTINUE');
+      continuation.fundContinuation = true;
+      throw continuation;
+    }
     publishIfOwner(function(p) {
       if (warnings.length) p.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
       else p.deleteProperty('fund_last_warning');
@@ -13253,7 +13267,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.260',
+    gasVersion: '9.261',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13318,7 +13332,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.260' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.261' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14515,9 +14529,9 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
       String(err && err.message || err).slice(0,240));
     // If NAV lease acquisition failed, no NAV work began: return the attempt
     // under the same reservation token and keep its recurring retry trigger.
-    if (err && err.fundBusyReason) {
+    if (err && (err.fundBusyReason || err.fundContinuation)) {
       blockedBeforeRun = true;
-      return {skipped:true, reason:'FUND_BUSY_RETRY_LATER', conflict:err.fundBusyReason};
+      return {skipped:true, reason:'FUND_BUSY_RETRY_LATER', conflict:err.fundContinuation ? 'CONTINUATION' : err.fundBusyReason};
     }
     // Real NAV errors consume an attempt; remaining bounded attempts retry.
     throw err;
@@ -14536,7 +14550,9 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
         if (blockedBeforeRun) {
           pending.attempts = Math.max(0, Number(pending.attempts || 0) - 1);
           // Allow one more trigger firing after a blocked near-expiry attempt.
-          pending.until = Math.max(Number(pending.until || 0), Date.now() + 12 * 60 * 1000);
+          // Progress retries do not consume the failure budget, but expire within 24h.
+          var progressLimit = Number(pending.owner && pending.owner.startedMs || Date.now()) + 24 * 60 * 60 * 1000;
+          pending.until = Math.min(progressLimit, Math.max(Number(pending.until || 0), Date.now() + 45 * 60 * 1000));
         }
         delete pending.attemptToken;
         delete pending.activeUntil;
@@ -14636,11 +14652,12 @@ function runDailyPortfolioClose1900() {
     };
   }
   try {
+    if (Date.now() - startedMs > 120000) throw new Error('FUND_BUSY: PRICE 실행시간 초과·독립 NAV 재시도');
     fundResult = _runPortfolioFundWithLease_('CLOSE', runId, runDate);
     _appendPortfolioCloseSyncLog('FUND_DONE', runDate, runId,
       'lastDate=' + String(fundResult && fundResult.lastDate || ''));
   } catch (fundErr) {
-    if (/FUND_BUSY/.test(String(fundErr && fundErr.message || fundErr))) {
+    if (fundErr.fundContinuation || /FUND_BUSY/.test(String(fundErr && fundErr.message || fundErr))) {
       fundBusyToken = String(fundErr.fundLeaseToken || '');
       // Mark pending rather than a permanent hard failure. Active deferred run
       // reconciles the result after success; recurring retry covers transient failures.
@@ -17183,7 +17200,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.260' });
+    return jsonOk({ settings: settings, gasVersion: '9.261' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17213,7 +17230,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.260'
+      gasVersion: '9.261'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19169,4 +19186,61 @@ function handleReconcileHistoricalCheckpoints(apply) {
         queuesChanged:false, errorsCleared:false});
     });
   } catch (ignore) { return jsonError('CHECKPOINT_RECONCILE_FAILED'); }
+}
+
+// Resume only the latest recorded CLOSE. Price proof is recomputed by the
+// existing producer; no old summary or TIMEOUT marker is treated as success.
+function handleResumeIncompletePortfolioClose(apply, phase) {
+  phase = phase || 'schedule';
+  var token = Utilities.getUuid(), leaseOwned = false, owner;
+  try {
+    if ((apply !== '0' && apply !== '1') || ['schedule','continue'].indexOf(phase)<0) return jsonError('CLOSE_RESUME_BAD_APPLY');
+    owner = _portfolioFundAtomic_(function(props) {
+      if (!String(props.getProperty('access_token') || '').trim()) throw new Error('auth');
+      var date = String(props.getProperty('portfolio_close_run_date') || '');
+      var started = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+      var id = String(props.getProperty('portfolio_close_run_id') || '');
+      var now = Date.now();
+      var last = _portfolioFundState_(props, 'portfolio_close_last_result');
+      if (_portfolioCloseRunState(last, props).state === 'COMPLETE') return {complete:true,date:date};
+      if (!id || !started || now - started < 900000 || now - started > 86400000
+          || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today()) throw new Error('owner');
+      [PORTFOLIO_FUND_LEASE_KEY,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY].forEach(function(key) {
+        var lease = _portfolioFundState_(props,key);
+        if (lease && Number(lease.until || 0) > now) throw new Error('busy');
+      });
+      var scheduled = _portfolioFundState_(props,PORTFOLIO_FUND_SCHEDULE_KEY);
+      var roster = scheduled ? [scheduled].concat(scheduled.additional || []) : [];
+      var pending = roster.filter(function(p) { return p.date === date && p.owner && p.owner.runId === id; })[0];
+      if (phase === 'continue' && (!pending || Number(pending.until || 0) <= now
+          || !(Number(pending.attempts || 0) < 3))) throw new Error('reservation');
+      if (apply === '1' && phase === 'schedule') {
+        props.setProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,
+          JSON.stringify({token:token,date:date,until:now+420000}));
+        leaseOwned = true;
+      }
+      return {date:date,runId:id,startedMs:started,triggerId:pending ? pending.triggerId : '',
+        startedAt:String(props.getProperty('portfolio_close_run_started_at') || '')};
+    });
+    if (owner.complete || apply === '0') return jsonOk({mode:apply==='1'?'APPLY':'DRY_RUN',date:owner.date,complete:!!owner.complete});
+    if (phase === 'continue') {
+      var progress = runDeferredFundAfterPortfolioCloseFailure({triggerUid:owner.triggerId});
+      if (!progress || (progress.skipped && progress.conflict !== 'CONTINUATION'))
+        return jsonError('CLOSE_RESUME_NO_PROGRESS');
+      return jsonOk({mode:'APPLY',date:owner.date,continued:true});
+    }
+    var price = saveDailyPriceHistory(owner.date,{deferQueueCompletion:true});
+    if (!price || price.ok !== true || !(price.rows > 0)) throw new Error('price');
+    owner.priceOk=true; owner.priceDate=price.date; owner.priceRows=price.rows;
+    owner.krxCloseRequired=price.krxCloseRequired;
+    owner.errors=['펀드: FUND_BUSY · 분할 재개 대기'];
+    _scheduleFundAfterFailedPortfolioPrice_(owner);
+    return jsonOk({mode:'APPLY',date:owner.date,complete:false,scheduled:true});
+  } catch(ignore) { return jsonError('CLOSE_RESUME_BLOCKED_VERIFY_BEFORE_RETRY'); }
+  finally {
+    if (leaseOwned) _portfolioFundAtomic_(function(props) {
+      var lease = _portfolioFundState_(props,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+      if (lease && lease.token === token) props.deleteProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+    });
+  }
 }
