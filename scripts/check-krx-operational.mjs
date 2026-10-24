@@ -523,7 +523,7 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
 // End-to-end client orchestration uses real auth/status parser and bounded POSTs.
 {
  const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
- const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.263';
+ const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.264';
  fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
  fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
  let scheduled=0,continued=0;const emitted=[];
@@ -534,12 +534,64 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
   else if(p.action==='resumeIncompletePortfolioClose'&&p.phase==='continue'&&p.apply==='0')data={status:'error',message:'PRIVATE'};
   else if(p.action==='resumeIncompletePortfolioClose'&&p.phase==='schedule'){scheduled++;data={status:'ok',scheduled:true};}
   else if(p.action==='resumeIncompletePortfolioClose'&&p.phase==='continue'&&p.apply==='1'){
-   continued++;fixture.automation.closeRun.state='COMPLETE';fixture.automation.closeRun.stage='COMPLETE';data={status:'ok',continued:true};
+   continued++;fixture.automation.fundLastWarning='';fixture.automation.closeRun.state='COMPLETE';fixture.automation.closeRun.stage='COMPLETE';data={status:'ok',continued:true};
   }else throw Error('Unexpected action');
   return {ok:true,json:async()=>structuredClone(data)};
  };
  const done=await resumeClose({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl,emit:x=>emitted.push(x)});
  assert.equal(done.complete,true);assert.equal(scheduled,1);assert.equal(continued,1);
  assert.equal(emitted.length,1);assert.ok(!JSON.stringify(done).includes('PRIVATE'));
+ fixture.automation.fundLastWarning='F00002 NAV 미확보';scheduled=continued=0;
+ const rechecked=await resumeClose({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl});
+ assert.equal(rechecked.complete,true);assert.equal(scheduled,1);assert.equal(continued,1,'COMPLETE warning must run actual recheck');
+
 }
 console.log('Incomplete close client: authentication, explicit schedule, bounded continuation, verified completion PASS');
+
+// External KB collector uses the same production import contract; never overwrites confirmed NAV.
+{
+ const {parseNav,run}=await import('./collect-kb-fund-nav.mjs');
+ assert.deepEqual(parseNav([{gijunYmd:'20261023',gijunGa:2116.98}],'2026-10-01','2026-10-25'),[{date:'2026-10-23',nav:2116.98}]);
+ for(const payload of [[],[{gijunYmd:'20261023',gijunGa:0}],[{gijunYmd:'20261023',gijunGa:'2116.98'}],[{gijunYmd:'20261032',gijunGa:2116.98}],[{gijunYmd:'20261023',gijunGa:1},{gijunYmd:'20261023',gijunGa:2}]])assert.throws(()=>parseNav(payload,'2026-10-01','2026-10-25'));
+ let writes=0;const calls=[];
+ const fixture=async(u,o)=>{
+  if(!o.body){assert.equal(new URL(u).searchParams.get('fundCd'),'KR5223AQ0185');return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};}
+  const params=Object.fromEntries(o.body);calls.push(params.action);
+  if(params.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+  let result={status:'ok'};
+  if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.264',automation:{closeRun:{state:'COMPLETE'}}};
+  if(params.action==='previewFundNavImport')result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{}]:[]};
+  if(params.action==='getFundValuationStatus')result={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}};
+  if(params.action==='collectKbFundNav'&&params.mode==='import'){assert.equal(JSON.parse(params.data).appendOnly,true);writes++;assert.equal(JSON.parse(params.data).rows.length,1);result={...result,saveState:'success',evaluation:{missingHoldings:[]}};}
+  return {ok:true,json:async()=>result};
+ };
+ const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),fetchImpl:fixture,apply:true};
+ assert.equal((await run(args)).imported,1);assert.equal(writes,1);
+ assert.equal((await run(args)).imported,0);assert.equal(writes,1);
+ writes=0;assert.equal((await run({...args,apply:false})).imported,0);assert.equal(writes,0);
+ for(const kind of ['updates','errors','warnings']) {
+  await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>{
+   const r=await fixture(u,o);if(o.body?.get('action')==='previewFundNavImport')return {ok:true,json:async()=>({...await r.json(),[kind]:[{}]})};return r;
+  }}),/NAV_PREVIEW_BLOCKED/);
+  assert.equal(writes,0);
+ }
+}
+// An identical NAV after a partial import must still repair/recheck derived data.
+{
+ const {run}=await import('./collect-kb-fund-nav.mjs');let repaired=false,repairs=0;
+ const fetchImpl=async(u,o)=>{
+  if(!o.body)return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};
+  const p=Object.fromEntries(o.body);let r={status:'ok'};
+  if(p.accessToken==='NAV_AUTH_PROBE')r={status:'error',message:'인증 실패'};
+  else if(p.action==='getAutomationStatus')r={status:'ok',gasVersion:'9.264',automation:{closeRun:{state:'COMPLETE'}}};
+  else if(p.action==='previewFundNavImport')r={...r,candidates:[],identical:[{}],updates:[],warnings:[],errors:[]};
+  else if(p.action==='getFundValuationStatus')r={...r,fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
+  else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){repairs++;repaired=true;}
+  else throw Error('unexpected write');
+  return {ok:true,json:async()=>r};
+ };
+ const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),fetchImpl,apply:true};
+ assert.equal((await run(args)).derivedRepaired,1);assert.equal(repairs,1);
+ repaired=false;
+ await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>o.body?.get('action')==='collectKbFundNav'&&o.body?.get('mode')==='refresh'?{ok:true,json:async()=>({status:'error',message:'PRIVATE'})}:fetchImpl(u,o)}),/NAV_DERIVED_UNVERIFIED/);
+}

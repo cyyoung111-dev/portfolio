@@ -52,6 +52,14 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
  cx.runDeferredFundAfterPortfolioCloseFailure=()=>({skipped:true,conflict:'CONTINUATION'});
  assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').continued,true,'actual bounded progress remains resumable');
 
+ reset();store.set('portfolio_close_stage','COMPLETE');store.set('portfolio_close_last_result',JSON.stringify({runId:'current',runDate:'2026-10-24',priceOk:true,fundOk:true,errors:[],startedAt:'2026-10-24 19:00:00'}));
+ assert.equal(cx.handleResumeIncompletePortfolioClose('1').complete,true);assert.equal(producer,0,'healthy COMPLETE is a no-op');
+ store.set('fund_last_warning','F00002 NAV 미확보');
+ assert.equal(cx.handleResumeIncompletePortfolioClose('0').complete,false);assert.equal(producer,0,'warning preview remains pure');
+ assert.equal(cx.handleResumeIncompletePortfolioClose('1').scheduled,true);assert.equal(producer,1,'warning recheck requires actual price producer');
+ store.set('fund',JSON.stringify({until:2000001}));assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error','completed warning cannot bypass active lease');
+
+
 }
 console.log('Actual GAS close resume: dry-run, exact owner/date, active lease, age, auth, reservation, independent continuation PASS');
 

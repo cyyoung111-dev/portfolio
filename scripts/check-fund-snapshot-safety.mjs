@@ -1979,7 +1979,7 @@ console.log('Actual NAV carry publication-date equivalence: no repeated write, w
 // history separately retains INPUT_REQUIRED. Never erase that warning.
 {
  const oldToday=context.today;context.today=()=> '2026-10-25';
- const date='2026-09-25',sourceDate='2026-09-23';
+ const date='2026-10-07',sourceDate='2026-10-06';
  const price=[date,'F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'];
  const snapshot=[date,'F00002','KB',1,1000,1000,1200,1200,200,20,'FUND_NAV_CARRY@'+sourceDate,''];
  const pendingSs=ssFor({
@@ -1998,3 +1998,66 @@ console.log('Actual NAV carry publication-date equivalence: no repeated write, w
  context.today=oldToday;
 }
 console.log('Actual pending NAV carry: no endless rewrite, NAV_MISSING warning and source/date preserved PASS');
+
+// Confirmed KB non-publication dates do not suppress unrelated missing NAV.
+for(const date of ['2026-09-24','2026-09-25','2026-10-05','2026-10-09']) {
+ assert.equal(context._fundNavExpectedPublicationDate(date,'F00002'),false);
+}
+assert.equal(context._fundNavExpectedPublicationDate('2026-10-07','F00002'),true);
+assert.equal(context._fundNavExpectedPublicationDate('2026-12-31','F00002'),true);
+assert.equal(context._fundNavExpectedPublicationDate('2026-10-09','F00001'),true);
+assert.equal(context._fundNavExpectedPublicationDate('2027-10-05','F00002'),true);
+
+{
+ const oldToday=context.today;context.today=()=> '2026-10-25';
+ for(const date of ['2026-09-24','2026-09-25','2026-10-05','2026-10-09']) {
+  const sourceDate='2026-09-23';
+  const ss=ssFor({
+   '펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),
+   '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],[sourceDate,'F00002','KB',1200,sourceDate,1000,1200,'','KB_VALUE_ST']]),
+   '가격이력':new Sheet([['date','code','name','price','at','source'],[date,'F00002','KB',1200,'','FUND_NAV_CARRY']]),
+   '스냅샷':new Sheet([header,[date,'F00002','KB',1,1000,1000,1200,1200,200,20,'FUND_NAV_CARRY@'+sourceDate,'']])
+  });
+  assert.equal(context._getFundValuationStatus(ss,date,date,'F00002').dates[0].navState,'NON_PUBLICATION_CARRY');
+  const result=context._refreshFundValuations(ss,date,date,'F00002',true,null,1);
+  assert.equal(result.fundResults.F00002.navMissing,0);
+  assert.equal(result.fundResults.F00002.status,'ok');
+  assert.equal(result.snapshots,0);
+  ss.getSheetByName('펀드기준가격').rows.push([date,'F00002','KB',1201,date,1000,1201,'','KB_VALUE_ST']);
+  assert.equal(context._getFundValuationStatus(ss,date,date,'F00002').dates[0].navState,'EXISTING_CONFIRMED','actual publication wins over calendar');
+ }
+ context.today=oldToday;
+}
+// Actual preview/import race: append-only is enforced after server lock and reinspection.
+{
+ const oldToday=context.today,oldGet=context.getss;context.today=()=> '2026-10-25';
+ const nav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+ const ss=ssFor({'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),'펀드기준가격':nav});context.getss=()=>ss;
+ const data=JSON.stringify({code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',sourceText:'KR5223AQ0185 AQ018 S-T',appendOnly:true,ackWarnings:true,rows:[{date:'2026-10-23',nav:1201}]});
+ assert.equal(context.handlePreviewFundNavImport(data).candidates.length,1);
+ nav.rows.push(['2026-10-23','F00002','KB',1200,'2026-10-23',1000,1200,'','KB_VALUE_ST']);
+ const before=JSON.stringify(nav.rows);const result=context.handleImportFundNav(data);
+ assert.equal(result.status,'error');assert.match(result.message,/FUND_NAV_APPEND_ONLY_CONFLICT/);assert.equal(JSON.stringify(nav.rows),before);
+ context.today=oldToday;context.getss=oldGet;
+}
+// Collector redesign: one server-owned shared lease covers reads through completion.
+{
+ const oldToday=context.today,oldImport=context.handleImportFundNav,oldRefresh=context.handleRefreshFundValuations;
+ context.today=()=> '2026-10-25';let producerCalls=0,manualBlocked=false,leaseVisible=false;
+ const data=JSON.stringify({code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',appendOnly:true,rows:[{date:'2026-10-23',nav:1201}]});
+ const reset=()=>{scriptProperties.clear();scriptProperties.set('access_token','TEST');producerCalls=0;manualBlocked=false;leaseVisible=false;};
+ const producer=()=>{producerCalls++;const lease=JSON.parse(scriptProperties.get(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY));leaseVisible=lease.origin==='KB_NAV_COLLECTOR'&&lease.until>Date.now();try{context._runManualPriceSnapshotGuarded_();}catch(e){manualBlocked=/PRICE_BUSY/.test(e.message);}return {status:'ok'};};
+ context.handleImportFundNav=producer;context.handleRefreshFundValuations=producer;
+ for(const mode of ['import','refresh']){
+  reset();assert.equal(context.handleCollectKbFundNav(mode,data,'2026-10-23').status,'ok');assert.equal(producerCalls,1);assert.equal(leaseVisible,true);assert.equal(manualBlocked,true,'actual other writer cannot acquire collector lease');assert.equal(scriptProperties.has(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY),false);
+ }
+ for(const key of [context.PORTFOLIO_FUND_LEASE_KEY,context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY]){
+  reset();const other=JSON.stringify({token:'other',until:Date.now()+420000});scriptProperties.set(key,other);
+  assert.equal(context.handleCollectKbFundNav('refresh',data,'2026-10-23').status,'error');assert.equal(producerCalls,0,'active owner blocks before reads/producer');assert.equal(scriptProperties.get(key),other);
+ }
+ reset();scriptProperties.set('portfolio_close_stage','PRICE');scriptProperties.set('portfolio_close_run_started_ms',String(Date.now()));assert.equal(context.handleCollectKbFundNav('refresh',data,'2026-10-23').status,'error');assert.equal(producerCalls,0);
+ reset();context.handleImportFundNav=()=>{throw Error('private');};assert.equal(context.handleCollectKbFundNav('import',data,'').status,'error');assert.equal(scriptProperties.has(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY),false);
+ reset();context.handleImportFundNav=()=>{scriptProperties.set(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,JSON.stringify({token:'replacement',until:Date.now()+420000}));return {status:'ok'};};context.handleCollectKbFundNav('import',data,'');assert.equal(JSON.parse(scriptProperties.get(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY)).token,'replacement','cleanup cannot delete replacement owner');
+ reset();assert.equal(context.handleCollectKbFundNav('refresh',data,'2026-09-01').status,'error');assert.equal(producerCalls,0);
+ context.today=oldToday;context.handleImportFundNav=oldImport;context.handleRefreshFundValuations=oldRefresh;scriptProperties.clear();
+}

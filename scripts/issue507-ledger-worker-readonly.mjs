@@ -89,7 +89,7 @@ export function summarizeDiagnostics(payload,dates) {
 export function summarizeEvidence(automation,diagnostics){
   if(!automation||automation.mode!=='READ_ONLY'
     ||!['9.237','9.238','9.239','9.240','9.241','9.242','9.243','9.244',
-      '9.255','9.256','9.257','9.258','9.263'].includes(automation.gasVersion)
+      '9.255','9.256','9.257','9.258','9.264'].includes(automation.gasVersion)
     ||typeof automation.triggerReady!=='boolean'
     ||!Array.isArray(automation.triggerMissing)
     ||!Array.isArray(diagnostics)||diagnostics.length!==8)
@@ -224,7 +224,7 @@ export async function selfTest(){
       phase:'DATE_DIAGNOSTIC',processed:0,deferred:0,
       blockedDate:'2025-12-31',sourceCheck:''}},evidence);
   assert.equal(phased.workerLastPhase,'DATE_DIAGNOSTIC');
-  for(const gasVersion of ['9.255','9.256','9.257','9.258','9.263']) {
+  for(const gasVersion of ['9.255','9.256','9.257','9.258','9.264']) {
     const current=summarizeEvidence({...a,gasVersion,
       tradeSnapshotWorkerLastResult:{status:'RUNNING',
         at:'2026-10-19T11:07:00.000Z',runStartedAt:'2026-10-19T11:02:23.565Z',
@@ -234,7 +234,7 @@ export async function selfTest(){
     assert.equal(current.workerCompletedVerified,false);
     assert.equal(current.operationallyComplete,false);
   }
-  for(const gasVersion of ['9.245','9.264','10.0'])
+  for(const gasVersion of ['9.245','9.265','10.0'])
     assert.throws(()=>summarizeEvidence({...a,gasVersion},evidence),
       /ISSUE507_AUTOMATION_SCHEMA/);
   assert.equal(phased.workerOriginalStartedAt,'2026-10-19T11:02:23.565Z');
