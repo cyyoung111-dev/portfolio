@@ -1,4 +1,5 @@
 import {pathToFileURL} from 'node:url';
+import {classifyFundError} from './diagnose-backfill-status.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 export const sourceUrl='https://www.funetf.co.kr/api/public/product/view/fundnav';
 export function parseNav(data,from,to) {
@@ -32,10 +33,12 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   if(status.status!=='ok'||status.gasVersion!=='9.264')throw Error('NAV_VERSION');
   const a=status.automation;
   if(!a||a.closeRun?.state==='RUNNING'||a.fundAttempt?.state==='RUNNING'||a.tradeSnapshotWorkerLastResult?.status==='RUNNING'||a.tradeLedgerWriteUnverified||a.pendingTradeSnapshotRebuildFrom||a.tradeSnapshotDeferredCount>0)throw Error('NAV_WRITER_BUSY');
+  const valuationTo=a.closeRun?.runDate;
+  if(typeof valuationTo!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(valuationTo)||valuationTo<from||valuationTo>to)throw Error('NAV_CLOSE_DATE');
   const source=new URL(sourceUrl);
   source.search=new URLSearchParams({fundCd:'KR5223AQ0185',gijunYmd:to.replaceAll('-',''),schNavMode:'',schNavStDt:from.replaceAll('-',''),schNavEdDt:to.replaceAll('-','')});
   const r=await fetchImpl(source,{headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.funetf.co.kr/product/fund/view/KR5223AQ0185'},signal:AbortSignal.timeout(60000)});
-  if(!r.ok)throw Error('NAV_SOURCE_HTTP');
+  if(!r.ok)throw Error('NAV_SOURCE_HTTP_'+(Number.isInteger(r.status)?r.status:'UNKNOWN'));
   const rows=parseNav(await r.json(),from,to);
   const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+source.href,rows};
   const preview=await request('previewFundNavImport',{data:JSON.stringify(input)});
@@ -52,16 +55,16 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
   }
   const valuation=async()=>{
-    const r=await request('getFundValuationStatus',{from,to,code:'F00002'});
+    const r=await request('getFundValuationStatus',{from,to:valuationTo,code:'F00002'});
     const dates=r.fundResults?.F00002?.dates;
-    if(r.status!=='ok'||!Array.isArray(dates)||dates.length>32||dates.some(d=>typeof d.date!=='string'||d.date<from||d.date>to))throw Error('NAV_DERIVED_SCHEMA');
+    if(r.status!=='ok'||!Array.isArray(dates)||dates.length>32||dates.some(d=>typeof d.date!=='string'||d.date<from||d.date>valuationTo))throw Error('NAV_DERIVED_SCHEMA');
     return dates;
   };
   const needsWrite=d=>d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED';
   const pending=(await valuation()).filter(needsWrite);
   for(const day of pending){
     const r=await request('collectKbFundNav',{mode:'refresh',date:day.date});
-    if(r.status!=='ok')throw Error('NAV_DERIVED_UNVERIFIED');
+    if(r.status!=='ok')throw Error('NAV_DERIVED_'+classifyFundError(r.message));
   }
   const final=await valuation();
   if(final.some(d=>needsWrite(d)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))throw Error('NAV_DERIVED_PENDING');
@@ -69,5 +72,5 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
   try{console.log(JSON.stringify(await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')})));}
-  catch{console.error('KB_NAV_COLLECTION_FAILED');process.exitCode=1;}
+  catch(error){console.error(/^NAV_[A-Z_0-9]+$/.test(error?.message||'')?error.message:'KB_NAV_COLLECTION_FAILED');process.exitCode=1;}
 }
