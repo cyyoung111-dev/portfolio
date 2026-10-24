@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {selfTest} from './run-issue507-maintenance.mjs';
+import {selfTest as ledgerProofSelfTest} from './issue507-ledger-worker-readonly.mjs';
+import {execFileSync} from 'node:child_process';
 const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
 function setup(options={}) {
   const dates=['2025-12-31','2026-01-01','2026-01-02'];
@@ -43,4 +45,6 @@ assert.ok(wf.includes("github.ref == 'refs/heads/main'"));
 assert.ok(wf.includes('APPROVED_PARENT: f11e2f7241ff6bd0f4a6a6e4a7501caf54382f67'));
 assert.ok(wf.includes('git cat-file -e'));
 await selfTest();
+await ledgerProofSelfTest();
+execFileSync(process.execPath,['scripts/issue507-deferred-source-audit-readonly.mjs','--self-test'],{stdio:'inherit'});
 console.log('✅ #507 실제 유지보수 함수: 큐 검증·불일치/경합 보존·백업·미래 가격 거부·append-only');
