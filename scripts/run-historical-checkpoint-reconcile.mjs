@@ -9,7 +9,7 @@ export async function runCheckpoint({url,token,apply=false,fetchImpl=fetch}){
  const denied=await req('getAutomationStatus',{},bad);
  if(denied.status!=='error'||denied.message!=='인증 실패')throw Error('CHECKPOINT_AUTH_GUARD');
  const before=await req('getAutomationStatus');
- if(before.status!=='ok'||before.gasVersion!=='9.261')throw Error('CHECKPOINT_VERSION');
+ if(before.status!=='ok'||before.gasVersion!=='9.262')throw Error('CHECKPOINT_VERSION');
  const result=await req('reconcileHistoricalCheckpoints',{apply:apply?'1':'0'});
  if(result.status!=='ok')throw Error(['CHECKPOINT_WRITER_ACTIVE','CHECKPOINT_BACKUP_LIMIT','CHECKPOINT_BACKUP_UNVERIFIED','CHECKPOINT_RECONCILE_FAILED'].includes(result.message)?result.message:'CHECKPOINT_SERVER');
  if(result.mode!==(apply?'APPLY':'DRY_RUN')||![result.stale,result.reconciled].every(x=>Number.isSafeInteger(x)&&x>=0&&x<=2)||result.reconciled!==(apply?result.stale:0)||result.originalDataWritten!==false||result.queuesChanged!==false||result.errorsCleared!==false)throw Error('CHECKPOINT_PROOF');

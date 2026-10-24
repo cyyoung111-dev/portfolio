@@ -26,15 +26,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
-      - name: Check approved first installation
+      - name: Check approved recovery revision
         id: first
         if: github.event_name == 'workflow_run'
         env:
-          APPROVED_PARENT: ca19d7b385d044130fac4b8ba0118fdd4686a882
+          APPROVED_PARENT: e6edeeec22e6ee06d269b8e05a2f15e9c3009ac0
         run: |
           echo 'apply=false' >> "$GITHUB_OUTPUT"
           [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
-          if git cat-file -e "$APPROVED_PARENT:.github/workflows/issue-507-fund-close-resume.yml" 2>/dev/null; then exit 0; fi
           echo 'apply=true' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v7
         with:
