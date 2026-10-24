@@ -151,6 +151,23 @@ export function assessWorkerRunCheckpoint(checkpoint,observedAt=Date.now()) {
     : 'RUNNING_RECENT_UNCONFIRMED';
 }
 // Only lifecycle enums, dates and booleans; never raw errors or run IDs.
+export function classifyFundError(value) {
+  const error=String(value||'');
+  if(!error)return 'NONE';
+  if(/FUND_CONTINUE/.test(error))return 'CONTINUATION';
+  if(/FUND_BUSY/.test(error))return 'BUSY';
+  if(/펀드 가격이력 쓰기 후 검증 실패/.test(error))return 'PRICE_WRITE_VERIFICATION';
+  if(/기존 확정 NAV와 신규값 불일치|저장.*NAV.*충돌|저장된 펀드 기준가격 검증 실패/.test(error))return 'NAV_CONFLICT';
+  if(/properties.*(?:quota|limit|storage)|property.*(?:quota|limit|storage)/i.test(error))return 'PROPERTY_LIMIT';
+  if(/10000000|10,000,000|cell.*limit|용량|셀.*한도/i.test(error))return 'SHEET_CAPACITY';
+  if(/timed? ?out|타임아웃|시간.?초과/i.test(error))return 'TIMEOUT';
+  if(/백업|backup/i.test(error))return 'BACKUP_FAILURE';
+  if(/거래이력 없는 스냅샷|Snapshot 보호 충돌/.test(error))return 'SNAPSHOT_PROTECTED';
+  if(/검증 실패|write.*verif/i.test(error))return 'WRITE_VERIFICATION';
+  if(/TypeError|ReferenceError|Cannot read|is not defined|is not a function/i.test(error))return 'INTERNAL_RUNTIME';
+  if(/기준가격|NAV|펀드 평가 오류/.test(error))return 'NAV_PROCESSING';
+  return 'UNCLASSIFIED';
+}
 export function summarizeCloseStatus(a) {
   const pick=(value,allowed)=>allowed.includes(value)?value:'UNKNOWN';
   const c=a.portfolioClose, r=a.closeRun, f=a.fundAttempt;
@@ -172,6 +189,7 @@ export function summarizeCloseStatus(a) {
     fundState:pick(f?.state,['DONE','ERROR','UNKNOWN_LEGACY','TIMEOUT_SUSPECTED','IN_PROGRESS']),
     fundAttemptDate:safeDate(f?.date),
     fundErrorPresent:!!a.fundLastError,
+    fundErrorCode:classifyFundError(a.fundLastError),
     fundWarningPresent:!!a.fundLastWarning
   };
 }

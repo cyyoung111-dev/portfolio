@@ -7,10 +7,12 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
  if(initial.gasVersion!=='9.264')throw Error('RESUME_VERSION');
  if(initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
  async function req(action,args={}) {
+  let r;
   try {
-   const r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:token}),signal:AbortSignal.timeout(330000)});
-   if(!r.ok)throw Error();return await r.json();
-  }catch{throw Error('RESUME_REQUEST_UNCERTAIN_VERIFY_BEFORE_RETRY');}
+   r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:token}),signal:AbortSignal.timeout(330000)});
+  }catch{emit({phase:args.phase||action,requestState:'NETWORK_UNCERTAIN'});throw Error('RESUME_REQUEST_UNCERTAIN_VERIFY_BEFORE_RETRY');}
+  if(!r.ok){emit({phase:args.phase||action,requestState:'HTTP_ERROR',httpStatus:Number.isInteger(r.status)?r.status:null});throw Error('RESUME_HTTP_UNCERTAIN_VERIFY_BEFORE_RETRY');}
+  try{return await r.json();}catch{emit({phase:args.phase||action,requestState:'JSON_UNCERTAIN'});throw Error('RESUME_JSON_UNCERTAIN_VERIFY_BEFORE_RETRY');}
  }
  const preview=await req('resumeIncompletePortfolioClose',{apply:'0',phase:'continue'});
  if(preview.status!=='ok') {
