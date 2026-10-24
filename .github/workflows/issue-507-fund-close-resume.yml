@@ -30,7 +30,7 @@ jobs:
         id: first
         if: github.event_name == 'workflow_run'
         env:
-          APPROVED_PARENT: e6edeeec22e6ee06d269b8e05a2f15e9c3009ac0
+          APPROVED_PARENT: 0fc9416a4d2c1b78df1ca05551c3db9bc7c53acf
         run: |
           echo 'apply=false' >> "$GITHUB_OUTPUT"
           [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0

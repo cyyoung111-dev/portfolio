@@ -1,3 +1,11 @@
+## GAS v9.263 — 미공시 NAV 이월의 반복 재처리 방지 (2026-10-25)
+
+배포 상태: 후보 v9.263. 배포 후 gasVersion=9.263 및 Snapshot 검증. 전체 GAS Git blob `7b9863f8b861ae0bac7cf3d45d6f490bfa36e65d`. 22:10 / 23:10 / 00:30 / 08:45 예약 유지.
+
+가격이력이 FUND_NAV_CARRY_INPUT_REQUIRED이고 Snapshot이 FUND_NAV_CARRY@동일공시일일 때, 금액까지 일치하면 Snapshot 재작성은 생략합니다. 가격이력의 INPUT_REQUIRED와 NAV_MISSING/부분 완료 경고는 유지하며 공시 미확보를 정상 NAV로 승격하지 않습니다. 승인 main 부모 0fc9416a에서 원래 날짜·소유권으로 중단 마감 재개를 한 번 실행합니다.
+
+---
+
 ## GAS v9.262 — NAV 이월 출처 동등성 (2026-10-25)
 
 배포 상태: 후보 v9.262. 배포 후 gasVersion=9.262 및 Snapshot 검증. 전체 GAS Git blob `bd711ae112404e626439db4cc07d54407aebb8d7`. 22:10 / 23:10 / 00:30 / 08:45 예약 유지.
