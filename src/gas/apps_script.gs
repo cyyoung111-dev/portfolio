@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.257
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.258
+//
+//  v9.258 변경사항 (2026.10.24):
+//  • #507 승인 유지보수: 검증된 보류 날짜만 해제, 연말 직전 거래일 KRX 가격은 백업 후 누락 전용 추가
+//  • ScriptLock·원천 이중 검증·집계 전용 응답, 원본 Snapshot/펀드좌수/전진 커서 보존
 //
 //  v9.257 변경사항 (2026.10.24):
 //  - #507 worker 진단마다 새 read-only Sheet view로 반복 원장 읽기 축소.
@@ -1288,6 +1292,7 @@ function doGet(e) {
   if (params.action === 'getKrxSourceDiagnostics') return handleGetKrxSourceDiagnostics(params.date || '');
   if (params.action === 'getKrxHeldCloseCoverage') return handleGetKrxHeldCloseCoverage(params.date || '', params.code || '');
   if (params.action === 'recoverPendingKrxClose') return jsonError('POST_ONLY');
+  if (params.action === 'issue507Maintenance') return jsonError('POST_ONLY');
   if (params.action === 'reconcileCompletedKrxPending') return jsonError('POST_ONLY');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
@@ -1367,6 +1372,7 @@ function doPost(e) {
   }
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'recoverPendingKrxClose') return handleRecoverPendingKrxClose(params.date, params.apply);
+  if (params.action === 'issue507Maintenance') return handleIssue507Maintenance(params.mode || '', params.apply || '0');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'previewFundNavImport') return handlePreviewFundNavImport(params.data || '{}');
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
@@ -2257,7 +2263,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.257',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.258',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2335,7 +2341,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.257', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.258', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6241,7 +6247,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.257' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.258' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13219,7 +13225,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.257',
+    gasVersion: '9.258',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13284,7 +13290,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.257' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.258' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -17149,7 +17155,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.257' });
+    return jsonOk({ settings: settings, gasVersion: '9.258' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17179,7 +17185,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.257'
+      gasVersion: '9.258'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -18909,4 +18915,88 @@ function GET_KR_DIVIDEND(code, yearOffset) {
   } catch(e) {
     return 'N/A';
   }
+}
+
+// Explicit Issue #507 maintenance. Only KRX whole-market loaders access the
+// network; no portfolio identifiers or financial values are returned.
+function handleIssue507Maintenance(mode, apply) {
+  var lock = LockService.getScriptLock(), owned = false;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (!String(props.getProperty('access_token') || '').trim()) return jsonError('ISSUE507_AUTH_REQUIRED');
+    if (['reconcile','yearendPrices'].indexOf(mode)<0 || ['0','1'].indexOf(apply)<0)
+      return jsonError('ISSUE507_BAD_MAINTENANCE_REQUEST');
+    if (!lock.tryLock(1000)) return jsonError('ISSUE507_MAINTENANCE_BUSY');
+    owned = true;
+    if (_tradeLedgerWriteUnverified_()) return jsonError('ISSUE507_LEDGER_UNVERIFIED');
+    var ss=getss(), context=_buildSnapshotRangeReadContext(ss,{});
+    var digest=_issue507StrictReadSourceDigest_(context), revision=_peekSnapshotIntegritySourceRevisionReadonly_();
+    if (mode==='reconcile') {
+      var state=_readTradeSnapshotDeferredState_(), dates=state.dates.slice(0,31);
+      var indexed=_buildSnapshotRangeIndexes(context,dates,{});
+      var valid=dates.filter(function(date) {
+        var d=diagnoseSnapshotIntegrity(context.ss,date,null,indexed);
+        return d.status==='VALID' && d.expectedRowCount>0 && d.sourceDataErrors.length===0
+          && d.duplicateKeys.length===0 && d.conflictKeys.length===0;
+      });
+      var remaining=state.dates.filter(function(date) { return valid.indexOf(date)<0; });
+      if (digest!==_issue507StrictReadSourceDigest_(_buildSnapshotRangeReadContext(ss,{}))
+          || revision!==_peekSnapshotIntegritySourceRevisionReadonly_()
+          || JSON.stringify(state)!==JSON.stringify(_readTradeSnapshotDeferredState_()))
+        return jsonError('ISSUE507_MAINTENANCE_SOURCE_CHANGED');
+      if (apply==='1' && valid.length) {
+        props.setProperty('issue507_deferred_reconcile_backup_v1',JSON.stringify({at:new Date().toISOString(),state:state}));
+        _writeTradeSnapshotDeferredState_({dates:remaining,cursor:state.cursor});
+        if (_readTradeSnapshotDeferredState_().dates.join('|')!==remaining.join('|'))
+          return jsonError('ISSUE507_QUEUE_WRITE_UNVERIFIED');
+      }
+      return jsonOk({mode:mode,applied:apply==='1',checked:dates.length,verifiedValid:valid.length,
+        removed:apply==='1'?valid.length:0,before:state.dates.length,
+        remaining:apply==='1'?remaining.length:state.dates.length,originalDataWritten:false});
+    }
+    var target='2025-12-31', quoteDate='2025-12-30';
+    var indexed=_buildSnapshotRangeIndexes(context,[target],{}), holdings=indexed.holdingsByRequestedDate[target]||{};
+    var wanted=Object.keys(holdings).map(function(key) { return holdings[key]; }).filter(function(h) {
+      var code=_cleanCode(h.code);
+      return code && !_isFundCode(code) && !_indexedLatest(indexed.positivePriceSeriesByCode[code]||[],target);
+    }).map(function(h) {
+      return indexed.codeItems.filter(function(item) { return _cleanCode(item.code)===_cleanCode(h.code); })[0] || null;
+    }).filter(function(item) { return item && String(item.currency||'KRW').toUpperCase()==='KRW'; });
+    if (!wanted.length) return jsonOk({mode:mode,applied:apply==='1',needed:0,available:0,added:0});
+    // A non-positive/blank existing row is NOT a missing key. Never let the
+    // shared upsert writer silently turn this append-only task into a repair.
+    var existingKeys={};
+    (context.valuesByName[CONFIG.SHEET_PH] || []).slice(1).forEach(function(row) {
+      existingKeys[_normalizeDate(row[0])+'|'+_cleanCode(row[1])]=true;
+    });
+    var fetched=fetchPricesKrx(wanted,quoteDate), groups={}, available=0;
+    wanted.forEach(function(item) {
+      var row=fetched[item.code], used=_normalizeDate(row && row.usedDate||'');
+      if (!row || !(Number(row.price)>0) || used>quoteDate || used<'2025-12-23'
+          || ['KRX','KRX_OTP'].indexOf(row.source)<0 || existingKeys[used+'|'+item.code]) return;
+      (groups[used]||(groups[used]=[])).push({code:item.code,name:item.name,price:Number(row.price),source:row.source});
+      available++;
+    });
+    if (digest!==_issue507StrictReadSourceDigest_(_buildSnapshotRangeReadContext(ss,{}))
+        || revision!==_peekSnapshotIntegritySourceRevisionReadonly_())
+      return jsonError('ISSUE507_MAINTENANCE_SOURCE_CHANGED');
+    if (apply!=='1' || !available) return jsonOk({mode:mode,applied:false,needed:wanted.length,available:available,added:0});
+    var ph=ss.getSheetByName(CONFIG.SHEET_PH), old=ph.getRange(1,1,ph.getLastRow(),6).getValues();
+    var backup=ph.copyTo(ss).setName('ISSUE507_연말가격보완전_'+Utilities.formatDate(new Date(),CONFIG.TIMEZONE,'yyyyMMdd_HHmmss'));
+    SpreadsheetApp.flush();
+    if (JSON.stringify(backup.getRange(1,1,old.length,6).getValues())!==JSON.stringify(old))
+      return jsonError('ISSUE507_BACKUP_UNVERIFIED');
+    Object.keys(groups).sort().forEach(function(date) { batchUpsertPriceHistory(ss,date,groups[date]); });
+    SpreadsheetApp.flush();
+    var after=ph.getRange(1,1,ph.getLastRow(),6).getValues();
+    if (after.length!==old.length+available || JSON.stringify(after.slice(0,old.length))!==JSON.stringify(old))
+      return jsonError('ISSUE507_PRICE_APPEND_UNVERIFIED');
+    var added=after.slice(old.length);
+    Object.keys(groups).forEach(function(date) { groups[date].forEach(function(item) {
+      if (added.filter(function(r) { return _normalizeDate(r[0])===date && _cleanCode(r[1])===item.code
+          && Number(r[3])===item.price && r[5]===item.source; }).length!==1) throw new Error('readback');
+    }); });
+    return jsonOk({mode:mode,applied:true,needed:wanted.length,available:available,added:available,snapshotWritten:false,queueChanged:false});
+  } catch (ignore) { return jsonError('ISSUE507_MAINTENANCE_FAILED'); }
+  finally { if (owned) lock.releaseLock(); }
 }
