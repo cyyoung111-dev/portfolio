@@ -2040,3 +2040,24 @@ assert.equal(context._fundNavExpectedPublicationDate('2027-10-05','F00002'),true
  assert.equal(result.status,'error');assert.match(result.message,/FUND_NAV_APPEND_ONLY_CONFLICT/);assert.equal(JSON.stringify(nav.rows),before);
  context.today=oldToday;context.getss=oldGet;
 }
+// Collector redesign: one server-owned shared lease covers reads through completion.
+{
+ const oldToday=context.today,oldImport=context.handleImportFundNav,oldRefresh=context.handleRefreshFundValuations;
+ context.today=()=> '2026-10-25';let producerCalls=0,manualBlocked=false,leaseVisible=false;
+ const data=JSON.stringify({code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',appendOnly:true,rows:[{date:'2026-10-23',nav:1201}]});
+ const reset=()=>{scriptProperties.clear();scriptProperties.set('access_token','TEST');producerCalls=0;manualBlocked=false;leaseVisible=false;};
+ const producer=()=>{producerCalls++;const lease=JSON.parse(scriptProperties.get(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY));leaseVisible=lease.origin==='KB_NAV_COLLECTOR'&&lease.until>Date.now();try{context._runManualPriceSnapshotGuarded_();}catch(e){manualBlocked=/PRICE_BUSY/.test(e.message);}return {status:'ok'};};
+ context.handleImportFundNav=producer;context.handleRefreshFundValuations=producer;
+ for(const mode of ['import','refresh']){
+  reset();assert.equal(context.handleCollectKbFundNav(mode,data,'2026-10-23').status,'ok');assert.equal(producerCalls,1);assert.equal(leaseVisible,true);assert.equal(manualBlocked,true,'actual other writer cannot acquire collector lease');assert.equal(scriptProperties.has(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY),false);
+ }
+ for(const key of [context.PORTFOLIO_FUND_LEASE_KEY,context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY]){
+  reset();const other=JSON.stringify({token:'other',until:Date.now()+420000});scriptProperties.set(key,other);
+  assert.equal(context.handleCollectKbFundNav('refresh',data,'2026-10-23').status,'error');assert.equal(producerCalls,0,'active owner blocks before reads/producer');assert.equal(scriptProperties.get(key),other);
+ }
+ reset();scriptProperties.set('portfolio_close_stage','PRICE');scriptProperties.set('portfolio_close_run_started_ms',String(Date.now()));assert.equal(context.handleCollectKbFundNav('refresh',data,'2026-10-23').status,'error');assert.equal(producerCalls,0);
+ reset();context.handleImportFundNav=()=>{throw Error('private');};assert.equal(context.handleCollectKbFundNav('import',data,'').status,'error');assert.equal(scriptProperties.has(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY),false);
+ reset();context.handleImportFundNav=()=>{scriptProperties.set(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,JSON.stringify({token:'replacement',until:Date.now()+420000}));return {status:'ok'};};context.handleCollectKbFundNav('import',data,'');assert.equal(JSON.parse(scriptProperties.get(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY)).token,'replacement','cleanup cannot delete replacement owner');
+ reset();assert.equal(context.handleCollectKbFundNav('refresh',data,'2026-09-01').status,'error');assert.equal(producerCalls,0);
+ context.today=oldToday;context.handleImportFundNav=oldImport;context.handleRefreshFundValuations=oldRefresh;scriptProperties.clear();
+}

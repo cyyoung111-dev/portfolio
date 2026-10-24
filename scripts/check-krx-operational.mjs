@@ -562,7 +562,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.264',automation:{closeRun:{state:'COMPLETE'}}};
   if(params.action==='previewFundNavImport')result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{}]:[]};
   if(params.action==='getFundValuationStatus')result={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}};
-  if(params.action==='importFundNav'){assert.equal(JSON.parse(params.data).appendOnly,true);writes++;assert.equal(JSON.parse(params.data).rows.length,1);result={...result,saveState:'success',evaluation:{missingHoldings:[]}};}
+  if(params.action==='collectKbFundNav'&&params.mode==='import'){assert.equal(JSON.parse(params.data).appendOnly,true);writes++;assert.equal(JSON.parse(params.data).rows.length,1);result={...result,saveState:'success',evaluation:{missingHoldings:[]}};}
   return {ok:true,json:async()=>result};
  };
  const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),fetchImpl:fixture,apply:true};
@@ -586,12 +586,12 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   else if(p.action==='getAutomationStatus')r={status:'ok',gasVersion:'9.264',automation:{closeRun:{state:'COMPLETE'}}};
   else if(p.action==='previewFundNavImport')r={...r,candidates:[],identical:[{}],updates:[],warnings:[],errors:[]};
   else if(p.action==='getFundValuationStatus')r={...r,fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
-  else if(p.action==='refreshFundValuations'){repairs++;repaired=true;}
+  else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){repairs++;repaired=true;}
   else throw Error('unexpected write');
   return {ok:true,json:async()=>r};
  };
  const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),fetchImpl,apply:true};
  assert.equal((await run(args)).derivedRepaired,1);assert.equal(repairs,1);
  repaired=false;
- await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>o.body?.get('action')==='refreshFundValuations'?{ok:true,json:async()=>({status:'error',message:'PRIVATE'})}:fetchImpl(u,o)}),/NAV_DERIVED_UNVERIFIED/);
+ await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>o.body?.get('action')==='collectKbFundNav'&&o.body?.get('mode')==='refresh'?{ok:true,json:async()=>({status:'error',message:'PRIVATE'})}:fetchImpl(u,o)}),/NAV_DERIVED_UNVERIFIED/);
 }

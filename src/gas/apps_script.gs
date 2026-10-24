@@ -1371,7 +1371,7 @@ function doGet(e) {
       params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' ||
       params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends' ||
       params.action === 'rebuildDailySnapshots' || params.action === 'repairOct08FundSourceOnly' || params.action === 'rewriteSnapshotDate' ||
-      params.action === 'previewFundNavImport' || params.action === 'importFundNav' ||
+      params.action === 'previewFundNavImport' || params.action === 'importFundNav' || params.action === 'collectKbFundNav' ||
       params.action === 'prepareBackupCleanup' || params.action === 'maintainSystemBackups' || params.action === 'applyPriceHistoryRepair') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
@@ -1404,6 +1404,7 @@ function doPost(e) {
   if (params.action === 'resumeIncompletePortfolioClose') return handleResumeIncompletePortfolioClose(params.apply || '0', params.phase || 'schedule');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'previewFundNavImport') return handlePreviewFundNavImport(params.data || '{}');
+  if (params.action === 'collectKbFundNav') return handleCollectKbFundNav(params.mode || '', params.data || '{}', params.date || '');
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
@@ -8568,6 +8569,48 @@ function _applyFundNavImport(ss, inspected, diagnostic) {
     persisted: diagnostic.persisted,
     capacity: { before: capacityBefore, after: _fundSheetCapacity(ss) }
   };
+}
+
+// All external collector writes enter through one shared writer owner before
+// any source read. Ordinary manual import/refresh contracts remain unchanged.
+function handleCollectKbFundNav(mode, dataJson, date) {
+  var token = Utilities.getUuid(), owned = false;
+  try {
+    if (mode !== 'import' && mode !== 'refresh') throw new Error('request');
+    if (mode === 'import') {
+      var input = JSON.parse(dataJson);
+      if (input.code !== 'F00002' || input.provider !== 'KB_VALUE_ST'
+          || input.classCode !== 'AQ018' || input.appendOnly !== true
+          || !Array.isArray(input.rows) || !input.rows.length || input.rows.length > 32) throw new Error('request');
+    } else {
+      _fundDate(date);
+      if (date > today() || date < _fundDateOffset(today(), -31)) throw new Error('date');
+    }
+    _portfolioFundAtomic_(function(props) {
+      var now = Date.now();
+      if (!String(props.getProperty('access_token') || '').trim()) throw new Error('auth');
+      [PORTFOLIO_FUND_LEASE_KEY,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY].forEach(function(key) {
+        var lease = _portfolioFundState_(props,key);
+        if (lease && Number(lease.until || 0) > now) throw new Error('busy');
+      });
+      var stage = String(props.getProperty('portfolio_close_stage') || '');
+      var started = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+      if ((stage === 'PRICE' || stage === 'FUND') && started && now-started >= 0 && now-started < 900000) throw new Error('busy');
+      props.setProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,
+        JSON.stringify({token:token,origin:'KB_NAV_COLLECTOR',until:now+420000}));
+      var current = _portfolioFundState_(props,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+      if (!current || current.token !== token) throw new Error('lease');
+      owned = true;
+    });
+    return mode === 'import' ? handleImportFundNav(dataJson)
+      : handleRefreshFundValuations(date,date,'F00002','');
+  } catch(ignore) { return jsonError('FUND_COLLECTOR_BLOCKED_OR_UNVERIFIED'); }
+  finally {
+    if (owned) _portfolioFundAtomic_(function(props) {
+      var current = _portfolioFundState_(props,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+      if (current && current.token === token) props.deleteProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+    });
+  }
 }
 
 function handleImportFundNav(dataJson) {

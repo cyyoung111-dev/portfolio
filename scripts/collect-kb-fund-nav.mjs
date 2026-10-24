@@ -46,7 +46,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   if(candidates.length){
   // One bounded import uses the existing production backup/manual-value guards.
   // A timeout is unverified: do not blindly retry a possibly committed write.
-  const result=await request('importFundNav',{data:JSON.stringify({...input,rows:candidates})});
+  const result=await request('collectKbFundNav',{mode:'import',data:JSON.stringify({...input,rows:candidates})});
   if(result.status!=='ok'||result.saveState!=='success'||result.evaluation?.missingHoldings?.length)throw Error('NAV_IMPORT_UNVERIFIED');
   const check=await request('previewFundNavImport',{data:JSON.stringify({...input,rows:candidates})});
   if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
@@ -60,7 +60,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   const needsWrite=d=>d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED';
   const pending=(await valuation()).filter(needsWrite);
   for(const day of pending){
-    const r=await request('refreshFundValuations',{from:day.date,to:day.date,code:'F00002'});
+    const r=await request('collectKbFundNav',{mode:'refresh',date:day.date});
     if(r.status!=='ok')throw Error('NAV_DERIVED_UNVERIFIED');
   }
   const final=await valuation();
