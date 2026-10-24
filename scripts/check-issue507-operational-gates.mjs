@@ -98,10 +98,10 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,35,
-  'migration inventory: all 35 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,36,
-  'migration inventory: all 36 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,36,
+  'migration inventory: all 36 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,37,
+  'migration inventory: all 37 secret-consuming jobs must be protected');
 const sample='issue-507-three-day-code-lineage-readonly.yml';
 const sampleSource=fs.readFileSync(new URL(sample,dir),'utf8');
 const removed=sampleSource.replace('    environment: '+productionEnvironment+'\n','');
