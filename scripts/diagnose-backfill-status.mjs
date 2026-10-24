@@ -114,7 +114,7 @@ function safeWorkerBusyCheckpoint(raw) {
 }
 const HISTORICAL_STATES=new Set(['RUNNING','SUCCEEDED','FAILED','DEFERRED','NO_WORK']);
 const HISTORICAL_REASONS=new Set(['STARTED','COMPLETE','FAILED','NO_WORK','FUND_ACTIVE',
-  'CLOSE_ACTIVE','BACKFILL_BUSY','LEASE_CONFLICT','BLOCKED_PRECONDITION','EXCEPTION']);
+  'CLOSE_ACTIVE','BACKFILL_BUSY','LEASE_CONFLICT','BLOCKED_PRECONDITION','EXCEPTION','TIMEOUT']);
 function safeHistoricalCheckpoint(v){
   if(v==null)return null;
   if(!v||typeof v!=='object'||Array.isArray(v)

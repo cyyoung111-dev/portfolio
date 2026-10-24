@@ -8,6 +8,7 @@ let date='2026-10-19',result={attempted:false,deferred:true,reason:'BACKFILL_BUS
 const ctx=vm.createContext({
   Date:{now:()=>Date.now()},today:()=>date,
   PropertiesService:{getScriptProperties:()=>props},
+  _portfolioFundAtomic_:callback=>callback(props),
   _runPendingKrxBackfillWithLease_:(p,d,fromClose,hist)=>{
     assert.equal(p,props);assert.equal(d,date);assert.equal(fromClose,false);assert.equal(hist,true);
     return typeof result==='function'?result():result;

@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.259
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.260
+//
+//  v9.260 변경사항 (2026.10.24):
+//  • 가격이력 append DATE 셀 자동변환을 날짜 기준으로 검증, 나머지 필드는 엄격 유지
+//  • 오래된 백필 RUNNING 기록을 잠금·활성 lease 확인 및 백업 후 TIMEOUT 실패로 정리
+//  • 원천·금융데이터·대기열·마감 오류 보존, 성공 상태 추정 금지
 //
 //  v9.259 변경사항 (2026.10.24):
 //  • #507 전체 backlog 진단 후 정상일 제외·미해결일 영속 보존으로 전진 커서 정리
@@ -1299,6 +1304,7 @@ function doGet(e) {
   if (params.action === 'recoverPendingKrxClose') return jsonError('POST_ONLY');
   if (params.action === 'issue507Maintenance') return jsonError('POST_ONLY');
   if (params.action === 'reconcileTradeSnapshotBacklog') return jsonError('POST_ONLY');
+  if (params.action === 'reconcileHistoricalCheckpoints') return jsonError('POST_ONLY');
   if (params.action === 'reconcileCompletedKrxPending') return jsonError('POST_ONLY');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
@@ -1380,6 +1386,7 @@ function doPost(e) {
   if (params.action === 'recoverPendingKrxClose') return handleRecoverPendingKrxClose(params.date, params.apply);
   if (params.action === 'issue507Maintenance') return handleIssue507Maintenance(params.mode || '', params.apply || '0');
   if (params.action === 'reconcileTradeSnapshotBacklog') return handleReconcileTradeSnapshotBacklog(params.apply || '0');
+  if (params.action === 'reconcileHistoricalCheckpoints') return handleReconcileHistoricalCheckpoints(params.apply || '0');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'previewFundNavImport') return handlePreviewFundNavImport(params.data || '{}');
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
@@ -2270,7 +2277,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.259',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.260',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2348,7 +2355,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.259', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.260', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6254,7 +6261,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.259' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.260' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10522,7 +10529,11 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       if (toAppend.length) {
         var appended = ph.getRange(lastRow+1,1,toAppend.length,6).getValues();
         _normalizeCodeRows(toAppend,1).forEach(function(row,index) {
-          if (!same(appended[index],row))
+          // Sheets can coerce an ISO date string in a DATE-formatted cell
+          // into Date on getValues(). Compare its calendar date, but retain
+          // strict code/name/price/timestamp/source verification.
+          if (!appended[index] || _normalizeDate(appended[index][0]) !== _normalizeDate(row[0])
+              || !same(appended[index].slice(1),row.slice(1)))
             throw new Error('PRICE_HISTORY_BATCH_APPEND_UNVERIFIED:' + (lastRow+1+index));
         });
       }
@@ -11719,8 +11730,10 @@ function _runHistoricalBackfillWithCheckpoint_(props,date,slot) {
     : slot==='0030' ? 'portfolio_close_historical_0030_checkpoint_v1' : '';
   if(!key)throw new Error('BACKFILL_INVALID_SLOT');
   var started=Date.now();
-  props.setProperty(key,JSON.stringify({runDate:date,startedAt:started,
-    finishedAt:null,state:'RUNNING',attempted:false,ok:null,deferred:false,reason:'STARTED'}));
+  _portfolioFundAtomic_(function(sharedProps) {
+    sharedProps.setProperty(key,JSON.stringify({runDate:date,startedAt:started,
+      finishedAt:null,state:'RUNNING',attempted:false,ok:null,deferred:false,reason:'STARTED'}));
+  });
   try {
     var result=_runPendingKrxBackfillWithLease_(props,date,false,true);
     var attempted=!!(result&&result.attempted);
@@ -13240,7 +13253,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.259',
+    gasVersion: '9.260',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13305,7 +13318,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.259' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.260' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -17170,7 +17183,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.259' });
+    return jsonOk({ settings: settings, gasVersion: '9.260' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17200,7 +17213,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.259'
+      gasVersion: '9.260'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19106,4 +19119,54 @@ function handleReconcileTradeSnapshotBacklog(apply) {
       projectedDeferred:next.length,pendingCleared:apply==='1'&&canClear,originalDataWritten:false,sourceStable:true});
   } catch(ignore) { return jsonError('BACKLOG_'+phase+'_FAILED'); }
   finally { if(owned)lock.releaseLock(); }
+}
+
+// Metadata only. A killed process cannot finalize its RUNNING checkpoint.
+// Never manufacture success, clear source queues, or modify close/NAV errors.
+function handleReconcileHistoricalCheckpoints(apply) {
+  try {
+    if (apply !== '0' && apply !== '1') return jsonError('CHECKPOINT_BAD_APPLY');
+    if (!String(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim())
+      return jsonError('CHECKPOINT_AUTH_REQUIRED');
+    return _portfolioFundAtomic_(function(props) {
+      var now = Date.now();
+      var active = [PORTFOLIO_FUND_LEASE_KEY, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY].some(function(key) {
+        var lease = _portfolioFundState_(props, key);
+        return lease && Number(lease.until || 0) > now;
+      });
+      var stage = String(props.getProperty('portfolio_close_stage') || '');
+      var started = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+      if (active || ((stage === 'PRICE' || stage === 'FUND') && started > 0 && now - started < 900000))
+        return jsonError('CHECKPOINT_WRITER_ACTIVE');
+      var changes = [], before = {};
+      ['2310', '0030'].forEach(function(slot) {
+        var key = 'portfolio_close_historical_' + slot + '_checkpoint_v1';
+        var raw = props.getProperty(key);
+        if (!raw) return;
+        var state = JSON.parse(raw);
+        if (!state || typeof state !== 'object' || Array.isArray(state)) throw new Error('invalid');
+        if (state.state !== 'RUNNING') return;
+        if (!(Number(state.startedAt) > 0) || state.finishedAt !== null) throw new Error('invalid');
+        if (now - Number(state.startedAt) < 900000) return;
+        before[key] = raw;
+        var next = Object.assign({}, state, {state:'FAILED', reason:'TIMEOUT',
+          finishedAt:now, attempted:!!state.attempted, ok:false, deferred:false});
+        changes.push({key:key,value:JSON.stringify(next)});
+      });
+      if (apply === '1' && changes.length) {
+        var backup = JSON.stringify({at:now, values:before});
+        if (backup.length > 8000) return jsonError('CHECKPOINT_BACKUP_LIMIT');
+        props.setProperty('historical_checkpoint_reconcile_backup_v1', backup);
+        if (props.getProperty('historical_checkpoint_reconcile_backup_v1') !== backup)
+          return jsonError('CHECKPOINT_BACKUP_UNVERIFIED');
+        changes.forEach(function(change) {
+          props.setProperty(change.key, change.value);
+          if (props.getProperty(change.key) !== change.value) throw new Error('readback');
+        });
+      }
+      return jsonOk({mode:apply === '1' ? 'APPLY' : 'DRY_RUN', stale:changes.length,
+        reconciled:apply === '1' ? changes.length : 0, originalDataWritten:false,
+        queuesChanged:false, errorsCleared:false});
+    });
+  } catch (ignore) { return jsonError('CHECKPOINT_RECONCILE_FAILED'); }
 }

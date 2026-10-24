@@ -1,0 +1,63 @@
+name: historical-checkpoint-reconcile
+on:
+  workflow_run:
+    workflows: [gas-deploy]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: '활성 실행 없는 15분 초과 백필 RUNNING 상태 백업 후 실패로 정리'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: historical-checkpoint-reconcile
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+        (github.event.workflow_run.event == 'workflow_run' || github.event.workflow_run.event == 'workflow_dispatch') &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+      - name: Prove approved first installation
+        id: first
+        if: github.event_name == 'workflow_run'
+        env:
+          DEPLOYED_SHA: ${{ github.event.workflow_run.head_sha }}
+          APPROVED_PARENT: a9b846ffd4d8596a6a5e6d1c5156d079d57b0740
+        run: |
+          set -euo pipefail
+          echo 'apply=false' >> "$GITHUB_OUTPUT"
+          [ "$(git rev-parse HEAD)" = "$DEPLOYED_SHA" ] || exit 1
+          [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
+          if git cat-file -e "$APPROVED_PARENT:.github/workflows/historical-checkpoint-reconcile.yml" 2>/dev/null; then exit 0; fi
+          echo 'apply=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify all dates and reconcile only queue metadata
+        if: github.event_name == 'workflow_dispatch' || steps.first.outputs.apply == 'true'
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          APPLY: ${{ ((github.event_name == 'workflow_dispatch' && inputs.apply) || (github.event_name == 'workflow_run' && steps.first.outputs.apply == 'true')) && '1' || '0' }}
+        run: |
+          if [ "$APPLY" = '1' ]; then
+            node scripts/run-historical-checkpoint-reconcile.mjs
+          else
+            node scripts/run-historical-checkpoint-reconcile.mjs
+          fi
