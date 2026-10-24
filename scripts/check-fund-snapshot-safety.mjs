@@ -1979,7 +1979,7 @@ console.log('Actual NAV carry publication-date equivalence: no repeated write, w
 // history separately retains INPUT_REQUIRED. Never erase that warning.
 {
  const oldToday=context.today;context.today=()=> '2026-10-25';
- const date='2026-09-25',sourceDate='2026-09-23';
+ const date='2026-10-07',sourceDate='2026-10-06';
  const price=[date,'F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'];
  const snapshot=[date,'F00002','KB',1,1000,1000,1200,1200,200,20,'FUND_NAV_CARRY@'+sourceDate,''];
  const pendingSs=ssFor({
@@ -1998,3 +1998,33 @@ console.log('Actual NAV carry publication-date equivalence: no repeated write, w
  context.today=oldToday;
 }
 console.log('Actual pending NAV carry: no endless rewrite, NAV_MISSING warning and source/date preserved PASS');
+
+// Confirmed KB non-publication dates do not suppress unrelated missing NAV.
+for(const date of ['2026-09-24','2026-09-25','2026-10-05','2026-10-09']) {
+ assert.equal(context._fundNavExpectedPublicationDate(date,'F00002'),false);
+}
+assert.equal(context._fundNavExpectedPublicationDate('2026-10-07','F00002'),true);
+assert.equal(context._fundNavExpectedPublicationDate('2026-12-31','F00002'),true);
+assert.equal(context._fundNavExpectedPublicationDate('2026-10-09','F00001'),true);
+assert.equal(context._fundNavExpectedPublicationDate('2027-10-05','F00002'),true);
+
+{
+ const oldToday=context.today;context.today=()=> '2026-10-25';
+ for(const date of ['2026-09-24','2026-09-25','2026-10-05','2026-10-09']) {
+  const sourceDate='2026-09-23';
+  const ss=ssFor({
+   '펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),
+   '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],[sourceDate,'F00002','KB',1200,sourceDate,1000,1200,'','KB_VALUE_ST']]),
+   '가격이력':new Sheet([['date','code','name','price','at','source'],[date,'F00002','KB',1200,'','FUND_NAV_CARRY']]),
+   '스냅샷':new Sheet([header,[date,'F00002','KB',1,1000,1000,1200,1200,200,20,'FUND_NAV_CARRY@'+sourceDate,'']])
+  });
+  assert.equal(context._getFundValuationStatus(ss,date,date,'F00002').dates[0].navState,'NON_PUBLICATION_CARRY');
+  const result=context._refreshFundValuations(ss,date,date,'F00002',true,null,1);
+  assert.equal(result.fundResults.F00002.navMissing,0);
+  assert.equal(result.fundResults.F00002.status,'ok');
+  assert.equal(result.snapshots,0);
+  ss.getSheetByName('펀드기준가격').rows.push([date,'F00002','KB',1201,date,1000,1201,'','KB_VALUE_ST']);
+  assert.equal(context._getFundValuationStatus(ss,date,date,'F00002').dates[0].navState,'EXISTING_CONFIRMED','actual publication wins over calendar');
+ }
+ context.today=oldToday;
+}

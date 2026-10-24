@@ -523,7 +523,7 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
 // End-to-end client orchestration uses real auth/status parser and bounded POSTs.
 {
  const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
- const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.263';
+ const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.264';
  fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
  fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
  let scheduled=0,continued=0;const emitted=[];
@@ -543,3 +543,31 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
  assert.equal(emitted.length,1);assert.ok(!JSON.stringify(done).includes('PRIVATE'));
 }
 console.log('Incomplete close client: authentication, explicit schedule, bounded continuation, verified completion PASS');
+
+// External KB collector uses the same production import contract; never overwrites confirmed NAV.
+{
+ const {parseNav,run}=await import('./collect-kb-fund-nav.mjs');
+ assert.deepEqual(parseNav([{gijunYmd:'20261023',gijunGa:2116.98}],'2026-10-01','2026-10-25'),[{date:'2026-10-23',nav:2116.98}]);
+ for(const payload of [[],[{gijunYmd:'20261023',gijunGa:0}],[{gijunYmd:'20261023',gijunGa:'2116.98'}],[{gijunYmd:'20261032',gijunGa:2116.98}],[{gijunYmd:'20261023',gijunGa:1},{gijunYmd:'20261023',gijunGa:2}]])assert.throws(()=>parseNav(payload,'2026-10-01','2026-10-25'));
+ let writes=0;const calls=[];
+ const fixture=async(u,o)=>{
+  if(!o.body){assert.equal(new URL(u).searchParams.get('fundCd'),'KR5223AQ0185');return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};}
+  const params=Object.fromEntries(o.body);calls.push(params.action);
+  if(params.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+  let result={status:'ok'};
+  if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.264',automation:{closeRun:{state:'COMPLETE'}}};
+  if(params.action==='previewFundNavImport')result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{}]:[]};
+  if(params.action==='importFundNav'){writes++;assert.equal(JSON.parse(params.data).rows.length,1);result={...result,saveState:'success',evaluation:{missingHoldings:[]}};}
+  return {ok:true,json:async()=>result};
+ };
+ const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),fetchImpl:fixture,apply:true};
+ assert.equal((await run(args)).imported,1);assert.equal(writes,1);
+ assert.equal((await run(args)).imported,0);assert.equal(writes,1);
+ writes=0;assert.equal((await run({...args,apply:false})).imported,0);assert.equal(writes,0);
+ for(const kind of ['updates','errors','warnings']) {
+  await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>{
+   const r=await fixture(u,o);if(o.body?.get('action')==='previewFundNavImport')return {ok:true,json:async()=>({...await r.json(),[kind]:[{}]})};return r;
+  }}),/NAV_PREVIEW_BLOCKED/);
+  assert.equal(writes,0);
+ }
+}
