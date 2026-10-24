@@ -1974,3 +1974,27 @@ console.log('Daily NAV bounded Snapshot writes, latest-first resume, no false DO
  context.today=oldToday;
 }
 console.log('Actual NAV carry publication-date equivalence: no repeated write, wrong date/value rejected, source preserved PASS');
+
+// The production Snapshot builder uses dated CARRY even when the price
+// history separately retains INPUT_REQUIRED. Never erase that warning.
+{
+ const oldToday=context.today;context.today=()=> '2026-10-25';
+ const date='2026-09-25',sourceDate='2026-09-23';
+ const price=[date,'F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'];
+ const snapshot=[date,'F00002','KB',1,1000,1000,1200,1200,200,20,'FUND_NAV_CARRY@'+sourceDate,''];
+ const pendingSs=ssFor({
+  '펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],[sourceDate,'F00002','KB',1200,sourceDate,1000,1200,'','KB_VALUE_ST']]),
+  '가격이력':new Sheet([['date','code','name','price','at','source'],price]),'스냅샷':new Sheet([header,snapshot])
+ });
+ const before=JSON.stringify([pendingSs.getSheetByName('스냅샷').rows,pendingSs.getSheetByName('가격이력').rows]);
+ const status=context._getFundValuationStatus(pendingSs,date,date,'F00002').dates[0];
+ assert.equal(status.navState,'NAV_MISSING');assert.equal(status.snapshotState,'EXISTING_VALID');
+ const result=context._refreshFundValuations(pendingSs,date,date,'F00002',true,null,1);
+ assert.equal(result.snapshots,0);assert.equal(result.continuation,false);assert.equal(result.fundResults.F00002.navMissing,1);assert.equal(result.fundResults.F00002.status,'partial');
+ assert.equal(JSON.stringify([pendingSs.getSheetByName('스냅샷').rows,pendingSs.getSheetByName('가격이력').rows]),before,'retain pending source and dated Snapshot provenance');
+ assert.equal(context._fundSnapshotSourceMatches('FUND_NAV_CARRY@2026-09-22','FUND_NAV_CARRY_INPUT_REQUIRED',sourceDate),false,'different source date stays blocked');
+ assert.equal(context._fundSnapshotSourceMatches('FUND_NAV_CARRY_INPUT_REQUIRED@'+sourceDate,'FUND_NAV_CARRY',sourceDate),false,'do not suppress stale warning on confirmed promotion');
+ context.today=oldToday;
+}
+console.log('Actual pending NAV carry: no endless rewrite, NAV_MISSING warning and source/date preserved PASS');

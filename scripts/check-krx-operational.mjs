@@ -523,7 +523,7 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
 // End-to-end client orchestration uses real auth/status parser and bounded POSTs.
 {
  const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
- const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.262';
+ const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.263';
  fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
  fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
  let scheduled=0,continued=0;const emitted=[];
