@@ -43,3 +43,21 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
  assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').continued,true);assert.equal(continued,1);assert.equal(producer,0);
 }
 console.log('Actual GAS close resume: dry-run, exact owner/date, active lease, age, auth, reservation, independent continuation PASS');
+
+// Both production completion paths clear only the canonical waiting errors.
+{
+ const extract=name=>{const p=source.indexOf('function '+name+'(');return source.slice(p,source.indexOf('\n}',p)+2);};
+ let values=new Map();const props={getProperty:k=>values.get(k)||null,setProperty:(k,v)=>values.set(k,v),deleteProperty:k=>values.delete(k),setProperties:o=>Object.entries(o).forEach(([k,v])=>values.set(k,v))};
+ const cx=vm.createContext({Date:class extends Date{static now(){return 2000000;}},CONFIG:{TIMEZONE:'Asia/Seoul'},LockService:{getScriptLock:()=>({hasLock:()=>true})},Utilities:{formatDate:()=> '2026-10-24 20:00:00'},PORTFOLIO_FUND_SUCCESS_KEY:'success',
+ _portfolioFundAtomic_:fn=>fn(props),_portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),_fundPropertyText:String});
+ vm.runInContext(extract('_reconcilePortfolioFundBusy_')+'\n'+extract('_recordPortfolioCloseStage'),cx);
+ const owner={date:'2026-10-24',runId:'current',startedMs:100000,startedAt:'2026-10-24 19:00:00',priceOk:true};
+ const reset=errors=>{const summary={...owner,runDate:owner.date,priceOk:true,fundOk:false,fundBusyTriggerId:'uid',errors};values=new Map([['portfolio_close_run_id','current'],['portfolio_close_run_date',owner.date],['portfolio_close_run_started_ms','100000'],['portfolio_close_run_started_at',owner.startedAt],['portfolio_close_stage','ERROR'],['portfolio_close_last_result',JSON.stringify(summary)],['success',JSON.stringify({date:owner.date,owner,at:2000000,token:'t',triggerId:'uid'})]]);return summary;};
+ const waiting=['펀드: FUND_BUSY: FUND_CONTINUE','펀드: FUND_BUSY · 분할 재개 대기'];
+ for(const error of waiting){
+  let s=reset([error]);cx._reconcilePortfolioFundBusy_(owner.date);assert.equal(values.get('portfolio_close_stage'),'COMPLETE');assert.deepEqual(JSON.parse(values.get('portfolio_close_last_result')).errors,[]);
+  s=reset([error]);assert.equal(cx._recordPortfolioCloseStage(props,owner.date,owner.startedAt,'ERROR','current',s,100000),true);assert.equal(values.get('portfolio_close_stage'),'COMPLETE');assert.equal(s.fundOk,true);assert.equal(s.errors.length,0);
+ }
+ reset([...waiting,'일반 종목: 실제 실패']);cx._reconcilePortfolioFundBusy_(owner.date);assert.equal(values.get('portfolio_close_stage'),'ERROR');assert.deepEqual(JSON.parse(values.get('portfolio_close_last_result')).errors,['일반 종목: 실제 실패']);
+}
+console.log('Production CLOSE summary and deferred NAV reconciliation: canonical continuation cleared, real errors preserved PASS');

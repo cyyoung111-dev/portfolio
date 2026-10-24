@@ -8680,7 +8680,7 @@ function runDailyFundValuations(targetDate) {
       warnings.push(code + ' ' + ((fund.inputRequiredDates || []).length ? 'NAV 미확보 ' + fund.inputRequiredDates.length + '일' : '부분 완료'));
     });
     if (result.continuation) {
-      var continuation = new Error('FUND_CONTINUE');
+      var continuation = new Error('FUND_BUSY: FUND_CONTINUE');
       continuation.fundContinuation = true;
       throw continuation;
     }
@@ -19230,7 +19230,7 @@ function handleResumeIncompletePortfolioClose(apply, phase) {
     if (!price || price.ok !== true || !(price.rows > 0)) throw new Error('price');
     owner.priceOk=true; owner.priceDate=price.date; owner.priceRows=price.rows;
     owner.krxCloseRequired=price.krxCloseRequired;
-    owner.errors=['펀드: 분할 재개 대기'];
+    owner.errors=['펀드: FUND_BUSY · 분할 재개 대기'];
     _scheduleFundAfterFailedPortfolioPrice_(owner);
     return jsonOk({mode:'APPLY',date:owner.date,complete:false,scheduled:true});
   } catch(ignore) { return jsonError('CLOSE_RESUME_BLOCKED_VERIFY_BEFORE_RETRY'); }
