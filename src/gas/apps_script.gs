@@ -8578,6 +8578,9 @@ function handleImportFundNav(dataJson) {
     var ss = getss();
     inspected = _inspectFundNavImport(ss, dataJson);
     diagnostic = _createFundRecoveryDiagnostic(true, inspected.firstDate || '', inspected.lastDate || '', inspected.code);
+    // External collectors may only append under this same ScriptLock.
+    // Reinspect after preview; a concurrent confirmed NAV is never approved by ackWarnings.
+    if (JSON.parse(dataJson).appendOnly === true && inspected.updates.length) throw new Error('FUND_NAV_APPEND_ONLY_CONFLICT');
     if (inspected.errors.length) throw new Error('오류 행 ' + inspected.errors.length + '건을 먼저 수정하세요.');
     if (inspected.warnings.length && !JSON.parse(dataJson).ackWarnings) throw new Error('WARNING ' + inspected.warnings.length + '건을 확인한 후 반영하세요.');
     if (!inspected.candidates.length && !inspected.updates.length && !inspected.identical.length) return jsonOk({ importResult: inspected, evaluation: { from: '', to: '', prices: 0, snapshots: 0, missingHoldings: [], ranges: [] } });
@@ -19227,7 +19230,8 @@ function handleResumeIncompletePortfolioClose(apply, phase) {
       var id = String(props.getProperty('portfolio_close_run_id') || '');
       var now = Date.now();
       var last = _portfolioFundState_(props, 'portfolio_close_last_result');
-      if (_portfolioCloseRunState(last, props).state === 'COMPLETE') return {complete:true,date:date};
+      if (_portfolioCloseRunState(last, props).state === 'COMPLETE'
+          && !String(props.getProperty('fund_last_warning') || '').trim()) return {complete:true,date:date};
       if (!id || !started || now - started < 900000 || now - started > 86400000
           || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today()) throw new Error('owner');
       [PORTFOLIO_FUND_LEASE_KEY,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY].forEach(function(key) {

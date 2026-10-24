@@ -2028,3 +2028,15 @@ assert.equal(context._fundNavExpectedPublicationDate('2027-10-05','F00002'),true
  }
  context.today=oldToday;
 }
+// Actual preview/import race: append-only is enforced after server lock and reinspection.
+{
+ const oldToday=context.today,oldGet=context.getss;context.today=()=> '2026-10-25';
+ const nav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+ const ss=ssFor({'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),'펀드기준가격':nav});context.getss=()=>ss;
+ const data=JSON.stringify({code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',sourceText:'KR5223AQ0185 AQ018 S-T',appendOnly:true,ackWarnings:true,rows:[{date:'2026-10-23',nav:1201}]});
+ assert.equal(context.handlePreviewFundNavImport(data).candidates.length,1);
+ nav.rows.push(['2026-10-23','F00002','KB',1200,'2026-10-23',1000,1200,'','KB_VALUE_ST']);
+ const before=JSON.stringify(nav.rows);const result=context.handleImportFundNav(data);
+ assert.equal(result.status,'error');assert.match(result.message,/FUND_NAV_APPEND_ONLY_CONFLICT/);assert.equal(JSON.stringify(nav.rows),before);
+ context.today=oldToday;context.getss=oldGet;
+}

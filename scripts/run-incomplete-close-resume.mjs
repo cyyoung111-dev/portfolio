@@ -5,7 +5,7 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
  const endpoint=validateWebAppUrl(url);
  const initial=await runBackfillStatus({url:endpoint,token,fetchImpl});
  if(initial.gasVersion!=='9.264')throw Error('RESUME_VERSION');
- if(initial.close.state==='COMPLETE')return {complete:true,status:initial};
+ if(initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
  async function req(action,args={}) {
   try {
    const r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:token}),signal:AbortSignal.timeout(330000)});
@@ -21,7 +21,7 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
   const r=await req('resumeIncompletePortfolioClose',{apply:'1',phase:'continue'});
   const status=summarizeBackfillStatus(await req('getAutomationStatus'));
   emit({iteration:i+1,...status});
-  if(status.close.state==='COMPLETE')return {complete:true,status};
+  if(status.close.state==='COMPLETE'&&!status.close.fundWarningPresent)return {complete:true,status};
   if(r.status!=='ok'||r.continued!==true)throw Error('RESUME_CONTINUE_BLOCKED_VERIFY_STATUS');
  }
  throw Error('RESUME_BOUNDED_PROGRESS_EXHAUSTED');

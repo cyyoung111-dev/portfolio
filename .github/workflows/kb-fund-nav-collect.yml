@@ -4,7 +4,7 @@ on:
     - cron: '10 9 * * *'
   workflow_dispatch:
   workflow_run:
-    workflows: [gas-deploy]
+    workflows: [issue-507-fund-close-resume]
     types: [completed]
     branches: [main]
 permissions:
@@ -22,7 +22,7 @@ jobs:
         github.event.workflow_run.head_repository.full_name == github.repository))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

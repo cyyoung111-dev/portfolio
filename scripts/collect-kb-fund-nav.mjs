@@ -37,19 +37,35 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   const r=await fetchImpl(source,{headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.funetf.co.kr/product/fund/view/KR5223AQ0185'},signal:AbortSignal.timeout(60000)});
   if(!r.ok)throw Error('NAV_SOURCE_HTTP');
   const rows=parseNav(await r.json(),from,to);
-  const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,sourceText:'KR5223AQ0185 AQ018 S-T '+source.href,rows};
+  const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+source.href,rows};
   const preview=await request('previewFundNavImport',{data:JSON.stringify(input)});
   if(preview.status!=='ok'||preview.errors?.length||preview.updates?.length||preview.warnings?.some(w=>w.reason!=='오늘 NAV는 공식 확정값인지 확인 필요'||w.date!==today)||!Array.isArray(preview.candidates))throw Error('NAV_PREVIEW_BLOCKED');
   const candidates=preview.candidates.map(({date,nav})=>({date,nav}));
   if(candidates.some(c=>!rows.some(row=>row.date===c.date&&row.nav===c.nav)))throw Error('NAV_PREVIEW_MISMATCH');
-  if(!apply||!candidates.length)return {mode:apply?'APPLY':'DRY_RUN',sourceRows:rows.length,candidates:candidates.length,imported:0};
+  if(!apply)return {mode:'DRY_RUN',sourceRows:rows.length,candidates:candidates.length,imported:0};
+  if(candidates.length){
   // One bounded import uses the existing production backup/manual-value guards.
   // A timeout is unverified: do not blindly retry a possibly committed write.
   const result=await request('importFundNav',{data:JSON.stringify({...input,rows:candidates})});
   if(result.status!=='ok'||result.saveState!=='success'||result.evaluation?.missingHoldings?.length)throw Error('NAV_IMPORT_UNVERIFIED');
   const check=await request('previewFundNavImport',{data:JSON.stringify({...input,rows:candidates})});
   if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
-  return {mode:'APPLY',sourceRows:rows.length,candidates:candidates.length,imported:candidates.length};
+  }
+  const valuation=async()=>{
+    const r=await request('getFundValuationStatus',{from,to,code:'F00002'});
+    const dates=r.fundResults?.F00002?.dates;
+    if(r.status!=='ok'||!Array.isArray(dates)||dates.length>32||dates.some(d=>typeof d.date!=='string'||d.date<from||d.date>to))throw Error('NAV_DERIVED_SCHEMA');
+    return dates;
+  };
+  const needsWrite=d=>d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED';
+  const pending=(await valuation()).filter(needsWrite);
+  for(const day of pending){
+    const r=await request('refreshFundValuations',{from:day.date,to:day.date,code:'F00002'});
+    if(r.status!=='ok')throw Error('NAV_DERIVED_UNVERIFIED');
+  }
+  const final=await valuation();
+  if(final.some(d=>needsWrite(d)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))throw Error('NAV_DERIVED_PENDING');
+  return {mode:'APPLY',sourceRows:rows.length,candidates:candidates.length,imported:candidates.length,derivedRepaired:pending.length};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
   try{console.log(JSON.stringify(await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')})));}
