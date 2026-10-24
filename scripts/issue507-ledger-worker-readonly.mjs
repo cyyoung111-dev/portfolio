@@ -234,7 +234,7 @@ export async function selfTest(){
     assert.equal(current.workerCompletedVerified,false);
     assert.equal(current.operationallyComplete,false);
   }
-  for(const gasVersion of ['9.245','9.264','10.0'])
+  for(const gasVersion of ['9.245','9.265','10.0'])
     assert.throws(()=>summarizeEvidence({...a,gasVersion},evidence),
       /ISSUE507_AUTOMATION_SCHEMA/);
   assert.equal(phased.workerOriginalStartedAt,'2026-10-19T11:02:23.565Z');
