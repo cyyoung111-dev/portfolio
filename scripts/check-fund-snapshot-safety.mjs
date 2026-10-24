@@ -1924,3 +1924,27 @@ context._readRawSnapshotRowsByDate=originalRawReader;
     'restoring the real production comparator must restore conflict protection');
 }
 console.log('✅ #507 운영 39종목·77행 유형: 충돌 35종목 보호·dry-run 무변경·비교기 변이 회귀 통과');
+
+// Actual refresh: two changed Snapshot dates require two bounded attempts.
+{
+ const oldToday=context.today, oldBuild=context._buildSnapshotRowsFromTradeAndPriceHistory;
+ context.today=()=> '2026-09-22';context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+ const dailySs=ssFor({
+  '펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00001','한화','HANWHA_2045_CRPE','2026-09-01',1000,'']]),
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-18','F00001','한화',1200,'2026-09-18',1000,1200,'','HANWHA_2045_CRPE'],['2026-09-22','F00001','한화',1300,'2026-09-22',1000,1300,'','HANWHA_2045_CRPE']]),
+  '거래이력':new Sheet([Array(8).fill('header'),['2026-09-01','buy','계좌','한화','F00001',1,1000,'펀드']]),
+  '가격이력':new Sheet([['date','code','name','price','at','source']]),'스냅샷':new Sheet([header])
+ });
+ const first=context._refreshFundValuations(dailySs,'2026-09-21','2026-09-22','F00001',true,null,1);
+ assert.equal(first.snapshots,1);assert.equal(first.continuation,true);assert.equal(first.deferredSnapshotDates,1);
+ assert.equal(dailySs.getSheetByName('스냅샷').rows[1][0],'2026-09-22','latest date first');
+ const second=context._refreshFundValuations(dailySs,'2026-09-21','2026-09-22','F00001',true,null,1);
+ assert.equal(second.snapshots,1);assert.equal(second.continuation,false);
+ const saved=context._refreshFundValuations;
+ context._refreshFundValuations=()=>({...first,missingHoldings:[],snapshotWarnings:[],fundResults:{}});
+ assert.throws(()=>context.runDailyFundValuations('2026-09-22'),e=>e.fundContinuation===true);
+ const completion=JSON.parse(scriptProperties.get('fund_last_attempt_completion_v1'));
+ assert.equal(completion.state,'ERROR','unfinished dates must never emit DONE');
+ context._refreshFundValuations=saved;context.today=oldToday;context._buildSnapshotRowsFromTradeAndPriceHistory=oldBuild;
+}
+console.log('Daily NAV bounded Snapshot writes, latest-first resume, no false DONE: PASS');

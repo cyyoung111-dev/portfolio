@@ -16,3 +16,30 @@ reset();values.set(key,JSON.stringify({...running,startedAt:now-899999}));assert
 reset();values.set('access_token','');assert.equal(ctx.handleReconcileHistoricalCheckpoints('1').message,'CHECKPOINT_AUTH_REQUIRED');assert.equal(writes,0);
 assert.match(source,/params.action === 'reconcileHistoricalCheckpoints'\) return jsonError\('POST_ONLY'\)/);
 console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, active writer, recent owner, idempotency, queue/error preservation PASS');
+
+// Execute actual resume endpoint: immutable latest owner, lease exclusion,
+// dry-run purity, real producer proof before scheduling, own lease cleanup.
+{
+ const extract=name=>{const p=source.indexOf('function '+name+'(');return source.slice(p,source.indexOf('\n}',p)+2);};
+ let store=new Map(),producer=0,scheduled=0,continued=0;
+ const p={getProperty:k=>store.get(k)||null,setProperty:(k,v)=>store.set(k,v),deleteProperty:k=>store.delete(k)};
+ const cx=vm.createContext({Date:{now:()=>2000000},Utilities:{getUuid:()=> 'lease'},today:()=> '2026-10-24',
+  PORTFOLIO_FUND_LEASE_KEY:'fund',PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'writer',PORTFOLIO_FUND_SCHEDULE_KEY:'schedule',
+  _portfolioFundAtomic_:fn=>fn(p),_portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
+  jsonOk:x=>({status:'ok',...x}),jsonError:message=>({status:'error',message}),
+  saveDailyPriceHistory:date=>{producer++;assert.equal(date,'2026-10-24');return {ok:true,date:'2026-10-23',rows:2,krxCloseRequired:false};},
+  _scheduleFundAfterFailedPortfolioPrice_:owner=>{scheduled++;assert.equal(owner.runId,'current');assert.equal(owner.priceDate,'2026-10-23');},
+  runDeferredFundAfterPortfolioCloseFailure:e=>{continued++;assert.equal(e.triggerUid,'uid');}
+ });
+ vm.runInContext(extract('_portfolioCloseRunState')+'\n'+extract('handleResumeIncompletePortfolioClose'),cx);
+ const reset=()=>{store=new Map([['access_token','TEST'],['portfolio_close_run_date','2026-10-24'],['portfolio_close_run_started_ms','100000'],['portfolio_close_run_started_at','2026-10-24 19:00:00'],['portfolio_close_run_id','current'],['portfolio_close_stage','FUND']]);producer=scheduled=continued=0;};
+ reset();assert.equal(cx.handleResumeIncompletePortfolioClose('0').mode,'DRY_RUN');assert.equal(producer,0);assert.equal(store.has('writer'),false);
+ assert.equal(cx.handleResumeIncompletePortfolioClose('1').scheduled,true);assert.equal(producer,1);assert.equal(scheduled,1);assert.equal(store.has('writer'),false);
+ reset();store.set('fund',JSON.stringify({until:2000001}));assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error');assert.equal(producer,0);
+ reset();store.set('portfolio_close_run_started_ms','1999999');assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error');assert.equal(producer,0);
+ reset();store.set('access_token','');assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error');assert.equal(producer,0);
+ reset();assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').status,'error');assert.equal(continued,0);
+ store.set('schedule',JSON.stringify({date:'2026-10-24',owner:{runId:'current'},triggerId:'uid'}));
+ assert.equal(cx.handleResumeIncompletePortfolioClose('1','continue').continued,true);assert.equal(continued,1);assert.equal(producer,0);
+}
+console.log('Actual GAS close resume: dry-run, exact owner/date, active lease, age, auth, reservation, independent continuation PASS');
