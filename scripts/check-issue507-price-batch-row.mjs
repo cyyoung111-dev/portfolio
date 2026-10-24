@@ -30,7 +30,7 @@ const mk=(mode)=>{
   default:throw Error('fixture '+mode);
  }
 };
-function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,formula=[]}={}){
+function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,formula=[],dateReadback='',writerSource=production}={}){
  const stored=copy(mk(mode)), initial=copy(stored);
  const writes=[],reads=[],revisions=[],formats=[],inserts=[];let attempts=0,fullScans=0,appendCalled=false,failed=false,flushes=0;
  const width=mode==='empty'?6:mode==='legacy5'?5:7;
@@ -49,7 +49,15 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
         fullScans++;
         if(fullScans===2&&beforePreflight)beforePreflight(stored);
       }
-      return copy(get());
+      const result=copy(get());
+      if(dateReadback&&c===1&&r===initial.length+1&&writes.length){
+        for(const row of result)if(row[0]){
+          const value=new Date(row[0]+'T08:00:00Z');
+          if(dateReadback==='DRIFT')value.setUTCDate(value.getUTCDate()+1);
+          row[0]=value;
+        }
+      }
+      return result;
     },
     getFormulas:()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>
       formula.some(f=>f.row===r+i&&f.col===c+j)?'=USER_FORMULA':'')),
@@ -70,7 +78,8 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
  };
  const ss={getSheetByName:key=>key==='가격이력'?sheet:null,insertSheet:key=>{inserts.push(key);return sheet;}};
  const ctx=vm.createContext({
-  CONFIG:{SHEET_PH:'가격이력'},
+  Date,CONFIG:{SHEET_PH:'가격이력',TIMEZONE:'Asia/Seoul'},
+  Utilities:{formatDate:(value,tz)=>new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value)},
   _cleanCode:x=>String(x||'').trim(),
   _normalizeDate:x=>String(x||'').slice(0,10),
   _normalizeCodeRows:x=>copy(x),
@@ -79,7 +88,9 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
   SpreadsheetApp:{flush:()=>{flushes++;}},
   Logger:{log:()=>{}},
  });
- vm.runInContext(production,ctx,{filename:'production-price-batch.js'});
+ const normalizeStart=gas.indexOf('function _normalizeDate('),normalizeEnd=gas.indexOf('\n}',normalizeStart)+2;
+ vm.runInContext(gas.slice(normalizeStart,normalizeEnd),ctx);
+ vm.runInContext(writerSource,ctx,{filename:'production-price-batch.js'});
  const item=(code,price,source='KRX',savedAt='')=>({code,name:'SYNTHETIC',price,source,savedAt});
  return{run:(items,date=d1)=>ctx.batchUpsertPriceHistory(ss,date,items),item,
   rows:()=>copy(stored),initial,writes,reads,revisions,formats,inserts,stats:()=>({attempts,flushes})};
@@ -182,3 +193,17 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
  assert.deepEqual(e.writes,[{r:2,c:1,h:1,w:6}]);
 }
 console.log('ISSUE507_BATCH_PRICE_WRITER_REGRESSION_OK_SAME_CELL_TOCTOU_UNSOLVED');
+// Actual production normalizer: DATE-formatted Sheets readback is a Date,
+// while setValues received YYYY-MM-DD. Calendar equality is sufficient only
+// for column A; wrong dates and every other changed field remain failures.
+{
+ const e=makeEnv({mode:'empty',dateReadback:'MATCH'});
+ e.run([e.item('000888',888)]);assert.equal(e.revisions.length,1);
+ const drift=makeEnv({mode:'empty',dateReadback:'DRIFT'});
+ assert.throws(()=>drift.run([drift.item('000888',888)]),/APPEND_UNVERIFIED/);
+ const old=production.replace(/if \(!appended\[index\] \|\| _normalizeDate\(appended\[index\]\[0\]\) !== _normalizeDate\(row\[0\]\)\s*\|\| !same\(appended\[index\]\.slice\(1\),row\.slice\(1\)\)\)/,'if (!same(appended[index],row))');
+ assert.notEqual(old,production);
+ const mutation=makeEnv({mode:'empty',dateReadback:'MATCH',writerSource:old});
+ assert.throws(()=>mutation.run([mutation.item('000888',888)]),/APPEND_UNVERIFIED/);
+ console.log('ISSUE507_BATCH_NATIVE_DATE_READBACK_AND_WRONG_DATE_MUTATION_PASS');
+}

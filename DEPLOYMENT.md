@@ -1,7 +1,11 @@
-## GAS v9.259 — #507 전체 backlog 메타데이터 정리·수기 보호 (2026-10-24)
+## v9.260 배포 후 상태 확인
 
-- **배포 상태:** 현재 운영 v9.258. 후보 v9.259의 배포 후 큐 및 원본 무변경을 별도 검증한다.
-- **소스 pin:** gasVersion=9.259, 전체 GAS Git blob `f6e2161aec5cc9813d3300be0181661e5267ad24`. 이전 pin 보존.
+Snapshot 금융 데이터 변경 없이 오래된 백필 RUNNING을 백업 후 TIMEOUT 실패로 정리합니다. 실제 종료시각은 미확인이며 finishedAt은 상태 정리 시각입니다. gasVersion=9.260 및 마감 19시, 백필 22:10 / 23:10 / 00:30 / 08:45 예약 유지 여부를 배포 상태에서 확인합니다. KRX 대기와 기존 오류는 자동 삭제하지 않습니다.
+
+## GAS v9.260 — #507 전체 backlog 메타데이터 정리·수기 보호 (2026-10-24)
+
+- **배포 상태:** 현재 운영 v9.258. 후보 v9.260의 배포 후 큐 및 원본 무변경을 별도 검증한다.
+- **소스 pin:** gasVersion=9.260, 전체 GAS Git blob `f6e2161aec5cc9813d3300be0181661e5267ad24`. 이전 pin 보존.
 - **변경:** 기존 계산 view를 바꾸지 않고 날짜 탐색용 ETF 분배금·설정 view를 별도로 고정한다. 전체 기간의 같은 생산 진단 결과로 VALID만 제외하고 미해결일을 영속 보류한 후에만 전진 커서를 정리한다. 원천 이중 digest/revision·pending/deferred 동일성·ScriptLock·상태 백업·readback 검증이 필수다.
 - **원본 보호:** Snapshot·가격이력·거래원장·NAV/좌수는 쓰지 않는다. 배포 후 source integrity 및 Snapshot 원본 무변경과 전체 정합성 집계를 확인한다.
 - **수기 보호:** 중복이 없는 MANUAL 행도 원장/NAV 기대와 다르면 PARTIAL/MISMATCH에서 writer 진입 전에 보류한다. 기존 금융 writer·금액 계산 변경 없이 금융 원본 쓰기 0.

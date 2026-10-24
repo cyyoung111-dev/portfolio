@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: issue507-backlog-reconcile
+  group: issue507-daily-finalize
   cancel-in-progress: false
 jobs:
   reconcile:
