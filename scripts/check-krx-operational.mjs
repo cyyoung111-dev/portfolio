@@ -595,3 +595,21 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  repaired=false;
  await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>o.body?.get('action')==='collectKbFundNav'&&o.body?.get('mode')==='refresh'?{ok:true,json:async()=>({status:'error',message:'PRIVATE'})}:fetchImpl(u,o)}),/NAV_DERIVED_UNVERIFIED/);
 }
+
+{
+ const {classifyFundError}=await import('./diagnose-backfill-status.mjs');
+ for(const [input,expected] of [['','NONE'],['FUND_BUSY: FUND_CONTINUE PRIVATE','CONTINUATION'],['FUND_BUSY PRIVATE','BUSY'],['펀드 가격이력 쓰기 후 검증 실패: PRIVATE','PRICE_WRITE_VERIFICATION'],['저장된 펀드 기준가격 검증 실패: PRIVATE','NAV_CONFLICT'],['Service timed out PRIVATE','TIMEOUT'],['백업 실패 PRIVATE','BACKUP_FAILURE'],['PRIVATE_ACCOUNT_123','UNCLASSIFIED']]) {
+  assert.equal(classifyFundError(input),expected);assert.ok(!JSON.stringify(summarizeCloseStatus({fundLastError:input})).includes('PRIVATE'));
+ }
+ const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
+ for(const kind of ['HTTP_ERROR','JSON_UNCERTAIN','NETWORK_UNCERTAIN']){
+  const events=[];const fixture=structuredClone(workerLive);fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};fixture.gasVersion=fixture.automation.gasVersion='9.264';fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
+  await assert.rejects(()=>resumeClose({url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',emit:x=>events.push(x),fetchImpl:async(_u,o)=>{
+   if(o.body.get('accessToken')==='AUTOMATION_READONLY_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+   if(o.body.get('action')==='getAutomationStatus')return {ok:true,json:async()=>fixture};
+   if(kind==='NETWORK_UNCERTAIN')throw Error('PRIVATE');
+   return kind==='HTTP_ERROR'?{ok:false,status:502}:{ok:true,json:async()=>{throw Error('PRIVATE');}};
+  }}),/RESUME_(?:REQUEST|HTTP|JSON).*UN[C]?ERTAIN/);
+  assert.equal(events.length,1);assert.equal(events[0].requestState,kind);assert.ok(!JSON.stringify(events).includes('SECRET')&&!JSON.stringify(events).includes('PRIVATE'));
+ }
+}
