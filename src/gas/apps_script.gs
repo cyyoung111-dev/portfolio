@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.258
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.259
+//
+//  v9.259 변경사항 (2026.10.24):
+//  • #507 전체 backlog 진단 후 정상일 제외·미해결일 영속 보존으로 전진 커서 정리
+//  • 단독 MANUAL 행이 있는 PARTIAL/MISMATCH도 원본 쓰기 전에 보류
+//  • 금융 writer/금액 계산/트리거 일정 유지, 메타데이터 백업 및 원천 이중 검증
 //
 //  v9.258 변경사항 (2026.10.24):
 //  • #507 승인 유지보수: 검증된 보류 날짜만 해제, 연말 직전 거래일 KRX 가격은 백업 후 누락 전용 추가
@@ -1293,6 +1298,7 @@ function doGet(e) {
   if (params.action === 'getKrxHeldCloseCoverage') return handleGetKrxHeldCloseCoverage(params.date || '', params.code || '');
   if (params.action === 'recoverPendingKrxClose') return jsonError('POST_ONLY');
   if (params.action === 'issue507Maintenance') return jsonError('POST_ONLY');
+  if (params.action === 'reconcileTradeSnapshotBacklog') return jsonError('POST_ONLY');
   if (params.action === 'reconcileCompletedKrxPending') return jsonError('POST_ONLY');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
@@ -1373,6 +1379,7 @@ function doPost(e) {
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'recoverPendingKrxClose') return handleRecoverPendingKrxClose(params.date, params.apply);
   if (params.action === 'issue507Maintenance') return handleIssue507Maintenance(params.mode || '', params.apply || '0');
+  if (params.action === 'reconcileTradeSnapshotBacklog') return handleReconcileTradeSnapshotBacklog(params.apply || '0');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'previewFundNavImport') return handlePreviewFundNavImport(params.data || '{}');
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
@@ -2263,7 +2270,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.258',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.259',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2341,7 +2348,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.258', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.259', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6247,7 +6254,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.258' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.259' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10953,6 +10960,14 @@ function _assessTradeSnapshotWorkerDate_(ss, target, markPhase) {
   };
   var deferredReason = function(proof) {
     if (deferrable(proof)) return proof.status;
+    // Unique MANUAL rows can also conflict with new NAV/ledger sources. A
+    // PARTIAL/MISMATCH status must not authorize overwriting those user values.
+    if (proof && Array.isArray(proof.storedRows) && proof.storedRows.some(function(row) {
+      if (String(row[10] || '').toUpperCase() !== 'MANUAL') return false;
+      return !(proof.expectedRows || []).some(function(expected) {
+        return _snapshotComparableSignature(row) === _snapshotComparableSignature(expected);
+      });
+    })) return 'MANUAL_PROTECTED';
     if (missingExpectedWithHoldings(proof)) return 'SOURCE_INCOMPLETE';
     return '';
   };
@@ -13225,7 +13240,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.258',
+    gasVersion: '9.259',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13290,7 +13305,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.258' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.259' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -17155,7 +17170,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.258' });
+    return jsonOk({ settings: settings, gasVersion: '9.259' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17185,7 +17200,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.258'
+      gasVersion: '9.259'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -18999,4 +19014,96 @@ function handleIssue507Maintenance(mode, apply) {
     return jsonOk({mode:mode,applied:true,needed:wanted.length,available:available,added:available,snapshotWritten:false,queueChanged:false});
   } catch (ignore) { return jsonError('ISSUE507_MAINTENANCE_FAILED'); }
   finally { if (owned) lock.releaseLock(); }
+}
+
+// Read-only arithmetic context stays unchanged. Discovery-only tables are
+// frozen separately so settings cannot change the existing calculator view.
+function _buildTradeBacklogReadContext_(ss) {
+  var base=_buildSnapshotRangeReadContext(ss,{}), extra={};
+  [[CONFIG.SHEET_ETF_DIVIDENDS,5],[CONFIG.SHEET_SETTINGS,2]].forEach(function(spec) {
+    var sh=ss.getSheetByName(spec[0]);
+    extra[spec[0]]=sh && sh.getLastRow()>0 && sh.getLastColumn()>0
+      ? sh.getRange(1,1,sh.getLastRow(),Math.min(spec[1],sh.getLastColumn())).getValues() : [];
+  });
+  var view={getSheetByName:function(name) {
+    if (!Object.prototype.hasOwnProperty.call(extra,name)) return base.ss.getSheetByName(name);
+    var rows=extra[name]; if (!rows.length) return null;
+    return {getLastRow:function(){return rows.length;},getLastColumn:function(){return rows[0].length;},
+      getRange:function(r,c,h,w){return {getValues:function(){return Array.from({length:h},function(_,i){
+        return Array.from({length:w},function(_,j){return (rows[r-1+i]||[])[c-1+j]===undefined?'':rows[r-1+i][c-1+j];});
+      });}};}};
+  }};
+  return {base:base,discoverySs:view,valuesByName:{base:base.valuesByName,discovery:extra}};
+}
+
+// Queue metadata only. VALID dates are removed, unresolved dates are durably
+// deferred BEFORE the forward cursor is cleared. No financial writer is used.
+function handleReconcileTradeSnapshotBacklog(apply) {
+  var lock=LockService.getScriptLock(),owned=false,phase='VALIDATE';
+  try {
+    var props=PropertiesService.getScriptProperties();
+    if (!String(props.getProperty('access_token')||'').trim()) return jsonError('BACKLOG_AUTH_REQUIRED');
+    if (apply!=='0' && apply!=='1') return jsonError('BACKLOG_BAD_APPLY');
+    if (!lock.tryLock(1000)) return jsonError('BACKLOG_BUSY'); owned=true;
+    if (_tradeLedgerWriteUnverified_()) return jsonError('BACKLOG_LEDGER_UNVERIFIED');
+    var pendingRaw=props.getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY)||'';
+    var pending=_readPendingTradeSnapshotRebuild(),deferred=_readTradeSnapshotDeferredState_();
+    if (pendingRaw && !pending) return jsonError('BACKLOG_BAD_PENDING');
+    phase='READ';
+    var ss=getss(),revision=_peekSnapshotIntegritySourceRevisionReadonly_();
+    var context=_buildTradeBacklogReadContext_(ss),digest=_issue507StrictReadSourceDigest_(context);
+    var day=today();
+    if (deferred.dates.some(function(d){return d>=day;})) return jsonError('BACKLOG_FUTURE_DEFERRED');
+    var snapshotDates=(context.base.valuesByName[CONFIG.SHEET_SNAPSHOT]||[]).slice(1)
+      .map(function(r){return _normalizeDate(r[0]);}).filter(function(d){return d && d<day;}).sort();
+    if (!snapshotDates.length) return jsonError('BACKLOG_SNAPSHOT_REQUIRED');
+    var first=snapshotDates[0],last=snapshotDates[snapshotDates.length-1];
+    if (pending && pending.from<first) first=pending.from;
+    phase='DATES';
+    var dateMap=_collectDailySnapshotDates(context.discoverySs,first,last,{});
+    deferred.dates.forEach(function(d){dateMap[d]=true;});
+    var dates=Object.keys(dateMap).sort();
+    if (dates.length>400) return jsonError('BACKLOG_DATE_LIMIT');
+    phase='DIAGNOSE';
+    var index=_buildSnapshotRangeIndexes(context.base,dates,{}),valid={},counts={},manual=0,empty=0;
+    dates.forEach(function(date){
+      var d=diagnoseSnapshotIntegrity(context.base.ss,date,null,index);
+      if (['VALID','PARTIAL','MISMATCH','CONFLICT','SOURCE_INCOMPLETE','NO_SNAPSHOT','PRICE_SUSPICIOUS'].indexOf(d.status)<0)
+        throw new Error('unknown status');
+      counts[d.status]=(counts[d.status]||0)+1;
+      if ((d.storedRows||[]).some(function(r){return String(r[10]||'').toUpperCase()==='MANUAL';})) manual++;
+      var verifiedEmpty=d.status==='NO_SNAPSHOT' && d.expectedRowCount===0 && d.storedRowCount===0
+        && !d.sourceDataErrors.length && _hasSnapshotHoldingsAtDate(context.base.ss,date)===false;
+      if (verifiedEmpty) empty++;
+      if ((d.status==='VALID'||verifiedEmpty) && !d.duplicateKeys.length && !d.sourceDataErrors.length) valid[date]=true;
+    });
+    var canClear=!!(pending && pending.from<=last);
+    var forward=canClear?dates.filter(function(d){return d>=pending.from && d<=last;}):[];
+    var remaining={};
+    dates.forEach(function(d){if(!valid[d])remaining[d]=true;});
+    var next=Object.keys(remaining).sort();
+    if (next.length>600) return jsonError('BACKLOG_DEFERRED_LIMIT');
+    phase='VERIFY';
+    if (revision!==_peekSnapshotIntegritySourceRevisionReadonly_()
+        || digest!==_issue507StrictReadSourceDigest_(_buildTradeBacklogReadContext_(ss))
+        || pendingRaw!==(props.getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY)||'')
+        || JSON.stringify(deferred)!==JSON.stringify(_readTradeSnapshotDeferredState_()))
+      return jsonError('BACKLOG_SOURCE_CHANGED');
+    if (apply==='1') {
+      phase='COMMIT';
+      var backup=JSON.stringify({at:new Date().toISOString(),pending:pendingRaw,deferred:deferred});
+      if (backup.length>8000) return jsonError('BACKLOG_BACKUP_LIMIT');
+      props.setProperty('trade_snapshot_backlog_reconcile_backup_v1',backup);
+      _writeTradeSnapshotDeferredState_({dates:next,cursor:deferred.cursor});
+      if (_readTradeSnapshotDeferredState_().dates.join('|')!==next.join('|')) return jsonError('BACKLOG_QUEUE_UNVERIFIED');
+      // A hard stop before here leaves the old cursor and all exceptions.
+      if (canClear) _clearPendingTradeSnapshotRebuild();
+      if (canClear && props.getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY)) return jsonError('BACKLOG_PENDING_UNVERIFIED');
+    }
+    return jsonOk({mode:apply==='1'?'APPLY':'DRY_RUN',checkedDates:dates.length,validDates:Object.keys(valid).length,
+      emptyVerifiedDates:empty,counts:counts,manualDates:manual,sourceIncompleteDates:counts.SOURCE_INCOMPLETE||0,
+      forwardDates:forward.length,deferredBefore:deferred.dates.length,deferredAfter:apply==='1'?next.length:deferred.dates.length,
+      projectedDeferred:next.length,pendingCleared:apply==='1'&&canClear,originalDataWritten:false,sourceStable:true});
+  } catch(ignore) { return jsonError('BACKLOG_'+phase+'_FAILED'); }
+  finally { if(owned)lock.releaseLock(); }
 }
