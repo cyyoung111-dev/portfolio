@@ -80,8 +80,8 @@ assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말�
 
 assert.match(html,/settings_sync\.js\?v=20261014-5/);
 
-assert.ok(html.includes('domain/portfolio/data.js?v=20261025-1'));
-assert.ok(sw.includes('domain/portfolio/data.js?v=20261025-1'));
+assert.ok(html.includes('domain/portfolio/data.js?v=20261025-2'));
+assert.ok(sw.includes('domain/portfolio/data.js?v=20261025-2'));
 
 // A partial master preview must not allow any mutation via the management
 // entry points. Both UI disable and handler-level guards are required.
@@ -101,8 +101,8 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261025-1/);
-assert.match(sw,/portfolio-cache-20261025-1/);
+assert.match(html,/sw\.js\?v=20261025-2/);
+assert.match(sw,/portfolio-cache-20261025-2/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261014-5/);
@@ -113,8 +113,8 @@ assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTa
  'successful bootstrap must re-render disabled controls');
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/settings\.js\?v=20261025-1/);
-assert.match(sw,/settings\.js\?v=20261025-1/);
+assert.match(html,/settings\.js\?v=20261025-2/);
+assert.match(sw,/settings\.js\?v=20261025-2/);
 const stockSource=fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8');
 const sectorSource=fs.readFileSync('src/web/features/master/sector/mgmt_sector.js','utf8');
 assert.ok(stockSource.includes('captureStockMasterEditSession()'));

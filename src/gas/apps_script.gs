@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.265
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.266
+//
+//  v9.266 변경사항 (2026.10.25):
+//  • SEIBro 정상 0건을 별도 보존·다른 ETF 갱신 허용·배당 수기값/백업/재조회 검증
 //
 //  v9.265 변경사항 (2026.10.25):
 //  • PRICE와 NAV 실행 예산 분리·시작 전 영속 자동 재개 예약·재시도 소진 명시
@@ -2296,7 +2299,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.265',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.266',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2374,7 +2377,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.265', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.266', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -4474,7 +4477,14 @@ function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
           row.status = 'PARSE_ERROR'; row.error = '분배금 건수 파싱 실패'; return;
         }
         if (count === 0) {
-          row.status = 'NOT_FOUND'; row.error = '분배금 내역 없음'; return;
+          // Exact search mapping + successful XML zero-count response is a
+          // queried-window absence, not a failed lookup or permanent zero.
+          if (!/^\s*<\?xml/.test(xml) || /<result>/.test(xml)) {
+            row.status = 'PARSE_ERROR'; row.error = '0건 응답 구조 불일치'; return;
+          }
+          row.status = 'NO_EVENTS'; row.paymentCount = 0; row.events = [];
+          row.from = fromDate; row.to = toDate;
+          return;
         }
         var paymentIsin = _seibroXmlValue(xml, 'ISIN');
         if (paymentIsin !== row.isin) {
@@ -4485,6 +4495,18 @@ function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
         row.firstPayDate = _seibroXmlValue(xml, 'TH1_PAY_TERM_BEGIN_DT');
         row.firstEstmStdprc = _seibroXmlValue(xml, 'ESTM_STDPRC');
         row.events = _seibroPaymentEvents(xml);
+        var eventKeys = {};
+        var invalidEvents = row.events.some(function(event) {
+          var key = _seibroEventKey(event);
+          var parsed = new Date(event.date + 'T00:00:00Z');
+          var payParsed = event.payDate ? new Date(event.payDate + 'T00:00:00Z') : null;
+          var invalid = eventKeys[key] || (payParsed && (!isFinite(payParsed.getTime()) || payParsed.toISOString().slice(0,10) !== event.payDate)) || !isFinite(parsed.getTime())
+            || parsed.toISOString().slice(0,10) !== event.date
+            || event.date < fromDate || event.date > toDate;
+          eventKeys[key] = true;
+          return invalid;
+        });
+        if (invalidEvents) { row.status = 'PARSE_ERROR'; row.error = '분배금 중복 또는 조회기간/날짜 불일치'; return; }
         row.ttmPerShare = row.events.reduce(function(sum, event) { return sum + event.amount; }, 0);
         row.months = row.events.map(function(event) { return parseInt((event.payDate || event.date).slice(5, 7), 10); })
           .filter(function(month, pos, all) { return month >= 1 && month <= 12 && all.indexOf(month) === pos; })
@@ -4495,7 +4517,7 @@ function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
         }
       });
     }
-    var counts = { OK: 0, NOT_FOUND: 0, REQUEST_ERROR: 0, PARSE_ERROR: 0, MAPPING_ERROR: 0 };
+    var counts = { OK: 0, NO_EVENTS: 0, NOT_FOUND: 0, REQUEST_ERROR: 0, PARSE_ERROR: 0, MAPPING_ERROR: 0 };
     results.forEach(function(row) { counts[row.status] = (counts[row.status] || 0) + 1; });
     return jsonOk({ readOnly: true, wroteSheets: false, wroteDivData: false, from: fromDate, to: toDate, targetCount: targets.length, counts: counts, results: results });
   } catch(err) {
@@ -4558,7 +4580,7 @@ function handleDryRunEtfDividends(fromInput, toInput) {
     var output = handleDiagnoseEtfDividends(fromInput || '', toInput || '', '');
     var diagnostic = JSON.parse(output.getContent());
     if (diagnostic.status !== 'ok') return jsonError(diagnostic.message || 'SEIBro 진단 실패');
-    var failed = (diagnostic.results || []).filter(function(row) { return row.status !== 'OK'; });
+    var failed = (diagnostic.results || []).filter(function(row) { return row.status !== 'OK' && row.status !== 'NO_EVENTS'; });
     if (failed.length) return jsonOk({ readOnly: true, wroteSheets: false, wroteDivData: false, blocked: true, counts: diagnostic.counts, results: diagnostic.results });
     var settings = _readSettingsMap();
     var dryRun = _buildEtfDividendDryRun(diagnostic, settings.DIVDATA || {});
@@ -4638,6 +4660,7 @@ function _mergeEtfDividendHistory(existing, comparisons, collectedAt) {
       };
       var key = _etfDividendHistoryKey(incoming);
       var previous = byKey[key];
+      if (previous && String(previous.source).toUpperCase() === 'MANUAL') { summary.unchanged++; return; }
       if (!previous) summary.added++;
       else if (Number(previous.amount) !== incoming.amount) summary.corrected++;
       else summary.unchanged++;
@@ -4653,6 +4676,11 @@ function _mergeSeibroDivData(existingDivData, comparisons, updatedAt) {
   var merged = JSON.parse(JSON.stringify(existingDivData || {}));
   (comparisons || []).forEach(function(comparison) {
     var previous = merged[comparison.code] || {};
+    if (String(previous.source || '').toUpperCase() === 'MANUAL') {
+      // User's top-level estimate and every manual event remain authoritative.
+      merged[comparison.code] = Object.assign({}, previous, { providerCheckedAt: updatedAt, providerCheckStatus: 'OK' });
+      return;
+    }
     var manualByKey = {};
     (Array.isArray(previous.events) ? previous.events : []).forEach(function(event) {
       if (String(event.source || '').toUpperCase() === 'MANUAL') manualByKey[_seibroEventKey(event)] = event;
@@ -4666,7 +4694,7 @@ function _mergeSeibroDivData(existingDivData, comparisons, updatedAt) {
     merged[comparison.code] = Object.assign({}, previous, comparison.proposed, {
       events: events,
       ttmPerShare: Number(seibroEvents.reduce(function(sum, event) { return sum + Number(event.amount || 0); }, 0).toFixed(4)),
-      updatedAt: updatedAt,
+      updatedAt: updatedAt, providerCheckedAt: updatedAt, providerCheckStatus: 'OK',
       note: 'SEIBro ETF 분배금 이력 기준'
     });
   });
@@ -4680,6 +4708,7 @@ function _writeEtfDividendHistory(sheet, rows) {
     .setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   sheet.setFrozenRows(1);
   if (rows.length) {
+    sheet.getRange(2, 1, rows.length, 1).setNumberFormat('@');
     sheet.getRange(2, 1, rows.length, 8).setValues(rows.map(function(row) {
       return [row.code, row.isin, row.name, row.date, row.payDate, row.amount, row.collectedAt, row.source];
     }));
@@ -4691,7 +4720,7 @@ function handleApplyEtfDividends() {
   var diagnosticOutput = handleDiagnoseEtfDividends('', '', '');
   var diagnostic = JSON.parse(diagnosticOutput.getContent());
   if (diagnostic.status !== 'ok') return jsonError(diagnostic.message || 'SEIBro 진단 실패');
-  var failed = (diagnostic.results || []).filter(function(row) { return row.status !== 'OK'; });
+  var failed = (diagnostic.results || []).filter(function(row) { return row.status !== 'OK' && row.status !== 'NO_EVENTS'; });
   if (failed.length) return jsonError('전체 검증 실패로 저장하지 않았습니다: ' + JSON.stringify(diagnostic.counts || {}));
 
   var lock = LockService.getScriptLock();
@@ -4700,12 +4729,12 @@ function handleApplyEtfDividends() {
   var sheet = null;
   var createdSheet = false;
   var oldSheetValues = null;
-  var oldSettings = null;
+  var oldSettings = null, historyBackup = null, settingsBackup = null;
   try {
     lock.waitLock(30000); locked = true;
     oldSettings = _readSettingsMap();
     var dryRun = _buildEtfDividendDryRun(diagnostic, oldSettings.DIVDATA || {});
-    if ((dryRun.comparisons || []).length !== diagnostic.targetCount) throw new Error('저장 대상 종목 수 불일치');
+    if ((dryRun.comparisons || []).length !== (diagnostic.results || []).filter(function(row) { return row.status === 'OK'; }).length) throw new Error('저장 대상 종목 수 불일치');
 
     sheet = ss.getSheetByName(CONFIG.SHEET_ETF_DIVIDENDS);
     if (sheet) {
@@ -4719,16 +4748,35 @@ function handleApplyEtfDividends() {
     var history = _mergeEtfDividendHistory(existingHistory, dryRun.comparisons, updatedAt);
     var nextSettings = JSON.parse(JSON.stringify(oldSettings));
     nextSettings.DIVDATA = _mergeSeibroDivData(oldSettings.DIVDATA || {}, dryRun.comparisons, updatedAt);
+    var noEvents = (diagnostic.results || []).filter(function(row) { return row.status === 'NO_EVENTS'; });
+    noEvents.forEach(function(row) {
+      // Preserve prior amount/source/events. Absence of rows is not proof that
+      // a previously paid dividend or a manual estimate should become zero.
+      nextSettings.DIVDATA[row.code] = Object.assign({}, nextSettings.DIVDATA[row.code] || {}, {
+        providerCheckStatus:'NO_EVENTS', providerCheckedAt:updatedAt,
+        providerWindowFrom:diagnostic.from, providerWindowTo:diagnostic.to
+      });
+    });
+    historyBackup = oldSheetValues ? _backupSheetBeforeWrite(ss, sheet, CONFIG.SHEET_ETF_DIVIDENDS) : null;
+    var settingsSheet = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+    settingsBackup = settingsSheet ? _backupSheetBeforeWrite(ss, settingsSheet, CONFIG.SHEET_SETTINGS) : null;
+    if (oldSheetValues && !historyBackup || settingsSheet && !settingsBackup) throw new Error('배당 백업 확보 실패');
 
     _writeEtfDividendHistory(sheet, history.rows);
     _writeSettingsMap(nextSettings);
     SpreadsheetApp.flush();
+    if (JSON.stringify(_readEtfDividendHistory(sheet)) !== JSON.stringify(history.rows)
+        || JSON.stringify(_readSettingsMap().DIVDATA) !== JSON.stringify(nextSettings.DIVDATA))
+      throw new Error('배당 쓰기 후 재조회 검증 실패');
+    [historyBackup,settingsBackup].forEach(function(record) { if (record) _markSnapshotBackupStatus(record,'COMPLETED'); });
     return jsonOk({
-      saved: true, targetCount: diagnostic.targetCount, historyRows: history.rows.length,
+      saved: true, partial: noEvents.length > 0, noEventCount:noEvents.length,
+      targetCount: diagnostic.targetCount, historyRows: history.rows.length,
       added: history.summary.added, corrected: history.summary.corrected, unchanged: history.summary.unchanged,
       wroteSheets: true, wroteDivData: true, updatedAt: updatedAt
     });
   } catch(err) {
+    [historyBackup,settingsBackup].forEach(function(record) { try { if (record) _markSnapshotBackupStatus(record,'WRITE_FAILED'); } catch(ignore) {} });
     try {
       if (oldSettings) _writeSettingsMap(oldSettings);
       if (createdSheet && sheet) ss.deleteSheet(sheet);
@@ -4750,6 +4798,8 @@ function _isEtfDividendRefreshCurrent(settings, targets, dateStr) {
   var divData = (settings && settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {};
   return targets.length > 0 && targets.every(function(target) {
     var row = divData[target.code];
+    if (row && String(row.providerCheckedAt || '').slice(0,10) === dateStr
+        && (row.providerCheckStatus === 'NO_EVENTS' || String(row.source || '').toUpperCase() === 'MANUAL')) return true;
     return row
       && String(row.source || '').toUpperCase() === 'SEIBRO'
       && Array.isArray(row.events) && row.events.length > 0
@@ -4768,7 +4818,8 @@ function handleRefreshEtfDividends(forceInput) {
     if (!force && _isEtfDividendRefreshCurrent(settings, targets, toDate)) {
       return jsonOk({
         refreshed: false, skipped: true, reason: 'TODAY_ALREADY_UPDATED',
-        targetCount: targets.length, divData: settings.DIVDATA || {}
+        targetCount: targets.length, partial: targets.some(function(target) { return (settings.DIVDATA[target.code] || {}).providerCheckStatus === 'NO_EVENTS'; }),
+        divData: settings.DIVDATA || {}
       });
     }
     var output = handleApplyEtfDividends();
@@ -4815,7 +4866,7 @@ function runEtfDividendDiagnosis() {
     var data = JSON.parse(output.getContent());
     if (data.status !== 'ok') throw new Error(data.message || '진단 응답 오류');
     var counts = data.counts || {};
-    var failures = (data.results || []).filter(function(row) { return row.status !== 'OK'; });
+    var failures = (data.results || []).filter(function(row) { return row.status !== 'OK' && row.status !== 'NO_EVENTS'; });
     var lines = [
       '조회 대상: ' + (data.targetCount || 0) + '개',
       '정상: ' + (counts.OK || 0) + '개',
@@ -6280,7 +6331,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.265' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.266' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13341,7 +13392,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.265',
+    gasVersion: '9.266',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13406,7 +13457,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.265' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.266' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -17280,7 +17331,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.265' });
+    return jsonOk({ settings: settings, gasVersion: '9.266' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17310,7 +17361,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.265'
+      gasVersion: '9.266'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -17318,12 +17369,16 @@ function handleGetBootstrap() {
 }
 
 function _preserveSeibroDivData(existingDivData, incomingDivData) {
-  var merged = incomingDivData;
+  var merged = Object.assign({}, existingDivData || {}, incomingDivData || {});
   Object.keys(existingDivData || {}).forEach(function(key) {
     var existing = existingDivData[key];
     var incoming = merged[key];
-    if (!existing || String(existing.source || '').toUpperCase() !== 'SEIBRO') return;
+    if (!existing) return;
     var incomingSource = String(incoming && incoming.source || '').toUpperCase();
+    if (String(existing.source || '').toUpperCase() === 'MANUAL' && incomingSource !== 'MANUAL') { merged[key] = existing; return; }
+    if (String(existing.source || '').toUpperCase() === 'PUBLIC_DATA'
+        && incomingSource !== 'PUBLIC_DATA' && incomingSource !== 'MANUAL') { merged[key] = existing; return; }
+    if (String(existing.source || '').toUpperCase() !== 'SEIBRO') return;
     // 명시적인 SEIBro 갱신이나 사용자의 MANUAL 편집만 기존 SEIBro 값을 교체할 수 있습니다.
     if (incomingSource !== 'SEIBRO' && incomingSource !== 'MANUAL') merged[key] = existing;
   });
@@ -17332,18 +17387,28 @@ function _preserveSeibroDivData(existingDivData, incomingDivData) {
 
 function handleSaveDividendSettings(dataJson) {
   var lock = LockService.getScriptLock();
-  var locked = false;
+  var locked = false, backup = null, before = null, touched = false;
   try {
     lock.waitLock(30000); locked = true;
     var divData = _parseJsonParam(dataJson, 'dividend data');
     var settings = _readSettingsMap();
+    before = JSON.parse(JSON.stringify(settings));
     var existingDivData = (settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {};
     // SEIBro 운영 반영 이후에도 구버전 웹이 탭 진입 자동조회 결과(PUBLIC_DATA/GF)를
     // 다시 저장할 수 있으므로 서버에서도 기존 SEIBro 값을 보호합니다.
     settings.DIVDATA = _preserveSeibroDivData(existingDivData, divData);
+    var ss = getss(), sheet = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+    backup = sheet ? _backupSheetBeforeWrite(ss,sheet,CONFIG.SHEET_SETTINGS) : null;
+    if (sheet && !backup) throw new Error('배당 설정 백업 확보 실패');
+    touched = true;
     _writeSettingsMap(settings);
+    SpreadsheetApp.flush();
+    if (JSON.stringify(_readSettingsMap().DIVDATA) !== JSON.stringify(settings.DIVDATA)) throw new Error('배당 설정 재조회 검증 실패');
+    if (backup) _markSnapshotBackupStatus(backup,'COMPLETED');
     return jsonOk({ saved: true, key: 'DIVDATA' });
   } catch(err) {
+    try { if (backup) _markSnapshotBackupStatus(backup,'WRITE_FAILED'); } catch(ignore) {}
+    if (touched && before) { try { _writeSettingsMap(before); } catch(rollback) { return jsonError('배당 설정 저장 및 복구 실패'); } }
     return jsonError('saveDividendSettings 실패: ' + err.message);
   } finally {
     if (locked) lock.releaseLock();

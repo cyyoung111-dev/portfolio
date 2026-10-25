@@ -182,7 +182,7 @@ function renderDivView(area, skipFetch) {
       </div>
       <div class="div-link-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="div-gas-link-badge ${GSHEET_API_URL ? 'connected' : 'disconnected'}">${GSHEET_API_URL ? '☁️ GAS 연동 설정됨 · 저장 시 동기화' : '○ GAS 미연동'}</span>
-        ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm" title="ETF는 SEIBro에서 강제 재조회하고, 그 외 종목은 공공데이터·GOOGLEFINANCE에서 다시 조회한 뒤 GAS에 저장합니다.">📥 배당 데이터 갱신</button>` : ''}
+        ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm" title="ETF는 SEIBro에서 강제 재조회하고, 일반 종목은 공공데이터에서 다시 조회한 뒤 검증된 결과를 GAS에 저장합니다.">📥 배당 데이터 갱신</button>` : ''}
         <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" title="외부 배당 API를 호출하지 않고 GAS에 마지막으로 저장된 DIVDATA를 현재 브라우저로 다시 받습니다." ${GSHEET_API_URL ? '' : 'disabled'}>☁️ GAS 데이터 다시 받기</button>
       </div>
     </div>
@@ -194,7 +194,7 @@ function renderDivView(area, skipFetch) {
   <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div>
       <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 배당 API 상태</div>
-      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF는 배당 탭 진입 시 GAS가 SEIBro 이력을 자동 갱신합니다. 그 외 종목은 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다.</div>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF는 배당 탭 진입 시 GAS가 SEIBro 이력을 자동 갱신합니다. 일반 종목은 공공데이터에서 조회하며, 조회·저장이 미확인인 자료는 기존 값을 유지하고 경고합니다.</div>
     </div>
     <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '공공데이터 키 저장됨' : '공공데이터 키 미설정'}</span>
     <div id="divFetchStatus" style="flex-basis:100%;font-size:.66rem;color:var(--muted);min-height:1.2em"></div>
