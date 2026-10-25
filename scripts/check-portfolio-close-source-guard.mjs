@@ -555,8 +555,8 @@ const closeRunSource=extract('runDailyPortfolioClose1900');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
   < closeRunSource.indexOf('saveDailyPriceHistory(undefined, {deferQueueCompletion:true})'), '일반 종목 단계 실행 전에 시작 마커');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)")
-  < closeRunSource.indexOf("_runPortfolioFundWithLease_('CLOSE', runId, runDate)"), '펀드 단계 실행 전에 단계 기록');
-assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt,\s*errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
+  < closeRunSource.lastIndexOf('_scheduleFundAfterFailedPortfolioPrice_({'), '펀드 단계 실행 전에 단계 기록');
+assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt,\s*errors\.length \? 'ERROR' : 'FUND_PENDING', runId, summary, startedMs\)/);
 assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
   '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
 // Behavior regression for retry scheduling, not just source-pattern checks.
@@ -2104,7 +2104,8 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
     },
     _appendPortfolioCloseSyncLog:()=>{},
     saveDailyPriceHistory:()=>{seen.push('price');return{date:'2026-10-08',rows:9};},
-    _runPortfolioFundWithLease_:()=>{seen.push('fund');return{lastDate:'2026-10-08'};},
+    _runPortfolioFundWithLease_:()=>{seen.push('fund');throw Error('inline NAV forbidden');},
+    _scheduleFundAfterFailedPortfolioPrice_:()=>({triggerId:'separate-nav'}),
     _portfolioFundAtomic_:cb=>cb(p),
     _completePendingKrxCloseDate_:()=>{},
     _readPendingKrxCloseDates_:()=>['2026-10-07'],
@@ -2113,12 +2114,13 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
   vm.runInContext(extract('runDailyPortfolioClose1900'),ctx);
   const summary=ctx.runDailyPortfolioClose1900();
   assert.equal(summary.priceOk,true);
-  assert.equal(summary.fundOk,true);
+  assert.equal(summary.fundOk,false);
+  assert.equal(seen.includes('fund'),false);
   assert.equal(summary.backfill.reason,'ISOLATED_NIGHTLY_BACKFILL',
     '정규 마감은 과거 조회를 야간 전용 worker로 넘김');
   assert.equal(seen.includes('inline-backfill'),false,
     '시간 예산이 충분해 보여도 당일 최종 상태 전에 과거 백필 실행 금지');
-  assert.equal(seen.at(-1),'stage:COMPLETE','과거 백필 이전에 당일 최종 상태 확정');
+  assert.equal(seen.at(-1),'stage:FUND_PENDING','가격 완료 후 독립 NAV 대기 상태 확정');
   assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-07'],
     '기존 누락일 큐를 야간 worker용으로 보존');
 }

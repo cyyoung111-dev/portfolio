@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.264
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.265
+//
+//  v9.265 변경사항 (2026.10.25):
+//  • PRICE와 NAV 실행 예산 분리·시작 전 영속 자동 재개 예약·재시도 소진 명시
 //
 //  v9.264 변경사항 (2026.10.25):
 //  • KB S-T 확인된 국내 공휴일 미공시를 정상 이월로 구분·다른 날짜 누락 경고 유지
@@ -2293,7 +2296,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.264',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.265',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2371,7 +2374,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.264', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.265', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6277,7 +6280,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.264' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.265' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13338,7 +13341,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.264',
+    gasVersion: '9.265',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13403,7 +13406,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.264' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.265' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13544,7 +13547,7 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       portfolio_close_stage: stage,
       portfolio_close_stage_at: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
     });
-    if (summary && (stage === 'ERROR' || stage === 'COMPLETE')) {
+    if (summary && (stage === 'ERROR' || stage === 'COMPLETE' || stage === 'FUND_PENDING')) {
       // The persisted summary must retain its unique CLOSE owner. A timestamp
       // or same-day date alone cannot prove NAV belongs to this PRICE run.
       summary.runId = String(runId || '');
@@ -14109,7 +14112,7 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
     props.setProperty('portfolio_close_last_result',JSON.stringify(summary));
     if (summary.errors.length)
       props.setProperty('portfolio_close_last_error',summary.errors.join(' | ').slice(0,2000));
-    props.setProperty('portfolio_close_stage','ERROR');
+    props.setProperty('portfolio_close_stage',owner.fundPending === true ? 'FUND_PENDING' : 'ERROR');
   }
   return _portfolioFundAtomic_(function(props) {
     // Preserve the historical single-reservation JSON shape for GAS deployments
@@ -14498,7 +14501,7 @@ function _reconcilePortfolioFundBusy_(date) {
       var staleFundStage = stage === 'FUND' && ownerMatches
         && Date.now() - Number(owner.startedMs || 0) > 7 * 60 * 1000;
       if (last.priceOk && props.getProperty('portfolio_close_run_date') === date
-          && (stage === 'ERROR' || staleFundStage)) {
+          && (stage === 'ERROR' || (stage === 'FUND_PENDING' && ownerMatches) || staleFundStage)) {
         props.setProperty('portfolio_close_stage', 'COMPLETE');
       }
     }
@@ -14541,6 +14544,22 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
       var succeeded = successes.some(function(marker) {
         return marker && marker.date === pending.date && marker.triggerId === pending.triggerId;
       });
+      // Exhaustion is an explicit failure, never a silently deleted task.
+      // Only the exact current owner may change the current close summary.
+      var owner = pending.owner;
+      var last = _portfolioFundState_(props, 'portfolio_close_last_result');
+      if (!succeeded && owner && last && last.fundOk !== true
+          && String(props.getProperty('portfolio_close_run_id') || '') === String(owner.runId)
+          && String(props.getProperty('portfolio_close_run_date') || '') === pending.date
+          && Number(props.getProperty('portfolio_close_run_started_ms') || 0) === Number(owner.startedMs)
+          && last.runId === owner.runId && last.runDate === pending.date) {
+        var failure = '펀드: FUND_RETRY_EXHAUSTED · 자동 NAV 재시도 소진 또는 예약 만료';
+        last.errors = (last.errors || []).filter(function(reason) { return !/FUND_RETRY_EXHAUSTED/.test(String(reason)); });
+        last.errors.push(failure);
+        props.setProperty('portfolio_close_last_result',JSON.stringify(last));
+        props.setProperty('portfolio_close_last_error',_fundPropertyText(last.errors.join(' | '),2000));
+        props.setProperty('portfolio_close_stage','ERROR');
+      }
       return {cleanup:true, triggerId:pending.triggerId,
         reconcileDate:succeeded ? pending.date : ''};
     }
@@ -14722,33 +14741,23 @@ function runDailyPortfolioClose1900() {
       errors: errors.slice(0, 4)
     };
   }
+  // PRICE and NAV never share one GAS execution budget. Persist the recurring
+  // reservation BEFORE the first NAV call, including its exact PRICE owner.
+  // A hard timeout cannot run catch/finally, but the next trigger still exists.
   try {
-    if (Date.now() - startedMs > 120000) throw new Error('FUND_BUSY: PRICE 실행시간 초과·독립 NAV 재시도');
-    fundResult = _runPortfolioFundWithLease_('CLOSE', runId, runDate);
-    _appendPortfolioCloseSyncLog('FUND_DONE', runDate, runId,
-      'lastDate=' + String(fundResult && fundResult.lastDate || ''));
-  } catch (fundErr) {
-    if (fundErr.fundContinuation || /FUND_BUSY/.test(String(fundErr && fundErr.message || fundErr))) {
-      fundBusyToken = String(fundErr.fundLeaseToken || '');
-      // Mark pending rather than a permanent hard failure. Active deferred run
-      // reconciles the result after success; recurring retry covers transient failures.
-      try {
-        var busyReservation = _scheduleFundAfterFailedPortfolioPrice_({
-          date:runDate,runId:runId,startedAt:startedAt,startedMs:startedMs,
-          priceOk:true,priceDate:String(priceResult && priceResult.date || runDate),
-          priceRows:Number(priceResult && priceResult.rows || 0),
-          krxCloseRequired:priceResult && typeof priceResult.krxCloseRequired === 'boolean'
-            ? priceResult.krxCloseRequired : null,
-          fundBusyToken:fundBusyToken,
-          errors:['펀드: ' + (fundErr && fundErr.message ? fundErr.message : String(fundErr))]
-        });
-        fundBusyTriggerId = String(busyReservation && busyReservation.triggerId || '');
-      } catch(scheduleError) {
-        Logger.log('⚠️ FUND_BUSY 재시도 예약 실패: ' + scheduleError.message);
-      }
-    }
-    errors.push('펀드: ' + (fundErr && fundErr.message ? fundErr.message : String(fundErr)));
-    Logger.log('⚠️ 통합 마감 펀드 단계 실패: ' + errors[errors.length - 1]);
+    var busyReservation = _scheduleFundAfterFailedPortfolioPrice_({
+      date:runDate,runId:runId,startedAt:startedAt,startedMs:startedMs,
+      priceOk:true,priceDate:String(priceResult.date || runDate),
+      priceRows:Number(priceResult.rows || 0),
+      krxCloseRequired:typeof priceResult.krxCloseRequired === 'boolean'
+        ? priceResult.krxCloseRequired : null,
+      fundPending:true, errors:[]
+    });
+    fundBusyTriggerId = String(busyReservation && busyReservation.triggerId || '');
+    if (!fundBusyTriggerId) throw new Error('FUND_RESERVATION_UNVERIFIED');
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED', runDate, runId, '가격 완료·독립 NAV 예약');
+  } catch (scheduleError) {
+    errors.push('펀드: 독립 NAV 예약 실패: ' + scheduleError.message);
     _appendPortfolioCloseSyncLog('FUND_ERROR', runDate, runId, errors[errors.length - 1]);
   }
 
@@ -14780,7 +14789,7 @@ function runDailyPortfolioClose1900() {
     errors: errors.slice(0, 4)
   };
   var closeStateCommitted = _recordPortfolioCloseStage(props, runDate, startedAt,
-    errors.length ? 'ERROR' : 'COMPLETE', runId, summary, startedMs);
+    errors.length ? 'ERROR' : 'FUND_PENDING', runId, summary, startedMs);
   if (!closeStateCommitted) {
     Logger.log('⚠️ 마감 최종 상태 소유권 상실: 원래 실행의 큐를 완료 처리하지 않음');
     return {runDate:runDate, skipped:true, reason:'STATE_OWNERSHIP_LOST_AT_FINISH',
@@ -14793,14 +14802,14 @@ function runDailyPortfolioClose1900() {
     catch(queueFinalErr) { Logger.log('⚠️ PRICE 완료 대기열 최종 정리 보류: ' + queueFinalErr.message); }
   }
   // Atomic reconciliation can clear FUND_BUSY; reporting must use the persisted summary.
-  _appendPortfolioCloseSyncLog(summary.errors.length ? 'ERROR' : 'COMPLETE', runDate, runId,
+  _appendPortfolioCloseSyncLog(summary.errors.length ? 'ERROR' : (summary.fundOk ? 'COMPLETE' : 'FUND_DEFERRED'), runDate, runId,
     'priceDate=' + String(summary.priceDate || '') + ', priceRows=' + String(summary.priceRows || 0)
       + ', fundLastDate=' + String(summary.fundLastDate || ''));
 
   if (summary.errors.length) {
     throw new Error('통합 마감 부분 실패: ' + summary.errors.join(' | '));
   }
-  Logger.log('✅ 19시 통합 마감 완료: 일반 종목 확정가·Snapshot + 펀드 NAV/평가');
+  Logger.log(summary.fundOk ? '✅ 통합 마감 완료' : 'ℹ️ 가격 완료·독립 NAV 자동 처리 대기');
   return summary;
 }
 
@@ -17271,7 +17280,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.264' });
+    return jsonOk({ settings: settings, gasVersion: '9.265' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17301,7 +17310,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.264'
+      gasVersion: '9.265'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

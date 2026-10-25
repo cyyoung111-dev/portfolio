@@ -401,7 +401,7 @@ assert.match(source,/ScriptApp\.newTrigger\('runPortfolioCloseWatchdog2030'\)[\s
 assert.match(source.match(/function saveDailyPriceHistory\([\s\S]*?\n\}/)?.[0] || '',/var requestedCloseDate = _normalizeDate\(targetDate \|\| ''\) \|\| todayStr[\s\S]*fetchPricesKrx\(items.filter\(_isKrxDailyCloseTarget_\), requestedCloseDate\)[\s\S]*closeVerification\.date !== requestedCloseDate/,'19시 가격 저장은 정규 거래일 당일 KRX exact-date 종가를 요구');
 assert.match(source.match(/function _ensurePortfolioCloseDailyTrigger\([\s\S]*?\n\}/)?.[0] || '',/closeTriggers\.slice\(1\)/,'통합 마감 트리거 중복은 1개만 유지');
 assert.doesNotMatch(source.match(/function setupTrigger\([\s\S]*?\n\}/)?.[0] || '',/newTrigger\('runEvalPriceUpdate1620'\)/,'전체 재등록은 16:20 분리 트리거를 다시 만들지 않음');
-assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(undefined, \{deferQueueCompletion:true\}\)[\s\S]*_runPortfolioFundWithLease_\('CLOSE', runId, runDate\)/,'통합 마감은 일반 종목 후 펀드를 순차 실행');
+assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(undefined, \{deferQueueCompletion:true\}\)[\s\S]*_scheduleFundAfterFailedPortfolioPrice_\(/,'가격 완료 후 독립 NAV를 영속 예약');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/_ensurePortfolioCloseWatchdogTrigger\(true\)/,'기존 19시 트리거 실행만으로 20:30 watchdog을 자가 설치');
 assert.match(source,/function runDeferredFundAfterPortfolioCloseFailure\(/,'가격 실패 시 펀드 단계 독립 실행');
 assert.match(source.match(/function runPortfolioCloseWatchdog2030\([\s\S]*?\n\}/)?.[0] || '',/ALREADY_COMPLETE[\s\S]*runDailyPortfolioClose1900\(\)/,'watchdog은 정상 마감은 건너뛰고 미완료만 재시도');
@@ -412,10 +412,13 @@ const realRunDailyFundValuations=context.runDailyFundValuations;
 let closeSteps=[];
 context.saveDailyPriceHistory=()=>{closeSteps.push('prices');return {date:'2026-10-05',rows:12};};
 context.runDailyFundValuations=()=>{closeSteps.push('funds');return {lastDate:'2026-10-06',fundResults:{}};};
+const realScheduleFund=context._scheduleFundAfterFailedPortfolioPrice_;
+context._scheduleFundAfterFailedPortfolioPrice_=()=>({created:true,triggerId:'fixture-deferred-nav'});
 const closeOk=clone(context.runDailyPortfolioClose1900());
-assert.deepEqual(closeSteps,['prices','funds'],'통합 마감은 일반 종목→펀드 순서');
+context._scheduleFundAfterFailedPortfolioPrice_=realScheduleFund;
+assert.deepEqual(closeSteps,['prices'],'PRICE와 NAV는 독립 실행');
 assert.equal(closeOk.priceOk,true);
-assert.equal(closeOk.fundOk,true);
+assert.equal(closeOk.fundOk,false);
 assert.equal(JSON.parse(scriptProperties.get('portfolio_close_last_result')).priceDate,'2026-10-05');
 // 아래 실패 시나리오는 독립 실행이므로 현재 run 소유권 마커만 초기화합니다.
 ['portfolio_close_run_id','portfolio_close_run_started_at','portfolio_close_run_started_ms','portfolio_close_run_date','portfolio_close_stage','portfolio_close_stage_at']
