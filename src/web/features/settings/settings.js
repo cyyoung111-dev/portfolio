@@ -118,7 +118,8 @@ function saveDividendSettings(_immediate, options) {
   })) return Promise.resolve(false);
   // 호출 시점의 데이터·연결을 함께 캡처하고 저장을 직렬화합니다. 큐 대기 중 A→B로
   // 연결이 바뀌어도 A payload를 B에 전송하지 않습니다.
-  const payload = JSON.stringify(DIVDATA);
+  if (options?.divDataPatch && !_isGasVersionAtLeast(window._lastGasVersion, '9.266')) return Promise.resolve(false);
+  const payload = JSON.stringify(options?.divDataPatch || DIVDATA);
   const run = async () => {
     try {
       if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
@@ -510,7 +511,7 @@ async function persistDividendSettings(immediate, options) {
     ? options.generation
     : getGsheetConnectionGeneration();
   if (!targetUrl) return false;
-  const pinnedOptions = { targetUrl, generation };
+  const pinnedOptions = { targetUrl, generation, ...(options?.divDataPatch ? { divDataPatch: options.divDataPatch } : {}) };
   const ok = await saveDividendSettings(immediate, pinnedOptions);
   if (ok) return true;
   // 최신 GAS에서 전용 저장이 실패했는데 일반 설정 저장으로 우회하면

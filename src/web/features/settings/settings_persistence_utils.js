@@ -30,6 +30,18 @@ function _normalizeDivData(raw) {
       months: _toMonths(prev.months),
       note: typeof prev.note === 'string' ? prev.note : '',
     };
+    const row = next[storeKey];
+    for (const field of ['source','listedName','isin','crno','updatedAt','providerCheckStatus',
+      'providerCheckedAt','providerWindowFrom','providerWindowTo','refreshState','lastAttemptAt']) {
+      if (typeof prev[field] === 'string') row[field] = prev[field];
+    }
+    if (Number.isFinite(Number(prev.ttmPerShare)) && prev.ttmPerShare != null)
+      row.ttmPerShare = Number(prev.ttmPerShare);
+    if (Number.isInteger(Number(prev.count)) && prev.count != null) row.count = Number(prev.count);
+    if (Array.isArray(prev.events)) row.events = prev.events.map(event => ({
+      date:String(event?.date || '').slice(0,10), payDate:String(event?.payDate || '').slice(0,10),
+      amount:_toNum(event?.amount,0), source:String(event?.source || prev.source || '')
+    })).filter(event => /^\d{4}-\d{2}-\d{2}$/.test(event.date) && event.amount > 0);
   });
   return next;
 }
