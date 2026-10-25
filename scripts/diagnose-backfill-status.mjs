@@ -173,7 +173,7 @@ export function summarizeCloseStatus(a) {
   const c=a.portfolioClose, r=a.closeRun, f=a.fundAttempt;
   return {
     state:pick(r?.state,['COMPLETE','INCOMPLETE','ERROR','NEVER_RUN']),
-    stage:pick(r?.stage,['PRICE','FUND','COMPLETE','ERROR']),
+    stage:pick(r?.stage,['PRICE','FUND','FUND_PENDING','COMPLETE','ERROR']),
     runDate:safeDate(r?.runDate),
     summaryPresent:!!c,
     summaryRunDate:safeDate(c?.runDate),
