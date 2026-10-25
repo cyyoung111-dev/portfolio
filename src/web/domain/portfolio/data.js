@@ -1264,6 +1264,41 @@ function _portfolioDirtySignature(dirty) {
   return _portfolioPayloadSignature(dirty.trades, dirty.holdings, dirty.fundDirect);
 }
 
+// An empty generic dirty record has no explicit ledger-deletion permission.
+// Keep it out of the upload path; the Update button can archive this marker
+// before an authoritative pull, with no loss of local financial data.
+function _isEmptyPortfolioDirtyWithoutDeleteIntent(dirty) {
+  return !!dirty && dirty.trades.length === 0 && dirty.holdings.length === 0
+    && Object.keys(dirty.fundDirect || {}).length === 0
+    && !_getPendingExplicitEmptyTradeSync(dirty.target);
+}
+
+function _canRestoreEmptyPortfolioDirty(dirty) {
+  return _isEmptyPortfolioDirtyWithoutDeleteIntent(dirty)
+    && !rawTrades.length && !rawHoldings.length && !Object.keys(fundDirect || {}).length
+    && !_saveHoldingsGasTimer && !_portfolioRemoteSyncQueuesByTarget.has(dirty.target)
+    && !_pendingExplicitEmptyTradeSyncFlightsByTarget.has(dirty.target);
+}
+
+function _archiveEmptyPortfolioDirtyForRestore(verifiedEpoch) {
+  const dirty = _getPortfolioRemoteDirty();
+  if (!_isEmptyPortfolioDirtyWithoutDeleteIntent(dirty)) return 'NONE';
+  if (dirty.epoch !== verifiedEpoch) return 'BUSY';
+  if (_saveHoldingsGasTimer || _portfolioRemoteSyncQueuesByTarget.has(dirty.target)
+      || _pendingExplicitEmptyTradeSyncFlightsByTarget.has(dirty.target)) return 'BUSY';
+  const key = 'portfolio_empty_dirty_restore_archive_v1';
+  const previous = lsGet(key, {});
+  const archive = previous && typeof previous === 'object' && !Array.isArray(previous) ? previous : {};
+  const record = { ...dirty, archivedAt: new Date().toISOString() };
+  archive[dirty.target] = record;
+  lsSave(key, archive);
+  // Never clear a journal unless the backup is actually readable.
+  const saved = lsGet(key, {})?.[dirty.target];
+  if (!saved || saved.epoch !== dirty.epoch || saved.target !== dirty.target
+      || _portfolioDirtySignature(saved) !== _portfolioDirtySignature(dirty)) return 'BACKUP_FAILED';
+  return _clearPortfolioRemoteDirty(dirty.epoch, dirty.target) ? 'ARCHIVED' : 'BUSY';
+}
+
 async function _retryPortfolioRemoteDirtySync(options) {
   const targetUrl = String(options?.targetUrl || _currentGsheetSyncTarget() || '').trim();
   if (!targetUrl) return false;
@@ -1273,6 +1308,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
     for (let attempt = 0; attempt < 6; attempt++) {
       const dirty = _portfolioRemoteDirtyByTarget[targetUrl];
       if (!dirty) return true;
+      if (allowDuringRestore && _isEmptyPortfolioDirtyWithoutDeleteIntent(dirty)) return false;
       const generation = typeof getGsheetConnectionGeneration === 'function'
         ? getGsheetConnectionGeneration()
         : null;

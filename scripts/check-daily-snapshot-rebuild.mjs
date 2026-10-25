@@ -170,7 +170,7 @@ assert.match(settings, /const loadTarget = String\(GSHEET_API_URL[\s\S]*const lo
   'loadSettings는 시작 target/세대를 고정하고 stale 응답 적용을 중단');
 assert.match(portfolioData, /const retryGeneration = typeof getGsheetConnectionGeneration[\s\S]*getGsheetConnectionGeneration\(\) !== retryGeneration[\s\S]*return false/,
   '빈 원장 재시도도 URL 동일성 외 연결 세대 변경을 검사');
-assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*const forcePortfolioRestore = connectionForcePortfolioRestore[\s\S]*explicitAuthoritativePull[\s\S]*if \(forcePortfolioRestore && pendingEmptySyncResolvedAsEmptyAtLoad\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
+assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*let forcePortfolioRestore = connectionForcePortfolioRestore[\s\S]*explicitAuthoritativePull[\s\S]*if \(forcePortfolioRestore && pendingEmptySyncResolvedAsEmptyAtLoad\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
   '실제 empty pending 성공에서만 메모리 빈 원장을 적용하고 stale preflight 재적용을 막음');
 assert.match(settings, /if \(applyForcedPortfolioRestore\) \{[\s\S]*if \(!tradesLoaded \|\| !holdingsLoaded\) return false[\s\S]*rawTrades\.length = 0[\s\S]*else \{[\s\S]*rawHoldings\.length = 0[\s\S]*saveHoldings\(\{ skipGsheet: true \}\)/,
   '강제 원격 복원은 정상 빈 거래·보유 배열도 적용해 이전 로컬 데이터를 제거');
@@ -438,10 +438,10 @@ assert.ok(sync.includes("const assetType = pinnedByName")
     && sync.includes("h.assetType || h.type || getEPType(ep, '주식')"),
   '복원 보유 유형은 동일 서버 master를 사용하고 일반 저장의 기존 동작은 유지');
 
-assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return failLoad\('PORTFOLIO_SYNC_FAILED'\)/,
+assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad[\s\S]*dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return failLoad\('PORTFOLIO_SYNC_FAILED'\)/,
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
-assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
-  '현재가 업데이트는 미동기화 로컬 포트폴리오가 있으면 authoritative pull을 건너뜀');
+assert.match(settingsFetch, /const settingsLoaded = typeof loadSettings[\s\S]*forcePortfolioRestore: true[\s\S]*if \(!settingsLoaded\)[\s\S]*로컬 미전송 자료 보존[\s\S]*return;/,
+  '업데이트는 pending에서도 보호된 복원 재시도·실패 시 가격 조회 차단');
 assert.match(portfolioData, /if \(holdingsOk && tradesOk\) \{[\s\S]*saveSettings\(true, \{[\s\S]*settingsPatch: \{ fundDirect: pinnedFundDirect \}[\s\S]*if \(!settingsOk\) return false[\s\S]*_setPendingExplicitEmptyTradeSync\(null, retryTarget\)/,
   '빈 원장 권한은 보유현황·거래이력·fundDirect 부분 Settings 저장까지 성공한 뒤 해당 target에서만 소진');
 assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_getPendingExplicitEmptyTradeSync\(retryTarget\)[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom[\s\S]*target: retryTarget/,
@@ -502,12 +502,12 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261014-5/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261014-9/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261025-1/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261014-3/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261025-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261013-1/,'연결 generation 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261014-10/,'현재가 연결 격리 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261025-1/,'현재가 연결 격리 로직 캐시 버전 갱신');
 assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261013-2/,'편집기 연결별 캐시 로직 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');

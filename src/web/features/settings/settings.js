@@ -561,7 +561,7 @@ async function loadSettings(onProgress, options) {
     return false;
   };
   const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true;
-  const forcePortfolioRestore = connectionForcePortfolioRestore
+  let forcePortfolioRestore = connectionForcePortfolioRestore
     || explicitAuthoritativePull;
   // 마지막 거래 삭제가 원격에 완전히 반영되기 전 새로고침된 경우,
   // 원격의 과거 거래를 다시 복원하기 전에 영속 pending 삭제를 먼저 재시도합니다.
@@ -571,7 +571,21 @@ async function loadSettings(onProgress, options) {
   const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty === 'function'
     ? _getPortfolioRemoteDirty()
     : null;
-  const blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad || !!dirtyPortfolioAtLoad;
+  // An empty generic marker is not an authorized delete. Keep it active
+  // until a complete server restore succeeds, then archive it before clearing.
+  const emptyDirtyAtLoad = typeof _canRestoreEmptyPortfolioDirty === 'function'
+    && _canRestoreEmptyPortfolioDirty(dirtyPortfolioAtLoad) ? dirtyPortfolioAtLoad : null;
+  const isOriginalEmptyDirty = dirty => !!emptyDirtyAtLoad && !!dirty
+    && dirty.target === emptyDirtyAtLoad.target && dirty.epoch === emptyDirtyAtLoad.epoch
+    && typeof _isEmptyPortfolioDirtyWithoutDeleteIntent === 'function'
+    && _isEmptyPortfolioDirtyWithoutDeleteIntent(dirty);
+  if (emptyDirtyAtLoad) {
+    forcePortfolioRestore = true;
+    _gsPortfolioRestoreRequired = true;
+    _gsBootRestored = false;
+  }
+  const blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad
+    || (!!dirtyPortfolioAtLoad && !emptyDirtyAtLoad);
   try {
     prog('설정 데이터 로드 중...');
     // 설정·거래·보유·종목코드를 단일 GAS 실행에서 받아 웹앱 왕복 지연을 줄입니다.
@@ -773,6 +787,12 @@ async function loadSettings(onProgress, options) {
       }
     }
 
+    if (isOriginalEmptyDirty(typeof _getPortfolioRemoteDirty === 'function' ? _getPortfolioRemoteDirty() : null)) {
+      loadStage = '빈 로컬 동기화 기록 보관';
+      const archived = _archiveEmptyPortfolioDirtyForRestore(emptyDirtyAtLoad.epoch);
+      if (archived !== 'ARCHIVED') return failLoad('LOCAL_BACKUP_FAILED');
+    }
+
     // Theme (기기 간 동일 UI 유지)
     loadStage = '테마·계좌 설정 적용';
     if (s.APP_THEME_MODE && typeof lsSave === 'function') {
@@ -846,7 +866,7 @@ async function loadSettings(onProgress, options) {
     // 이 payload는 연결 URL에 귀속되어 다른 GSheet에서는 적용되지 않습니다.
     let dirtyPortfolioSyncResolvedAtLoad = false;
     loadStage = '미동기화 거래·보유 확인';
-    if (dirtyPortfolioAtLoad
+    if (dirtyPortfolioAtLoad && !emptyDirtyAtLoad
         && typeof _restorePortfolioRemoteDirtyPayload === 'function'
         && typeof _retryPortfolioRemoteDirtySync === 'function') {
       _restorePortfolioRemoteDirtyPayload();
@@ -1118,7 +1138,7 @@ async function loadSettings(onProgress, options) {
             && typeof _restorePortfolioRemoteDirtyPayload === 'function'
             && typeof _retryPortfolioRemoteDirtySync === 'function') {
           const latestDirty = _getPortfolioRemoteDirty();
-          if (latestDirty) {
+          if (latestDirty && !isOriginalEmptyDirty(latestDirty)) {
             // On Bootstrap targets a newly arrived dirty payload can be
             // reconciled only against the same-server pinned master.
             _restorePortfolioRemoteDirtyPayload();
@@ -1138,7 +1158,7 @@ async function loadSettings(onProgress, options) {
         const pendingStillExists = typeof _getPendingExplicitEmptyTradeSync === 'function'
           && !!_getPendingExplicitEmptyTradeSync(loadTarget);
         const dirtyStillExists = typeof _getPortfolioRemoteDirty === 'function'
-          && !!_getPortfolioRemoteDirty();
+          && !!_getPortfolioRemoteDirty() && !isOriginalEmptyDirty(_getPortfolioRemoteDirty());
         if (!pendingStillExists && !dirtyStillExists) break;
         // 사용자가 네트워크 대기 중 계속 수정해 안정화되지 않으면 원격 preflight 적용을 포기합니다.
         if (lateAttempt === 5) return false;

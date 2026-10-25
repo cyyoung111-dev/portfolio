@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 
 const baseline=process.argv.includes('--baseline');
-const read=file=>baseline && ['features/settings/settings.js','features/management/mgmt_editor.js'].includes(file)
+const read=file=>baseline && ['features/settings/settings.js','features/settings/settings_fetch.js','domain/portfolio/data.js','features/management/mgmt_editor.js'].includes(file)
   ? execFileSync('git',['show',`origin/main:src/web/${file}`],{encoding:'utf8'})
   : fs.readFileSync('src/web/'+file,'utf8');
 const manifest=JSON.parse(fs.readFileSync('src/web/script-manifest.json','utf8'));
@@ -1405,3 +1405,78 @@ assert.ok(fs.readFileSync('src/web/features/settings/settings_sync.js','utf8').i
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
+
+// The actual Update button must reach the journal-aware restore, not strand
+// empty memory while a recoverable pending payload lives in localStorage.
+function quickFixture(f) {
+  const status=[],seen=[],date={value:'2026-10-25'},label={textContent:'업데이트'};
+  const button={disabled:false,setAttribute(){},removeAttribute(){},querySelector:()=>label};
+  f.ctx.document.getElementById=id=>id==='quickDateInput'?date:id==='quickFetchBtn'?button:null;
+  f.ctx.setStatusLabel=(message,state)=>status.push({message,state});
+  f.ctx.refreshAll=()=>{};f.ctx.getDateStr=()=> '2026-10-25';
+  f.ctx.fetchFromGsheet=async()=>{seen.push(vm.runInContext('rawTrades.map(t=>t.qty)',f.ctx));return {'테스트':150};};
+  for(const name of ['updateDateBadge','savePriceCache'])f.ctx[name]=()=>{};
+  for(const name of ['_pricePortfolioSummary','_priceDiagSummary','_priceLookupSummary'])f.ctx[name]=()=>'';
+  f.ctx._priceStatusLayout=(primary,meta)=>primary+meta;
+  return{status,seen,button};
+}
+{
+ h=setup();h.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+ vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:3,price:100}); _markPortfolioRemoteDirty(); rawTrades.length=0; rawHoldings.length=0;",h.ctx);
+ const posted=[];
+ h.ctx.requestGsheetFormJson=async(action,data)=>{posted.push({action,data});return{status:'ok',saveState:'success'};};
+ const q=quickFixture(h);await h.ctx.quickFetchByDate();
+ assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'Update must actually retry pending sync');
+ assert.equal(vm.runInContext('rawTrades[0].qty',h.ctx),3,'latest local edit survives authoritative pull');
+ assert.ok(posted.some(p=>p.action==='syncTrades'&&JSON.parse(p.data.data)[0].qty===3));
+ assert.equal(q.seen.length,1);assert.equal(q.button.disabled,false);
+}
+for(const mode of ['ok','read-failed','backup-failed']) {
+ h=setup();h.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+ h.response.trades=[{date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:2,price:100}];
+ h.response.holdings=[{acct:'계좌',name:'테스트',code:'005930',qty:2,costAmt:200,assetType:'주식'}];
+ h.response.settings.ACCOUNTS_MASTER=[{name:'계좌'}];
+ vm.runInContext('_markPortfolioRemoteDirty()',h.ctx);
+ const dirty=JSON.stringify(h.ctx._getPortfolioRemoteDirty());
+ if(mode==='read-failed')h.response.portfolioReadStatus.holdingsOk=false;
+ if(mode==='backup-failed')h.ctx.localStorage.setItem=(k,v)=>{if(k==='portfolio_empty_dirty_restore_archive_v1')throw Error('quota');h.storage.set(k,v);};
+ const q=quickFixture(h);await h.ctx.quickFetchByDate();
+ assert.equal(h.writes,0,'empty generic dirty must never delete remote ledger, holdings or fundDirect');
+ if(mode==='ok') {
+  assert.equal(vm.runInContext('rawTrades.length',h.ctx),1);assert.equal(vm.runInContext('rawHoldings.length',h.ctx),1);
+  assert.equal(vm.runInContext('rawHoldings[0].acct',h.ctx),'계좌');
+  assert.equal(vm.runInContext('rawHoldings.reduce((sum,h)=>sum+h.qty*h.cost,0)',h.ctx),200,'restored acquisition basis must match server source');
+  assert.equal(h.ctx._getPortfolioRemoteDirty(),null);assert.equal(q.seen.length,1);
+  const backup=JSON.parse(h.storage.get('portfolio_empty_dirty_restore_archive_v1'));
+  const entry=Object.values(backup)[0];assert.equal(entry.epoch,JSON.parse(dirty).epoch);
+ } else {
+  assert.equal(JSON.stringify(h.ctx._getPortfolioRemoteDirty()),dirty,'failure retains original pending record');
+  assert.equal(q.seen.length,0,'restore failure must not masquerade as missing market prices');
+  assert.match(q.status.at(-1).message,/로컬 미전송 자료 보존/);
+  assert.doesNotMatch(q.status.at(-1).message,/주말\/공휴일/);
+  assert.equal(vm.runInContext('rawTrades.length',h.ctx),0,'read/backup preflight fails before portfolio application');
+  if(mode==='backup-failed') {
+   h.ctx.localStorage.setItem=(k,v)=>h.storage.set(k,v);
+   await h.ctx.quickFetchByDate();
+   assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'retry after backup space recovers must succeed');
+   assert.equal(q.seen.length,1);
+  }
+ }
+ assert.equal(q.button.disabled,false);
+}
+{
+ h=setup();h.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+ vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:3,price:100}); _markPortfolioRemoteDirty(); rawTrades.length=0;",h.ctx);
+ h.ctx.requestGsheetFormJson=async()=>({status:'error',saveState:'failed'});
+ const before=JSON.stringify(h.ctx._getPortfolioRemoteDirty()),q=quickFixture(h);
+ await h.ctx.quickFetchByDate();assert.equal(q.seen.length,0);
+ assert.equal(JSON.stringify(h.ctx._getPortfolioRemoteDirty()),before);
+ assert.equal(vm.runInContext('rawTrades[0].qty',h.ctx),3);
+ assert.match(q.status.at(-1).message,/PORTFOLIO_SYNC_FAILED/);
+}
+{
+ h=setup();vm.runInContext("_markPortfolioRemoteDirty(); _setPendingExplicitEmptyTradeSync({from:'2026-10-07',target:GSHEET_API_URL})",h.ctx);
+ assert.equal(h.ctx._canRestoreEmptyPortfolioDirty(h.ctx._getPortfolioRemoteDirty()),false,'explicit deletion intent is never archived as an empty marker');
+ assert.ok(h.ctx._getPendingExplicitEmptyTradeSync());
+}
+console.log('✅ 실제 업데이트: pending 재시도·빈 기록 백업 후 원격 복원·읽기/백업/쓰기 실패 보호·명시 삭제 보존');
