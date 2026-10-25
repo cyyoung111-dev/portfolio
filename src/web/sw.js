@@ -36,6 +36,7 @@ const PRECACHE_URLS = [
   './views/views_system.js?v=20261011-2',
   './features/settings/settings_net.js?v=20261013-1',
   './features/settings/settings.js?v=20261025-2',
+  './features/settings/settings_persistence_utils.js?v=20261025-2',
   './features/settings/settings_sync.js?v=20261014-5',
   './features/settings/settings_tabsync.js?v=20261007-1',
   './features/settings/settings_fetch.js?v=20261025-2',

@@ -63,9 +63,9 @@ async function collectorFixture(mode='ok') {
   if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')return{ok:true,json:async()=>({status:mode==='auth-bad'?'ok':'error'})};
   let out={status:'ok'};
   if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':'9.266';
-  if(action==='refreshEtfDividends')Object.assign(out,{saved:true,refreshed:true,noEventCount:0,historyRows:1});
+  if(action==='refreshEtfDividends')Object.assign(out,mode==='no-targets'?{skipped:true,reason:'NO_TARGETS',targetCount:0,targetCodes:[]}:{saved:true,refreshed:true,targetCount:1,targetCodes:['111111'],noEventCount:0,historyRows:1});
   if(action==='getDividendSettings')out.divData=mode==='readback-bad'&&saved?{}:structuredClone(cache);
-  if(action==='getCodeList')out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];
+  if(action==='getCodeList')out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];
   if(action==='getSettings')out.settings={apiKeyStatus:{publicDataApiKeyConfigured:true}};
   if(action==='dividendPublic') {assert.equal(p.get('names'),'B|C');out.dividends={'333333':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}};}
   if(action==='saveDividendSettings'){const patch=JSON.parse(p.get('data'));assert.deepEqual(Object.keys(patch),['333333']);Object.assign(cache,patch);saved=true;out.saved=true;}
@@ -82,3 +82,19 @@ for(const manual of [false,true]) {
  const u=ui({stocks:true});let current=true;u.ctx.getGsheetConnectionGeneration=()=>1;u.ctx.isGsheetConnectionCurrent=()=>current;u.ctx._fetchDividendSource=async()=>{current=false;return {'111111':{source:'PUBLIC_DATA',perShare:99}};};u.ctx.persistDividendSettings=async()=>{throw Error('stale connection must not save');};
  if(manual)assert.equal(await u.ctx.startDivFetch(),false);else await u.ctx._autoFetchDiv({});assert.deepEqual(u.ctx.DIVDATA,{});
 }
+
+{const f=await collectorFixture('no-targets'),r=await f.run();assert.equal(r.etfChecked,0);assert.equal(r.stockUpdated,1,'inactive master ETFs must not block stock refresh');}
+{
+ const u=ui();vm.runInContext(fs.readFileSync('src/web/features/settings/settings_persistence_utils.js','utf8'),u.ctx);
+ u.ctx._applyDivData({'111111':{source:'SEIBRO',perShare:9,ttmPerShare:108,freq:'월배당',months:[1],events:[],providerCheckStatus:'NO_EVENTS',providerCheckedAt:'2026-10-25',updatedAt:'2026-09-04'}});
+ assert.equal(u.ctx.DIVDATA['111111'].providerCheckStatus,'NO_EVENTS');assert.equal(u.ctx.DIVDATA['111111'].ttmPerShare,108);assert.equal(u.ctx.DIVDATA['111111'].source,'SEIBRO');
+ u.ctx.rawHoldings=[{name:'A',qty:3,acct:'계좌'}];u.ctx.EDITABLE_PRICES=[{name:'A',code:'111111',assetType:'ETF'}];u.ctx.getEP=()=>u.ctx.EDITABLE_PRICES[0];u.ctx._escapeHtml=String;
+ const body={innerHTML:''};u.ctx.$el=id=>id==='divMgmtBody'?body:null;
+ u.ctx.buildDivMgmt();assert.match(body.innerHTML,/조회기간 내 0건/,'positive cached amount must still show the NO_EVENTS warning');
+ u.ctx._applyDivData({'111111':{source:'MANUAL',perShare:9,months:[],updatedAt:'2026-10-25',events:[{date:'2026-09-30',payDate:'2026-10-05',amount:9,source:'MANUAL'}]}});
+ assert.equal(u.ctx.DIVDATA['111111'].events[0].source,'MANUAL');
+ u.ctx._kstYear=()=>2026;u.ctx.getQtyAtDate=()=>3;u.ctx.getDivRefDate=()=> '2026-01-01';
+ vm.runInContext(fs.readFileSync('src/web/views/views_div_asset.js','utf8'),u.ctx);
+ assert.equal(u.ctx.calcDividends()[0].actualDiv,27,'restored events must reach the actual dividend calculation');
+}
+console.log('PASS: actual normalizer→positive-amount warning→actual payout calculation; inactive/no-target ETF readback scope');

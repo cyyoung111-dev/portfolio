@@ -4771,6 +4771,7 @@ function handleApplyEtfDividends() {
     [historyBackup,settingsBackup].forEach(function(record) { if (record) _markSnapshotBackupStatus(record,'COMPLETED'); });
     return jsonOk({
       saved: true, partial: noEvents.length > 0, noEventCount:noEvents.length,
+      targetCodes:(diagnostic.results || []).map(function(row) { return row.code; }),
       targetCount: diagnostic.targetCount, historyRows: history.rows.length,
       added: history.summary.added, corrected: history.summary.corrected, unchanged: history.summary.unchanged,
       wroteSheets: true, wroteDivData: true, updatedAt: updatedAt
@@ -4813,12 +4814,12 @@ function handleRefreshEtfDividends(forceInput) {
     var fromDate = _seibroTtmStartDate(toDate);
     var targets = _getEtfDividendDiagnosticTargets(getss(), fromDate, toDate);
     var settings = _readSettingsMap();
-    if (!targets.length) return jsonOk({ refreshed: false, skipped: true, reason: 'NO_TARGETS', targetCount: 0, divData: settings.DIVDATA || {} });
+    if (!targets.length) return jsonOk({ refreshed: false, skipped: true, reason: 'NO_TARGETS', targetCount: 0, targetCodes:[], divData: settings.DIVDATA || {} });
     var force = String(forceInput || '') === '1';
     if (!force && _isEtfDividendRefreshCurrent(settings, targets, toDate)) {
       return jsonOk({
         refreshed: false, skipped: true, reason: 'TODAY_ALREADY_UPDATED',
-        targetCount: targets.length, partial: targets.some(function(target) { return (settings.DIVDATA[target.code] || {}).providerCheckStatus === 'NO_EVENTS'; }),
+        targetCount: targets.length, targetCodes:targets.map(function(target) { return target.code; }), partial: targets.some(function(target) { return (settings.DIVDATA[target.code] || {}).providerCheckStatus === 'NO_EVENTS'; }),
         divData: settings.DIVDATA || {}
       });
     }

@@ -15,14 +15,15 @@ async function call(action,args={},access=token) {
  const state=await call('getAutomationStatus');
  if(state.status!=='ok'||state.gasVersion!=='9.266')throw Error('DIVIDEND_VERSION');
  const refreshed=await call('refreshEtfDividends',{force:'1'});
- if(refreshed.status!=='ok'||refreshed.saved!==true||refreshed.refreshed!==true)throw Error('DIVIDEND_ETF_REFRESH_FAILED');
+ if(refreshed.status!=='ok'||(!(refreshed.saved===true&&refreshed.refreshed===true)&&!(refreshed.skipped===true&&refreshed.reason==='NO_TARGETS')))throw Error('DIVIDEND_ETF_REFRESH_FAILED');
+ const etfCodes=refreshed.targetCodes;
+ if(!Array.isArray(etfCodes)||etfCodes.length!==refreshed.targetCount||new Set(etfCodes).size!==etfCodes.length||etfCodes.some(code=>! /^[A-Z0-9]{6}$/.test(String(code))))throw Error('DIVIDEND_ETF_TARGETS_INVALID');
  let cached=await call('getDividendSettings');
  if(cached.status!=='ok'||!cached.divData)throw Error('DIVIDEND_READBACK_FAILED');
  const catalog=await call('getCodeList');
  if(catalog.status!=='ok'||!Array.isArray(catalog.codes))throw Error('DIVIDEND_MASTER_READ_FAILED');
- const etfs=catalog.codes.filter(c=>String(c.type||c.assetType).toUpperCase()==='ETF');
- const checked=etfs.filter(c=>{const x=cached.divData[c.code];return x&&(String(x.updatedAt||'').slice(0,10)===date||String(x.providerCheckedAt||'').slice(0,10)===date);});
- if(checked.length!==etfs.length)throw Error('DIVIDEND_ETF_READBACK_INCOMPLETE');
+ const checked=etfCodes.filter(code=>{const x=cached.divData[code];return x&&(String(x.updatedAt||'').slice(0,10)===date||String(x.providerCheckedAt||'').slice(0,10)===date);});
+ if(checked.length!==etfCodes.length)throw Error('DIVIDEND_ETF_READBACK_INCOMPLETE');
  const settings=await call('getSettings');
  if(settings.status!=='ok')throw Error('DIVIDEND_SETTINGS_READ_FAILED');
  const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&!['ETF','TDF','펀드','FUND'].includes(String(c.type||c.assetType).toUpperCase()));
@@ -43,6 +44,6 @@ async function call(action,args={},access=token) {
    if(verified.status!=='ok'||Object.keys(patch).some(code=>verified.divData?.[code]?.source!=='PUBLIC_DATA'||JSON.stringify(verified.divData[code].events)!==JSON.stringify(patch[code].events)))throw Error('DIVIDEND_STOCK_READBACK_FAILED');
   }
  }
- return {mode:'VERIFIED_DIVIDEND_REFRESH',etfTargets:etfs.length,etfChecked:checked.length,etfNoEventWindows:Number(refreshed.noEventCount||0),historyRows:Number(refreshed.historyRows||0),stockKeyConfigured,stockUpdated,stockUnverified};
+ return {mode:'VERIFIED_DIVIDEND_REFRESH',etfTargets:etfCodes.length,etfChecked:checked.length,etfNoEventWindows:Number(refreshed.noEventCount||0),historyRows:Number(refreshed.historyRows||0),stockKeyConfigured,stockUpdated,stockUnverified};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{console.log(JSON.stringify(await runDividendRefresh({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));}catch(e){console.error(/^DIVIDEND_[A-Z_]+$/.test(e?.message||'')?e.message:'DIVIDEND_REFRESH_FAILED');process.exitCode=1;}}
