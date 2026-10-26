@@ -58,7 +58,7 @@ async function run(mode='ok') {
     assert.ok(['getCodeListReadOnly','dividendPublic'].includes(action),'read-only allowlist');
     let r={status:'ok'};
     if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')r.status=mode==='auth'?'ok':'error';
-    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.268';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
+    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.269';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
     else if(action==='dividendPublic') {r=structuredClone(base);if(mode==='coverage')delete r.diagnostics.dividend['111111'];if(mode==='status')r.diagnostics.dividend['111111'].status='PRIVATE_KEY';}
     return {ok:true,json:async()=>r};
   };
@@ -92,8 +92,37 @@ const workflow=YAML.parse(fs.readFileSync('.github/workflows/stock-dividend-diag
 assert.equal(workflow.on.schedule,undefined);assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.equal(workflow.jobs.diagnose.environment,'portfolio-production-gas');
 const steps=workflow.jobs.diagnose.steps;const gate=steps.find(s=>s.id==='gate');
-assert.equal(gate.env.APPROVED_PARENT,'68e46567fd2307e67b9f94a7cb31ef5ab6f42152');
+assert.equal(gate.env.APPROVED_PARENT,'09b242198467833ed938d7150184e16c375321a9');
 assert.match(gate.run,/git rev-parse HEAD\^/);assert.match(gate.run,/\|\| exit 0/);
 assert.equal(steps.at(-1).run,'node scripts/run-stock-dividend-diagnosis.mjs');
 assert.equal(steps.at(-1).if,"steps.gate.outputs.apply == 'true'");
 console.log('PASS: actual public provider HTTP/JSON/API/zero/pagination/network classification, filter counts, read-only handler and private-safe operational diagnosis');
+
+// Exercise actual production pagination, not a duplicated implementation.
+{
+ const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ function execute(mode='ok',single=false){
+  const calls=[];const c=vm.createContext({console,Logger:{log(){throw Error('private log');}}});vm.runInContext(gas,c);
+  c.UrlFetchApp={fetchAll:rs=>rs.map(r=>{
+   const u=new URL(r.url),page=Number(u.searchParams.get('pageNo'));calls.push(page);
+   assert.equal(u.searchParams.get('crno'),'123');assert.equal(u.searchParams.get('serviceKey'),'PRIVATE_KEY');
+   if(mode==='network'&&page===2)throw Error('PRIVATE_KEY');
+   if(mode==='http'&&page===2)return response(403,'SERVICE_KEY_IS_NOT_REGISTERED_ERROR PRIVATE_KEY');
+   if(mode==='invalid'&&page===2)return response(200,'PRIVATE_KEY');
+   const rows=page===1||mode==='repeat'?[{...valid,dvdnBasDt:'20260331'},{...valid,dvdnBasDt:'20260630'}]:mode==='empty'?[]:[valid];
+   return response(200,envelope(mode==='limit'?[{...valid,dvdnBasDt:String(page)}]:rows,mode==='limit'?100:mode==='changed'&&page===2?4:3));
+  })};
+  const d={};let rows;
+  if(single)rows=c._fetchPublicDividendRows('A','PRIVATE_KEY','123');
+  else rows=c._fetchPublicDividendRowsBatch([{code:'111111',name:'A',crno:'123'}],'PRIVATE_KEY',d)['111111'];
+  return{rows,d,calls};
+ }
+ const r=execute();assert.deepEqual(r.calls,[1,2]);assert.equal(r.rows.length,3);assert.equal(r.d['111111'].status,'OK');assert.equal(r.d['111111'].returnedRows,3);
+ assert.equal(execute('ok',true).rows.length,3);
+ for(const mode of ['network','http','invalid','repeat','empty','changed','limit']){
+  const r=execute(mode);assert.equal(r.rows.length,0,mode+' must never produce a financial patch');
+  assert.notEqual(r.d['111111'].status,'OK');assert.ok(r.calls.length<=20);assert.ok(!JSON.stringify(r.d).includes('PRIVATE_KEY'));
+  assert.throws(()=>execute(mode,true),/PUBLIC_DATA_INCOMPLETE/);
+ }
+}
+console.log('PASS: actual paginated dividend batch/single complete history, failures/repeated/changing/empty pages and bounded requests preserve original data');

@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.268
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.269
+//
+//  v9.269 변경사항 (2026.10.26):
+//  • 공공데이터 배당 다중 페이지 완전성 확인·실패/반복/제한 시 원본 보존
 //
 //  v9.268 변경사항 (2026.10.26):
 //  • 상장종목 공식 V2 주소 동기화·HTTP 오류의 안전한 인증 사유 진단
@@ -2306,7 +2309,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.268',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.269',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2384,7 +2387,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.268', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.269', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -4117,25 +4120,61 @@ function _fetchPublicDividendRowsBatch(queries, serviceKey, diagnostics) {
     return { url: url, muteHttpExceptions: true, followRedirects: true };
   });
 
-  var responses;
-  try {
-    responses = UrlFetchApp.fetchAll(requests);
-  } catch(e) {
-    queries.forEach(function(q) { if (diagnostics) diagnostics[q.code] = { status: 'NETWORK_ERROR' }; });
-    return out;
-  }
+  return _fetchPublicDividendPages(requests, queries.map(function(q) { return q.code; }), diagnostics);
+}
 
-  queries.forEach(function(q, i) {
-    try {
-      var res = responses[i];
-      var inspected = _inspectPublicDividendResponse(res);
-      if (diagnostics) diagnostics[q.code] = _publicDividendDiagnostic(inspected);
-      out[q.code] = inspected.rows;
-    } catch(e) {
-      if (diagnostics) diagnostics[q.code] = { status: 'RESPONSE_INVALID' };
-      out[q.code] = out[q.code] || [];
+// Complete dividend history only. Bound requests/time; incomplete or failed pages stay unverified.
+function _fetchPublicDividendPages(requests, codes, diagnostics) {
+  var out = {}, states = [], started = Date.now();
+  var pending = requests.map(function(request, i) { return { request: request, index: i }; });
+  codes.forEach(function(code) { out[code] = []; });
+  for (var round = 1; pending.length && round <= 20; round++) {
+    var responses;
+    try { responses = UrlFetchApp.fetchAll(pending.map(function(job) { return job.request; })); }
+    catch (e) {
+      pending.forEach(function(job) {
+        if (diagnostics) diagnostics[codes[job.index]] = { status: 'NETWORK_ERROR' };
+        out[codes[job.index]] = [];
+      });
+      break;
     }
-  });
+    var next = [];
+    pending.forEach(function(job, position) {
+      var code = codes[job.index];
+      try {
+        var inspected = _inspectPublicDividendResponse(responses[position]);
+        var state = states[job.index];
+        if (!state) state = states[job.index] = { rows: [], total: inspected.totalCount, seen: {} };
+        if (inspected.status !== 'OK' && inspected.status !== 'PARTIAL_PAGE' && inspected.status !== 'NO_ROWS') {
+          out[code] = [];
+          if (diagnostics) diagnostics[code] = _publicDividendDiagnostic(inspected);
+          return;
+        }
+        var signature = JSON.stringify(inspected.rows);
+        var invalidPage = (round > 1 && (!inspected.rows.length || state.seen[signature] || inspected.totalCount !== state.total));
+        if (!invalidPage) {
+          state.seen[signature] = true;
+          state.rows = state.rows.concat(inspected.rows);
+        }
+        var complete = !invalidPage && (state.total === null || state.rows.length === state.total);
+        inspected.rows = state.rows;
+        inspected.totalCount = state.total;
+        inspected.status = complete ? (state.rows.length ? 'OK' : 'NO_ROWS') : 'PARTIAL_PAGE';
+        if (diagnostics) diagnostics[code] = _publicDividendDiagnostic(inspected);
+        out[code] = complete ? state.rows : [];
+        if (!complete && !invalidPage && state.rows.length < state.total && round < 20 && Date.now() - started < 90000) {
+          next.push({ index: job.index, request: {
+            url: requests[job.index].url.replace(/([?&]pageNo=)1(&|$)/, '$1' + (round + 1) + '$2'),
+            muteHttpExceptions: true, followRedirects: true
+          } });
+        }
+      } catch (e) {
+        out[code] = [];
+        if (diagnostics) diagnostics[code] = { status: 'RESPONSE_INVALID' };
+      }
+    });
+    pending = next;
+  }
   return out;
 }
 
@@ -4191,17 +4230,10 @@ function _fetchPublicDividendRows(companyName, serviceKey, crno) {
     + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
     + '&pageNo=1&numOfRows=100&resultType=json'
     + (crno ? '&crno=' + encodeURIComponent(crno) : '&stckIssuCmpyNm=' + encodeURIComponent(companyName));
-  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
-  var code = res.getResponseCode();
-  var text = res.getContentText() || '';
-  if (code < 200 || code >= 300) throw new Error('PUBLIC_DATA HTTP ' + code);
-  var json;
-  try { json = JSON.parse(text); }
-  catch(e) { throw new Error('PUBLIC_DATA JSON 파싱 실패'); }
-  var body = json && json.response && json.response.body ? json.response.body : null;
-  var items = body && body.items ? body.items.item : null;
-  if (!items) return [];
-  return Array.isArray(items) ? items : [items];
+  var diagnostics = {};
+  var rows = _fetchPublicDividendPages([{ url: url, muteHttpExceptions: true, followRedirects: true }], ['single'], diagnostics);
+  if (!diagnostics.single || ['OK','NO_ROWS'].indexOf(diagnostics.single.status) < 0) throw new Error('PUBLIC_DATA_INCOMPLETE');
+  return rows.single || [];
 }
 
 function _normalizePublicDividendRows(rows, code, companyName, listedInfo, diagnostics) {
@@ -6380,7 +6412,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.268' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.269' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13441,7 +13473,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.268',
+    gasVersion: '9.269',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13506,7 +13538,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.268' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.269' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16572,7 +16604,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.268' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.269' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17396,7 +17428,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.268' });
+    return jsonOk({ settings: settings, gasVersion: '9.269' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17426,7 +17458,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.268'
+      gasVersion: '9.269'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
