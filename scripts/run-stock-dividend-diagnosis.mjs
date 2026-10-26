@@ -16,7 +16,10 @@ export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fe
   const denied=await call('getCodeListReadOnly',{},'DIVIDEND_BAD_AUTH_PROBE');
   if(denied.status==='ok') throw Error('DIVIDEND_DIAG_AUTH_NOT_ENFORCED');
   const catalog=await call('getCodeListReadOnly');
-  if(catalog.status!=='ok'||!Array.isArray(catalog.codes)) throw Error('DIVIDEND_DIAG_CATALOG');
+  if(catalog.status!=='ok'||!Array.isArray(catalog.codes)) {
+    const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'CATALOG';
+    throw Error('DIVIDEND_DIAG_'+reason);
+  }
   if(catalog.readOnly!==true||catalog.gasVersion!=='9.268') throw Error('DIVIDEND_DIAG_VERSION');
   const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&
     !['ETF','TDF','펀드','FUND'].includes(String(c.assetType||c.type||'').toUpperCase()));

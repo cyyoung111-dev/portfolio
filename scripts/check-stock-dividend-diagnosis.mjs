@@ -58,7 +58,7 @@ async function run(mode='ok') {
     assert.ok(['getCodeListReadOnly','dividendPublic'].includes(action),'read-only allowlist');
     let r={status:'ok'};
     if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')r.status=mode==='auth'?'ok':'error';
-    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'?'error':'ok';r.gasVersion=mode==='version'?'9.266':'9.268';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
+    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.268';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
     else if(action==='dividendPublic') {r=structuredClone(base);if(mode==='coverage')delete r.diagnostics.dividend['111111'];if(mode==='status')r.diagnostics.dividend['111111'].status='PRIVATE_KEY';}
     return {ok:true,json:async()=>r};
   };
@@ -68,6 +68,9 @@ const {result,calls}=await run();assert.equal(result.targets,1);assert.equal(res
 assert.equal(result.stages.dividend.providerCodes['30'],1);assert.equal(result.originalDataWritten,false);
 assert.ok(!/PRIVATE|111111|222222/.test(JSON.stringify(result)));assert.equal(calls.length,3);
 for(const mode of ['auth','version','write-path','unsupported','coverage','status']) await assert.rejects(run(mode),/DIVIDEND_DIAG_/);
+for(const reason of ['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'])
+  await assert.rejects(run('catalog-'+reason),new RegExp('^Error: DIVIDEND_DIAG_'+reason+'$'));
+await assert.rejects(run('catalog-private'),/^Error: DIVIDEND_DIAG_CATALOG$/);
 // Execute the actual catalog handler with pending, corrupt, absent and lock-busy states.
 // No settlement/identity helpers or financial writers are stubbed into a false read-only success.
 for(const mode of ['pending','corrupt','ok','busy','read-failed']) {
@@ -89,7 +92,7 @@ const workflow=YAML.parse(fs.readFileSync('.github/workflows/stock-dividend-diag
 assert.equal(workflow.on.schedule,undefined);assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.equal(workflow.jobs.diagnose.environment,'portfolio-production-gas');
 const steps=workflow.jobs.diagnose.steps;const gate=steps.find(s=>s.id==='gate');
-assert.equal(gate.env.APPROVED_PARENT,'04efbb1f560f87e13d9e2bcf6895e3292981c4f9');
+assert.equal(gate.env.APPROVED_PARENT,'68e46567fd2307e67b9f94a7cb31ef5ab6f42152');
 assert.match(gate.run,/git rev-parse HEAD\^/);assert.match(gate.run,/\|\| exit 0/);
 assert.equal(steps.at(-1).run,'node scripts/run-stock-dividend-diagnosis.mjs');
 assert.equal(steps.at(-1).if,"steps.gate.outputs.apply == 'true'");
