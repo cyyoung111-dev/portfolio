@@ -21,7 +21,10 @@ async function call(action,args={},access=token) {
  let cached=await call('getDividendSettings');
  if(cached.status!=='ok'||!cached.divData)throw Error('DIVIDEND_READBACK_FAILED');
  const catalog=await call('getCodeListReadOnly');
- if(catalog.status!=='ok'||catalog.readOnly!==true||catalog.gasVersion!=='9.268'||!Array.isArray(catalog.codes))throw Error('DIVIDEND_MASTER_READ_FAILED');
+ if(catalog.status!=='ok'||catalog.readOnly!==true||catalog.gasVersion!=='9.268'||!Array.isArray(catalog.codes)) {
+  const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'READ_FAILED';
+  throw Error('DIVIDEND_MASTER_'+reason);
+ }
  const checked=etfCodes.filter(code=>{const x=cached.divData[code];return x&&(String(x.updatedAt||'').slice(0,10)===date||String(x.providerCheckedAt||'').slice(0,10)===date);});
  if(checked.length!==etfCodes.length)throw Error('DIVIDEND_ETF_READBACK_INCOMPLETE');
  const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&!['ETF','TDF','펀드','FUND'].includes(String(c.type||c.assetType).toUpperCase()));

@@ -29,7 +29,7 @@ jobs:
       - name: Gate the one-time read-only diagnosis
         id: gate
         env:
-          APPROVED_PARENT: 04efbb1f560f87e13d9e2bcf6895e3292981c4f9
+          APPROVED_PARENT: 68e46567fd2307e67b9f94a7cb31ef5ab6f42152
         run: |
           echo 'apply=false' >> "$GITHUB_OUTPUT"
           [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
