@@ -149,3 +149,60 @@ for (const options of [{view:'gsheet',disconnect:true},{view:'gsheet',hideAfterF
   assert.equal(stale.summaryCount,0);
 }
 console.log('✅ 현재가 polling 설정 탭 rows·손익·캐시 갱신, DOM 보존, 비영속성, 실패/hidden 회귀 통과');
+
+// Actual price loader: fund history must start before the stock request finishes.
+// Deferred responses verify concurrency without a wall-clock performance threshold.
+const innerLoader = source.match(/async function _fetchFromGsheetInner\(dateStr, options\) \{[\s\S]*?\n\}/)?.[0];
+assert.ok(innerLoader);
+async function checkParallelHistory({fundFailure=false, stale=false, stocks=true, funds=true}={}) {
+  let finishStock, finishFund, connected=true;
+  const calls=[];
+  const stockResponse=new Promise(resolve=>{finishStock=resolve;});
+  const fundResponse=new Promise((resolve,reject)=>{finishFund=fundFailure?reject:resolve;});
+  const ctx=vm.createContext({
+    GSHEET_API_URL:'test-gas',window:{},console:{warn(){},info(){}},
+    getGsheetConnectionGeneration:()=>1,isGsheetConnectionCurrent:()=>connected,
+    normName:x=>x,normalizeStockCode:x=>x,
+    rawHoldings:stocks?[{name:'Stock',code:'005930',qty:1}]:[],
+    fundDirect:funds?{Fund:1}:{},STOCK_CODE:{Stock:'005930'},_gsheetCodeList:[],
+    EDITABLE_PRICES:funds?[{name:'Fund',code:''}]:[],
+    getEPWithCode:()=>stocks?[{name:'Stock',code:'005930'}]:[],
+    _kstDateOffset:()=> '2026-07-28',getDateStr:()=> '2026-10-26',
+    requestGsheetActionJson:(action,params,opts)=>{
+      calls.push({action,params,opts});
+      return action==='getPrices'?stockResponse:fundResponse;
+    },
+    MarketDataProvider:null,
+  });
+  ctx.window.MarketDataProvider={normalizeMarketPrice:({closePrice,marketDate})=>({
+    status:'OK',closePrice,sourceDate:marketDate,fallback:false
+  })};
+  const targetPredicate=source.match(/function _isCurrentPriceTarget\(item\) \{[\s\S]*?\n\}/)[0];
+  vm.runInContext(targetPredicate+'\n'+innerLoader,ctx);
+  const pending=vm.runInContext("_fetchFromGsheetInner('2026-10-26',{persist:true,targetUrl:'test-gas',generation:1})",ctx);
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(calls.length,Number(stocks)+Number(funds),'both independent reads start before either finishes');
+  if(funds) {
+    const fundCall=calls.find(x=>x.action==='getPriceHistory');
+    assert.equal(fundCall.params.codes,'Fund');
+    assert.equal(fundCall.params.to,'2026-10-26');
+    assert.equal(fundCall.opts.targetUrl,'test-gas');
+    if(fundFailure)finishFund(Error('fund offline'));
+    else finishFund({status:'ok',prices:{Fund:[
+      {date:'2026-10-23',price:90},{date:'2026-10-26',price:100}
+    ]}});
+  }
+  if(stale) connected=false;
+  if(stocks)finishStock({status:'ok',prices:{'005930':200},priceDates:{'005930':'2026-10-26'}});
+  const result=await pending;
+  if(stale){assert.equal(result,null);assert.equal(ctx.window._gsheetPriceMeta,undefined);return;}
+  assert.equal(result?.['005930'],stocks?200:undefined);
+  assert.equal(result?.Fund,funds&&!fundFailure?100:undefined);
+  if(funds&&!fundFailure)assert.equal(result.__gsheetPriceMeta.Fund.sourceDate,'2026-10-26');
+}
+await checkParallelHistory();
+await checkParallelHistory({fundFailure:true});
+await checkParallelHistory({stale:true});
+await checkParallelHistory({stocks:false});
+await checkParallelHistory({funds:false});
+console.log('PASS: independent stock/fund reads overlap; failure isolation and stale-connection guard preserved');
