@@ -9,10 +9,10 @@
 ## 다음 순서
 
 1. Pages에서 세 페이지와 CSS가 공개 200으로 응답하는지 확인한다.
-2. 프로젝트 소유자와 같은 Google 계정으로 Search Console에 해당 프로젝트 사이트의 URL 접두어 속성을 추가한다. GitHub Pages 공유 도메인의 DNS를 통제할 수 없으므로 Domain 속성에 github.io를 입력하지 않는다.
-3. Google이 실제로 발급한 HTML 인증파일(또는 meta 태그)을 받아 그 속성에 해당하는 위치에 반영한다. 인증값을 생성·추정하지 않는다. 이 값은 비밀번호/refresh token과 다르지만 해당 사이트의 소유권을 부여하는 절차이므로 계정·대상을 확인한다.
-4. Search Console의 소유권 확인 성공과 OAuth 콘솔의 도메인 수용은 별개다. github.io는 Public Suffix List의 공유 suffix이므로 사용자별 호스트가 top private domain 후보지만 Google OAuth의 실제 수용 여부를 확인하기 전에는 성공으로 기록하지 않는다.
-5. Google이 수용한 도메인과 실제 공개 페이지를 Branding에 입력한다. 게시 버튼 활성화와 In production 전환을 별도 확인한다. 권한·사용 대상·접근 기간 확대가 수반되는 최종 변경은 사용자와 확인한다.
+2. Google의 OAuth Domain Verification 안내는 프로젝트 소유자 계정으로 Search Console의 Domain property(DNS 수준)를 확인하도록 명시한다. URL-prefix/HTML 파일 소유권만으로 OAuth 도메인 확인을 대체하지 않는다. GitHub Pages 기본 호스트의 DNS TXT를 사용자가 통제할 수 없으므로 그 주소만으로 정상화됐다고 판단하지 않는다.
+3. 무료 조건을 유지하려면 별도로 DNS TXT를 설정할 수 있고 OAuth가 수용하는 주소가 필요하다. 무료 서브도메인 서비스는 가입/등록 조건·공개 연락처·갱신·수용 여부를 확인한 뒤 별도 진행한다. is-a.dev 등 후보를 실제 승인됐다고 기록하지 않는다. 새 계정/공개 등록을 임의로 수행하거나 사용자의 이메일을 외부 공개하지 않는다.
+4. 사용할 주소가 확보되면 같은 프로젝트 소유자 Google 계정에서 Domain property를 추가하고 Google이 발급한 실제 TXT를 해당 주소 DNS에 등록한다. 인증값을 생성·추정하지 않는다. 소유권 부여 절차이므로 계정과 대상을 확인한다.
+5. 소유권 확인 뒤 공개 홈페이지·개인정보처리방침·약관을 해당 주소에서 제공한다. 기존 포트폴리오 사이트 전체의 도메인 변경은 별도 영향 검토 없이 수행하지 않는다. Google이 수용한 도메인과 실제 공개 페이지를 Branding에 입력하고 게시 버튼 활성화 및 In production 전환을 별도 확인한다. 권한·사용 대상·접근 기간 확대가 수반되는 최종 변경은 사용자와 확인한다.
 6. Production 확인 후 기존 권한 범위를 유지해 사용자가 직접 새 인증을 수행하고, 보호된 portfolio-production-gas 환경의 CLASPRC_JSON만 갱신한다. 비밀값을 채팅·Issue에 붙이지 않는다. 기존 정상 토큰은 새 인증 검증 전 미리 폐기하지 않는다.
 7. OAuth refresh와 Apps Script API GET의 읽기 전용 검증 후 완료 판정한다. Production 전환만으로 토큰이 영구 보장된다고 주장하지 않는다.
 
@@ -20,7 +20,7 @@
 
 - https://support.google.com/cloud/answer/15549049?hl=en : 외부 production 앱의 링크·홈페이지·승인 도메인 요건
 - https://support.google.com/cloud/answer/13464323?hl=en : 개인용 앱 검증 면제와 게시 상태 구분
-- https://support.google.com/webmasters/answer/9008080?hl=en : URL 접두어 속성의 HTML 파일/태그 소유권 확인
+- https://support.google.com/webmasters/answer/9008080?hl=en : 일반 사이트 소유권 확인 방법(OAuth의 DNS 요구와 구분)
 - https://support.google.com/cloud/answer/13804266?hl=en : 프로젝트 소유자 계정과 도메인 소유권 일치
 - https://publicsuffix.org/list/public_suffix_list.dat : github.io 공유 suffix
 
