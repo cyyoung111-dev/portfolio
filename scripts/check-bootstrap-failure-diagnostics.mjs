@@ -1480,3 +1480,27 @@ for(const mode of ['ok','read-failed','backup-failed']) {
  assert.ok(h.ctx._getPendingExplicitEmptyTradeSync());
 }
 console.log('✅ 실제 업데이트: pending 재시도·빈 기록 백업 후 원격 복원·읽기/백업/쓰기 실패 보호·명시 삭제 보존');
+
+// API status belongs to the authoritative Settings response, not the real-estate subset.
+for (const configured of [true, false]) {
+  const f=setup();
+  f.response.settings.apiKeyStatus={publicDataApiKeyConfigured:configured,krxAuthKeyConfigured:configured,
+    requestAuthenticationEnabled:true,toss:{clientIdConfigured:configured,secretConfigured:configured,clientIdMasked:'te••st'}};
+  assert.equal(await f.ctx.loadSettings(),true);
+  assert.equal(f.ctx.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured,configured,'Bootstrap restores API status');
+  assert.equal(f.ctx.GAS_API_KEY_STATUS?.toss.secretConfigured,configured);
+  const status=f.ctx.GAS_API_KEY_STATUS;
+  f.ctx.requestGsheetActionJson=async()=>({status:'ok',settings:{LOAN:{},REAL_ESTATE:{},LOAN_SCHEDULE:[],RE_VALUE_HIST:[]}});
+  assert.equal(await f.ctx.loadRealEstateSettings(),true);
+  assert.equal(f.ctx.GAS_API_KEY_STATUS,status,'real-estate subset cannot erase authoritative API status');
+  assert.equal(f.writes,0);
+  assert.ok(![...f.storage.keys()].some(k=>k.includes('api_key') || k.includes('auth_key')),'no API secrets persisted');
+}
+{
+  const f=setup();
+  f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}:
+    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.269'};
+  assert.equal(await f.ctx.loadSettings(),true);
+  assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
+}
+console.log('✅ 실제 Settings/Bootstrap API 키 상태 복원·부동산 부분조회 보존·비밀키 비저장 회귀 통과');
