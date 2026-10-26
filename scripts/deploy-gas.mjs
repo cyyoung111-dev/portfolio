@@ -231,7 +231,12 @@ async function requestJson(url, { method = 'GET', token, body, form } = {}) {
   catch { parsed = null; }
   if (!response.ok) {
     const detail = parsed?.error?.message || parsed?.message || responseText.slice(0, 500) || `HTTP ${response.status}`;
-    throw new Error(`${method} ${new URL(url).pathname} 실패: HTTP ${response.status} · ${detail}`);
+    const error = new Error(`${method} ${new URL(url).pathname} 실패: HTTP ${response.status} · ${detail}`);
+    error.httpStatus = response.status;
+    error.providerStatus = parsed?.error?.status;
+    error.providerReason = /syntax error/i.test(detail) ? 'SOURCE_SYNTAX' : /too many versions|maximum.*versions|version.*limit/i.test(detail) ? 'VERSION_LIMIT' : /quota|too many requests/i.test(detail) ? 'QUOTA' : /permission|not authorized/i.test(detail) ? 'PERMISSION' : /temporar|try again|service unavailable/i.test(detail) ? 'TRANSIENT' : 'UNKNOWN';
+    error.syntaxLine = /syntax/i.test(detail) ? Number(detail.match(/line[: ]+(\d+)/i)?.[1] || 0) : 0;
+    throw error;
   }
   if (parsed === null) throw new Error(`${method} ${new URL(url).pathname} 응답 JSON 파싱 실패`);
   return parsed;
@@ -376,6 +381,24 @@ export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployme
   return {headRestored:true,deploymentRestored:true,dataWrites:0};
 }
 
+// Bounded operational facts only; source text, identifiers and provider messages never leave this report.
+export function inspectGasReleaseState({headSource,publishedSource}) {
+  function inspect(source) {
+    try { return { version: assertGasReleaseReady(String(source).replace(/\r\n/g,'\n')), approved:true }; }
+    catch { return { version:'UNKNOWN', approved:false }; }
+  }
+  return {mode:'READ_ONLY_GAS_RELEASE_STATE',head:inspect(headSource),published:inspect(publishedSource),dataWrites:0};
+}
+export function summarizeGasReleaseFailure(error,stage) {
+  const stages=['CONTENT_WRITE','VERSION_CREATE','VERSION_READBACK','DEPLOYMENT_WRITE','DEPLOYMENT_READBACK','WEBAPP_VERIFY','AUTOMATION_VERIFY'];
+  const statuses=['INVALID_ARGUMENT','PERMISSION_DENIED','UNAUTHENTICATED','RESOURCE_EXHAUSTED','FAILED_PRECONDITION','INTERNAL','UNAVAILABLE','NOT_FOUND'];
+  return {mode:'GAS_RELEASE_FAILURE',stage:stages.includes(stage)?stage:'UNKNOWN',
+    httpStatus:Number.isInteger(error?.httpStatus)&&error.httpStatus>=100&&error.httpStatus<=599?error.httpStatus:null,
+    providerStatus:statuses.includes(error?.providerStatus)?error.providerStatus:'UNKNOWN',
+    providerReason:['SOURCE_SYNTAX','VERSION_LIMIT','QUOTA','PERMISSION','TRANSIENT'].includes(error?.providerReason)?error.providerReason:'UNKNOWN',
+    syntaxLine:Number.isInteger(error?.syntaxLine)&&error.syntaxLine>0&&error.syntaxLine<100000?error.syntaxLine:null};
+}
+
 export async function deploy() {
   const dryRun = String(process.env.GAS_DEPLOY_DRY_RUN || '').toLowerCase() === 'true';
   const scriptId = env('GAS_SCRIPT_ID');
@@ -413,6 +436,10 @@ export async function deploy() {
   // Validate *all* files before checking alreadyDeployed or starting any write.
   // A malicious extra SERVER_JS cannot ride along with a pinned apps_script.gs.
   if (!dryRun) assertGasProjectFileSet(currentContent.files, target.name, deployedContent.files);
+  const releaseState=inspectGasReleaseState({headSource:target.source,publishedSource:deployedTarget.source});
+  console.log(JSON.stringify(releaseState));
+  if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');
+  if(process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true')return releaseState;
   const alreadyDeployed = sameSource(deployedTarget.source, source) && sameSource(target.source, source);
 
   console.log(`GAS 자동배포 사전확인 · version=${expectedVersion} · file=${target.name} · currentDeploymentVersion=${currentVersionNumber} · dryRun=${dryRun}`);
@@ -429,7 +456,7 @@ export async function deploy() {
   }
 
   const candidateFiles=buildUpdatedFiles(currentContent.files,target.name,source);
-  let newVersionNumber=0,mutationStarted=false;
+  let newVersionNumber=0,mutationStarted=false,stage='CONTENT_WRITE';
   try {
   await checkCurrentMain();
   mutationStarted=true;
@@ -445,6 +472,7 @@ export async function deploy() {
     console.log('Apps Script HEAD는 이미 저장소 소스와 일치 · updateContent 생략');
   }
 
+  stage='VERSION_CREATE';
   const version = await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/versions`, {
     method: 'POST',
     token: accessToken,
@@ -455,6 +483,7 @@ export async function deploy() {
 
   // Never publish a version we did not inspect. Another GAS editor may
   // alter HEAD between our content GET/PUT and versions POST.
+  stage='VERSION_READBACK';
   const createdVersionContent = await requestJson(
     `${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content?versionNumber=${newVersionNumber}`,
     { token: accessToken },
@@ -462,6 +491,7 @@ export async function deploy() {
   assertGasCreatedVersionReady(createdVersionContent.files, target.name, source, deployedContent.files);
   await checkCurrentMain();
 
+  stage='DEPLOYMENT_WRITE';
   await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, {
     method: 'PUT',
     token: accessToken,
@@ -475,6 +505,7 @@ export async function deploy() {
     },
   });
 
+  stage='DEPLOYMENT_READBACK';
   await verifyDeploymentVersionWithRetry({
     readDeployment: () => requestJson(
       `${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,
@@ -482,12 +513,15 @@ export async function deploy() {
     expectedVersion: newVersionNumber,
   });
 
+  stage='WEBAPP_VERIFY';
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
+  stage='AUTOMATION_VERIFY';
   const automation=await runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')});
   if(automation.gasVersion!==expectedVersion)throw Error('GAS_AUTOMATION_VERSION_MISMATCH');
   console.log(`GAS 자동배포 완료 · GAS v${expectedVersion} · Apps Script version=${newVersionNumber} · webApp=verified`);
   return { deployed: true, version: expectedVersion, deploymentVersion: newVersionNumber, webAppCheck };
   } catch(error) {
+    console.log(JSON.stringify(summarizeGasReleaseFailure(error,stage)));
     if(!mutationStarted)throw error;
     try{
       await rollbackGasCode({beforeFiles:currentContent.files,candidateFiles,beforeDeployment:deployment,

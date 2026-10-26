@@ -92,7 +92,7 @@ const workflow=YAML.parse(fs.readFileSync('.github/workflows/stock-dividend-diag
 assert.equal(workflow.on.schedule,undefined);assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.equal(workflow.jobs.diagnose.environment,'portfolio-production-gas');
 const steps=workflow.jobs.diagnose.steps;const gate=steps.find(s=>s.id==='gate');
-assert.equal(gate.env.APPROVED_PARENT,'09b242198467833ed938d7150184e16c375321a9');
+assert.equal(gate.env.APPROVED_PARENT,'406700afe5d0f808e3643b1f94d70ecb94884045');
 assert.match(gate.run,/git rev-parse HEAD\^/);assert.match(gate.run,/\|\| exit 0/);
 assert.equal(steps.at(-1).run,'node scripts/run-stock-dividend-diagnosis.mjs');
 assert.equal(steps.at(-1).if,"steps.gate.outputs.apply == 'true'");

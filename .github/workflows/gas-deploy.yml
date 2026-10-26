@@ -97,6 +97,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Read-only release state before any deployment write
+        run: GAS_DEPLOY_DIAGNOSTIC_ONLY=true node scripts/deploy-gas.mjs
       - name: Deploy GAS
         run: node scripts/deploy-gas.mjs
       - name: Verify KRX 37-code source coverage after live GAS deployment
