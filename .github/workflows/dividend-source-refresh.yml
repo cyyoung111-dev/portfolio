@@ -29,7 +29,7 @@ jobs:
       - name: Gate the one-time approved dividend repair
         id: gate
         env:
-          APPROVED_PARENT: 04efbb1f560f87e13d9e2bcf6895e3292981c4f9
+          APPROVED_PARENT: 09b242198467833ed938d7150184e16c375321a9
         run: |
           echo 'apply=false' >> "$GITHUB_OUTPUT"
           [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
