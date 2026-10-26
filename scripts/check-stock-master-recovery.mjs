@@ -101,8 +101,8 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261026-4/);
-assert.match(sw,/portfolio-cache-20261026-4/);
+assert.match(html,/sw\.js\?v=20261026-5/);
+assert.match(sw,/portfolio-cache-20261026-5/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261014-5/);
@@ -113,8 +113,8 @@ assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTa
  'successful bootstrap must re-render disabled controls');
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/settings\.js\?v=20261025-2/);
-assert.match(sw,/settings\.js\?v=20261025-2/);
+assert.match(html,/settings\.js\?v=20261026-1/);
+assert.match(sw,/settings\.js\?v=20261026-1/);
 const stockSource=fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8');
 const sectorSource=fs.readFileSync('src/web/features/master/sector/mgmt_sector.js','utf8');
 assert.ok(stockSource.includes('captureStockMasterEditSession()'));
