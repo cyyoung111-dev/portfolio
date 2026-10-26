@@ -58,7 +58,7 @@ async function run(mode='ok') {
     assert.ok(['getCodeListReadOnly','dividendPublic'].includes(action),'read-only allowlist');
     let r={status:'ok'};
     if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')r.status=mode==='auth'?'ok':'error';
-    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.269';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
+    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.270';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
     else if(action==='dividendPublic') {r=structuredClone(base);if(mode==='coverage')delete r.diagnostics.dividend['111111'];if(mode==='status')r.diagnostics.dividend['111111'].status='PRIVATE_KEY';}
     return {ok:true,json:async()=>r};
   };

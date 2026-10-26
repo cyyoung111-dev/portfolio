@@ -492,7 +492,7 @@ async function loadAutomationStatusFromGsheet() {
     const closeTrigger = a.trigger?.hasDuplicateCloseTriggers
       ? `중복 ${Number(a.trigger?.closeCount || 0)}개`
       : (a.trigger?.hasClose ? '정상' : '없음');
-    const priceState = incomplete ? '이번 실행 미확정' : (close.priceOk === true ? '성공' : (close.priceOk === false ? '실패' : '미실행'));
+    const priceState = a.krxPublication?.waiting ? 'KRX 공시 대기' : incomplete ? '이번 실행 미확정' : (close.priceOk === true ? '성공' : (close.priceOk === false ? '실패' : '미실행'));
     const fundState = incomplete ? '이번 실행 미확정' : (close.fundOk === true ? '성공' : (close.fundOk === false ? '실패' : '미실행'));
     const errorText = a.portfolioCloseLastError || a.fundLastError || (Array.isArray(close.errors) && close.errors.length ? close.errors.join(' | ') : '');
     const isNeverRun = a.overallStatus === 'NEVER_RUN';
@@ -507,6 +507,7 @@ async function loadAutomationStatusFromGsheet() {
       : '';
     const referenceErrorOnly = isNeverRun && !a.portfolioCloseLastError && !!a.fundLastError;
     body.innerHTML = `
+      ${a.krxPublication?.waiting ? `<div style="color:var(--amber);font-size:.68rem;margin-bottom:8px">KRX ${_escapeHtml(a.krxPublication.tradeDate || '')} 종가 공시 대기 · ${_escapeHtml(a.krxPublication.availableAfter || '')} 이후 공개 · 08:45 자동 재조회</div>` : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;font-size:.68rem;line-height:1.55">
         <div><span style="color:var(--muted)">GAS 버전</span><br><b>${_escapeHtml(a.gasVersion || data.gasVersion || '-')}</b></div>
         <div><span style="color:var(--muted)">19시 통합 트리거</span><br><b style="color:${a.trigger?.hasClose && !a.trigger?.hasDuplicateCloseTriggers ? 'var(--green-lt)' : 'var(--red-lt)'}">${closeTrigger}</b></div>

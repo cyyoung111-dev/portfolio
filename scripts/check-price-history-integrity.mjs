@@ -57,8 +57,8 @@ assert.doesNotMatch(codeRepairFn, /range\.setValues\(values\)|_setCodeColumnText
 assert.match(pipeline, /미검증 날짜는 저장 Snapshot으로 표시/);
 assert.match(view, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/);
 assert.match(view, /portfolioSnapshots[\s\S]*filter\(_isVerifiedHistoryPoint\)/);
-assert.match(html, /views\/views_history\.js\?v=20261012-2/);
-assert.match(sw, /views\/views_history\.js\?v=20261012-2/);
+assert.match(html, /views\/views_history\.js\?v=20261026-1/);
+assert.match(sw, /views\/views_history\.js\?v=20261026-1/);
 const viewerScriptVersion=html.match(/views\/views_portfolio\.js\?v=(\d{8}-\d+)/);
 const systemScriptVersion=html.match(/views\/views_system\.js\?v=(\d{8}-\d+)/);
 const cacheVersion=sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d+)'/);

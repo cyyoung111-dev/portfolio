@@ -106,13 +106,13 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];")
-    || !source.includes("gasVersion: '9.269'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.269 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.270'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.270 계약이 누락됐습니다.');
   process.exit(1);
 }
 
 const automationStatusOrder = source.indexOf("else if (!portfolioClose) overallStatus = closeRun.state");
-const automationFundErrorOrder = source.indexOf("else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR'");
+const automationFundErrorOrder = source.indexOf("else if (fundLastError || ((portfolioCloseLastError || closeErrors.length) && !publicationWaitOnly)) overallStatus = 'ERROR'");
 if (automationStatusOrder < 0 || automationFundErrorOrder < 0 || automationStatusOrder > automationFundErrorOrder) {
   console.error('❌ 자동화 미실행은 과거 펀드 오류보다 NEVER_RUN 판정을 우선해야 합니다.');
   process.exit(1);

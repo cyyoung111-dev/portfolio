@@ -25,6 +25,7 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
  const p={getProperty:k=>store.get(k)||null,setProperty:(k,v)=>store.set(k,v),deleteProperty:k=>store.delete(k)};
  const cx=vm.createContext({Date:{now:()=>2000000},Utilities:{getUuid:()=> 'lease'},today:()=> '2026-10-24',
   PORTFOLIO_FUND_LEASE_KEY:'fund',PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'writer',PORTFOLIO_FUND_SCHEDULE_KEY:'schedule',
+  _krxClosePublicationState_:()=>({waiting:false}),_readPendingKrxCloseDates_:()=>[],
   _portfolioFundAtomic_:fn=>fn(p),_portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
   jsonOk:x=>({status:'ok',...x}),jsonError:message=>({status:'error',message}),
   saveDailyPriceHistory:date=>{producer++;assert.equal(date,'2026-10-24');return {ok:true,date:'2026-10-23',rows:2,krxCloseRequired:false};},
@@ -58,6 +59,12 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
  assert.equal(cx.handleResumeIncompletePortfolioClose('0').complete,false);assert.equal(producer,0,'warning preview remains pure');
  assert.equal(cx.handleResumeIncompletePortfolioClose('1').scheduled,true);assert.equal(producer,1,'warning recheck requires actual price producer');
  store.set('fund',JSON.stringify({until:2000001}));assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error','completed warning cannot bypass active lease');
+ reset();store.set('portfolio_close_stage','ERROR');store.set('portfolio_close_last_result',JSON.stringify({runId:'current',runDate:'2026-10-24',priceOk:false,fundOk:false,errors:['SOURCE_PENDING']}));
+ cx._krxClosePublicationState_=()=>({waiting:true});
+ cx._scheduleFundAfterFailedPortfolioPrice_=owner=>{scheduled++;assert.equal(owner.runId,'current');assert.equal(owner.priceOk,false);assert.equal(owner.errors[0],'SOURCE_PENDING');};
+ const wait=cx.handleResumeIncompletePortfolioClose('1');assert.equal(wait.priceAwaitingPublication,true);assert.equal(wait.complete,false);assert.equal(producer,0,'source wait resumes NAV without retrying/relabeling stale PRICE');assert.equal(scheduled,1);
+ assert.equal(JSON.parse(store.get('portfolio_close_last_result')).priceOk,false);
+
 
 
 }

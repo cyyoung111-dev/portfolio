@@ -2050,7 +2050,7 @@ assert.equal(context._fundNavExpectedPublicationDate('2027-10-05','F00002'),true
  const data=JSON.stringify({code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',appendOnly:true,rows:[{date:'2026-10-23',nav:1201}]});
  const reset=()=>{scriptProperties.clear();scriptProperties.set('access_token','TEST');producerCalls=0;manualBlocked=false;leaseVisible=false;};
  const producer=()=>{producerCalls++;const lease=JSON.parse(scriptProperties.get(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY));leaseVisible=lease.origin==='KB_NAV_COLLECTOR'&&lease.until>Date.now();try{context._runManualPriceSnapshotGuarded_();}catch(e){manualBlocked=/PRICE_BUSY/.test(e.message);}return {status:'ok'};};
- context.handleImportFundNav=producer;context.handleRefreshFundValuations=producer;
+ context.handleImportFundNav=producer;context.handleRefreshFundValuations=(...args)=>{assert.equal(args[4],true,'collector derived repair must use stored NAV without a second external fetch');return producer();};
  for(const mode of ['import','refresh']){
   reset();assert.equal(context.handleCollectKbFundNav(mode,data,'2026-10-23').status,'ok');assert.equal(producerCalls,1);assert.equal(leaseVisible,true);assert.equal(manualBlocked,true,'actual other writer cannot acquire collector lease');assert.equal(scriptProperties.has(context.PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY),false);
  }
@@ -2064,3 +2064,43 @@ assert.equal(context._fundNavExpectedPublicationDate('2027-10-05','F00002'),true
  reset();assert.equal(context.handleCollectKbFundNav('refresh',data,'2026-09-01').status,'error');assert.equal(producerCalls,0);
  context.today=oldToday;context.handleImportFundNav=oldImport;context.handleRefreshFundValuations=oldRefresh;scriptProperties.clear();
 }
+
+// Automatic KB processing uses collector-confirmed stored NAV, including unpublished-day carry.
+{
+ const oldToday=context.today, oldFetch=context._fetchMissingFundNavBatches, oldBuild=context._buildSnapshotRowsFromTradeAndPriceHistory;
+ context.today=()=> '2026-09-22';let externalCalls=0;
+ context._fetchMissingFundNavBatches=()=>{externalCalls++;return {rows:[],batches:[],errors:[]};};
+ context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+ const nav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-21','F00002','KB',1200,'2026-09-21',1000,1200,'','KB_VALUE_ST']]);
+ const history=new Sheet([['date','code','name','price','at','source']]);
+ const ss=ssFor({'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),'펀드기준가격':nav,'거래이력':new Sheet([Array(8).fill('header'),['2026-09-01','buy','계좌','KB','F00002',1,1000,'펀드']]),'가격이력':history,'스냅샷':new Sheet([header])});
+ const before=JSON.stringify(nav.rows);
+ const result=context._refreshFundValuations(ss,'2026-09-22','2026-09-22','F00002',false,null,1,{FUNETF:true});
+ assert.equal(externalCalls,0,'automatic KB recovery never re-fetches FunETF in GAS');
+ assert.equal(JSON.stringify(nav.rows),before,'unpublished day cannot create a fabricated confirmed NAV');
+ assert.equal(history.rows[1][5],'FUND_NAV_CARRY_INPUT_REQUIRED');
+ assert.equal(result.fundResults.F00002.latestUnpublished,1);
+ context._refreshFundValuations(ss,'2026-09-22','2026-09-22','F00002',false);
+ assert.equal(externalCalls,1,'explicit normal refresh retains its external-fetch contract');
+ const realRefresh=context._refreshFundValuations;
+ context._refreshFundValuations=(...args)=>{assert.equal(args[4],false);assert.equal(args[6],1);assert.equal(args[7].FUNETF,true);return {fundResults:{},missingHoldings:[],snapshotWarnings:[]};};
+ assert.doesNotThrow(()=>context.runDailyFundValuations('2026-09-22'));
+ context._refreshFundValuations=realRefresh;context.today=oldToday;context._fetchMissingFundNavBatches=oldFetch;context._buildSnapshotRowsFromTradeAndPriceHistory=oldBuild;scriptProperties.clear();
+}
+console.log('Automatic KB stored NAV recovery: no duplicate external fetch, carry provenance and manual refresh preserved: PASS');
+
+// Publication timing must not turn delayed official data into confirmed prices.
+{
+ const mismatch=date=>'일반 종목: 일반 종목 확정 종가 원천일 불일치: 요청 '+date+', 실제 KRX 2026-10-23 · 정상 거래일 종가 이월 확정 금지';
+ const close={runDate:'2026-10-26',priceOk:false,errors:[mismatch('2026-10-26')]};
+ const proof=JSON.stringify(close);
+ const wait=context._krxClosePublicationState_(close,['2026-10-26'],Date.parse('2026-10-26T21:00:00+09:00'));
+ assert.equal(wait.waiting,true);assert.equal(wait.availableAfter,'2026-10-27T08:00:00+09:00');
+ assert.equal(context._krxClosePublicationState_(close,['2026-10-26'],Date.parse(wait.availableAfter)).waiting,false,'08:00 boundary is overdue, not indefinite waiting');
+ assert.equal(context._krxClosePublicationState_(close,[],Date.parse('2026-10-26T21:00:00+09:00')).waiting,false,'queue evidence required');
+ assert.equal(context._krxClosePublicationState_({...close,errors:[mismatch('2026-10-26'),'fund failure']},['2026-10-26'],Date.parse('2026-10-26T21:00:00+09:00')).waiting,false,'mixed failure remains ERROR');
+ const friday={runDate:'2026-10-23',priceOk:false,errors:[mismatch('2026-10-23').replace('실제 KRX 2026-10-23','실제 KRX 2026-10-22')]};
+ assert.equal(context._krxClosePublicationState_(friday,['2026-10-23'],Date.parse('2026-10-24T10:00:00+09:00')).availableAfter,'2026-10-26T08:00:00+09:00');
+ assert.equal(JSON.stringify(close),proof,'read-only timing assessment never changes close/queue');
+}
+console.log('KRX publication grace: weekday/weekend/08:00 boundary, queued exact mismatch only, no false success: PASS');
