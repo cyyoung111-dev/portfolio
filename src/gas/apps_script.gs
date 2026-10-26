@@ -13427,9 +13427,17 @@ function _krxClosePublicationState_(close, pendingDates, nowMs) {
   var date = String(close.runDate || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (pendingDates || []).indexOf(date) < 0
       || _krxCalendarStatus_(date) !== 'OPEN') return result;
+  var previous = date, previousFound = false;
+  for (var back=0;back<31;back++) {
+    previous = _fundDateOffset(previous,-1);
+    var previousStatus = _krxCalendarStatus_(previous);
+    if (previousStatus === 'UNKNOWN') return result;
+    if (previousStatus === 'OPEN') { previousFound=true; break; }
+  }
+  if (!previousFound) return result;
   if (!close.errors.every(function(error) {
     var match = String(error).match(/^(?:일반 종목: )?일반 종목 확정 종가 원천일 불일치: 요청 (\d{4}-\d{2}-\d{2}), 실제 KRX (\d{4}-\d{2}-\d{2}) · 정상 거래일 종가 이월 확정 금지$/);
-    return match && match[1] === date && match[2] < date;
+    return match && match[1] === date && match[2] === previous;
   })) return result;
   var next = date;
   for (var i=0;i<14;i++) {

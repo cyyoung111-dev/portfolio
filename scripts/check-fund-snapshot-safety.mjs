@@ -2096,6 +2096,7 @@ console.log('Automatic KB stored NAV recovery: no duplicate external fetch, carr
  const proof=JSON.stringify(close);
  const wait=context._krxClosePublicationState_(close,['2026-10-26'],Date.parse('2026-10-26T21:00:00+09:00'));
  assert.equal(wait.waiting,true);assert.equal(wait.availableAfter,'2026-10-27T08:00:00+09:00');
+ assert.equal(context._krxClosePublicationState_({...close,errors:[mismatch('2026-10-26').replace('실제 KRX 2026-10-23','실제 KRX 2026-10-22')]},['2026-10-26'],Date.parse('2026-10-26T21:00:00+09:00')).waiting,false,'older than the previous session is a source failure, not normal publication waiting');
  assert.equal(context._krxClosePublicationState_(close,['2026-10-26'],Date.parse(wait.availableAfter)).waiting,false,'08:00 boundary is overdue, not indefinite waiting');
  assert.equal(context._krxClosePublicationState_(close,[],Date.parse('2026-10-26T21:00:00+09:00')).waiting,false,'queue evidence required');
  assert.equal(context._krxClosePublicationState_({...close,errors:[mismatch('2026-10-26'),'fund failure']},['2026-10-26'],Date.parse('2026-10-26T21:00:00+09:00')).waiting,false,'mixed failure remains ERROR');
