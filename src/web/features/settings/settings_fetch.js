@@ -114,6 +114,16 @@ async function _fetchFromGsheetInner(dateStr, options) {
     const priceMeta = {};
     let responseResolvedPriceDate = '';
 
+    // 펀드 이력은 주식 현재가/이력과 독립적인 읽기이므로 먼저 시작합니다.
+    // 실패는 즉시 처리하여 주식 응답을 기다리는 동안 미처리 rejection을 만들지 않습니다.
+    const noCodeHistoryPromise = epNoCode.length > 0
+      ? Promise.resolve().then(() => requestGsheetActionJson(
+          'getPriceHistory',
+          { from: _kstDateOffset(dateStr, -90), to: dateStr, codes: epNoCode.map(i => i.name).join(',') },
+          { timeoutMs: 15000, retry: 1, targetUrl }
+        )).catch(() => null)
+      : Promise.resolve(null);
+
     if (epItems.length > 0) {
       const codes = epItems.map(i => i.code).join(',');
       if (isToday) {
@@ -227,15 +237,8 @@ async function _fetchFromGsheetInner(dateStr, options) {
     //   ② 없을 때만 기준일 이전 최근값 fallback (다른 기기 저장값 연동 보완)
     let noCodeResults = {};
     if (epNoCode.length > 0) {
-      // ★ [버그수정] new Date(dateStr)는 'YYYY-MM-DD'를 UTC 00:00으로 파싱 후 로컬 getDate()와 혼용
-      //   KST 자정 경계에서 날짜가 하루 밀리는 문제 → _kstDateOffset()으로 교체
-      const fromDate = _kstDateOffset(dateStr, -90);
       try {
-        const data = await requestGsheetActionJson(
-          'getPriceHistory',
-          { from: fromDate, to: dateStr, codes: epNoCode.map(i => i.name).join(',') },
-          { timeoutMs: 15000, retry: 1, targetUrl }
-        );
+        const data = await noCodeHistoryPromise;
         if (!isCurrentConnection()) return null;
         if (data && data.status === 'ok' && data.prices) {
           epNoCode.forEach(i => {
