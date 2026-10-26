@@ -17,7 +17,7 @@ export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fe
   if(denied.status==='ok') throw Error('DIVIDEND_DIAG_AUTH_NOT_ENFORCED');
   const catalog=await call('getCodeListReadOnly');
   if(catalog.status!=='ok'||!Array.isArray(catalog.codes)) throw Error('DIVIDEND_DIAG_CATALOG');
-  if(catalog.readOnly!==true||catalog.gasVersion!=='9.267') throw Error('DIVIDEND_DIAG_VERSION');
+  if(catalog.readOnly!==true||catalog.gasVersion!=='9.268') throw Error('DIVIDEND_DIAG_VERSION');
   const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&
     !['ETF','TDF','펀드','FUND'].includes(String(c.assetType||c.type||'').toUpperCase()));
   const unique=[...new Map(stocks.map(c=>[String(c.code),c])).values()];
@@ -26,9 +26,12 @@ export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fe
   if(result.status!=='ok'||!result.diagnostics||!result.dividends) throw Error('DIVIDEND_DIAG_RESPONSE');
   const stages={},normalized={inputRows:0,acceptedEvents:0,rejected:{identity:0,amount:0,date:0,beforeRange:0,duplicate:0}};
   const statuses=new Set(['NETWORK_ERROR','HTTP_ERROR','JSON_INVALID','API_ERROR','RESPONSE_INVALID','PARTIAL_PAGE','OK','NO_ROWS','IDENTITY_MISMATCH']);
+  const errorNames=new Set(['SERVICE_ACCESS_DENIED_ERROR','SERVICE_KEY_IS_NOT_REGISTERED_ERROR','DEADLINE_HAS_EXPIRED_ERROR',
+    'NO_OPENAPI_SERVICE_ERROR','SERVICE_KEY_IS_NULL','PERMISSION_DENIED','BLACKLIST_IP_ACCESS_ERROR',
+    'LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR','LIMITED_NUMBER_OF_SERVICE_REQUESTS_PER_SECOND_EXCEEDS_ERROR']);
   let verified=0;
   for(const stage of ['listed','dividend','retry']) {
-    const counts={},http={},provider={};let inspected=0;
+    const counts={},http={},provider={},errors={};let inspected=0;
     for(const c of unique) {
       const d=result.diagnostics[stage]?.[c.code];
       if(!d) {if(stage!=='retry') throw Error('DIVIDEND_DIAG_COVERAGE');continue;}
@@ -36,10 +39,11 @@ export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fe
       inspected++;counts[d.status]=(counts[d.status]||0)+1;
       if(Number.isInteger(d.httpStatus)&&d.httpStatus>=100&&d.httpStatus<=599) http[d.httpStatus]=(http[d.httpStatus]||0)+1;
       // Explicit allowlist; arbitrary provider text cannot leak into Actions logs.
-      if(['00','0','01','02','03','04','05','10','11','12','20','21','22','30','31','32','99'].includes(d.providerCode))
+      if(['00','0','01','02','03','04','05','10','11','12','20','21','22','23','29','30','31','32','99'].includes(d.providerCode))
         provider[d.providerCode]=(provider[d.providerCode]||0)+1;
+      if(errorNames.has(d.providerError)) errors[d.providerError]=(errors[d.providerError]||0)+1;
     }
-    stages[stage]={inspected,statuses:counts,httpStatuses:http,providerCodes:provider};
+    stages[stage]={inspected,statuses:counts,httpStatuses:http,providerCodes:provider,providerErrors:errors};
   }
   for(const c of unique) {
     const n=result.diagnostics.normalized?.[c.code];

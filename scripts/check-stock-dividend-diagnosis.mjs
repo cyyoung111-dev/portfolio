@@ -16,6 +16,14 @@ for(const [http,body,status] of [
   const inspected=ctx._inspectPublicDividendResponse(response(http,body));assert.equal(inspected.status,status);
   const diagnostic=JSON.stringify(ctx._publicDividendDiagnostic(inspected));assert.ok(!diagnostic.includes('PRIVATE'));assert.ok(!diagnostic.includes('rows"'));
 }
+for(const [body,code,name] of [
+  ['<OpenAPI_ServiceResponse><returnAuthMsg>SERVICE_ACCESS_DENIED_ERROR PRIVATE_KEY</returnAuthMsg><returnReasonCode>20</returnReasonCode></OpenAPI_ServiceResponse>','20','SERVICE_ACCESS_DENIED_ERROR'],
+  [envelope([],0,'30'),'30',''],[envelope([{amount:999}],1,'00'),'00','']
+]) {
+  const inspected=ctx._inspectPublicDividendResponse(response(403,body));assert.equal(inspected.status,'HTTP_ERROR');
+  assert.equal(inspected.providerCode,code);assert.equal(inspected.providerError,name);assert.equal(inspected.rows.length,0);
+  assert.ok(!JSON.stringify(ctx._publicDividendDiagnostic(inspected)).includes('PRIVATE_KEY'));
+}
 const valid={stckIssuCmpyNm:'A',crno:'123',stckGenrDvdnAmt:'100',dvdnBasDt:'20260930',cashDvdnPayDt:'20261020'};
 {
   const n={};const result=ctx._normalizePublicDividendRows([valid,valid,{...valid,stckIssuCmpyNm:'B',crno:'456'},
@@ -31,6 +39,10 @@ ctx.jsonOk=x=>({status:'ok',...x});ctx.jsonError=message=>({status:'error',messa
   assert.equal(r.diagnostics.listed['111111'].status,'OK');assert.equal(r.diagnostics.dividend['111111'].status,'OK');
   assert.equal(r.diagnostics.normalized['111111'].acceptedEvents,1);assert.equal(r.dividends['111111'].perShare,100);
   assert.ok(!JSON.stringify(r.diagnostics).includes('PRIVATE_KEY'));assert.equal(requests.length,2);
+  const listedUrl=new URL(requests[0].url);assert.equal(listedUrl.pathname,'/1160100/GetKrxListedInfoService_V2/getItemInfo_V2');
+  assert.equal(listedUrl.searchParams.get('likeSrtnCd'),'111111');assert.equal(listedUrl.searchParams.has('srtnCd'),false);
+  ctx.UrlFetchApp.fetch=url=>{assert.equal(new URL(url).pathname,listedUrl.pathname);return response(200,envelope([{srtnCd:'111111',itmsNm:'A',crno:'123'}]));};
+  assert.equal(ctx._fetchPublicListedInfoByCode('111111','PRIVATE_KEY').name,'A');
 }
 {
   ctx.UrlFetchApp={fetchAll(){throw Error('PRIVATE_KEY');}};
@@ -46,7 +58,7 @@ async function run(mode='ok') {
     assert.ok(['getCodeListReadOnly','dividendPublic'].includes(action),'read-only allowlist');
     let r={status:'ok'};
     if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')r.status=mode==='auth'?'ok':'error';
-    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'?'error':'ok';r.gasVersion=mode==='version'?'9.266':'9.267';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
+    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'?'error':'ok';r.gasVersion=mode==='version'?'9.266':'9.268';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
     else if(action==='dividendPublic') {r=structuredClone(base);if(mode==='coverage')delete r.diagnostics.dividend['111111'];if(mode==='status')r.diagnostics.dividend['111111'].status='PRIVATE_KEY';}
     return {ok:true,json:async()=>r};
   };
@@ -77,7 +89,7 @@ const workflow=YAML.parse(fs.readFileSync('.github/workflows/stock-dividend-diag
 assert.equal(workflow.on.schedule,undefined);assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.equal(workflow.jobs.diagnose.environment,'portfolio-production-gas');
 const steps=workflow.jobs.diagnose.steps;const gate=steps.find(s=>s.id==='gate');
-assert.equal(gate.env.APPROVED_PARENT,'7218d316db8a336df6451d9d46f748258b0a4b93');
+assert.equal(gate.env.APPROVED_PARENT,'04efbb1f560f87e13d9e2bcf6895e3292981c4f9');
 assert.match(gate.run,/git rev-parse HEAD\^/);assert.match(gate.run,/\|\| exit 0/);
 assert.equal(steps.at(-1).run,'node scripts/run-stock-dividend-diagnosis.mjs');
 assert.equal(steps.at(-1).if,"steps.gate.outputs.apply == 'true'");
