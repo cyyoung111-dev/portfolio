@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.266
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.267
+//
+//  v9.267 변경사항 (2026.10.26):
+//  • 일반 주식 배당 API 단계별 오류·정상 0건·필터 탈락 원인의 읽기 전용 진단
 //
 //  v9.266 변경사항 (2026.10.25):
 //  • SEIBro 정상 0건을 별도 보존·다른 ETF 갱신 허용·배당 수기값/백업/재조회 검증
@@ -2299,7 +2302,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.266',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.267',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2377,7 +2380,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.266', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.267', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -3957,7 +3960,8 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
     if (cleanCodes.length === 0) return jsonOk({ dividends: {}, source: 'PUBLIC_DATA' });
 
     // ── 1단계: 상장종목정보 일괄 병렬 조회 (종목코드 → 공식명/법인번호)
-    var listedMap = _fetchPublicListedInfoBatch(cleanCodes, key);
+    var diagnostics = { listed: {}, dividend: {}, retry: {}, normalized: {} };
+    var listedMap = _fetchPublicListedInfoBatch(cleanCodes, key, diagnostics.listed);
 
     // ── 2단계: 법인번호(crno) 기준 배당정보 일괄 병렬 조회
     var divQueries = cleanCodes.map(function(code) {
@@ -3965,7 +3969,7 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
       var lookupName = (listed && listed.name) || companyNameByCode[code];
       return { code: code, crno: (listed && listed.crno) || '', name: lookupName };
     });
-    var divRowsMap = _fetchPublicDividendRowsBatch(divQueries, key);
+    var divRowsMap = _fetchPublicDividendRowsBatch(divQueries, key, diagnostics.dividend);
 
     // ── 3단계: crno 조회 결과가 0건인 종목만 회사명 기준으로 한 번 더 재시도 (역시 일괄 병렬)
     var retryQueries = [];
@@ -3977,7 +3981,7 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
       }
     });
     if (retryQueries.length > 0) {
-      var retryMap = _fetchPublicDividendRowsBatch(retryQueries, key);
+      var retryMap = _fetchPublicDividendRowsBatch(retryQueries, key, diagnostics.retry);
       retryQueries.forEach(function(q) {
         if (retryMap[q.code] && retryMap[q.code].length > 0) divRowsMap[q.code] = retryMap[q.code];
       });
@@ -3987,16 +3991,54 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
     cleanCodes.forEach(function(code) {
       var listed = listedMap[code] || {};
       var lookupName = listed.name || companyNameByCode[code];
-      results[code] = _normalizePublicDividendRows(divRowsMap[code] || [], code, lookupName, listed);
+      var normalization = {};
+      results[code] = _normalizePublicDividendRows(divRowsMap[code] || [], code, lookupName, listed, normalization);
+      diagnostics.normalized[code] = normalization;
     });
-    return jsonOk({ dividends: results, source: 'PUBLIC_DATA' });
+    return jsonOk({ dividends: results, source: 'PUBLIC_DATA', diagnostics: diagnostics });
   } catch(err) {
     return jsonError('공공데이터 배당 조회 실패: ' + err.message);
   }
 }
 
 // ★ [v9.33 신규] 여러 종목코드의 상장종목정보를 UrlFetchApp.fetchAll()로 한 번에 병렬 조회
-function _fetchPublicListedInfoBatch(codes, serviceKey) {
+// Only bounded status codes/counts are returned: never URLs, keys, provider text or company identifiers.
+function _inspectPublicDividendResponse(res) {
+  var httpStatus = res.getResponseCode();
+  var result = { status: 'HTTP_ERROR', httpStatus: httpStatus, rows: [], totalCount: null, providerCode: '' };
+  if (httpStatus < 200 || httpStatus >= 300) return result;
+  var parsed;
+  var text = res.getContentText() || '';
+  try { parsed = JSON.parse(text); }
+  catch (e) {
+    // data.go.kr may return its bounded authentication error code in XML even for resultType=json.
+    var xmlCode = text.indexOf('<OpenAPI_ServiceResponse') >= 0 && text.match(/<returnReasonCode>\s*([A-Z0-9_]{1,12})\s*<\/returnReasonCode>/);
+    if (xmlCode) { result.status = 'API_ERROR'; result.providerCode = xmlCode[1]; }
+    else result.status = 'JSON_INVALID';
+    return result;
+  }
+  var response = parsed && parsed.response;
+  var header = response && response.header;
+  var rawCode = header && header.resultCode !== undefined ? String(header.resultCode) : '';
+  result.providerCode = /^[A-Z0-9_]{1,12}$/.test(rawCode) ? rawCode : '';
+  if (rawCode && rawCode !== '00' && rawCode !== '0') { result.status = 'API_ERROR'; return result; }
+  var body = response && response.body;
+  if (!body || typeof body !== 'object') { result.status = 'RESPONSE_INVALID'; return result; }
+  var items = body.items && body.items.item;
+  var count = Number(body.totalCount);
+  if (body.totalCount !== undefined && body.totalCount !== '' && isFinite(count) && count >= 0) result.totalCount = count;
+  if (items && typeof items !== 'object') { result.status = 'RESPONSE_INVALID'; return result; }
+  result.rows = !items ? [] : (Array.isArray(items) ? items : [items]);
+  result.status = result.totalCount !== null && result.totalCount > result.rows.length ? 'PARTIAL_PAGE' : result.rows.length ? 'OK' : 'NO_ROWS';
+  return result;
+}
+
+function _publicDividendDiagnostic(result) {
+  return { status: result.status, httpStatus: result.httpStatus, providerCode: result.providerCode,
+    returnedRows: result.rows.length, totalCount: result.totalCount };
+}
+
+function _fetchPublicListedInfoBatch(codes, serviceKey, diagnostics) {
   var base = 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo';
   var out = {};
   var validCodes = [];
@@ -4018,7 +4060,7 @@ function _fetchPublicListedInfoBatch(codes, serviceKey) {
   try {
     responses = UrlFetchApp.fetchAll(requests);
   } catch(e) {
-    Logger.log('⚠️ KRX상장종목정보 일괄 조회 실패: ' + e.message);
+    validCodes.forEach(function(code) { if (diagnostics) diagnostics[code] = { status: 'NETWORK_ERROR' }; });
     return out;
   }
 
@@ -4026,12 +4068,9 @@ function _fetchPublicListedInfoBatch(codes, serviceKey) {
     var normCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
     try {
       var res = responses[i];
-      if (res.getResponseCode() < 200 || res.getResponseCode() >= 300) return;
-      var json = JSON.parse(res.getContentText() || '{}');
-      var body = json && json.response && json.response.body ? json.response.body : null;
-      var items = body && body.items ? body.items.item : null;
-      if (!items) return;
-      var list = Array.isArray(items) ? items : [items];
+      var inspected = _inspectPublicDividendResponse(res);
+      if (diagnostics) diagnostics[code] = _publicDividendDiagnostic(inspected);
+      var list = inspected.rows;
       for (var j = 0; j < list.length; j++) {
         var row = list[j] || {};
         var srtnCd = (row.srtnCd || row.shortCode || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
@@ -4046,8 +4085,9 @@ function _fetchPublicListedInfoBatch(codes, serviceKey) {
         };
         break;
       }
+      if (list.length && !out[code] && diagnostics) diagnostics[code].status = 'IDENTITY_MISMATCH';
     } catch(e) {
-      Logger.log('KRX상장종목정보 파싱 실패(' + code + '): ' + e.message);
+      if (diagnostics) diagnostics[code] = { status: 'RESPONSE_INVALID' };
     }
   });
   return out;
@@ -4055,7 +4095,7 @@ function _fetchPublicListedInfoBatch(codes, serviceKey) {
 
 // ★ [v9.33 신규] 여러 종목의 배당정보를 UrlFetchApp.fetchAll()로 한 번에 병렬 조회
 //   queries: [{ code, crno, name }, ...] — crno가 있으면 crno 우선, 없으면 회사명으로 조회
-function _fetchPublicDividendRowsBatch(queries, serviceKey) {
+function _fetchPublicDividendRowsBatch(queries, serviceKey, diagnostics) {
   var base = 'https://apis.data.go.kr/1160100/GetStocDiviInfoService_V2/getDiviInfo_V2';
   var out = {};
   if (!queries || queries.length === 0) return out;
@@ -4071,21 +4111,18 @@ function _fetchPublicDividendRowsBatch(queries, serviceKey) {
   try {
     responses = UrlFetchApp.fetchAll(requests);
   } catch(e) {
-    Logger.log('⚠️ 주식배당정보 일괄 조회 실패: ' + e.message);
+    queries.forEach(function(q) { if (diagnostics) diagnostics[q.code] = { status: 'NETWORK_ERROR' }; });
     return out;
   }
 
   queries.forEach(function(q, i) {
     try {
       var res = responses[i];
-      var code = res.getResponseCode();
-      if (code < 200 || code >= 300) { out[q.code] = out[q.code] || []; return; }
-      var json = JSON.parse(res.getContentText() || '{}');
-      var body = json && json.response && json.response.body ? json.response.body : null;
-      var items = body && body.items ? body.items.item : null;
-      out[q.code] = !items ? [] : (Array.isArray(items) ? items : [items]);
+      var inspected = _inspectPublicDividendResponse(res);
+      if (diagnostics) diagnostics[q.code] = _publicDividendDiagnostic(inspected);
+      out[q.code] = inspected.rows;
     } catch(e) {
-      Logger.log('주식배당정보 파싱 실패(' + q.code + '): ' + e.message);
+      if (diagnostics) diagnostics[q.code] = { status: 'RESPONSE_INVALID' };
       out[q.code] = out[q.code] || [];
     }
   });
@@ -4158,8 +4195,9 @@ function _fetchPublicDividendRows(companyName, serviceKey, crno) {
   return Array.isArray(items) ? items : [items];
 }
 
-function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
+function _normalizePublicDividendRows(rows, code, companyName, listedInfo, diagnostics) {
   var events = [];
+  var rejected = { identity: 0, amount: 0, date: 0, beforeRange: 0, duplicate: 0 };
   (rows || []).forEach(function(row) {
     if (!row) return;
     var name = (row.stckIssuCmpyNm || row.isuNm || row.corpNm || '').toString().trim();
@@ -4169,17 +4207,17 @@ function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
     // 공공데이터 배당정보의 종목명은 상장종목정보와 표기가 다를 수 있습니다.
     // 예: 상장종목정보 itmsNm="SK하이닉스", 배당정보 stckIssuCmpyNm="에스케이하이닉스".
     // crno로 조회해 같은 법인번호가 확인된 행은 이름 불일치만으로 제외하지 않습니다.
-    if (!sameCrno && name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
+    if (!sameCrno && name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) { rejected.identity++; return; }
     var amount = _publicDividendAmount(row);
-    if (!(amount > 0)) return;
+    if (!(amount > 0)) { rejected.amount++; return; }
     // ★ [v9.32 버그수정] row.basDt는 "조회 당일 날짜"라 배당기준일이 아님(매번 오늘 날짜로 찍힘).
     //   실제 배당기준일 필드인 dvdnBasDt를 1순위로 사용, basDt는 후보에서 제외.
     var baseDate = _publicDividendDate(row.dvdnBasDt || row.recordDate || row.stckBasDt);
     var payDate = _publicDividendDate(row.cashDvdnPayDt || row.dvdnPayDt || row.payDt || row.pymntDt);
     var eventDate = baseDate || payDate;
-    if (!eventDate) return;
+    if (!eventDate) { rejected.date++; return; }
     // ★ [v9.32 신규] 대시보드 관리 시작일(PUBLIC_DIVIDEND_MIN_DATE) 이전 배당 이벤트는 제외
-    if (eventDate < PUBLIC_DIVIDEND_MIN_DATE) return;
+    if (eventDate < PUBLIC_DIVIDEND_MIN_DATE) { rejected.beforeRange++; return; }
     var monthDate = payDate || eventDate;
     events.push({
       date: eventDate,
@@ -4193,11 +4231,12 @@ function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
   var seen = {};
   events = events.filter(function(ev) {
     var key = [ev.date, ev.payDate, ev.amount].join('|');
-    if (seen[key]) return false;
+    if (seen[key]) { rejected.duplicate++; return false; }
     seen[key] = true;
     return true;
   });
   var meta = listedInfo || {};
+  if (diagnostics) { diagnostics.inputRows = (rows || []).length; diagnostics.acceptedEvents = events.length; diagnostics.rejected = rejected; }
   if (!events.length) return { perShare: 0, freq: '-', months: [], count: 0, events: [], source: 'PUBLIC_DATA', listedName: meta.name || companyName || '', crno: meta.crno || '' };
   var months = events.map(function(ev){ return ev.month; }).filter(function(m){ return m >= 1 && m <= 12; });
   var uniqM = months.filter(function(v,i,a){ return a.indexOf(v) === i; }).sort(function(a,b){ return a-b; });
@@ -6332,7 +6371,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.266' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.267' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13393,7 +13432,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.266',
+    gasVersion: '9.267',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13458,7 +13497,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.266' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.267' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -17332,7 +17371,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.266' });
+    return jsonOk({ settings: settings, gasVersion: '9.267' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17362,7 +17401,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.266'
+      gasVersion: '9.267'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
