@@ -84,3 +84,34 @@ for(const [before,after] of [["vars.GAS_AUTO_DEPLOY_ENABLED == 'true'","true"],
   assert.throws(()=>checkWorkflow(source.replaceAll(before,after)));
 }
 console.log('GAS opt-in trusted main release, stale SHA rejection and scoped code rollback: PASS');
+
+// Actual deploy diagnostic path: OAuth exchange + GET only, no source/version/deployment writes.
+{
+ const {deploy,inspectGasReleaseState,summarizeGasReleaseFailure}=await import('./deploy-gas.mjs');
+ const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ assert.equal(inspectGasReleaseState({headSource:gas,publishedSource:gas}).head.approved,true);
+ const report=inspectGasReleaseState({headSource:gas+'\nPRIVATE',publishedSource:'PRIVATE'});
+ assert.equal(report.head.approved,false);assert.equal(report.published.approved,false);assert.ok(!JSON.stringify(report).includes('PRIVATE'));
+ assert.deepEqual(summarizeGasReleaseFailure({httpStatus:400,providerStatus:'INVALID_ARGUMENT',syntaxLine:123,message:'PRIVATE_URL_TOKEN'},'CONTENT_WRITE'),
+  {mode:'GAS_RELEASE_FAILURE',stage:'CONTENT_WRITE',httpStatus:400,providerStatus:'INVALID_ARGUMENT',providerReason:'UNKNOWN',syntaxLine:123});
+ assert.ok(!JSON.stringify(summarizeGasReleaseFailure({httpStatus:'PRIVATE',providerStatus:'PRIVATE',syntaxLine:Infinity},'PRIVATE')).includes('PRIVATE'));
+ const previousFetch=globalThis.fetch,previousEnv={...process.env},previousLog=console.log;const calls=[];
+ const files=[{name:'appsscript',type:'JSON',source:'{}'},{name:'Code',type:'SERVER_JS',source:gas}];
+ try {
+  Object.assign(process.env,{GAS_SCRIPT_ID:'TEST',GAS_WEB_APP_URL:'https://script.google.com/macros/s/TEST/exec',GAS_DEPLOYMENT_ID:'TEST',GAS_DEPLOY_DIAGNOSTIC_ONLY:'true',
+   CLASPRC_JSON:JSON.stringify({client_id:'TEST',client_secret:'TEST',refresh_token:'TEST'})});
+  delete process.env.GAS_EXPECTED_MAIN_SHA;delete process.env.GITHUB_ACTIONS;
+  console.log=()=>{};
+  globalThis.fetch=async(url,options={})=>{
+   const u=new URL(url),method=options.method||'GET';calls.push({host:u.host,method});
+   let data;
+   if(u.host==='oauth2.googleapis.com')data={access_token:'TEST'};
+   else {assert.equal(method,'GET');data=u.pathname.endsWith('/deployments/TEST')?{deploymentConfig:{versionNumber:1},entryPoints:[{entryPointType:'WEB_APP'}]}:{files};}
+   return{ok:true,text:async()=>JSON.stringify(data)};
+  };
+  const r=await deploy();assert.equal(r.mode,'READ_ONLY_GAS_RELEASE_STATE');assert.equal(r.dataWrites,0);
+  assert.equal(calls.filter(c=>c.host==='script.googleapis.com').length,3);
+  assert.ok(calls.filter(c=>c.host==='script.googleapis.com').every(c=>c.method==='GET'));
+ }finally{globalThis.fetch=previousFetch;console.log=previousLog;for(const k of Object.keys(process.env))if(!(k in previousEnv))delete process.env[k];Object.assign(process.env,previousEnv);}
+}
+console.log('PASS: actual release diagnosis has no project writes; approved-source state and safe bounded failure reports');
