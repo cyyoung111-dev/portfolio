@@ -62,7 +62,7 @@ async function collectorFixture(mode='ok') {
   const p=new URLSearchParams(options.body),action=p.get('action');calls.push(action);
   if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')return{ok:true,json:async()=>({status:mode==='auth-bad'?'ok':'error'})};
   let out={status:'ok'};
-  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':'9.266';
+  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':'9.267';
   if(action==='refreshEtfDividends')Object.assign(out,mode==='no-targets'?{skipped:true,reason:'NO_TARGETS',targetCount:0,targetCodes:[]}:{saved:true,refreshed:true,targetCount:1,targetCodes:['111111'],noEventCount:0,historyRows:1});
   if(action==='getDividendSettings')out.divData=mode==='readback-bad'&&saved?{}:structuredClone(cache);
   if(action==='getCodeList')out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];
