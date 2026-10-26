@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.267
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.268
+//
+//  v9.268 변경사항 (2026.10.26):
+//  • 상장종목 공식 V2 주소 동기화·HTTP 오류의 안전한 인증 사유 진단
 //
 //  v9.267 변경사항 (2026.10.26):
 //  • 일반 주식 배당 API 단계별 오류·정상 0건·필터 탈락 원인의 읽기 전용 진단
@@ -2303,7 +2306,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.267',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.268',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2381,7 +2384,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.267', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.268', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -4006,22 +4009,29 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
 // Only bounded status codes/counts are returned: never URLs, keys, provider text or company identifiers.
 function _inspectPublicDividendResponse(res) {
   var httpStatus = res.getResponseCode();
-  var result = { status: 'HTTP_ERROR', httpStatus: httpStatus, rows: [], totalCount: null, providerCode: '' };
-  if (httpStatus < 200 || httpStatus >= 300) return result;
+  var failedHttp = httpStatus < 200 || httpStatus >= 300;
+  var result = { status: 'HTTP_ERROR', httpStatus: httpStatus, rows: [], totalCount: null, providerCode: '', providerError: '' };
   var parsed;
   var text = res.getContentText() || '';
+  // Parse only canonical error tokens, never return provider text/URLs/credentials.
+  var errors = ['SERVICE_ACCESS_DENIED_ERROR','SERVICE_KEY_IS_NOT_REGISTERED_ERROR','DEADLINE_HAS_EXPIRED_ERROR',
+    'NO_OPENAPI_SERVICE_ERROR','SERVICE_KEY_IS_NULL','PERMISSION_DENIED','BLACKLIST_IP_ACCESS_ERROR',
+    'LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR','LIMITED_NUMBER_OF_SERVICE_REQUESTS_PER_SECOND_EXCEEDS_ERROR'];
+  errors.some(function(name) { if (text.indexOf(name) < 0) return false; result.providerError = name; return true; });
   try { parsed = JSON.parse(text); }
   catch (e) {
     // data.go.kr may return its bounded authentication error code in XML even for resultType=json.
     var xmlCode = text.indexOf('<OpenAPI_ServiceResponse') >= 0 && text.match(/<returnReasonCode>\s*([A-Z0-9_]{1,12})\s*<\/returnReasonCode>/);
-    if (xmlCode) { result.status = 'API_ERROR'; result.providerCode = xmlCode[1]; }
-    else result.status = 'JSON_INVALID';
+    if (xmlCode) { result.status = failedHttp ? 'HTTP_ERROR' : 'API_ERROR'; result.providerCode = xmlCode[1]; }
+    else if (!failedHttp) result.status = 'JSON_INVALID';
     return result;
   }
   var response = parsed && parsed.response;
   var header = response && response.header;
   var rawCode = header && header.resultCode !== undefined ? String(header.resultCode) : '';
   result.providerCode = /^[A-Z0-9_]{1,12}$/.test(rawCode) ? rawCode : '';
+  // Even a success-shaped error body must never become financial events after HTTP rejection.
+  if (failedHttp) return result;
   if (rawCode && rawCode !== '00' && rawCode !== '0') { result.status = 'API_ERROR'; return result; }
   var body = response && response.body;
   if (!body || typeof body !== 'object') { result.status = 'RESPONSE_INVALID'; return result; }
@@ -4035,12 +4045,12 @@ function _inspectPublicDividendResponse(res) {
 }
 
 function _publicDividendDiagnostic(result) {
-  return { status: result.status, httpStatus: result.httpStatus, providerCode: result.providerCode,
+  return { status: result.status, httpStatus: result.httpStatus, providerCode: result.providerCode, providerError: result.providerError,
     returnedRows: result.rows.length, totalCount: result.totalCount };
 }
 
 function _fetchPublicListedInfoBatch(codes, serviceKey, diagnostics) {
-  var base = 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo';
+  var base = 'https://apis.data.go.kr/1160100/GetKrxListedInfoService_V2/getItemInfo_V2';
   var out = {};
   var validCodes = [];
   var requests = [];
@@ -4051,8 +4061,7 @@ function _fetchPublicListedInfoBatch(codes, serviceKey, diagnostics) {
     var url = base
       + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
       + '&pageNo=1&numOfRows=10&resultType=json'
-      + '&likeSrtnCd=' + encodeURIComponent(normCode)
-      + '&srtnCd=' + encodeURIComponent(normCode);
+      + '&likeSrtnCd=' + encodeURIComponent(normCode);
     requests.push({ url: url, muteHttpExceptions: true, followRedirects: true });
   });
   if (requests.length === 0) return out;
@@ -4142,12 +4151,11 @@ function _publicServiceKeyParam(serviceKey) {
 function _fetchPublicListedInfoByCode(code, serviceKey) {
   var normCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
   if (!/^\d{6}$/.test(normCode)) return null;
-  var base = 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo';
+  var base = 'https://apis.data.go.kr/1160100/GetKrxListedInfoService_V2/getItemInfo_V2';
   var url = base
     + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
     + '&pageNo=1&numOfRows=10&resultType=json'
-    + '&likeSrtnCd=' + encodeURIComponent(normCode)
-    + '&srtnCd=' + encodeURIComponent(normCode);
+    + '&likeSrtnCd=' + encodeURIComponent(normCode);
   try {
     var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
     if (res.getResponseCode() < 200 || res.getResponseCode() >= 300) return null;
@@ -6372,7 +6380,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.267' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.268' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13433,7 +13441,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.267',
+    gasVersion: '9.268',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13498,7 +13506,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.267' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.268' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16564,7 +16572,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), readOnly: true, gasVersion: '9.267' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.268' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17388,7 +17396,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.267' });
+    return jsonOk({ settings: settings, gasVersion: '9.268' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17418,7 +17426,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.267'
+      gasVersion: '9.268'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

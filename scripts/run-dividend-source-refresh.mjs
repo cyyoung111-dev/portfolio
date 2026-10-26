@@ -13,28 +13,28 @@ async function call(action,args={},access=token) {
  const deny=await call('getDividendSettings',{},'DIVIDEND_BAD_AUTH_PROBE');
  if(deny.status==='ok')throw Error('DIVIDEND_AUTH_NOT_ENFORCED');
  const state=await call('getAutomationStatus');
- if(state.status!=='ok'||state.gasVersion!=='9.267')throw Error('DIVIDEND_VERSION');
+ if(state.status!=='ok'||state.gasVersion!=='9.268')throw Error('DIVIDEND_VERSION');
  const refreshed=await call('refreshEtfDividends',{force:'1'});
  if(refreshed.status!=='ok'||(!(refreshed.saved===true&&refreshed.refreshed===true)&&!(refreshed.skipped===true&&refreshed.reason==='NO_TARGETS')))throw Error('DIVIDEND_ETF_REFRESH_FAILED');
  const etfCodes=refreshed.targetCodes;
  if(!Array.isArray(etfCodes)||etfCodes.length!==refreshed.targetCount||new Set(etfCodes).size!==etfCodes.length||etfCodes.some(code=>! /^[A-Z0-9]{6}$/.test(String(code))))throw Error('DIVIDEND_ETF_TARGETS_INVALID');
  let cached=await call('getDividendSettings');
  if(cached.status!=='ok'||!cached.divData)throw Error('DIVIDEND_READBACK_FAILED');
- const catalog=await call('getCodeList');
- if(catalog.status!=='ok'||!Array.isArray(catalog.codes))throw Error('DIVIDEND_MASTER_READ_FAILED');
+ const catalog=await call('getCodeListReadOnly');
+ if(catalog.status!=='ok'||catalog.readOnly!==true||catalog.gasVersion!=='9.268'||!Array.isArray(catalog.codes))throw Error('DIVIDEND_MASTER_READ_FAILED');
  const checked=etfCodes.filter(code=>{const x=cached.divData[code];return x&&(String(x.updatedAt||'').slice(0,10)===date||String(x.providerCheckedAt||'').slice(0,10)===date);});
  if(checked.length!==etfCodes.length)throw Error('DIVIDEND_ETF_READBACK_INCOMPLETE');
- const settings=await call('getSettings');
- if(settings.status!=='ok')throw Error('DIVIDEND_SETTINGS_READ_FAILED');
  const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&!['ETF','TDF','펀드','FUND'].includes(String(c.type||c.assetType).toUpperCase()));
- let stockUpdated=0,stockUnverified=stocks.length,stockKeyConfigured=!!settings.settings?.apiKeyStatus?.publicDataApiKeyConfigured;
+ let stockUpdated=0,stockUnverified=stocks.length,stockKeyConfigured=catalog.publicDataApiKeyConfigured===true;
  if(stockKeyConfigured&&stocks.length){
   const pub=await call('dividendPublic',{codes:stocks.map(c=>c.code).join(','),names:stocks.map(c=>c.name).join('|')});
   if(pub.status!=='ok'||!pub.dividends)throw Error('DIVIDEND_PUBLIC_REQUEST_FAILED');
   const patch={};
   for(const c of stocks){const x=pub.dividends[c.code],old=cached.divData[c.code];
    if(String(old?.source).toUpperCase()==='MANUAL')continue;
-   if(x?.source==='PUBLIC_DATA'&&Number(x.perShare)>0&&Array.isArray(x.events)&&x.events.length&&x.events.every(e=>Number(e.amount)>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(e.date))))patch[c.code]={...old,...x,updatedAt:new Date().toISOString(),refreshState:'VERIFIED'};
+   const retry=pub.diagnostics?.retry?.[c.code];
+   const source=retry?.returnedRows>0?retry:pub.diagnostics?.dividend?.[c.code];
+   if(source?.status==='OK'&&x?.source==='PUBLIC_DATA'&&Number(x.perShare)>0&&Array.isArray(x.events)&&x.events.length&&x.events.every(e=>Number(e.amount)>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(e.date))))patch[c.code]={...old,...x,updatedAt:new Date().toISOString(),refreshState:'VERIFIED'};
   }
   stockUpdated=Object.keys(patch).length;stockUnverified=stocks.filter(c=>!patch[c.code]&&cached.divData[c.code]?.source!=='MANUAL').length;
   if(stockUpdated){

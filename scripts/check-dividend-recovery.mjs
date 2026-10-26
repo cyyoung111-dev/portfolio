@@ -62,12 +62,12 @@ async function collectorFixture(mode='ok') {
   const p=new URLSearchParams(options.body),action=p.get('action');calls.push(action);
   if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')return{ok:true,json:async()=>({status:mode==='auth-bad'?'ok':'error'})};
   let out={status:'ok'};
-  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':'9.267';
+  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':'9.268';
   if(action==='refreshEtfDividends')Object.assign(out,mode==='no-targets'?{skipped:true,reason:'NO_TARGETS',targetCount:0,targetCodes:[]}:{saved:true,refreshed:true,targetCount:1,targetCodes:['111111'],noEventCount:0,historyRows:1});
   if(action==='getDividendSettings')out.divData=mode==='readback-bad'&&saved?{}:structuredClone(cache);
-  if(action==='getCodeList')out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];
-  if(action==='getSettings')out.settings={apiKeyStatus:{publicDataApiKeyConfigured:true}};
-  if(action==='dividendPublic') {assert.equal(p.get('names'),'B|C');out.dividends={'333333':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}};}
+  if(action==='getCodeListReadOnly'){out.readOnly=true;out.gasVersion='9.268';out.publicDataApiKeyConfigured=true;out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];}
+  assert.ok(!['getCodeList','getSettings'].includes(action),'source refresh must not enter unrelated settlement writers');
+  if(action==='dividendPublic') {assert.equal(p.get('names'),'B|C');out.dividends={'333333':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}};out.diagnostics={dividend:{'333333':{status:mode==='partial-page'?'PARTIAL_PAGE':'OK'}},retry:{}};}
   if(action==='saveDividendSettings'){const patch=JSON.parse(p.get('data'));assert.deepEqual(Object.keys(patch),['333333']);Object.assign(cache,patch);saved=true;out.saved=true;}
   return{ok:true,json:async()=>out};
  };
@@ -75,6 +75,7 @@ async function collectorFixture(mode='ok') {
  return{run,calls,cache};
 }
 {const f=await collectorFixture(),r=await f.run();assert.equal(r.etfChecked,1);assert.equal(r.stockUpdated,1);assert.equal(r.stockUnverified,0);assert.equal(f.cache['444444'].perShare,99);}
+{const f=await collectorFixture('partial-page'),r=await f.run();assert.equal(r.stockUpdated,0);assert.ok(!f.calls.includes('saveDividendSettings'));assert.equal(f.cache['333333'].perShare,7);}
 for(const mode of ['auth-bad','version','readback-bad']){const f=await collectorFixture(mode);await assert.rejects(f.run(),/DIVIDEND_/);if(mode!=='readback-bad')assert.ok(!f.calls.includes('refreshEtfDividends'));}
 console.log('PASS: official-source collector auth/version/readback guards, exact patch, no manual/omitted-data overwrite');
 
