@@ -43,11 +43,10 @@ const base={status:'ok',dividends:{'111111':{perShare:0,events:[]}},diagnostics:
 async function run(mode='ok') {
   const calls=[];const fetchImpl=async(_u,o)=>{
     const p=new URLSearchParams(o.body),action=p.get('action');calls.push(action);
-    assert.ok(['getDividendSettings','getAutomationStatus','getCodeList','dividendPublic'].includes(action),'read-only allowlist');
+    assert.ok(['getCodeListReadOnly','dividendPublic'].includes(action),'read-only allowlist');
     let r={status:'ok'};
     if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')r.status=mode==='auth'?'ok':'error';
-    else if(action==='getAutomationStatus')r.gasVersion=mode==='version'?'9.266':'9.267';
-    else if(action==='getCodeList')r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];
+    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'?'error':'ok';r.gasVersion=mode==='version'?'9.266':'9.267';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
     else if(action==='dividendPublic') {r=structuredClone(base);if(mode==='coverage')delete r.diagnostics.dividend['111111'];if(mode==='status')r.diagnostics.dividend['111111'].status='PRIVATE_KEY';}
     return {ok:true,json:async()=>r};
   };
@@ -55,8 +54,25 @@ async function run(mode='ok') {
 }
 const {result,calls}=await run();assert.equal(result.targets,1);assert.equal(result.withoutAcceptedEvents,1);
 assert.equal(result.stages.dividend.providerCodes['30'],1);assert.equal(result.originalDataWritten,false);
-assert.ok(!/PRIVATE|111111|222222/.test(JSON.stringify(result)));assert.equal(calls.length,4);
-for(const mode of ['auth','version','coverage','status']) await assert.rejects(run(mode),/DIVIDEND_DIAG_/);
+assert.ok(!/PRIVATE|111111|222222/.test(JSON.stringify(result)));assert.equal(calls.length,3);
+for(const mode of ['auth','version','write-path','unsupported','coverage','status']) await assert.rejects(run(mode),/DIVIDEND_DIAG_/);
+// Execute the actual catalog handler with pending, corrupt, absent and lock-busy states.
+// No settlement/identity helpers or financial writers are stubbed into a false read-only success.
+for(const mode of ['pending','corrupt','ok','busy','read-failed']) {
+  let reads=0,releases=0,writes=0;
+  const failWrite=()=>{writes++;throw Error('financial write forbidden');};
+  ctx._settlePendingCodeDeleteForRead_=failWrite;ctx._writeCodeDeleteEditablesOnly_=failWrite;ctx._writeSettingsMap=failWrite;
+  const rows=[['111111','A','주식','','KRW','KOSPI']];
+  ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=>mode==='pending'?'{}':mode==='corrupt'?'not-json':'',setProperty:failWrite,deleteProperty:failWrite})};
+  ctx.LockService={getScriptLock:()=>({tryLock:()=>mode!=='busy',releaseLock:()=>releases++})};
+  ctx.getss=()=>({getSheetByName:()=>({getLastRow:()=>2,getLastColumn:()=>6,getRange:()=>({getValues:()=>{reads++;if(mode==='read-failed')throw Error('read failed');return rows;},setValues:failWrite}),clearContents:failWrite}),insertSheet:failWrite});
+  ctx.Logger={log(){}};
+  ctx._isAuthorizedRequest=()=>true;
+  const r=ctx.doPost({postData:{contents:'action=getCodeListReadOnly'}});assert.equal(writes,0);assert.equal(releases,mode==='busy'?0:1);
+  if(mode==='ok') {assert.equal(r.status,'ok');assert.equal(r.readOnly,true);assert.equal(r.codes.length,1);}
+  else {assert.equal(r.status,'error');if(mode!=='read-failed')assert.equal(reads,0);}
+}
+assert.match(fs.readFileSync('src/gas/apps_script.gs','utf8'),/params\.action === 'getCodeListReadOnly'\)\s+return handleGetCodeListReadOnly\(\)/);
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/stock-dividend-diagnosis.yml','utf8'));
 assert.equal(workflow.on.schedule,undefined);assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.equal(workflow.jobs.diagnose.environment,'portfolio-production-gas');

@@ -1343,6 +1343,7 @@ function doGet(e) {
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
   if (params.action === 'getSnapshotRepairStatus')        return handleGetSnapshotRepairStatus();
+  if (params.action === 'getCodeListReadOnly')            return handleGetCodeListReadOnly();
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
@@ -1422,7 +1423,7 @@ function doPost(e) {
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
   if (params.action === 'reconcileCompletedKrxPending') return handleReconcileCompletedKrxPending(params.dates || '', params.apply || '');
   if (params.action === 'repairOct08FundSourceOnly') return handleRepairOct08FundSourceOnly();
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeListReadOnly', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
     return handleSyncCodesAppendOnly(params.codes, params.expectedCodes, params.expectedSourceId || '');
@@ -16555,6 +16556,22 @@ function getCodeItems(ss, throwOnError) {
 // ════════════════════════════════════════════════════════════════════
 //  종목코드 목록 반환
 // ════════════════════════════════════════════════════════════════════
+function handleGetCodeListReadOnly() {
+  var lock = LockService.getScriptLock(), locked = false;
+  try {
+    if (!lock.tryLock(1000)) return jsonError('CODE_LIST_READ_ONLY_BUSY');
+    locked = true;
+    // Do not settle, migrate or retire any transaction, including malformed/partial markers.
+    if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
+      return jsonError('CODE_LIST_READ_ONLY_PENDING');
+    return jsonOk({ codes: getCodeItems(getss(), true), readOnly: true, gasVersion: '9.267' });
+  } catch(err) {
+    return jsonError('CODE_LIST_READ_ONLY_FAILED');
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
 function handleGetCodeList() {
   try {
     var ss = getss();

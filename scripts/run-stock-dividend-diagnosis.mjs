@@ -13,12 +13,11 @@ export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fe
     if(!r.ok) throw Error('DIVIDEND_DIAG_HTTP_FAILED');
     try { return await r.json(); } catch { throw Error('DIVIDEND_DIAG_JSON_FAILED'); }
   }
-  const denied=await call('getDividendSettings',{},'DIVIDEND_BAD_AUTH_PROBE');
+  const denied=await call('getCodeListReadOnly',{},'DIVIDEND_BAD_AUTH_PROBE');
   if(denied.status==='ok') throw Error('DIVIDEND_DIAG_AUTH_NOT_ENFORCED');
-  const status=await call('getAutomationStatus');
-  if(status.status!=='ok'||status.gasVersion!=='9.267') throw Error('DIVIDEND_DIAG_VERSION');
-  const catalog=await call('getCodeList');
+  const catalog=await call('getCodeListReadOnly');
   if(catalog.status!=='ok'||!Array.isArray(catalog.codes)) throw Error('DIVIDEND_DIAG_CATALOG');
+  if(catalog.readOnly!==true||catalog.gasVersion!=='9.267') throw Error('DIVIDEND_DIAG_VERSION');
   const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&
     !['ETF','TDF','펀드','FUND'].includes(String(c.assetType||c.type||'').toUpperCase()));
   const unique=[...new Map(stocks.map(c=>[String(c.code),c])).values()];
