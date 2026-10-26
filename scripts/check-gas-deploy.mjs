@@ -65,10 +65,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.270');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.999');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.270','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.999','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -96,7 +96,7 @@ assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a se
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
   'newest GAS release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.269') && latestReleaseNotes.includes('Snapshot'),
+assert.ok(latestReleaseNotes.includes('gasVersion=9.270') && latestReleaseNotes.includes('Snapshot'),
   'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -257,6 +257,7 @@ const statusFunctions = [
   '_tradeLedgerWriteUnverified_',
   '_ensureDailyTriggers',
   '_getTradeSnapshotWorkerTriggerAudit_',
+  '_krxClosePublicationState_',
   '_getAutomationStatusData',
   'checkDailyAutomationStatus',
 ];
@@ -270,7 +271,7 @@ const requiredHandlers = [
 ];
 function runRealDiagnostics({
   missing = [], duplicate = '', overridden = {}, pendingTradeFrom = '', unverifiedTrade = false,
-  deferredDates = [],
+  deferredDates = [], closeResult = null, fundError = '', pendingKrxDates = [],
 } = {}) {
   const calls = [], alerts = [], logs = [];
   const handlerNames = requiredHandlers.filter(x => !missing.includes(x));
@@ -283,10 +284,11 @@ function runRealDiagnostics({
     calls.push(name);
     throw Error('read-only diagnostic attempted mutation: ' + name);
   };
-  const props = new Map([['portfolio_close_last_result', JSON.stringify({
+  const props = new Map([['portfolio_close_last_result', JSON.stringify(closeResult || {
     runDate:'2026-10-14', priceDate:'2026-10-14',
     priceOk:true, fundOk:true, errors:[],
   })]]);
+  if(fundError)props.set('fund_last_error',fundError);
   if(pendingTradeFrom)props.set('trade_snapshot_rebuild_pending_v1',JSON.stringify({from:pendingTradeFrom}));
   if(unverifiedTrade)props.set('trade_ledger_write_unverified_v1',JSON.stringify({state:'WRITING'}));
   if(deferredDates.length) props.set('trade_snapshot_rebuild_deferred_v1',
@@ -323,7 +325,7 @@ function runRealDiagnostics({
     _expectedConfirmedSnapshotDate: () => '2026-10-14',
     _expectedPortfolioCloseRunDate: () => '2026-10-14',
     _isPortfolioCloseRunStale: () => false,
-    _readPendingKrxCloseDates_: () => [],
+    _readPendingKrxCloseDates_: () => pendingKrxDates,
     _normalizeDate:value=>String(value||''),
   });
   new vm.Script(productionConfigSource).runInContext(ctx);
@@ -574,7 +576,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='09bfae99349d66412d22b96206137534e61f2b7e';
+const approvedFullSourceBlob='291a05d20f4bbc92275dbb804856ce72b5446bbe';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -618,7 +620,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.269',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.270',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
@@ -778,3 +780,14 @@ assert.match(fs.readFileSync('.github/workflows/web-check.yml', 'utf8'), /action
 assert.match(fs.readFileSync('.github/workflows/market-briefing-headless.yml', 'utf8'), /actions\/checkout@v7[\s\S]*actions\/setup-node@v7[\s\S]*node-version:\s*['"]24['"]/);
 
 console.log('✅ GAS clasp 인증·Node 24 자동배포 구성 회귀 검사 통과');
+
+{
+ const closeResult={runDate:'2026-10-26',priceOk:false,fundOk:true,errors:['EXPECTED_SOURCE_WAIT']};
+ const overridden={_krxClosePublicationState_:"function _krxClosePublicationState_(){return {waiting:true,state:'WAITING_PUBLICATION',tradeDate:'2026-10-26',availableAfter:'2026-10-27T08:00:00+09:00'};}"};
+ const args={closeResult,pendingKrxDates:['2026-10-26'],overridden};
+ const waiting=runRealDiagnostics(args).data;
+ assert.equal(waiting.overallStatus,'WARNING');assert.equal(waiting.portfolioClose.priceOk,false,'waiting never asserts price success');
+ assert.equal(runRealDiagnostics({...args,fundError:'Service timed out'}).data.overallStatus,'ERROR','real fund timeout must never be downgraded');
+ assert.equal(runRealDiagnostics({...args,missing:['runPortfolioMorningKrxBackfill0845']}).data.overallStatus,'ERROR','missing morning recovery remains ERROR');
+}
+console.log('Actual automation publication wait remains WARNING; fund failure/missing recovery remain ERROR: PASS');

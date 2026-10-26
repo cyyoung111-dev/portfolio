@@ -190,6 +190,9 @@ export function summarizeCloseStatus(a) {
     fundAttemptDate:safeDate(f?.date),
     fundErrorPresent:!!a.fundLastError,
     fundErrorCode:classifyFundError(a.fundLastError),
+    krxPublicationWaiting:a.krxPublication?.waiting===true,
+    krxPublicationTradeDate:safeDate(a.krxPublication?.tradeDate),
+    krxPublicationAvailableAfter:/^\d{4}-\d{2}-\d{2}T08:00:00\+09:00$/.test(a.krxPublication?.availableAfter||'')?a.krxPublication.availableAfter:'-',
     fundWarningPresent:!!a.fundLastWarning
   };
 }

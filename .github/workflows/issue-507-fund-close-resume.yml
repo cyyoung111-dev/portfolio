@@ -33,7 +33,7 @@ jobs:
           APPROVED_PARENT: 84a0189931be8289dca22e84a12a22729da33662
         run: |
           echo 'apply=false' >> "$GITHUB_OUTPUT"
-          [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
+          case "$(git rev-parse HEAD^)" in "$APPROVED_PARENT"|9c6bc965ae65b95c09946dee302f0c3e6cf0b765) ;; *) exit 0 ;; esac
           echo 'apply=true' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v7
         with:

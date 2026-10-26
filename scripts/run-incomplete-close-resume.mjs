@@ -4,8 +4,11 @@ import {runBackfillStatus,summarizeBackfillStatus} from './diagnose-backfill-sta
 export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
  const endpoint=validateWebAppUrl(url);
  const initial=await runBackfillStatus({url:endpoint,token,fetchImpl});
- if(initial.gasVersion!=='9.269')throw Error('RESUME_VERSION');
+ if(initial.gasVersion!=='9.270')throw Error('RESUME_VERSION');
  if(initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
+ const waitingFundDone=status=>status.close.krxPublicationWaiting && status.close.fundOk===true
+   && status.close.fundState==='DONE' && !status.close.fundErrorPresent && !status.close.fundWarningPresent;
+ if(waitingFundDone(initial))return {complete:false,fundComplete:true,waitingPublication:true,status:initial};
  async function req(action,args={}) {
   let r;
   try {
@@ -24,6 +27,7 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
   const status=summarizeBackfillStatus(await req('getAutomationStatus'));
   emit({iteration:i+1,...status});
   if(status.close.state==='COMPLETE'&&!status.close.fundWarningPresent)return {complete:true,status};
+  if(waitingFundDone(status))return {complete:false,fundComplete:true,waitingPublication:true,status};
   if(r.status!=='ok'||r.continued!==true)throw Error('RESUME_CONTINUE_BLOCKED_VERIFY_STATUS');
  }
  throw Error('RESUME_BOUNDED_PROGRESS_EXHAUSTED');
