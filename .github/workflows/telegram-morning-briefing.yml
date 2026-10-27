@@ -1,0 +1,29 @@
+name: Telegram morning market briefing
+
+on:
+  schedule:
+    - cron: '30 23 * * 0-4' # 08:30 KST, Monday-Friday
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-morning-briefing
+  cancel-in-progress: false
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Send briefing or manual connection test
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MANUAL_TEST: 'true'
+        run: node scripts/telegram-morning-briefing.mjs
