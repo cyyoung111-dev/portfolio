@@ -467,11 +467,17 @@ async function loadAutomationStatusFromGsheet() {
     body.innerHTML = '<div style="color:var(--muted)">Apps Script 웹앱을 먼저 연결하세요.</div>';
     return;
   }
+  if (body.dataset.loading === '1') return;
+  const targetUrl = GSHEET_API_URL;
+  const generation = getGsheetConnectionGeneration();
+  const isCurrent = () => isGsheetConnectionCurrent(targetUrl, generation);
+  body.dataset.loading = '1';
   badge.textContent = '조회 중';
   badge.style.color = 'var(--amber)';
-  body.innerHTML = '<div style="color:var(--muted)">자동화 상태를 조회하고 있습니다...</div>';
+  body.innerHTML = '<div style="color:var(--muted)">자동화 상태를 조회하고 있습니다. 최대 60초 정도 걸릴 수 있습니다.</div>';
   try {
-    const data = await requestGsheetActionJson('getAutomationStatus', {}, { timeoutMs: 15000, retry: 1, preserveError: true });
+    const data = await requestGsheetActionJson('getAutomationStatus', {}, { targetUrl, timeoutMs: 60000, retry: 0, preserveError: true });
+    if (!isCurrent()) return;
     if (!data || data.status !== 'ok' || !data.automation) throw new Error(data?.message || '자동화 상태 응답 오류');
     const a = data.automation;
     const close = a.portfolioClose || {};
@@ -532,9 +538,12 @@ async function loadAutomationStatusFromGsheet() {
               : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음')))}
       </div>`;
   } catch (error) {
+    if (!isCurrent()) return;
     badge.textContent = '조회 실패';
     badge.style.color = 'var(--red-lt)';
     body.innerHTML = '<div style="color:var(--red-lt)">자동화 상태 조회 실패: ' + _escapeHtml(error?.message || String(error)) + '</div>';
+  } finally {
+    delete body.dataset.loading;
   }
 }
 
