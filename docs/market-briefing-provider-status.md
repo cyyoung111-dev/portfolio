@@ -1,3 +1,12 @@
+## 2026-10-27 야간 거래일 및 장전 기준 정정
+
+- KRX 공식 야간거래 안내서에 따라 야간 거래일은 **새벽 종료일**입니다. 10/27 아침 브리핑이 요구하는 야간 세션은 BAS_DD=10/27이며, 10/26 원천을 10/27의 최신 야간 확정값으로 바꾸지 않습니다.
+- 06:15 NIGHT_FINAL 및 MORNING은 대상일과 동일한 sourceDate를 조회·검증합니다. 09:15 T+1 catch-up은 기존 일정 해석에서 선택한 과거 대상일 자체를 조회하며 07:30 발행 성공으로 취급하지 않습니다.
+- MORNING은 정확한 야간 세션·공식 출처·확정 상태와 **실제 receivedAt <= 07:30 KST**를 모두 요구합니다. 확정 조건을 낮추지 않습니다. 이전 날짜/기존 과거 품질 표식은 승인하지 않습니다.
+- 원천가 미확보는 EXACT_NIGHT_SESSION_NOT_AVAILABLE, 같은 날짜 공식 확정값이 기준시점 이후 수신된 경우는 RECEIVED_AFTER_CUTOFF로 구분합니다. 후자는 당일 07:30에 이미 알았던 값으로 소급 발행하지 않습니다.
+- KRX 일별 OpenAPI는 모든 API를 익영업일 08시 갱신한다고 안내합니다. 이 원천만으로 당일 최신 야간 종가를 07:30에 확보한다고 보장할 수 없습니다. 제때 제공하는 원천과 날짜·세션·수신 증거를 확보하기 전까지 NOT_READY를 유지합니다.
+- 근거: https://openapi.krx.co.kr/contents/OPP/COMM/faq/OPPCOMM004.cmd 및 https://open.krx.co.kr/contents/OPN/01/01041401/한국거래소%20파생상품시장%20야간거래%20안내.pdf (2025-06-05, 17쪽).
+
 # 시장 브리핑 provider 상태
 
 ## 2026-10-17 국내 당일 종가 provider 전환 게이트
@@ -39,7 +48,7 @@
 - 07:30 필수 발행 게이트는 KOSPI/KOSDAQ/KOSPI200/K200_NIGHT/SPX/NDX/SOX/VIX/USDKRW로 유지한다.
 - VKOSPI/DXY/UST10Y/WTI/GOLD/BTC/삼성전자/SK하이닉스는 중요 보조지표로 수집·표시하되 한 provider 장애가 브리핑 전체 발행을 막지는 않는다.
 - 실제 provider가 없는 UST2Y/NVDA/MU/수급/breadth는 `PLANNED`로 분리하여 항상 PARTIAL이 되는 잘못된 QC를 방지한다.
-- K200_NIGHT는 당일 tradingDate + NIGHT session + FINAL + NIGHT_FINAL을 모두 만족해야 장전 준비 완료로 본다.
+- K200_NIGHT는 당일 tradingDate 및 동일 sourceDate + NIGHT session + FINAL + NIGHT_FINAL을 모두 만족해야 장전 준비 완료로 본다.
 
 ## KIS 원칙
 
