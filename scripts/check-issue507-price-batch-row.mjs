@@ -30,7 +30,7 @@ const mk=(mode)=>{
   default:throw Error('fixture '+mode);
  }
 };
-function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,formula=[],dateReadback='',writerSource=production}={}){
+function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,formula=[],dateReadback='',timestampReadback='',writerSource=production}={}){
  const stored=copy(mk(mode)), initial=copy(stored);
  const writes=[],reads=[],revisions=[],formats=[],inserts=[];let attempts=0,fullScans=0,appendCalled=false,failed=false,flushes=0;
  const width=mode==='empty'?6:mode==='legacy5'?5:7;
@@ -57,6 +57,12 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
           row[0]=value;
         }
       }
+      if(timestampReadback&&c===1&&r===initial.length+1&&writes.length){
+        for(const row of result)if(row[4]){
+          row[4]=new Date(String(row[4]).replace(' ','T')+'+09:00');
+          if(timestampReadback==='DRIFT')row[4].setUTCSeconds(row[4].getUTCSeconds()+1);
+        }
+      }
       return result;
     },
     getFormulas:()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>
@@ -79,7 +85,12 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
  const ss={getSheetByName:key=>key==='가격이력'?sheet:null,insertSheet:key=>{inserts.push(key);return sheet;}};
  const ctx=vm.createContext({
   Date,CONFIG:{SHEET_PH:'가격이력',TIMEZONE:'Asia/Seoul'},
-  Utilities:{formatDate:(value,tz)=>new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value)},
+  Utilities:{formatDate:(value,tz,pattern)=>{
+    const opts={timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'};
+    if(pattern.includes('HH'))Object.assign(opts,{hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+    const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',opts).formatToParts(value).map(p=>[p.type,p.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`+(pattern.includes('HH')?` ${parts.hour}:${parts.minute}:${parts.second}`:'');
+  }},
   _cleanCode:x=>String(x||'').trim(),
   _normalizeDate:x=>String(x||'').slice(0,10),
   _normalizeCodeRows:x=>copy(x),
@@ -201,9 +212,21 @@ console.log('ISSUE507_BATCH_PRICE_WRITER_REGRESSION_OK_SAME_CELL_TOCTOU_UNSOLVED
  e.run([e.item('000888',888)]);assert.equal(e.revisions.length,1);
  const drift=makeEnv({mode:'empty',dateReadback:'DRIFT'});
  assert.throws(()=>drift.run([drift.item('000888',888)]),/APPEND_UNVERIFIED/);
- const old=production.replace(/if \(!appended\[index\] \|\| _normalizeDate\(appended\[index\]\[0\]\) !== _normalizeDate\(row\[0\]\)\s*\|\| !same\(appended\[index\]\.slice\(1\),row\.slice\(1\)\)\)/,'if (!same(appended[index],row))');
+ const old=production.replace(/if \(!appended\[index\] \|\| _normalizeDate\(appended\[index\]\[0\]\) !== _normalizeDate\(row\[0\]\)\s*\|\| !sameObservation\(appended\[index\]\.slice\(1\),row\.slice\(1\),3\)\)/,'if (!same(appended[index],row))');
  assert.notEqual(old,production);
  const mutation=makeEnv({mode:'empty',dateReadback:'MATCH',writerSource:old});
  assert.throws(()=>mutation.run([mutation.item('000888',888)]),/APPEND_UNVERIFIED/);
  console.log('ISSUE507_BATCH_NATIVE_DATE_READBACK_AND_WRONG_DATE_MUTATION_PASS');
+}
+
+{
+ const sameStamp=makeEnv({mode:'empty',timestampReadback:'MATCH'});
+ sameStamp.run([sameStamp.item('000888',888,'KRX','2026-01-14 08:39:42')]);
+ const drift=makeEnv({mode:'empty',timestampReadback:'DRIFT'});
+ assert.throws(()=>drift.run([drift.item('000888',888,'KRX','2026-01-14 08:39:42')]),/APPEND_UNVERIFIED/);
+ const old=production.replace('!sameObservation(appended[index].slice(1),row.slice(1),3)','!same(appended[index].slice(1),row.slice(1))');
+ assert.notEqual(old,production);
+ const mutant=makeEnv({mode:'empty',timestampReadback:'MATCH',writerSource:old});
+ assert.throws(()=>mutant.run([mutant.item('000888',888,'KRX','2026-01-14 08:39:42')]),/APPEND_UNVERIFIED/);
+ console.log('PASS native timestamp identity, one-second mismatch rejection, old comparison mutation');
 }

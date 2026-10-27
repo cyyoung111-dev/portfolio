@@ -1499,7 +1499,7 @@ for (const configured of [true, false]) {
 {
   const f=setup();
   f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}:
-    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.270'};
+    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.271'};
   assert.equal(await f.ctx.loadSettings(),true);
   assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
 }
