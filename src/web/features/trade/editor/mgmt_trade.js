@@ -667,22 +667,35 @@ function saveTrade() {
   //   수정: 유효성 검사 통과 후 1회만 선언, 이하 모든 로직에서 공유
   const normN = normName(name) || name;
 
-  // 매도 시 현재 보유 수량 초과 체크
+  // 신규 매도·기업행위는 거래일 기준 수량 및 후속 거래 정합성을 확인
   let currentQty = null;
   if ((tradeType === 'sell' || isAction) && !isEditing) {
     const acct = acctVal || '';
-    // 현재 보유 수량 계산 (해당 계좌, 해당 종목)
-    currentQty = rawTrades
-      .filter(t => t.name === normN && t.acct === acct)
-      .reduce((s, t) => {
-        if (t.tradeType === 'buy') return s + (t.qty || 0);
-        if (t.tradeType === 'sell') return s - (t.qty || 0);
-        if (t.tradeType === 'split' && Number(t.ratio) > 0) return s * Number(t.ratio);
-        if (t.tradeType === 'reverse_split' && Number(t.ratio) > 0) return s / Number(t.ratio);
-        return s;
-      }, 0);
+    // 후보를 실제 저장 순서(같은 날은 기존 거래 뒤)에 넣어 전체 수량을 검증합니다.
+    // 미래 매수로 과거 매도를 허용하거나 이후 분할 수량으로 과거를 판단하지 않습니다.
+    const candidate = { date, tradeType, qty, ratio, name:normN, code, acct };
+    const ordered = rawTrades.concat(candidate).map((item,index) => ({item,index}))
+      .filter(({item}) => item.acct === acct &&
+        (code && item.code ? item.code === code : item.name === normN))
+      .sort((a,b) => String(a.item.date || '').localeCompare(String(b.item.date || '')) || a.index-b.index);
+    let balance = 0, invalidDate = '';
+    ordered.forEach(({item}) => {
+      if (item === candidate) currentQty = balance;
+      const units = Number(item.qty) || 0, actionRatio = Number(item.ratio) || 0;
+      if (item.tradeType === 'buy') balance += units;
+      else if (item.tradeType === 'sell') {
+        if (units > balance + 0.00000001 && !invalidDate) invalidDate = item.date;
+        balance -= units;
+      } else if (item.tradeType === 'split' && actionRatio > 0) balance *= actionRatio;
+      else if (item.tradeType === 'reverse_split' && actionRatio > 0) balance /= actionRatio;
+    });
     if (tradeType === 'sell' && qty > currentQty) {
       err.textContent = `❌ 매도 수량(${qty})이 보유 수량(${currentQty})을 초과합니다`;
+      err.style.display = 'block';
+      return;
+    }
+    if (invalidDate) {
+      err.textContent = `❌ ${invalidDate} 거래의 매도 수량이 당시 보유 수량을 초과합니다. 거래일과 이후 거래를 확인해주세요`;
       err.style.display = 'block';
       return;
     }
