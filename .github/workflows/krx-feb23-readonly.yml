@@ -1,0 +1,34 @@
+name: krx-feb23-readonly
+on:
+  pull_request:
+    paths:
+      - 'scripts/diagnose-krx-feb23.mjs'
+      - '.github/workflows/krx-feb23-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: node scripts/diagnose-krx-feb23.mjs --self-test
+  operational-readonly:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    needs: contract
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read official exact-date existence without exposing credentials
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/diagnose-krx-feb23.mjs
