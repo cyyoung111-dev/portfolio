@@ -637,3 +637,26 @@ console.log('Collector active NAV owner: explicit deferred result, no external r
  assert.equal(done.complete,false);assert.equal(done.waitingPublication,true);assert.equal(done.fundComplete,true);assert.equal(requests,2,'already-complete NAV with publication wait performs no producer write');
 }
 console.log('Close resume: pending PRICE plus verified DONE NAV remains incomplete, no blind retry: PASS');
+
+// Read-only recovery diagnosis must never reach an apply request, including a blocked preview.
+{
+ const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
+ for(const blocked of [false,true]){
+  const events=[],calls=[];const fixture=structuredClone(workerLive);
+  fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
+  fixture.gasVersion=fixture.automation.gasVersion='9.271';
+  fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
+  const result=await resumeClose({url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',readOnly:true,emit:x=>events.push(x),fetchImpl:async(_u,o)=>{
+   const p=Object.fromEntries(o.body);calls.push(p);
+   if(p.accessToken==='AUTOMATION_READONLY_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+   if(p.action==='getAutomationStatus')return {ok:true,json:async()=>fixture};
+   assert.equal(p.apply,'0','diagnosis cannot submit apply=1');
+   return {ok:true,json:async()=>({status:blocked&&p.phase==='continue'?'error':'ok',message:'PRIVATE'})};
+  }});
+  assert.equal(result.mode,'READ_ONLY');assert.equal(result.continueReady,!blocked);assert.equal(result.scheduleReady,true);
+  assert.equal(calls.filter(p=>p.action==='resumeIncompletePortfolioClose').length,2);
+  assert.deepEqual(events.map(e=>e.phase),['INITIAL_STATUS','continue','schedule']);
+  assert.ok(events.every(e=>Number.isFinite(e.elapsedMs)&&e.elapsedMs>=0));
+  assert.ok(!JSON.stringify(events).includes('SECRET')&&!JSON.stringify(events).includes('PRIVATE'));
+ }
+}
