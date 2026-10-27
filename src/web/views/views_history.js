@@ -471,7 +471,7 @@ async function loadAutomationStatusFromGsheet() {
   badge.style.color = 'var(--amber)';
   body.innerHTML = '<div style="color:var(--muted)">자동화 상태를 조회하고 있습니다...</div>';
   try {
-    const data = await requestGsheetActionJson('getAutomationStatus', {}, { timeoutMs: 15000, retry: 1 });
+    const data = await requestGsheetActionJson('getAutomationStatus', {}, { timeoutMs: 15000, retry: 1, preserveError: true });
     if (!data || data.status !== 'ok' || !data.automation) throw new Error(data?.message || '자동화 상태 응답 오류');
     const a = data.automation;
     const close = a.portfolioClose || {};

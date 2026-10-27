@@ -874,6 +874,7 @@ async function loadSettings(onProgress, options) {
       if (!isLoadConnectionCurrent()) return false;
       prog('미동기화 거래·보유 복구 중...');
       const dirtyRetryOk = await _retryPortfolioRemoteDirtySync({
+        onFailure: code => { loadStage = '미동기화 거래·보유 확인 · ' + code; },
         allowDuringRestore: true,
         masterCodesOverride: bootstrapMasterForRetry
       });

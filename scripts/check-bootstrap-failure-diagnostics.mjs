@@ -95,7 +95,7 @@ h.ctx.requestGsheetFormJson=async(action)=>action==='syncTrades' && syncFailed
   ? {status:'error',saveState:'failed',message:'syncTrades 실패: 거래이력 쓰기 후 검증 실패'}
   : {status:'ok',saveState:'success'};
 assert.equal(await h.ctx.loadSettings(),false,'dirty ledger verification failure blocks Bootstrap completion');
-assert.equal(await h.ctx._diagnoseGsheetGetSettings(),'미동기화 거래·보유 확인 · PORTFOLIO_SYNC_FAILED');
+assert.equal(await h.ctx._diagnoseGsheetGetSettings(),'미동기화 거래·보유 확인 · TRADES_SAVE_FAILED · PORTFOLIO_SYNC_FAILED');
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'failed pending payload must remain retryable');
 assert.equal(vm.runInContext('_gsBootRestored',h.ctx),false);
 assert.equal(vm.runInContext("rawTrades[0].code",h.ctx),'005930');
@@ -174,7 +174,7 @@ assert.equal(await h.ctx.loadSettings(),false,'unmatched trade blocks authoritat
 assert.equal(unsafeTradePosts,0,'unknown trade may not overwrite server ledger');
 assert.equal(unsafeHoldingsPosts,0,'failed master preflight must also block parallel holdings write');
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'failed master validation retains dirty source');
-assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'미동기화 거래·보유 확인 · PORTFOLIO_SYNC_FAILED');
+assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'미동기화 거래·보유 확인 · MASTER_VALIDATION_FAILED · PORTFOLIO_SYNC_FAILED');
 // Same-name-but-different-code is NOT proof of identity: block a silent
 // reassignment when the original trade code is unknown to the server master.
 h=setup();
@@ -1504,3 +1504,20 @@ for (const configured of [true, false]) {
   assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
 }
 console.log('✅ 실제 Settings/Bootstrap API 키 상태 복원·부동산 부분조회 보존·비밀키 비저장 회귀 통과');
+
+// Transport failures must be actionable without exposing URLs or token-bearing errors.
+{
+  const transport=setup();
+  transport.ctx.fetch=async()=>{throw new Error('private_token_value');};
+  const failed=await transport.ctx.requestJsonWithPolicy('https://example.invalid',{
+    preserveError:true,retry:0,action:'getAutomationStatus'
+  });
+  assert.equal(failed.errorCode,'SERVER_ERROR');
+  assert.ok(!JSON.stringify(failed).includes('private_token_value'));
+  transport.ctx.fetch=async()=>({ok:true,json:async()=>{throw new SyntaxError('private_token_value');}});
+  const invalid=await transport.ctx.requestJsonWithPolicy('https://example.invalid',{preserveError:true});
+  assert.equal(invalid.errorCode,'INVALID_RESPONSE');
+  transport.ctx.fetch=async()=>{const e=new Error('private_token_value');e.name='AbortError';throw e;};
+  const timeout=await transport.ctx.requestJsonWithPolicy('https://example.invalid',{preserveError:true});
+  assert.equal(timeout.errorCode,'CLIENT_TIMEOUT');
+}
