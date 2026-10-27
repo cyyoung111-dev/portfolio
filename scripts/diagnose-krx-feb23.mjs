@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
-// Read-only presence proof; the existing GAS endpoint intentionally omits price.
+// Read-only: presence proof plus existing historical-price response; never persist prices.
 export async function diagnose({url,token,fetchImpl=fetch}) {
   const endpoint=validateWebAppUrl(url), date='2026-02-23';
   if(typeof token!=='string'||!token.trim())throw Error('AUTH_REQUIRED');
@@ -23,15 +23,26 @@ export async function diagnose({url,token,fetchImpl=fetch}) {
     !['KRX_OPENAPI','KRX_OTP','NOT_CONFIRMED'].includes(t.providerClass)||
     (t.exactDateConfirmed&&(!t.eligibleHeldDomestic||t.usedDate!==date||t.providerClass==='NOT_CONFIRMED'))||
     (!t.exactDateConfirmed&&(t.usedDate||t.providerClass!=='NOT_CONFIRMED')))throw Error('BAD_EVIDENCE');
-  return {mode:'READ_ONLY',date,eligible:t.eligibleHeldDomestic,confirmed:t.exactDateConfirmed,provider:t.providerClass};
+  if(!t.exactDateConfirmed)throw Error('OFFICIAL_NOT_READY');
+  const historicalUrl=new URL(endpoint);
+  historicalUrl.search=new URLSearchParams({date,allCodes:'102970',accessToken:token});
+  const historical=await fetchImpl(historicalUrl.href,{redirect:'follow',signal:AbortSignal.timeout(240000)});
+  if(!historical.ok)throw Error('HISTORICAL_HTTP');
+  const payload=await historical.json(), row=payload?.prices?.['102970'];
+  if(payload?.status!=='ok'||payload.date!==date||!row||row.usedDate!==date||
+    !['KRX','KRX_OTP'].includes(row.source)||typeof row.price!=='number'||
+    !Number.isFinite(row.price)||row.price<=0)throw Error('HISTORICAL_UNCONFIRMED');
+  return {mode:'READ_ONLY',date,confirmed:true,price:row.price,source:row.source,sourceDate:row.usedDate};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  if(process.argv.includes('--self-test')){
-  const fetchImpl=async (_url,opts)=>({ok:true,json:async()=>opts.body.get('accessToken')==='secret'
+  const fetchImpl=async (_url,opts)=>({ok:true,json:async()=>!opts.body
+    ? {status:'ok',date:'2026-02-23',prices:{'102970':{price:100,usedDate:'2026-02-23',source:'KRX'}}}
+    : opts.body.get('accessToken')==='secret'
     ? {status:'ok',coverage:{mode:'READ_ONLY',requestedDate:'2026-02-23'},targetEvidence:{requested:true,eligibleHeldDomestic:true,exactDateConfirmed:true,usedDate:'2026-02-23',providerClass:'KRX_OPENAPI'}}
     : {status:'error',message:'인증 실패'}});
   const x=await diagnose({url:'https://script.google.com/macros/s/AKfycbTest/exec',token:'secret',fetchImpl});
-  assert.equal(x.confirmed,true);assert.equal(x.date,'2026-02-23');console.log('진단 계약 PASS');
+  assert.equal(x.price,100);assert.equal(x.confirmed,true);assert.equal(x.date,'2026-02-23');console.log('진단 계약 PASS');
  }else{
   try{console.log(JSON.stringify(await diagnose({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));}
   catch{console.error('DIAGNOSTIC_FAILED');process.exitCode=1;}
