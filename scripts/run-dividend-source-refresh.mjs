@@ -13,7 +13,7 @@ async function call(action,args={},access=token) {
  const deny=await call('getDividendSettings',{},'DIVIDEND_BAD_AUTH_PROBE');
  if(deny.status==='ok')throw Error('DIVIDEND_AUTH_NOT_ENFORCED');
  const state=await call('getAutomationStatus');
- if(state.status!=='ok'||state.gasVersion!=='9.271')throw Error('DIVIDEND_VERSION');
+ if(state.status!=='ok'||state.gasVersion!=='9.272')throw Error('DIVIDEND_VERSION');
  const refreshed=await call('refreshEtfDividends',{force:'1'});
  if(refreshed.status!=='ok'||(!(refreshed.saved===true&&refreshed.refreshed===true)&&!(refreshed.skipped===true&&refreshed.reason==='NO_TARGETS')))throw Error('DIVIDEND_ETF_REFRESH_FAILED');
  const etfCodes=refreshed.targetCodes;
@@ -21,7 +21,7 @@ async function call(action,args={},access=token) {
  let cached=await call('getDividendSettings');
  if(cached.status!=='ok'||!cached.divData)throw Error('DIVIDEND_READBACK_FAILED');
  const catalog=await call('getCodeListReadOnly');
- if(catalog.status!=='ok'||catalog.readOnly!==true||catalog.gasVersion!=='9.271'||!Array.isArray(catalog.codes)) {
+ if(catalog.status!=='ok'||catalog.readOnly!==true||catalog.gasVersion!=='9.272'||!Array.isArray(catalog.codes)) {
   const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'READ_FAILED';
   throw Error('DIVIDEND_MASTER_'+reason);
  }

@@ -196,6 +196,17 @@ export function summarizeCloseStatus(a) {
     fundWarningPresent:!!a.fundLastWarning
   };
 }
+export function safeFundResumeCheckpoint(value) {
+  if (!value) return null;
+  const allowed=['REQUEST','OWNER_READY','RESERVATION','LEASE','VALUATION','RECONCILE','DONE','FAILED',
+    'fundUnitsRead','storedNavRead','priceHistoryRead','fundUnitsResolve','storedNavResolve',
+    'externalNavFetch','navConfirm','valuationCalculate','writeLockWait','navWrite','priceHistoryWrite','snapshotTargetCalculate','snapshotWrite'];
+  if(typeof value!=='object'||!allowed.includes(value.stage)
+    ||typeof value.requestId!=='string'||! /^[a-f0-9-]{36}$/i.test(value.requestId)
+    ||!['atMs','elapsedMs','sequence'].every(k=>Number.isSafeInteger(value[k])&&value[k]>=0)
+    ||value.sequence>82)return null;
+  return {requestId:value.requestId,stage:value.stage,atMs:value.atMs,elapsedMs:value.elapsedMs,sequence:value.sequence};
+}
 export function summarizeBackfillStatus(payload) {
   const a = payload?.automation;
   if (payload?.status !== 'ok' || !a || typeof a !== 'object'
@@ -280,6 +291,7 @@ export function summarizeBackfillStatus(payload) {
     mode:'READ_ONLY', gasVersion:a.gasVersion, minGasVersion:'9.235',
     gasVersionReady:hasMorningRelease, overallStatus,
     close:summarizeCloseStatus(a),
+    fundResumeCheckpoint:safeFundResumeCheckpoint(a.fundResumeCheckpoint),
     triggerReady:complete, triggerCounts, triggerMissing, duplicateTriggerFlags:duplicates,
     legacySplitTriggers:trigger.hasLegacySplitTriggers,
     pendingDates:pending, pendingCount:pending.length,

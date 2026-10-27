@@ -32,7 +32,7 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
   _scheduleFundAfterFailedPortfolioPrice_:owner=>{scheduled++;assert.equal(owner.runId,'current');assert.equal(owner.priceDate,'2026-10-23');},
   runDeferredFundAfterPortfolioCloseFailure:e=>{continued++;assert.equal(e.triggerUid,'uid');return {completionStatus:'ok'};}
  });
- vm.runInContext(extract('_portfolioCloseRunState')+'\n'+extract('handleResumeIncompletePortfolioClose'),cx);
+ vm.runInContext(extract('_portfolioCloseRunState')+'\n'+extract('_resumeFundCheckpoint_')+'\n'+extract('handleResumeIncompletePortfolioClose'),cx);
  const reset=()=>{store=new Map([['access_token','TEST'],['portfolio_close_run_date','2026-10-24'],['portfolio_close_run_started_ms','100000'],['portfolio_close_run_started_at','2026-10-24 19:00:00'],['portfolio_close_run_id','current'],['portfolio_close_stage','FUND']]);producer=scheduled=continued=0;};
  reset();assert.equal(cx.handleResumeIncompletePortfolioClose('0').mode,'DRY_RUN');assert.equal(producer,0);assert.equal(store.has('writer'),false);
  assert.equal(cx.handleResumeIncompletePortfolioClose('1').scheduled,true);assert.equal(producer,1);assert.equal(scheduled,1);assert.equal(store.has('writer'),false);
