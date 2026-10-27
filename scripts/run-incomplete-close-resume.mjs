@@ -4,7 +4,7 @@ import {runBackfillStatus,summarizeBackfillStatus} from './diagnose-backfill-sta
 export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{}}) {
  const endpoint=validateWebAppUrl(url);
  const initial=await runBackfillStatus({url:endpoint,token,fetchImpl});
- if(initial.gasVersion!=='9.270')throw Error('RESUME_VERSION');
+ if(initial.gasVersion!=='9.271')throw Error('RESUME_VERSION');
  if(initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
  const waitingFundDone=status=>status.close.krxPublicationWaiting && status.close.fundOk===true
    && status.close.fundState==='DONE' && !status.close.fundErrorPresent && !status.close.fundWarningPresent;
