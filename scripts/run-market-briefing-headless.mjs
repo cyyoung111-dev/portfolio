@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
+import { fetchPrekospiNight } from './prekospi-night-reference.mjs';
 import '../src/web/domain/market/market_data_provider.js';
 import '../src/web/domain/market/market_briefing_master.js';
 import '../src/web/domain/market/market_briefing_provider_normalizer.js';
@@ -129,6 +130,7 @@ function diagnosticFor(result, secrets = []) {
     masterPersistence:persistenceCounts(result.sync?.persistence), snapshotPersistence:persistenceCounts(result.persistence),
     readinessSeries:result.decision?.data?.snapshot?.values || {}, warnings:result.decision?.data?.warnings || [],
     missing:result.decision?.data?.missing || result.sync?.missing || [], missingReasons:result.decision?.data?.missingReasons || {}, issues:result.decision?.data?.issues || [],
+    ...(result.prekospiReference ? { nightReference:result.prekospiReference } : {}),
     providerErrors:Object.keys(result.sync?.errors || {}),
     providerErrorDetails:Object.fromEntries(Object.entries(result.sync?.errors || {}).map(([key,value])=>[key,maskSecrets(value,secrets)])) };
 }
@@ -270,6 +272,9 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const args = parseArgs(process.argv.slice(2));
   const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
+  // A third-party last-observed value is diagnostic only. It must never enter
+  // MARKET_MASTER, pass the KRX official gate or publish a false snapshot.
+  if (args.checkpoint === 'MORNING') result.prekospiReference = await fetchPrekospiNight(args.tradingDate);
   const successful = headlessSucceeded(result);
   const diagnostic = diagnosticFor(result,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL]);
   console.log(JSON.stringify(diagnostic));

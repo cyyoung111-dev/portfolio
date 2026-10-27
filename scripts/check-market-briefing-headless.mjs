@@ -2,11 +2,26 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
+import { parsePrekospiNight, fetchPrekospiNight } from './prekospi-night-reference.mjs';
 import fs from 'node:fs';
 import YAML from 'yaml';
 import { createRequest, diagnosticFor, headlessSucceeded, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
 
 globalThis.localStorage.clear();
+const prekospiHtml = '<div>장 마감 · 마지막 세션</div><section><h1>코스피200 야간선물 · <!-- -->마지막 야간 기록</h1><span class="tabular-nums text-[44px]">872.35</span><div>2026-10-26 18:00 ~ 익일 06:00 · 1분봉 (KST) · 2026. 10. 27. 06:00:00 KST 업데이트</div></section>';
+const reference = parsePrekospiNight(prekospiHtml,'2026-10-27','2026-10-27T06:20:00+09:00');
+assert.equal(reference.value,872.35);
+assert.equal(reference.officialClose,false);
+assert.equal(reference.source,'PREKOSPI');
+assert.equal(parsePrekospiNight(prekospiHtml,'2026-10-28','2026-10-28T06:20:00+09:00'),null,'stale dates are rejected');
+assert.equal(parsePrekospiNight(prekospiHtml.replace('872.35','872.38'),'2026-10-27','2026-10-27T06:20:00+09:00'),null,'invalid tick is rejected');
+assert.equal(parsePrekospiNight(prekospiHtml,'2026-10-27','2026-10-27T05:59:00+09:00'),null,'future page update is rejected');
+assert.equal(parsePrekospiNight(prekospiHtml.replace('장 마감','장중'),'2026-10-27','2026-10-27T06:20:00+09:00'),null,'live session is not a completed session');
+assert.equal(await fetchPrekospiNight('2026-10-27',{fetchImpl:async()=>{throw new Error('offline');}}),null,'network error is not a value');
+const fetchedReference = await fetchPrekospiNight('2026-10-27',{fetchImpl:async()=>({ok:true,headers:new Headers({'content-type':'text/html; charset=utf-8'}),text:async()=>prekospiHtml}),now:()=>new Date('2026-10-27T06:25:00+09:00')});
+assert.equal(fetchedReference.receivedAt,'2026-10-26T21:25:00.000Z');
+assert.deepEqual(diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-10-27',prekospiReference:fetchedReference,decision:{publishable:false}}).nightReference,fetchedReference);
+assert.equal(diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-10-27',prekospiReference:fetchedReference,decision:{publishable:false}}).published,false,'reference alone must not be reported as published');
 // The headless calendar consumes the GAS source of truth (including temporary
 // domestic closures) rather than approximating every weekday as a trading day.
 assert.equal(krxSessionStatus('2026-10-05'),'CLOSED','GAS 확정 휴장일');
