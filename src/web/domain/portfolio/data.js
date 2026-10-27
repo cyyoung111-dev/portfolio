@@ -1308,7 +1308,10 @@ async function _retryPortfolioRemoteDirtySync(options) {
     for (let attempt = 0; attempt < 6; attempt++) {
       const dirty = _portfolioRemoteDirtyByTarget[targetUrl];
       if (!dirty) return true;
-      if (allowDuringRestore && _isEmptyPortfolioDirtyWithoutDeleteIntent(dirty)) return false;
+      if (allowDuringRestore && _isEmptyPortfolioDirtyWithoutDeleteIntent(dirty)) {
+        options?.onFailure?.('EMPTY_WITHOUT_DELETE_INTENT');
+        return false;
+      }
       const generation = typeof getGsheetConnectionGeneration === 'function'
         ? getGsheetConnectionGeneration()
         : null;
@@ -1319,7 +1322,10 @@ async function _retryPortfolioRemoteDirtySync(options) {
       if (allowDuringRestore && (typeof isPinnedRestorePortfolioMasterComplete !== 'function'
           || !isPinnedRestorePortfolioMasterComplete(
             dirty.trades, dirty.holdings, dirty.fundDirect, options?.masterCodesOverride
-          ))) return false;
+          ))) {
+        options?.onFailure?.('MASTER_VALIDATION_FAILED');
+        return false;
+      }
       const [holdingsResult, tradesResult] = await Promise.all([
         typeof syncHoldingsToGsheet === 'function'
           ? syncHoldingsToGsheet({
@@ -1344,7 +1350,10 @@ async function _retryPortfolioRemoteDirtySync(options) {
       const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
       const tradesOk = !tradesRequired
         || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
-      if (!holdingsOk || !tradesOk) return false;
+      if (!holdingsOk || !tradesOk) {
+        options?.onFailure?.(!holdingsOk ? 'HOLDINGS_SAVE_FAILED' : 'TRADES_SAVE_FAILED');
+        return false;
+      }
 
       // 직접펀드는 Settings의 fundDirect가 authoritative 원천입니다.
       const settingsOk = typeof saveSettings === 'function'
@@ -1355,7 +1364,10 @@ async function _retryPortfolioRemoteDirtySync(options) {
             settingsPatch: { fundDirect: dirty.fundDirect }
           })
         : false;
-      if (!settingsOk) return false;
+      if (!settingsOk) {
+        options?.onFailure?.('FUND_SETTINGS_SAVE_FAILED');
+        return false;
+      }
 
       const latest = _portfolioRemoteDirtyByTarget[targetUrl];
       if (!latest) return true;
