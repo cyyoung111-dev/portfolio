@@ -8,7 +8,7 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  try {initial=await runBackfillStatus({url:endpoint,token,fetchImpl});}
  catch(error){if(readOnly)emit({phase:'INITIAL_STATUS',requestState:'FAILED',elapsedMs:Date.now()-initialStarted});throw error;}
  if(readOnly)emit({phase:'INITIAL_STATUS',elapsedMs:Date.now()-initialStarted,...initial});
- if(initial.gasVersion!=='9.272')throw Error('RESUME_VERSION');
+ if(initial.gasVersion!=='9.273')throw Error('RESUME_VERSION');
  if(!readOnly&&initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
  const waitingFundDone=status=>status.close.krxPublicationWaiting && status.close.fundOk===true
    && status.close.fundState==='DONE' && !status.close.fundErrorPresent && !status.close.fundWarningPresent;
@@ -30,7 +30,12 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  }
  if(preview.status!=='ok') {
   const r=await req('resumeIncompletePortfolioClose',{apply:'1',phase:'schedule'});
-  if(r.status!=='ok'||(!r.complete&&r.scheduled!==true))throw Error('RESUME_SCHEDULE_BLOCKED');
+  if(r.status!=='ok'||(!r.complete&&r.scheduled!==true)){
+   const allowed=['AUTH','OWNER','BUSY','RESERVATION','PRICE_VERIFY','OWNER_CHECK','CONTINUE','SCHEDULE'];
+   const errorCode=allowed.map(x=>'CLOSE_RESUME_'+x+'_FAILED').includes(r.errorCode)?r.errorCode:'UNCLASSIFIED';
+   emit({phase:'schedule',operation:'APPLY',requestState:'BLOCKED',errorCode});
+   throw Error('RESUME_SCHEDULE_BLOCKED');
+  }
  }
  for(let i=0;i<33;i++) {
   const r=await req('resumeIncompletePortfolioClose',{apply:'1',phase:'continue'});

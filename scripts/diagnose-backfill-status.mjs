@@ -198,7 +198,7 @@ export function summarizeCloseStatus(a) {
 }
 export function safeFundResumeCheckpoint(value) {
   if (!value) return null;
-  const allowed=['REQUEST','OWNER_READY','RESERVATION','LEASE','VALUATION','RECONCILE','DONE','FAILED',
+  const allowed=['REQUEST','OWNER_CHECK','OWNER_READY','PRICE_VERIFY','SCHEDULE','RESERVATION','LEASE','VALUATION','RECONCILE','DONE','FAILED',
     'fundUnitsRead','storedNavRead','priceHistoryRead','fundUnitsResolve','storedNavResolve',
     'externalNavFetch','navConfirm','valuationCalculate','writeLockWait','navWrite','priceHistoryWrite','snapshotTargetCalculate','snapshotWrite'];
   if(typeof value!=='object'||!allowed.includes(value.stage)
