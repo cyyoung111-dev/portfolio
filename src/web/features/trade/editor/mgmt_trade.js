@@ -672,11 +672,12 @@ function saveTrade() {
   if ((tradeType === 'sell' || isAction) && !isEditing) {
     const acct = acctVal || '';
     // 후보를 실제 저장 순서(같은 날은 기존 거래 뒤)에 넣어 전체 수량을 검증합니다.
-    // 미래 매수로 과거 매도를 허용하거나 이후 분할 수량으로 과거를 판단하지 않습니다.
+    // 후속 보유현황·실현손익과 동일한 계좌+종목명 식별 기준을 유지합니다.
+    // 미래 매수나 이후 분할 수량으로 과거를 판단하지 않습니다.
     const candidate = { date, tradeType, qty, ratio, name:normN, code, acct };
     const ordered = rawTrades.concat(candidate).map((item,index) => ({item,index}))
       .filter(({item}) => item.acct === acct &&
-        (code && item.code ? item.code === code : item.name === normN))
+        item.name === normN)
       .sort((a,b) => String(a.item.date || '').localeCompare(String(b.item.date || '')) || a.index-b.index);
     let balance = 0, invalidDate = '';
     ordered.forEach(({item}) => {
