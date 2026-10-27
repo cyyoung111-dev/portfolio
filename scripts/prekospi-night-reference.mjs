@@ -5,7 +5,8 @@ export function parsePrekospiNight(html, tradingDate, receivedAt) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tradingDate) || !Number.isFinite(Date.parse(receivedAt))) return null;
   const blocks = [...String(html).matchAll(/<section\b[^>]*>([\s\S]*?)<\/section>/gi)]
     .map(match => match[1]).filter(block => /<h1\b[^>]*>[\s\S]*?코스피200 야간선물[\s\S]*?마지막 야간 기록[\s\S]*?<\/h1>/i.test(block));
-  if (blocks.length !== 1 || !/장 마감[\s\S]*?마지막 세션/.test(String(html).slice(0, String(html).indexOf(blocks[0])))) return null;
+  const before = String(html).slice(0, String(html).indexOf(blocks[0]));
+  if (blocks.length !== 1 || !/(?:^|>)\s*장 마감\s*·\s*마지막 세션\s*</.test(before)) return null;
   const block = blocks[0].replace(/<!--[\s\S]*?-->/g, '');
   const price = block.match(/<span\b[^>]*class="[^"]*text-\[44px\][^"]*"[^>]*>\s*([\d,]+\.\d{2})\s*<\/span>/i);
   const timing = block.match(/(\d{4}-\d{2}-\d{2})\s+18:00\s*~\s*익일\s+06:00[\s\S]*?(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*06:00:00\s*KST\s*업데이트/);
