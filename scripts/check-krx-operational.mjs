@@ -673,6 +673,7 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
  cx._fundRecoveryDiagnosticStart(d,'PRIVATE_FUND','navWrite','PRIVATE_FUNCTION');
  cx._fundRecoveryDiagnosticFinish(d,'error',Error('PRIVATE_ACCOUNT'),{token:'SECRET'});
  assert.equal(last.stage,'navWrite');assert.ok(!JSON.stringify(last).includes('PRIVATE')&&!JSON.stringify(last).includes('SECRET'));
+ cx._resumeFundCheckpoint_(d,'FAILED');assert.equal(last.stage,'FAILED');assert.equal(last.lastWorkStage,'navWrite');
  const before=writes;cx._resumeFundCheckpoint_(d,'PRIVATE_STAGE');assert.equal(writes,before);
  for(let i=0;i<100;i++)cx._resumeFundCheckpoint_(d,'snapshotWrite');
  assert.equal(writes,80);cx._resumeFundCheckpoint_(d,'DONE');assert.equal(writes,81);

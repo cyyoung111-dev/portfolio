@@ -7299,9 +7299,10 @@ function _resumeFundCheckpoint_(diagnostic, stage) {
   if ((diagnostic.checkpointCount || 0) >= 80 && stage !== 'DONE' && stage !== 'FAILED') return;
   diagnostic.checkpointCount = (diagnostic.checkpointCount || 0) + 1;
   var now = Date.now();
+  if (stage !== 'FAILED') diagnostic.lastWorkStage = stage;
   try {
     PropertiesService.getScriptProperties().setProperty('fund_resume_checkpoint_v1', JSON.stringify({
-      requestId:diagnostic.requestId, stage:stage, atMs:now,
+      requestId:diagnostic.requestId, stage:stage, lastWorkStage:diagnostic.lastWorkStage || stage, atMs:now,
       elapsedMs:Math.max(0, now - diagnostic.startedAt), sequence:diagnostic.checkpointCount
     }));
   } catch(ignore) {} // Diagnostics cannot turn a successful write into a financial failure.

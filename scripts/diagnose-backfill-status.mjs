@@ -202,10 +202,11 @@ export function safeFundResumeCheckpoint(value) {
     'fundUnitsRead','storedNavRead','priceHistoryRead','fundUnitsResolve','storedNavResolve',
     'externalNavFetch','navConfirm','valuationCalculate','writeLockWait','navWrite','priceHistoryWrite','snapshotTargetCalculate','snapshotWrite'];
   if(typeof value!=='object'||!allowed.includes(value.stage)
+    ||!allowed.includes(value.lastWorkStage)
     ||typeof value.requestId!=='string'||! /^[a-f0-9-]{36}$/i.test(value.requestId)
     ||!['atMs','elapsedMs','sequence'].every(k=>Number.isSafeInteger(value[k])&&value[k]>=0)
     ||value.sequence>82)return null;
-  return {requestId:value.requestId,stage:value.stage,atMs:value.atMs,elapsedMs:value.elapsedMs,sequence:value.sequence};
+  return {requestId:value.requestId,stage:value.stage,lastWorkStage:value.lastWorkStage,atMs:value.atMs,elapsedMs:value.elapsedMs,sequence:value.sequence};
 }
 export function summarizeBackfillStatus(payload) {
   const a = payload?.automation;
