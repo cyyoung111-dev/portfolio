@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
@@ -49,3 +50,38 @@ if (source.includes("f('te-price').value")) {
 }
 
 console.log('✅ 기존 거래 선택·필드 복원·유형별 종목 필터 검사 통과');
+
+// Production saveTrade with synthetic DOM; never sends requests or writes live data.
+function run(trades,qty,date='2026-02-23'){
+const fields={'te-name':'시험','te-qty':String(qty),'te-date':date,'te-price-krw':'100','te-acct':'계좌','te-code':'005930','te-assettype':'주식','te-memo':''};
+const elements=Object.fromEntries(Object.entries(fields).map(([k,value])=>[k,{value,style:{}}]));elements['te-error']={style:{},textContent:''};elements['te-fx-wrap']={style:{display:'none'}};
+const ctx={window:{_currentTradeType:'sell'},rawTrades:JSON.parse(JSON.stringify(trades)),EDITABLE_PRICES:[{name:'시험',code:'005930',assetType:'주식'}],STOCK_CODE:{},$el:id=>elements[id]||null,normName:x=>x,getEP:()=>({currency:'KRW'}),getAccountId:()=> 'A',genTradeId:()=>999};
+ctx.rawHoldings=[];ctx.migrateLegacyTrades=()=>{};ctx.getEPType=()=> '주식';
+ctx.saveHoldings=()=>{ctx.saved=true};ctx.refreshAll=()=>{};
+const dataSource=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+const start=dataSource.indexOf('function _commitTrades('),end=dataSource.indexOf('\n}',start)+2;
+const commitSource=dataSource.slice(start,end);
+vm.runInNewContext(fs.readFileSync('src/web/domain/portfolio/portfolio_service.js','utf8')+'\n'+commitSource+'\n'+source+'\ncloseTradeEdit=()=>{};saveTrade();',ctx);
+return {saved:!!ctx.saved,error:elements['te-error'].textContent,trades:ctx.rawTrades,holdings:ctx.rawHoldings,pnl:ctx.calcRealizedPnl()};
+}
+const row=(date,tradeType,qty,ratio)=>({date,tradeType,qty,ratio,name:'시험',code:'005930',acct:'계좌',price:100});
+assert.equal(run([row('2026-03-01','buy',10)],1).saved,false,'future buy cannot fund past sale');
+assert.equal(run([row('2026-02-01','buy',100),row('2026-03-01','reverse_split',100,10)],20).saved,true,'historical sale before reverse split must use historical quantity');
+assert.equal(run([row('2026-02-01','buy',10),row('2026-03-01','sell',8)],4).saved,false,'late sale must not invalidate a later sale');
+assert.equal(run([row('2026-02-01','buy',10)],10).saved,true,'exact available quantity is accepted');
+assert.equal(run([row('2026-02-01','buy',10)],11).saved,false,'overselling is rejected');
+assert.equal(run([row('2026-03-01','buy',100),row('2026-02-01','buy',10)],5).saved,true,'unsorted input uses chronological order');
+const renamed=row('2026-02-01','buy',10);renamed.name='이전이름';
+assert.equal(run([renamed],5).saved,false,'do not merge names only in validator while downstream accounting groups by name');
+const other=row('2026-02-01','buy',10);other.acct='다른계좌';
+assert.equal(run([other],1).saved,false,'other account cannot fund sale');
+const rejected=run([row('2026-03-01','buy',10)],1);
+assert.equal(rejected.trades.length,1,'rejection must not mutate ledger');
+const integrated=run([row('2026-02-01','buy',100),row('2026-03-01','reverse_split',100,10)],20);
+assert.equal(integrated.holdings[0].qty,8,'actual commit and holdings reducer apply historical sale before later reverse split');
+assert.equal(integrated.holdings[0].costAmt,8000);
+const cheapBuy=row('2026-02-01','buy',10);cheapBuy.price=50;
+const realized=run([cheapBuy],5);
+assert.equal(realized.holdings[0].qty,5);assert.equal(realized.holdings[0].costAmt,250);
+assert.equal(realized.pnl.totalPnl,250,'actual realized-PnL service agrees with saved trade');
+console.log('실제 saveTrade → commit → 보유현황·실현손익 및 소급매도 검증 PASS');
