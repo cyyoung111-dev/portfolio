@@ -8,6 +8,7 @@ import YAML from 'yaml';
 
 const exact = "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'";
 const workflows = [
+  'krx-feb23-readonly.yml',
   'issue-507-source-only-preflight-readonly.yml',
   'issue-507-price-history-row-audit-readonly.yml',
   'issue-507-target-krx-confirmation-readonly.yml',
@@ -98,10 +99,10 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,43,
-  'migration inventory: all 43 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,44,
-  'migration inventory: all 44 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,44,
+  'migration inventory: all 44 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,45,
+  'migration inventory: all 45 secret-consuming jobs must be protected');
 const sample='issue-507-three-day-code-lineage-readonly.yml';
 const sampleSource=fs.readFileSync(new URL(sample,dir),'utf8');
 const removed=sampleSource.replace('    environment: '+productionEnvironment+'\n','');
