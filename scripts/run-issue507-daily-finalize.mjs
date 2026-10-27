@@ -4,7 +4,7 @@ import {runTargetedRecovery} from './run-krx-targeted-recovery.mjs';
 import {runCoverage} from './diagnose-krx-held-coverage.mjs';
 import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
-export const DATES=Object.freeze(['2026-10-22','2026-10-23']);
+export const DATES=Object.freeze(['2026-10-22','2026-10-23','2026-10-26']);
 export async function runDaily({url,token,apply=false,fetchImpl=fetch,emit=()=>{}}){
   const endpoint=validateWebAppUrl(url);
   if(typeof apply!=='boolean'||typeof token!=='string'||!token.trim())throw Error('DAILY_INPUT');

@@ -32,17 +32,39 @@ export async function diagnose({url,token,fetchImpl=fetch}) {
   if(payload?.status!=='ok'||payload.date!==date||!row||row.usedDate!==date||
     !['KRX','KRX_OTP'].includes(row.source)||typeof row.price!=='number'||
     !Number.isFinite(row.price)||row.price<=0)throw Error('HISTORICAL_UNCONFIRMED');
-  return {mode:'READ_ONLY',date,confirmed:true,price:row.price,source:row.source,sourceDate:row.usedDate};
+  // Read the uncached production ledger-based graph detail; never log holdings.
+  const response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
+    headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+    body:new URLSearchParams({action:'getHistorySourceDetail',date,accessToken:token}),
+    signal:AbortSignal.timeout(240000)});
+  if(!response.ok)throw Error('GRAPH_HTTP');
+  const detail=await response.json();
+  if(detail?.status!=='ok'||detail.date!==date||detail.sourceMode!=='SOURCE_RECOMPUTED'||
+    !Array.isArray(detail.items)||!detail.items.length)throw Error('GRAPH_REBUILD_FAILED');
+  const targets=detail.items.filter(item=>item?.code==='102970');
+  if(targets.length!==1||targets[0].evalUnit!==row.price||
+    !['KRX','KRX_OTP'].includes(targets[0].source))throw Error('GRAPH_OFFICIAL_PRICE_MISMATCH');
+  return {mode:'READ_ONLY',date,confirmed:true,price:row.price,source:row.source,sourceDate:row.usedDate,
+    graphDateRecomputed:true,graphOfficialPriceMatches:true};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  if(process.argv.includes('--self-test')){
   const fetchImpl=async (_url,opts)=>({ok:true,json:async()=>!opts.body
     ? {status:'ok',date:'2026-02-23',prices:{'102970':{price:100,usedDate:'2026-02-23',source:'KRX'}}}
+    : opts.body.get('action')==='getHistorySourceDetail'
+    ? {status:'ok',date:'2026-02-23',sourceMode:'SOURCE_RECOMPUTED',items:[{code:'102970',evalUnit:100,source:'KRX'}]}
     : opts.body.get('accessToken')==='secret'
     ? {status:'ok',coverage:{mode:'READ_ONLY',requestedDate:'2026-02-23'},targetEvidence:{requested:true,eligibleHeldDomestic:true,exactDateConfirmed:true,usedDate:'2026-02-23',providerClass:'KRX_OPENAPI'}}
     : {status:'error',message:'인증 실패'}});
   const x=await diagnose({url:'https://script.google.com/macros/s/AKfycbTest/exec',token:'secret',fetchImpl});
-  assert.equal(x.price,100);assert.equal(x.confirmed,true);assert.equal(x.date,'2026-02-23');console.log('진단 계약 PASS');
+  assert.equal(x.price,100);assert.equal(x.confirmed,true);assert.equal(x.date,'2026-02-23');assert.equal(x.graphDateRecomputed,true);assert.equal(x.graphOfficialPriceMatches,true);
+  for(const change of [{evalUnit:99},{source:'KRX_CARRY@2026-02-11'}]){
+    const badFetch=async(u,o)=>o.body?.get('action')==='getHistorySourceDetail'
+      ? {ok:true,json:async()=>({status:'ok',date:'2026-02-23',sourceMode:'SOURCE_RECOMPUTED',items:[{code:'102970',evalUnit:100,source:'KRX',...change}]})}
+      : fetchImpl(u,o);
+    await assert.rejects(()=>diagnose({url:'https://script.google.com/macros/s/AKfycbTest/exec',token:'secret',fetchImpl:badFetch}),/GRAPH_OFFICIAL_PRICE_MISMATCH/);
+  }
+  console.log('공식 종가 및 실제 그래프 재계산 응답 계약 PASS');
  }else{
   try{console.log(JSON.stringify(await diagnose({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));}
   catch{console.error('DIAGNOSTIC_FAILED');process.exitCode=1;}

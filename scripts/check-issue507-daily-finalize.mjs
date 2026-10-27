@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {runDaily,DATES} from './run-issue507-daily-finalize.mjs';
 import fs from 'node:fs';
+assert.deepEqual(DATES,['2026-10-22','2026-10-23','2026-10-26']);
 const url='https://script.google.com/macros/s/TEST/exec',token='PRIVATE_TEST';
 // Reuse the actual status producer fixture through a captured normalized
 // response shape is unnecessary here: stop after both dates with a deliberate
@@ -21,7 +22,7 @@ function server({apply=false,blocked=false,badApply=false}={}){
   return {ok:true,json:async()=>data};
  }};
 }
-for(const apply of [false,true]){const s=server();await assert.rejects(()=>runDaily({url,token,apply,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);assert.deepEqual(s.writes,apply?DATES:[]);assert.equal(s.queue.size,apply?0:2);}
+for(const apply of [false,true]){const s=server();await assert.rejects(()=>runDaily({url,token,apply,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);assert.deepEqual(s.writes,apply?DATES:[]);assert.equal(s.queue.size,apply?0:DATES.length);}
 const blocked=server({blocked:true});await assert.rejects(()=>runDaily({url,token,apply:true,fetchImpl:blocked.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);assert.equal(blocked.writes.length,0);assert.ok(!blocked.calls.includes('recoverPendingKrxClose'));
 const bad=server({badApply:true});await assert.rejects(()=>runDaily({url,token,apply:true,fetchImpl:bad.fetchImpl}),/DAILY_READBACK/);assert.equal(bad.writes.length,1,'stop before next date on uncertain readback');
 const workflow=fs.readFileSync('.github/workflows/issue-507-daily-finalize.yml','utf8');assert.match(workflow,/APPROVED_PARENT: 78f4b15173b087acf58b4d64e1ea7d1ba74cb42a/);assert.match(workflow,/portfolio-production-gas/);assert.match(workflow,/git cat-file -e/);

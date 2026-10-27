@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       apply:
-        description: '10월22·23일 공식 원천 검증 후 누락 복구와 대기열 해제'
+        description: '10월22·23·26일 공식 원천 검증 후 누락 복구와 대기열 해제'
         type: boolean
         required: true
         default: false
