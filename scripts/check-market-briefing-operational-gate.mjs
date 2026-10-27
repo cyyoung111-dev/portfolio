@@ -8,9 +8,10 @@ for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT'))
 rows=rows.filter(row=>!['KOSPI','KOSDAQ','KOSPI200'].includes(row.seriesId));
 for(const id of ['KOSPI','KOSDAQ','KOSPI200'])rows=master.upsertObservation(rows,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:'KRX',session:'REGULAR',source:'KRX_OFFICIAL',status:'FINAL',finality:'REGULAR_CLOSE',observedAt:'2026-09-17T15:30:00+09:00',receivedAt:`${d}T07:20:00+09:00`});
 rows=master.upsertObservation(rows,{seriesId:'K200_NIGHT',tradingDate:d,
- sourceDate:'2026-09-17',value:1,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',
+ sourceDate:d,value:1,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',
  status:'FINAL',finality:'NIGHT_FINAL',observedAt:null,receivedAt:`${d}T06:15:00+09:00`,
- fallback:false,quality:'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'});
+ fallback:false,quality:'KRX_NIGHT_ACTUAL_RECEIPT'});
+const validMorningRows=rows.slice();
 let decision=gate.releaseDecision(master,storeApi,rows,[],d,'MORNING');
 assert.equal(decision.publishable,true); assert.equal(decision.status,'READY_WITH_CONTEXT_GAP');
 let snapshots=storeApi.appendSnapshot([],{tradingDate:'2026-09-17',checkpoint:'EVENING',asOf:'2026-09-17T20:15:00+09:00',values:{}},{scenario:{next:'context'}});
@@ -71,7 +72,7 @@ for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT'))
 lateBackfill=master.upsertObservation(lateBackfill,{seriesId:'K200_NIGHT',tradingDate:d,sourceDate:d,value:1,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:00+09:00`});
 decision=gate.releaseDecision(master,storeApi,lateBackfill,snapshots,d,'MORNING');
 assert.equal(decision.publishable,false,'KIS night must not masquerade as official prior-session KRX');
-assert.ok(decision.data.issues.includes('K200_NIGHT:UNVERIFIED_PRIOR_SESSION'));
+assert.ok(decision.data.issues.includes('K200_NIGHT:UNVERIFIED_NIGHT_SESSION'));
 rows=rows.filter(r=>r.seriesId!=='K200_NIGHT'); decision=gate.releaseDecision(master,storeApi,rows,snapshots,d,'MORNING'); assert.equal(decision.publishable,false); assert.ok(decision.data.missing.includes('K200_NIGHT'));
 rows=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.KRX_FINAL) add(id,'FINAL','REGULAR','15:30:00',gate.KRX_FINAL_SERIES.includes(id)?'REGULAR_CLOSE':null,'KRX');
@@ -91,3 +92,6 @@ decision=gate.releaseDecision(master,storeApi,rows,[],d,'EVENING'); assert.equal
 rows=[];for(const id of gate.REQUIRED_BY_CHECKPOINT.AFTER_FINAL)add(id,'FINAL','REGULAR','15:30:00','REGULAR_CLOSE','KRX');
 decision=gate.releaseDecision(master,storeApi,rows,[],d,'AFTER_FINAL');assert.equal(decision.publishable,true);for(const id of gate.OPTIONAL_BY_CHECKPOINT.AFTER_FINAL)assert.ok(decision.data.warnings.includes(`${id}:MISSING_OPTIONAL`));
 console.log('장전·마감 브리핑 운영 게이트 회귀검사 통과');
+
+const wrongNight=validMorningRows.map(row=>row.seriesId==='K200_NIGHT'?{...row,sourceDate:'2026-09-17'}:row);
+assert.equal(gate.evaluate(master,wrongNight,d,'MORNING').ready,false,'prior BAS_DD is an older night, not the session ending this morning');

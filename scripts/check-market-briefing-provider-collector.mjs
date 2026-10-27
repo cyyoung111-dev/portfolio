@@ -164,3 +164,20 @@ assert.equal(oneOfficialMissing.payload.SAMSUNG.status,'FINAL');assert.equal(one
 const partial=normalizer.normalizeOne('VIX',{value:15,tradingDate:'2026-09-17',source:'CBOE'},{receivedAt:'2026-09-18T05:00:00+09:00'});
 assert.equal(partial.status,'PARTIAL');
 console.log('기존 GAS provider → 브리핑 핵심·거시 series collector/normalizer 회귀검사 통과');
+
+// Browser caller omits nightSourceDate: default to the actual night END date.
+let defaultNightDate='';
+const nightRequest=async(action,params)=>{
+ if(action==='getKrxK200NightClose'){
+  defaultNightDate=params.date;
+  return {observation:{seriesId:'K200_NIGHT',tradingDate:params.date,sourceDate:params.date,
+   value:1,source:'KRX_OFFICIAL',market:'KRX',session:'NIGHT',status:'FINAL',
+   finality:'NIGHT_FINAL',fallback:false,receivedAt:'2026-09-18T06:15:00+09:00'}};
+ }
+ return {series:{},points:[],history:[],prices:{}};
+};
+const browserNight=await collector.collect(nightRequest,'2026-09-18',{checkpoint:'MORNING'});
+assert.equal(defaultNightDate,'2026-09-18');
+assert.equal(browserNight.payload.K200_NIGHT.sourceDate,'2026-09-18');
+const oldNight=await collector.collect(nightRequest,'2026-09-18',{checkpoint:'MORNING',nightSourceDate:'2026-09-17'});
+assert.equal(oldNight.payload.K200_NIGHT,undefined,'never remap older BAS_DD into current briefing');

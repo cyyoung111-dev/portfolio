@@ -61,6 +61,15 @@
     const optional = OPTIONAL_BY_CHECKPOINT[checkpoint] || [];
     const snapshot = masterApi.buildBriefingSnapshot(rows || [], tradingDate, checkpoint, required.concat(optional));
     const missing = required.filter((id) => !snapshot.values[id]);
+    const missingReasons = {};
+    if (checkpoint==='MORNING' && missing.includes('K200_NIGHT')) {
+      const late = (rows || []).some(row => row?.seriesId==='K200_NIGHT'
+        && row.tradingDate===tradingDate && row.sourceDate===tradingDate
+        && row.source==='KRX_OFFICIAL' && row.session==='NIGHT'
+        && row.status==='FINAL' && row.finality==='NIGHT_FINAL'
+        && Date.parse(row.receivedAt)>Date.parse(snapshot.asOf));
+      missingReasons.K200_NIGHT = late ? 'RECEIVED_AFTER_CUTOFF' : 'EXACT_NIGHT_SESSION_NOT_AVAILABLE';
+    }
     const bad = [];
     const warnings = [];
     optional.forEach((id) => { if (!snapshot.values[id]) warnings.push(`${id}:MISSING_OPTIONAL`); });
@@ -74,14 +83,14 @@
     });
     const k200 = snapshot.values.K200_NIGHT;
     if (checkpoint === 'MORNING' && k200 && !(
-      k200.tradingDate === tradingDate && k200.sourceDate < tradingDate
+      k200.tradingDate === tradingDate && k200.sourceDate === tradingDate
       && k200.source === 'KRX_OFFICIAL' && k200.market === 'KRX'
       && k200.session === 'NIGHT' && k200.status === 'FINAL'
       && k200.finality === 'NIGHT_FINAL' && k200.fallback !== true
-      && k200.observedAt == null && k200.quality === 'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'
+      && k200.observedAt == null && k200.quality === 'KRX_NIGHT_ACTUAL_RECEIPT'
       && Number.isFinite(Date.parse(k200.receivedAt))
       && Date.parse(k200.receivedAt) <= Date.parse(snapshot.asOf)
-    )) bad.push('K200_NIGHT:UNVERIFIED_PRIOR_SESSION');
+    )) bad.push('K200_NIGHT:UNVERIFIED_NIGHT_SESSION');
     if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL' && k200.tradingDate === tradingDate) warnings.push('K200_NIGHT:COMPLETED_NIGHT_FINAL');
     if (checkpoint === 'MORNING') {
       // 기존 master에서 오래된 FINAL이 PARTIAL보다 우선 선택되더라도
@@ -127,7 +136,7 @@
         if (row && !isRegularFinal(row, tradingDate)) bad.push(`${id}:NOT_REGULAR_FINAL`);
       });
     }
-    return { checkpoint, tradingDate, asOf:snapshot.asOf, ready:missing.length===0 && bad.length===0, missing, issues:bad, warnings, snapshot };
+    return { checkpoint, tradingDate, asOf:snapshot.asOf, ready:missing.length===0 && bad.length===0, missing, missingReasons, issues:bad, warnings, snapshot };
   }
 
   function seriesForCheckpoint(checkpoint) {

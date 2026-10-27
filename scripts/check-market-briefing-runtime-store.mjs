@@ -13,10 +13,10 @@ assert.equal(runtime.load(storage).snapshots[0].values.K200_NIGHT.value,550,'ser
 assert.equal(runtime.bridge(storage,snapshots,d).morning,null);
 let state=runtime.load(storage);
 state.observations=master.upsertObservation(state.observations,{seriesId:'K200_NIGHT',
- tradingDate:d,sourceDate:'2026-09-17',value:550,market:'KRX',session:'NIGHT',
+ tradingDate:d,sourceDate:d,value:550,market:'KRX',session:'NIGHT',
  source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:null,
  receivedAt:`${d}T06:15:00+09:00`,fallback:false,
- quality:'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'});
+ quality:'KRX_NIGHT_ACTUAL_RECEIPT'});
 runtime.save(storage,state);
 let out=runtime.checkpoint(storage,master,snapshots,gate,d,'MORNING',gate.REQUIRED_BY_CHECKPOINT.MORNING,{scenario:{base:'hold'}});assert.equal(out.decision.publishable,true);assert.equal(out.snapshot.scenario.base,'hold');
 out=runtime.checkpoint(storage,master,snapshots,gate,d,'MORNING',gate.REQUIRED_BY_CHECKPOINT.MORNING,{scenario:{base:'changed'}});assert.equal(out.snapshot.scenario.base,'hold');

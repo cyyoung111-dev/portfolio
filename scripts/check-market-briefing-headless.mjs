@@ -251,11 +251,11 @@ assert.equal(fallbackOnAuth,0,'An auth failure must never be hidden by FX Yahoo 
 
 globalThis.localStorage.clear(); observations=[]; snapshots=[]; snapshotPosts=0;
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
-assert.equal(result.decision.publishable,true,'KRX prior-night final may be used only after its receipt');
-assert.equal(requestParams.getKrxK200NightClose.date,prior,'MORNING must query preceding verified KRX session');
+assert.equal(result.decision.publishable,true,'same-session night final requires actual timely receipt');
+assert.equal(requestParams.getKrxK200NightClose.date,date,'MORNING queries the session ending this morning');
 const acceptedNight=result.decision.data.snapshot.values.K200_NIGHT;
 assert.equal(acceptedNight.tradingDate,date,'briefing applicability date must remain today');
-assert.equal(acceptedNight.sourceDate,prior,'KRX source BAS_DD must remain prior exchange date');
+assert.equal(acceptedNight.sourceDate,date,'source BAS_DD must match night end date');
 assert.equal(acceptedNight.observedAt,null,'GAS source-day 06:00 does not prove publication');
 assert.equal(acceptedNight.timestampQuality,'RECEIVE_ONLY');
 assert.equal(acceptedNight.receivedAt,new Date(`${date}T06:15:00+09:00`).toISOString(),
@@ -282,8 +282,8 @@ assert.equal(requestParams.getKrxK200NightClose.date,date,
  'manual NIGHT_FINAL --date must not shift source BAS_DD backwards');
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,
  schedule:'15 21 * * 0-4'});
-assert.equal(requestParams.getKrxK200NightClose.date,prior,
- '06:15 scheduled NIGHT_FINAL must use the preceding KRX session');
+assert.equal(requestParams.getKrxK200NightClose.date,date,
+ '06:15 scheduled NIGHT_FINAL queries the current session end date');
 assert.equal(result.successful,true,'scheduled NIGHT_FINAL must retain the briefing-day identity');
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,
   requireKrxOfficialNight:true,schedule:'15 0 * * 1-5'});
@@ -317,6 +317,7 @@ const lateNight=async (action,params)=>{
 };
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:lateNight});
 assert.equal(result.decision.publishable,false,'08:00 receipt is future to 07:30');
+assert.equal(result.decision.data.missingReasons.K200_NIGHT,'RECEIVED_AFTER_CUTOFF');
 assert.ok(result.decision.data.missing.includes('K200_NIGHT') ||
  result.decision.data.issues.some(x=>x.startsWith('K200_NIGHT')),
  'late official close must not retroactively mark 07:30 READY');
@@ -458,10 +459,10 @@ assert.equal(rolledBack.length,102,'POST 실패 시 신규 5건 rollback 및 hyd
 assert.ok(rolledBack.some(row=>row.seriesId==='PENDING'),'POST 실패 후 pending 보존');
 
 // cold-start에서도 서버의 NIGHT_FINAL을 우선 보존하여 공급자 재조회 실패를 견딘다.
-const storedNight={seriesId:'K200_NIGHT',tradingDate:date,sourceDate:prior,value:351,
+const storedNight={seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:351,
  market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',
  finality:'NIGHT_FINAL',observedAt:null,receivedAt:`${date}T06:01:00+09:00`,
- fallback:false,quality:'KRX_PRIOR_NIGHT_ACTUAL_RECEIPT'};
+ fallback:false,quality:'KRX_NIGHT_ACTUAL_RECEIPT'};
 const coldStart=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations:[storedNight]};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots:[]};
@@ -540,3 +541,28 @@ assert.throws(()=>validateBriefingWorkflow(injectedEnv),
 const runner=fs.readFileSync('scripts/run-market-briefing-headless.mjs','utf8');assert.doesNotMatch(runner,/console\.log\([^\n]*(?:token|url)/i);
 for(const field of ['masterPersistence','snapshotPersistence','readinessSeries']) assert.match(runner,new RegExp(field),'최종 diagnostic 필드 복원: '+field);
 console.log('브리핑 headless hydrate·collect·readiness·immutable snapshot 회귀검사 통과');
+
+// Old-session BAS_DD must never become this morning's confirmed night close.
+globalThis.localStorage.clear();observations=[];snapshots=[];
+const wrongMorning=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:wrongManualSource});
+assert.equal(wrongMorning.decision.publishable,false);
+assert.equal(wrongMorning.decision.data.missingReasons.K200_NIGHT,'EXACT_NIGHT_SESSION_NOT_AVAILABLE');
+assert.equal(snapshots.length,0);
+
+// Feed the actual production NIGHT_FINAL output into a cold MORNING run.
+globalThis.localStorage.clear();observations=[];snapshots=[];
+const earlyNight=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,schedule:'15 21 * * 0-4'});
+assert.equal(earlyNight.successful,true);
+const earlyRows=observations.filter(row=>row.seriesId==='K200_NIGHT').map(row=>({...row}));
+assert.equal(earlyRows.length,1);
+assert.equal(earlyRows[0].quality,'KRX_NIGHT_ACTUAL_RECEIPT');
+assert.equal(earlyRows[0].sourceDate,date);
+globalThis.localStorage.clear();observations=[];snapshots=[];
+const earlyColdRequest=async(action,params={})=>{
+ if(action==='getMarketBriefingMaster')return {status:'ok',observations:earlyRows};
+ if(action==='getKrxK200NightClose')throw Error('SOURCE_TEMPORARILY_DOWN');
+ return request(action,params);
+};
+const earlyColdMorning=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:earlyColdRequest});
+assert.equal(earlyColdMorning.decision.publishable,true,'timely production NIGHT_FINAL survives a failed MORNING re-fetch');
+assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedAt,earlyRows[0].receivedAt);

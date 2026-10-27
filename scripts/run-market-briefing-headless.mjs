@@ -128,7 +128,7 @@ function diagnosticFor(result, secrets = []) {
     ...(result.skippedDomestic ? { skipReason:'KRX_CONFIRMED_NON_TRADING_DAY' } : {}),
     masterPersistence:persistenceCounts(result.sync?.persistence), snapshotPersistence:persistenceCounts(result.persistence),
     readinessSeries:result.decision?.data?.snapshot?.values || {}, warnings:result.decision?.data?.warnings || [],
-    missing:result.decision?.data?.missing || result.sync?.missing || [], issues:result.decision?.data?.issues || [],
+    missing:result.decision?.data?.missing || result.sync?.missing || [], missingReasons:result.decision?.data?.missingReasons || {}, issues:result.decision?.data?.issues || [],
     providerErrors:Object.keys(result.sync?.errors || {}),
     providerErrorDetails:Object.fromEntries(Object.entries(result.sync?.errors || {}).map(([key,value])=>[key,maskSecrets(value,secrets)])) };
 }
@@ -204,16 +204,10 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
   // Keep EVENING foreign/FX collection running, but do not publish a false
   // same-day KRX final. UNKNOWN dates must not be silently skipped.
   const domesticClosed = krxSessionStatus(tradingDate) === 'CLOSED';
-  // 06:15 scheduled collection and MORNING consume the preceding KRX session.
-  // Manual NIGHT_FINAL --date and 09:15 T+1 catch-up name the source BAS_DD
-  // itself. Never shift an explicit historical recovery request backwards.
-  // Unknown/closed KRX dates fail closed instead of persisting misdated prices.
-  const isKrxOpen = krxSessionStatus(tradingDate)==='OPEN';
-  const usePriorNight = checkpoint==='MORNING'
-    || (checkpoint==='NIGHT_FINAL' && schedule==='15 21 * * 0-4');
+  // KRX night BAS_DD is the session END date, not the preceding regular date.
+  // The 09:15 catch-up already selects its historical source date in parseArgs.
   const nightSourceDate = checkpoint==='NIGHT_FINAL'||checkpoint==='MORNING'
-    ? (isKrxOpen ? (usePriorNight ? previousKrxOpenSession(tradingDate) : tradingDate) : '')
-    : '';
+    ? (krxSessionStatus(tradingDate)==='OPEN' ? tradingDate : '') : '';
   if (domesticClosed && checkpoint === 'KRX_FINAL')
     return { checkpoint, tradingDate, skippedDomestic:true, sync:null, decision:null, persistence:null };
   const benchmarkTo = checkpoint === 'MORNING' ? dateOffset(tradingDate, -1) : tradingDate;
