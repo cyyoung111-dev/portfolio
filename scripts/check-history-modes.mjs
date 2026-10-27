@@ -194,3 +194,28 @@ console.log('✅ 손익 그래프 주기·누락 복구·요약 카드·비교�
 assert.match(viewSource, /const denseIntegrityMarkers = invalidPointCount > 24/);
 assert.match(viewSource, /if \(denseIntegrityMarkers\)[\s\S]*PAD\.top \+ 8/);
 assert.match(pipelineSource, /충돌 분류 · MANUAL 보호/);
+
+// Actual automation status UI: one bounded request, no retry amplification.
+{
+  const automationSource=viewSource.match(/async function loadAutomationStatusFromGsheet\(\)[\s\S]*?\n}/)[0];
+  const body={dataset:{},innerHTML:''},badge={style:{},textContent:''};
+  let resolveRequest, requests=0, current=true;
+  const ui={document:{getElementById:id=>id==='automationStatusBody'?body:badge},
+    GSHEET_API_URL:'https://example.invalid',getGsheetConnectionGeneration:()=>1,
+    isGsheetConnectionCurrent:()=>current,_escapeHtml:s=>s,
+    requestGsheetActionJson:(_action,_params,opts)=>{
+      requests++;assert.equal(opts.timeoutMs,60000);assert.equal(opts.retry,0);
+      assert.equal(opts.preserveError,true);assert.equal(opts.targetUrl,ui.GSHEET_API_URL);
+      return new Promise(r=>{resolveRequest=r;});
+    }};
+  vm.runInNewContext(automationSource,ui);
+  const first=ui.loadAutomationStatusFromGsheet();
+  await ui.loadAutomationStatusFromGsheet();assert.equal(requests,1);
+  resolveRequest({status:'error',message:'요청 timeout (60000ms)'});await first;
+  assert.equal(badge.textContent,'조회 실패');assert.equal(body.dataset.loading,undefined);
+  assert.match(body.innerHTML,/60000ms/);
+  const second=ui.loadAutomationStatusFromGsheet();assert.equal(requests,2);
+  current=false;const pendingHtml=body.innerHTML;
+  resolveRequest({status:'error',message:'OLD_RESPONSE'});await second;
+  assert.equal(body.innerHTML,pendingHtml);assert.equal(body.dataset.loading,undefined);
+}
