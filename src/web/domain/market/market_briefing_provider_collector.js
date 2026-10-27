@@ -83,8 +83,7 @@ async function collect(request,tradingDate,options={}){
     // GAS dateT06:00 observedAt is not independent publication evidence.
     // Preserve BAS_DD as sourceDate and rely on actual receipt for 07:30.
     payload.K200_NIGHT={...item,tradingDate,sourceDate:nightDate,
-      observedAt:null,quality:options.checkpoint==='MORNING'
-       ? 'KRX_NIGHT_ACTUAL_RECEIPT':'KRX_NIGHT_SOURCE_ONLY'};
+      observedAt:null,quality:'KRX_NIGHT_ACTUAL_RECEIPT'};
    }else{
     missing.push('K200_NIGHT');
     errors.K200_NIGHT=night?.error||'K200_NIGHT_SOURCE_NOT_VERIFIED';

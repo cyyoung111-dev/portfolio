@@ -548,3 +548,21 @@ const wrongMorning=await runHeadless({checkpoint:'MORNING',tradingDate:date,requ
 assert.equal(wrongMorning.decision.publishable,false);
 assert.equal(wrongMorning.decision.data.missingReasons.K200_NIGHT,'EXACT_NIGHT_SESSION_NOT_AVAILABLE');
 assert.equal(snapshots.length,0);
+
+// Feed the actual production NIGHT_FINAL output into a cold MORNING run.
+globalThis.localStorage.clear();observations=[];snapshots=[];
+const earlyNight=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,schedule:'15 21 * * 0-4'});
+assert.equal(earlyNight.successful,true);
+const earlyRows=observations.filter(row=>row.seriesId==='K200_NIGHT').map(row=>({...row}));
+assert.equal(earlyRows.length,1);
+assert.equal(earlyRows[0].quality,'KRX_NIGHT_ACTUAL_RECEIPT');
+assert.equal(earlyRows[0].sourceDate,date);
+globalThis.localStorage.clear();observations=[];snapshots=[];
+const earlyColdRequest=async(action,params={})=>{
+ if(action==='getMarketBriefingMaster')return {status:'ok',observations:earlyRows};
+ if(action==='getKrxK200NightClose')throw Error('SOURCE_TEMPORARILY_DOWN');
+ return request(action,params);
+};
+const earlyColdMorning=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:earlyColdRequest});
+assert.equal(earlyColdMorning.decision.publishable,true,'timely production NIGHT_FINAL survives a failed MORNING re-fetch');
+assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedAt,earlyRows[0].receivedAt);
