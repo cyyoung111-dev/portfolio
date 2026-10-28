@@ -96,7 +96,9 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
   const message=formatMorningBriefing(first.date,reference,values.filter(Boolean));
   await send(token,chatId,message,{fetchImpl});
-  return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.filter(Boolean).length};
+  return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.filter(Boolean).length,
+    referenceSource:reference?.source||'NONE',referenceDate:reference?.tradingDate||null,
+    referenceTime:reference?.sourceUpdatedAt||null,referenceContract:reference?.contract||null};
 }
 if(process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   try {

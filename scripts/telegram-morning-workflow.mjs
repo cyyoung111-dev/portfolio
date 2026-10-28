@@ -21,7 +21,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   let message;
   const result=await run({now,fetchImpl,event:'schedule',attempt,send:async(_token,_chat,text)=>{message=text;}});
   if(!message)return {ready:false,status:result.status,date:window.date};
-  return {ready:true,status:'PREPARED',date:window.date,artifactName,message};
+  const source=['TFL','PREKOSPI'].includes(result.referenceSource)?result.referenceSource:'NONE';
+  return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source};
 }
 export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}) {
   const window=scheduledWindow(now());
@@ -42,7 +43,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     fs.writeFileSync('.telegram-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));
    }
    fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
-   console.log(JSON.stringify({status:result.status,date:result.date}));
+   console.log(JSON.stringify({status:result.status,date:result.date,referenceSource:result.referenceSource||'NONE'}));
   }else if(process.argv[2]==='send'){
    console.log(JSON.stringify(await deliverPrepared(JSON.parse(fs.readFileSync('.telegram-runtime/payload.json','utf8')),{token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,attempt:process.env.GITHUB_RUN_ATTEMPT})));
   }else throw Error('TELEGRAM_WORKFLOW_MODE');
