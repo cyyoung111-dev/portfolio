@@ -68,3 +68,15 @@ console.log('PASS: 저장 영수증 잠금·응답 유실·중복·불일치·�
  assert.equal(s.read(params).receiptState,'CONFLICT');assert.equal(s.writes,1);
 }
 console.log('PASS: 브라우저 재시작·저장소 실패·잘못된 응답·원본 시트 변경 보호');
+// 완료된 이전 작업은 정상적인 삭제/새 거래 작업을 막지 않는다.
+{
+ const s=server(),b=browser(),p={data:params.data},opts={targetUrl:'https://fixture.invalid/exec',generation:1};
+ b.ctx.requestGsheetFormJson=async(action,input)=>action==='getPortfolioSyncReceipt'
+   ? s.read({...input,action:input.kind}) : s.write({action,...input});
+ assert.equal((await b.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,{...opts,recoveryScope:'first-task'})).status,'ok');
+ s.rows([]); // 명시적 마지막 거래 삭제는 기존 원장을 정상적으로 비울 수 있다.
+ assert.equal((await b.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,{...opts,recoveryScope:'new-task'})).status,'ok');
+ assert.equal(s.writes,2,'새 작업은 과거의 CHANGED 기록으로 영구 차단하지 않는다');
+ assert.equal((await b.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,{...opts,recoveryScope:'new-task'})).status,'ok');
+ assert.equal(s.writes,2,'같은 작업의 재시도는 여전히 중복 저장하지 않는다');
+}

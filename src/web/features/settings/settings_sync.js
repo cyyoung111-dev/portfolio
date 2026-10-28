@@ -13,6 +13,7 @@ function _savePortfolioRecoveryReceipts(records) {
 }
 async function _requestPortfolioRecoveryWrite(action, params, options) {
   const targetUrl = options.targetUrl;
+  const scope = String(options.recoveryScope || '');
   const current = () => typeof isGsheetConnectionCurrent !== 'function'
     || isGsheetConnectionCurrent(targetUrl, options.generation);
   const fail = state => ({status:'error',errorCode:'SYNC_RECEIPT_'+state});
@@ -30,16 +31,19 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
   };
   // 다른 단계의 이전 요청도 먼저 확인한다. 확인 전에는 새 원장 쓰기를 시작하지 않는다.
   for (const previous of Object.values(target)) {
-    if (!previous?.attempted) continue;
+    if (!previous?.attempted || (previous.completed === true && previous.scope !== scope)) continue;
     const state = await query(previous);
     if (state !== 'COMPLETE') return fail(state || 'UNKNOWN');
+    previous.completed = true;
   }
   let record = target[action];
+  if (record?.completed === true && record.scope !== scope) record = null;
   const signature = JSON.stringify(params);
   if (record?.attempted && JSON.stringify(record.params) === signature) {
+    if (!_savePortfolioRecoveryReceipts(records)) return fail('LOCAL_BACKUP_FAILED');
     return {status:'ok',saveState:'success',receiptState:'COMPLETE',replayed:true};
   }
-  record = {action,id:'pr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_'+Math.random().toString(36).slice(2),params,attempted:false};
+  record = {action,scope,completed:false,id:'pr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_'+Math.random().toString(36).slice(2),params,attempted:false};
   target = {...target,[action]:record};
   records = {...records,[targetUrl]:target};
   if (!_savePortfolioRecoveryReceipts(records)) return fail('LOCAL_BACKUP_FAILED');
@@ -51,10 +55,16 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
   const response = await requestGsheetFormJson(action,{...params,operationId:record.id},
     {...options,timeoutMs:60000,retry:0,preserveError:true});
   if (!current()) return fail('CONNECTION_CHANGED');
-  if (response?.status === 'ok' && response.receiptState === 'COMPLETE' && response.operationId === record.id) return response;
+  if (response?.status === 'ok' && response.receiptState === 'COMPLETE' && response.operationId === record.id) {
+    record.completed = true;
+    return _savePortfolioRecoveryReceipts(records) ? response : fail('LOCAL_BACKUP_FAILED');
+  }
   // ACK 유실은 쓰기 재시도 대신 읽기 전용 확인으로만 복구한다.
   const after = await query(record);
-  return after === 'COMPLETE' ? {status:'ok',saveState:'success',receiptState:after,replayed:true} : fail(after || 'UNKNOWN');
+  if (after !== 'COMPLETE') return fail(after || 'UNKNOWN');
+  record.completed = true;
+  return _savePortfolioRecoveryReceipts(records)
+    ? {status:'ok',saveState:'success',receiptState:after,replayed:true} : fail('LOCAL_BACKUP_FAILED');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1103,7 +1113,7 @@ async function syncHoldingsToGsheet(options) {
     const data = await writeHoldings(
       'syncHoldings',
       { data: JSON.stringify(holdings) },
-      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 20000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, generation, preserveError: true }
+      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 20000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, generation, recoveryScope: options?.recoveryScope, preserveError: true }
     );
     if (!data) { _syncWarn('[보유현황 동기화] 네트워크 오류'); return null; }
     if (data.status === 'ok') {
@@ -1448,7 +1458,7 @@ async function syncTradesToGsheet(options) {
         explicitEmpty: allowEmpty ? '1' : '',
         rebuildFrom
       },
-      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 30000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, generation, preserveError: true }
+      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 30000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, generation, recoveryScope: options?.recoveryScope, preserveError: true }
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') {

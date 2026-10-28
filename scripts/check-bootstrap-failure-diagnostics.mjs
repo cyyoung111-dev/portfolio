@@ -1470,7 +1470,8 @@ for(const mode of ['ok','read-failed','backup-failed']) {
  h.ctx.requestGsheetFormJson=async()=>({status:'error',saveState:'failed'});
  const before=JSON.stringify(h.ctx._getPortfolioRemoteDirty()),q=quickFixture(h);
  await h.ctx.quickFetchByDate();assert.equal(q.seen.length,0);
- assert.equal(JSON.stringify(h.ctx._getPortfolioRemoteDirty()),before);
+ const expectedDirty=JSON.parse(before);expectedDirty.legacyUntracked=true;
+ assert.equal(JSON.stringify(h.ctx._getPortfolioRemoteDirty()),JSON.stringify(expectedDirty));
  assert.equal(vm.runInContext('rawTrades[0].qty',h.ctx),3);
  assert.match(q.status.at(-1).message,/PORTFOLIO_SYNC_FAILED/);
 }
@@ -1575,3 +1576,15 @@ for (const legacy of [false,true]) {
  else {assert.equal(ok,true);assert.deepEqual(writes,['syncHoldings','syncTrades']);assert.equal(x.ctx._getPortfolioRemoteDirty(),null);}
 }
 console.log('신규 완료 기록 ACK 유실 복구와 legacy 무전송 보류 통합 검사 통과');
+
+{
+ const x=setup();x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+ vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'}); _invalidateEPIndex(); rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100}); _markPortfolioRemoteDirty();`,x.ctx);
+ x.ctx.requestGsheetFormJson=async()=>({status:'error',errorCode:'CLIENT_TIMEOUT'});
+ assert.equal(await x.ctx.loadSettings(),false);
+ assert.equal(x.ctx._getPortfolioRemoteDirty().legacyUntracked,true);
+ const target=vm.runInContext('GSHEET_API_URL',x.ctx);x.ctx._portfolioReceiptTargets={[target]:true};
+ let writes=0;x.ctx.requestGsheetFormJson=async()=>{writes++;throw Error('no write permitted')};
+ assert.equal(await x.ctx._retryPortfolioRemoteDirtySync({allowDuringRestore:true,masterCodesOverride:x.response.codes}),false);
+ assert.equal(writes,0,'server upgrade must not turn an untracked timeout into a new write');
+}

@@ -1169,6 +1169,7 @@ function _normalizePortfolioRemoteDirtyEntry(value) {
     target,
     epoch,
     receiptProtocol: value.receiptProtocol === 1 ? 1 : 0,
+    receiptScope: String(value.receiptScope || ''),
     legacyUntracked: value.legacyUntracked === true,
     trades: Array.isArray(value.trades) ? value.trades.map(t => ({ ...t })) : [],
     holdings: Array.isArray(value.holdings) ? value.holdings.map(h => ({ ...h })) : [],
@@ -1220,6 +1221,7 @@ function _markPortfolioRemoteDirty() {
     target,
     epoch,
     receiptProtocol: 1,
+    receiptScope: 'task_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2),
     legacyUntracked: !!(_portfolioRemoteDirtyByTarget[target] && (_portfolioRemoteDirtyByTarget[target].receiptProtocol !== 1 || _portfolioRemoteDirtyByTarget[target].legacyUntracked)),
     trades: rawTrades.map(t => ({ ...t })),
     holdings: rawHoldings.map(h => ({ ...h })),
@@ -1324,6 +1326,12 @@ async function _retryPortfolioRemoteDirtySync(options) {
       const generation = typeof getGsheetConnectionGeneration === 'function'
         ? getGsheetConnectionGeneration()
         : null;
+      // 웹이 먼저 배포되고 GAS는 아직 이전 버전이면 해당 전송은 완료 기록이 없다.
+      // 서버 업그레이드 후 추적 가능한 신규 요청으로 오인하지 않도록 보존한다.
+      if (typeof _hasPortfolioReceiptProtocol === 'function' && !_hasPortfolioReceiptProtocol(targetUrl)) {
+        dirty.legacyUntracked = true;
+        _persistPortfolioRemoteDirtyMap();
+      }
       const holdingsRequired = dirty.holdings.length > 0 || Object.keys(dirty.fundDirect || {}).length > 0;
       const tradesRequired = dirty.trades.length > 0;
       // Validate the entire pinned ledger before starting concurrent writes:
@@ -1343,6 +1351,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
               generation,
               allowDuringRestore,
               recoveryWrite: true,
+              recoveryScope: dirty.receiptScope,
               holdingsOverride: dirty.holdings,
               fundDirectOverride: dirty.fundDirect,
               masterCodesOverride: options?.masterCodesOverride
@@ -1360,6 +1369,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
               generation,
               allowDuringRestore,
               recoveryWrite: true,
+              recoveryScope: dirty.receiptScope,
               tradesOverride: dirty.trades,
               masterCodesOverride: options?.masterCodesOverride
             })
