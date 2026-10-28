@@ -606,3 +606,30 @@ const earlyColdRequest=async(action,params={})=>{
 const earlyColdMorning=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:earlyColdRequest});
 assert.equal(earlyColdMorning.decision.publishable,true,'timely production NIGHT_FINAL survives a failed MORNING re-fetch');
 assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedAt,earlyRows[0].receivedAt);
+
+// Repeated schedule opportunities share a durable, pre-send delivery claim.
+{
+ const {prepareMorning,deliverPrepared}=await import('./telegram-morning-workflow.mjs');
+ const now=()=>new Date('2026-10-28T08:40:00+09:00');let preparations=0,sends=0;
+ const options={now,githubToken:'SECRET',repository:'cyyoung111-dev/portfolio',run:async({send})=>{preparations++;await send(null,null,'시장 요약');return {status:'SENT_SOURCE_MISSING'};}};
+ const mock=(count,artifacts=[])=>async(url,opts)=>{assert.match(url,/api.github.com\/repos\/cyyoung111-dev\/portfolio\/actions\/artifacts/);assert.equal(opts.headers.authorization,'Bearer SECRET');return {ok:true,json:async()=>({total_count:count,artifacts})};};
+ const prepared=await prepareMorning({...options,fetchImpl:mock(0)});
+ assert.equal(prepared.ready,true);assert.equal(prepared.artifactName,'telegram-morning-claim-2026-10-28');
+ const skipped=await prepareMorning({...options,fetchImpl:mock(1,[{name:prepared.artifactName}])});
+ assert.equal(skipped.status,'ALREADY_CLAIMED');assert.equal(preparations,1,'fallback schedule must not rebuild or send after a claim');
+ await assert.rejects(()=>prepareMorning({...options,fetchImpl:async()=>{throw Error('SECRET');}}),/TELEGRAM_CLAIM_LOOKUP_FAILED/);
+ await assert.rejects(()=>prepareMorning({...options,attempt:2,fetchImpl:mock(0)}),/TELEGRAM_WORKFLOW_CONFIG/);
+ await assert.rejects(()=>prepareMorning({...options,now:()=>new Date('2026-10-28T09:00:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
+ await assert.rejects(()=>prepareMorning({...options,fetchImpl:mock(1,[])}),/TELEGRAM_CLAIM_SCHEMA/);
+ assert.equal((await deliverPrepared(prepared,{now,send:async()=>{sends++;}})).status,'SENT');assert.equal(sends,1);
+ await assert.rejects(()=>deliverPrepared({...prepared,date:'2026-10-27'},{now,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
+ await assert.rejects(()=>deliverPrepared(prepared,{now,attempt:2,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
+ await assert.rejects(()=>deliverPrepared(prepared,{now:()=>new Date('2026-10-28T09:00:00+09:00'),send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
+ assert.equal(sends,1,'late or stale payload cannot send');
+ const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
+ assert.equal(wf.on.schedule[0].cron,'30,40,50 23 * * 0-4');
+ assert.equal(wf.concurrency['cancel-in-progress'],false);
+ const steps=wf.jobs.briefing.steps,claim=steps.findIndex(s=>s.uses==='actions/upload-artifact@v4'),send=steps.findIndex(s=>s.run==='node scripts/telegram-morning-workflow.mjs send');
+ assert.ok(claim>0&&send>claim);assert.equal(steps[claim].with['if-no-files-found'],'error');assert.equal(steps[claim].with['retention-days'],14);
+ assert.ok(!String(steps[send].if).includes('always'),'a failed claim upload must block delivery');
+}
