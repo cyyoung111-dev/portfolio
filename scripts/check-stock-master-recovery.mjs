@@ -101,12 +101,12 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261028-1/);
-assert.match(sw,/portfolio-cache-20261028-1/);
+assert.match(html,/sw\.js\?v=20261028-2/);
+assert.match(sw,/portfolio-cache-20261028-2/);
 
-assert.match(html,/views_history\.js\?v=20261026-1/);
+assert.match(html,/views_history\.js\?v=20261028-2/);
 assert.match(sw,/settings_sync\.js\?v=20261014-5/);
-assert.match(sw,/views_history\.js\?v=20261026-1/);
+assert.match(sw,/views_history\.js\?v=20261028-2/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,

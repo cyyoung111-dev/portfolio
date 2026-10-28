@@ -107,9 +107,9 @@
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07M8.46 8.46a5 5 0 000 7.07"/></svg>
 <span>기초정보</span>
 </button>
-<button id="fixed-btn-gsheet" class="toolbar-btn v-gsheet" title="구글시트">
+<button id="fixed-btn-gsheet" class="toolbar-btn v-gsheet" title="외부연동">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
-<span>구글시트</span>
+<span>외부연동</span>
 </button>
 <button id="btn-open-tab-settings" class="toolbar-btn" title="탭 순서 설정">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -194,7 +194,7 @@
 <script defer src="views/views_portfolio.js?v=20261010-1"></script>
 <script defer src="views/views_trades.js?v=20261007-2"></script>
 <script defer src="views/views_tradegroup.js?v=20260903-1"></script>
-<script defer src="views/views_div_asset.js?v=20261025-2"></script>
+<script defer src="views/views_div_asset.js?v=20261028-2"></script>
 <script defer src="views/views_asset_loan.js?v=20260903-1"></script>
 
 <script defer src="views/views_asset.js?v=20260903-1"></script>
@@ -214,7 +214,7 @@
 <script defer src="views/views_history_state.js?v=20261012-1"></script>
 <script defer src="views/views_history_pipeline.js?v=20261012-1"></script>
 <script defer src="views/views_history_render.js?v=20261007-4"></script>
-<script defer src="views/views_history.js?v=20261026-1"></script>
+<script defer src="views/views_history.js?v=20261028-2"></script>
 
 <script defer src="views/views_system.js?v=20261011-2"></script>
 <script defer src="views/views_system_tabsettings.js?v=20260903-1"></script>
@@ -226,7 +226,7 @@
 <script defer src="features/settings/settings_fetch.js?v=20261028-1"></script>
 <script defer src="features/management/mgmt_editor.js?v=20261013-2"></script>
 <script defer src="features/master/account/mgmt_acct.js?v=20260903-1"></script>
-<script defer src="features/dividend/mgmt_div.js?v=20261025-2"></script>
+<script defer src="features/dividend/mgmt_div.js?v=20261028-2"></script>
 <script defer src="features/master/stock/mgmt_stock.js?v=20261014-5"></script>
 <script defer src="features/master/sector/mgmt_sector.js?v=20261012-2"></script>
 <script defer src="features/trade/editor/mgmt_trade.js?v=20261027-2"></script>
@@ -401,7 +401,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261028-1', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261028-2', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>

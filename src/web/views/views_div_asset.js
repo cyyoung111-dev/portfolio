@@ -167,7 +167,9 @@ function renderDivView(area, skipFetch) {
   const selectedMonth = _divSelectedMonth;
   const selectedMonthTotal = selectedMonth ? monthly[selectedMonth - 1] : totalAnnual;
 
-  const publicKeySaved = (typeof lsGet === 'function') ? String(lsGet('public_data_api_key', '') || '') : '';
+  const publicKeyStatus = window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured;
+  const publicKeySaved = publicKeyStatus === true;
+  const publicKeyLabel = publicKeySaved ? '공공데이터 키 저장됨' : publicKeyStatus === false ? '공공데이터 키 미설정' : '공공데이터 키 상태 확인 중';
 
   let html = `
 
@@ -196,7 +198,7 @@ function renderDivView(area, skipFetch) {
       <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 배당 API 상태</div>
       <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF는 배당 탭 진입 시 GAS가 SEIBro 이력을 자동 갱신합니다. 일반 종목은 공공데이터에서 조회하며, 조회·저장이 미확인인 자료는 기존 값을 유지하고 경고합니다.</div>
     </div>
-    <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '공공데이터 키 저장됨' : '공공데이터 키 미설정'}</span>
+    <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeyLabel}</span>
     <div id="divFetchStatus" style="flex-basis:100%;font-size:.66rem;color:var(--muted);min-height:1.2em"></div>
   </div>
 

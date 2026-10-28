@@ -561,7 +561,7 @@ function renderGsheetView(area) {
 
   area.innerHTML = `
     <div style="padding:12px 0 8px">
-      <div style="font-size:.80rem;font-weight:700;color:var(--text);margin-bottom:16px">🔗 구글시트 연동</div>
+      <div style="font-size:.80rem;font-weight:700;color:var(--text);margin-bottom:16px">🔗 외부연동</div>
 
       <!-- 연동 상태 카드 -->
       <div style="background:${isLinked ? 'var(--c-green-08)' : 'var(--s2)'};
