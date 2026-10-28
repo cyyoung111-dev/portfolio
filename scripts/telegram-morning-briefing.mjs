@@ -19,7 +19,7 @@ function kstParts(instant) {
 }
 export function scheduledWindow(instant) {
   const p=kstParts(instant), date=`${p.year}-${p.month}-${p.day}`, minutes=Number(p.hour)*60+Number(p.minute);
-  return {date,allowed:minutes>=510 && minutes<540};
+  return {date,allowed:minutes>=480 && minutes<490};
 }
 function dateInZone(instant, zone) {
   const parts=new Intl.DateTimeFormat('en-GB',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(instant);
@@ -74,7 +74,7 @@ export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
 }
-export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,referenceFetch=fetchNightReference,send=sendTelegram}={}) {
+export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,referenceFetch=async()=>null,send=sendTelegram}={}) {
   if(Number(attempt)!==1)throw new Error('TELEGRAM_RETRY_BLOCKED');
   if(event==='test') { await send(token,chatId,'텔레그램 브리핑 연결 시험입니다. 실제 시장 브리핑은 아닙니다.',{fetchImpl}); return {status:'TEST_SENT'}; }
   if(event!=='schedule')throw new Error('TELEGRAM_EVENT_INVALID');

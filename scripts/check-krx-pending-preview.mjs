@@ -58,6 +58,17 @@ await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>({
 }))}),/INVALID_RESPONSE/);
 await assert.rejects(()=>runPreview({url,token,fetchImpl:async()=>{throw Error('secret');}}),
   /PENDING_PREVIEW_NETWORK_FAILED/);
+let attempts=0;
+const recovered=await runPreview({url,token,dates:dates[0],fetchImpl:async(...args)=>{
+  attempts++; if(attempts===2)throw Error('secret'); return createFetch()(...args);
+}});
+assert.equal(recovered.status,'READY');assert.equal(attempts,3,'retry only failed read request');
+let failures=0;
+await assert.rejects(()=>runPreview({url,token,dates:dates[0],fetchImpl:async()=>{failures++;let e=new Error('private');e.name='TimeoutError';throw e;}}),/PENDING_PREVIEW_TIMEOUT/);
+assert.equal(failures,2,'stop after one retry');
+let httpFailures=0;
+await assert.rejects(()=>runPreview({url,token,dates:dates[0],fetchImpl:async()=>{httpFailures++;return {ok:false};}}),/PENDING_PREVIEW_GAS_HTTP_FAILED/);
+assert.equal(httpFailures,1,'HTTP or validation failures must not be retried');
 // P2: --allow-blocked cannot turn malformed GAS response contracts into
 // successful observation. The real runPreview parser must fail closed.
 for(const reason of ['', 'UNRECOGNIZED_GAS_REASON', 'FULL_SNAPSHOT_NEW_UNKNOWN', 'FULL_SNAPSHOT_INVALID']) {
