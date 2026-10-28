@@ -268,7 +268,7 @@ function renderView(forceRender) {
     else if (currentView === 'trades')     renderTradesView(area);
     else if (currentView === 'tradegroup') renderTradeGroupView(area);
     else if (currentView === 'history')    renderHistoryView(area);
-    else if (currentView === 'div')        renderDivView(area);
+    else if (currentView === 'div')        renderDivView(area, area.dataset.renderedView === 'div');
     else if (currentView === 'asset')      renderAssetView(area);
     else if (currentView === 'plan')       renderPlanView(area);
     else if (currentView === 'stocks')     renderStocksView(area);

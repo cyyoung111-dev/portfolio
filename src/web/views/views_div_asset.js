@@ -184,8 +184,8 @@ function renderDivView(area, skipFetch) {
       </div>
       <div class="div-link-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="div-gas-link-badge ${GSHEET_API_URL ? 'connected' : 'disconnected'}">${GSHEET_API_URL ? '☁️ GAS 연동 설정됨 · 저장 시 동기화' : '○ GAS 미연동'}</span>
-        ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm" title="ETF는 SEIBro에서 강제 재조회하고, 일반 종목은 공공데이터에서 다시 조회한 뒤 검증된 결과를 GAS에 저장합니다.">📥 배당 데이터 갱신</button>` : ''}
-        <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" title="외부 배당 API를 호출하지 않고 GAS에 마지막으로 저장된 DIVDATA를 현재 브라우저로 다시 받습니다." ${GSHEET_API_URL ? '' : 'disabled'}>☁️ GAS 데이터 다시 받기</button>
+        ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm" title="ETF는 SEIBro에서 강제 재조회하고, 일반 종목은 공공데이터에서 다시 조회한 뒤 검증된 결과를 GAS에 저장합니다." ${_dividendLinkState?.state === 'syncing' ? 'disabled' : ''}>📥 배당 데이터 갱신</button>` : ''}
+        <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" title="외부 배당 API를 호출하지 않고 GAS에 마지막으로 저장된 DIVDATA를 현재 브라우저로 다시 받습니다." ${GSHEET_API_URL && _dividendLinkState?.state !== 'syncing' ? '' : 'disabled'}>☁️ GAS 데이터 다시 받기</button>
       </div>
     </div>
     <div style="font-size:.65rem;color:var(--muted);margin-top:4px;padding:0 2px">

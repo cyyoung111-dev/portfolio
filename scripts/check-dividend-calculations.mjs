@@ -32,3 +32,25 @@ assert.equal(rows[0].annualDiv, 1_000);
 assert.deepEqual({ ...rows[0].monthlyDiv }, { 1: 1_000 });
 
 console.log('배당 지급연도 및 실제 이벤트 집계 검사 통과');
+
+// 동일 배당 탭 재렌더가 수동 갱신 결과를 새 자동 조회로 덮지 않도록 확인한다.
+const routerSource = fs.readFileSync('src/web/views/views_system.js', 'utf8');
+const routerStart = routerSource.indexOf('function renderView(forceRender) {');
+const routerEnd = routerSource.indexOf('\n// ═', routerStart);
+const area = { dataset: {} };
+const dividendRefreshCalls = [];
+const routerContext = vm.createContext({
+  currentView: 'div', $el: () => area, _viewCache: {}, _getDataHash: () => 'unchanged',
+  _perfRun: (_label, callback) => callback(),
+  renderDivView: (_area, skipFetch) => dividendRefreshCalls.push(skipFetch),
+  renderAcctView: () => {},
+});
+vm.runInContext(routerSource.slice(routerStart, routerEnd), routerContext);
+routerContext.renderView();
+routerContext.renderView(true);
+routerContext.currentView = 'acct';
+routerContext.renderView(true);
+routerContext.currentView = 'div';
+routerContext.renderView(true);
+assert.deepEqual(dividendRefreshCalls, [false, true, false], '배당 최초 진입·재렌더·탭 복귀의 자동 조회 구분');
+console.log('배당 탭 재렌더 중복 조회 방지 검사 통과');
