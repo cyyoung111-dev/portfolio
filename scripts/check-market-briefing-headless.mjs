@@ -50,6 +50,7 @@ assert.equal(stale.status,'SENT_SOURCE_MISSING');assert.match(textSent,/당일 �
 const tflRef={...fakeRef,source:'TFL',contract:'A01612',value:900.05};
 const tflMorning=await runTelegramMorning({...morningOptions,referenceFetch:async()=>tflRef});
 assert.equal(tflMorning.status,'SENT_REFERENCE');
+assert.equal(tflMorning.referenceSource,'TFL');assert.equal(tflMorning.referenceDate,tomorrow);assert.equal(tflMorning.referenceContract,'A01612');
 assert.match(textSent,/TFL 마지막 수집값/);assert.match(textSent,/계약 A01612/);
 const tflBad=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...tflRef,contract:''})});
 assert.equal(tflBad.status,'SENT_SOURCE_MISSING');assert.doesNotMatch(textSent,/900\.05/);
