@@ -1588,3 +1588,13 @@ console.log('신규 완료 기록 ACK 유실 복구와 legacy 무전송 보류 �
  assert.equal(await x.ctx._retryPortfolioRemoteDirtySync({allowDuringRestore:true,masterCodesOverride:x.response.codes}),false);
  assert.equal(writes,0,'server upgrade must not turn an untracked timeout into a new write');
 }
+
+// 서버가 이전 버전으로 돌아가도 미확인 요청을 구형 저장 경로로 재전송하지 않는다.
+{
+ const x=setup();
+ vm.runInContext(`rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100}); _markPortfolioRemoteDirty();`,x.ctx);
+ const target=vm.runInContext('GSHEET_API_URL',x.ctx);
+ x.ctx.localStorage.setItem('portfolio_recovery_receipts_v1',JSON.stringify({[target]:{syncTrades:{attempted:true,completed:false,id:'unconfirmed_fixture_01'}}}));
+ let writes=0;x.ctx.requestGsheetFormJson=async()=>{writes++;throw Error('write forbidden')};
+ assert.equal(await x.ctx._retryPortfolioRemoteDirtySync({}),false);assert.equal(writes,0);assert.ok(x.ctx._getPortfolioRemoteDirty());
+}

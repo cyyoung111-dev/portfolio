@@ -1329,6 +1329,12 @@ async function _retryPortfolioRemoteDirtySync(options) {
       // 웹이 먼저 배포되고 GAS는 아직 이전 버전이면 해당 전송은 완료 기록이 없다.
       // 서버 업그레이드 후 추적 가능한 신규 요청으로 오인하지 않도록 보존한다.
       if (typeof _hasPortfolioReceiptProtocol === 'function' && !_hasPortfolioReceiptProtocol(targetUrl)) {
+        const outstanding = typeof _readPortfolioRecoveryReceipts === 'function'
+          ? _readPortfolioRecoveryReceipts()[targetUrl] || {} : {};
+        if (Object.values(outstanding).some(record => record?.attempted && record.completed !== true)) {
+          options?.onFailure?.('SYNC_RECEIPT_UNAVAILABLE');
+          return false;
+        }
         dirty.legacyUntracked = true;
         _persistPortfolioRemoteDirtyMap();
       }
