@@ -6,8 +6,8 @@ const url='https://script.google.com/macros/s/TEST/exec',token='PRIVATE_TEST';
 // Reuse the actual status producer fixture through a captured normalized
 // response shape is unnecessary here: stop after both dates with a deliberate
 // final-status transport error and assert all earlier financial/queue calls.
-function server({apply=false,blocked=false,badApply=false}={}){
- const writes=[],queue=new Set(DATES),calls=[];
+function server({apply=false,blocked=false,badApply=false,dates=DATES}={}){
+ const writes=[],queue=new Set(dates),calls=[];
  return {writes,queue,calls,fetchImpl:async(_url,{body})=>{
   const action=body.get('action'),date=body.get('dates')||body.get('date'),mode=body.get('apply');calls.push(action);
   let data;
@@ -27,3 +27,12 @@ const blocked=server({blocked:true});await assert.rejects(()=>runDaily({url,toke
 const bad=server({badApply:true});await assert.rejects(()=>runDaily({url,token,apply:true,fetchImpl:bad.fetchImpl}),/DAILY_READBACK/);assert.equal(bad.writes.length,1,'stop before next date on uncertain readback');
 const workflow=fs.readFileSync('.github/workflows/issue-507-daily-finalize.yml','utf8');assert.match(workflow,/APPROVED_PARENT: 78f4b15173b087acf58b4d64e1ea7d1ba74cb42a/);assert.match(workflow,/portfolio-production-gas/);assert.match(workflow,/git cat-file -e/);
 console.log('Daily exact-date finalize: dry-run, verified apply, source blocked, queue readback PASS');
+
+// Explicit 10/27 cleanup cannot repair financial source data, even on failed proof.
+for(const blocked of [false,true]){
+ const s=server({blocked,dates:['2026-10-27']});
+ await assert.rejects(()=>runDaily({url,token,apply:true,dates:['2026-10-27'],clearOnly:true,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);
+ assert.deepEqual(s.writes,blocked?[]:['2026-10-27']);
+ assert.ok(!s.calls.includes('recoverPendingKrxClose')&&!s.calls.includes('getKrxHeldCloseCoverage'));
+}
+await assert.rejects(()=>runDaily({url,token,dates:['2026-10-28'],clearOnly:true}),/DAILY_DATES/);
