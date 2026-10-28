@@ -27,13 +27,28 @@ console.log('Actual GAS checkpoint reconcile: dry-run, backup, old timeout, acti
   PORTFOLIO_FUND_LEASE_KEY:'fund',PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'writer',PORTFOLIO_FUND_SCHEDULE_KEY:'schedule',
   _krxClosePublicationState_:()=>({waiting:false}),_readPendingKrxCloseDates_:()=>[],
   _portfolioFundAtomic_:fn=>fn(p),_portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
-  jsonOk:x=>({status:'ok',...x}),jsonError:message=>({status:'error',message}),
+  PropertiesService:{getScriptProperties:()=>p},
+  jsonOk:x=>({status:'ok',...x}),jsonError:(message,extra)=>({status:'error',message,...extra}),
   saveDailyPriceHistory:date=>{producer++;assert.equal(date,'2026-10-24');return {ok:true,date:'2026-10-23',rows:2,krxCloseRequired:false};},
   _scheduleFundAfterFailedPortfolioPrice_:owner=>{scheduled++;assert.equal(owner.runId,'current');assert.equal(owner.priceDate,'2026-10-23');},
   runDeferredFundAfterPortfolioCloseFailure:e=>{continued++;assert.equal(e.triggerUid,'uid');return {completionStatus:'ok'};}
  });
  vm.runInContext(extract('_portfolioCloseRunState')+'\n'+extract('_resumeFundCheckpoint_')+'\n'+extract('handleResumeIncompletePortfolioClose'),cx);
  const reset=()=>{store=new Map([['access_token','TEST'],['portfolio_close_run_date','2026-10-24'],['portfolio_close_run_started_ms','100000'],['portfolio_close_run_started_at','2026-10-24 19:00:00'],['portfolio_close_run_id','current'],['portfolio_close_stage','FUND']]);producer=scheduled=continued=0;};
+ reset();
+ const normalProducer=cx.saveDailyPriceHistory,normalSchedule=cx._scheduleFundAfterFailedPortfolioPrice_;
+ cx.saveDailyPriceHistory=()=>({ok:false});
+ let blocked=cx.handleResumeIncompletePortfolioClose('1','schedule');
+ assert.equal(blocked.errorCode,'CLOSE_RESUME_PRICE_VERIFY_FAILED');
+ let checkpoint=JSON.parse(store.get('fund_resume_checkpoint_v1'));
+ assert.equal(checkpoint.stage,'FAILED');assert.equal(checkpoint.lastWorkStage,'PRICE_VERIFY');assert.equal(scheduled,0);assert.equal(store.has('writer'),false);
+ cx.saveDailyPriceHistory=normalProducer;cx._scheduleFundAfterFailedPortfolioPrice_=()=>{throw Error('PRIVATE_ACCOUNT_TOKEN');};
+ reset();blocked=cx.handleResumeIncompletePortfolioClose('1','schedule');
+ assert.equal(blocked.errorCode,'CLOSE_RESUME_SCHEDULE_FAILED');assert.ok(!JSON.stringify(blocked).includes('PRIVATE'));
+ checkpoint=JSON.parse(store.get('fund_resume_checkpoint_v1'));assert.equal(checkpoint.lastWorkStage,'SCHEDULE');assert.equal(store.has('writer'),false);
+ cx._scheduleFundAfterFailedPortfolioPrice_=normalSchedule;
+ reset();store.set('fund',JSON.stringify({until:2000001}));blocked=cx.handleResumeIncompletePortfolioClose('1','schedule');
+ assert.equal(blocked.errorCode,'CLOSE_RESUME_BUSY_FAILED');assert.equal(producer,0);
  reset();assert.equal(cx.handleResumeIncompletePortfolioClose('0').mode,'DRY_RUN');assert.equal(producer,0);assert.equal(store.has('writer'),false);
  assert.equal(cx.handleResumeIncompletePortfolioClose('1').scheduled,true);assert.equal(producer,1);assert.equal(scheduled,1);assert.equal(store.has('writer'),false);
  reset();store.set('fund',JSON.stringify({until:2000001}));assert.equal(cx.handleResumeIncompletePortfolioClose('1').status,'error');assert.equal(producer,0);
