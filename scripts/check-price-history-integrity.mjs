@@ -101,7 +101,7 @@ console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Sna
   SpreadsheetApp:{flush:()=>{}},Logger:{log:()=>{}}
  };
  vm.runInNewContext(source,ctx);
- const ss={getSheetByName:()=>{sheetReads++;return mockSheet;}};
+ const ss={getSpreadsheetTimeZone:()=>'Asia/Seoul',getSheetByName:()=>{sheetReads++;return mockSheet;}};
  const row={code:'005930',name:'삼성전자',price:123,source:'KRX'};
  assert.throws(()=>ctx.batchUpsertPriceHistory(ss,'2026-10-08',[row,{...row}]),
   /동일 날짜·종목 중복 입력/);

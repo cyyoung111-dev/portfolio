@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  - 가격이력 저장 검증: 시트가 변환한 입력시각 Date를 KST 초 단위로 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.273
+//  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.274
+//
+//  v9.274 변경사항 (2026.10.28):
+//  • 가격이력 입력시각 Date 변환을 스프레드시트 시간대로 검증
 //
 //  v9.273 변경사항 (2026.10.28):
 //  • 복구 예약 생성 단계와 안전한 실패 사유 진단 추가
@@ -2316,7 +2319,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.273',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.274',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2394,7 +2397,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.273', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.274', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6419,7 +6422,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.273' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.274' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10648,6 +10651,10 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
     incomingKeys[key] = true;
   });
   try {
+    // Sheet DATE_TIME values are interpreted in the spreadsheet timezone,
+    // which can differ from the script's KST. Resolve before any mutation.
+    var sheetTimezone = ss.getSpreadsheetTimeZone();
+    if (!sheetTimezone) throw new Error('PRICE_HISTORY_SHEET_TIMEZONE_MISSING');
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph) {
       ph = ss.insertSheet(CONFIG.SHEET_PH);
@@ -10715,7 +10722,7 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       var stamp = normalized[timestampIndex], wanted = expected[timestampIndex];
       if (stamp instanceof Date && isFinite(stamp.getTime()) &&
           typeof wanted === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(wanted)) {
-        normalized[timestampIndex] = Utilities.formatDate(stamp, CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+        normalized[timestampIndex] = Utilities.formatDate(stamp, sheetTimezone, 'yyyy-MM-dd HH:mm:ss');
       }
       return same(normalized, expected);
     }
@@ -13559,7 +13566,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.273',
+    gasVersion: '9.274',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13626,7 +13633,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.273' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.274' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16697,7 +16704,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.273' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.274' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17521,7 +17528,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.273' });
+    return jsonOk({ settings: settings, gasVersion: '9.274' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17551,7 +17558,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.273'
+      gasVersion: '9.274'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
