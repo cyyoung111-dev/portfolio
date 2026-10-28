@@ -3,7 +3,6 @@ import { spawnSync } from 'node:child_process';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
 import { parsePrekospiNight, fetchPrekospiNight } from './prekospi-night-reference.mjs';
-import './check-tfl-night-reference.mjs';
 import { scheduledWindow, fetchDatedDaily, sendTelegram, runTelegramMorning } from './telegram-morning-briefing.mjs';
 import fs from 'node:fs';
 import YAML from 'yaml';
