@@ -1,0 +1,38 @@
+/* 같은 역할은 같은 크기 토큰을 사용합니다. 사용자 UI 크기 설정을 그대로 따릅니다. */
+.toolbar-btn,.toolbar-btn span,.action-refresh-btn,.vs-btn-label,.settings-tab {
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+}
+.toolbar-btn { width:auto; min-width:52px; padding-inline:5px; }
+.toolbar-btn span,.action-refresh-btn span { white-space:nowrap; }
+
+#view-area[data-active-view] :is(.btn-sm,.btn-ghost-sm,.btn-cancel-sm,.btn-edit-sm,.btn-del-sm,.btn-outline-sm,.btn-purple-sm,.btn-amber-sm,.btn-danger,.btn-danger-ghost,.btn-sort-toggle,.f-btn,.f-btn-sm) {
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+}
+#view-area[data-active-view] :is(.section-title,.card-title,.h3-section,.h3-card,.tbl-head h3) {
+  font-size:var(--type-title);
+  line-height:1.35;
+}
+#view-area[data-active-view] :is(.div-stat-label,.trade-stat-label,.metric-label) {
+  font-size:var(--type-label);
+  line-height:var(--line-compact);
+}
+#view-area[data-active-view] :is(.div-stat-value,.trade-stat-value,.metric-value) {
+  font-size:var(--type-value);
+  line-height:1.3;
+  font-variant-numeric:tabular-nums;
+}
+#view-area[data-active-view] :is(.helper-text,.caption-text,.div-stat-sub) {
+  font-size:var(--type-caption);
+  line-height:var(--line-reading);
+}
+/* 긴 경고는 일반 설명보다 읽기 쉬운 본문 크기로 보여줍니다. */
+#view-area[data-active-view] #dividendLinkStatus {
+  font-size:var(--type-body)!important;
+  line-height:var(--line-reading);
+  overflow-wrap:anywhere;
+}
+@media(max-width:480px){
+  .toolbar-btn { width:auto; min-width:48px; padding-inline:4px; }
+}
