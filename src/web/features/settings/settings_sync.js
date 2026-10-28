@@ -1042,7 +1042,7 @@ async function syncHoldingsToGsheet(options) {
     const data = await requestGsheetFormJson(
       'syncHoldings',
       { data: JSON.stringify(holdings) },
-      { timeoutMs: 20000, retry: 1, targetUrl, preserveError: true }
+      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 20000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, preserveError: true }
     );
     if (!data) { _syncWarn('[보유현황 동기화] 네트워크 오류'); return null; }
     if (data.status === 'ok') {
