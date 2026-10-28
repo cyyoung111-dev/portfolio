@@ -1,29 +1,48 @@
 name: Telegram morning market briefing
-
 on:
   schedule:
-    - cron: '30 23 * * 0-4' # 08:30 KST, Monday-Friday
+    - cron: '30,40,50 23 * * 0-4' # 08:30/08:40/08:50 KST, Monday-Friday
   workflow_dispatch:
-
 permissions:
   contents: read
-
+  actions: read
 concurrency:
   group: telegram-morning-briefing
   cancel-in-progress: false
-
 jobs:
   briefing:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
-      - name: Send briefing or manual connection test
+          node-version: '24'
+      - name: Manual connection test only
+        if: github.event_name == 'workflow_dispatch'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_MANUAL_TEST: 'true'
         run: node scripts/telegram-morning-briefing.mjs
+      - name: Prepare scheduled briefing and inspect durable claim
+        id: prepare
+        if: github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/telegram-morning-workflow.mjs prepare
+      - name: Claim delivery date before contacting Telegram
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}
+          path: .telegram-runtime/claim.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Send claimed briefing once
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/telegram-morning-workflow.mjs send
