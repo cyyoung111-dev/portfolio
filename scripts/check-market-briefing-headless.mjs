@@ -47,6 +47,12 @@ await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(
 assert.equal(delivered,1,'재시도 및 지연 실행에서 메시지 중복 발송 금지');
 const stale=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...fakeRef,tradingDate:'2026-10-27'})});
 assert.equal(stale.status,'SENT_SOURCE_MISSING');assert.match(textSent,/당일 참고값 미확보/);assert.doesNotMatch(textSent,/872\.35/);
+const tflRef={...fakeRef,source:'TFL',contract:'A01612',value:900.05};
+const tflMorning=await runTelegramMorning({...morningOptions,referenceFetch:async()=>tflRef});
+assert.equal(tflMorning.status,'SENT_REFERENCE');
+assert.match(textSent,/TFL 마지막 수집값/);assert.match(textSent,/계약 A01612/);
+const tflBad=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...tflRef,contract:''})});
+assert.equal(tflBad.status,'SENT_SOURCE_MISSING');assert.doesNotMatch(textSent,/900\.05/);
 // The headless calendar consumes the GAS source of truth (including temporary
 // domestic closures) rather than approximating every weekday as a trading day.
 assert.equal(krxSessionStatus('2026-10-05'),'CLOSED','GAS 확정 휴장일');

@@ -1,5 +1,10 @@
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchPrekospiNight } from './prekospi-night-reference.mjs';
+import { fetchTflNight } from './tfl-night-reference.mjs';
+
+export async function fetchNightReference(date, options={}) {
+  return await fetchTflNight(date, options) || await fetchPrekospiNight(date, options);
+}
 
 const SERIES = Object.freeze([
   ['KOSPI', '^KS11'], ['KOSDAQ', '^KQ11'], ['S&P 500', '^GSPC'],
@@ -49,7 +54,7 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
 }
 export function formatMorningBriefing(tradingDate, reference, rows) {
   const lines=[`[${tradingDate} 장전 시장 요약]`, ''];
-  if(reference) lines.push(`코스피200 야간선물 참고: ${reference.value.toFixed(2)} (PreKOSPI 마지막 수집값, ${reference.tradingDate} 06:00 기준. 공식 종가 확인 전)`);
+  if(reference) lines.push(`코스피200 야간선물 참고: ${reference.value.toFixed(2)} (${reference.source === 'TFL' ? 'TFL' : 'PreKOSPI'} 마지막 수집값, ${reference.tradingDate} 06:00 기준${reference.contract ? `, 계약 ${reference.contract}` : ''}. 공식 종가 확인 전)`);
   else lines.push('코스피200 야간선물: 당일 참고값 미확보');
   lines.push('', '전일 시장 지표 (Yahoo Finance 일봉, 지연 가능)');
   for(const [label,symbol] of SERIES){
@@ -58,7 +63,7 @@ export function formatMorningBriefing(tradingDate, reference, rows) {
     const change=Number.isFinite(row.changePercent)?` (${row.changePercent>=0?'+':''}${row.changePercent.toFixed(2)}%)`:'';
     lines.push(`${label}: ${row.value.toLocaleString('en-US',{maximumFractionDigits:2})}${change} · ${row.date}`);
   }
-  lines.push('', '각 수치는 기준일을 확인하세요. 야간선물은 PreKOSPI 참고값이며 KRX 공식 확정 종가가 아닙니다.');
+  lines.push('', '각 수치는 기준일을 확인하세요. 야간선물은 외부 사이트 참고값이며 KRX 공식 확정 종가가 아닙니다.');
   return lines.join('\n');
 }
 export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
@@ -69,7 +74,7 @@ export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
 }
-export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,referenceFetch=fetchPrekospiNight,send=sendTelegram}={}) {
+export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,referenceFetch=fetchNightReference,send=sendTelegram}={}) {
   if(Number(attempt)!==1)throw new Error('TELEGRAM_RETRY_BLOCKED');
   if(event==='test') { await send(token,chatId,'텔레그램 브리핑 연결 시험입니다. 실제 시장 브리핑은 아닙니다.',{fetchImpl}); return {status:'TEST_SENT'}; }
   if(event!=='schedule')throw new Error('TELEGRAM_EVENT_INVALID');
@@ -84,7 +89,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   ]);
   const last=scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
-  const reference=candidate && candidate.source==='PREKOSPI' && candidate.kind==='REFERENCE'
+  const reference=candidate && (candidate.source==='PREKOSPI' || (candidate.source==='TFL' && /^[A-Z0-9]{4,12}$/.test(candidate.contract||''))) && candidate.kind==='REFERENCE'
     && candidate.tradingDate===first.date && candidate.officialClose===false
     && Number.isFinite(candidate.value) && candidate.value>0
     && Number.isFinite(Date.parse(candidate.receivedAt)) && Date.parse(candidate.receivedAt)<=now().getTime()
