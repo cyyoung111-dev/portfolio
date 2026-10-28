@@ -30,7 +30,7 @@ const mk=(mode)=>{
   default:throw Error('fixture '+mode);
  }
 };
-function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,formula=[],dateReadback='',timestampReadback='',writerSource=production}={}){
+function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,formula=[],dateReadback='',timestampReadback='',timestampUpdateReadback='',sheetTimezone='Asia/Seoul',timestampOffset='+09:00',writerSource=production}={}){
  const stored=copy(mk(mode)), initial=copy(stored);
  const writes=[],reads=[],revisions=[],formats=[],inserts=[];let attempts=0,fullScans=0,appendCalled=false,failed=false,flushes=0;
  const width=mode==='empty'?6:mode==='legacy5'?5:7;
@@ -59,8 +59,14 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
       }
       if(timestampReadback&&c===1&&r===initial.length+1&&writes.length){
         for(const row of result)if(row[4]){
-          row[4]=new Date(String(row[4]).replace(' ','T')+'+09:00');
+          row[4]=new Date(String(row[4]).replace(' ','T')+timestampOffset);
           if(timestampReadback==='DRIFT')row[4].setUTCSeconds(row[4].getUTCSeconds()+1);
+        }
+      }
+      if(timestampUpdateReadback&&c===4&&r===2&&writes.length){
+        for(const row of result)if(row[1]){
+          row[1]=new Date(String(row[1]).replace(' ','T')+timestampOffset);
+          if(timestampUpdateReadback==='DRIFT')row[1].setUTCSeconds(row[1].getUTCSeconds()+1);
         }
       }
       return result;
@@ -82,7 +88,7 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
    };
   }
  };
- const ss={getSheetByName:key=>key==='가격이력'?sheet:null,insertSheet:key=>{inserts.push(key);return sheet;}};
+ const ss={getSpreadsheetTimeZone:()=>sheetTimezone,getSheetByName:key=>key==='가격이력'?sheet:null,insertSheet:key=>{inserts.push(key);return sheet;}};
  const ctx=vm.createContext({
   Date,CONFIG:{SHEET_PH:'가격이력',TIMEZONE:'Asia/Seoul'},
   Utilities:{formatDate:(value,tz,pattern)=>{
@@ -230,3 +236,24 @@ console.log('ISSUE507_BATCH_PRICE_WRITER_REGRESSION_OK_SAME_CELL_TOCTOU_UNSOLVED
  assert.throws(()=>mutant.run([mutant.item('000888',888,'KRX','2026-01-14 08:39:42')]),/APPEND_UNVERIFIED/);
  console.log('PASS native timestamp identity, one-second mismatch rejection, old comparison mutation');
 }
+
+// The real workbook is America/Los_Angeles; parsed Sheet DATE_TIME values
+// represent its wall time, while CONFIG.TIMEZONE remains Asia/Seoul.
+for (const [day,offset] of [['2026-01-14','-08:00'],['2026-07-14','-07:00']]) {
+ const stamp=day+' 08:41:45';
+ const options={mode:'empty',timestampReadback:'MATCH',sheetTimezone:'America/Los_Angeles',timestampOffset:offset};
+ const same=makeEnv(options);same.run([same.item('000888',888,'KRX',stamp)],day);
+ const drift=makeEnv({...options,timestampReadback:'DRIFT'});
+ assert.throws(()=>drift.run([drift.item('000888',888,'KRX',stamp)],day),/APPEND_UNVERIFIED/);
+ const mutant=makeEnv({...options,writerSource:production.replace("sheetTimezone, 'yyyy-MM-dd HH:mm:ss'","CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'")});
+ assert.throws(()=>mutant.run([mutant.item('000888',888,'KRX',stamp)],day),/APPEND_UNVERIFIED/);
+}
+console.log('PASS sheet timezone winter/summer, one-second mismatch and wrong-timezone mutation');
+
+{
+ const options={mode:'normal',timestampUpdateReadback:'MATCH',sheetTimezone:'America/Los_Angeles',timestampOffset:'-08:00'};
+ const same=makeEnv(options);same.run([same.item('000111',111,'MANUAL','2026-01-14 08:41:45')]);
+ const drift=makeEnv({...options,timestampUpdateReadback:'DRIFT'});
+ assert.throws(()=>drift.run([drift.item('000111',111,'MANUAL','2026-01-14 08:41:45')]),/WRITE_UNVERIFIED/);
+}
+console.log('PASS manual update spreadsheet timezone and one-second mismatch');

@@ -11,7 +11,7 @@ function setup(options={}) {
   const old=[['date','code','name','price','at','source'],['2025-12-30','000001','EXISTING',10,'','MANUAL']];
   if(options.zeroExisting)old.push(['2025-12-30','000002','EXISTING_ZERO',0,'KEPT','ORIGINAL']);
   const ph={rows:structuredClone(old),getLastRow(){return this.rows.length;},getLastColumn:()=>6,getRange(r,c,h,w){return {getValues:()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>this.rows[r-1+i]?.[c-1+j]??'')),getFormulas:()=>Array.from({length:h},()=>Array(w).fill('')),setValues:values=>{writes++;values.forEach((v,i)=>{this.rows[r-1+i]??=[];v.forEach((x,j)=>this.rows[r-1+i][c-1+j]=x);});}};},copyTo(){copies++;const clone=structuredClone(this.rows);return {setName(){return {getRange:()=>({getValues:()=>options.badBackup?[]:clone})};}};}};
-  const ss={getSheetByName:n=>n==='가격이력'?ph:null};let copies=0,released=0,reads=0,fetches=0,writes=0;
+  const ss={getSpreadsheetTimeZone:()=> 'Asia/Seoul',getSheetByName:n=>n==='가격이력'?ph:null};let copies=0,released=0,reads=0,fetches=0,writes=0;
   const context=vm.createContext({Date,console,Logger:{log(){}},PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k)})},LockService:{getScriptLock:()=>({tryLock:()=>!options.busy,releaseLock:()=>released++})},SpreadsheetApp:{flush(){}},Utilities:{formatDate:()=> '20261024_120000'}});
   vm.runInContext(options.omitExistingGuard?source.replace(" || existingKeys[used+'|'+item.code]",''):source,context);
   const actualWriter=context.batchUpsertPriceHistory;
