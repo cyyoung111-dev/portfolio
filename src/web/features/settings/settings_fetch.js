@@ -461,8 +461,12 @@ async function quickFetchByDate() {
       const safeDetail = detail ? ' · ' + String(detail).replace(/[&<>"']/g, char => ({
         '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
       })[char]) : '';
-      setStatusLabel('❌ 거래·보유 자료 복원 실패 · 로컬 미전송 자료 보존' + safeDetail
-        + ' · 잠시 후 업데이트를 다시 눌러주세요', 'error');
+      const timeoutStage = String(detail).includes('HOLDINGS_SAVE_TIMEOUT') ? '보유 자료'
+        : String(detail).includes('TRADES_SAVE_TIMEOUT') ? '거래 자료' : '';
+      setStatusLabel(timeoutStage
+        ? '⚠️ ' + timeoutStage + ' 저장 응답 시간 초과 · 서버 반영 여부 미확인 · 이 기기의 미전송 자료 보존 · 반복 재시도 전 서버 저장 상태 확인 필요'
+        : '❌ 거래·보유 자료 복원 실패 · 로컬 미전송 자료 보존' + safeDetail
+          + ' · 연결 상태를 확인해 주세요', 'error');
       try { refreshAll(); } catch(e) {}
       return;
     }

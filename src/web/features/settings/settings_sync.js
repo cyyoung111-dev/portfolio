@@ -1385,7 +1385,7 @@ async function syncTradesToGsheet(options) {
         explicitEmpty: allowEmpty ? '1' : '',
         rebuildFrom
       },
-      { timeoutMs: 30000, retry: 1, targetUrl, preserveError: true }
+      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 30000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, preserveError: true }
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') {

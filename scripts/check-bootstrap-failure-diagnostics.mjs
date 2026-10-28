@@ -1543,3 +1543,15 @@ for (const outcome of ['ok','error']) {
   else assert.ok(calls.includes('syncTrades'),'보유 저장 성공 후 거래 저장을 진행해야 함');
 }
 console.log('보유·거래 복구 순서 및 실패 시 journal 보존 검증 통과');
+
+// 응답 시간 초과는 서버 저장 실패로 확정하지 않고 단계별 미확인 상태로 보존한다.
+for (const failedAction of ['syncHoldings','syncTrades']) {
+ const x=setup();x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+ vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'}); _invalidateEPIndex(); rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100}); rawHoldings.push({name:'테스트',code:'005930',acct:'계좌',qty:1,cost:100}); _markPortfolioRemoteDirty();`,x.ctx);
+ const calls=[];x.ctx.requestGsheetFormJson=async(action,_params,options)=>{calls.push(action);if(action==='syncHoldings'||action==='syncTrades'){assert.equal(options.timeoutMs,60000);assert.equal(options.retry,0);}return action===failedAction?{status:'error',errorCode:'CLIENT_TIMEOUT'}:{status:'ok',saveState:'success'};};
+ assert.equal(await x.ctx.loadSettings(null,{forcePortfolioRestore:true}),false);
+ assert.match(x.ctx.getGsheetSettingsLoadFailure(),failedAction==='syncHoldings'?/HOLDINGS_SAVE_TIMEOUT/:/TRADES_SAVE_TIMEOUT/);
+ assert.ok(x.ctx._getPortfolioRemoteDirty(),'응답 미확인 시 미전송 자료 유지');
+ if(failedAction==='syncHoldings')assert.ok(!calls.includes('syncTrades'));
+}
+console.log('거래·보유 응답 시간 초과 구분 및 미전송 자료 보존 검증 통과');
