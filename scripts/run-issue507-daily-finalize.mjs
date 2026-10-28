@@ -33,7 +33,9 @@ export async function runDaily({url,token,apply=false,fetchImpl=fetch,emit=()=>{
       if(data?.status!=='ok'||data.mode!=='APPLIED'||data.checked.length!==1||c?.date!==date||c.ok!==true||c.verifiedCodes!==p.verifiedCodes||typeof c.queued!=='boolean'||data.cleared!==(c.queued?1:0))throw Error('DAILY_APPLY_PROOF');
       cleared=data.cleared;
     }
-    const after=await runPreview({...opts,dates:date});
+    // A dry run does not modify any data. Reuse the already validated proof;
+    // applying a change still requires an independent post-write readback.
+    const after=apply?await runPreview({...opts,dates:date}):proof;
     if(!after.entries[0].verified||(apply&&after.entries[0].queued))throw Error('DAILY_READBACK');
     out.push({date,status:apply?'VERIFIED_CLEAR':'VERIFIED',cleared});
   }
