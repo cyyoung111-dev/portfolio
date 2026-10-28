@@ -10985,8 +10985,8 @@ function handlePortfolioSyncWithReceipt(params) {
     var all=props.getProperties(),keys=Object.keys(all).filter(function(k){return k.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)===0 && k!==input.key;});
     keys.sort(function(a,b){return String(JSON.parse(all[a]).at).localeCompare(String(JSON.parse(all[b]).at));});
     while(keys.length>63)props.deleteProperty(keys.shift());
-    var result=JSON.parse((input.kind==='syncHoldings' ? handleSyncHoldings(params.data,true)
-      : handleSyncTrades(params.data,params.rebuildFrom||'',params.explicitEmpty==='1',true)).getContent());
+    var result=JSON.parse((input.kind==='syncHoldings' ? handleSyncHoldings(params.data,true,JSON.parse(params.data))
+      : handleSyncTrades(params.data,params.rebuildFrom||'',params.explicitEmpty==='1',true,JSON.parse(params.data))).getContent());
     record.state=result.status==='ok' && result.saveState!=='partial' ? 'COMPLETE' : result.saveState==='partial' ? 'PARTIAL' : 'UNKNOWN';
     // 저장 성공 응답도 현재 원장과 후속 상태가 일치해야 완료로 인정한다.
     if(record.state==='COMPLETE' && _portfolioSyncReceiptState_(input,record)!=='COMPLETE')record.state='UNKNOWN';
@@ -10997,14 +10997,14 @@ function handlePortfolioSyncWithReceipt(params) {
   finally {if(locked)lock.releaseLock();}
 }
 
-function handleSyncHoldings(dataJson, receiptLockHeld) {
+function handleSyncHoldings(dataJson, receiptLockHeld, receiptRows) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     // Serialize the entire read/validation/write with stock-code deletion
     // AND trade sync. Do not allow a holding to reference a removed code.
     if (!receiptLockHeld) { lock.waitLock(30000); locked = true; }
     var holdings;
-    try { holdings = _parseArrayParam(dataJson, 'holdings'); } catch(e) { return jsonError(e.message); }
+    try { holdings = receiptLockHeld && Array.isArray(receiptRows) ? receiptRows : _parseArrayParam(dataJson, 'holdings'); } catch(e) { return jsonError(e.message); }
     if (!Array.isArray(holdings)) return jsonError('배열 형식 필요');
 
     var ss = getss();
@@ -11043,13 +11043,13 @@ function handleSyncHoldings(dataJson, receiptLockHeld) {
 // ════════════════════════════════════════════════════════════════════
 //  거래이력 동기화
 // ════════════════════════════════════════════════════════════════════
-function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld) {
+function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows) {
   var lock = LockService.getScriptLock();
   var locked = false, sourcePersisted = false, sourceTouched = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
   try {
     if (!receiptLockHeld) { lock.waitLock(30000); locked = true; }
     var trades;
-    try { trades = _parseArrayParam(dataJson, 'trades'); } catch(e) { return jsonError(e.message); }
+    try { trades = receiptLockHeld && Array.isArray(receiptRows) ? receiptRows : _parseArrayParam(dataJson, 'trades'); } catch(e) { return jsonError(e.message); }
     if (!Array.isArray(trades)) return jsonError('배열 형식 필요');
 
     var ss = getss();

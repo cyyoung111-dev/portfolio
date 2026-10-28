@@ -9,6 +9,7 @@ function server(){
  const ctx=vm.createContext({console,Date,JSON,PropertiesService:{getScriptProperties:()=>({getProperty:k=>store.get(k)||null,setProperty:(k,v)=>store.set(k,v),getProperties:()=>Object.fromEntries(store),deleteProperty:k=>store.delete(k)})},
  Utilities:{DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,s)=>[...createHash('sha256').update(s).digest()]},LockService:{getScriptLock:()=>({waitLock(){assert.equal(locked,false);if(busy)throw Error('busy');locked=true;},tryLock(){if(locked||busy)return false;locked=true;return true;},releaseLock(){locked=false;}})}});
  vm.runInContext(gasSource,ctx);
+ const production={writeHoldings:ctx.handleSyncHoldings,readHoldings:ctx.handleGetHoldings,writeTrades:ctx.handleSyncTrades};
  const output=x=>({getContent:()=>JSON.stringify(x)});
  ctx.jsonOk=x=>output({status:'ok',...x});ctx.jsonError=(message,x)=>output({status:'error',message,...x});
  ctx.getss=()=>({getId:()=> 'fixture-workbook'});
@@ -16,7 +17,7 @@ function server(){
  ctx.handleGetHoldings=()=>output({status:'ok',holdings:rows});ctx.handleGetTrades=()=>output({status:'ok',trades:rows});
  ctx.handleSyncHoldings=(data,held)=>{assert.equal(held,true);assert.equal(locked,true);writes++;rows=JSON.parse(data);return output({status:'ok',synced:rows.length});};
  ctx.handleSyncTrades=(data,from,empty,held)=>{assert.equal(held,true);assert.equal(locked,true);writes++;rows=JSON.parse(data);return output({status:'ok',saveState:'success'});};
- return {ctx,store,write:p=>JSON.parse(ctx.handlePortfolioSyncWithReceipt(p).getContent()),read:p=>JSON.parse(ctx.handleGetPortfolioSyncReceipt({...p,kind:p.action}).getContent()),get writes(){return writes;},busy:x=>busy=x,pending:x=>{pending=x;if(x)store.set(ctx.TRADE_SNAPSHOT_REBUILD_PENDING_KEY,JSON.stringify({from:'2026-10-28'}));else store.delete(ctx.TRADE_SNAPSHOT_REBUILD_PENDING_KEY);},rows:x=>rows=x};
+ return {ctx,store,production,write:p=>JSON.parse(ctx.handlePortfolioSyncWithReceipt(p).getContent()),read:p=>JSON.parse(ctx.handleGetPortfolioSyncReceipt({...p,kind:p.action}).getContent()),get writes(){return writes;},busy:x=>busy=x,pending:x=>{pending=x;if(x)store.set(ctx.TRADE_SNAPSHOT_REBUILD_PENDING_KEY,JSON.stringify({from:'2026-10-28'}));else store.delete(ctx.TRADE_SNAPSHOT_REBUILD_PENDING_KEY);},rows:x=>rows=x};
 }
 const params={action:'syncHoldings',operationId:'receipt_test_000001',data:JSON.stringify([{code:'005930',name:'test-private-security',qty:1,costAmt:100,assetType:'주식',acct:'A'}])};
 {
@@ -91,3 +92,26 @@ const probe=await verifyPortfolioReceiptReadOnly('https://fixture.invalid/exec',
 assert.equal(probe.dataWrites,0);assert.deepEqual(probeCalls,['getPortfolioSyncReceipt']);
 await assert.rejects(()=>verifyPortfolioReceiptReadOnly('https://fixture.invalid/exec','',async()=>({ok:true,json:async()=>({status:'ok',receiptState:'COMPLETE'})})),/SYNC_RECEIPT_READONLY_VERIFY_FAILED/);
 console.log('PASS: 배포 후 확인은 빈 가상 요청의 읽기 전용 기록 조회만 실행');
+
+// 원문 JSON 해시→실제 보유 저장→실제 읽기 경로에서 퍼센트 문자열을 보존한다.
+{
+ const s=server();let rows=[];
+ const range=(r,c,n=1,m=1)=>({setValues:values=>{values.forEach((line,i)=>{rows[r+i-1]||=[];line.forEach((v,j)=>rows[r+i-1][c+j-1]=v)});return range(r,c,n,m);},getValues:()=>Array.from({length:n},(_,i)=>Array.from({length:m},(_,j)=>rows[r+i-1]?.[c+j-1]??'')),setBackground(){return this},setFontColor(){return this},setFontWeight(){return this}});
+ const sheet={clearContents:()=>{rows=[]},getRange:range,getLastRow:()=>rows.length,getLastColumn:()=>7};
+ s.ctx.getss=()=>({getId:()=> 'fixture-workbook',getSheetByName:()=>sheet});
+ s.ctx.SpreadsheetApp={flush(){}};s.ctx._portfolioLedgerMasterConflict_=()=>'';s.ctx.getCodeItems=()=>[];s.ctx._setCodeColumnText=()=>{};
+ s.ctx.handleSyncHoldings=s.production.writeHoldings;s.ctx.handleGetHoldings=s.production.readHoldings;
+ const p={...params,operationId:'percent_fixture_0001',data:JSON.stringify([{code:'005930',name:'test%20fund',acct:'account%2Fname',qty:1,costAmt:100,assetType:'주식'}])};
+ assert.equal(s.write(p).receiptState,'COMPLETE');assert.equal(rows[1][1],'test%20fund');assert.equal(rows[1][6],'account%2Fname');
+ assert.equal(s.read(p).receiptState,'COMPLETE');
+ s.write(p);assert.equal(rows.length,2,'실제 함수 경로에서도 동일 요청이 중복 행을 만들지 않는다');
+}
+console.log('PASS: 실제 보유 저장/읽기 함수의 퍼센트 문자열 원문 보존');
+
+{
+ const s=server();let captured;
+ s.ctx.handleSyncTrades=s.production.writeTrades;s.ctx.getCodeItems=()=>[];
+ s.ctx._portfolioLedgerMasterConflict_=items=>{captured=items;return 'FIXTURE_NO_WRITE'};
+ const p={...params,action:'syncTrades',operationId:'percent_trade_0001',data:JSON.stringify([{date:'2026-10-28',name:'test%20fund',memo:'memo%2Ftext',qty:1,price:100,code:'005930',tradeType:'buy',assetType:'주식'}])};
+ s.write(p);assert.equal(captured[0].memo,'memo%2Ftext');assert.equal(captured[0].name,'test%20fund');
+}
