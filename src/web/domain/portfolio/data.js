@@ -1326,8 +1326,9 @@ async function _retryPortfolioRemoteDirtySync(options) {
         options?.onFailure?.('MASTER_VALIDATION_FAILED');
         return false;
       }
-      const [holdingsResult, tradesResult] = await Promise.all([
-        typeof syncHoldingsToGsheet === 'function'
+      // 두 저장은 서버에서 같은 ScriptLock을 사용한다. 복구 시 동시에 보내면
+      // 보유 저장이 잠금을 기다리다가 브라우저 시간 제한에 걸릴 수 있다.
+      const holdingsResult = typeof syncHoldingsToGsheet === 'function'
           ? syncHoldingsToGsheet({
               targetUrl,
               generation,
@@ -1336,8 +1337,13 @@ async function _retryPortfolioRemoteDirtySync(options) {
               fundDirectOverride: dirty.fundDirect,
               masterCodesOverride: options?.masterCodesOverride
             })
-          : Promise.resolve(null),
-        typeof syncTradesToGsheet === 'function'
+          : Promise.resolve(null);
+      const holdingsResponse = await holdingsResult;
+      if (holdingsRequired && holdingsResponse?.status !== 'ok') {
+        options?.onFailure?.('HOLDINGS_SAVE_FAILED');
+        return false;
+      }
+      const tradesResult = await (typeof syncTradesToGsheet === 'function'
           ? syncTradesToGsheet({
               targetUrl,
               generation,
@@ -1345,9 +1351,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
               tradesOverride: dirty.trades,
               masterCodesOverride: options?.masterCodesOverride
             })
-          : Promise.resolve(null)
-      ]);
-      const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
+          : Promise.resolve(null));
+      const holdingsOk = !holdingsRequired || holdingsResponse?.status === 'ok';
       const tradesOk = !tradesRequired
         || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
       if (!holdingsOk || !tradesOk) {

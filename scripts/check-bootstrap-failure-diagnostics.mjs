@@ -1521,3 +1521,25 @@ console.log('✅ 실제 Settings/Bootstrap API 키 상태 복원·부동산 부�
   const timeout=await transport.ctx.requestJsonWithPolicy('https://example.invalid',{preserveError:true});
   assert.equal(timeout.errorCode,'CLIENT_TIMEOUT');
 }
+
+// 복원 중 보유 저장 확인 전 거래 저장을 시작하지 않고, 실패 시 로컬 journal을 보존한다.
+for (const outcome of ['ok','error']) {
+  const x=setup();
+  x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'}); _invalidateEPIndex(); rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100}); rawHoldings.push({name:'테스트',code:'005930',acct:'계좌',qty:1,cost:100}); _markPortfolioRemoteDirty();`,x.ctx);
+  let release;const calls=[];
+  x.ctx.requestGsheetFormJson=async(action,params,options)=>{
+    calls.push(action);
+    if(action==='syncHoldings') { assert.equal(options.timeoutMs,60000);assert.equal(options.retry,0);return await new Promise(resolve=>{release=resolve}); }
+    return {status:'ok',saveState:'success'};
+  };
+  const task=x.ctx.loadSettings(null,{forcePortfolioRestore:true});
+  for(let n=0;n<100&&!release;n++) await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(release,'holdings request must start');
+  assert.ok(!calls.includes('syncTrades'),'거래 저장은 보유 저장 응답보다 먼저 시작하면 안 됨');
+  release(outcome==='ok'?{status:'ok'}:{status:'error'});
+  const result=await task;
+  if(outcome==='error') { assert.equal(result,false);assert.ok(!calls.includes('syncTrades'));assert.ok(x.ctx._getPortfolioRemoteDirty()); }
+  else assert.ok(calls.includes('syncTrades'),'보유 저장 성공 후 거래 저장을 진행해야 함');
+}
+console.log('보유·거래 복구 순서 및 실패 시 journal 보존 검증 통과');
