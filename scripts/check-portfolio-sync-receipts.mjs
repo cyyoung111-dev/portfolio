@@ -115,3 +115,27 @@ console.log('PASS: 실제 보유 저장/읽기 함수의 퍼센트 문자열 원
  const p={...params,action:'syncTrades',operationId:'percent_trade_0001',data:JSON.stringify([{date:'2026-10-28',name:'test%20fund',memo:'memo%2Ftext',qty:1,price:100,code:'005930',tradeType:'buy',assetType:'주식'}])};
  s.write(p);assert.equal(captured[0].memo,'memo%2Ftext');assert.equal(captured[0].name,'test%20fund');
 }
+
+// 상태 모델: PARTIAL은 worker 복구 증거가 모두 갖춰져야 읽기만으로 COMPLETE가 된다.
+{
+ const s=server();let calls=0;
+ const p={...params,action:'syncTrades',operationId:'partial_recovery_01',data:JSON.stringify([{date:'2026-10-28',name:'test-private-security',qty:1,price:100,code:'005930',tradeType:'buy',assetType:'주식'}])};
+ s.ctx.handleSyncTrades=data=>{calls++;s.rows(JSON.parse(data));return {getContent:()=>JSON.stringify({status:'error',saveState:'partial',affectedFrom:'2026-10-01',affectedTo:'2026-10-28'})}};
+ assert.equal(s.write(p).receiptState,'PARTIAL');
+ const key=[...s.store.keys()].find(k=>k.startsWith('portfolio_sync_receipt_v1_'));
+ const record=JSON.parse(s.store.get(key));record.at='2026-10-28T00:00:00.000Z';s.store.set(key,JSON.stringify(record));
+ assert.equal(s.read(p).receiptState,'PARTIAL','pending만 지워졌다고 완료가 아님');
+ s.ctx._tradeLedgerContentFingerprint_=()=> 'current-ledger-hash';
+ s.store.set(s.ctx.TRADE_LEDGER_FINGERPRINT_KEY,'current-ledger-hash');
+ s.ctx._markTradeSnapshotWorkerResult_({status:'COMPLETED',processed:1});
+ s.pending(true);assert.equal(s.read(p).receiptState,'PARTIAL');s.pending(false);
+ s.store.set(s.ctx.TRADE_SNAPSHOT_DEFERRED_DATES_KEY,JSON.stringify({dates:['2026-10-15'],cursor:''}));
+ assert.equal(s.read(p).receiptState,'PARTIAL','영향 날짜의 deferred는 완료 아님');
+ s.store.delete(s.ctx.TRADE_SNAPSHOT_DEFERRED_DATES_KEY);
+ s.store.set(s.ctx.TRADE_LEDGER_FINGERPRINT_KEY,'stale-ledger-hash');assert.equal(s.read(p).receiptState,'PARTIAL');
+ s.store.set(s.ctx.TRADE_LEDGER_FINGERPRINT_KEY,'current-ledger-hash');
+ const before=[...s.store];assert.equal(s.read(p).receiptState,'COMPLETE');assert.deepEqual([...s.store],before,'복구 확인 API는 Properties와 원장을 쓰지 않음');
+ assert.equal(s.write(p).replayed,true);assert.equal(calls,1,'worker 복구 후 원장을 재저장하지 않음');
+ s.rows([]);assert.equal(s.read(p).receiptState,'CHANGED');
+}
+console.log('PASS: 실제 worker 완료 기록·fingerprint·pending/deferred 기반 PARTIAL 복구');

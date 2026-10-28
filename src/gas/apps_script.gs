@@ -10945,16 +10945,36 @@ function _portfolioSyncReceiptInput_(kind, id, data, rebuildFrom, explicitEmpty)
   return {key:PORTFOLIO_SYNC_RECEIPT_PREFIX+_portfolioSyncDigest_(kind+'|'+id),kind:kind,id:id,
     contentHash:_portfolioSyncDigest_(canonical),requestHash:_portfolioSyncDigest_(canonical+'|'+String(rebuildFrom||'')+'|'+String(explicitEmpty||''))};
 }
+// PARTIAL→완료 판정은 대기열 소멸만으로 하지 않는다. 원장 원문 일치에 더해
+// 해당 저장 이후 worker 완료·원장 fingerprint·영향 범위의 deferred 해소를 요구한다.
+function _portfolioSyncFollowupRecovered_(record) {
+  try {
+    var props=PropertiesService.getScriptProperties();
+    var raw=props.getProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY),last=raw?JSON.parse(raw):null;
+    if (!last || ['COMPLETED','DEFERRED_RESOLVED'].indexOf(last.status)===-1
+        || !(Date.parse(last.at)>Date.parse(record.at))) return false;
+    var fingerprint=props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
+    if (!fingerprint || fingerprint!==_tradeLedgerContentFingerprint_(getss())) return false;
+    var deferred=_readTradeSnapshotDeferredState_().dates;
+    var from=String(record.affectedFrom||''),to=String(record.affectedTo||'');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from>to)
+      return deferred.length===0;
+    return !deferred.some(function(date){return date>=from && date<=to;});
+  } catch(ignore) {return false;}
+}
+
 function _portfolioSyncReceiptState_(input, record) {
   if (!record) return 'NOT_FOUND';
   if (record.requestHash !== input.requestHash || record.kind !== input.kind || record.id !== input.id
       || record.sourceId !== getss().getId()) return 'CONFLICT';
-  if (record.state !== 'COMPLETE') return record.state === 'PARTIAL' ? 'PARTIAL' : 'UNKNOWN';
+  if (record.state !== 'COMPLETE' && !(record.state==='PARTIAL' && input.kind==='syncTrades')) return 'UNKNOWN';
   if (input.kind === 'syncTrades' && (_tradeLedgerWriteUnverified_() || PropertiesService.getScriptProperties().getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY))) return 'PARTIAL';
   var response = JSON.parse((input.kind === 'syncTrades' ? handleGetTrades() : handleGetHoldings()).getContent());
   var rows = input.kind === 'syncTrades' ? response.trades : response.holdings;
   if (response.status !== 'ok' || !Array.isArray(rows)) return 'UNKNOWN';
-  return _portfolioSyncDigest_(_portfolioSyncCanonical_(input.kind, rows)) === record.contentHash ? 'COMPLETE' : 'CHANGED';
+  if (_portfolioSyncDigest_(_portfolioSyncCanonical_(input.kind, rows)) !== record.contentHash) return 'CHANGED';
+  if (record.state==='PARTIAL' && !_portfolioSyncFollowupRecovered_(record)) return 'PARTIAL';
+  return 'COMPLETE';
 }
 function handleGetPortfolioSyncReceipt(params) {
   var lock=LockService.getScriptLock(), locked=false;
@@ -10987,6 +11007,7 @@ function handlePortfolioSyncWithReceipt(params) {
     while(keys.length>63)props.deleteProperty(keys.shift());
     var result=JSON.parse((input.kind==='syncHoldings' ? handleSyncHoldings(params.data,true,JSON.parse(params.data))
       : handleSyncTrades(params.data,params.rebuildFrom||'',params.explicitEmpty==='1',true,JSON.parse(params.data))).getContent());
+    record.affectedFrom=String(result.affectedFrom||'');record.affectedTo=String(result.affectedTo||'');
     record.state=result.status==='ok' && result.saveState!=='partial' ? 'COMPLETE' : result.saveState==='partial' ? 'PARTIAL' : 'UNKNOWN';
     // 저장 성공 응답도 현재 원장과 후속 상태가 일치해야 완료로 인정한다.
     if(record.state==='COMPLETE' && _portfolioSyncReceiptState_(input,record)!=='COMPLETE')record.state='UNKNOWN';
