@@ -214,7 +214,7 @@ for(const props of [
   const t=harness(relayProps);
   const data=t.ctx.handleDiagnoseTossMarketData(false);
   assert.equal(data.status,'ok');
-  assert.equal(data.gasVersion,'9.274');
+  assert.equal(data.gasVersion,'9.275');
   assert.equal(data.oauth.source,'RELAY');
   assert.equal(data.freshOAuthTested,false);
   assert.equal(data.endpoints.length,5);
@@ -223,7 +223,7 @@ for(const props of [
   assert.equal(data.priceSmoke.validLastPrice,true);
   assert.equal(t.fetchCalls.every(x=>x.url===relayProps.TOSS_RELAY_URL),true);
   assert.equal(t.cacheCalls.length,0,'diagnostic must not invalidate VM OAuth');
-  const summarized=summarizeTossDiagnostic(data,'9.274');
+  const summarized=summarizeTossDiagnostic(data,'9.275');
   assert.equal(summarized.oauth.source,'RELAY');
   assert.equal(summarized.coreHealthy,true);
   assert.equal(summarized.allHealthy,true);

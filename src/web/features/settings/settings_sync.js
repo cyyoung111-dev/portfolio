@@ -1,3 +1,72 @@
+// 원문 키/토큰 없이, 이 기기의 복구 요청과 전송 여부만 연결별로 보존한다.
+const PORTFOLIO_RECOVERY_RECEIPTS_KEY = 'portfolio_recovery_receipts_v1';
+function _hasPortfolioReceiptProtocol(targetUrl) {
+  return window._portfolioReceiptTargets?.[targetUrl] === true;
+}
+function _readPortfolioRecoveryReceipts() {
+  const value = lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, {});
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+function _savePortfolioRecoveryReceipts(records) {
+  lsSave(PORTFOLIO_RECOVERY_RECEIPTS_KEY, records);
+  return JSON.stringify(lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, null)) === JSON.stringify(records);
+}
+async function _requestPortfolioRecoveryWrite(action, params, options) {
+  const targetUrl = options.targetUrl;
+  const scope = String(options.recoveryScope || '');
+  const current = () => typeof isGsheetConnectionCurrent !== 'function'
+    || isGsheetConnectionCurrent(targetUrl, options.generation);
+  const fail = state => ({status:'error',errorCode:'SYNC_RECEIPT_'+state});
+  if (!current()) return fail('CONNECTION_CHANGED');
+  let records = _readPortfolioRecoveryReceipts();
+  let target = records[targetUrl] || {};
+  const query = async record => {
+    const response = await requestGsheetFormJson('getPortfolioSyncReceipt', {
+      kind:record.action,operationId:record.id,...record.params
+    }, {targetUrl,timeoutMs:15000,retry:0,preserveError:true});
+    if (!current()) return 'CONNECTION_CHANGED';
+    return response?.status === 'ok' && (response.receiptState === 'BUSY'
+      || (response.operationId === record.id && response.kind === record.action))
+      ? response.receiptState : 'UNAVAILABLE';
+  };
+  // 다른 단계의 이전 요청도 먼저 확인한다. 확인 전에는 새 원장 쓰기를 시작하지 않는다.
+  for (const previous of Object.values(target)) {
+    if (!previous?.attempted || (previous.completed === true && previous.scope !== scope)) continue;
+    const state = await query(previous);
+    if (state !== 'COMPLETE') return fail(state || 'UNKNOWN');
+    previous.completed = true;
+  }
+  let record = target[action];
+  if (record?.completed === true && record.scope !== scope) record = null;
+  const signature = JSON.stringify(params);
+  if (record?.attempted && JSON.stringify(record.params) === signature) {
+    if (!_savePortfolioRecoveryReceipts(records)) return fail('LOCAL_BACKUP_FAILED');
+    return {status:'ok',saveState:'success',receiptState:'COMPLETE',replayed:true};
+  }
+  record = {action,scope,completed:false,id:'pr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_'+Math.random().toString(36).slice(2),params,attempted:false};
+  target = {...target,[action]:record};
+  records = {...records,[targetUrl]:target};
+  if (!_savePortfolioRecoveryReceipts(records)) return fail('LOCAL_BACKUP_FAILED');
+  const before = await query(record);
+  if (before !== 'NOT_FOUND') return fail(before || 'UNKNOWN');
+  if (!current()) return fail('CONNECTION_CHANGED');
+  record.attempted = true;
+  if (!_savePortfolioRecoveryReceipts(records)) return fail('LOCAL_BACKUP_FAILED');
+  const response = await requestGsheetFormJson(action,{...params,operationId:record.id},
+    {...options,timeoutMs:60000,retry:0,preserveError:true});
+  if (!current()) return fail('CONNECTION_CHANGED');
+  if (response?.status === 'ok' && response.receiptState === 'COMPLETE' && response.operationId === record.id) {
+    record.completed = true;
+    return _savePortfolioRecoveryReceipts(records) ? response : fail('LOCAL_BACKUP_FAILED');
+  }
+  // ACK 유실은 쓰기 재시도 대신 읽기 전용 확인으로만 복구한다.
+  const after = await query(record);
+  if (after !== 'COMPLETE') return fail(after || 'UNKNOWN');
+  record.completed = true;
+  return _savePortfolioRecoveryReceipts(records)
+    ? {status:'ok',saveState:'success',receiptState:after,replayed:true} : fail('LOCAL_BACKUP_FAILED');
+}
+
 // ════════════════════════════════════════════════════════════════
 //  settings_sync.js — GAS 종목코드·보유현황·거래이력 동기화
 //  의존: settings.js, data.js
@@ -1039,10 +1108,12 @@ async function syncHoldingsToGsheet(options) {
     // 초기 복원 실패 등 일반 빈 상태에서는 기존 원격 보유현황을 보존합니다.
     if (holdings.length === 0 && !allowEmpty) return;
 
-    const data = await requestGsheetFormJson(
+    const writeHoldings = options?.recoveryWrite === true && _hasPortfolioReceiptProtocol(targetUrl)
+      ? _requestPortfolioRecoveryWrite : requestGsheetFormJson;
+    const data = await writeHoldings(
       'syncHoldings',
       { data: JSON.stringify(holdings) },
-      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 20000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, preserveError: true }
+      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 20000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, generation, recoveryScope: options?.recoveryScope, preserveError: true }
     );
     if (!data) { _syncWarn('[보유현황 동기화] 네트워크 오류'); return null; }
     if (data.status === 'ok') {
@@ -1378,14 +1449,16 @@ async function syncTradesToGsheet(options) {
       }).catch(()=>{});
     }
 
-    const data = await requestGsheetFormJson(
+    const writeTrades = options?.recoveryWrite === true && _hasPortfolioReceiptProtocol(targetUrl)
+      ? _requestPortfolioRecoveryWrite : requestGsheetFormJson;
+    const data = await writeTrades(
       'syncTrades',
       {
         data: JSON.stringify(trades),
         explicitEmpty: allowEmpty ? '1' : '',
         rebuildFrom
       },
-      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 30000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, preserveError: true }
+      { timeoutMs: options?.allowDuringRestore === true ? 60000 : 30000, retry: options?.allowDuringRestore === true ? 0 : 1, targetUrl, generation, recoveryScope: options?.recoveryScope, preserveError: true }
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') {

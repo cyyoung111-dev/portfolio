@@ -11,7 +11,7 @@ function prod(name) {
 const names=[
   '_readTradeSnapshotDeferredState_','_writeTradeSnapshotDeferredState_',
   '_deferTradeSnapshotDate_','_clearTradeSnapshotDeferredDate_',
-  '_markTradeSnapshotWorkerResult_','_diagnoseTradeSnapshotWorkerDate_','_assessTradeSnapshotWorkerDate_',
+  '_recordPortfolioSyncSnapshotCompletion_','_markTradeSnapshotWorkerResult_','_diagnoseTradeSnapshotWorkerDate_','_assessTradeSnapshotWorkerDate_',
   'runPendingTradeSnapshotRebuild'
 ];
 const compiled=names.map(prod).join('\n');
@@ -28,6 +28,7 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
   props.set('trade_snapshot_rebuild_pending_v1',
     JSON.stringify({from:'2025-12-31'}));
   const scriptProps={
+    getProperties:()=>Object.fromEntries(props),
     getProperty:key=>props.get(key)||null,
     setProperty:(key,value)=>{
       calls.push({op:'set',key});
@@ -41,6 +42,8 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
     deleteProperty:key=>{calls.push({op:'delete',key});props.delete(key)}
   };
   const ctx=vm.createContext({
+    PORTFOLIO_SYNC_RECEIPT_PREFIX:'portfolio_sync_receipt_v1_',
+    PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY:'portfolio_sync_snapshot_completion_v1',
     TRADE_SNAPSHOT_DEFERRED_DATES_KEY:'trade_snapshot_rebuild_deferred_v1',
     TRADE_SNAPSHOT_WORKER_LAST_KEY:'trade_snapshot_worker_last_v1',
     TRADE_SNAPSHOT_WORKER_BUSY_KEY:'trade_snapshot_worker_busy_v1',

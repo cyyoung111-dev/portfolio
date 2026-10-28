@@ -603,6 +603,7 @@ async function loadSettings(onProgress, options) {
       return failLoad(code);
     }
     let s = data.settings;
+    window._portfolioReceiptTargets = {...(window._portfolioReceiptTargets || {}), [loadTarget]: data.portfolioSyncReceipts === true};
     const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
     // Recovery provenance may exist ONLY as a durable A->B journal if the
     // browser stopped between code-sheet flush and Settings failure readback.

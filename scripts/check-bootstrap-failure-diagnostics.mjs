@@ -1470,7 +1470,8 @@ for(const mode of ['ok','read-failed','backup-failed']) {
  h.ctx.requestGsheetFormJson=async()=>({status:'error',saveState:'failed'});
  const before=JSON.stringify(h.ctx._getPortfolioRemoteDirty()),q=quickFixture(h);
  await h.ctx.quickFetchByDate();assert.equal(q.seen.length,0);
- assert.equal(JSON.stringify(h.ctx._getPortfolioRemoteDirty()),before);
+ const expectedDirty=JSON.parse(before);expectedDirty.legacyUntracked=true;
+ assert.equal(JSON.stringify(h.ctx._getPortfolioRemoteDirty()),JSON.stringify(expectedDirty));
  assert.equal(vm.runInContext('rawTrades[0].qty',h.ctx),3);
  assert.match(q.status.at(-1).message,/PORTFOLIO_SYNC_FAILED/);
 }
@@ -1499,7 +1500,7 @@ for (const configured of [true, false]) {
 {
   const f=setup();
   f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}:
-    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.274'};
+    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.275'};
   assert.equal(await f.ctx.loadSettings(),true);
   assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
 }
@@ -1555,3 +1556,45 @@ for (const failedAction of ['syncHoldings','syncTrades']) {
  if(failedAction==='syncHoldings')assert.ok(!calls.includes('syncTrades'));
 }
 console.log('거래·보유 응답 시간 초과 구분 및 미전송 자료 보존 검증 통과');
+
+// 신규 서버 완료 기록 계약과 legacy 식별정보 없는 기록의 안전한 분리.
+for (const legacy of [false,true]) {
+ const x=setup();
+ vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'}); _invalidateEPIndex(); rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100}); rawHoldings.push({name:'테스트',code:'005930',acct:'계좌',qty:1,cost:100}); _markPortfolioRemoteDirty();`,x.ctx);
+ const target=vm.runInContext('GSHEET_API_URL',x.ctx);
+ x.ctx._portfolioReceiptTargets={[target]:true};
+ if(legacy)vm.runInContext('delete _portfolioRemoteDirtyByTarget[GSHEET_API_URL].receiptProtocol',x.ctx);
+ const receipts=new Map(),writes=[],failures=[];
+ x.ctx.requestGsheetFormJson=async(action,p)=>{
+   if(action==='getPortfolioSyncReceipt')return {status:'ok',kind:p.kind,operationId:p.operationId,receiptState:receipts.has(p.operationId)?'COMPLETE':'NOT_FOUND'};
+   if(action==='syncHoldings'||action==='syncTrades'){writes.push(action);assert.ok(p.operationId);receipts.set(p.operationId,true);return {status:'error',errorCode:'CLIENT_TIMEOUT'};}
+   return {status:'ok'};
+ };
+ x.ctx.saveSettings=async()=>true;
+ const ok=await x.ctx._retryPortfolioRemoteDirtySync({allowDuringRestore:true,masterCodesOverride:[{name:'테스트',code:'005930',type:'주식'}],onFailure:c=>failures.push(c)});
+ if(legacy){assert.equal(ok,false);assert.deepEqual(writes,[]);assert.deepEqual(failures,['LEGACY_SAVE_UNCONFIRMED']);assert.ok(x.ctx._getPortfolioRemoteDirty());}
+ else {assert.equal(ok,true);assert.deepEqual(writes,['syncHoldings','syncTrades']);assert.equal(x.ctx._getPortfolioRemoteDirty(),null);}
+}
+console.log('신규 완료 기록 ACK 유실 복구와 legacy 무전송 보류 통합 검사 통과');
+
+{
+ const x=setup();x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+ vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'}); _invalidateEPIndex(); rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100}); _markPortfolioRemoteDirty();`,x.ctx);
+ x.ctx.requestGsheetFormJson=async()=>({status:'error',errorCode:'CLIENT_TIMEOUT'});
+ assert.equal(await x.ctx.loadSettings(),false);
+ assert.equal(x.ctx._getPortfolioRemoteDirty().legacyUntracked,true);
+ const target=vm.runInContext('GSHEET_API_URL',x.ctx);x.ctx._portfolioReceiptTargets={[target]:true};
+ let writes=0;x.ctx.requestGsheetFormJson=async()=>{writes++;throw Error('no write permitted')};
+ assert.equal(await x.ctx._retryPortfolioRemoteDirtySync({allowDuringRestore:true,masterCodesOverride:x.response.codes}),false);
+ assert.equal(writes,0,'server upgrade must not turn an untracked timeout into a new write');
+}
+
+// 서버가 이전 버전으로 돌아가도 미확인 요청을 구형 저장 경로로 재전송하지 않는다.
+{
+ const x=setup();
+ vm.runInContext(`rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100}); _markPortfolioRemoteDirty();`,x.ctx);
+ const target=vm.runInContext('GSHEET_API_URL',x.ctx);
+ x.ctx.localStorage.setItem('portfolio_recovery_receipts_v1',JSON.stringify({[target]:{syncTrades:{attempted:true,completed:false,id:'unconfirmed_fixture_01'}}}));
+ let writes=0;x.ctx.requestGsheetFormJson=async()=>{writes++;throw Error('write forbidden')};
+ assert.equal(await x.ctx._retryPortfolioRemoteDirtySync({}),false);assert.equal(writes,0);assert.ok(x.ctx._getPortfolioRemoteDirty());
+}

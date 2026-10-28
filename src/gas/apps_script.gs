@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.274
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.275
+//
+//  v9.275 변경사항 (2026.10.28):
+//  • 복구 저장 요청 식별·완료 기록과 읽기 전용 확인, 동일 요청 재쓰기 방지
 //
 //  v9.274 변경사항 (2026.10.28):
 //  • 가격이력 입력시각 Date 변환을 스프레드시트 시간대로 검증
@@ -1388,6 +1391,7 @@ function doGet(e) {
   if (params.action === 'getRealEstateSettings')return handleGetRealEstateSettings();
   if (params.action === 'getTrades')            return handleGetTrades();
   if (params.action === 'getHoldings')          return handleGetHoldings();
+  if (params.action === 'getPortfolioSyncReceipt') return jsonError('getPortfolioSyncReceipt 은 POST 전용입니다');
   if (params.action === 'saveSnapshot' || params.action === 'syncCodes' ||
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
@@ -1450,6 +1454,8 @@ function doPost(e) {
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
   if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
+  if (params.action === 'getPortfolioSyncReceipt') return handleGetPortfolioSyncReceipt(params);
+  if ((params.action === 'syncHoldings' || params.action === 'syncTrades') && params.operationId) return handlePortfolioSyncWithReceipt(params);
   if (params.action === 'syncHoldings' && params.data)  return handleSyncHoldings(params.data);
   if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1');
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
@@ -2319,7 +2325,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.274',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.275',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2397,7 +2403,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.274', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.275', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6422,7 +6428,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.274' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.275' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10910,14 +10916,135 @@ function _portfolioLedgerMasterConflict_(items, currentCodes, requireStockCode) 
   return '';
 }
 
-function handleSyncHoldings(dataJson) {
+// 요청별 영수증은 원장 잠금 안에서 기록한다. 원문 거래/보유 자료는 저장하지 않는다.
+var PORTFOLIO_SYNC_RECEIPT_PREFIX = 'portfolio_sync_receipt_v1_';
+var PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY = 'portfolio_sync_snapshot_completion_v1';
+function _portfolioSyncDigest_(text) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text).map(function(b) {
+    return ('0' + ((b + 256) % 256).toString(16)).slice(-2);
+  }).join('');
+}
+function _portfolioSyncCanonical_(kind, rows) {
+  if (!Array.isArray(rows)) throw new Error('INVALID_SYNC_PAYLOAD');
+  var normalized = rows.map(function(r) {
+    if (kind === 'syncHoldings') return [String(r.code || ''),String(r.name || ''),parseFloat(r.qty)||0,
+      parseFloat(r.costAmt)||0,String(r.assetType||'주식'),String(r.acct||'')];
+    return [_normalizeDate(r.date),String(r.tradeType||''),String(r.acct||''),String(r.name||''),String(r.code||''),
+      parseFloat(r.qty)||0,parseFloat(r.price)||0,String(r.assetType||'주식'),String(r.memo||''),
+      parseFloat(r.ratio)||0,parseFloat(r.fractionalCash)||0];
+  });
+  // 거래는 같은 날짜의 원장 순서를 보존한다. 보유는 합산 종목의 순서와 무관하다.
+  normalized.sort(kind === 'syncHoldings'
+    ? function(a,b) { return JSON.stringify(a).localeCompare(JSON.stringify(b)); }
+    : function(a,b) { return a[0].localeCompare(b[0]); });
+  return JSON.stringify(normalized);
+}
+function _portfolioSyncReceiptInput_(kind, id, data, rebuildFrom, explicitEmpty) {
+  if (['syncHoldings','syncTrades'].indexOf(kind) === -1 || !/^[A-Za-z0-9_-]{16,100}$/.test(String(id||'')))
+    throw new Error('INVALID_SYNC_RECEIPT');
+  var canonical = _portfolioSyncCanonical_(kind, JSON.parse(data));
+  return {key:PORTFOLIO_SYNC_RECEIPT_PREFIX+_portfolioSyncDigest_(kind+'|'+id),kind:kind,id:id,
+    contentHash:_portfolioSyncDigest_(canonical),requestHash:_portfolioSyncDigest_(canonical+'|'+String(rebuildFrom||'')+'|'+String(explicitEmpty||''))};
+}
+// PARTIAL→완료 판정은 대기열 소멸만으로 하지 않는다. 원장 원문 일치에 더해
+// 해당 저장 이후 worker 완료·원장 fingerprint·영향 범위의 deferred 해소를 요구한다.
+// 마지막 실행 LAST와 분리한 원장 fingerprint 귀속 완료 근거.
+// IDLE/RUNNING/BUSY는 이 기록을 덮어쓰지 않는다.
+function _recordPortfolioSyncSnapshotCompletion_(ss) {
+  try {
+    var props=PropertiesService.getScriptProperties(),all=props.getProperties();
+    var pendingReceipt=Object.keys(all).some(function(key) {
+      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0) return false;
+      try {var receipt=JSON.parse(all[key]);return receipt.kind==='syncTrades' && receipt.state==='PARTIAL';}
+      catch(ignore) {return false;}
+    });
+    if (!pendingReceipt) return false;
+    var fingerprint=_tradeLedgerContentFingerprint_(ss);
+    if (props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY)!==fingerprint) return false;
+    props.setProperty(PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY,JSON.stringify({
+      at:new Date().toISOString(),sourceId:ss.getId(),fingerprint:fingerprint
+    }));
+    return true;
+  } catch(ignore) {Logger.log('복구 저장 재계산 완료 근거 기록 실패');return false;}
+}
+function _portfolioSyncFollowupRecovered_(record) {
+  try {
+    var props=PropertiesService.getScriptProperties();
+    var raw=props.getProperty(PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY),proof=raw?JSON.parse(raw):null;
+    if (!proof || !(Date.parse(proof.at)>Date.parse(record.at)) || proof.sourceId!==getss().getId()) return false;
+    var fingerprint=props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
+    if (!fingerprint || fingerprint!==proof.fingerprint || fingerprint!==_tradeLedgerContentFingerprint_(getss())) return false;
+    var deferred=_readTradeSnapshotDeferredState_().dates;
+    var from=String(record.affectedFrom||''),to=String(record.affectedTo||'');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from>to)
+      return deferred.length===0;
+    return !deferred.some(function(date){return date>=from && date<=to;});
+  } catch(ignore) {return false;}
+}
+
+function _portfolioSyncReceiptState_(input, record) {
+  if (!record) return 'NOT_FOUND';
+  if (record.requestHash !== input.requestHash || record.kind !== input.kind || record.id !== input.id
+      || record.sourceId !== getss().getId()) return 'CONFLICT';
+  if (record.state !== 'COMPLETE' && !(record.state==='PARTIAL' && input.kind==='syncTrades')) return 'UNKNOWN';
+  if (input.kind === 'syncTrades' && (_tradeLedgerWriteUnverified_() || PropertiesService.getScriptProperties().getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY))) return 'PARTIAL';
+  var response = JSON.parse((input.kind === 'syncTrades' ? handleGetTrades() : handleGetHoldings()).getContent());
+  var rows = input.kind === 'syncTrades' ? response.trades : response.holdings;
+  if (response.status !== 'ok' || !Array.isArray(rows)) return 'UNKNOWN';
+  if (_portfolioSyncDigest_(_portfolioSyncCanonical_(input.kind, rows)) !== record.contentHash) return 'CHANGED';
+  if (record.state==='PARTIAL' && !_portfolioSyncFollowupRecovered_(record)) return 'PARTIAL';
+  return 'COMPLETE';
+}
+function handleGetPortfolioSyncReceipt(params) {
+  var lock=LockService.getScriptLock(), locked=false;
+  try {
+    if (!lock.tryLock(1000)) return jsonOk({receiptState:'BUSY'});
+    locked=true;
+    var input=_portfolioSyncReceiptInput_(params.kind,params.operationId,params.data||'[]',params.rebuildFrom,params.explicitEmpty);
+    var raw=PropertiesService.getScriptProperties().getProperty(input.key);
+    return jsonOk({operationId:input.id,kind:input.kind,receiptState:_portfolioSyncReceiptState_(input,raw?JSON.parse(raw):null)});
+  } catch(err) { return jsonError('저장 완료 기록 확인 불가',{errorCode:'SYNC_RECEIPT_UNAVAILABLE'}); }
+  finally { if(locked)lock.releaseLock(); }
+}
+function handlePortfolioSyncWithReceipt(params) {
+  var lock=LockService.getScriptLock(),locked=false,props=null,input=null,record=null;
+  try {
+    lock.waitLock(30000);locked=true;
+    input=_portfolioSyncReceiptInput_(params.action,params.operationId,params.data,params.rebuildFrom,params.explicitEmpty);
+    props=PropertiesService.getScriptProperties();
+    var raw=props.getProperty(input.key);
+    if(raw) {
+      var state=_portfolioSyncReceiptState_(input,JSON.parse(raw));
+      return state==='COMPLETE' ? jsonOk({receiptState:state,operationId:input.id,saveState:'success',replayed:true})
+        : jsonError('이전 저장 요청 확인 필요',{errorCode:'SYNC_RECEIPT_'+state,receiptState:state});
+    }
+    record={sourceId:getss().getId(),kind:input.kind,id:input.id,requestHash:input.requestHash,contentHash:input.contentHash,state:'STARTED',at:new Date().toISOString()};
+    props.setProperty(input.key,JSON.stringify(record));
+    // 보관 한도를 넘는 오래된 기록만 제거한다. 클라이언트는 전송한 기록이 없어도 재전송하지 않는다.
+    var all=props.getProperties(),keys=Object.keys(all).filter(function(k){return k.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)===0 && k!==input.key;});
+    keys.sort(function(a,b){return String(JSON.parse(all[a]).at).localeCompare(String(JSON.parse(all[b]).at));});
+    while(keys.length>63)props.deleteProperty(keys.shift());
+    var result=JSON.parse((input.kind==='syncHoldings' ? handleSyncHoldings(params.data,true,JSON.parse(params.data))
+      : handleSyncTrades(params.data,params.rebuildFrom||'',params.explicitEmpty==='1',true,JSON.parse(params.data))).getContent());
+    record.affectedFrom=String(result.affectedFrom||'');record.affectedTo=String(result.affectedTo||'');
+    record.state=result.status==='ok' && result.saveState!=='partial' ? 'COMPLETE' : result.saveState==='partial' ? 'PARTIAL' : 'UNKNOWN';
+    // 저장 성공 응답도 현재 원장과 후속 상태가 일치해야 완료로 인정한다.
+    if(record.state==='COMPLETE' && _portfolioSyncReceiptState_(input,record)!=='COMPLETE')record.state='UNKNOWN';
+    props.setProperty(input.key,JSON.stringify(record));
+    return record.state==='COMPLETE' ? jsonOk(Object.assign({},result,{receiptState:'COMPLETE',operationId:input.id}))
+      : jsonError('저장 또는 후속 처리 완료 미확인',{errorCode:'SYNC_RECEIPT_'+record.state,receiptState:record.state,saveState:result.saveState||'unknown'});
+  } catch(err) { return jsonError('저장 완료 기록 미확인',{errorCode:'SYNC_RECEIPT_UNKNOWN'}); }
+  finally {if(locked)lock.releaseLock();}
+}
+
+function handleSyncHoldings(dataJson, receiptLockHeld, receiptRows) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     // Serialize the entire read/validation/write with stock-code deletion
     // AND trade sync. Do not allow a holding to reference a removed code.
-    lock.waitLock(30000); locked = true;
+    if (!receiptLockHeld) { lock.waitLock(30000); locked = true; }
     var holdings;
-    try { holdings = _parseArrayParam(dataJson, 'holdings'); } catch(e) { return jsonError(e.message); }
+    try { holdings = receiptLockHeld && Array.isArray(receiptRows) ? receiptRows : _parseArrayParam(dataJson, 'holdings'); } catch(e) { return jsonError(e.message); }
     if (!Array.isArray(holdings)) return jsonError('배열 형식 필요');
 
     var ss = getss();
@@ -10956,13 +11083,13 @@ function handleSyncHoldings(dataJson) {
 // ════════════════════════════════════════════════════════════════════
 //  거래이력 동기화
 // ════════════════════════════════════════════════════════════════════
-function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
+function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows) {
   var lock = LockService.getScriptLock();
   var locked = false, sourcePersisted = false, sourceTouched = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
   try {
-    lock.waitLock(30000); locked = true;
+    if (!receiptLockHeld) { lock.waitLock(30000); locked = true; }
     var trades;
-    try { trades = _parseArrayParam(dataJson, 'trades'); } catch(e) { return jsonError(e.message); }
+    try { trades = receiptLockHeld && Array.isArray(receiptRows) ? receiptRows : _parseArrayParam(dataJson, 'trades'); } catch(e) { return jsonError(e.message); }
     if (!Array.isArray(trades)) return jsonError('배열 형식 필요');
 
     var ss = getss();
@@ -11432,6 +11559,7 @@ function runPendingTradeSnapshotRebuild() {
       var retry = _assessTradeSnapshotWorkerDate_(ss,next,markPhase);
       if (retry.state === 'VALID') {
         _clearTradeSnapshotDeferredDate_(next);
+        _recordPortfolioSyncSnapshotCompletion_(ss);
         return _markTradeSnapshotWorkerResult_({status:'DEFERRED_RESOLVED',processed:1,blockedDate:next});
       }
       if (retry.state !== 'DEFERRED')
@@ -11480,6 +11608,7 @@ function runPendingTradeSnapshotRebuild() {
     }
     if (!ordered.length || ordered.length <= batch.length) {
       _clearPendingTradeSnapshotRebuild();
+      if (!deferredCount) _recordPortfolioSyncSnapshotCompletion_(ss);
       return _markTradeSnapshotWorkerResult_({status:deferredCount?'DEFERRED_OUTSTANDING':'COMPLETED',
         processed:processed,deferred:deferredCount});
     }
@@ -13566,7 +13695,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.274',
+    gasVersion: '9.275',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13633,7 +13762,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.274' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.275' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16704,7 +16833,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.274' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.275' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17528,7 +17657,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.274' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.275' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17557,8 +17686,9 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
+      portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.274'
+      gasVersion: '9.275'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

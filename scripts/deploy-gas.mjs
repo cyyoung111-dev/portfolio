@@ -33,6 +33,7 @@ export function extractExpectedGasVersion(source) {
 // this manifest with the reviewed full-file blob SHA in the same reviewed PR.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.275': '59266e9dfa486c049634310b7f0fbea2320f4d08',
   '9.274': '723ad4db070858d1f879c733db68aec6d1a6a709',
   '9.273': '6a47e4b1e23fa18f59a5e71fb027219f57c2c0c0',
   '9.272': '72143c4490565a686ec04ec01353686ee8a36d85',
@@ -311,6 +312,22 @@ async function sleep(ms) {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
+export async function verifyPortfolioReceiptReadOnly(url, accessToken, fetchImpl = fetch) {
+  const operationId = 'release_probe_' + Date.now().toString(36);
+  const response = await fetchImpl(url, {
+    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({action:'getPortfolioSyncReceipt',kind:'syncHoldings',operationId,data:'[]',
+      ...(accessToken ? {accessToken} : {})}).toString(),
+    redirect:'follow',signal:AbortSignal.timeout(30000),
+  });
+  const data = await response.json();
+  if (!response.ok || data?.status !== 'ok'
+      || !['NOT_FOUND','BUSY'].includes(data.receiptState)
+      || (data.receiptState === 'NOT_FOUND' && (data.operationId !== operationId || data.kind !== 'syncHoldings')))
+    throw new Error('SYNC_RECEIPT_READONLY_VERIFY_FAILED');
+  return {checked:true,state:data.receiptState,dataWrites:0};
+}
+
 async function verifyWebApp(url, accessToken, expectedVersion) {
   let last = '';
   for (let attempt = 1; attempt <= 12; attempt += 1) {
@@ -329,6 +346,12 @@ async function verifyWebApp(url, accessToken, expectedVersion) {
       if (response.ok) {
         const data = JSON.parse(responseText);
         if (String(data?.gasVersion || '') === expectedVersion) {
+          if (expectedVersion === '9.275') {
+            if (data.portfolioSyncReceipts !== true) throw new Error('SYNC_RECEIPT_CAPABILITY_MISSING');
+            const receiptCheck = await verifyPortfolioReceiptReadOnly(url, accessToken);
+            console.log(JSON.stringify({portfolioReceiptReadOnly:receiptCheck}));
+            return { checked:true,ok:true,attempt,gasVersion:data.gasVersion,receiptCheck };
+          }
           return { checked: true, ok: true, attempt, gasVersion: data.gasVersion };
         }
         last = `gasVersion=${data?.gasVersion || '없음'}`;
