@@ -22,7 +22,7 @@ function server({apply=false,blocked=false,badApply=false,dates=DATES}={}){
   return {ok:true,json:async()=>data};
  }};
 }
-for(const apply of [false,true]){const s=server();await assert.rejects(()=>runDaily({url,token,apply,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);assert.deepEqual(s.writes,apply?DATES:[]);assert.equal(s.queue.size,apply?0:DATES.length);}
+for(const apply of [false,true]){const s=server();await assert.rejects(()=>runDaily({url,token,apply,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);assert.deepEqual(s.writes,apply?DATES:[]);assert.equal(s.queue.size,apply?0:DATES.length);assert.equal(s.calls.filter(x=>x==='reconcileCompletedKrxPending').length,apply?DATES.length*5:DATES.length*2,'dry-run avoids duplicate proof; apply retains independent readback');}
 const blocked=server({blocked:true});await assert.rejects(()=>runDaily({url,token,apply:true,fetchImpl:blocked.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);assert.equal(blocked.writes.length,0);assert.ok(!blocked.calls.includes('recoverPendingKrxClose'));
 const bad=server({badApply:true});await assert.rejects(()=>runDaily({url,token,apply:true,fetchImpl:bad.fetchImpl}),/DAILY_READBACK/);assert.equal(bad.writes.length,1,'stop before next date on uncertain readback');
 const workflow=fs.readFileSync('.github/workflows/issue-507-daily-finalize.yml','utf8');assert.match(workflow,/APPROVED_PARENT: 78f4b15173b087acf58b4d64e1ea7d1ba74cb42a/);assert.match(workflow,/portfolio-production-gas/);assert.match(workflow,/git cat-file -e/);
