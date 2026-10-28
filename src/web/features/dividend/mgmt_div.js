@@ -380,7 +380,17 @@ function _getLegacyDividendFetchItems() {
 }
 
 let _seibroRefreshPromise = null;
+let _seibroRefreshDetail = '';
 let _dividendLinkState = { state: 'idle', message: '' };
+
+function _dividendUnverifiedMessage(seibroOk, items, dividends) {
+  const parts = [];
+  if (!seibroOk) parts.push(_seibroRefreshDetail || 'ETF 최신 갱신 결과 미확인');
+  const missing = items.filter(item => Number(dividends?.[_normDivCode(item.code)]?.perShare || 0) <= 0)
+    .map(item => `${item.name || '종목명 미확인'} (${_normDivCode(item.code)})`);
+  if (missing.length) parts.push(`일반 종목 배당 자료 미확인 ${missing.length}개: ${missing.join(', ')}`);
+  return `⚠️ 일부 배당 갱신 미확인 · ${parts.join(' · ')} · 기존 자료 유지 (자료 없음이 무배당 확정은 아닙니다)`;
+}
 
 function _setDividendLinkState(state, message) {
   _dividendLinkState = { state, message: String(message || '') };
@@ -412,9 +422,14 @@ async function _refreshSeibroEtfDividends(force) {
       }
       if (typeof isGsheetConnectionCurrent === 'function' && !isGsheetConnectionCurrent(targetUrl,generation)) return false;
       _applyDivData(data.divData);
+      const noEvents = (data.targetCodes || []).filter(code => data.divData[code]?.providerCheckStatus === 'NO_EVENTS');
+      _seibroRefreshDetail = data.partial === true
+        ? `ETF 조회 기간 내 배당 이력 미확인${noEvents.length ? `: ${noEvents.map(code => (EDITABLE_PRICES.find(item => _normDivCode(item.code) === _normDivCode(code))?.name || code)).join(', ')}` : ''}`
+        : '';
       return data.partial !== true;
     } catch (e) {
       console.warn('_refreshSeibroEtfDividends 실패:', e.message);
+      _seibroRefreshDetail = 'ETF 조회 또는 저장 결과 미확인';
       return false;
     } finally {
       _seibroRefreshPromise = null;
@@ -441,7 +456,7 @@ async function _autoFetchDiv(area) {
       const liveArea = $el('view-area');
       if (liveArea) renderDivView(liveArea, true);
     }
-    _setDividendLinkState(refreshedSeibro ? 'ok' : 'fail', refreshedSeibro ? '✅ SEIBro 배당 갱신 완료' : (loadedFromGas ? '⚠️ 최신 갱신 미확인 · GAS 저장 자료를 표시합니다.' : '⚠️ 배당 자료 복원 실패'));
+    _setDividendLinkState(refreshedSeibro ? 'ok' : 'fail', refreshedSeibro ? '✅ SEIBro 배당 갱신 완료' : (loadedFromGas ? _dividendUnverifiedMessage(false, [], {}) : '⚠️ ETF 갱신 미확인 · GAS 저장 자료 복원 실패'));
     return;
   }
 
@@ -491,11 +506,11 @@ async function _autoFetchDiv(area) {
     const complete = refreshedSeibro && targetCodes.every(code => Number(dividends[code]?.perShare || 0) > 0);
     _setDividendLinkState(complete ? 'ok' : 'fail', complete
       ? '✅ ETF·주식 배당 조회 및 저장 완료'
-      : '⚠️ 일부 배당 갱신 미확인 · 기존 자료 포함, 전체 최신 상태 아님');
+      : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends));
   } catch(e) {
     // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
     console.warn('_autoFetchDiv 실패:', e.message);
-    _setDividendLinkState('fail', '⚠️ 자동 연동 실패 · 마지막 정상 데이터를 표시합니다.');
+    _setDividendLinkState('fail', `⚠️ 자동 연동 실패 · ${window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured === false ? '공공데이터 키 미설정' : '공공데이터 조회 또는 GAS 저장 결과 미확인'} · 마지막 정상 데이터를 표시합니다.`);
   }
 }
 
@@ -535,7 +550,7 @@ async function startDivFetch() {
       status.textContent = refreshedSeibro ? '✅ ETF 배당 조회 및 저장 완료' : '⚠️ ETF 최신 갱신 미확인 · 기존 자료를 유지합니다.';
     }
     if (btn) { btn.disabled = false; btn.textContent = '📥 배당 데이터 갱신'; }
-    _setDividendLinkState(refreshedSeibro ? 'ok' : 'fail', refreshedSeibro ? '✅ ETF 배당 갱신 완료' : '⚠️ ETF 최신 갱신 미확인');
+    _setDividendLinkState(refreshedSeibro ? 'ok' : 'fail', refreshedSeibro ? '✅ ETF 배당 갱신 완료' : _dividendUnverifiedMessage(false, [], {}));
     return refreshedSeibro;
   }
 
@@ -600,7 +615,7 @@ async function startDivFetch() {
     const _btn = $el('divFetchBtn');
     if (_btn) { _btn.disabled = false; _btn.textContent = '📥 배당 데이터 갱신'; }
     _setDividendLinkState(refreshedSeibro && skipped === 0 ? 'ok' : 'fail', refreshedSeibro && skipped === 0
-      ? '✅ ETF·주식 배당 조회 및 GAS 저장 완료' : '⚠️ 일부 배당 갱신 미확인 · 전체 최신 상태 아님');
+      ? '✅ ETF·주식 배당 조회 및 GAS 저장 완료' : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends));
     if (!refreshedSeibro || skipped > 0) return false;
 
   } catch(e) {
