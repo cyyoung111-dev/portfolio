@@ -35,8 +35,8 @@ const params={action:'syncHoldings',operationId:'receipt_test_000001',data:JSON.
 {
  const s=server();s.ctx.handleSyncHoldings=()=>{throw Error('simulated abrupt exit');};s.write(params);assert.equal(s.read(params).receiptState,'UNKNOWN');assert.notEqual(s.write(params).status,'ok');
 }
-function browser(){
- const storage=new Map();let calls=[],current=true,receiptState='NOT_FOUND',writeAck='lost';
+function browser(existingStorage){
+ const storage=existingStorage || new Map();let calls=[],current=true,receiptState='NOT_FOUND',writeAck='lost';
  const ctx=vm.createContext({console,Date,Math});ctx.window=ctx;ctx.lsGet=(k,d)=>storage.has(k)?structuredClone(storage.get(k)):d;ctx.lsSave=(k,v)=>storage.set(k,structuredClone(v));ctx.isGsheetConnectionCurrent=()=>current;
  vm.runInContext(webSource,ctx);
  ctx.requestGsheetFormJson=async(action,p)=>{calls.push(action);if(action==='getPortfolioSyncReceipt')return {status:'ok',receiptState,operationId:p.operationId,kind:p.kind};receiptState='COMPLETE';return writeAck==='lost'?{status:'error',errorCode:'CLIENT_TIMEOUT'}:{status:'ok',receiptState:'COMPLETE',operationId:p.operationId};};
@@ -50,3 +50,21 @@ function browser(){
  b.current(false);assert.equal((await b.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,opts)).status,'error');
 }
 console.log('PASS: 저장 영수증 잠금·응답 유실·중복·불일치·부분 완료·중단·읽기 실패·로컬 보존');
+
+{
+ const first=browser(),opts={targetUrl:'https://fixture.invalid/exec',generation:1},p={data:params.data};
+ await first.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,opts);
+ const reopened=browser(first.storage);reopened.state('COMPLETE');
+ assert.equal((await reopened.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,opts)).status,'ok');
+ assert.equal(reopened.calls.filter(x=>x==='syncHoldings').length,0,'browser restart reuses durable operation ID');
+ const broken=browser();broken.ctx.lsSave=()=>{};
+ assert.equal((await broken.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,opts)).errorCode,'SYNC_RECEIPT_LOCAL_BACKUP_FAILED');
+ assert.deepEqual(broken.calls,[],'no request before local intent is durable');
+ const wrong=browser();wrong.ctx.requestGsheetFormJson=async()=>({status:'ok',receiptState:'COMPLETE',operationId:'another-operation',kind:'syncHoldings'});
+ assert.equal((await wrong.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,opts)).errorCode,'SYNC_RECEIPT_UNAVAILABLE');
+}
+{
+ const s=server();s.write(params);s.ctx.getss=()=>({getId:()=> 'other-workbook'});
+ assert.equal(s.read(params).receiptState,'CONFLICT');assert.equal(s.writes,1);
+}
+console.log('PASS: 브라우저 재시작·저장소 실패·잘못된 응답·원본 시트 변경 보호');
