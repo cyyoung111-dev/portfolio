@@ -93,8 +93,11 @@ console.log('GAS opt-in trusted main release, stale SHA rejection and scoped cod
  const report=inspectGasReleaseState({headSource:gas+'\nPRIVATE',publishedSource:'PRIVATE'});
  assert.equal(report.head.approved,false);assert.equal(report.published.approved,false);assert.ok(!JSON.stringify(report).includes('PRIVATE'));
  assert.deepEqual(summarizeGasReleaseFailure({httpStatus:400,providerStatus:'INVALID_ARGUMENT',syntaxLine:123,message:'PRIVATE_URL_TOKEN'},'CONTENT_WRITE'),
-  {mode:'GAS_RELEASE_FAILURE',stage:'CONTENT_WRITE',httpStatus:400,providerStatus:'INVALID_ARGUMENT',providerReason:'UNKNOWN',syntaxLine:123});
+  {mode:'GAS_RELEASE_FAILURE',stage:'CONTENT_WRITE',failureCode:'UNKNOWN',httpStatus:400,providerStatus:'INVALID_ARGUMENT',providerReason:'UNKNOWN',syntaxLine:123});
  assert.ok(!JSON.stringify(summarizeGasReleaseFailure({httpStatus:'PRIVATE',providerStatus:'PRIVATE',syntaxLine:Infinity},'PRIVATE')).includes('PRIVATE'));
+ assert.equal(summarizeGasReleaseFailure(new Error('AUTOMATION_DIAG_BAD_TRIGGER'),'AUTOMATION_VERIFY').failureCode,'AUTOMATION_DIAG_BAD_TRIGGER');
+ assert.equal(summarizeGasReleaseFailure(new Error('deployment version 검증 실패: expected=323, observed=322'),'DEPLOYMENT_READBACK').failureCode,'DEPLOYMENT_VERSION_MISMATCH');
+ assert.equal(summarizeGasReleaseFailure(new Error('AUTOMATION_DIAG_BAD_TRIGGER PRIVATE'),'AUTOMATION_VERIFY').failureCode,'UNKNOWN');
  const previousFetch=globalThis.fetch,previousEnv={...process.env},previousLog=console.log;const calls=[];
  const files=[{name:'appsscript',type:'JSON',source:'{}'},{name:'Code',type:'SERVER_JS',source:gas}];
  try {

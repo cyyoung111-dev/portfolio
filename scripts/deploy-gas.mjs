@@ -420,7 +420,22 @@ export function inspectGasReleaseState({headSource,publishedSource}) {
 export function summarizeGasReleaseFailure(error,stage) {
   const stages=['CONTENT_WRITE','VERSION_CREATE','VERSION_READBACK','DEPLOYMENT_WRITE','DEPLOYMENT_READBACK','WEBAPP_VERIFY','AUTOMATION_VERIFY'];
   const statuses=['INVALID_ARGUMENT','PERMISSION_DENIED','UNAUTHENTICATED','RESOURCE_EXHAUSTED','FAILED_PRECONDITION','INTERNAL','UNAVAILABLE','NOT_FOUND'];
+  // Emit only fixed classifications; never expose a provider response or error text.
+  const diagnosticCodes=['AUTOMATION_DIAG_NETWORK_FAILED','AUTOMATION_DIAG_HTTP_FAILED',
+    'AUTOMATION_DIAG_NON_JSON','AUTOMATION_DIAG_AUTH_DISABLED','AUTOMATION_DIAG_TOKEN_MISSING',
+    'AUTOMATION_DIAG_BAD_DATE','AUTOMATION_DIAG_BAD_CHECKPOINT','AUTOMATION_DIAG_BAD_TRIGGER',
+    'AUTOMATION_DIAG_BAD_QUEUE','AUTOMATION_DIAG_BAD_RESPONSE','AUTOMATION_DIAG_BAD_LEDGER_WORKER_CHECKPOINT',
+    'AUTOMATION_DIAG_BAD_LEDGER_WORKER_BUSY','AUTOMATION_DIAG_BAD_WORKER_TRIGGER_AUDIT',
+    'AUTOMATION_DIAG_BAD_LEDGER_WRITE','AUTOMATION_DIAG_BAD_LEDGER_PENDING',
+    'AUTOMATION_DIAG_BAD_DEFERRED_COUNT','AUTOMATION_DIAG_BAD_DEFERRED_DATE',
+    'AUTOMATION_DIAG_BAD_HISTORICAL_CHECKPOINT','AUTOMATION_DIAG_BAD_OBSERVATION_TIME',
+    'GAS_AUTOMATION_VERSION_MISMATCH','GAS_DEPLOYMENT_READBACK_INVALID'];
+  const message=typeof error?.message==='string'?error.message:'';
+  const failureCode=diagnosticCodes.includes(message)?message:
+    /^deployment version 검증 실패: expected=\d+, observed=\d+$/.test(message)
+      ?'DEPLOYMENT_VERSION_MISMATCH':'UNKNOWN';
   return {mode:'GAS_RELEASE_FAILURE',stage:stages.includes(stage)?stage:'UNKNOWN',
+    failureCode,
     httpStatus:Number.isInteger(error?.httpStatus)&&error.httpStatus>=100&&error.httpStatus<=599?error.httpStatus:null,
     providerStatus:statuses.includes(error?.providerStatus)?error.providerStatus:'UNKNOWN',
     providerReason:['SOURCE_SYNTAX','VERSION_LIMIT','QUOTA','PERMISSION','TRANSIENT'].includes(error?.providerReason)?error.providerReason:'UNKNOWN',
