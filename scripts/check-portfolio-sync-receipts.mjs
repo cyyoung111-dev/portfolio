@@ -80,3 +80,14 @@ console.log('PASS: 브라우저 재시작·저장소 실패·잘못된 응답·�
  assert.equal((await b.ctx._requestPortfolioRecoveryWrite('syncHoldings',p,{...opts,recoveryScope:'new-task'})).status,'ok');
  assert.equal(s.writes,2,'같은 작업의 재시도는 여전히 중복 저장하지 않는다');
 }
+
+const {verifyPortfolioReceiptReadOnly}=await import('./deploy-gas.mjs');
+const probeCalls=[];
+const probe=await verifyPortfolioReceiptReadOnly('https://fixture.invalid/exec','fixture-token',async(url,options)=>{
+ const p=new URLSearchParams(options.body);probeCalls.push(p.get('action'));
+ assert.equal(p.get('data'),'[]');
+ return {ok:true,json:async()=>({status:'ok',kind:p.get('kind'),operationId:p.get('operationId'),receiptState:'NOT_FOUND'})};
+});
+assert.equal(probe.dataWrites,0);assert.deepEqual(probeCalls,['getPortfolioSyncReceipt']);
+await assert.rejects(()=>verifyPortfolioReceiptReadOnly('https://fixture.invalid/exec','',async()=>({ok:true,json:async()=>({status:'ok',receiptState:'COMPLETE'})})),/SYNC_RECEIPT_READONLY_VERIFY_FAILED/);
+console.log('PASS: 배포 후 확인은 빈 가상 요청의 읽기 전용 기록 조회만 실행');
