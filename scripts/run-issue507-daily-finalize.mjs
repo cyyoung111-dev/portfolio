@@ -5,14 +5,16 @@ import {runCoverage} from './diagnose-krx-held-coverage.mjs';
 import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 export const DATES=Object.freeze(['2026-10-22','2026-10-23','2026-10-26']);
-export async function runDaily({url,token,apply=false,fetchImpl=fetch,emit=()=>{}}){
+export async function runDaily({url,token,apply=false,fetchImpl=fetch,emit=()=>{},dates=DATES,clearOnly=false}){
   const endpoint=validateWebAppUrl(url);
+  if(typeof clearOnly!=='boolean'||!Array.isArray(dates)||!dates.length||dates.length>4||new Set(dates).size!==dates.length||dates.some(d=>![...DATES,'2026-10-27'].includes(d)))throw Error('DAILY_DATES');
   if(typeof apply!=='boolean'||typeof token!=='string'||!token.trim())throw Error('DAILY_INPUT');
   const opts={url:endpoint,token,fetchImpl},out=[];
-  for(const date of DATES){
+  for(const date of dates){
     let proof=await runPreview({...opts,dates:date});
     emit({phase:'PERSISTED_PROOF',...proof});
     if(!proof.entries[0].verified){
+      if(clearOnly){out.push({date,status:'SOURCE_BLOCKED'});continue;}
       const source=await runCoverage({...opts,dates:date});emit({phase:'OFFICIAL_SOURCE',...source});
       if(!source.ready){out.push({date,status:'SOURCE_BLOCKED'});continue;}
       // Existing producer preflight requires an empty date and rejects foreign
@@ -39,6 +41,6 @@ export async function runDaily({url,token,apply=false,fetchImpl=fetch,emit=()=>{
   return {mode:apply?'APPLY':'DRY_RUN',dates:out,complete:out.every(x=>x.status==='VERIFIED_CLEAR')};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
-  try{console.log(JSON.stringify(await runDaily({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.env.APPLY==='1',emit:r=>console.log(JSON.stringify(r))})));}
+  try{console.log(JSON.stringify(await runDaily({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.env.APPLY==='1',dates:process.env.TARGET_DATES?process.env.TARGET_DATES.split(',').map(d=>d.trim()):DATES,clearOnly:!!process.env.TARGET_DATES,emit:r=>console.log(JSON.stringify(r))})));}
   catch(e){console.error(/^(?:DAILY_|TARGET_|PENDING_PREVIEW_|KRX_HELD_DIAG_|AUTOMATION_DIAG_)[A-Z_]+$/.test(e?.message||'')?e.message:'DAILY_UNKNOWN');process.exitCode=1;}
 }
