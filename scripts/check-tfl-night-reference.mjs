@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {validateTflNight,fetchTflNight} from './tfl-night-reference.mjs';
+import {captureMorning,captureWindow} from './tfl-morning-capture.mjs';
+import {loadCapturedNight} from './tfl-capture-artifact.mjs';
 
 const date='2026-10-28', at='2026-10-28T08:40:00+09:00';
 const row={value:900.05,contract:'A01612',date,clock:'06:00:00'};
@@ -17,4 +19,29 @@ const parse=(x)=>{const p=spawnSync('python3',['-c',py],{input:x,encoding:'utf8'
 assert.deepEqual(parse(html),row);
 assert.equal(parse(html+html),null);
 assert.equal(parse(html.replace('장 마감','장중')),null);
+const captureAt='2026-10-28T07:30:30+09:00', captured=validateTflNight(row,date,captureAt);
+assert.equal(captureWindow(new Date('2026-10-28T07:29:59+09:00')).allowed,false);
+assert.equal(captureWindow(new Date(captureAt)).allowed,true);
+assert.equal(captureWindow(new Date('2026-10-28T08:00:00+09:00')).allowed,false);
+assert.equal((await captureMorning({now:()=>new Date(captureAt),fetchNight:async()=>captured})).status,'CAPTURED');
+assert.equal((await captureMorning({now:()=>new Date(captureAt),fetchNight:async()=>({...captured,receivedAt:'bad'})})).ready,false);
+assert.equal((await captureMorning({now:()=>new Date('2026-10-28T08:00:00+09:00'),fetchNight:async()=>captured})).ready,false);
+const artifact={id:10,name:`tfl-night-reference-${date}`,expired:false,size_in_bytes:100,workflow_run:{id:20}};
+const run={id:20,name:'TFL night reference capture',path:'.github/workflows/tfl-night-capture.yml',event:'schedule',head_branch:'main',head_repository:{full_name:'cyyoung111-dev/portfolio'},status:'completed',conclusion:'success',run_attempt:1,created_at:'2026-10-27T22:30:00Z'};
+const makeFetch=(a=artifact,w=run)=>async url=>url.includes('/runs/')?{ok:true,json:async()=>w}:url.includes('/zip')?{ok:true,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer}:{ok:true,json:async()=>({total_count:1,artifacts:[a]})};
+const options={token:'private',repository:'cyyoung111-dev/portfolio',fetchImpl:makeFetch(),now:()=>new Date('2026-10-28T08:01:00+09:00'),decode:async()=>captured};
+assert.equal((await loadCapturedNight(date,options))?.value,900.05);
+assert.equal(await loadCapturedNight(date,{...options,fetchImpl:makeFetch(artifact,{...run,event:'pull_request'})}),null);
+assert.equal(await loadCapturedNight(date,{...options,fetchImpl:makeFetch(artifact,{...run,conclusion:'failure'})}),null);
+assert.equal(await loadCapturedNight(date,{...options,decode:async()=>({...captured,receivedAt:'2026-10-28T08:01:00+09:00'})}),null);
+assert.equal(await loadCapturedNight(date,{...options,decode:async()=>({...captured,tradingDate:'2026-10-27'})}),null);
+const zipScript="import io,sys,zipfile\nb=io.BytesIO()\nwith zipfile.ZipFile(b,'w') as z:z.writestr('reference.json',sys.argv[1])\nsys.stdout.buffer.write(b.getvalue())";
+const zipped=spawnSync('python3',['-c',zipScript,JSON.stringify(captured)]);
+assert.equal(zipped.status,0);
+const realZipFetch=async url=>url.includes('/runs/')?{ok:true,json:async()=>run}:url.includes('/zip')?{ok:true,arrayBuffer:async()=>zipped.stdout}:{ok:true,json:async()=>({total_count:1,artifacts:[artifact]})};
+assert.equal((await loadCapturedNight(date,{...options,fetchImpl:realZipFetch,decode:undefined}))?.value,900.05,'real ZIP decoder and artifact path');
+const traversalZipScript="import io,sys,zipfile\nb=io.BytesIO()\nwith zipfile.ZipFile(b,'w') as z:z.writestr('../reference.json',sys.argv[1])\nsys.stdout.buffer.write(b.getvalue())";
+const malicious=spawnSync('python3',['-c',traversalZipScript,JSON.stringify(captured)]).stdout;
+const maliciousFetch=async url=>url.includes('/runs/')?{ok:true,json:async()=>run}:url.includes('/zip')?{ok:true,arrayBuffer:async()=>malicious}:{ok:true,json:async()=>({total_count:1,artifacts:[artifact]})};
+assert.equal(await loadCapturedNight(date,{...options,fetchImpl:maliciousFetch,decode:undefined}),null,'archive traversal rejected');
 console.log('TFL reference: date, time, contract, tick, duplicate and unavailable checks PASS');

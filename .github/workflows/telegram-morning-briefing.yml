@@ -1,7 +1,7 @@
 name: Telegram morning market briefing
 on:
   schedule:
-    - cron: '30,40,50 23 * * 0-4' # 08:30/08:40/08:50 KST, Monday-Friday
+    - cron: '0 23 * * 0-4' # 08:00 KST, Monday-Friday
   workflow_dispatch:
 permissions:
   contents: read
@@ -40,6 +40,7 @@ jobs:
           path: .telegram-runtime/claim.json
           retention-days: 14
           if-no-files-found: error
+          include-hidden-files: true
       - name: Send claimed briefing once
         if: steps.prepare.outputs.ready == 'true'
         env:

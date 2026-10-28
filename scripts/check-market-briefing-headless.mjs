@@ -23,11 +23,11 @@ const fetchedReference = await fetchPrekospiNight('2026-10-27',{fetchImpl:async(
 assert.equal(fetchedReference.receivedAt,'2026-10-26T21:25:00.000Z');
 assert.deepEqual(diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-10-27',prekospiReference:fetchedReference,decision:{publishable:false}}).nightReference,fetchedReference);
 assert.equal(diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-10-27',prekospiReference:fetchedReference,decision:{publishable:false}}).published,false,'reference alone must not be reported as published');
-assert.equal(scheduledWindow(new Date('2026-10-28T08:29:59+09:00')).allowed,false);
-assert.equal(scheduledWindow(new Date('2026-10-28T08:30:00+09:00')).allowed,true);
-assert.equal(scheduledWindow(new Date('2026-10-28T09:00:00+09:00')).allowed,false);
+assert.equal(scheduledWindow(new Date('2026-10-28T07:59:59+09:00')).allowed,false);
+assert.equal(scheduledWindow(new Date('2026-10-28T08:00:00+09:00')).allowed,true);
+assert.equal(scheduledWindow(new Date('2026-10-28T08:10:00+09:00')).allowed,false);
 const sampleChart={chart:{result:[{meta:{symbol:'^KS11',exchangeTimezoneName:'Asia/Seoul'},timestamp:[Date.parse('2026-10-26T06:30:00Z')/1000,Date.parse('2026-10-27T06:30:00Z')/1000,Date.parse('2026-10-28T00:00:00Z')/1000],indicators:{quote:[{close:[100,110,999]}]}}]}};
-const daily=await fetchDatedDaily('KOSPI','^KS11','2026-10-28',{now:new Date('2026-10-28T08:30:00+09:00'),fetchImpl:async()=>({ok:true,json:async()=>sampleChart})});
+const daily=await fetchDatedDaily('KOSPI','^KS11','2026-10-28',{now:new Date('2026-10-28T08:00:00+09:00'),fetchImpl:async()=>({ok:true,json:async()=>sampleChart})});
 assert.equal(daily.value,110,'당일 미확정 일봉을 전일 종가로 사용하지 않음');
 assert.equal(daily.date,'2026-10-27');
 assert.ok(Math.abs(daily.changePercent-10)<1e-9);
@@ -38,12 +38,12 @@ assert.equal(sendCount,1);assert.equal(JSON.parse(sentBody).text,'시험');
 await assert.rejects(()=>sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345','시험',{fetchImpl:async()=>{throw new Error('secret leak');}}),/TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY/);
 let delivered=0, textSent='';
 const testSender=async(_token,_chat,text)=>{delivered++;textSent=text;};
-const tomorrow='2026-10-28',fakeRef={source:'PREKOSPI',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T08:30:00+09:00`};
-const morningOptions={now:()=>new Date(`${tomorrow}T08:30:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
+const tomorrow='2026-10-28',fakeRef={source:'PREKOSPI',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T07:30:00+09:00`};
+const morningOptions={now:()=>new Date(`${tomorrow}T08:00:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
 const morning=await runTelegramMorning(morningOptions);
 assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/공식 종가 확인 전/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,attempt:2}),/TELEGRAM_RETRY_BLOCKED/);
-await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(`${tomorrow}T09:00:00+09:00`)}),/TELEGRAM_SCHEDULE_LATE/);
+await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(`${tomorrow}T08:10:00+09:00`)}),/TELEGRAM_SCHEDULE_LATE/);
 assert.equal(delivered,1,'재시도 및 지연 실행에서 메시지 중복 발송 금지');
 const stale=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...fakeRef,tradingDate:'2026-10-27'})});
 assert.equal(stale.status,'SENT_SOURCE_MISSING');assert.match(textSent,/당일 참고값 미확보/);assert.doesNotMatch(textSent,/872\.35/);
@@ -524,7 +524,7 @@ assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재�
 // otherwise use workflow_dispatch with production GAS credentials.
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
 const guard="github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')";
-const schedules=['15 21 * * 0-4','15 0 * * 1-5','30 22 * * 0-4',
+const schedules=['15 21 * * 0-4','15 0 * * 1-5',
  '30 7 * * 1-5','15 11 * * 1-5'];
 const fnv32=str=>{
  let h=2166136261;
@@ -560,7 +560,7 @@ function validateBriefingWorkflow(source){
  // Regression fingerprint for the exact reviewed shell block, including
  // safe cron-to-checkpoint mapping and a single headless execution command.
  // Any added recovery command must fail this offline contract.
- assert.equal(fnv32(String(step.run||'').trim()),'96abdd4a',
+ assert.equal(fnv32(String(step.run||'').trim()),'877424da',
   'single approved briefing shell script only');
 }
 validateBriefingWorkflow(workflow);
@@ -617,26 +617,37 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
 // Repeated schedule opportunities share a durable, pre-send delivery claim.
 {
  const {prepareMorning,deliverPrepared}=await import('./telegram-morning-workflow.mjs');
- const now=()=>new Date('2026-10-28T08:40:00+09:00');let preparations=0,sends=0;
+ const now=()=>new Date('2026-10-28T08:05:00+09:00');let preparations=0,sends=0;
  const options={now,githubToken:'SECRET',repository:'cyyoung111-dev/portfolio',run:async({send})=>{preparations++;await send(null,null,'시장 요약');return {status:'SENT_SOURCE_MISSING'};}};
  const mock=(count,artifacts=[])=>async(url,opts)=>{assert.match(url,/api.github.com\/repos\/cyyoung111-dev\/portfolio\/actions\/artifacts/);assert.equal(opts.headers.authorization,'Bearer SECRET');return {ok:true,json:async()=>({total_count:count,artifacts})};};
  const prepared=await prepareMorning({...options,fetchImpl:mock(0)});
  assert.equal(prepared.ready,true);assert.equal(prepared.artifactName,'telegram-morning-claim-2026-10-28');
+ const captured={...tflRef,receivedAt:'2026-10-28T07:30:30+09:00'};
+ let consumed;
+ const preparedWithCapture=await prepareMorning({...options,fetchImpl:mock(0),loadReference:async()=>captured,
+   run:async({send,referenceFetch})=>{consumed=await referenceFetch();await send(null,null,'시장 요약');return {status:'SENT_REFERENCE',referenceSource:consumed.source};}});
+ assert.equal(consumed,captured);assert.equal(preparedWithCapture.referenceSource,'TFL');
  const skipped=await prepareMorning({...options,fetchImpl:mock(1,[{name:prepared.artifactName}])});
  assert.equal(skipped.status,'ALREADY_CLAIMED');assert.equal(preparations,1,'fallback schedule must not rebuild or send after a claim');
  await assert.rejects(()=>prepareMorning({...options,fetchImpl:async()=>{throw Error('SECRET');}}),/TELEGRAM_CLAIM_LOOKUP_FAILED/);
  await assert.rejects(()=>prepareMorning({...options,attempt:2,fetchImpl:mock(0)}),/TELEGRAM_WORKFLOW_CONFIG/);
- await assert.rejects(()=>prepareMorning({...options,now:()=>new Date('2026-10-28T09:00:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
+ await assert.rejects(()=>prepareMorning({...options,now:()=>new Date('2026-10-28T08:10:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
  await assert.rejects(()=>prepareMorning({...options,fetchImpl:mock(1,[])}),/TELEGRAM_CLAIM_SCHEMA/);
  assert.equal((await deliverPrepared(prepared,{now,send:async()=>{sends++;}})).status,'SENT');assert.equal(sends,1);
  await assert.rejects(()=>deliverPrepared({...prepared,date:'2026-10-27'},{now,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  await assert.rejects(()=>deliverPrepared(prepared,{now,attempt:2,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
- await assert.rejects(()=>deliverPrepared(prepared,{now:()=>new Date('2026-10-28T09:00:00+09:00'),send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
+ await assert.rejects(()=>deliverPrepared(prepared,{now:()=>new Date('2026-10-28T08:10:00+09:00'),send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  assert.equal(sends,1,'late or stale payload cannot send');
  const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
- assert.equal(wf.on.schedule[0].cron,'30,40,50 23 * * 0-4');
+ assert.equal(wf.on.schedule[0].cron,'0 23 * * 0-4');
+ const captureWf=YAML.parse(fs.readFileSync('.github/workflows/tfl-night-capture.yml','utf8'));
+ assert.equal(captureWf.on.schedule[0].cron,'30 22 * * 0-4');
+ assert.equal(captureWf.permissions.contents,'read');
+ assert.match(captureWf.jobs.capture.if,/github\.ref == 'refs\/heads\/main'/);
+ assert.equal(captureWf.jobs.capture.steps.at(-1).with['include-hidden-files'],true);
  assert.equal(wf.concurrency['cancel-in-progress'],false);
  const steps=wf.jobs.briefing.steps,claim=steps.findIndex(s=>s.uses==='actions/upload-artifact@v4'),send=steps.findIndex(s=>s.run==='node scripts/telegram-morning-workflow.mjs send');
  assert.ok(claim>0&&send>claim);assert.equal(steps[claim].with['if-no-files-found'],'error');assert.equal(steps[claim].with['retention-days'],14);
+ assert.equal(steps[claim].with['include-hidden-files'],true);
  assert.ok(!String(steps[send].if).includes('always'),'a failed claim upload must block delivery');
 }

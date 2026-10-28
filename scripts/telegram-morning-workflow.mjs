@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {scheduledWindow,runTelegramMorning,sendTelegram} from './telegram-morning-briefing.mjs';
+import {loadCapturedNight} from './tfl-capture-artifact.mjs';
 
-export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,run=runTelegramMorning}={}) {
+export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,run=runTelegramMorning,loadReference=loadCapturedNight}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
   const window=scheduledWindow(now());
   if(!window.allowed)throw Error('TELEGRAM_SCHEDULE_LATE');
@@ -19,7 +20,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     return {ready:false,status:'ALREADY_CLAIMED',date:window.date};
   }
   let message;
-  const result=await run({now,fetchImpl,event:'schedule',attempt,send:async(_token,_chat,text)=>{message=text;}});
+  const reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
+  const result=await run({now,fetchImpl,event:'schedule',attempt,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
   if(!message)return {ready:false,status:result.status,date:window.date};
   const source=['TFL','PREKOSPI'].includes(result.referenceSource)?result.referenceSource:'NONE';
   return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source};

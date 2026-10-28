@@ -16,14 +16,23 @@ async function request(url,token,date,fetchImpl){
   const body=new URLSearchParams({
     action:'reconcileCompletedKrxPending',dates:date,apply:'0',accessToken:token
   });
-  let response;
-  try {
-    response=await fetchImpl(url,{
-      method:'POST',
-      headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
-      body,redirect:'follow',signal:AbortSignal.timeout(90000)
-    });
-  } catch {throw new Error('PENDING_PREVIEW_NETWORK_FAILED');}
+  let response, failure;
+  // This endpoint is apply=0 only. Repeat one transport failure; never repeat
+  // a server response, an invalid proof or a financial write.
+  for (let attempt=0;attempt<2;attempt++) {
+    try {
+      response=await fetchImpl(url,{
+        method:'POST',
+        headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+        body,redirect:'follow',signal:AbortSignal.timeout(90000)
+      });
+      break;
+    } catch (error) {
+      failure=error;
+      if(attempt===0)console.warn(error?.name==='TimeoutError'?'PENDING_PREVIEW_RETRY_TIMEOUT':'PENDING_PREVIEW_RETRY_NETWORK');
+    }
+  }
+  if(!response)throw new Error(failure?.name==='TimeoutError'?'PENDING_PREVIEW_TIMEOUT':'PENDING_PREVIEW_NETWORK_FAILED');
   if(!response.ok)throw new Error('PENDING_PREVIEW_GAS_HTTP_FAILED');
   try {return await response.json();}
   catch{throw new Error('PENDING_PREVIEW_INVALID_JSON');}
