@@ -1499,7 +1499,7 @@ for (const configured of [true, false]) {
 {
   const f=setup();
   f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}:
-    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.274'};
+    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.275'};
   assert.equal(await f.ctx.loadSettings(),true);
   assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
 }
@@ -1555,3 +1555,23 @@ for (const failedAction of ['syncHoldings','syncTrades']) {
  if(failedAction==='syncHoldings')assert.ok(!calls.includes('syncTrades'));
 }
 console.log('거래·보유 응답 시간 초과 구분 및 미전송 자료 보존 검증 통과');
+
+// 신규 서버 완료 기록 계약과 legacy 식별정보 없는 기록의 안전한 분리.
+for (const legacy of [false,true]) {
+ const x=setup();
+ vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'}); _invalidateEPIndex(); rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100}); rawHoldings.push({name:'테스트',code:'005930',acct:'계좌',qty:1,cost:100}); _markPortfolioRemoteDirty();`,x.ctx);
+ const target=vm.runInContext('GSHEET_API_URL',x.ctx);
+ x.ctx._portfolioReceiptTargets={[target]:true};
+ if(legacy)vm.runInContext('delete _portfolioRemoteDirtyByTarget[GSHEET_API_URL].receiptProtocol',x.ctx);
+ const receipts=new Map(),writes=[],failures=[];
+ x.ctx.requestGsheetFormJson=async(action,p)=>{
+   if(action==='getPortfolioSyncReceipt')return {status:'ok',kind:p.kind,operationId:p.operationId,receiptState:receipts.has(p.operationId)?'COMPLETE':'NOT_FOUND'};
+   if(action==='syncHoldings'||action==='syncTrades'){writes.push(action);assert.ok(p.operationId);receipts.set(p.operationId,true);return {status:'error',errorCode:'CLIENT_TIMEOUT'};}
+   return {status:'ok'};
+ };
+ x.ctx.saveSettings=async()=>true;
+ const ok=await x.ctx._retryPortfolioRemoteDirtySync({allowDuringRestore:true,masterCodesOverride:[{name:'테스트',code:'005930',type:'주식'}],onFailure:c=>failures.push(c)});
+ if(legacy){assert.equal(ok,false);assert.deepEqual(writes,[]);assert.deepEqual(failures,['LEGACY_SAVE_UNCONFIRMED']);assert.ok(x.ctx._getPortfolioRemoteDirty());}
+ else {assert.equal(ok,true);assert.deepEqual(writes,['syncHoldings','syncTrades']);assert.equal(x.ctx._getPortfolioRemoteDirty(),null);}
+}
+console.log('신규 완료 기록 ACK 유실 복구와 legacy 무전송 보류 통합 검사 통과');

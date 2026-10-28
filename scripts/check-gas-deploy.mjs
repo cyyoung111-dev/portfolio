@@ -96,7 +96,7 @@ assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a se
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
   'newest GAS release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.274') && latestReleaseNotes.includes('Snapshot'),
+assert.ok(latestReleaseNotes.includes('gasVersion=9.275') && latestReleaseNotes.includes('Snapshot'),
   'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -576,7 +576,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='723ad4db070858d1f879c733db68aec6d1a6a709';
+const approvedFullSourceBlob='858999930f56b5cc2b96a208be52ac38499aa42f';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -620,7 +620,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.274',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.275',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');

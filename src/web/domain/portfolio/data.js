@@ -1168,6 +1168,8 @@ function _normalizePortfolioRemoteDirtyEntry(value) {
   return {
     target,
     epoch,
+    receiptProtocol: value.receiptProtocol === 1 ? 1 : 0,
+    legacyUntracked: value.legacyUntracked === true,
     trades: Array.isArray(value.trades) ? value.trades.map(t => ({ ...t })) : [],
     holdings: Array.isArray(value.holdings) ? value.holdings.map(h => ({ ...h })) : [],
     fundDirect: value.fundDirect && typeof value.fundDirect === 'object'
@@ -1217,6 +1219,8 @@ function _markPortfolioRemoteDirty() {
   _portfolioRemoteDirtyByTarget[target] = {
     target,
     epoch,
+    receiptProtocol: 1,
+    legacyUntracked: !!(_portfolioRemoteDirtyByTarget[target] && (_portfolioRemoteDirtyByTarget[target].receiptProtocol !== 1 || _portfolioRemoteDirtyByTarget[target].legacyUntracked)),
     trades: rawTrades.map(t => ({ ...t })),
     holdings: rawHoldings.map(h => ({ ...h })),
     fundDirect: (typeof fundDirect === 'object' && fundDirect)
@@ -1308,6 +1312,11 @@ async function _retryPortfolioRemoteDirtySync(options) {
     for (let attempt = 0; attempt < 6; attempt++) {
       const dirty = _portfolioRemoteDirtyByTarget[targetUrl];
       if (!dirty) return true;
+      if (typeof _hasPortfolioReceiptProtocol === 'function' && _hasPortfolioReceiptProtocol(targetUrl)
+          && (dirty.receiptProtocol !== 1 || dirty.legacyUntracked)) {
+        options?.onFailure?.('LEGACY_SAVE_UNCONFIRMED');
+        return false;
+      }
       if (allowDuringRestore && _isEmptyPortfolioDirtyWithoutDeleteIntent(dirty)) {
         options?.onFailure?.('EMPTY_WITHOUT_DELETE_INTENT');
         return false;
@@ -1333,6 +1342,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
               targetUrl,
               generation,
               allowDuringRestore,
+              recoveryWrite: true,
               holdingsOverride: dirty.holdings,
               fundDirectOverride: dirty.fundDirect,
               masterCodesOverride: options?.masterCodesOverride
@@ -1341,7 +1351,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
       const holdingsResponse = await holdingsResult;
       if (holdingsRequired && holdingsResponse?.status !== 'ok') {
         options?.onFailure?.(holdingsResponse?.errorCode === 'CLIENT_TIMEOUT'
-          ? 'HOLDINGS_SAVE_TIMEOUT' : 'HOLDINGS_SAVE_FAILED');
+          ? 'HOLDINGS_SAVE_TIMEOUT' : String(holdingsResponse?.errorCode || '').startsWith('SYNC_RECEIPT_') ? holdingsResponse.errorCode : 'HOLDINGS_SAVE_FAILED');
         return false;
       }
       const tradesResult = await (typeof syncTradesToGsheet === 'function'
@@ -1349,6 +1359,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
               targetUrl,
               generation,
               allowDuringRestore,
+              recoveryWrite: true,
               tradesOverride: dirty.trades,
               masterCodesOverride: options?.masterCodesOverride
             })
@@ -1358,7 +1369,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
         || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
       if (!holdingsOk || !tradesOk) {
         options?.onFailure?.(!holdingsOk ? 'HOLDINGS_SAVE_FAILED'
-          : tradesResult?.errorCode === 'CLIENT_TIMEOUT' ? 'TRADES_SAVE_TIMEOUT' : 'TRADES_SAVE_FAILED');
+          : tradesResult?.errorCode === 'CLIENT_TIMEOUT' ? 'TRADES_SAVE_TIMEOUT' : String(tradesResult?.errorCode || '').startsWith('SYNC_RECEIPT_') ? tradesResult.errorCode : 'TRADES_SAVE_FAILED');
         return false;
       }
 

@@ -461,9 +461,18 @@ async function quickFetchByDate() {
       const safeDetail = detail ? ' · ' + String(detail).replace(/[&<>"']/g, char => ({
         '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
       })[char]) : '';
+      const receiptUnconfirmed = /SYNC_RECEIPT_|LEGACY_SAVE_UNCONFIRMED/.test(String(detail));
+      const receiptHint = String(detail).includes('LEGACY_SAVE_UNCONFIRMED')
+        ? '이전 버전의 전송 결과를 확인할 수 없습니다'
+        : String(detail).includes('SYNC_RECEIPT_BUSY') ? '서버에서 저장 작업이 진행 중입니다'
+        : String(detail).includes('SYNC_RECEIPT_PARTIAL') ? '저장 후 재계산 완료를 확인하지 못했습니다'
+        : String(detail).includes('SYNC_RECEIPT_CHANGED') ? '서버 자료가 이전 저장 내용과 달라졌습니다'
+        : '서버 저장 완료 기록을 확인할 수 없습니다';
       const timeoutStage = String(detail).includes('HOLDINGS_SAVE_TIMEOUT') ? '보유 자료'
         : String(detail).includes('TRADES_SAVE_TIMEOUT') ? '거래 자료' : '';
-      setStatusLabel(timeoutStage
+      setStatusLabel(receiptUnconfirmed
+        ? '⚠️ ' + receiptHint + ' · 재전송 보류 · 이 기기의 미전송 자료 보존'
+        : timeoutStage
         ? '⚠️ ' + timeoutStage + ' 저장 응답 시간 초과 · 서버 반영 여부 미확인 · 이 기기의 미전송 자료 보존 · 반복 재시도 전 서버 저장 상태 확인 필요'
         : '❌ 거래·보유 자료 복원 실패 · 로컬 미전송 자료 보존' + safeDetail
           + ' · 연결 상태를 확인해 주세요', 'error');
@@ -542,7 +551,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.274';
+const EXPECTED_GAS_VERSION = '9.275';
 
 
 async function autoLoadPrices() {
