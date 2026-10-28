@@ -1340,7 +1340,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
           : Promise.resolve(null);
       const holdingsResponse = await holdingsResult;
       if (holdingsRequired && holdingsResponse?.status !== 'ok') {
-        options?.onFailure?.('HOLDINGS_SAVE_FAILED');
+        options?.onFailure?.(holdingsResponse?.errorCode === 'CLIENT_TIMEOUT'
+          ? 'HOLDINGS_SAVE_TIMEOUT' : 'HOLDINGS_SAVE_FAILED');
         return false;
       }
       const tradesResult = await (typeof syncTradesToGsheet === 'function'
@@ -1356,7 +1357,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
       const tradesOk = !tradesRequired
         || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
       if (!holdingsOk || !tradesOk) {
-        options?.onFailure?.(!holdingsOk ? 'HOLDINGS_SAVE_FAILED' : 'TRADES_SAVE_FAILED');
+        options?.onFailure?.(!holdingsOk ? 'HOLDINGS_SAVE_FAILED'
+          : tradesResult?.errorCode === 'CLIENT_TIMEOUT' ? 'TRADES_SAVE_TIMEOUT' : 'TRADES_SAVE_FAILED');
         return false;
       }
 
