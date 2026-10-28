@@ -10918,6 +10918,7 @@ function _portfolioLedgerMasterConflict_(items, currentCodes, requireStockCode) 
 
 // 요청별 영수증은 원장 잠금 안에서 기록한다. 원문 거래/보유 자료는 저장하지 않는다.
 var PORTFOLIO_SYNC_RECEIPT_PREFIX = 'portfolio_sync_receipt_v1_';
+var PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY = 'portfolio_sync_snapshot_completion_v1';
 function _portfolioSyncDigest_(text) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text).map(function(b) {
     return ('0' + ((b + 256) % 256).toString(16)).slice(-2);
@@ -10947,14 +10948,32 @@ function _portfolioSyncReceiptInput_(kind, id, data, rebuildFrom, explicitEmpty)
 }
 // PARTIAL→완료 판정은 대기열 소멸만으로 하지 않는다. 원장 원문 일치에 더해
 // 해당 저장 이후 worker 완료·원장 fingerprint·영향 범위의 deferred 해소를 요구한다.
+// 마지막 실행 LAST와 분리한 원장 fingerprint 귀속 완료 근거.
+// IDLE/RUNNING/BUSY는 이 기록을 덮어쓰지 않는다.
+function _recordPortfolioSyncSnapshotCompletion_(ss) {
+  try {
+    var props=PropertiesService.getScriptProperties(),all=props.getProperties();
+    var pendingReceipt=Object.keys(all).some(function(key) {
+      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0) return false;
+      try {var receipt=JSON.parse(all[key]);return receipt.kind==='syncTrades' && receipt.state==='PARTIAL';}
+      catch(ignore) {return false;}
+    });
+    if (!pendingReceipt) return false;
+    var fingerprint=_tradeLedgerContentFingerprint_(ss);
+    if (props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY)!==fingerprint) return false;
+    props.setProperty(PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY,JSON.stringify({
+      at:new Date().toISOString(),sourceId:ss.getId(),fingerprint:fingerprint
+    }));
+    return true;
+  } catch(ignore) {Logger.log('복구 저장 재계산 완료 근거 기록 실패');return false;}
+}
 function _portfolioSyncFollowupRecovered_(record) {
   try {
     var props=PropertiesService.getScriptProperties();
-    var raw=props.getProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY),last=raw?JSON.parse(raw):null;
-    if (!last || ['COMPLETED','DEFERRED_RESOLVED'].indexOf(last.status)===-1
-        || !(Date.parse(last.at)>Date.parse(record.at))) return false;
+    var raw=props.getProperty(PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY),proof=raw?JSON.parse(raw):null;
+    if (!proof || !(Date.parse(proof.at)>Date.parse(record.at)) || proof.sourceId!==getss().getId()) return false;
     var fingerprint=props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
-    if (!fingerprint || fingerprint!==_tradeLedgerContentFingerprint_(getss())) return false;
+    if (!fingerprint || fingerprint!==proof.fingerprint || fingerprint!==_tradeLedgerContentFingerprint_(getss())) return false;
     var deferred=_readTradeSnapshotDeferredState_().dates;
     var from=String(record.affectedFrom||''),to=String(record.affectedTo||'');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from>to)
@@ -11540,6 +11559,7 @@ function runPendingTradeSnapshotRebuild() {
       var retry = _assessTradeSnapshotWorkerDate_(ss,next,markPhase);
       if (retry.state === 'VALID') {
         _clearTradeSnapshotDeferredDate_(next);
+        _recordPortfolioSyncSnapshotCompletion_(ss);
         return _markTradeSnapshotWorkerResult_({status:'DEFERRED_RESOLVED',processed:1,blockedDate:next});
       }
       if (retry.state !== 'DEFERRED')
@@ -11588,6 +11608,7 @@ function runPendingTradeSnapshotRebuild() {
     }
     if (!ordered.length || ordered.length <= batch.length) {
       _clearPendingTradeSnapshotRebuild();
+      if (!deferredCount) _recordPortfolioSyncSnapshotCompletion_(ss);
       return _markTradeSnapshotWorkerResult_({status:deferredCount?'DEFERRED_OUTSTANDING':'COMPLETED',
         processed:processed,deferred:deferredCount});
     }

@@ -16,7 +16,7 @@
 
 ## PARTIAL 재검증
 
-대기 마커가 없다는 사실만으로 완료로 승격하지 않습니다. 요청 해시와 현재 원장이 일치하고 원장 쓰기 미검증·pending 마커가 없어야 합니다. 여기에 해당 요청 시작 후의 worker COMPLETED 또는 DEFERRED_RESOLVED 기록, 현재 원장 fingerprint와 worker가 관리하는 source fingerprint의 일치, 영향 날짜 범위의 deferred 해소를 모두 확인합니다. 영향 범위를 확보하지 못한 경우 모든 deferred가 없어야 합니다. 이 판정 자체는 시트·Properties·트리거를 변경하지 않습니다.
+대기 마커가 없다는 사실만으로 완료로 승격하지 않습니다. 요청 해시와 현재 원장이 일치하고 원장 쓰기 미검증·pending 마커가 없어야 합니다. 여기에 해당 요청 시작 후 worker COMPLETED 또는 DEFERRED_RESOLVED 시점에 별도 저장한 영속 완료 근거, 현재 원장 fingerprint와 worker가 관리하는 source fingerprint의 일치, 영향 날짜 범위의 deferred 해소를 모두 확인합니다. 영향 범위를 확보하지 못한 경우 모든 deferred가 없어야 합니다. 영속 근거는 원본 시트 식별자·원장 fingerprint·완료 시각에 귀속되며 다음 hourly 실행의 IDLE/RUNNING/BUSY 상태로 덮어쓰지 않습니다. 원장이 달라지거나 기존 근거가 없으면 완료를 추정하지 않습니다. 이 판정 자체는 시트·Properties·트리거를 변경하지 않습니다.
 
 완료를 확인한 과거 작업은 새로운 작업 범위의 정상 저장을 막지 않습니다. 반면 미확인 작업은 새 거래가 생겨도 먼저 확인합니다. 작업 범위는 숫자 epoch가 재시작 후 재사용되는 문제를 피하도록 별도의 영속 식별자를 사용합니다.
 

@@ -9,7 +9,7 @@ function server(){
  const ctx=vm.createContext({console,Date,JSON,PropertiesService:{getScriptProperties:()=>({getProperty:k=>store.get(k)||null,setProperty:(k,v)=>store.set(k,v),getProperties:()=>Object.fromEntries(store),deleteProperty:k=>store.delete(k)})},
  Utilities:{DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,s)=>[...createHash('sha256').update(s).digest()]},LockService:{getScriptLock:()=>({waitLock(){assert.equal(locked,false);if(busy)throw Error('busy');locked=true;},tryLock(){if(locked||busy)return false;locked=true;return true;},releaseLock(){locked=false;}})}});
  vm.runInContext(gasSource,ctx);
- const production={writeHoldings:ctx.handleSyncHoldings,readHoldings:ctx.handleGetHoldings,writeTrades:ctx.handleSyncTrades};
+ const production={writeHoldings:ctx.handleSyncHoldings,readHoldings:ctx.handleGetHoldings,writeTrades:ctx.handleSyncTrades,readPending:ctx._readPendingTradeSnapshotRebuild};
  const output=x=>({getContent:()=>JSON.stringify(x)});
  ctx.jsonOk=x=>output({status:'ok',...x});ctx.jsonError=(message,x)=>output({status:'error',message,...x});
  ctx.getss=()=>({getId:()=> 'fixture-workbook'});
@@ -128,6 +128,8 @@ console.log('PASS: 실제 보유 저장/읽기 함수의 퍼센트 문자열 원
  s.ctx._tradeLedgerContentFingerprint_=()=> 'current-ledger-hash';
  s.store.set(s.ctx.TRADE_LEDGER_FINGERPRINT_KEY,'current-ledger-hash');
  s.ctx._markTradeSnapshotWorkerResult_({status:'COMPLETED',processed:1});
+ assert.equal(s.read(p).receiptState,'PARTIAL','LAST 표시만 완료여도 영속 근거가 없으면 미완료');
+ s.ctx._recordPortfolioSyncSnapshotCompletion_(s.ctx.getss());
  s.pending(true);assert.equal(s.read(p).receiptState,'PARTIAL');s.pending(false);
  s.store.set(s.ctx.TRADE_SNAPSHOT_DEFERRED_DATES_KEY,JSON.stringify({dates:['2026-10-15'],cursor:''}));
  assert.equal(s.read(p).receiptState,'PARTIAL','영향 날짜의 deferred는 완료 아님');
@@ -139,3 +141,26 @@ console.log('PASS: 실제 보유 저장/읽기 함수의 퍼센트 문자열 원
  s.rows([]);assert.equal(s.read(p).receiptState,'CHANGED');
 }
 console.log('PASS: 실제 worker 완료 기록·fingerprint·pending/deferred 기반 PARTIAL 복구');
+
+// 실제 hourly worker가 DEFERRED_RESOLVED 이후 IDLE을 실행해도 완료 근거는 유지된다.
+{
+ const s=server();const p={...params,action:'syncTrades',operationId:'hourly_recovery_01',data:JSON.stringify([{date:'2026-10-28',name:'test-private-security',qty:1,price:100,code:'005930',tradeType:'buy',assetType:'주식'}])};
+ s.ctx.handleSyncTrades=data=>{s.rows(JSON.parse(data));return {getContent:()=>JSON.stringify({status:'error',saveState:'partial',affectedFrom:'2026-10-01',affectedTo:'2026-10-28'})}};
+ s.write(p);const key=[...s.store.keys()].find(k=>k.startsWith('portfolio_sync_receipt_v1_'));
+ const record=JSON.parse(s.store.get(key));record.at='2026-10-28T00:00:00.000Z';s.store.set(key,JSON.stringify(record));
+ s.ctx._readPendingTradeSnapshotRebuild=s.production.readPending;
+ s.ctx._detectExternalTradeLedgerChanges_=()=>({state:'UNCHANGED'});
+ s.ctx._tradeLedgerContentFingerprint_=()=> 'stable-ledger-source';
+ s.ctx._assessTradeSnapshotWorkerDate_=()=>({state:'VALID'});
+ s.store.set(s.ctx.TRADE_LEDGER_FINGERPRINT_KEY,'stable-ledger-source');
+ s.store.set(s.ctx.TRADE_SNAPSHOT_DEFERRED_DATES_KEY,JSON.stringify({dates:['2026-10-15'],cursor:''}));
+ assert.equal(s.read(p).receiptState,'PARTIAL');
+ assert.equal(s.ctx.runPendingTradeSnapshotRebuild().status,'DEFERRED_RESOLVED');
+ assert.equal(s.read(p).receiptState,'COMPLETE');
+ const proof=s.store.get(s.ctx.PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY);assert.ok(proof);
+ assert.equal(s.ctx.runPendingTradeSnapshotRebuild().status,'IDLE');
+ assert.equal(s.read(p).receiptState,'COMPLETE');assert.equal(s.store.get(s.ctx.PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY),proof);
+ s.ctx._markTradeSnapshotWorkerResult_({status:'BUSY'});assert.equal(s.read(p).receiptState,'COMPLETE');
+ s.ctx._tradeLedgerContentFingerprint_=()=> 'different-source';assert.equal(s.read(p).receiptState,'PARTIAL','이전 원장 증거를 다른 원장에 사용하지 않는다');
+}
+console.log('PASS: 실제 worker DEFERRED_RESOLVED→IDLE 이후 영속 완료 근거 유지');
