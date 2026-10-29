@@ -19,7 +19,7 @@ function kstParts(instant) {
 }
 export function scheduledWindow(instant) {
   const p=kstParts(instant), date=`${p.year}-${p.month}-${p.day}`, minutes=Number(p.hour)*60+Number(p.minute);
-  return {date,allowed:minutes>=480 && minutes<490};
+  return {date,allowed:minutes>=465 && minutes<480};
 }
 function dateInZone(instant, zone) {
   const parts=new Intl.DateTimeFormat('en-GB',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(instant);
