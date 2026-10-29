@@ -7,7 +7,7 @@ on:
         required: true
         default: quotes
         type: choice
-        options: [quotes, close, combined]
+        options: [quotes, close, combined, night]
 permissions:
   contents: read
 concurrency:
@@ -45,3 +45,9 @@ jobs:
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
         run: node scripts/nhplug-combined-readonly-diagnostic.mjs
 
+      - name: KOSPI200 야간선물 기간조회 읽기 전용 테스트
+        if: inputs.probe == 'night'
+        env:
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/nhplug-night-readonly-diagnostic.mjs
