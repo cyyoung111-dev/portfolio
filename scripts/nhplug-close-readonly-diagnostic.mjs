@@ -39,7 +39,7 @@ async function post(request, url, token, key, secret, input) {
   return {res,json:await res.json()};
 }
 
-export async function diagnoseClose({key,secret,request=fetch,log=console.log,wait=ms=>new Promise(r=>setTimeout(r,ms)),now=()=>new Date()}={}) {
+export async function diagnoseClose({key,secret,request=fetch,log=console.log,wait=ms=>new Promise(r=>setTimeout(r,ms)),now=()=>new Date(),accessToken}={}) {
   if(!key||!secret){log('CLOSE_AUTH CREDENTIALS_MISSING');return false;}
   const target=kstDate(now());
   // Test today's after-market state only. A historical success does not prove T+0 publication.
@@ -47,8 +47,8 @@ export async function diagnoseClose({key,secret,request=fetch,log=console.log,wa
   if(Number(p.hour)*60+Number(p.minute)<15*60+30){
     log('CLOSE_TEST NOT_AFTER_REGULAR_CLOSE');return false;
   }
-  let auth;
-  try {
+  let auth=accessToken;
+  if(!auth) try {
     const params=new URLSearchParams({appkey:key,appsecretkey:secret,grant_type:'client_credentials',scope:'oob'});
     const r=await request(ORIGIN+'/oauth2/token?'+params,{
       method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},redirect:'error',
@@ -93,3 +93,4 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const ok=await diagnoseClose({key:process.env.NHPLUG_APP_KEY,secret:process.env.NHPLUG_APP_SECRET});
   if(!ok)process.exitCode=1;
 }
+

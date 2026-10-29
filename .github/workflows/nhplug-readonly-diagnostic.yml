@@ -7,7 +7,7 @@ on:
         required: true
         default: quotes
         type: choice
-        options: [quotes, close]
+        options: [quotes, close, combined]
 permissions:
   contents: read
 concurrency:
@@ -38,3 +38,10 @@ jobs:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
         run: node scripts/nhplug-close-readonly-diagnostic.mjs
+      - name: 시세 및 당일 종가 통합 조회 검증
+        if: inputs.probe == 'combined'
+        env:
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/nhplug-combined-readonly-diagnostic.mjs
+
