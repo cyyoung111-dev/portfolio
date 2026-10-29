@@ -106,10 +106,6 @@ assert.match(gas, /cachedPayload\.priceLookup\.snapshotCreated = persist && cach
 const priceBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
 assert.doesNotMatch(priceBody, /persists*=s*false/);
 assert.match(priceBody, /if \(persist && confirmedPersistDates\.length\) _rebuildSnapshotForDateFromHistory/);
-assert.match(gas, /smoke = oauth.ok \? _tossPriceSmoke_\(token\)/);
-assert.match(gas, /runDiagnosticProbes\(\)/);
-assert.match(gas, /_refreshTossAccessTokenAfter401_\(token\)/);
-assert.match(gas, /fetchMarketIndicatorCandlesToss\(key, fromDate, toDate\)/);
 assert.match(gas, /fetchYahooIndexSeries\(key, fromDate, toDate\)/);
 assert.doesNotMatch(gas.slice(gas.indexOf('function rebuildDailySnapshots'), gas.indexOf('function _readSnapshotRowsByDate')), /GOOGLEFINANCE\s*\(/);
 assert.doesNotMatch(gas.slice(gas.indexOf('function rebuildDailySnapshots'), gas.indexOf('function _readSnapshotRowsByDate')), /fetchExchangeRates\(/);
@@ -237,7 +233,7 @@ assert.match(settings, /loadDividendSettings\(\{ targetUrl: loadTarget, generati
   'loadSettings가 하위 복원 요청에도 target/generation과 load epoch 검증기를 전달');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetUrl[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
-assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
+assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*const writeTrades =[\s\S]*requestGsheetFormJson;[\s\S]*await writeTrades\([\s\S]*targetUrl/,
   '거래원장 동기화는 캡처 payload를 지원하되 allowEmpty 없이는 빈 override 삭제를 차단');
 assert.match(portfolioData, /const recoverySignature = currentRecoverySignature\(\)[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*const recoveryHoldings = rawHoldings\.map\(h => \(\{ \.\.\.h \}\)\)[\s\S]*const recoveryFundDirect[\s\S]*Promise\.all\(\[[\s\S]*holdingsOverride: recoveryHoldings[\s\S]*fundDirectOverride: recoveryFundDirect[\s\S]*tradesOverride: recoveryTrades[\s\S]*saveSettings\(true, \{[\s\S]*settingsPatch: \{ fundDirect: recoveryFundDirect \}[\s\S]*currentRecoverySignature\(\) !== recoverySignature[\s\S]*continue[\s\S]*_setPendingExplicitEmptyTradeSync\(null, retryTarget\)/,
   'pending 뒤 새 거래는 holdings/trades와 fundDirect 부분 Settings payload를 동기화하고 최신 상태 확인 후 해당 target repair token만 제거');
@@ -763,3 +759,5 @@ function ledgerSnippet(name) {
 }
 
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');
+
+assert.doesNotMatch(gas,/openapi\.tossinvest\.com|function _tossRequest_/);

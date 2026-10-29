@@ -1,10 +1,6 @@
 import { krxSessionStatus } from './krx-session-calendar.mjs';
-import { fetchPrekospiNight } from './prekospi-night-reference.mjs';
-import { fetchTflNight } from './tfl-night-reference.mjs';
-
-export async function fetchNightReference(date, options={}) {
-  return await fetchTflNight(date, options) || await fetchPrekospiNight(date, options);
-}
+import {fetchNhNight} from './nh-night-reference.mjs';
+export async function fetchNightReference(date,options={}) { return fetchNhNight(date,options); }
 
 const SERIES = Object.freeze([
   ['KOSPI', '^KS11'], ['KOSDAQ', '^KQ11'], ['S&P 500', '^GSPC'],
@@ -54,7 +50,7 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
 }
 export function formatMorningBriefing(tradingDate, reference, rows) {
   const lines=[`[${tradingDate} 장전 시장 요약]`, ''];
-  if(reference) lines.push(`코스피200 야간선물 참고: ${reference.value.toFixed(2)} (${reference.source === 'TFL' ? 'TFL' : 'PreKOSPI'} 마지막 수집값, ${reference.tradingDate} 06:00 기준${reference.contract ? `, 계약 ${reference.contract}` : ''}. 공식 종가 확인 전)`);
+  if(reference) lines.push(`코스피200 야간선물: ${reference.value.toFixed(2)}pt · 마감 기준 ${reference.tradingDate} 06:00 KST (NH)`);
   else lines.push('코스피200 야간선물: 당일 참고값 미확보');
   lines.push('', '전일 시장 지표 (Yahoo Finance 일봉, 지연 가능)');
   for(const [label,symbol] of SERIES){
@@ -63,7 +59,7 @@ export function formatMorningBriefing(tradingDate, reference, rows) {
     const change=Number.isFinite(row.changePercent)?` (${row.changePercent>=0?'+':''}${row.changePercent.toFixed(2)}%)`:'';
     lines.push(`${label}: ${row.value.toLocaleString('en-US',{maximumFractionDigits:2})}${change} · ${row.date}`);
   }
-  lines.push('', '각 수치는 기준일을 확인하세요. 야간선물은 외부 사이트 참고값이며 KRX 공식 확정 종가가 아닙니다.');
+  lines.push('', '각 수치는 기준일을 확인하세요. 야간선물은 NH의 마감 시점 체결값입니다.');
   return lines.join('\n');
 }
 export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
@@ -89,7 +85,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   ]);
   const last=scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
-  const reference=candidate && (candidate.source==='PREKOSPI' || (candidate.source==='TFL' && /^[A-Z0-9]{4,12}$/.test(candidate.contract||''))) && candidate.kind==='REFERENCE'
+  const reference=candidate && candidate.source==='NH' && /^K[A-Z0-9]{8}$/.test(candidate.contract||'') && candidate.kind==='REFERENCE'
     && candidate.tradingDate===first.date && candidate.officialClose===false
     && Number.isFinite(candidate.value) && candidate.value>0
     && Number.isFinite(Date.parse(candidate.receivedAt)) && Date.parse(candidate.receivedAt)<=now().getTime()

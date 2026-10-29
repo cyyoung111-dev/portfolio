@@ -7,7 +7,7 @@ const KRX_FINAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','AFTER_FINAL','EVENING'])
 const STOCK_OFFICIAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','EVENING']);
 const masterApi=global.MarketBriefingMaster||(typeof module!=='undefined'&&module.exports?require('./market_briefing_master.js'):null);
 function latest(points){if(!Array.isArray(points)||!points.length)return null;return points.filter(p=>p&&/^\d{4}-\d{2}-\d{2}$/.test(String(p.date||''))&&Number(p.value)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date))).at(-1)||null;}
-function sourceFor(type){return type==='KOSPI'||type==='KOSDAQ'?'TOSS':'YAHOO';}
+function sourceFor(){return 'YAHOO';}
 function lookback(date,days=7){const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-days);return d.toISOString().slice(0,10);}
 function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const providerMeta=data&&data.seriesMeta&&data.seriesMeta[type];

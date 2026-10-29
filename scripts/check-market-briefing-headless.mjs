@@ -40,20 +40,20 @@ assert.equal(sendCount,1);assert.equal(JSON.parse(sentBody).text,'시험');
 await assert.rejects(()=>sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345','시험',{fetchImpl:async()=>{throw new Error('secret leak');}}),/TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY/);
 let delivered=0, textSent='';
 const testSender=async(_token,_chat,text)=>{delivered++;textSent=text;};
-const tomorrow='2026-10-28',fakeRef={source:'PREKOSPI',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T07:30:00+09:00`};
+const tomorrow='2026-10-28',fakeRef={source:'NH',contract:'KA016C000',contractMonth:'2026-12',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T07:30:00+09:00`};
 const morningOptions={now:()=>new Date(`${tomorrow}T07:45:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
 const morning=await runTelegramMorning(morningOptions);
-assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/공식 종가 확인 전/);
+assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/마감 기준/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,attempt:2}),/TELEGRAM_RETRY_BLOCKED/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(`${tomorrow}T08:10:00+09:00`)}),/TELEGRAM_SCHEDULE_LATE/);
 assert.equal(delivered,1,'재시도 및 지연 실행에서 메시지 중복 발송 금지');
 const stale=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...fakeRef,tradingDate:'2026-10-27'})});
 assert.equal(stale.status,'SENT_SOURCE_MISSING');assert.match(textSent,/당일 참고값 미확보/);assert.doesNotMatch(textSent,/872\.35/);
-const tflRef={...fakeRef,source:'TFL',contract:'A01612',value:900.05};
+const tflRef={...fakeRef,source:'NH',contract:'KA016C000',value:900.05};
 const tflMorning=await runTelegramMorning({...morningOptions,referenceFetch:async()=>tflRef});
 assert.equal(tflMorning.status,'SENT_REFERENCE');
-assert.equal(tflMorning.referenceSource,'TFL');assert.equal(tflMorning.referenceDate,tomorrow);assert.equal(tflMorning.referenceContract,'A01612');
-assert.match(textSent,/TFL 마지막 수집값/);assert.match(textSent,/계약 A01612/);
+assert.equal(tflMorning.referenceSource,'NH');assert.equal(tflMorning.referenceDate,tomorrow);assert.equal(tflMorning.referenceContract,'KA016C000');
+assert.match(textSent,/06:00 KST \(NH\)/);assert.match(textSent,/900\.05pt/);
 const tflBad=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...tflRef,contract:''})});
 assert.equal(tflBad.status,'SENT_SOURCE_MISSING');assert.doesNotMatch(textSent,/900\.05/);
 // The headless calendar consumes the GAS source of truth (including temporary
@@ -628,7 +628,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  let consumed;
  const preparedWithCapture=await prepareMorning({...options,fetchImpl:mock(0),loadReference:async()=>captured,
    run:async({send,referenceFetch})=>{consumed=await referenceFetch();await send(null,null,'시장 요약');return {status:'SENT_REFERENCE',referenceSource:consumed.source};}});
- assert.equal(consumed,captured);assert.equal(preparedWithCapture.referenceSource,'TFL');
+ assert.equal(consumed,captured);assert.equal(preparedWithCapture.referenceSource,'NH');
  const skipped=await prepareMorning({...options,fetchImpl:mock(1,[{name:prepared.artifactName}])});
  assert.equal(skipped.status,'ALREADY_CLAIMED');assert.equal(preparations,1,'fallback schedule must not rebuild or send after a claim');
  await assert.rejects(()=>prepareMorning({...options,fetchImpl:async()=>{throw Error('SECRET');}}),/TELEGRAM_CLAIM_LOOKUP_FAILED/);
@@ -645,7 +645,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  assert.equal(sends,1,'late or stale payload cannot send');
  const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
  assert.deepEqual(wf.on.schedule.map(x=>x.cron),['40 22 * * 0-4','0 23 * * 0-4']);
- const captureWf=YAML.parse(fs.readFileSync('.github/workflows/tfl-night-capture.yml','utf8'));
+ const captureWf=YAML.parse(fs.readFileSync('.github/workflows/nh-night-capture.yml','utf8'));
  assert.equal(captureWf.on.schedule[0].cron,'30 22 * * 0-4');
  assert.equal(captureWf.permissions.contents,'read');
  assert.match(captureWf.jobs.capture.if,/github\.ref == 'refs\/heads\/main'/);

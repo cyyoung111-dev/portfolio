@@ -54,10 +54,10 @@ function fixture() {
   for (const item of items) assert.equal(typeof f.ctx[item.handler], 'function', item.handler);
   assert(!items.some(i => ['updatePrices', 'toggleManualKeepLatestOption', 'setupTrigger', 'initSheet'].includes(i.handler)));
   const dangerous = root.children.find(m => m.name.startsWith('⚠️'));
-  assert.deepEqual(dangerous.items.map(i => i.handler), ['clearPriceAndSnapshotRows', 'clearTossOpenApiConfigPrompt', 'resetDailyTriggersPrompt']);
+  assert.deepEqual(dangerous.items.map(i => i.handler), ['clearPriceAndSnapshotRows', 'resetDailyTriggersPrompt']);
   assert(root.items[0].label.includes('버전업 필수 작업 아님'));
   f.ctx._addFallbackMenu(f.ui);
-  assert(f.menus[1].children[0].name.startsWith('⚠️'));
+  assert.equal(f.menus[1].children.length,0,'Toss 인증 위험 메뉴도 제거');
 }
 
 // Diagnosis with missing triggers must not repair anything or save properties.
@@ -216,3 +216,5 @@ for (const input of ['2026-02-30~2026-03-01', '2026-10-06~2026-10-01', 'invalid'
   assert(f.messages.at(-1)[0].includes('정상: 1'));
 }
 console.log('✅ GAS 메뉴 실행·진단 분리, 취소 시 무변경, 초기화 이중 확인 회귀 검사 통과');
+
+assert.doesNotMatch(source,/configureTossClient|showTossOpenApiStatus|runTossMarketDataDiagnosis|clearTossOpenApiConfigPrompt/);

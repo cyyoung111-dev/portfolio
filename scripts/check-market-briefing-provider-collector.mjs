@@ -44,7 +44,7 @@ assert.equal(observedFx.observedAt,'2026-09-18T07:29:30+09:00');assert.equal(obs
 const scheduledFx=collector.normalizeFxPoint({history:[{date:'2026-09-18',rate:1385}]},'2026-09-18',{scheduledToleranceSeconds:300});
 assert.equal(scheduledFx.observedAt,null);assert.equal(scheduledFx.quality,'SCHEDULED_DELAY_TOLERANCE_300S');
 const currentIndex=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3410},{symbols:{KOSPI:'KOSPI'}},'2026-09-18','MORNING');
-assert.equal(currentIndex.status,'PARTIAL'); assert.equal(currentIndex.finality,null);
+assert.equal(currentIndex.status,'DELAYED'); assert.equal(currentIndex.finality,null);
 const priorToss=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-17',value:3400,source:'TOSS'},
  {seriesMeta:{KOSPI:{confirmedClose:false,source:'TOSS'}}},'2026-09-18','MORNING');
 assert.equal(priorToss.status,'PARTIAL');assert.equal(priorToss.finality,null);
@@ -102,11 +102,11 @@ assert.equal(collector.normalizeBenchmarkPoint('KOSPI',holidayPoint,{seriesMeta:
  '실제 휴장 확정 정보 없는 이전 공식 종가는 공백 인증 표시 금지');
 
 const cachedAtClose=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3410},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:false,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
-assert.equal(cachedAtClose.status,'PARTIAL'); assert.equal(cachedAtClose.finality,null);
+assert.equal(cachedAtClose.status,'DELAYED'); assert.equal(cachedAtClose.finality,null);
 const freshUnverified=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3415,observedAt:'2026-09-18T06:30:00.000Z'},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
-assert.equal(freshUnverified.status,'PARTIAL'); assert.equal(freshUnverified.finality,null);
+assert.equal(freshUnverified.status,'DELAYED'); assert.equal(freshUnverified.finality,null);
 const noObservedEvidence=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3418},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:true}}},'2026-09-18','KRX_FINAL');
-assert.equal(noObservedEvidence.status,'PARTIAL');
+assert.equal(noObservedEvidence.status,'DELAYED');
 const tossClaim=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3419,observedAt:'2026-09-18T06:30:00.000Z',source:'TOSS'},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:true,source:'TOSS'}}},'2026-09-18','KRX_FINAL');
 assert.equal(tossClaim.status,'PARTIAL');
 const krxFinal=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3420,observedAt:'2026-09-18T15:30:00+09:00',source:'KRX_OFFICIAL'},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:true,source:'KRX_OFFICIAL'}}},'2026-09-18','KRX_FINAL');

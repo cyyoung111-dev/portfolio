@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.277
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.278
+//
+//  v9.278 변경사항 (2026.10.30):
+//  • Toss OAuth·시세·중계·설정·진단 API 삭제, NH 전용 현재가
+//  • NH 야간선물 06:00 체결값을 장전 브리핑으로 수집
 //
 //  v9.277 변경사항 (2026.10.30):
 //  • 미등록 미국 티커를 NH 공식 미국 마스터의 정확한 식별 근거로 조회
@@ -1246,74 +1250,8 @@ function _getApiKeyStatus() {
     publicDataApiKeyConfigured: !!_getPublicDataApiKey(),
     krxAuthKeyConfigured: !!_getKrxAuthKey(),
     requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim(),
-    nh: _nhConfigStatus_(),
-    toss: _getTossConfigStatus_()
+    nh: _nhConfigStatus_()
   };
-}
-
-function _maskTossClientId_(value) {
-  var id = String(value || '').trim();
-  if (!id) return '';
-  if (id.length <= 4) return '****';
-  return id.slice(0, 2) + '••••' + id.slice(-2);
-}
-
-function _getTossConfigStatus_() {
-  var props = PropertiesService.getScriptProperties();
-  var clientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
-  var secret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
-  return {
-    clientIdConfigured: !!clientId,
-    clientIdMasked: _maskTossClientId_(clientId),
-    secretConfigured: !!secret,
-    lastDiagnosticAt: String(props.getProperty('TOSS_LAST_DIAGNOSTIC_AT') || ''),
-    lastDiagnosticOk: props.getProperty('TOSS_LAST_DIAGNOSTIC_OK') === 'true',
-    lastDiagnosticCode: String(props.getProperty('TOSS_LAST_DIAGNOSTIC_CODE') || '')
-  };
-}
-
-function handleSaveTossConfig(dataJson) {
-  try {
-    var data;
-    try { data = JSON.parse(String(dataJson || '{}')); }
-    catch(parseError) { data = _parseJsonParam(dataJson || '{}', 'Toss 설정'); }
-    return _tossWithTokenLock_(function() {
-      var props = PropertiesService.getScriptProperties();
-      var changed = [];
-      var clientId = String(data.clientId == null ? '' : data.clientId).trim();
-      var secret = String(data.secret == null ? '' : data.secret).trim();
-      var previousClientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
-      var previousSecret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
-      // 설정 변경과 token cache 무효화를 같은 lock 안에서 처리해 발급 경쟁을 막습니다.
-      if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
-        props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
-      }
-      if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
-        props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
-      }
-      if ((clientId && clientId !== previousClientId) || (secret && secret !== previousSecret)) CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
-      return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
-    });
-  } catch(err) {
-    return jsonError('Toss 설정 저장 실패: ' + err.message);
-  }
-}
-
-function handleClearTossConfig() {
-  try {
-    return _tossWithTokenLock_(function() {
-      var props = PropertiesService.getScriptProperties();
-      props.deleteProperty('TOSS_CLIENT_ID');
-      props.deleteProperty('TOSS_CLIENT_SECRET');
-      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_AT');
-      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_OK');
-      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_CODE');
-      CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
-      return jsonOk({ cleared: true, toss: _getTossConfigStatus_() });
-    });
-  } catch(err) {
-    return jsonError('Toss 설정 삭제 실패: ' + err.message);
-  }
 }
 
 function configureAccessTokenPrompt() {
@@ -1385,7 +1323,6 @@ function doGet(e) {
   if (params.action === 'getMarketBriefingSnapshots')     return handleGetMarketBriefingSnapshots(params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
-  if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData(params.freshOAuth === '1');
   if (params.action === 'dividend') {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
@@ -1406,7 +1343,7 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
-      params.action === 'saveTossConfig' || params.action === 'clearTossConfig' ||
+      params.action === 'retireLegacyMarketData' ||
       params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' ||
       params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends' ||
       params.action === 'rebuildDailySnapshots' || params.action === 'repairOct08FundSourceOnly' || params.action === 'rewriteSnapshotDate' ||
@@ -1437,6 +1374,7 @@ function doPost(e) {
   }
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'saveNhConfig') return handleSaveNhConfig(params);
+  if (params.action === 'retireLegacyMarketData') return handleRetireLegacyMarketData(params);
   if (params.action === 'recoverPendingKrxClose') return handleRecoverPendingKrxClose(params.date, params.apply);
   if (params.action === 'issue507Maintenance') return handleIssue507Maintenance(params.mode || '', params.apply || '0');
   if (params.action === 'reconcileTradeSnapshotBacklog') return handleReconcileTradeSnapshotBacklog(params.apply || '0');
@@ -1453,7 +1391,7 @@ function doPost(e) {
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
   if (params.action === 'reconcileCompletedKrxPending') return handleReconcileCompletedKrxPending(params.dates || '', params.apply || '');
   if (params.action === 'repairOct08FundSourceOnly') return handleRepairOct08FundSourceOnly();
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeListReadOnly', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeListReadOnly', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
     return handleSyncCodesAppendOnly(params.codes, params.expectedCodes, params.expectedSourceId || '');
@@ -1474,8 +1412,6 @@ function doPost(e) {
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
-  if (params.action === 'saveTossConfig') return handleSaveTossConfig(params.data || '{}');
-  if (params.action === 'clearTossConfig') return handleClearTossConfig();
   if (params.action === 'startSnapshotRepair') return handleStartSnapshotRepair();
   if (params.action === 'continueSnapshotRepair') return handleContinueSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
@@ -1661,306 +1597,6 @@ function handleSaveSyncIssues(source, dataJson) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  Toss Securities Open API 시장데이터 provider
-//  공식 사양: https://openapi.tossinvest.com/openapi-docs/latest/openapi.json
-//  Client ID/Secret은 Script Properties에만 저장하며 로그·응답에 포함하지 않습니다.
-// ════════════════════════════════════════════════════════════════════
-var TOSS_API_BASE = 'https://openapi.tossinvest.com';
-var TOSS_TOKEN_CACHE_KEY = 'toss_oauth_token_v1';
-var TOSS_TOKEN_SKEW_SECONDS = 60;
-
-function _tossProperties_() {
-  var props = PropertiesService.getScriptProperties();
-  return { id: String(props.getProperty('TOSS_CLIENT_ID') || '').trim(), secret: String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim() };
-}
-
-function _tossCachedTokenRecord_() {
-  var cached = CacheService.getScriptCache().get(TOSS_TOKEN_CACHE_KEY);
-  if (!cached) return null;
-  try {
-    var token = JSON.parse(cached);
-    return token && token.accessToken ? token : null;
-  } catch (e) { return null; }
-}
-
-function _tossCachedAccessToken_() {
-  var token = _tossCachedTokenRecord_();
-  return token && Number(token.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000 ? token.accessToken : '';
-}
-
-function _tossIssueAccessTokenUnlocked_() {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
-  // Check at the actual issue boundary, not only before waiting for lock.
-  // Flipping relay ON while GAS waits must not revoke the VM-owned token.
-  if (_tossRelayConfig_().enabled) return '';
-  var credentials = _tossProperties_();
-  if (!credentials.id || !credentials.secret) return '';
-  if (_tossRelayConfig_().enabled) return '';
-  var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
-    method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
-    payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
-  });
-  var status = response.getResponseCode();
-  var body = response.getContentText() || '{}';
-  if (status < 200 || status >= 300) throw new Error('Toss OAuth 실패(' + status + '): ' + _tossSafeError_(body));
-  var data = JSON.parse(body);
-  if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) throw new Error('Toss OAuth 응답 필드 불일치');
-  var expiresAt = Date.now() + Number(data.expires_in) * 1000;
-  CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
-  return data.access_token;
-}
-
-function _tossWithTokenLock_(callback) {
-  var lock = typeof LockService !== 'undefined' && LockService.getScriptLock ? LockService.getScriptLock() : null;
-  var acquiredHere = false;
-  try {
-    if (lock && (!lock.hasLock || !lock.hasLock())) {
-      lock.waitLock(10000);
-      acquiredHere = true;
-    }
-    return callback();
-  } finally {
-    if (acquiredHere && lock && lock.releaseLock) lock.releaseLock();
-  }
-}
-
-function _tossAccessToken_() {
-  if (_tossRelayConfig_().enabled) return ''; // Relay alone owns client OAuth.
-  var cachedToken = _tossCachedAccessToken_();
-  if (cachedToken) return cachedToken;
-
-  // Toss는 새 client_credentials token 발급 시 기존 token이 무효화될 수 있으므로,
-  // cache miss 동시 실행을 single-flight로 직렬화합니다.
-  return _tossWithTokenLock_(function() {
-    // A waiting OFF caller may resume after operator has switched to ON.
-    if (_tossRelayConfig_().enabled) return '';
-    // 다른 실행이 lock 대기 중 token을 발급했을 수 있으므로 반드시 재확인합니다.
-    var tokenAfterLock = _tossCachedAccessToken_();
-    return tokenAfterLock || _tossIssueAccessTokenUnlocked_();
-  });
-}
-
-function _refreshTossAccessTokenAfter401_(rejectedToken, recoveryMeta) {
-  // 선택적 진단 메타만 추가합니다. 일반 getPrices 호출 계약과 동작은 그대로 둡니다.
-  return _tossWithTokenLock_(function() {
-    // Do not invalidate or refresh cached direct credentials after relay ON.
-    if (_tossRelayConfig_().enabled) {
-      if (recoveryMeta) recoveryMeta.source = 'RELAY';
-      return '';
-    }
-    var cache = CacheService.getScriptCache();
-    var current = _tossCachedTokenRecord_();
-    var currentValid = current && Number(current.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000;
-
-    // lock 대기 중 다른 실행이 이미 새 token으로 교체했다면 그 token을 그대로 사용합니다.
-    if (currentValid && current.accessToken !== rejectedToken) {
-      if (recoveryMeta) recoveryMeta.source = 'CACHE_UPDATED';
-      return current.accessToken;
-    }
-
-    // 현재 cache가 실제 rejected token이거나 만료/손상 상태일 때만 제거합니다.
-    if (!current || !currentValid || current.accessToken === rejectedToken) cache.remove(TOSS_TOKEN_CACHE_KEY);
-    if (recoveryMeta) recoveryMeta.source = 'NETWORK_ERROR';
-    var issuedToken = _tossIssueAccessTokenUnlocked_();
-    if (recoveryMeta && issuedToken) recoveryMeta.source = 'NETWORK';
-    return issuedToken;
-  });
-}
-
-function _tossSafeError_(body) {
-  try { var parsed = JSON.parse(body); return String(parsed.error?.code || parsed.error || parsed.error_description || 'unknown'); } catch (e) { return 'invalid-response'; }
-}
-
-function _tossDiagnosticIdValue_(value) {
-  var text = String(value == null ? '' : value).replace(/[\r\n\t]/g, '').trim();
-  return text.length > 256 ? text.slice(0, 256) : text;
-}
-
-function _tossDiagnosticHeader_(headers, name) {
-  var target = String(name || '').toLowerCase(), keys = Object.keys(headers || {});
-  for (var i = 0; i < keys.length; i++) {
-    if (String(keys[i]).toLowerCase() !== target) continue;
-    var value = headers[keys[i]];
-    if (Array.isArray(value)) value = value[0];
-    return _tossDiagnosticIdValue_(value);
-  }
-  return '';
-}
-
-function _tossDiagnosticIdentifiers_(response, parsed) {
-  var headers = {};
-  try { headers = response && response.getAllHeaders ? (response.getAllHeaders() || {}) : {}; } catch (ignore) {}
-  var body = parsed && typeof parsed === 'object' ? parsed : {};
-  var error = body.error && typeof body.error === 'object' ? body.error : {};
-  return {
-    requestId: _tossDiagnosticIdValue_(error.requestId || error.request_id || body.requestId || body.request_id ||
-      _tossDiagnosticHeader_(headers, 'x-request-id') || _tossDiagnosticHeader_(headers, 'x-amzn-requestid')),
-    referenceId: _tossDiagnosticIdValue_(error.referenceId || error.reference_id || body.referenceId || body.reference_id ||
-      _tossDiagnosticHeader_(headers, 'x-reference-id')),
-    edgeRequestId: _tossDiagnosticIdValue_(_tossDiagnosticHeader_(headers, 'x-amz-cf-id'))
-  };
-}
-
-function _isValidIpv4_(value) {
-  var text = String(value || '').trim();
-  var parts = text.split('.');
-  return parts.length === 4 && parts.every(function(part) {
-    return /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255;
-  });
-}
-
-function _isValidIpv6_(value) {
-  var text = String(value || '').trim().toLowerCase();
-  if (!text || text.indexOf(':') === -1 || text.indexOf('%') !== -1) return false;
-
-  // IPv4-mapped IPv6처럼 마지막 32bit가 dotted-decimal인 형태도 허용합니다.
-  var lastColon = text.lastIndexOf(':');
-  var tail = lastColon >= 0 ? text.slice(lastColon + 1) : '';
-  if (tail.indexOf('.') !== -1) {
-    if (!_isValidIpv4_(tail)) return false;
-    text = text.slice(0, lastColon + 1) + '0:0';
-  }
-
-  var compressedAt = text.indexOf('::');
-  if (compressedAt !== -1 && text.indexOf('::', compressedAt + 2) !== -1) return false;
-
-  var parts;
-  if (compressedAt !== -1) {
-    var sides = text.split('::');
-    if (sides.length !== 2) return false;
-    var left = sides[0] ? sides[0].split(':') : [];
-    var right = sides[1] ? sides[1].split(':') : [];
-    parts = left.concat(right);
-    if (parts.length >= 8) return false; // :: 는 최소 1개 hextet을 압축해야 합니다.
-  } else {
-    parts = text.split(':');
-    if (parts.length !== 8) return false;
-  }
-  return parts.every(function(part) { return /^[0-9a-f]{1,4}$/.test(part); });
-}
-
-function _diagnosticIpFamily_(value) {
-  return _isValidIpv4_(value) ? 'IPv4' : (_isValidIpv6_(value) ? 'IPv6' : '');
-}
-
-// 진단 전용: 외부 서비스가 관측한 UrlFetchApp 출구 IP를 참고값으로 반환합니다.
-// Toss 요청도 반드시 같은 NAT/egress IP를 사용한다고 보장되지는 않습니다.
-function _probeTossDiagnosticEgressIp_() {
-  var startedAt = Date.now(), attempts = [];
-  var providers = [
-    { name: 'checkip.amazonaws.com', url: 'https://checkip.amazonaws.com/' },
-    { name: 'api.ipify.org', url: 'https://api.ipify.org' }
-  ];
-  for (var i = 0; i < providers.length; i++) {
-    var providerStartedAt = Date.now(), provider = providers[i];
-    try {
-      var response = UrlFetchApp.fetch(provider.url, { method: 'get', muteHttpExceptions: true });
-      var status = response.getResponseCode();
-      var body = String(response.getContentText() || '').trim();
-      var headers = {};
-      try { headers = response.getAllHeaders ? (response.getAllHeaders() || {}) : {}; } catch (ignoreHeaders) {}
-      var contentType = _tossDiagnosticIdValue_(_tossDiagnosticHeader_(headers, 'content-type'));
-      var candidate = body;
-      var ipFamily = _diagnosticIpFamily_(candidate);
-      if (!ipFamily) {
-        try {
-          var parsed = JSON.parse(body || '{}');
-          candidate = parsed && parsed.ip ? String(parsed.ip).trim() : '';
-          ipFamily = _diagnosticIpFamily_(candidate);
-        } catch (ignoreJson) {
-          candidate = '';
-          ipFamily = '';
-        }
-      }
-      var ip = ipFamily ? candidate : '';
-      var attemptCode = status >= 200 && status < 300 ? (ip ? 'OK' : 'INVALID_IP_RESPONSE') : 'HTTP_ERROR';
-      attempts.push({
-        provider: provider.name, status: status, code: attemptCode, ipFamily: ipFamily || '',
-        bodyLength: body.length, contentType: contentType, elapsedMs: Date.now() - providerStartedAt
-      });
-      if (status >= 200 && status < 300 && ip) return {
-        ok: true, status: status, ip: ip, ipFamily: ipFamily, provider: provider.name, code: 'OK',
-        observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
-      };
-    } catch (err) {
-      attempts.push({
-        provider: provider.name, status: null, code: 'REQUEST_ERROR',
-        bodyLength: 0, contentType: '', elapsedMs: Date.now() - providerStartedAt
-      });
-    }
-  }
-  var last = attempts.length ? attempts[attempts.length - 1] : {};
-  return {
-    ok: false, status: last.status == null ? null : last.status, ip: '', ipFamily: '',
-    provider: last.provider || '', code: last.code || 'REQUEST_ERROR',
-    observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
-  };
-}
-
-// 명시적인 강제 OAuth 검증과 cache miss 진단에서만 신규 토큰을 발급합니다.
-function _tossDiagnosticAccessToken_() {
-  return _tossWithTokenLock_(function() {
-    return _tossDiagnosticIssueAccessTokenUnlocked_();
-  });
-}
-// 호출자는 ScriptLock을 이미 소유한 상태여야 합니다.
-// 별도 Lock 객체로 재진입하면 기존 잠금의 해제를 기다리며 교착될 수 있습니다.
-function _tossDiagnosticIssueAccessTokenUnlocked_() {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
-  var startedAt = Date.now();
-  if (_tossRelayConfig_().enabled)
-    return {ok:false,status:null,code:'RELAY_OAUTH_DELEGATED',
-      providerCode:'',source:'RELAY',token:'',requestId:'',
-      referenceId:'',edgeRequestId:'',elapsedMs:Date.now()-startedAt};
-  // lock 대기 중 설정이 바뀔 수 있으므로 자격증명은 반드시 lock 획득 후 다시 읽습니다.
-  var credentials = _tossProperties_();
-  if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
-  if (_tossRelayConfig_().enabled)
-    return {ok:false,status:null,code:'RELAY_OAUTH_DELEGATED',
-      providerCode:'',source:'RELAY',token:'',requestId:'',
-      referenceId:'',edgeRequestId:'',elapsedMs:Date.now()-startedAt};
-  var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
-    method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
-    payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
-  });
-  var status = response.getResponseCode(), body = response.getContentText() || '{}', data = {};
-  try { data = JSON.parse(body); } catch (ignore) {}
-  var ids = _tossDiagnosticIdentifiers_(response, data);
-  if (status < 200 || status >= 300) return {
-    ok: false, status: status, code: 'OAUTH_FAILED', providerCode: _tossSafeError_(body), source: 'NETWORK', token: '',
-    requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
-  };
-  if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) return {
-    ok: false, status: status, code: 'OAUTH_RESPONSE_INVALID', providerCode: '', source: 'NETWORK', token: '',
-    requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
-  };
-  var expiresAt = Date.now() + Number(data.expires_in) * 1000;
-  CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
-  return {
-    ok: true, status: status, code: 'OK', providerCode: '', source: 'NETWORK', token: data.access_token,
-    requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
-  };
-}
-// 일반 연결 진단은 시세 조회와 같은 토큰 캐시를 재사용합니다.
-// OAuth 강제 재발급은 기존 토큰을 무효화할 수 있으므로, 명시적인 freshOAuth=1 요청에만 허용합니다.
-function _tossDiagnosticReusedToken_(cached) {
-  return {
-    ok: true, status: null, code: 'CACHED_TOKEN_REUSED', providerCode: '',
-    source: 'CACHE', token: cached, requestId: '', referenceId: '',
-    edgeRequestId: '', elapsedMs: 0
-  };
-}
-function _tossDiagnosticSharedToken_(forceFreshOAuth) {
-  if (forceFreshOAuth === true) return _tossDiagnosticAccessToken_();
-  var cached = _tossCachedAccessToken_();
-  if (cached) return _tossDiagnosticReusedToken_(cached);
-  // 미스 확인과 lock 획득 사이 다른 실행이 발급했으면 새 OAuth 요청을 생략합니다.
-  return _tossWithTokenLock_(function() {
-    var afterLock = _tossCachedAccessToken_();
-    return afterLock ? _tossDiagnosticReusedToken_(afterLock) : _tossDiagnosticIssueAccessTokenUnlocked_();
-  });
-}
 function _priceTimingAdd_(timings, key, startedMs) {
   if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
   timings[key] = Math.max(0, Number(timings[key] || 0) + Math.max(0, Date.now() - startedMs));
@@ -1974,462 +1610,9 @@ function _newPriceLookupTimings_() {
   };
 }
 
-// A market-data-only relay is opt-in AFTER an independently verified OCI VM.
-// OFF by default; never fall through to GAS OAuth when the relay is enabled,
-// because Toss permits only one live token per client.
-function _tossRelayConfig_() {
-  var p = PropertiesService.getScriptProperties();
-  var enabled = String(p.getProperty('TOSS_RELAY_MODE') || '').trim() === 'ON';
-  if (!enabled) return {enabled:false};
-  var url = String(p.getProperty('TOSS_RELAY_URL') || '').trim();
-  var key = String(p.getProperty('TOSS_RELAY_SHARED_KEY') || '');
-  // Do not trim or normalize secrets: CR/LF and spaces must be rejected,
-  // not silently accepted as a different header value.
-  // Accept a single HTTPS DNS hostname and the exact authenticated endpoint.
-  // Reject IP literals, ports, userinfo, fragment, query, redirects or URL tricks.
-  var match=url.match(/^https:\/\/([a-z0-9][a-z0-9.-]{1,251}[a-z0-9])\/v1\/fetch$/);
-  var host=match ? match[1] : '';
-  if (!host || host.indexOf('.')<0 || host.indexOf('..')!==-1 ||
-      /^(?:\d+\.){3}\d+$/.test(host) ||
-      /\.(?:local|localhost|internal|test|example|invalid)$/.test(host) ||
-      key.length<32 || key.length>512 || !/^[A-Za-z0-9_+\/=-]+$/.test(key))
-    throw new Error('TOSS_RELAY_CONFIG_INVALID');
-  return {enabled:true,url:url,key:key};
-}
-function _tossRelayAction_(path,query) {
-  var q=query||{}, keys=Object.keys(q);
-  function only(allowed) {
-    for (var i=0;i<keys.length;i++)if(allowed.indexOf(keys[i])<0)
-      throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
-  }
-  if (path==='/api/v1/prices') {
-    only(['symbols']);return {action:'prices',params:{symbols:String(q.symbols||'')}};
-  }
-  if (path==='/api/v1/candles') {
-    only(['symbol','interval','count','before','adjusted']);
-    return {action:'candles',params:q};
-  }
-  if (path==='/api/v1/exchange-rate') {
-    only(['baseCurrency','quoteCurrency']);
-    if(q.baseCurrency!=='USD'||q.quoteCurrency!=='KRW')
-      throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
-    return {action:'exchangeRate',params:{}};
-  }
-  var match=path.match(/^\/api\/v1\/market-calendar\/(KR|US)$/);
-  if(match){only(['date']);return {action:'calendar',params:{market:match[1],date:q.date}};}
-  if(path==='/api/v1/market-indicators/prices'){
-    only(['symbols']);return {action:'indicatorPrices',params:{symbols:q.symbols}};
-  }
-  match=path.match(/^\/api\/v1\/market-indicators\/(KOSPI|KOSDAQ|KR_BOND_(?:2|3|5|10|20|30)Y)\/candles$/);
-  if(match){only(['interval','count','before']);return {action:'indicatorCandles',params:{
-    index:match[1],interval:q.interval,count:q.count,before:q.before
-  }};}
-  throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
-}
-function _tossRelayRequest_(config,path,query,timings) {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
-  var started=Date.now(), response;
-  var body=_tossRelayAction_(path,query);
-  try {
-    response=UrlFetchApp.fetch(config.url,{
-      method:'post',contentType:'application/json',
-      headers:{'x-relay-key':config.key},
-      payload:JSON.stringify(body),muteHttpExceptions:true,
-      followRedirects:false,validateHttpsCertificates:true
-    });
-  }catch(ignore){
-    _priceTimingAdd_(timings,'tossPricesHttp',started);
-    throw new Error('TOSS_RELAY_NETWORK_ERROR');
-  }
-  _priceTimingAdd_(timings,'tossPricesHttp',started);
-  var status=response.getResponseCode();
-  // A 30x is never followed: prevents the relay secret leaking through redirects.
-  if(status!==200)throw new Error('TOSS_RELAY_HTTP_'+String(status));
-  var parsed;
-  try{parsed=JSON.parse(response.getContentText()||'{}');}
-  catch(ignoreJson){throw new Error('TOSS_RELAY_RESPONSE_INVALID');}
-  if(parsed?.ok!==true||parsed?.status!==200||!parsed.data||
-      typeof parsed.data!=='object'||Array.isArray(parsed.data))
-    throw new Error('TOSS_RELAY_RESPONSE_INVALID');
-  return parsed.data;
-}
+// Legacy internal names retained for existing price callers, with no Toss API.
+function fetchPricesToss(items,timings,meta) { return fetchPricesNh(items,timings,meta); }
 
-function _tossRequest_(path, query, group, timings) {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
-  var relay=_tossRelayConfig_();
-  if (relay.enabled) return _tossRelayRequest_(relay,path,query,timings);
-  var tokenStartedMs = Date.now();
-  var token = _tossAccessToken_();
-  _priceTimingAdd_(timings, 'tossToken', tokenStartedMs);
-  if (!token) return null;
-  var params = [];
-  Object.keys(query || {}).forEach(function(key) { if (query[key] !== '' && query[key] != null) params.push(encodeURIComponent(key) + '=' + encodeURIComponent(query[key])); });
-  var url = TOSS_API_BASE + path + (params.length ? '?' + params.join('&') : '');
-  var maxAttempts = 4;
-  var oauthRecoveryUsed = false;
-  var httpStartedMs = Date.now();
-  for (var attempt = 0; attempt < maxAttempts; attempt++) {
-    var response;
-    try {
-      response = UrlFetchApp.fetch(url, { method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
-    } catch (fetchErr) {
-      _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
-      throw fetchErr;
-    }
-    var status = response.getResponseCode();
-    if (status >= 200 && status < 300) {
-      try {
-        var parsed = JSON.parse(response.getContentText() || '{}');
-        _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
-        return parsed;
-      } catch (parseErr) {
-        _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
-        throw parseErr;
-      }
-    }
-    if (status === 401 && !oauthRecoveryUsed) {
-      oauthRecoveryUsed = true;
-      var refreshStartedMs = Date.now();
-      token = _refreshTossAccessTokenAfter401_(token);
-      _priceTimingAdd_(timings, 'tossToken', refreshStartedMs);
-      if (!token) {
-        _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
-        throw new Error('Toss OAuth 재발급 결과 없음');
-      }
-      // 401 recovery는 429/5xx retry budget을 소비하지 않습니다.
-      attempt--;
-      continue;
-    }
-    var headers = response.getAllHeaders ? response.getAllHeaders() : {};
-    var retryAfter = Number(headers['Retry-After'] || headers['retry-after'] || 0);
-    var rateReset = Number(headers['X-RateLimit-Reset'] || headers['x-ratelimit-reset'] || 0);
-    if (status !== 429 && status < 500) {
-      _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
-      throw new Error('Toss API 실패(' + status + '): ' + _tossSafeError_(response.getContentText() || ''));
-    }
-    if (attempt === maxAttempts - 1) {
-      _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
-      throw new Error('Toss API 재시도 초과(' + status + ')');
-    }
-    var waitMs = retryAfter > 0
-      ? retryAfter * 1000
-      : (rateReset > 0 ? rateReset * 1000 : Math.min(4000, 250 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250));
-    Utilities.sleep(waitMs);
-  }
-  return null;
-}
-
-function _tossSymbol_(item) { return String(item.tossSymbol || item.code || '').trim(); }
-
-function _normalizeTossSymbol_(value) {
-  var symbol = String(value == null ? '' : value).trim().toUpperCase();
-  return symbol.replace(/^A(?=\d{6}$)/, '');
-}
-
-function fetchPricesToss(items, timings, providerMeta) {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) return fetchPricesNh(items, timings, providerMeta);
-  var requestedBySymbol = {};
-  var symbols = (items || []).map(function(item) {
-    var requested = _tossSymbol_(item);
-    var normalized = _normalizeTossSymbol_(requested);
-    if (normalized) requestedBySymbol[normalized] = requested || normalized;
-    return normalized;
-  }).filter(Boolean);
-  var credentials = _tossProperties_();
-  var usingRelay=_tossRelayConfig_().enabled;
-  if (!symbols.length || symbols.length > 200 || (!usingRelay && (!credentials.id || !credentials.secret))) {
-    if (providerMeta) {
-      providerMeta.attempted = false;
-      providerMeta.status = 'NOT_RUN';
-      providerMeta.reason = !symbols.length ? 'NO_SYMBOLS' : (symbols.length > 200 ? 'TOO_MANY_SYMBOLS' : 'CREDENTIALS_NOT_CONFIGURED');
-    }
-    return {};
-  }
-  if (providerMeta) {
-    providerMeta.attempted = true;
-    providerMeta.status = 'REQUESTING';
-    providerMeta.reason = '';
-  }
-  var payload = _tossRequest_('/api/v1/prices', { symbols: symbols.join(',') }, 'MARKET_DATA', timings);
-  var rows = payload && Array.isArray(payload.result) ? payload.result : [];
-  var prices = {};
-  rows.forEach(function(row) {
-    var price = Number(row.lastPrice);
-    var symbol = _normalizeTossSymbol_(row.symbol);
-    if (!symbol || !Number.isFinite(price) || price <= 0 || !row.currency) return;
-    var requestedCode = requestedBySymbol[symbol] || symbol;
-    prices[requestedCode] = { price: price, currency: String(row.currency), timestamp: row.timestamp || null, source: 'TOSS', priceType: 'REALTIME', status: 'INDICATIVE', fetchedAt: new Date().toISOString() };
-  });
-  if (providerMeta) providerMeta.status = Object.keys(prices).length > 0 ? 'SUCCESS' : 'EMPTY';
-  return prices;
-}
-
-function fetchHistoricalPricesToss(items, targetDate) {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) return {};
-  var output = {};
-  (items || []).forEach(function(item) {
-    var symbol = _tossSymbol_(item);
-    if (!symbol || (!_tossRelayConfig_().enabled && !_tossProperties_().id)) return;
-    var before = '';
-    var guard = 0;
-    while (guard++ < 100) {
-      var payload = _tossRequest_('/api/v1/candles', { symbol: symbol, interval: '1d', count: 200, before: before, adjusted: 'false' }, 'MARKET_DATA_CHART');
-      var page = payload && payload.result;
-      if (!page || !Array.isArray(page.candles)) break;
-      var found = page.candles.filter(function(c) { return String(c.timestamp || '').slice(0, 10) === targetDate; })[0];
-      if (found && Number(found.closePrice) > 0) {
-        output[item.code] = { price: Number(found.closePrice), usedDate: targetDate, marketDate: targetDate, market: item.market || (String(found.currency) === 'USD' ? 'US' : 'KR'), currency: String(found.currency || item.currency || 'KRW'), source: 'TOSS', priceType: 'DAILY_CANDLE', status: 'UNVERIFIED_CLOSE', fetchedAt: new Date().toISOString() };
-        break;
-      }
-      var next = page.nextBefore;
-      if (!next || (page.candles.length && String(page.candles[page.candles.length - 1].timestamp).slice(0, 10) < targetDate)) break;
-      if (next === before) break;
-      before = next;
-    }
-  });
-  return output;
-}
-
-// Toss 403 응답 원문에서 문서화된 *오류 코드만* 선택하여 노출합니다.
-// message/details/header/body/자격증명 및 알 수 없는 공급자 원문은 절대 반환하지 않습니다.
-function _tossDiagnostic403ProviderCode_(parsed, httpStatus) {
-  if (httpStatus !== 403) return '';
-  var raw = parsed && parsed.error;
-  var candidate = raw && typeof raw === 'object' ? raw.code :
-    (typeof raw === 'string' ? raw : (parsed && parsed.code));
-  var code = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
-  return code === 'ip-not-allowed' || code === 'forbidden' || code === 'edge-blocked'
-    ? code : 'UNKNOWN_403';
-}
-
-// 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
-function _tossDiagnosticRequest_(path, query, token) {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
-  var startedAt = Date.now();
-  try {
-    if (!token) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', elapsedMs: Date.now() - startedAt };
-    var params = [];
-    Object.keys(query || {}).forEach(function(key) {
-      if (query[key] !== '' && query[key] != null) params.push(encodeURIComponent(key) + '=' + encodeURIComponent(query[key]));
-    });
-    var response = UrlFetchApp.fetch(TOSS_API_BASE + path + (params.length ? '?' + params.join('&') : ''), {
-      method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true
-    });
-    var status = response.getResponseCode();
-    var body = response.getContentText() || '{}';
-    var parsed = {};
-    try { parsed = JSON.parse(body); } catch (e) {}
-    var error = parsed && parsed.error ? parsed.error : {};
-    var ids = _tossDiagnosticIdentifiers_(response, parsed);
-    var result = parsed && parsed.result;
-    var count = Array.isArray(result) ? result.length : (result && typeof result === 'object' ? Object.keys(result).length : 0);
-    return {
-      ok: status >= 200 && status < 300,
-      status: status,
-      code: status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (status >= 200 && status < 300 ? 'OK' : String(error.code || 'HTTP_ERROR')),
-      providerCode: _tossDiagnostic403ProviderCode_(parsed, status),
-      requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, count: count,
-      elapsedMs: Date.now() - startedAt
-    };
-  } catch (err) {
-    var message = String(err && err.message || '');
-    return { ok: false, status: message.indexOf('(403)') !== -1 ? 403 : null, code: message.indexOf('(403)') !== -1 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : 'REQUEST_ERROR', elapsedMs: Date.now() - startedAt };
-  }
-}
-
-function _tossPriceSmoke_(token) {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
-  var startedAt = Date.now();
-  try {
-    if (!token) return { ok: false, status: null, resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
-    var response = UrlFetchApp.fetch(TOSS_API_BASE + '/api/v1/prices?symbols=005930', {
-      method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true
-    });
-    var status = response.getResponseCode();
-    var parsed = {};
-    try { parsed = JSON.parse(response.getContentText() || '{}'); } catch (ignore) {}
-    var ids = _tossDiagnosticIdentifiers_(response, parsed);
-    var rows = parsed && Array.isArray(parsed.result) ? parsed.result : [];
-    var row = rows.filter(function(item) { return _normalizeTossSymbol_(item && item.symbol) === '005930'; })[0] || null;
-    var price = row ? Number(row.lastPrice) : 0;
-    var transportOk = status >= 200 && status < 300;
-    var validLastPrice = Number.isFinite(price) && price > 0;
-    var timestampPresent = !!(row && row.timestamp);
-    var code = status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (!transportOk ? 'HTTP_ERROR' :
-      (!rows.length ? 'PRICE_SMOKE_EMPTY' : (!row ? 'PRICE_SMOKE_SYMBOL_MISSING' :
-      (!validLastPrice ? 'PRICE_SMOKE_INVALID_PRICE' : (!timestampPresent ? 'PRICE_SMOKE_TIMESTAMP_MISSING' : 'OK')))));
-    return {
-      ok: transportOk && code === 'OK',
-      status: status,
-      code: code,
-      providerCode: _tossDiagnostic403ProviderCode_(parsed, status),
-      resultCount: rows.length,
-      symbol: row ? _normalizeTossSymbol_(row.symbol) : '',
-      validLastPrice: validLastPrice,
-      timestampPresent: timestampPresent,
-      requestId: ids.requestId,
-      referenceId: ids.referenceId,
-      edgeRequestId: ids.edgeRequestId,
-      elapsedMs: Date.now() - startedAt
-    };
-  } catch (err) {
-    return { ok: false, status: null, code: 'REQUEST_ERROR', resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
-  }
-}
-
-// Preserve the same public diagnostic contract as direct Toss mode. Relay
-// token issuance occurs ONLY on the VM, so the GAS diagnostic never revokes it.
-function _tossRelayMarketDataDiagnostic_() {
-  var config=_tossRelayConfig_(),checks=[],statusCodes={};
-  // The UI has a 30s timeout. Avoid six sequential slow relay probes
-  // during outages; preserve the full five-endpoint response shape.
-  var deadline=Date.now()+20000,relayUnavailable=false;
-  var targets=[
-    ['exchangeRate','/api/v1/exchange-rate',{baseCurrency:'USD',quoteCurrency:'KRW'}],
-    ['marketCalendarKR','/api/v1/market-calendar/KR',{date:today()}],
-    ['marketCalendarUS','/api/v1/market-calendar/US',
-      {date:Utilities.formatDate(new Date(),'America/New_York','yyyy-MM-dd')}],
-    ['marketIndicatorPrices','/api/v1/market-indicators/prices',{symbols:'KOSPI,KOSDAQ'}],
-    ['marketIndicatorCandles','/api/v1/market-indicators/KOSPI/candles',{interval:'1d',count:1}]
-  ];
-  targets.forEach(function(target){
-    var started=Date.now(),row={};
-    if(relayUnavailable || Date.now()>=deadline){
-      checks.push({name:target[0],endpoint:target[1],ok:false,status:null,
-        code:'SKIPPED_RELAY_UNAVAILABLE',providerCode:'',count:0,elapsedMs:0});
-      return;
-    }
-    try {
-      var result=_tossRelayRequest_(config,target[1],target[2]);
-      var part=result && result.result;
-      var count=Array.isArray(part)?part.length:
-        (part && typeof part==='object'?Object.keys(part).length:0);
-      row={name:target[0],endpoint:target[1],ok:true,status:200,code:'OK',
-        providerCode:'',count:count,elapsedMs:Date.now()-started};
-    }catch(ignore){
-      // On a failed relay request, querying five more endpoints may exceed
-      // both browser and headless observation timeouts.
-      relayUnavailable=true;
-      row={name:target[0],endpoint:target[1],ok:false,status:null,
-        code:'RELAY_REQUEST_FAILED',providerCode:'',count:0,
-        elapsedMs:Date.now()-started};
-    }
-    checks.push(row);
-  });
-  var smoke={ok:false,status:null,code:'RELAY_REQUEST_FAILED',resultCount:0,
-    symbol:'005930',validLastPrice:false,timestampPresent:false,elapsedMs:0};
-  var smokeStarted=Date.now();
-  if(relayUnavailable || Date.now()>=deadline){
-    smoke.code='SKIPPED_RELAY_UNAVAILABLE';
-  }else try {
-    var result=_tossRelayRequest_(config,'/api/v1/prices',{symbols:'005930'});
-    var items=result && Array.isArray(result.result)?result.result:[];
-    var item=items.filter(function(x) {return _normalizeTossSymbol_(x.symbol)==='005930';})[0];
-    smoke={ok:!!item&&Number(item.lastPrice)>0&&!!item.timestamp,status:200,
-      code:!!item&&Number(item.lastPrice)>0&&!!item.timestamp?'OK':'PRICE_SMOKE_INVALID',
-      resultCount:items.length,symbol:'005930',
-      validLastPrice:!!item&&Number(item.lastPrice)>0,
-      timestampPresent:!!item&&!!item.timestamp,elapsedMs:Date.now()-smokeStarted};
-  }catch(ignoreSmoke){smoke.elapsedMs=Date.now()-smokeStarted;}
-  var providerAvailable=smoke.ok||checks.some(function(x){return x.ok;});
-  var oauth={stage:'oauth',ok:providerAvailable,status:providerAvailable?200:null,
-    code:providerAvailable?'RELAY_OAUTH_DELEGATED':'RELAY_UNVERIFIED',
-    providerCode:'',source:'RELAY',elapsedMs:0};
-  var overallOk=providerAvailable&&smoke.ok&&checks.every(function(x){return x.ok;});
-  var code=overallOk?'OK':'RELAY_PROBES_INCOMPLETE';
-  try {
-    var props=PropertiesService.getScriptProperties();
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_AT',new Date().toISOString());
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
-  }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.277',
-    generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
-    freshOAuthTested:false,
-    egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
-      observedOnly:true,attempts:[],elapsedMs:0},
-    oauth:oauth,endpoints:checks,priceSmoke:smoke});
-}
-function handleDiagnoseTossMarketData(forceFreshOAuth) {
-  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) return jsonError('TOSS_RETIRED_NH_ACTIVE');
-  // Direct OAuth diagnostics would revoke the sole token owned by OCI relay.
-  if (_tossRelayConfig_().enabled) return _tossRelayMarketDataDiagnostic_();
-  var token = '', oauth;
-  var egressProbe = _probeTossDiagnosticEgressIp_();
-  try {
-    var oauthResult = _tossDiagnosticSharedToken_(forceFreshOAuth === true);
-    token = oauthResult.token || '';
-    oauth = { stage: 'oauth', ok: oauthResult.ok, status: oauthResult.status, code: oauthResult.code,
-      providerCode: oauthResult.providerCode, source: oauthResult.source, requestId: oauthResult.requestId || '',
-      referenceId: oauthResult.referenceId || '', edgeRequestId: oauthResult.edgeRequestId || '', elapsedMs: oauthResult.elapsedMs };
-  } catch (oauthError) {
-    oauth = { stage: 'oauth', ok: false, status: null, code: 'OAUTH_REQUEST_ERROR', providerCode: '', source: 'NETWORK', elapsedMs: 0 };
-  }
-  var checks = [], smoke;
-  var runDiagnosticProbes = function() {
-    checks = [];
-    var run = function(name, path, query) {
-    if (!oauth.ok) {
-      checks.push({ name: name, endpoint: path, ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', requestId: '', referenceId: '', edgeRequestId: '', count: 0, elapsedMs: 0 });
-      return;
-    }
-    var item = _tossDiagnosticRequest_(path, query, token);
-    checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code,
-      providerCode: item.providerCode || '',
-      requestId: item.requestId || '', referenceId: item.referenceId || '', edgeRequestId: item.edgeRequestId || '',
-      count: item.count || 0, elapsedMs: item.elapsedMs });
-  };
-    run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
-    run('marketCalendarKR', '/api/v1/market-calendar/KR', { date: today() });
-    run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
-    run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
-    run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
-    smoke = oauth.ok ? _tossPriceSmoke_(token) : { ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: 0 };
-  };
-  runDiagnosticProbes();
-
-  // 캐시 만료 전 서버에서 폐기된 token이라도, resource 401 확인 시에만 1회 복구합니다.
-  // 일반 getPrices와 동일한 lock/compare-and-swap 경로를 사용하여 다른 실행의 최신 token은 보존합니다.
-  // OAuth 403/권한 오류와 cache miss 신규 발급을 오인하여 반복 재발급하지 않습니다.
-  if (oauth.ok && oauth.source === 'CACHE' &&
-      (checks.some(function(item) { return item.status === 401; }) || smoke.status === 401)) {
-    oauth.recovery = { attempted: true, ok: false, code: 'RECOVERY_FAILED', source: 'NONE' };
-    try {
-      var recoveredToken = _refreshTossAccessTokenAfter401_(token, oauth.recovery);
-      if (recoveredToken && recoveredToken !== token) {
-        token = recoveredToken;
-        runDiagnosticProbes();
-        var stillUnauthorized = checks.some(function(item) { return item.status === 401; }) || smoke.status === 401;
-        oauth.recovery.ok = !stillUnauthorized;
-        var probeFailuresRemain = checks.some(function(item) { return !item.ok; }) || !smoke.ok || !smoke.validLastPrice || !smoke.timestampPresent;
-        oauth.recovery.code = stillUnauthorized ? 'RESOURCE_401_AFTER_RETRY' :
-          (probeFailuresRemain ? 'RESOURCE_401_RECOVERED_PROBES_FAILED' : 'RESOURCE_401_RECOVERED');
-      } else {
-        oauth.recovery.code = 'TOKEN_UNCHANGED';
-      }
-    } catch (recoverError) {
-      // 실패해도 원래 401 진단은 보존하며 OAuth 오류 원문/자격증명은 응답에 노출하지 않습니다.
-      oauth.recovery.code = 'OAUTH_REQUEST_ERROR';
-    }
-  }
-  var overallOk = oauth.ok && checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice && smoke.timestampPresent;
-  var diagnosticCode = overallOk ? 'OK' :
-    (oauth.recovery && oauth.recovery.attempted && !oauth.recovery.ok ? oauth.recovery.code :
-    (!oauth.ok ? oauth.code : ((checks.find(function(item) { return !item.ok; }) || {}).code || smoke.code || 'ERROR')));
-  try {
-    var props = PropertiesService.getScriptProperties();
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_AT', new Date().toISOString());
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
-  } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.277', generatedAt: new Date().toISOString(), ok: overallOk,
-    diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
-    egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
-}
-
-// ════════════════════════════════════════════════════════════════════
-//  종가 조회 — Toss 우선, 기존 정상 공급원 fallback
-// ════════════════════════════════════════════════════════════════════
 function handlePriceFetch(dateParam, allCodesParam) {
   try {
     var ss = getss();
@@ -5024,7 +4207,7 @@ function handleGetPricesCompat(codesParam, persist) {
     var triggerState = _ensureDailyTriggersOncePerDay(todayStr);
     var reqCodes = codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean);
     var cache = CacheService.getScriptCache();
-    var cacheRaw = todayStr + '|p=' + (persist ? '1' : '0') + '|' + reqCodes.slice().sort().join(',') + '|provider=' + (typeof _nhEnabled_ === 'function' && _nhEnabled_() ? 'NH' : 'TOSS');
+    var cacheRaw = todayStr + '|p=' + (persist ? '1' : '0') + '|' + reqCodes.slice().sort().join(',') + '|provider=' + 'NH';
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
@@ -5111,16 +4294,16 @@ function handleGetPricesCompat(codesParam, persist) {
       var tossProviderMeta = { attempted: false, status: 'NOT_RUN', reason: '' };
       try {
         tossPrices = fetchPricesToss(targetItems, timings, tossProviderMeta);
-        lookupMeta.currentProvider = tossProviderMeta.provider || 'TOSS';
+        lookupMeta.currentProvider = tossProviderMeta.provider || 'NH';
         lookupMeta.tossAttempted = !!tossProviderMeta.attempted;
         lookupMeta.tossStatus = tossProviderMeta.status || 'NOT_RUN';
         lookupMeta.tossReason = tossProviderMeta.reason || '';
       } catch(e) {
-        lookupMeta.currentProvider = tossProviderMeta.provider || 'TOSS';
+        lookupMeta.currentProvider = tossProviderMeta.provider || 'NH';
         lookupMeta.tossAttempted = !!tossProviderMeta.attempted;
         lookupMeta.tossStatus = 'ERROR';
         lookupMeta.tossReason = 'REQUEST_ERROR';
-        Logger.log('⚠️ Toss 현재가 실패: ' + e.message);
+        Logger.log('⚠️ NH 현재가 실패: ' + e.message);
       }
       var krxItems = targetItems.filter(function(it){ return !(tossPrices[it.code] && tossPrices[it.code].price > 0); });
       var krxPrices = {};
@@ -5378,7 +4561,6 @@ function _benchmarkSymbolMap() {
   };
 }
 
-var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
 var YAHOO_INDEX_SYMBOLS = { KOSPI: '^KS11', KOSDAQ: '^KQ11', SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' };
 var KRX_OFFICIAL_INDEX_CONFIG = {
   KOSPI: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd', idxName: '코스피' },
@@ -5603,66 +4785,9 @@ function handleGetKrxK200NightClose(tradingDate) {
   }
 }
 
-function _indicatorRows_(payload) {
-  var result = payload && payload.result;
-  if (Array.isArray(result)) return result;
-  if (result && Array.isArray(result.prices)) return result.prices;
-  if (Array.isArray(payload && payload.prices)) return payload.prices;
-  return [];
-}
 
-function fetchMarketIndicatorPricesToss(symbols) {
-  var requested = (symbols || []).map(function(symbol) { return String(symbol || '').trim().toUpperCase(); })
-    .filter(function(symbol, index, all) { return TOSS_MARKET_INDICATOR_SYMBOLS[symbol] && all.indexOf(symbol) === index; });
-  if (!requested.length) return {};
-  var payload = _tossRequest_('/api/v1/market-indicators/prices', { symbols: requested.join(',') }, 'MARKET_INDICATOR');
-  var output = {};
-  _indicatorRows_(payload).forEach(function(row) {
-    var symbol = String(row && row.symbol || '').trim().toUpperCase();
-    var value = Number(row && (row.lastPrice != null ? row.lastPrice : row.closePrice));
-    if (TOSS_MARKET_INDICATOR_SYMBOLS[symbol] && isFinite(value) && value > 0) output[symbol] = { value: value, timestamp: row.timestamp || '', source: 'TOSS', status: 'CONFIRMED' };
-  });
-  return output;
-}
 
-function _indicatorCandleRows_(payload) {
-  var result = payload && payload.result;
-  if (result && Array.isArray(result.candles)) return result.candles;
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(payload && payload.candles)) return payload.candles;
-  return [];
-}
 
-function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate, forceRefresh) {
-  var normalized = String(symbol || '').trim().toUpperCase();
-  if (!TOSS_MARKET_INDICATOR_SYMBOLS[normalized]) return [];
-  var cache = CacheService.getScriptCache();
-  var cacheKey = 'toss_indicator_' + normalized + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
-  var cached = forceRefresh ? null : cache.get(cacheKey);
-  if (cached) { try { return JSON.parse(cached); } catch(ignore) {} }
-  var pointsByDate = {};
-  var before = '';
-  for (var page = 0; page < 100; page++) {
-    var query = { interval: '1d', count: 200 };
-    if (before) query.before = before;
-    var payload = _tossRequest_('/api/v1/market-indicators/' + encodeURIComponent(normalized) + '/candles', query, 'MARKET_INDICATOR_CHART');
-    var rows = _indicatorCandleRows_(payload);
-    rows.forEach(function(row) {
-      var date = _normalizeDate(row && (row.timestamp || row.marketDate || row.date));
-      var value = Number(row && (row.closePrice != null ? row.closePrice : row.lastPrice));
-      var observedAt = _marketBriefingIsoTimestamp_(row && row.timestamp);
-      if (date >= fromDate && date <= toDate && isFinite(value) && value > 0) pointsByDate[date] = { value: value, observedAt: observedAt || null };
-    });
-    var nextBefore = payload && payload.nextBefore || (payload && payload.result && payload.result.nextBefore) || '';
-    if (!rows.length || !nextBefore || nextBefore === before) break;
-    var oldest = rows.map(function(row) { return _normalizeDate(row && (row.timestamp || row.marketDate || row.date)); }).filter(Boolean).sort()[0];
-    if (oldest && oldest < fromDate) break;
-    before = nextBefore;
-  }
-  var points = Object.keys(pointsByDate).sort().map(function(date) { return { date: date, value: pointsByDate[date].value, observedAt: pointsByDate[date].observedAt }; });
-  if (points.length) { try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(ignoreCache) {} }
-  return points;
-}
 
 // Yahoo Finance chart is an unofficial endpoint and may change without notice; it is only for US index series.
 function _parseYahooChart_(payload, timezone) {
@@ -5771,7 +4896,8 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       points = _readVkospiPointsFromKrx(fromDate, toDate);
       if (points.length > 0) usedSymbol = 'KRX_OPEN_API:VKOSPI';
     } else if (key === 'KOSPI' || key === 'KOSDAQ') {
-      points = fetchMarketIndicatorCandlesToss(key, fromDate, toDate);
+      var domestic = fetchYahooIndexSeries(key, fromDate, toDate);
+      points = domestic.points || [];
       if (points.length) usedSymbol = key;
     } else {
       var yahoo = fetchYahooIndexSeries(key, fromDate, toDate);
@@ -5782,7 +4908,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       return jsonError('선택 기간의 ' + key + ' 데이터를 조회하지 못했습니다.');
     }
     var current = null;
-    try { current = (key === 'KOSPI' || key === 'KOSDAQ') ? (fetchMarketIndicatorPricesToss([key])[key] || null) : fetchYahooIndexCurrent(key); } catch(ignoreCurrent) { /* 현재값 실패 시 확정 일봉은 보존 */ }
+    try { current = fetchYahooIndexCurrent(key); } catch(ignoreCurrent) { /* 현재값 실패 시 확정 일봉은 보존 */ }
     return jsonOk({ benchmark: key, symbol: usedSymbol, points: points, current: current });
   } catch(err) {
     return jsonError('getBenchmark 실패: ' + err.message);
@@ -5820,7 +4946,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     requested.forEach(function(type) {
       if (type === 'KOSPI' || type === 'KOSDAQ') {
         // Use Yahoo daily candles for historical chart coverage, not as an
-        // official KRX close. Keep Toss only as the secondary fallback.
+        // official KRX close. KRX remains the confirmed close source.
         try {
           var domesticYahoo = fetchYahooIndexSeries(type, fromDate, toDate);
           series[type] = (domesticYahoo.points || []).map(function(row) {
@@ -5832,18 +4958,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
               confirmation:'UNVERIFIED_DAILY_CANDLE', source:'YAHOO_FINANCE' };
           } else if (domesticYahoo.error) providerErrors[type] = domesticYahoo.error;
         } catch(ignoreYahoo) { providerErrors[type] = 'YAHOO_FETCH_FAILED'; }
-        if (!series[type].length) {
-          try {
-            series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh).map(function(point) {
-              return { date:point.date, value:point.value, observedAt:point.observedAt || null, source:'TOSS' };
-            });
-            if (series[type].length) {
-              symbols[type] = type;
-              seriesMeta[type] = { fresh:!!forceRefresh, confirmedClose:false,
-                confirmation:'UNVERIFIED_DAILY_CANDLE', source:'TOSS' };
-            }
-          } catch(ignoreToss) { providerErrors[type] = 'TOSS_INDICATOR_UNAVAILABLE'; }
-        }
+
       } else {
         try {
           var yahoo = fetchYahooIndexSeries(type, fromDate, toDate);
@@ -6453,7 +5568,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.277' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.278' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10461,15 +9576,15 @@ function _isManualKeepLatestEnabled() {
 
 function _getPriceSourceMode() {
   // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다.
-  return 'toss_first';
+  return 'nh_first';
 }
 
 function _priceSourceModeLabel() {
-  return '📡 가격소스: Toss 우선 → KRX/공공데이터 → 저장이력';
+  return '📡 가격소스: NH 우선 → KRX/공공데이터 → 저장이력';
 }
 
 function togglePriceSourceMode() {
-  var msg = '⚙️ 주식·ETF 가격소스는 Toss 우선 → KRX/공공데이터 → 저장이력으로 고정됩니다.';
+  var msg = '⚙️ 주식·ETF 가격소스는 NH 우선 → KRX/공공데이터 → 저장이력으로 고정됩니다.';
   Logger.log(msg);
   try {
     SpreadsheetApp.getUi().alert(
@@ -13720,7 +12835,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.277',
+    gasVersion: '9.278',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13787,7 +12902,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.277' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.278' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16858,7 +15973,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.277' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.278' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17682,7 +16797,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.277' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.278' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17713,7 +16828,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.277'
+      gasVersion: '9.278'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -18981,118 +18096,6 @@ function clearPriceAndSnapshotRows() {
 // ════════════════════════════════════════════════════════════════════
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
-function configureTossClientIdPrompt() {
-  var ui = SpreadsheetApp.getUi();
-  var current = _getTossConfigStatus_();
-  var response = ui.prompt('Toss Open API Client ID 설정', 'Client ID를 입력하세요.\n빈 입력은 기존 값을 유지합니다.\n현재: ' + (current.clientIdConfigured ? current.clientIdMasked : '미설정'), ui.ButtonSet.OK_CANCEL);
-  if (response.getSelectedButton() !== ui.Button.OK) return;
-  var input = String(response.getResponseText() || '').trim();
-  if (!input) { ui.alert(current.clientIdConfigured ? '변경 없음' : '⚠️ Client ID가 미설정 상태입니다.'); return; }
-  handleSaveTossConfig(JSON.stringify({ clientId: input }));
-  ui.alert('✅ Toss Client ID 저장 완료\n표시값: ' + _getTossConfigStatus_().clientIdMasked);
-}
-
-function configureTossClientSecretPrompt() {
-  var ui = SpreadsheetApp.getUi();
-  var current = _getTossConfigStatus_();
-  var response = ui.prompt('Toss Open API Client Secret 설정', '재발급한 Client Secret을 입력하세요.\n빈 입력은 기존 값을 유지합니다.\n현재: ' + (current.secretConfigured ? '설정됨' : '미설정'), ui.ButtonSet.OK_CANCEL);
-  if (response.getSelectedButton() !== ui.Button.OK) return;
-  var input = String(response.getResponseText() || '').trim();
-  if (!input) { ui.alert(current.secretConfigured ? '변경 없음' : '⚠️ Client Secret이 미설정 상태입니다.'); return; }
-  handleSaveTossConfig(JSON.stringify({ secret: input }));
-  ui.alert('✅ Toss Client Secret 저장 완료\nSecret 원문은 저장 상태 외에는 표시하지 않습니다.');
-}
-
-function showTossOpenApiStatus() {
-  var ui = SpreadsheetApp.getUi();
-  var status = _getTossConfigStatus_();
-  ui.alert('Toss Open API 설정 상태\n\n' +
-    (status.clientIdConfigured ? '✅' : '⚠️') + ' Client ID: ' + (status.clientIdConfigured ? status.clientIdMasked : '미설정') + '\n' +
-    (status.secretConfigured ? '✅' : '⚠️') + ' Client Secret: ' + (status.secretConfigured ? '설정됨' : '미설정') + '\n' +
-    '최근 진단: ' + (status.lastDiagnosticAt || '없음') + '\n' +
-    '진단 결과: ' + (status.lastDiagnosticAt ? (status.lastDiagnosticOk ? '성공' : '실패 · ' + (status.lastDiagnosticCode || 'ERROR')) : '미실행'));
-}
-
-function runTossMarketDataDiagnosis() {
-  var ui = SpreadsheetApp.getUi();
-  var result = JSON.parse(handleDiagnoseTossMarketData().getContent());
-  if (result.status !== 'ok') { ui.alert('❌ Toss 진단 실패\n' + String(result.message || '응답 오류')); return; }
-
-  var idSuffix = function(item) {
-    var ids = [];
-    if (item && item.requestId) ids.push('requestId ' + item.requestId);
-    if (item && item.referenceId) ids.push('referenceId ' + item.referenceId);
-    if (item && item.edgeRequestId) ids.push('x-amz-cf-id ' + item.edgeRequestId);
-    return ids.length ? ' / ' + ids.join(' / ') : '';
-  };
-  var egress = result.egressProbe || {};
-  var oauth = result.oauth || {};
-  var lines = [
-    'OAuth 최초 토큰: ' + (oauth.source === 'CACHE' ? '기존 캐시 사용' :
-      (oauth.source === 'NETWORK' ? '신규 OAuth 요청' : '출처 미확인')),
-    (egress.ok ? '🔎' : '⚠️') + ' GAS egress 관측: ' + (egress.status == null ? '-' : egress.status) + ' / ' + (egress.code || 'ERROR') +
-      (egress.ipFamily ? ' / ' + egress.ipFamily : '') + ' / ' + (egress.ip || 'IP 없음') +
-      (egress.provider ? ' / ' + egress.provider : '') + ' / ' + (egress.elapsedMs || 0) + 'ms',
-    (oauth.ok ? '✅' : '❌') + ' OAuth: ' + (oauth.status == null ? '-' : oauth.status) + ' / ' + (oauth.code || 'ERROR') +
-      (oauth.providerCode ? ' / ' + oauth.providerCode : '') + idSuffix(oauth) + ' / ' + (oauth.elapsedMs || 0) + 'ms'
-  ];
-  if (oauth.recovery && oauth.recovery.attempted) {
-    var recoveryLabel = oauth.recovery.code === 'RESOURCE_401_RECOVERED_PROBES_FAILED'
-      ? '기존 401 해소, 다른 API 진단 실패' : (oauth.recovery.ok ? '401 해소' : '401 복구 실패');
-    var recoverySourceLabel = oauth.recovery.source === 'NETWORK' ? '신규 OAuth 발급' :
-      (oauth.recovery.source === 'CACHE_UPDATED' ? '다른 실행의 갱신 토큰 사용' :
-      (oauth.recovery.source === 'NETWORK_ERROR' ? '신규 OAuth 시도 실패' : '토큰 교체 없음'));
-    lines.push('OAuth 캐시 401 복구: ' + recoveryLabel + ' / ' + (oauth.recovery.code || 'UNKNOWN') + ' / ' + recoverySourceLabel);
-  }
-  if (!egress.ok && Array.isArray(egress.attempts)) egress.attempts.forEach(function(item) {
-    lines.push('  ↳ ' + (item.provider || 'provider') + ': ' + (item.status == null ? '-' : item.status) + ' / ' +
-      (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) +
-      (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms');
-  });
-  (result.endpoints || []).forEach(function(item) {
-    lines.push((item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) + ' ' + item.name + ': ' +
-      (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') +
-      (item.providerCode ? ' / Toss코드 ' + item.providerCode : '') + ' / ' + (item.count || 0) + '건' +
-      idSuffix(item) + ' / ' + (item.elapsedMs || 0) + 'ms');
-  });
-  var smoke = result.priceSmoke || {};
-  lines.push((smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) +
-    ' priceSmoke 005930: ' + (smoke.status == null ? '-' : smoke.status) + ' / ' + (smoke.code || 'ERROR') +
-    (smoke.providerCode ? ' / Toss코드 ' + smoke.providerCode : '') + ' / ' +
-    (smoke.resultCount || 0) + '건 / ' + (smoke.symbol || '005930') + ' / 유효가격 ' + (smoke.validLastPrice ? '있음' : '없음') +
-    ' / timestamp ' + (smoke.timestampPresent ? '있음' : '없음') + idSuffix(smoke) + ' / ' + (smoke.elapsedMs || 0) + 'ms');
-
-  var endpointIpBlocked = oauth.ok && (result.endpoints || []).concat([smoke]).some(function(item) {
-    return item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN';
-  });
-  var oauthAccessDenied = !oauth.ok && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
-  var observedIpHint = egress.ok && egress.ip
-    ? ' 관측 ' + (egress.ipFamily || 'IP') + ' ' + egress.ip + '는 실제 Toss 요청 송신 IP로 확인되지 않았습니다. 이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요.'
-    : '';
-  var actual403Codes = (result.endpoints || []).concat([smoke]).filter(function(item) { return item.status === 403; }).map(function(item) {
-    return item.providerCode || 'UNKNOWN_403';
-  });
-  var providerReason = actual403Codes.indexOf('ip-not-allowed') !== -1 ? 'Toss 원문 ip-not-allowed: 허용 IP 거부가 확인됐습니다.' :
-    (actual403Codes.indexOf('forbidden') !== -1 ? 'Toss 원문 forbidden: API 권한 부족이 확인됐습니다.' :
-    (actual403Codes.indexOf('edge-blocked') !== -1 ? 'Toss 원문 edge-blocked: 요청 차단이 확인됐습니다.' :
-    'Toss 리소스 HTTP 403이지만 원문 코드는 확인되지 않았습니다. IP 거부로 단정하지 마세요.'));
-  var guide = endpointIpBlocked
-    ? '\n\n실제 Toss 리소스 403: ' + providerReason + ' Toss 요청 ID를 제공사에 전달하여 원인을 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.' + observedIpHint
-    : (oauthAccessDenied
-      ? '\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.' + observedIpHint
-      : '');
-  var caveat = '\n\n※ GAS egress 관측값은 외부 IP 확인 서비스가 본 참고값입니다. Toss 요청의 실제 출구 IP와 동일하다고 보장되지 않습니다.';
-  ui.alert('Toss Open API read-only 진단\n\n' + lines.join('\n') + guide + caveat);
-}
-
-function clearTossOpenApiConfigPrompt() {
-  var ui = SpreadsheetApp.getUi();
-  var answer = ui.alert('Toss 설정 삭제', 'Toss Client ID/Secret, 진단 상태와 Toss token cache만 삭제합니다.\n가격이력·Snapshot·펀드·배당·거래 및 다른 API 설정은 변경하지 않습니다.\n계속하시겠습니까?', ui.ButtonSet.YES_NO);
-  if (answer !== ui.Button.YES) return;
-  handleClearTossConfig();
-  ui.alert('✅ Toss 설정과 token cache만 삭제했습니다.');
-}
-
 function _confirmPortfolioMenuAction(title, message) {
   var ui = SpreadsheetApp.getUi();
   return ui.alert(title, message + '\n\n실행하시겠습니까?', ui.ButtonSet.YES_NO) === ui.Button.YES;
@@ -19197,11 +18200,6 @@ function _addFallbackMenu(ui) {
     .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-    .addItem('Toss Client ID 설정', 'configureTossClientIdPrompt')
-    .addItem('Toss Client Secret 설정', 'configureTossClientSecretPrompt')
-    .addItem('Toss 설정 상태', 'showTossOpenApiStatus')
-    .addItem('Toss API read-only 진단', 'runTossMarketDataDiagnosis')
-    .addSubMenu(ui.createMenu('⚠️ 위험 작업').addItem('Toss 인증 설정 삭제', 'clearTossOpenApiConfigPrompt'))
     .addItem('요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
@@ -19229,8 +18227,6 @@ function onOpen(e) {
       .addItem('🔗 연결 스프레드시트 변경', 'configureSpreadsheetIdPrompt')
       .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
       .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem('🔑 Toss Client ID 설정', 'configureTossClientIdPrompt')
-      .addItem('🔐 Toss Client Secret 설정', 'configureTossClientSecretPrompt')
       .addItem('🛡️ 요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
       .addItem('🔐 레거시 API 키 안전 이전 (필요 시 1회)', 'migrateLegacyApiKeysPrompt');
     var menuPrice = ui.createMenu('📈 확정 종가·평가 갱신')
@@ -19252,8 +18248,6 @@ function onOpen(e) {
       .addItem('SEIBro ETF 분배금 진단', 'runEtfDividendDiagnosis')
       .addItem('SEIBro ETF 분배금 반영 미리보기', 'runEtfDividendDryRun')
       .addItem('API 인증키 저장 상태', 'showApiKeyStatus')
-      .addItem('Toss 설정 상태', 'showTossOpenApiStatus')
-      .addItem('Toss API 연결 진단 (운영자료 변경 없음)', 'runTossMarketDataDiagnosis')
       .addItem('메뉴 생성 오류 확인', 'showMenuBuildError');
     var menuRepair = ui.createMenu('🛠️ 복구·정리 실행 (필요 시만)')
       .addItem('자동 트리거 복구·정리', 'repairMissingDailyTriggersPrompt')
@@ -19266,7 +18260,6 @@ function onOpen(e) {
       .addItem('SEIBro ETF 분배금 운영 반영', 'runEtfDividendApply');
     var menuDanger = ui.createMenu('⚠️ 위험 작업 (삭제·재등록)')
       .addItem('🗑️ 가격이력·스냅샷 전체 삭제', 'clearPriceAndSnapshotRows')
-      .addItem('🗑️ Toss 인증 설정 삭제', 'clearTossOpenApiConfigPrompt')
       .addItem('자동 트리거 전체 재등록', 'resetDailyTriggersPrompt');
     ui.createMenu('📊 포트폴리오')
       .addItem('ℹ️ 사용 안내 (버전업 필수 작업 아님)', 'showPortfolioMenuGuide')
@@ -19899,8 +18892,16 @@ function handleSaveNhConfig(params) {
     var quote=_nhJson_('https://api.nhplug.com:8443/krstock/quote/v1/currentPrice',{method:'post',contentType:'application/json; charset=UTF-8',followRedirects:false,muteHttpExceptions:true,headers:{Authorization:'Bearer '+data.access_token,'x-client-id':key,'x-client-secret':secret},payload:JSON.stringify({Input_0:{iem_cd:'005930',market_cd:'KRX'}})});
     if(!quote.Output_0||quote.Output_0.iem_cd!=='005930'||!isFinite(Number(quote.Output_0.stck_prpr))||Number(quote.Output_0.stck_prpr)<=0)throw new Error('NH_ACTIVATION_QUOTE_INVALID');
     var lock=LockService.getScriptLock();if(!lock.tryLock(10000))throw new Error('NH_CONFIG_BUSY');
-    try {props.setProperties({NHPLUG_APP_KEY:key,NHPLUG_APP_SECRET:secret,MARKET_DATA_PROVIDER:'NH',TOSS_RELAY_MODE:'OFF'});['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY'].forEach(function(name){props.deleteProperty(name);});CacheService.getScriptCache().remove('toss_oauth_token_v1');CacheService.getScriptCache().put('nh_oauth_v1',JSON.stringify({token:data.access_token,expiresAt:Date.now()+Number(data.expires_in)*1000}),Math.min(21600,Math.floor(Number(data.expires_in)-60)));}
+    try {props.setProperties({NHPLUG_APP_KEY:key,NHPLUG_APP_SECRET:secret,MARKET_DATA_PROVIDER:'NH'});['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY'].forEach(function(name){props.deleteProperty(name);});CacheService.getScriptCache().remove('toss_oauth_token_v1');CacheService.getScriptCache().put('nh_oauth_v1',JSON.stringify({token:data.access_token,expiresAt:Date.now()+Number(data.expires_in)*1000}),Math.min(21600,Math.floor(Number(data.expires_in)-60)));}
     finally {lock.releaseLock();}
     return jsonOk({nh:_nhConfigStatus_()});
   } catch(error){return jsonError(/^NH_[A-Z0-9_]+$/.test(error.message)?error.message:'NH_CONFIG_FAILED');}
+}
+
+function handleRetireLegacyMarketData(params) {
+  var props=PropertiesService.getScriptProperties(),expected=String(props.getProperty('access_token')||'').trim();
+  if(!expected||!params||params.accessToken!==expected)return jsonError('NH_STRICT_AUTH_REQUIRED');
+  ['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY','TOSS_RELAY_MODE','TOSS_LAST_DIAGNOSTIC_AT','TOSS_LAST_DIAGNOSTIC_OK','TOSS_LAST_DIAGNOSTIC_CODE'].forEach(function(key){props.deleteProperty(key);});
+  CacheService.getScriptCache().remove('toss_oauth_token_v1');
+  return jsonOk({retired:true,financialDataWrites:0});
 }

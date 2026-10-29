@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {fetchTflNight,validateTflNight} from './tfl-night-reference.mjs';
+import {fetchNhNight,validateNhNight} from './nh-night-reference.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 export function captureWindow(now) {
@@ -8,7 +8,7 @@ export function captureWindow(now) {
   const date=`${parts.year}-${parts.month}-${parts.day}`,minute=Number(parts.hour)*60+Number(parts.minute);
   return {date,allowed:minute>=450&&minute<480};
 }
-export async function captureMorning({now=()=>new Date(),fetchNight=fetchTflNight}={}) {
+export async function captureMorning({now=()=>new Date(),fetchNight=fetchNhNight}={}) {
   const start=captureWindow(now());
   if(!start.allowed)return {status:'OUTSIDE_CAPTURE_WINDOW',ready:false,date:start.date};
   if(krxSessionStatus(start.date)!=='OPEN')return {status:'MARKET_NOT_OPEN',ready:false,date:start.date};
@@ -16,15 +16,15 @@ export async function captureMorning({now=()=>new Date(),fetchNight=fetchTflNigh
   const end=captureWindow(now());
   if(!end.allowed||end.date!==start.date||!reference)return {status:'REFERENCE_UNAVAILABLE',ready:false,date:start.date};
   const received=Date.parse(reference.receivedAt), upper=Date.parse(`${start.date}T08:00:00+09:00`), lower=Date.parse(`${start.date}T07:30:00+09:00`);
-  if(reference.source!=='TFL'||reference.tradingDate!==start.date||reference.officialClose!==false||reference.sourceUpdatedAt!==`${start.date}T06:00:00+09:00`||!Number.isFinite(received)||received<lower||received>=upper||received>now().getTime()||!validateTflNight({date:start.date,clock:'06:00:00',value:reference.value,contract:reference.contract},start.date,reference.receivedAt))return {status:'REFERENCE_INVALID',ready:false,date:start.date};
+  if(reference.source!=='NH'||reference.tradingDate!==start.date||reference.officialClose!==false||reference.sourceUpdatedAt!==`${start.date}T06:00:00+09:00`||!Number.isFinite(received)||received<lower||received>=upper||received>now().getTime()||!validateNhNight({date:start.date,clock:'06:00:00',value:reference.value,contract:reference.contract,contractMonth:reference.contractMonth},start.date,reference.receivedAt))return {status:'REFERENCE_INVALID',ready:false,date:start.date};
   return {status:'CAPTURED',ready:true,date:start.date,reference};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     if(process.env.GITHUB_EVENT_NAME!=='schedule'||process.env.GITHUB_RUN_ATTEMPT!=='1')throw Error('CAPTURE_EVENT_INVALID');
     const r=await captureMorning();
-    if(r.ready){fs.mkdirSync('.tfl-runtime',{recursive:true});fs.writeFileSync('.tfl-runtime/reference.json',JSON.stringify(r.reference));}
+    if(r.ready){fs.mkdirSync('.nh-night-runtime',{recursive:true});fs.writeFileSync('.nh-night-runtime/reference.json',JSON.stringify(r.reference));}
     fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${r.ready}\ndate=${r.date}\n`);
     console.log(JSON.stringify({status:r.status,date:r.date,receivedAt:r.reference?.receivedAt||null}));
-  }catch{console.error('TFL_CAPTURE_FAILED');process.exitCode=1;}
+  }catch{console.error('NH_CAPTURE_FAILED');process.exitCode=1;}
 }

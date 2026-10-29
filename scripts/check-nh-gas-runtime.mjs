@@ -24,7 +24,7 @@ function setup(){
       const code=JSON.parse(options.payload).Input_0.iem_cd;
       return response({Output_0:{iem_cd:wrongIdentity?'WRONG':code==='AAPL'?'USAAAPL':code,stck_prpr:'232000',trdprc:'349.6718',trade_date:'20261029'}},status);
     }}};
-  vm.createContext(ctx);vm.runInContext(runtime+'\n'+['fetchPricesToss','_tossIssueAccessTokenUnlocked_','_tossDiagnosticIssueAccessTokenUnlocked_','_tossRequest_','_tossRelayRequest_','_tossDiagnosticRequest_','_tossPriceSmoke_','handleDiagnoseTossMarketData'].map(extract).join('\n'),ctx);
+  vm.createContext(ctx);vm.runInContext(runtime+'\n'+['fetchPricesToss'].map(extract).join('\n'),ctx);
   return {ctx,props,cache,calls,setStatus:v=>{status=v;},wrongIdentity:()=>{wrongIdentity=true;}};
 }
 const s=setup();s.props.set('TOSS_CLIENT_ID','old-toss-id');s.props.set('TOSS_CLIENT_SECRET','old-toss-secret');
@@ -35,7 +35,7 @@ assert.equal(s.ctx._nhUsCandidate_({code:'AAPL',currency:'KRW',market:'KRX'}),fa
 assert.equal(s.ctx._nhUsCandidate_({code:'AAPL',currency:'KRW'}),true);
 assert.equal(s.ctx.handleSaveNhConfig({accessToken:'bad',data:'{}'}).status,'error');assert.equal(s.calls.length,0);
 assert.equal(s.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
-assert.equal(s.props.get('MARKET_DATA_PROVIDER'),'NH');assert.equal(s.props.has('TOSS_CLIENT_ID'),false);assert.equal(s.props.has('TOSS_CLIENT_SECRET'),false);assert.equal(s.props.get('TOSS_RELAY_MODE'),'OFF');
+assert.equal(s.props.get('MARKET_DATA_PROVIDER'),'NH');assert.equal(s.props.has('TOSS_CLIENT_ID'),false);assert.equal(s.props.has('TOSS_CLIENT_SECRET'),false);
 const orphan=setup();
 assert.equal(orphan.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
 const orphanPrice=orphan.ctx.fetchPricesToss([{code:'AAPL',currency:'KRW',nhMetadataMissing:true}],{},{});
@@ -56,8 +56,7 @@ const isolated=outage.ctx.fetchPricesToss([{code:'005930',currency:'KRW',type:'�
 assert.equal(isolated['005930'].source,'NH');assert.equal(isolated.AAPL,undefined);
 assert.equal(s.calls.filter(c=>c.url.includes('/oauth2/token')).length,1);
 const before=s.calls.length;s.ctx.fetchPricesToss([{code:'005930',currency:'KRW',type:'주식'}],{},{});assert.equal(s.calls.length,before);
-for(const name of ['_tossIssueAccessTokenUnlocked_','_tossDiagnosticIssueAccessTokenUnlocked_','_tossRequest_','_tossRelayRequest_','_tossDiagnosticRequest_','_tossPriceSmoke_'])assert.throws(()=>s.ctx[name](),/TOSS_RETIRED_NH_ACTIVE/);
-assert.equal(s.ctx.handleDiagnoseTossMarketData().message,'TOSS_RETIRED_NH_ACTIVE');assert.equal(s.calls.length,before);
+assert.equal(s.ctx._tossRequest_,undefined);assert.doesNotMatch(source,/openapi\.tossinvest\.com/);
 const failed=setup();failed.wrongIdentity();
 assert.equal(failed.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'error');assert.equal(failed.props.has('MARKET_DATA_PROVIDER'),false);assert.equal(failed.props.has('NHPLUG_APP_KEY'),false);
 s.cache.delete('nh_quote_KRW_005930');s.setStatus(401);
@@ -78,9 +77,10 @@ const liveMock=async(url,options)=>{
   const p=new URLSearchParams(options.body);actions.push(p.get('action'));
   let body;
   if(p.get('accessToken').endsWith('-DENY-PROBE'))body={status:'error'};
-  else if(p.get('action')==='getSettings')body={status:'ok',gasVersion:'9.277',settings:{apiKeyStatus:{nh:{enabled:false}}}};
+  else if(p.get('action')==='getSettings')body={status:'ok',gasVersion:'9.278',settings:{apiKeyStatus:{nh:{enabled:false}}}};
   else if(p.get('action')==='saveNhConfig')body={status:'ok',nh:{enabled:true}};
-  else if(p.get('action')==='getCodeListReadOnly')body={status:'ok',readOnly:true,gasVersion:'9.277',codes:registered};
+  else if(p.get('action')==='retireLegacyMarketData')body={status:'ok',retired:true};
+  else if(p.get('action')==='getCodeListReadOnly')body={status:'ok',readOnly:true,gasVersion:'9.278',codes:registered};
   else {assert.equal(p.get('persist'),'0');assert.equal(p.get('codes'),'005930,NVDA');body={status:'ok',prices:{'005930':232000,NVDA:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}};}
   return {ok:true,json:async()=>body};
 };
@@ -90,10 +90,10 @@ assert.equal(activation.status,'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED');assert.equ
 assert.equal(activation.registeredUsTarget,true);
 assert.deepEqual(reports,[{status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:2,krwRows:1,usdRows:1}]);
 assert.doesNotMatch(JSON.stringify(reports),/005930|NVDA|nh-key|nh-secret/);
-assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','getCodeListReadOnly','getPrices']);
+assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','retireLegacyMarketData','getCodeListReadOnly','getPrices']);
 const fallback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:async(url,options)=>{
   const p=new URLSearchParams(options.body);
-  if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.277',codes:[registered[0]]})};
+  if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.278',codes:[registered[0]]})};
   if(p.get('action')==='getPrices'){assert.equal(p.get('codes'),'005930,AAPL');assert.equal(p.get('persist'),'0');return {ok:true,json:async()=>({status:'ok',prices:{'005930':232000,AAPL:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}})};}
   return liveMock(url,options);
 }});
@@ -121,3 +121,13 @@ assert.equal(holdingsCtx._normalizeFetchedPriceCurrency(232000,'KRW','KRW',{}),2
 assert.match(source,/priceCurrencies: priceCurrencies/);
 assert.match(web,/data\.priceCurrencies\?\.\[i\.code\]/);
 console.log('NH quote currency to actual portfolio valuation: USD350 × 1400 = KRW490000, missing FX rejected');
+
+s.props.set('TOSS_CLIENT_ID','retired-id');s.props.set('TOSS_RELAY_MODE','OFF');
+assert.equal(s.ctx.handleRetireLegacyMarketData({accessToken:'bad'}).status,'error');assert.equal(s.props.has('TOSS_CLIENT_ID'),true);
+const retired=s.ctx.handleRetireLegacyMarketData({accessToken:'admin-token'});
+assert.equal(retired.retired,true);assert.equal(retired.financialDataWrites,0);assert.equal(s.props.has('TOSS_CLIENT_ID'),false);assert.equal(s.props.has('TOSS_RELAY_MODE'),false);assert.equal(s.props.get('NHPLUG_APP_KEY'),'nh-key');
+
+const missingCredentials=setup(),missingMeta={};
+assert.equal(Object.keys(missingCredentials.ctx.fetchPricesToss([{code:'005930',currency:'KRW'}],{},missingMeta)).length,0);
+assert.equal(missingMeta.provider,'NH');assert.equal(missingCredentials.calls.length,0);
+assert.equal(activation.legacyProviderRemoved,true);
