@@ -2,6 +2,8 @@ import { pathToFileURL } from 'node:url';
 
 // Restricted to the official live NH PLUG API. No orders, accounts, GAS or writes.
 const ORIGIN = 'https://api.nhplug.com:8443';
+const MASTER_ORIGIN = 'https://www.nhplug.com/instruments/';
+const MASTER_MAX_BYTES = 20 * 1024 * 1024;
 const QUOTES = [
   ['KR_STOCK', '/krstock/quote/v1/currentPrice', { iem_cd: '005930', market_cd: 'KRX' }, 'stck_prpr'],
   ['KR_ETF', '/krstock/quote/v1/etfCurrent', { iem_cd: '069500' }, 'stck_prpr'],
@@ -19,6 +21,40 @@ function validYYYYMMDD(value) {
   const y = Number(value.slice(0, 4)), m = Number(value.slice(4, 6)), d = Number(value.slice(6, 8));
   const parsed = new Date(Date.UTC(y, m - 1, d));
   return parsed.getUTCFullYear() === y && parsed.getUTCMonth() + 1 === m && parsed.getUTCDate() === d;
+}
+
+// Public NH master only. Validate the current header layout and all LF boundaries;
+// do not guess if the master changes or if the same US ticker has multiple rows.
+export function parseUSMaster(bytes, header, symbols) {
+  if (typeof header !== 'string' || !/@record\s+164\b/.test(header) ||
+      !/char\s+sGIC\[15\][^\n]*@0\b/.test(header) ||
+      !/char\s+sNationCode\[3\][^\n]*@95\b/.test(header) ||
+      !/char\s+sSymbol\[12\][^\n]*@98\b/.test(header)) return null;
+  if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MASTER_MAX_BYTES || bytes.length % 164 !== 0) return null;
+  const found = new Map(symbols.map(x => [x, new Set()]));
+  const ascii = (a,b) => Buffer.from(bytes.subarray(a,b)).toString('ascii').trim();
+  for (let i=0; i<bytes.length; i+=164) {
+    if (bytes[i+163] !== 10) return null;
+    const symbol=ascii(i+98,i+110), country=ascii(i+95,i+98), gic=ascii(i,i+15);
+    if (country==='USA' && found.has(symbol) && /^[A-Z0-9._-]{1,15}$/.test(gic)) found.get(symbol).add(gic);
+  }
+  return new Map([...found].filter(([,v]) => v.size === 1).map(([k,v]) => [k,[...v][0]]));
+}
+
+async function loadUSMaster(request) {
+  try {
+    const options = { method:'GET', redirect:'error', signal:AbortSignal.timeout(15000) };
+    const h = await request(MASTER_ORIGIN+'m_gtsstock.h', options);
+    if (!h.ok) return null;
+    const header = await h.text();
+    if (header.length > 100000) return null;
+    const m = await request(MASTER_ORIGIN+'m_gtsstock.mst', options);
+    if (!m.ok) return null;
+    const size=Number(m.headers?.get?.('content-length') || 0);
+    if (size > MASTER_MAX_BYTES) return null;
+    const bytes=new Uint8Array(await m.arrayBuffer());
+    return parseUSMaster(bytes,header,['AAPL','SPY']);
+  } catch { return null; }
 }
 
 // Only fixed labels are emitted; never print server fields or response text.
@@ -65,6 +101,9 @@ export async function diagnose({ key, secret, request = fetch, log = console.log
   const token = data.access_token;
   log('AUTH TOKEN_RECEIVED');
 
+  const usMaster = await loadUSMaster(request);
+  log(`US_MASTER ${usMaster ? 'SCHEMA_OK' : 'UNAVAILABLE_OR_SCHEMA_INVALID'}`);
+
   let allVerified = true;
   for (const [label, path, input, priceField] of QUOTES) {
     await wait(1000); // keep well below the observed per-second rate limit
@@ -80,8 +119,10 @@ export async function diagnose({ key, secret, request = fetch, log = console.log
       });
       data = await response.json();
       const output = data?.Output_0;
-      const instrumentValid = output && !Array.isArray(output) && typeof output === 'object'
-        && output.iem_cd === input.iem_cd;
+      const expectedMaster = label.startsWith('US_') ? usMaster?.get(input.iem_cd) : null;
+      const directMatch = output && !Array.isArray(output) && typeof output === 'object' && output.iem_cd === input.iem_cd;
+      const masterMatch = output && !Array.isArray(output) && typeof output === 'object' && typeof expectedMaster === 'string' && output.iem_cd === expectedMaster;
+      const instrumentValid = directMatch || masterMatch;
       const priceValid = instrumentValid && positivePrice(output[priceField]);
       // Overseas current-price payload specifies trade_date; verify format only, not freshness.
       const dateValid = label.startsWith('KR_') || (priceValid && validYYYYMMDD(output.trade_date));
@@ -92,6 +133,7 @@ export async function diagnose({ key, secret, request = fetch, log = console.log
         : 'PRICE_PRESENT_DATE_FORMAT_VALID_FRESHNESS_UNVERIFIED';
       const verified = response.ok && instrumentValid && priceValid && dateValid;
       log(`${label} HTTP_${response.status} ${state} ${verified ? 'PREFLIGHT_PASS' : 'PREFLIGHT_FAIL'}`);
+      if (label.startsWith('US_')) log(`${label} IDENTITY_${directMatch ? 'DIRECT' : masterMatch ? 'PUBLIC_MASTER' : expectedMaster ? 'MISMATCH' : 'MASTER_UNAVAILABLE_OR_AMBIGUOUS'}`);
       if (label.startsWith('US_') && !verified) log(`${label} RESPONSE_SHAPE ${safeOverseasShape(data, input.iem_cd)}`);
       if (!verified) allVerified = false;
       if (response.status === 429 || response.status === 401) break; // no forced token reissue
