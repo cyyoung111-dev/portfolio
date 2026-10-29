@@ -1,0 +1,66 @@
+name: Provision existing NH keys to production GAS
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/provision-nh-runtime.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nhplug-readonly-diagnostic
+  cancel-in-progress: false
+jobs:
+  production:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v7
+        with: {node-version: '24'}
+      - name: Create ephemeral private key on production runner only
+        run: node scripts/provision-nh-runtime.mjs prepare
+      - name: Publish public key only
+        uses: actions/upload-artifact@v4
+        with:
+          name: nh-public-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .nh-runtime-provision/public.json
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+      - name: Receive sealed NH keys and activate production GAS
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/provision-nh-runtime.mjs activate
+      - name: Remove ephemeral key even after failure
+        if: always()
+        run: rm -f .nh-runtime-provision/private.pem
+  seal:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: portfolio-market-data
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v7
+        with: {node-version: '24'}
+      - name: Encrypt existing NH credentials for production runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/provision-nh-runtime.mjs seal
+      - name: Publish encrypted envelope only
+        uses: actions/upload-artifact@v4
+        with:
+          name: nh-sealed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .nh-runtime-provision/envelope.json
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
