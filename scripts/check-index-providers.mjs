@@ -25,16 +25,7 @@ context._tossRequest_ = (path, query, group) => {
   if (path.endsWith('/prices')) return { result: [{ symbol: 'KOSPI', lastPrice: 2600, timestamp: '2026-09-16T06:00:00Z' }, { symbol: 'KOSDAQ', lastPrice: 800, timestamp: '2026-09-16T06:00:00Z' }] };
   return { result: { candles: [{ timestamp: '2026-09-15T06:00:00Z', closePrice: 799 }, { timestamp: '2026-09-16T06:00:00Z', closePrice: candleClose }] } };
 };
-const prices = context.fetchMarketIndicatorPricesToss(['KOSPI', 'KOSDAQ']);
-if (prices.KOSPI.value !== 2600 || prices.KOSDAQ.value !== 800 || tossCalls[0].group !== 'MARKET_INDICATOR') throw new Error('KOSPI/KOSDAQ Toss prices mapping 실패');
-const candles = context.fetchMarketIndicatorCandlesToss('KOSDAQ', '2026-09-15', '2026-09-16');
-if (candles.length !== 2 || candles[0].value !== 799 || tossCalls[1].query.interval !== '1d') throw new Error('KOSDAQ Toss candles parsing 실패');
-candleClose=805;
-const staleCandles=context.fetchMarketIndicatorCandlesToss('KOSDAQ','2026-09-15','2026-09-16');
-if(staleCandles[1].value!==801)throw new Error('오전 indicator cache 재사용 시나리오 실패');
-const freshCandles=context.fetchMarketIndicatorCandlesToss('KOSDAQ','2026-09-15','2026-09-16',true);
-if(freshCandles[1].value!==805||tossCalls.filter(call=>call.group==='MARKET_INDICATOR_CHART').length!==2)throw new Error('마감 indicator cache bypass/refresh 실패');
-if(freshCandles[1].observedAt!=='2026-09-16T06:00:00.000Z')throw new Error('Toss candle provider timestamp 보존 실패');
+if(context.fetchMarketIndicatorPricesToss!==undefined||context.fetchMarketIndicatorCandlesToss!==undefined||tossCalls.length)throw Error('Retired Toss API must not exist');
 if(!/confirmedClose:\s*false/.test(source)||/confirmedClose: !!forceRefresh/.test(source))throw new Error('fresh 요청을 confirmedClose 증거로 사용하면 안 됩니다.');
 if(context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-18T15:59:59Z'))!==false||context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-18T16:00:00Z'))!==true)throw new Error('KRX 공식 종가 16:00 publication 경계 실패');
 context._getKrxAuthKey=()=> 'test-key';
@@ -176,10 +167,10 @@ if(partialRetry.seriesMeta.KOSPI?.confirmedClose===true||partialRetry.seriesMeta
   ||!String(partialRetry.errors.KRX_OFFICIAL).includes('KOSDAQ:2026-09-18:HTTP_403')
   ||krxAttempts.slice(attemptStart).filter(v=>v.market==='KOSDAQ').length!==1)
   throw new Error('KRX 403/빈 응답의 독립 실패 기록 및 OPEN T-1 대체 차단');
-context.fetchMarketIndicatorCandlesToss=()=>[{date:'2026-09-18',value:3450,observedAt:'2026-09-18T15:30:00+09:00'}];
+context.fetchMarketIndicatorCandlesToss=()=>{throw Error('RETIRED_PROVIDER_MUST_NOT_RUN');};
 const attemptedMixed=context.handleGetBenchmarks('KOSPI','2026-09-16','2026-09-18',true);
-if(attemptedMixed.status!=='ok'||attemptedMixed.series.KOSPI.at(-1).source!=='TOSS')
-  throw new Error('공식 이전 날짜와 혼합된 최신 Toss candle 출처가 KRX로 오인됨');
+if(attemptedMixed.status!=='ok'||attemptedMixed.series.KOSPI.some(x=>x.source==='TOSS'))
+  throw new Error('삭제된 Toss 경로를 조회하거나 출처로 사용하면 안 됩니다.');
 context.fetchPricesKrx=()=>({'005930':{price:80500,usedDate:'2026-09-18',source:'KRX'},'000660':{price:187000,usedDate:'2026-09-17',source:'KRX'}});
 const officialStocks=context.handleGetKrxOfficialStockCloses('2026-09-18','005930,000660,123456');
 if(officialStocks.closes['005930'].source!=='KRX_OFFICIAL'||officialStocks.closes['005930'].price!==80500||officialStocks.closes['000660'])throw new Error('브리핑 KRX 주식 exact-date 종가/fallback 차단 실패');
@@ -221,4 +212,4 @@ if (timedOut.status !== 0 || timedOut.error !== 'TIMEOUT_OR_NETWORK_ERROR') thro
 
 const symbols = context.YAHOO_INDEX_SYMBOLS;
 if (Object.keys(symbols).length !== 14 || symbols.KOSPI !== '^KS11' || symbols.KOSDAQ !== '^KQ11' || symbols.SP500 !== '^GSPC' || symbols.NASDAQ !== '^IXIC' || symbols.NASDAQ100 !== '^NDX' || symbols.DOW !== '^DJI' || symbols.KOSPI200 !== '^KS200' || symbols.SOX !== '^SOX' || symbols.VIX !== '^VIX' || symbols.DXY !== 'DX-Y.NYB' || symbols.UST10Y !== '^TNX' || symbols.WTI !== 'CL=F' || symbols.GOLD !== 'GC=F' || symbols.BTC !== 'BTC-USD') throw new Error('Yahoo 14개 지수·거시 mapping 실패');
-console.log('✅ Toss KOSPI/KOSDAQ 및 Yahoo 14개 지수·거시 provider 계약/파싱 테스트 통과');
+console.log('✅ KRX KOSPI/KOSDAQ 및 Yahoo 14개 지수·거시 provider 계약/파싱 테스트 통과');

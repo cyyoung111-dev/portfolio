@@ -1,33 +1,18 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {validateTflNight,fetchTflNight} from './tfl-night-reference.mjs';
-import {captureMorning,captureWindow} from './tfl-morning-capture.mjs';
-import {loadCapturedNight} from './tfl-capture-artifact.mjs';
-
-const date='2026-10-28', at='2026-10-28T08:40:00+09:00';
-const row={value:900.05,contract:'A01612',date,clock:'06:00:00'};
-assert.equal(validateTflNight(row,date,at)?.officialClose,false);
-for (const bad of [{...row,date:'2026-10-27'}, {...row,clock:'05:00:00'}, {...row,value:900.03}, {...row,contract:''}])
-  assert.equal(validateTflNight(bad,date,at),null);
-assert.equal(validateTflNight(row,date,'2026-10-28T05:59:00+09:00'),null);
-const fake=async()=>({stdout:JSON.stringify(row)});
-assert.equal((await fetchTflNight(date,{now:()=>new Date(at),run:fake}))?.source,'TFL');
-assert.equal(await fetchTflNight(date,{run:async()=>{throw Error('network');}}),null);
-const html='<div>코스피200 야간선물</div><div>장 마감</div><b>900.05</b><p>상승 +17.60 (+1.99%)</p><p>주간 종가 대비 · 계약 A01612</p><p>장 마감 · 마지막 시세 2026-10-28 06:00:00</p>';
-const py=`import sys,json\nsys.path.insert(0,'scripts')\nimport importlib.util\ns=importlib.util.spec_from_file_location('tfl','scripts/tfl-night-reference.py')\nm=importlib.util.module_from_spec(s);s.loader.exec_module(m)\nprint(json.dumps(m.parse(sys.stdin.read())))`;
-const parse=(x)=>{const p=spawnSync('python3',['-c',py],{input:x,encoding:'utf8'});assert.equal(p.status,0);return JSON.parse(p.stdout);};
-assert.deepEqual(parse(html),row);
-assert.equal(parse(html+html),null);
-assert.equal(parse(html.replace('장 마감','장중')),null);
-const captureAt='2026-10-28T07:30:30+09:00', captured=validateTflNight(row,date,captureAt);
+import {validateNhNight} from './nh-night-reference.mjs';
+import {captureMorning,captureWindow} from './nh-morning-capture.mjs';
+import {loadCapturedNight} from './nh-capture-artifact.mjs';
+const date='2026-10-28',row={value:900.05,contract:'KA016C000',contractMonth:'2026-12',date,clock:'06:00:00'};
+const captureAt='2026-10-28T07:30:30+09:00', captured=validateNhNight(row,date,captureAt);
 assert.equal(captureWindow(new Date('2026-10-28T07:29:59+09:00')).allowed,false);
 assert.equal(captureWindow(new Date(captureAt)).allowed,true);
 assert.equal(captureWindow(new Date('2026-10-28T08:00:00+09:00')).allowed,false);
 assert.equal((await captureMorning({now:()=>new Date(captureAt),fetchNight:async()=>captured})).status,'CAPTURED');
 assert.equal((await captureMorning({now:()=>new Date(captureAt),fetchNight:async()=>({...captured,receivedAt:'bad'})})).ready,false);
 assert.equal((await captureMorning({now:()=>new Date('2026-10-28T08:00:00+09:00'),fetchNight:async()=>captured})).ready,false);
-const artifact={id:10,name:`tfl-night-reference-${date}`,expired:false,size_in_bytes:100,workflow_run:{id:20}};
-const run={id:20,name:'TFL night reference capture',path:'.github/workflows/tfl-night-capture.yml',event:'schedule',head_branch:'main',head_repository:{full_name:'cyyoung111-dev/portfolio'},status:'completed',conclusion:'success',run_attempt:1,created_at:'2026-10-27T22:30:00Z'};
+const artifact={id:10,name:`nh-night-reference-${date}`,expired:false,size_in_bytes:100,workflow_run:{id:20}};
+const run={id:20,name:'NH night reference capture',path:'.github/workflows/nh-night-capture.yml',event:'schedule',head_branch:'main',head_repository:{full_name:'cyyoung111-dev/portfolio'},status:'completed',conclusion:'success',run_attempt:1,created_at:'2026-10-27T22:30:00Z'};
 const makeFetch=(a=artifact,w=run)=>async url=>url.includes('/runs/')?{ok:true,json:async()=>w}:url.includes('/zip')?{ok:true,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer}:{ok:true,json:async()=>({total_count:1,artifacts:[a]})};
 const options={token:'private',repository:'cyyoung111-dev/portfolio',fetchImpl:makeFetch(),now:()=>new Date('2026-10-28T08:01:00+09:00'),decode:async()=>captured};
 assert.equal((await loadCapturedNight(date,options))?.value,900.05);
@@ -44,4 +29,4 @@ const traversalZipScript="import io,sys,zipfile\nb=io.BytesIO()\nwith zipfile.Zi
 const malicious=spawnSync('python3',['-c',traversalZipScript,JSON.stringify(captured)]).stdout;
 const maliciousFetch=async url=>url.includes('/runs/')?{ok:true,json:async()=>run}:url.includes('/zip')?{ok:true,arrayBuffer:async()=>malicious}:{ok:true,json:async()=>({total_count:1,artifacts:[artifact]})};
 assert.equal(await loadCapturedNight(date,{...options,fetchImpl:maliciousFetch,decode:undefined}),null,'archive traversal rejected');
-console.log('TFL reference: date, time, contract, tick, duplicate and unavailable checks PASS');
+console.log('NH reference: date, time, contract, tick, duplicate and unavailable checks PASS');

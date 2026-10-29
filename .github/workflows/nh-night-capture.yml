@@ -1,31 +1,35 @@
-name: TFL night reference capture
+name: NH night reference capture
 on:
   schedule:
     - cron: '30 22 * * 0-4' # 07:30 KST, Monday-Friday
 permissions:
   contents: read
 concurrency:
-  group: tfl-night-capture
+  group: nh-night-capture
   cancel-in-progress: false
 jobs:
   capture:
     if: github.ref == 'refs/heads/main' && github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    environment: portfolio-market-data
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Capture TFL reference
+      - name: Capture NH reference
         id: capture
-        run: node scripts/tfl-morning-capture.mjs
+        env:
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/nh-morning-capture.mjs
       - name: Save dated reference
         if: steps.capture.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: tfl-night-reference-${{ steps.capture.outputs.date }}
-          path: .tfl-runtime/reference.json
+          name: nh-night-reference-${{ steps.capture.outputs.date }}
+          path: .nh-night-runtime/reference.json
           retention-days: 2
           if-no-files-found: error
           include-hidden-files: true

@@ -1,12 +1,12 @@
 import {spawnSync} from 'node:child_process';
-import {validateTflNight} from './tfl-night-reference.mjs';
+import {validateNhNight} from './nh-night-reference.mjs';
 
 const repo='cyyoung111-dev/portfolio';
 export async function loadCapturedNight(date,{token,repository,fetchImpl=fetch,now=()=>new Date(),decode=decodeZip}={}){
   if(repository!==repo||!token||!/^\d{4}-\d{2}-\d{2}$/.test(date))return null;
   const api=`https://api.github.com/repos/${repo}/actions`,headers={authorization:`Bearer ${token}`,accept:'application/vnd.github+json'};
   try{
-    const name=`tfl-night-reference-${date}`;
+    const name=`nh-night-reference-${date}`;
     const list=await fetchImpl(`${api}/artifacts?name=${encodeURIComponent(name)}&per_page=100`,{headers,signal:AbortSignal.timeout(15000)});
     if(!list.ok)return null;
     const d=await list.json();
@@ -17,16 +17,16 @@ export async function loadCapturedNight(date,{token,repository,fetchImpl=fetch,n
     if(!response.ok)return null;
     const run=await response.json();
     const start=Date.parse(`${date}T07:30:00+09:00`), end=Date.parse(`${date}T08:00:00+09:00`), created=Date.parse(run.created_at);
-    if(run.id!==a.workflow_run.id||run.name!=='TFL night reference capture'||run.path!=='.github/workflows/tfl-night-capture.yml'||run.event!=='schedule'||run.head_branch!=='main'||run.head_repository?.full_name!==repo||run.status!=='completed'||run.conclusion!=='success'||run.run_attempt!==1||!(created>=start&&created<end))return null;
+    if(run.id!==a.workflow_run.id||run.name!=='NH night reference capture'||run.path!=='.github/workflows/nh-night-capture.yml'||run.event!=='schedule'||run.head_branch!=='main'||run.head_repository?.full_name!==repo||run.status!=='completed'||run.conclusion!=='success'||run.run_attempt!==1||!(created>=start&&created<end))return null;
     const download=await fetchImpl(`${api}/artifacts/${a.id}/zip`,{headers,redirect:'follow',signal:AbortSignal.timeout(15000)});
     if(!download.ok)return null;
     const buf=Buffer.from(await download.arrayBuffer());
     if(buf.length>100000)return null;
     const v=await decode(buf);
-    if(v?.source!=='TFL'||v.kind!=='REFERENCE'||v.tradingDate!==date||v.officialClose!==false||v.sourceUpdatedAt!==`${date}T06:00:00+09:00`)return null;
+    if(v?.source!=='NH'||v.kind!=='REFERENCE'||v.tradingDate!==date||v.officialClose!==false||v.sourceUpdatedAt!==`${date}T06:00:00+09:00`)return null;
     const received=Date.parse(v.receivedAt);
     if(!(received>=start&&received<end&&received<=now().getTime()))return null;
-    return validateTflNight({date,clock:'06:00:00',value:v.value,contract:v.contract},date,v.receivedAt);
+    return validateNhNight({date,clock:'06:00:00',value:v.value,contract:v.contract,contractMonth:v.contractMonth},date,v.receivedAt);
   }catch{return null;}
 }
 function decodeZip(buf){

@@ -106,8 +106,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];")
-    || !source.includes("gasVersion: '9.277'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.277 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.278'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.278 계약이 누락됐습니다.');
   process.exit(1);
 }
 
@@ -182,13 +182,11 @@ if (!gasContext._isEtfDividendRefreshCurrent(currentSettings, currentTargets, '2
 
 if (!source.includes("params.action === 'getBenchmarks'")
     || !source.includes('function handleGetBenchmarks(')
-    || !source.includes('function fetchMarketIndicatorPricesToss(')
-    || !source.includes('function fetchMarketIndicatorCandlesToss(')
     || !source.includes('function fetchYahooIndexSeries(')
     || !source.includes("YAHOO_INDEX_SYMBOLS = { KOSPI: '^KS11', KOSDAQ: '^KQ11', SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' }")
     || source.includes("GOOGLEFINANCE(\"' + symbol + '\",\"close\"")
     || !source.includes("cache.put(cacheKey, JSON.stringify(result), errors.KRX_OFFICIAL ? 120 : 21600)")) {
-  console.error('❌ 비교지수 Toss/Yahoo provider(KOSPI200 포함) 또는 6시간 캐시가 누락됐습니다.');
+  console.error('❌ 비교지수 KRX/Yahoo provider(KOSPI200 포함) 또는 6시간 캐시가 누락됐습니다.');
   process.exit(1);
 }
 
@@ -217,12 +215,11 @@ if (!dailySnapshotMatch
 
 const priceProviderBody = source.match(/function\s+fetchPricesGoogleFinance\s*\([^)]*\)\s*\{([\s\S]*?)(?:\/\* legacy GOOGLEFINANCE|\n\})/);
 if (!source.includes('function _hasUsdPriceItems(items)')
-    || !source.includes('fetchHistoricalPricesToss')
     || !source.includes('fetchPricesKrx')
     || !priceProviderBody
     || /GOOGLEFINANCE\s*\(/.test(priceProviderBody[1])
     || !source.includes('저장 확정값 보존')) {
-  console.error('❌ 주식·ETF 가격은 Toss → 기존 비-GOOGLE 공급원 → 저장 확정값 순서여야 하며 GOOGLEFINANCE를 호출하면 안 됩니다.');
+  console.error('❌ 주식·ETF 가격은 NH → 기존 비-GOOGLE 공급원 → 저장 확정값 순서여야 하며 GOOGLEFINANCE를 호출하면 안 됩니다.');
   process.exit(1);
 }
 
