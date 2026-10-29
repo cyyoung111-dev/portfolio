@@ -112,3 +112,7 @@ assert.equal(compareNightReferences(last,{...tfl,contract:'A01609'}).status,'DAT
 assert.equal(compareNightReferences(last,{...tfl,tradingDate:'2026-10-28'}).status,'DATE_OR_CONTRACT_MISMATCH');
 assert.equal(compareNightReferences(last,null).status,'TFL_SAME_DATE_CLOSED_REFERENCE_MISSING');
 console.log('NH/TFL public reference comparison: latest valid tick, conflict/date/month guards and difference passed');
+
+const {spawnSync}=await import('node:child_process');
+const cli=spawnSync(process.execPath,['scripts/nhplug-night-tfl-compare.mjs'],{encoding:'utf8',env:{PATH:process.env.PATH||'/usr/bin:/bin'}});
+assert.equal(cli.status,1);assert.match(cli.stdout,/NH_DIAGNOSTIC_FAILED/);

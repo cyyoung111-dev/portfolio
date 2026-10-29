@@ -42,6 +42,6 @@ export async function runNightComparison({key,secret,request=fetch,now=()=>new D
  return compareNightReferences(nh,tfl);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
- try{console.log('NIGHT_COMPARISON '+JSON.stringify(await runNightComparison({key:process.env.NHPLUG_APP_KEY,secret:process.env.NHPLUG_APP_SECRET})));}
+ try{const result=await runNightComparison({key:process.env.NHPLUG_APP_KEY,secret:process.env.NHPLUG_APP_SECRET});console.log('NIGHT_COMPARISON '+JSON.stringify(result));if(!['MATCH_REFERENCE_ONLY','PRICE_DIFFERENCE'].includes(result.status))process.exitCode=1;}
  catch{console.error('NIGHT_COMPARISON REQUEST_FAILED');process.exitCode=1;}
 }
