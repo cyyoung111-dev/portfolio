@@ -1,6 +1,13 @@
 name: NH PLUG 읽기 전용 진단
 on:
   workflow_dispatch:
+    inputs:
+      probe:
+        description: 'Read-only quote preflight or T+0 regular close validation'
+        required: true
+        default: quotes
+        type: choice
+        options: [quotes, close]
 permissions:
   contents: read
 concurrency:
@@ -20,7 +27,14 @@ jobs:
         with:
           node-version: '24'
       - name: 인증 및 조회 진단
+        if: inputs.probe == 'quotes'
         env:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
         run: node scripts/nhplug-readonly-diagnostic.mjs
+      - name: 15:30 정규장 당일 종가 조회 검증
+        if: inputs.probe == 'close'
+        env:
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/nhplug-close-readonly-diagnostic.mjs
