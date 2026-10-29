@@ -103,3 +103,21 @@ await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/
 const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 assert.ok(workflow.indexOf('run: node scripts/deploy-gas.mjs')<workflow.indexOf('run: node scripts/activate-nh-gas-runtime.mjs'));
 assert.match(workflow,/name: Activate NH current prices after real GAS deployment\n\s+if: env.GAS_DEPLOY_DRY_RUN != 'true'/);
+
+// Reproduce the reviewed valuation defect using the actual fetch normalization
+// and actual production computeRows, with independent KRW expectations.
+const web=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
+const valuation=fs.readFileSync('src/web/domain/portfolio/portfolio_service.js','utf8');
+const normalizer=web.match(/function _normalizeFetchedPriceCurrency\([^]*?\n\}/)[0];
+const holdingsCtx={normName:x=>x,getEP:()=>({code:'AAPL',currency:'KRW'}),normalizeStockCode:x=>x,STOCK_CODE:{},exchangeRates:{USD:1400},savedPrices:{},fundDirect:{},getEPType:()=> '주식'};
+vm.createContext(holdingsCtx);vm.runInContext(normalizer+'\n'+valuation.slice(valuation.indexOf('function computeRows(')),holdingsCtx);
+const normalized=holdingsCtx._normalizeFetchedPriceCurrency(350,'USD','KRW',{USD:1400});
+assert.equal(normalized,490000);holdingsCtx.savedPrices.AAPL=normalized;
+const row=holdingsCtx.computeRows([{name:'Apple',qty:1,cost:400000}])[0];
+assert.equal(row.evalAmt,490000);assert.equal(row.pnl,90000);
+assert.equal(holdingsCtx._normalizeFetchedPriceCurrency(349.6718,'USD','USD',{}),349.6718);
+assert.equal(holdingsCtx._normalizeFetchedPriceCurrency(350,'USD','KRW',{}),null);
+assert.equal(holdingsCtx._normalizeFetchedPriceCurrency(232000,'KRW','KRW',{}),232000);
+assert.match(source,/priceCurrencies: priceCurrencies/);
+assert.match(web,/data\.priceCurrencies\?\.\[i\.code\]/);
+console.log('NH quote currency to actual portfolio valuation: USD350 × 1400 = KRW490000, missing FX rejected');

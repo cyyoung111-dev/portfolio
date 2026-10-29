@@ -15,7 +15,7 @@ assert.match(gas, /var krxItems = targetItems\.filter/);
 assert.match(gas, /usedDate: usedDate/);
 assert.match(gas, /latestEntry\.date > priceDates\[code\]/);
 assert.match(gas, /var cacheRaw = todayStr \+ '\|p=' \+ \(persist \? '1' : '0'\)/);
-assert.match(gas, /prices_v9176_p' \+ \(persist \? '1' : '0'\)/);
+assert.match(gas, /prices_v9277_p' \+ \(persist \? '1' : '0'\)/);
 assert.match(gas, /cachedPayload\.priceLookup\.snapshotCreated = persist && cachedLatestDate/);
 assert.match(gas, /function _newPriceLookupTimings_\(\)/);
 for (const key of ['setup', 'codeItems', 'initialPriceHistory', 'tossToken', 'tossPricesHttp', 'krx', 'recentHistory', 'snapshot', 'other', 'finalize']) {

@@ -1,3 +1,19 @@
+// Keep saved numeric prices in the editable item's declared currency. The quote
+// currency is transport metadata, never a mutation of the financial master.
+function _normalizeFetchedPriceCurrency(price, quoteCurrency, itemCurrency, rates) {
+  const value = Number(price), target = String(itemCurrency || 'KRW').toUpperCase();
+  const source = String(quoteCurrency || target).toUpperCase();
+  if (!(value > 0) || !Number.isFinite(value)) return null;
+  let converted = value;
+  if (source !== target) {
+    const fromRate = source === 'KRW' ? 1 : Number(rates?.[source]);
+    const toRate = target === 'KRW' ? 1 : Number(rates?.[target]);
+    if (!(fromRate > 0) || !(toRate > 0) || !Number.isFinite(fromRate) || !Number.isFinite(toRate)) return null;
+    converted = value * fromRate / toRate;
+  }
+  return target === 'KRW' ? Math.round(converted) : converted;
+}
+
 // ════════════════════════════════════════════════════════════════
 //  settings_fetch.js — GAS 가격 조회·자동로드 (fetchFromGsheet, autoLoadPrices)
 //  의존: settings.js, data.js
@@ -159,7 +175,7 @@ async function _fetchFromGsheetInner(dateStr, options) {
             .slice(-1)[0] || '';
           window._gsheetResolvedPriceDate = responseResolvedPriceDate;
           epItems.forEach(i => {
-            const price = data.prices[i.code];
+            const price = _normalizeFetchedPriceCurrency(data.prices[i.code], data.priceCurrencies?.[i.code], i.currency, data.exchangeRates || {});
             const sourceDate = String(responsePriceDates[i.code] || '');
             const normalized = window.MarketDataProvider.normalizeMarketPrice({
               symbol: i.code, marketDate: sourceDate, closePrice: price,
@@ -167,7 +183,7 @@ async function _fetchFromGsheetInner(dateStr, options) {
               fallback: sourceDate !== dateStr
             });
             if (normalized.status !== 'NEEDS_REVIEW') {
-              codeResults[i.code] = Math.round(normalized.closePrice);  // ★ 코드 키로 저장
+              codeResults[i.code] = normalized.closePrice;  // item currency, including fractional USD
               if (normalized.sourceDate) {
                 priceMeta[i.code] = {
                   sourceDate: normalized.sourceDate,

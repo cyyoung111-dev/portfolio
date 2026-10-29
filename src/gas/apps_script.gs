@@ -5028,7 +5028,7 @@ function handleGetPricesCompat(codesParam, persist) {
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
-    var cacheKey = 'prices_v9176_p' + (persist ? '1' : '0') + '_' + cacheHash;
+    var cacheKey = 'prices_v9277_p' + (persist ? '1' : '0') + '_' + cacheHash;
     var cached = cache.get(cacheKey);
     _priceTimingAdd_(timings, 'setup', setupStartedMs);
     if (cached) {
@@ -5219,7 +5219,9 @@ function handleGetPricesCompat(codesParam, persist) {
     lookupMeta.timings = timings;
     lookupMeta.serverElapsedMs = Date.now() - requestStartedMs;
     Logger.log('[price-lookup] ' + JSON.stringify(lookupMeta));
-    var payload = { prices: prices, priceDates: priceDates, missing: stillMissing, exchangeRates: exchangeRates, priceLookup: lookupMeta };
+    var priceCurrencies = {};
+    Object.keys(tossPrices || {}).forEach(function(code){if(tossPrices[code]&&tossPrices[code].source==='NH'&&Number(prices[code])===Number(tossPrices[code].price))priceCurrencies[code]=tossPrices[code].currency;});
+    var payload = { prices: prices, priceDates: priceDates, priceCurrencies: priceCurrencies, missing: stillMissing, exchangeRates: exchangeRates, priceLookup: lookupMeta };
     try { cache.put(cacheKey, JSON.stringify(payload), 60); } catch(cacheWriteErr) {}
     _priceTimingAdd_(timings, 'finalize', finalizeStartedMs);
     return jsonOk(payload);
