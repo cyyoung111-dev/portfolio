@@ -39,7 +39,7 @@ export function buildNightReference(input) {
   const value = priceValue(input.value);
   if (!Number.isFinite(value)) fail('PRICE_INVALID');
   if (input.priceType !== 'LAST_TRADE') fail('PRICE_TYPE_UNVERIFIED');
-  if (input.source !== SOURCE || input.officialClose === true) fail('SOURCE_OR_FINALITY_INVALID');
+  if (input.source !== SOURCE || input.officialClose !== false) fail('SOURCE_OR_FINALITY_INVALID');
 
   const observed = instant(input.observedAt), received = instant(input.receivedAt);
   if (!Number.isFinite(observed) || !Number.isFinite(received) || observed > received) fail('TIMESTAMP_INVALID');
@@ -72,7 +72,7 @@ export function upsertNightReference(rows, candidate) {
   if (!indexes.length) { result.push(normalized); return { rows: result, outcome: 'INSERTED' }; }
   const prior = buildNightReference(result[indexes[0]]);
   const oldTime = Date.parse(prior.receivedAt), newTime = Date.parse(normalized.receivedAt);
-  if (newTime < oldTime) return { rows: result, outcome: 'STALE_IGNORED' };
+  if (newTime < oldTime || (newTime > oldTime && Date.parse(normalized.observedAt) < Date.parse(prior.observedAt))) return { rows: result, outcome: 'STALE_IGNORED' };
   if (newTime === oldTime) {
     if (prior.value !== normalized.value || prior.observedAt !== normalized.observedAt) fail('CONFLICTING_SAME_RECEIPT');
     return { rows: result, outcome: 'DUPLICATE_IGNORED' };
