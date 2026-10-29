@@ -77,6 +77,7 @@ export function upsertNightReference(rows, candidate) {
     if (prior.value !== normalized.value || prior.observedAt !== normalized.observedAt) fail('CONFLICTING_SAME_RECEIPT');
     return { rows: result, outcome: 'DUPLICATE_IGNORED' };
   }
+  if (prior.observedAt === normalized.observedAt && prior.value !== normalized.value) fail('CONFLICTING_SAME_TRADE');
   result[indexes[0]] = normalized;
   return { rows: result, outcome: 'UPDATED' };
 }
@@ -103,3 +104,4 @@ export function formatNightTelegramLine(candidate, date, asOf = new Date()) {
     + ' (NH PLUG, ' + row.tradingDate + ', 계약 ' + row.contract
     + ', KRX 공식 종가·정산가 미확인)';
 }
+
