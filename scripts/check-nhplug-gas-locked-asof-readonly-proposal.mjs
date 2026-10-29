@@ -152,6 +152,11 @@ for(const [opts,code] of [
  [{initialTrades:[trade('2026-10-01','write','삼성전자','005930',1)]},'TRADE_TYPE_UNVERIFIED'],
  [{initialTrades:[trade('2026-10-01','buy','삼성전자','005930',-1)]},'TRADE_QTY_UNVERIFIED'],
  [{initialTrades:[trade('','sell','삼성전자','005930',1)]},'TRADE_DATE_UNVERIFIED'],
+ [{initialTrades:[trade('junk','sell','삼성전자','005930',1)]},'TRADE_DATE_UNVERIFIED'],
+ [{initialTrades:[trade('2026-02-30','sell','삼성전자','005930',1)]},'TRADE_DATE_UNVERIFIED'],
+ [{initialTrades:[trade('2026-10-01','sell','삼성전자','005930','0xA')]},'TRADE_QTY_UNVERIFIED'],
+ [{initialTrades:[trade('2026-10-01','sell','삼성전자','005930','')]},'TRADE_QTY_UNVERIFIED'],
+ [{initialTrades:[trade('2026-10-01','split','삼성전자','005930',0,0,'0x2')]},'TRADE_RATIO_UNVERIFIED'],
  [{initialTrades:[trade('2026-10-01','split','삼성전자','005930',0,0,0)]},'TRADE_RATIO_UNVERIFIED'],
  [{initialMaster:master.map(x=>x[0]==='005930'?[x[0],x[1],'STCOK',x[3],x[4],x[5]]:x)},'MARKET_CLASSIFICATION_UNVERIFIED'],
  [{tradeReadError:true},'READ_FAILED']
@@ -179,4 +184,3 @@ for(const date of ['2026-02-30','2026-10-30','junk','2026-10-31']){
  assert.equal(state.locks,0);
 }
 console.log('NH GAS atomic-proposal handler: locked double-read, real GAS reducer, all-failure tests passed');
-

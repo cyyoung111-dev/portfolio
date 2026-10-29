@@ -59,6 +59,9 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
         if(row.some(function(value){return value!=='' && value!==null && value!==undefined;}))throw new Error('TRADE_DATE_UNVERIFIED');
         return;
       }
+      var parsed=/^\d{4}-\d{2}-\d{2}$/.test(d)?new Date(d+'T00:00:00Z'):null;
+      if(!parsed || !isFinite(parsed.getTime()) || parsed.toISOString().slice(0,10)!==d)
+        throw new Error('TRADE_DATE_UNVERIFIED');
       if(d>date)return;
       var raw=String(row[4]||'').trim(),code=_cleanCode(raw);
       if(raw && !code)throw new Error('TRADE_CODE_UNVERIFIED');
@@ -66,9 +69,13 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
       var t=String(row[1]||'').trim();
       if(['buy','sell','split','reverse_split'].indexOf(t)<0)
         throw new Error('TRADE_TYPE_UNVERIFIED');
-      if(!isFinite(Number(row[5]))||Number(row[5])<0)
+      var decimal=function(v){
+        var text=String(v===null||v===undefined?'':v).trim();
+        return /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(text) && isFinite(Number(text)) && Number(text)===parseFloat(text);
+      };
+      if(!decimal(row[5]))
         throw new Error('TRADE_QTY_UNVERIFIED');
-      if((t==='split'||t==='reverse_split') && (!isFinite(Number(row[9])) || !(Number(row[9])>0)))
+      if((t==='split'||t==='reverse_split') && (!decimal(row[9]) || !(Number(row[9])>0)))
         throw new Error('TRADE_RATIO_UNVERIFIED');
     });
     var holdings=_calcCodeHoldingsAtDate(ledger1,date,nameToCode);
