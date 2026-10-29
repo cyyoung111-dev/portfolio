@@ -42,6 +42,10 @@ assert.equal(result.masterSnapshot.verified,false,'listing state is not proven b
 // Compare transaction replay to production GAS reducer, using actual source
 // rather than a second copy of the stock/split/sell algorithm in test code.
 const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const configDeclaration=source.match(/var CONFIG\s*=\s*\{[\s\S]*?\n\};/);
+assert.ok(configDeclaration,'production CONFIG exists');
+const productionConfig=vm.runInNewContext(configDeclaration[0]+'\nCONFIG');
+assert.equal(productionConfig.TIMEZONE,'Asia/Seoul','the date boundary contract requires KST');
 function extract(name) {
  const start=source.indexOf('function '+name+'(');
  const end=source.indexOf('\n}',start);
@@ -51,7 +55,7 @@ function extract(name) {
 const context=vm.createContext({
  _normalizeDate:v=>String(v||'').trim().slice(0,10),
  Utilities:{formatDate:()=>{throw Error('unused GAS Date branch');}},
- CONFIG:{TIMEZONE:'Asia/Seoul'}
+ CONFIG:productionConfig
 });
 for(const name of ['_cleanCode','_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAtDate','_calcCodeHoldingsAtDate']){
  vm.runInContext(extract(name),context);

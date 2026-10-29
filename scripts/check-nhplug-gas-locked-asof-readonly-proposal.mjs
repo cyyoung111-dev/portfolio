@@ -6,6 +6,10 @@ import vm from 'node:vm';
 // production v9.275 helpers together — no duplicated position reducer.
 const proposal=fs.readFileSync('scripts/nhplug-gas-locked-asof-readonly-proposal.gs','utf8');
 const production=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const configDeclaration=production.match(/var CONFIG\s*=\s*\{[\s\S]*?\n\};/);
+assert.ok(configDeclaration,'production CONFIG exists');
+const productionConfig=vm.runInNewContext(configDeclaration[0]+'\nCONFIG');
+assert.equal(productionConfig.TIMEZONE,'Asia/Seoul','the date boundary contract requires KST');
 assert.ok(!production.includes('function nhplugHeldAsOfReadOnlyProposal('),
   'proposal has not been wired into production GAS');
 assert.doesNotMatch(proposal,/\.(?:appendRow|setValue|setValues|clear|deleteRow|insertSheet|setProperty|deleteProperty)\s*\(/,
@@ -76,7 +80,7 @@ function harness({token='valid-admin-secret',provided='valid-admin-secret',busy=
   }
  };
  const sheet={
-  getSheetByName:n=>n==='거래이력'?tradSheet:n==='종목코드'?codeSheet:null
+  getSheetByName:n=>n===productionConfig.SHEET_TRADES?tradSheet:n===productionConfig.SHEET_CODES?codeSheet:null
  };
  const lock={
   tryLock:ms=>{assert.equal(ms,5000);state.locks++;return !busy;},
@@ -96,7 +100,7 @@ function harness({token='valid-admin-secret',provided='valid-admin-secret',busy=
   CODE_DELETE_TXN_KEY_:'PF_PENDING_CODE_DELETE_TXN_V1',
   TRADE_LEDGER_WRITE_JOURNAL_KEY:'trade_ledger_write_unverified_v1',
   LockService:{getScriptLock:()=>lock},getss:()=>sheet,
-  CONFIG:{SHEET_TRADES:'거래이력',SHEET_CODES:'종목코드',TIMEZONE:'Asia/Seoul'},
+  CONFIG:productionConfig,
   _krxCalendarStatus_:()=>marketStatus,
   Date,
   today:()=> '2026-10-29',
