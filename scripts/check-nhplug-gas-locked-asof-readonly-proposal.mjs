@@ -176,6 +176,10 @@ for(const [opts,code] of [
  const {output}=harness({initialTrades:[trade(new Date('2026-10-01T15:10:00Z'),'buy','삼성전자','5930',10)]});
  assert.deepEqual(output('2026-10-29').ledgerSnapshot.positions,[{code:'005930',quantity:10}]);
 }
+{
+ const {output}=harness({initialTrades:[trade('2026-10-01','buy','삼성전자','005930',10),trade('2026/10/20','sell','삼성전자','005930',10)]});
+ assert.deepEqual(output('2026-10-29').ledgerSnapshot.positions,[]);
+}
 for(const date of ['2026-02-30','2026-10-30','junk','2026-10-31']){
  const {output,state}=harness();
  const r=output(date);

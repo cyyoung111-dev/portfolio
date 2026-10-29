@@ -78,7 +78,10 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
       if((t==='split'||t==='reverse_split') && (!decimal(row[9]) || !(Number(row[9])>0)))
         throw new Error('TRADE_RATIO_UNVERIFIED');
     });
-    var holdings=_calcCodeHoldingsAtDate(ledger1,date,nameToCode);
+    // Preserve source rows for the double-read comparison, but give the
+    // production reducer the exact dates that passed validation above.
+    var normalizedLedger=ledger1.map(function(row){var copy=row.slice();copy[0]=_normalizeDate(row[0]);return copy;});
+    var holdings=_calcCodeHoldingsAtDate(normalizedLedger,date,nameToCode);
     var positions=[],items=[], included={}, excluded=0;
     Object.keys(holdings).forEach(function(key){
       var h=holdings[key],code=_cleanCode(h&&h.code),qty=Number(h&&h.qty);
