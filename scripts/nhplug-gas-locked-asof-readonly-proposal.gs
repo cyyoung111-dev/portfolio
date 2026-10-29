@@ -55,7 +55,11 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
     // An ambiguous, unknown or malformed trade is not silently discarded.
     ledger1.forEach(function(row){
       var d=_normalizeDate(row[0]),name=String(row[3]||'').trim();
-      if(!d || d>date)return;
+      if(!d){
+        if(row.some(function(value){return value!=='' && value!==null && value!==undefined;}))throw new Error('TRADE_DATE_UNVERIFIED');
+        return;
+      }
+      if(d>date)return;
       var raw=String(row[4]||'').trim(),code=_cleanCode(raw);
       if(raw && !code)throw new Error('TRADE_CODE_UNVERIFIED');
       if(!code && (!name||!nameToCode[name]))throw new Error('TRADE_CODE_UNVERIFIED');
@@ -64,6 +68,8 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
         throw new Error('TRADE_TYPE_UNVERIFIED');
       if(!isFinite(Number(row[5]))||Number(row[5])<0)
         throw new Error('TRADE_QTY_UNVERIFIED');
+      if((t==='split'||t==='reverse_split') && (!isFinite(Number(row[9])) || !(Number(row[9])>0)))
+        throw new Error('TRADE_RATIO_UNVERIFIED');
     });
     var holdings=_calcCodeHoldingsAtDate(ledger1,date,nameToCode);
     var positions=[],items=[], included={}, excluded=0;
@@ -83,7 +89,7 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
       if(!domestic) {
         // Explicit foreign/cash/fund holdings may be out of scope. An
         // *ambiguous* Korean market record must not quietly disappear.
-        if((kind==='STOCK'||kind==='ETF') &&
+        if((kind==='STOCK'||kind==='ETF'||kind==='UNKNOWN') &&
           (currency==='KRW'||['KR','KOSPI','KOSDAQ','KRX','ETF'].indexOf(market)>=0))
           throw new Error('MARKET_CLASSIFICATION_UNVERIFIED');
         excluded++;return;
@@ -126,6 +132,7 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
     var allowed=['AUTH_DISABLED','AUTH_REQUIRED','DATE_INVALID','MARKET_UNVERIFIED',
       'BUSY','LEDGER_UNAVAILABLE','MASTER_UNAVAILABLE','MASTER_CONFLICT',
       'TRADE_CODE_UNVERIFIED','TRADE_TYPE_UNVERIFIED','TRADE_QTY_UNVERIFIED',
+      'TRADE_DATE_UNVERIFIED','TRADE_RATIO_UNVERIFIED',
       'ORPHAN_HELD_CODE','MARKET_CLASSIFICATION_UNVERIFIED',
       'DOMESTIC_CODE_INVALID','DUPLICATE_HELD_CODE','SOURCE_CHANGED',
       'LEDGER_WRITE_UNVERIFIED','CODE_DELETE_PENDING'];
@@ -138,3 +145,4 @@ function nhplugHeldAsOfReadOnlyProposal(dateInput, accessToken) {
   }
   return outcome;
 }
+

@@ -16,7 +16,7 @@ function extract(fn) {
  assert.ok(start>=0&&end>start,fn+' is a real production function');
  return production.slice(start,end+2);
 }
-const helpers=['_isAuthorizedRequest','_tradeLedgerWriteUnverified_','_applyHoldingTrade','_snapshotHoldingState',
+const helpers=['_cleanCode','_normalizeDate','_isAuthorizedRequest','_tradeLedgerWriteUnverified_','_applyHoldingTrade','_snapshotHoldingState',
  'calcHoldingsAtDate','_calcCodeHoldingsAtDate','getCodeItems']
  .map(extract).join('\n');
 
@@ -39,7 +39,7 @@ const trades=[
  trade('2026-10-01','buy','펀드','F00001',12.75),
  trade('2026-10-30','sell','삼성전자','005930',11)
 ];
-const copy=v=>JSON.parse(JSON.stringify(v));
+const copy=v=>structuredClone(v);
 function harness({token='valid-admin-secret',provided='valid-admin-secret',busy=false,
   changeTrade=false,changeMaster=false,releaseFails=false,marketStatus='OPEN',
   initialTrades=trades,initialMaster=master,tradeReadError=false,
@@ -98,10 +98,9 @@ function harness({token='valid-admin-secret',provided='valid-admin-secret',busy=
   LockService:{getScriptLock:()=>lock},getss:()=>sheet,
   CONFIG:{SHEET_TRADES:'거래이력',SHEET_CODES:'종목코드',TIMEZONE:'Asia/Seoul'},
   _krxCalendarStatus_:()=>marketStatus,
-  _cleanCode:v=>String(v||'').trim().toUpperCase(),
-  _normalizeDate:v=>String(v||'').trim().slice(0,10),
+  Date,
   today:()=> '2026-10-29',
-  Utilities:{formatDate:()=>{throw Error('Date object fixture not used');}},
+  Utilities:{formatDate:(value,tz,format)=>{assert.equal(tz,'Asia/Seoul');assert.equal(format,'yyyy-MM-dd');return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);}},
   Logger:{log:()=>{throw Error('sensitive logs forbidden')}},
   console:{log:()=>{throw Error('console logging forbidden')}}
  });
@@ -152,6 +151,9 @@ for(const [opts,code] of [
  [{initialTrades:[trade('2026-10-01','buy','새이름','',1)]},'TRADE_CODE_UNVERIFIED'],
  [{initialTrades:[trade('2026-10-01','write','삼성전자','005930',1)]},'TRADE_TYPE_UNVERIFIED'],
  [{initialTrades:[trade('2026-10-01','buy','삼성전자','005930',-1)]},'TRADE_QTY_UNVERIFIED'],
+ [{initialTrades:[trade('','sell','삼성전자','005930',1)]},'TRADE_DATE_UNVERIFIED'],
+ [{initialTrades:[trade('2026-10-01','split','삼성전자','005930',0,0,0)]},'TRADE_RATIO_UNVERIFIED'],
+ [{initialMaster:master.map(x=>x[0]==='005930'?[x[0],x[1],'STCOK',x[3],x[4],x[5]]:x)},'MARKET_CLASSIFICATION_UNVERIFIED'],
  [{tradeReadError:true},'READ_FAILED']
 ]) {
  const {output,state}=harness(opts);
@@ -165,6 +167,10 @@ for(const [opts,code] of [
  if(!['AUTH_DISABLED','AUTH_REQUIRED','MARKET_UNVERIFIED','BUSY'].includes(code))
   assert.equal(state.releases,1,'acquired lock must always be released');
 }
+{
+ const {output}=harness({initialTrades:[trade(new Date('2026-10-01T15:10:00Z'),'buy','삼성전자','5930',10)]});
+ assert.deepEqual(output('2026-10-29').ledgerSnapshot.positions,[{code:'005930',quantity:10}]);
+}
 for(const date of ['2026-02-30','2026-10-30','junk','2026-10-31']){
  const {output,state}=harness();
  const r=output(date);
@@ -173,3 +179,4 @@ for(const date of ['2026-02-30','2026-10-30','junk','2026-10-31']){
  assert.equal(state.locks,0);
 }
 console.log('NH GAS atomic-proposal handler: locked double-read, real GAS reducer, all-failure tests passed');
+
