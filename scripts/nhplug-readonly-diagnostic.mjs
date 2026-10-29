@@ -21,6 +21,18 @@ function validYYYYMMDD(value) {
   return parsed.getUTCFullYear() === y && parsed.getUTCMonth() + 1 === m && parsed.getUTCDate() === d;
 }
 
+// Only fixed labels are emitted; never print server fields or response text.
+export function safeOverseasShape(data, expected) {
+  const output = data?.Output_0;
+  const shape = output === null || output === undefined ? 'MISSING' : Array.isArray(output) ? 'ARRAY' : typeof output === 'object' ? 'OBJECT' : 'OTHER';
+  const object = shape === 'OBJECT' ? output : null;
+  const has = name => object && Object.prototype.hasOwnProperty.call(object, name) ? 'YES' : 'NO';
+  const code = data?.message?.rsp_cd ?? data?.rsp_cd ?? data?.error_code;
+  const codeClass = typeof code !== 'string' ? 'ABSENT' : /^IGW\d{5}$/.test(code) ? 'GATEWAY' : /^\d{5}$/.test(code) ? 'BUSINESS' : 'OTHER';
+  const idMatch = has('iem_cd') === 'NO' || typeof expected !== 'string' ? 'UNKNOWN' : object.iem_cd === expected ? 'YES' : 'NO';
+  return `OUTPUT_${shape} ID_FIELD_${has('iem_cd')} ID_MATCH_${idMatch} PRICE_FIELD_${has('trdprc')} DATE_FIELD_${has('trade_date')} CODE_${codeClass}`;
+}
+
 export async function diagnose({ key, secret, request = fetch, log = console.log, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
   if (!key || !secret) { log('AUTH MISSING_CREDENTIALS'); return false; }
 
@@ -69,6 +81,7 @@ export async function diagnose({ key, secret, request = fetch, log = console.log
         : 'PRICE_PRESENT_DATE_FORMAT_VALID_FRESHNESS_UNVERIFIED';
       const verified = response.ok && instrumentValid && priceValid && dateValid;
       log(`${label} HTTP_${response.status} ${state} ${verified ? 'PREFLIGHT_PASS' : 'PREFLIGHT_FAIL'}`);
+      if (label.startsWith('US_') && !verified) log(`${label} RESPONSE_SHAPE ${safeOverseasShape(data, input.iem_cd)}`);
       if (!verified) allVerified = false;
       if (response.status === 429 || response.status === 401) break; // no forced token reissue
     } catch {
@@ -86,3 +99,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const ok = await diagnose({ key: process.env.NHPLUG_APP_KEY, secret: process.env.NHPLUG_APP_SECRET });
   if (!ok) process.exitCode = 1;
 }
+

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { diagnose } from './nhplug-readonly-diagnostic.mjs';
+import { diagnose, safeOverseasShape } from './nhplug-readonly-diagnostic.mjs';
 
 const key = 'dummy-key', secret = 'dummy-secret', token = 'dummy-token';
 const makeResponse = (status, payload) => ({
@@ -29,6 +29,15 @@ const run = async (request) => {
   assert.doesNotMatch(logs.join('\n'), /dummy-key|dummy-secret|dummy-token|https?:|Output_0/);
   return { ok, logs: logs.join('\n') };
 };
+
+assert.equal(safeOverseasShape({Output_0:{iem_cd:secret,trdprc:secret},message:{rsp_cd:'IGW40301',rsp_msg:secret}},'AAPL'), 'OUTPUT_OBJECT ID_FIELD_YES ID_MATCH_NO PRICE_FIELD_YES DATE_FIELD_NO CODE_GATEWAY');
+assert.equal(safeOverseasShape({Output_0:[secret],error_code:secret}), 'OUTPUT_ARRAY ID_FIELD_NO ID_MATCH_UNKNOWN PRICE_FIELD_NO DATE_FIELD_NO CODE_OTHER');
+assert.doesNotMatch(safeOverseasShape({Output_0:{[secret]:secret},message:{rsp_cd:secret}}), /dummy/);
+{
+  const {ok, logs} = await run(makeRequests({AAPL:makeResponse(200,{message:{rsp_cd:'IGW40301',rsp_msg:secret}})}).request);
+  assert.equal(ok,false);
+  assert.match(logs,/US_STOCK RESPONSE_SHAPE OUTPUT_MISSING ID_FIELD_NO ID_MATCH_UNKNOWN PRICE_FIELD_NO DATE_FIELD_NO CODE_GATEWAY/);
+}
 
 // Happy path asserts actual contracts, no raw prices or credentials in logs.
 {
@@ -97,3 +106,4 @@ for (const [overrides, expected] of [
   assert.doesNotMatch(logs.join('\n'), /dummy/);
 }
 console.log('NH PLUG read-only quote preflight regression checks passed');
+
