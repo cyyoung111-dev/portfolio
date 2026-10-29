@@ -10,7 +10,7 @@ const QUOTES = [
 ];
 
 function positivePrice(value) {
-  if (typeof value !== 'number' && !(typeof value === 'string' && /^\d+(?:\\.\d+)?$/.test(value.trim()))) return false;
+  if (typeof value !== 'number' && !(typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim()))) return false;
   return Number.isFinite(Number(value)) && Number(value) > 0;
 }
 
