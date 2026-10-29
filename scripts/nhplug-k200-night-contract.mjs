@@ -46,7 +46,7 @@ export function buildNightReference(input) {
   const open = kstTime(dateBefore(input.tradingDate), '18:00:00');
   const close = kstTime(input.tradingDate, '06:00:00');
   if (observed < open || observed > close) fail('WRONG_NIGHT_SESSION');
-  if (received < close || received >= kstTime(input.tradingDate, '07:40:00')) fail('RECEIPT_OUTSIDE_CUTOFF');
+  if (received < close || received >= kstTime(input.tradingDate, '08:10:00')) fail('RECEIPT_OUTSIDE_CUTOFF');
 
   const record = {
     schemaVersion: 1, seriesId: SERIES, source: SOURCE, kind: KIND,
@@ -81,11 +81,13 @@ export function upsertNightReference(rows, candidate) {
   return { rows: result, outcome: 'UPDATED' };
 }
 
-export function nightTelegramReference(rows, date) {
+export function nightTelegramReference(rows, date, asOf = new Date()) {
   if (!validDate(date)) fail('TARGET_DATE_INVALID');
+  const asOfMs = asOf instanceof Date ? asOf.getTime() : instant(asOf);
+  if (!Number.isFinite(asOfMs)) fail('AS_OF_INVALID');
   const candidates = [];
   for (const row of Array.isArray(rows) ? rows : []) {
-    if (row?.tradingDate !== date || row?.source !== SOURCE) continue;
+    if (row?.tradingDate !== date || row?.source !== SOURCE || Date.parse(row.receivedAt) > asOfMs) continue;
     try { candidates.push(buildNightReference(row)); } catch { continue; }
   }
   // Multiple contracts on a roll date are ambiguous without verified active-contract mapping.
@@ -94,8 +96,8 @@ export function nightTelegramReference(rows, date) {
   candidates.sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt));
   return candidates[0] || null;
 }
-export function formatNightTelegramLine(candidate, date) {
-  const row = nightTelegramReference(candidate ? [candidate] : [], date);
+export function formatNightTelegramLine(candidate, date, asOf = new Date()) {
+  const row = nightTelegramReference(candidate ? [candidate] : [], date, asOf);
   if (!row) return 'KOSPI200 야간선물: 당일 검증된 NH PLUG 참고값 미확보';
   return 'KOSPI200 야간선물 마지막 체결 참고: ' + row.value.toFixed(2) + 'pt'
     + ' (NH PLUG, ' + row.tradingDate + ', 계약 ' + row.contract
