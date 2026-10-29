@@ -24,7 +24,20 @@ export function inspectNightSchema(spec) {
         if(Object.keys(desc).length)evidence[name]=desc;
       }
     }
-    rows.push({path,input:Object.keys(request.properties).filter(x=>/^[a-z0-9_]+$/.test(x)).sort(),required:(request.required||[]).filter(x=>/^[a-z0-9_]+$/.test(x)).sort(),output,evidence});
+    // Capture documented *input meanings*, not just names. Do not infer enum values.
+    const names=Object.keys(request.properties).filter(x=>/^[a-z0-9_]+$/.test(x)).sort();
+    const inputEvidence={};
+    for(const name of names){
+      const field=request.properties[name];
+      if(!field||typeof field!=='object')continue;
+      const entry={};
+      if(typeof field.description==='string')entry.description=field.description.slice(0,300);
+      if(['string','integer','number','boolean'].includes(field.type))entry.type=field.type;
+      if(Array.isArray(field.enum))entry.enum=field.enum.filter(v=>typeof v==='string'&&v.length<=32||Number.isSafeInteger(v)).slice(0,20);
+      if(typeof field.default==='string'&&field.default.length<=32||Number.isSafeInteger(field.default))entry.default=field.default;
+      if(Object.keys(entry).length)inputEvidence[name]=entry;
+    }
+    rows.push({path,input:names,required:(request.required||[]).filter(x=>/^[a-z0-9_]+$/.test(x)).sort(),inputEvidence,output,evidence});
   }
   return rows.sort((a,b)=>a.path.localeCompare(b.path));
 }

@@ -5,6 +5,8 @@ on:
       - '.github/workflows/nhplug-night-public-schema.yml'
       - 'scripts/nhplug-night-schema-probe.mjs'
       - 'scripts/check-nhplug-night-schema-probe.mjs'
+      - 'scripts/nhplug-public-future-master.mjs'
+      - 'scripts/check-nhplug-public-future-master.mjs'
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,3 +23,5 @@ jobs:
           node-version: '24'
       - name: 공개 명세 구조 확인
         run: node scripts/nhplug-night-schema-probe.mjs
+      - name: 공개 KOSPI200 종목마스터 후보 확인
+        run: node scripts/nhplug-public-future-master.mjs
