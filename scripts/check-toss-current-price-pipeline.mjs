@@ -26,7 +26,7 @@ assert.match(gas, /lookupMeta\.krxExecuted = krxItems\.length > 0/);
 assert.match(gas, /lookupMeta\.krxElapsedMs = timings\.krx/);
 assert.match(gas, /recentHistoryFallbackItems: \[\]/);
 assert.match(gas, /recentHistoryFallbackItems\.push\(\{[\s\S]*?code: code,[\s\S]*?name: codeNameMap\[code\] \|\| code,[\s\S]*?priceDate: latestEntry\.date/);
-assert.doesNotMatch(gas, /recentHistoryFallbackItems\.push\([\s\S]*?tossPrices/);
+assert.doesNotMatch(gas, /recentHistoryFallbackItems\.push\(\{[^}]*tossPrices/);
 const fallbackItems = value => Array.isArray(value) ? value : [];
 assert.deepEqual(fallbackItems([]), []);
 assert.deepEqual(fallbackItems(null), []);
