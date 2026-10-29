@@ -19,6 +19,11 @@ async function read(path,kind){
 }
 const [h,b]=await Promise.all([read('m_gtsstock.h','HEADER'),read('m_gtsstock.mst','DATA')]);
 if(h&&b){
+  console.log('HEADER_GIC_0_'+(/char\s+sGIC\[15\][^\n]*@0\b/.test(h)?'YES':'NO'));
+  console.log('HEADER_NATION_95_'+(/char\s+sNationCode\[3\][^\n]*@95\b/.test(h)?'YES':'NO'));
+  console.log('HEADER_SYMBOL_98_'+(/char\s+sSymbol\[12\][^\n]*@98\b/.test(h)?'YES':'NO'));
+  let bad=0;for(let i=163;i<b.length;i+=164)if(b[i]!==10)bad++;
+  console.log('RECORD_LF_BOUNDARY_BAD_'+bad);
   const m=parseUSMaster(b,h,['AAPL','QQQ']);
   console.log('MASTER_PARSE_'+(m?'SCHEMA_VALID':'SCHEMA_INVALID'));
   if(m)for(const sym of ['AAPL','QQQ'])console.log(sym+'_MASTER_'+(m.has(sym)?'UNIQUE':'MISSING_OR_AMBIGUOUS'));
