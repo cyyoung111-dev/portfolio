@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import { diagnose } from './nhplug-readonly-diagnostic.mjs';
+const logs = [];
+const requests = [];
+const key = 'dummy-key';
+const secret = 'dummy-secret';
+const token = 'dummy-token';
+const request = async (url, options) => {
+  requests.push([url, options]);
+  return { ok: true, status: 200, json: async () => requests.length === 1 ? { access_token: token } : { Output_0: { value: 42 } } };
+};
+assert.equal(await diagnose({ key, secret, request, log: x => logs.push(x), wait: async () => {} }), false);
+assert.equal(requests.length, 5);
+assert.equal(requests[0][1].redirect, 'error');
+assert.equal(requests[1][1].headers.authorization, `Bearer ${token}`);
+assert.match(logs.join('\n'), /KOSPI200_NIGHT_FUTURE NOT_RUN_SPEC_UNCONFIRMED/);
+assert.doesNotMatch(logs.join('\n'), /dummy/);
+const failureLogs = [];
+let n = 0;
+assert.equal(await diagnose({ key, secret, request: async () => { n++; throw Error('dummy-secret'); }, log: x => failureLogs.push(x), wait: async () => {} }), false);
+assert.equal(n, 1);
+assert.doesNotMatch(failureLogs.join('\n'), /dummy/);
+console.log('NH readonly diagnostic checks passed');
