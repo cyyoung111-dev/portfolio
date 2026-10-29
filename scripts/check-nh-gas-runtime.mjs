@@ -189,3 +189,10 @@ assert.equal(c.ctx._verifyForeignDailyCloseCoverage_([us],c.ctx.fetchNhRegularCl
 assert.throws(()=>c.ctx._assessDailyKrxStockClose([kr],{'005930':{price:100,source:'NH',usedDate:'2026-10-29'}},'2026-10-29'));
 assert.throws(()=>c.ctx._verifyForeignDailyCloseCoverage_([us],{AAPL:{price:100,source:'NH',usedDate:'2026-10-29'}},new Date('2026-10-30T07:00:00+09:00')));
 console.log('Daily close production admission accepts NH confirmed bars and rejects NH indicative quotes');
+
+vm.runInContext(extract('_getOfficialKrxPriceHistoryLastDate'),c.ctx);
+const mixedHistory=[['2026-10-28','005930','','','','NH_REGULAR_CLOSE'],['2026-10-29','AAPL','','','','NH_REGULAR_CLOSE'],['2026-10-30','ABCDEF','','','','NH_REGULAR_CLOSE']];
+const ph={getLastRow:()=>4,getRange:()=>({getValues:()=>mixedHistory})};
+assert.equal(c.ctx._getOfficialKrxPriceHistoryLastDate(ph,[kr,us,{code:'ABCDEF',currency:'USD',market:'NASDAQ'}]),'2026-10-28');
+assert.equal(c.ctx._getOfficialKrxPriceHistoryLastDate(ph,[]),'-');
+console.log('NH domestic recent-close date: US bars and missing master cannot hide domestic delay');

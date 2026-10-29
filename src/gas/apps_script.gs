@@ -12786,7 +12786,9 @@ function _getAutomationStatusData() {
   var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
   var snapshotLastDate = _getLatestLifecycleValidSnapshotDate(ss);
   var priceHistoryLastDate = _getLatestDateInColumn(phSh, 1);
-  var officialKrxPriceHistoryLastDate = _getOfficialKrxPriceHistoryLastDate(phSh);
+  var closeCatalog=[];
+  try {closeCatalog=getCodeItems(ss,true)||[];}catch(ignoreCloseCatalog){}
+  var officialKrxPriceHistoryLastDate = _getOfficialKrxPriceHistoryLastDate(phSh,closeCatalog);
   var props = PropertiesService.getScriptProperties();
 
   function parseProperty(name) {
@@ -13116,13 +13118,16 @@ function _portfolioCloseRunState(portfolioClose, props) {
       : (pending || !closeSucceeded ? 'INCOMPLETE' : 'COMPLETE');
   return { state:state, startedAt:startedAt, runDate:runDate, stage:stage, stageAt:stageAt };
 }
-function _getOfficialKrxPriceHistoryLastDate(phSh) {
+function _getOfficialKrxPriceHistoryLastDate(phSh, catalog) {
   if (!phSh || phSh.getLastRow() < 2) return '-';
+  var domestic={};
+  (catalog||[]).forEach(function(item){if(_isKrxDailyCloseTarget_(item))domestic[String(item.code).trim()]=true;});
   var rows = phSh.getRange(2, 1, phSh.getLastRow() - 1, 6).getValues(), latest = '';
   rows.forEach(function(row) {
     // 실제 공식 KRX 응답일만 인정하며 이전 날짜 이월(KRX_CARRY)은 공식 당일 종가가 아닙니다.
     if (!/^(?:KRX|KRX_OTP|NH_REGULAR_CLOSE)$/i.test(String(row[5] || '').trim())) return;
     if (/^F\d{5}$/.test(String(row[1] || ''))) return;
+    if(String(row[5]||'').trim().toUpperCase()==='NH_REGULAR_CLOSE'&&!domestic[String(row[1]||'').trim()])return;
     var date = _normalizeDate(row[0]);
     if (date && date > latest) latest = date;
   });
