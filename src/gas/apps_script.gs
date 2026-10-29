@@ -19832,8 +19832,8 @@ function _nhUsMaster_(symbols) {
     if(found[symbol]&&found[symbol]!==gic)ambiguous[symbol]=true;
     found[symbol]=gic;
   }
-  symbols.forEach(function(symbol){if(!found[symbol]||ambiguous[symbol])throw new Error('NH_MASTER_ID_UNVERIFIED');});
-  cache.put(key,JSON.stringify(found),21600);return found;
+  symbols.forEach(function(symbol){if(ambiguous[symbol])delete found[symbol];});
+  cache.put(key,JSON.stringify(found),symbols.every(function(symbol){return !!found[symbol];})?21600:60);return found;
 }
 function fetchPricesNh(items,timings,meta) {
   var result={},credentials=_nhCredentials_(),started=Date.now(),cache=CacheService.getScriptCache();
@@ -19841,12 +19841,14 @@ function fetchPricesNh(items,timings,meta) {
   if(!credentials.key||!credentials.secret)return result;
   var targets=(items||[]).filter(function(item){return item&&item.code&&!_isFundCode(item.code)&&['KRW','USD'].indexOf(String(item.currency||'KRW'))>=0;});
   if(targets.length>80)throw new Error('NH_TOO_MANY_SYMBOLS');
-  var symbols=targets.filter(function(item){return item.currency==='USD';}).map(function(item){return String(item.code).toUpperCase();}),master=_nhUsMaster_(symbols);
-  if(meta){meta.attempted=true;meta.status='REQUESTING';meta.reason='';}
+  var symbols=targets.filter(function(item){return item.currency==='USD';}).map(function(item){return String(item.code).toUpperCase();}),master={},masterReason='';
+  try {master=_nhUsMaster_(symbols);}catch(ignoreMaster){masterReason='NH_US_MASTER_UNAVAILABLE';}
+  if(meta){meta.attempted=true;meta.status='REQUESTING';meta.reason=masterReason;}
   for(var i=0;i<targets.length;i++){
     if(Date.now()-started>65000){if(meta)meta.reason='NH_PARTIAL_TIME_BUDGET';break;}
     var item=targets[i],symbol=String(item.code).toUpperCase(),us=item.currency==='USD',cacheKey='nh_quote_'+item.currency+'_'+symbol;
     if(!(us?/^[A-Z][A-Z0-9.\-]{0,11}$/:/^[A-Z0-9]{6}$/).test(symbol))continue;
+    if(us&&!master[symbol]){if(meta)meta.reason=masterReason||'NH_US_MASTER_PARTIAL';continue;}
     var raw=cache.get(cacheKey);
     if(raw){try {var old=JSON.parse(raw);if(old.source==='NH'&&old.price>0&&Date.now()-Date.parse(old.fetchedAt)>=0&&Date.now()-Date.parse(old.fetchedAt)<60000){result[item.code]=old;continue;}}catch(ignore){}}
     var path=us?'/gbstock/quote/v1/current':String(item.type||'').toUpperCase()==='ETF'?'/krstock/quote/v1/etfCurrent':'/krstock/quote/v1/currentPrice';
@@ -19859,7 +19861,7 @@ function fetchPricesNh(items,timings,meta) {
       if(!/^[0-9]+(?:\.[0-9]+)?$/.test(String(value))||!isFinite(Number(value))||Number(value)<=0)throw new Error('NH_PRICE_INVALID');
       var date=us?String(row.trade_date||''):'';
       if(us){var day=date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6),parsed=new Date(day+'T00:00:00Z');if(!/^\d{8}$/.test(date)||!isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==day||date>Utilities.formatDate(new Date(),'UTC','yyyyMMdd'))throw new Error('NH_TRADE_DATE_INVALID');}
-      result[item.code]={price:Number(value),currency:us?'USD':'KRW',source:'NH',priceType:'REALTIME',status:'INDICATIVE',timestamp:null,marketDate:us?date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6):null,fetchedAt:new Date().toISOString(),exchangeTimeVerified:false};
+      result[item.code]={price:Number(value),currency:us?'USD':'KRW',source:'NH',priceType:'REALTIME',status:'INDICATIVE',timestamp:null,usedDate:us?date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6):null,marketDate:us?date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6):null,fetchedAt:new Date().toISOString(),exchangeTimeVerified:false};
       cache.put(cacheKey,JSON.stringify(result[item.code]),60);
     } catch(error){
       if(meta)meta.reason=/^NH_[A-Z0-9_]+$/.test(error.message)?error.message:'NH_REQUEST_FAILED';

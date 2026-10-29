@@ -34,9 +34,16 @@ assert.equal(s.props.get('MARKET_DATA_PROVIDER'),'NH');assert.equal(s.props.has(
 assert.doesNotMatch(JSON.stringify(s.ctx._nhConfigStatus_()),/nh-key|nh-secret|nh-token/);
 const meta={};
 const result=s.ctx.fetchPricesToss([{code:'005930',currency:'KRW',type:'주식'},{code:'AAPL',currency:'USD',type:'주식'},{code:'F00001',currency:'KRW',type:'펀드'}],{},meta);
-assert.equal(result['005930'].source,'NH');assert.equal(result.AAPL.price,349.6718);assert.equal(result.AAPL.marketDate,'2026-10-29');
+assert.equal(result['005930'].source,'NH');assert.equal(result.AAPL.price,349.6718);assert.equal(result.AAPL.marketDate,'2026-10-29');assert.equal(result.AAPL.usedDate,'2026-10-29');
 assert.equal(result.AAPL.status,'INDICATIVE');assert.equal(result.AAPL.timestamp,null);assert.equal(result.F00001,undefined);
 assert.equal(meta.provider,'NH');assert.equal(meta.status,'SUCCESS');
+const mixed=s.ctx.fetchPricesToss([{code:'005930',currency:'KRW',type:'주식'},{code:'AAPL',currency:'USD',type:'주식'},{code:'MISSING',currency:'USD',type:'주식'}],{},{});
+assert.equal(mixed['005930'].source,'NH');assert.equal(mixed.AAPL.source,'NH');assert.equal(mixed.MISSING,undefined);
+assert.equal(s.calls.some(c=>c.options.payload?.includes('MISSING')),false);
+const outage=setup();outage.props.set('NHPLUG_APP_KEY','key');outage.props.set('NHPLUG_APP_SECRET','secret');outage.props.set('MARKET_DATA_PROVIDER','NH');
+outage.ctx._nhUsMaster_=()=>{throw Error('NH_MASTER_HTTP_ERROR');};
+const isolated=outage.ctx.fetchPricesToss([{code:'005930',currency:'KRW',type:'주식'},{code:'AAPL',currency:'USD',type:'주식'}],{},{});
+assert.equal(isolated['005930'].source,'NH');assert.equal(isolated.AAPL,undefined);
 assert.equal(s.calls.filter(c=>c.url.includes('/oauth2/token')).length,1);
 const before=s.calls.length;s.ctx.fetchPricesToss([{code:'005930',currency:'KRW',type:'주식'}],{},{});assert.equal(s.calls.length,before);
 for(const name of ['_tossIssueAccessTokenUnlocked_','_tossDiagnosticIssueAccessTokenUnlocked_','_tossRequest_','_tossRelayRequest_','_tossDiagnosticRequest_','_tossPriceSmoke_'])assert.throws(()=>s.ctx[name](),/TOSS_RETIRED_NH_ACTIVE/);
@@ -64,3 +71,6 @@ assert.equal(activation.status,'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED');assert.equ
 assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','getPrices']);
 await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',key:'key',secret:'secret'}),/GAS_AUTH_NOT_CONFIGURED/);
 await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',request:async()=>({ok:true,json:async()=>({status:'ok'})})}),/AUTH_NOT_ENFORCED/);
+const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+assert.ok(workflow.indexOf('run: node scripts/deploy-gas.mjs')<workflow.indexOf('run: node scripts/activate-nh-gas-runtime.mjs'));
+assert.match(workflow,/name: Activate NH current prices after real GAS deployment\n\s+if: env.GAS_DEPLOY_DRY_RUN != 'true'/);
