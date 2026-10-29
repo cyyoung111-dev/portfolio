@@ -18,6 +18,7 @@ function dateBefore(date) {
 function kstTime(date, hhmmss) { return Date.parse(date + 'T' + hhmmss + '+09:00'); }
 function instant(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return NaN;
+  if (!validDate(value.slice(0, 10)) || Number(value.slice(11, 13)) > 23 || Number(value.slice(14, 16)) > 59 || Number(value.slice(17, 19)) > 59) return NaN;
   return Date.parse(value);
 }
 function priceValue(value) {
@@ -93,7 +94,7 @@ export function nightTelegramReference(rows, date, asOf = new Date()) {
   }
   // Multiple contracts on a roll date are ambiguous without verified active-contract mapping.
   const contractKeys = [...new Set(candidates.map(x => x.contract))];
-  if (contractKeys.length !== 1) return null;
+  if (contractKeys.length !== 1 || candidates.length !== 1) return null;
   candidates.sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt));
   return candidates[0] || null;
 }
