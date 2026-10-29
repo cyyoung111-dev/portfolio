@@ -8,7 +8,7 @@ const QUOTES = [
   ['KR_STOCK', '/krstock/quote/v1/currentPrice', { iem_cd: '005930', market_cd: 'KRX' }, 'stck_prpr'],
   ['KR_ETF', '/krstock/quote/v1/etfCurrent', { iem_cd: '069500' }, 'stck_prpr'],
   ['US_STOCK', '/gbstock/quote/v1/current', { iem_cd: 'AAPL' }, 'trdprc'],
-  ['US_ETF', '/gbstock/quote/v1/current', { iem_cd: 'SPY' }, 'trdprc'],
+  ['US_ETF', '/gbstock/quote/v1/current', { iem_cd: 'QQQ' }, 'trdprc'],
 ];
 
 function positivePrice(value) {
@@ -53,7 +53,7 @@ async function loadUSMaster(request) {
     const size=Number(m.headers?.get?.('content-length') || 0);
     if (size > MASTER_MAX_BYTES) return null;
     const bytes=new Uint8Array(await m.arrayBuffer());
-    return parseUSMaster(bytes,header,['AAPL','SPY']);
+    return parseUSMaster(bytes,header,['AAPL','QQQ']);
   } catch { return null; }
 }
 
