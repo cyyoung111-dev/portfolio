@@ -31,7 +31,13 @@ export async function diagnose({ key, secret, request = fetch, log = console.log
       const rows = Array.isArray(output) ? output : [output];
       const populated = rows.some(x => x && typeof x === 'object' && Object.values(x).some(v => v !== null && v !== undefined && String(v).trim() !== ''));
       // HTTP 200 and populated output are only evidence of a response, not price validity.
-      log(`${label} HTTP_${response.status} OUTPUT_${populated ? 'PRESENT' : 'EMPTY'} PRICE_UNVERIFIED`);
+      let priceState = 'PRICE_UNVERIFIED';
+      if (label.startsWith('KR_')) {
+        const value = !Array.isArray(output) && output && output.stck_prpr;
+        const price = typeof value === 'number' || typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim()) ? Number(value) : NaN;
+        priceState = Number.isFinite(price) && price > 0 ? 'PRICE_PRESENT_DATE_UNVERIFIED' : 'PRICE_MISSING';
+      }
+      log(`${label} HTTP_${response.status} OUTPUT_${populated ? 'PRESENT' : 'EMPTY'} ${priceState}`);
       allVerified = false;
       if (!response.ok) break;
     } catch { log(`${label} NETWORK_OR_RESPONSE_ERROR`); allVerified = false; break; }
