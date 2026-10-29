@@ -1,0 +1,21 @@
+name: NH 해외 종목마스터 공개 읽기 진단
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/nhplug-us-master-public-check.yml'
+      - 'scripts/nhplug-us-master-public-check.mjs'
+permissions:
+  contents: read
+jobs:
+  public-master:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: 공개 원천 접근 및 구조 진단
+        run: node scripts/nhplug-us-master-public-check.mjs
