@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {inspectNightSchema,main} from './nhplug-night-schema-probe.mjs';
+const operation={summary:'야간시세',requestBody:{content:{'application/json':{schema:{properties:{Input_0:{properties:{iem_cd:{},mrkt_div_cls_code:{}},required:['iem_cd']}}}}}},responses:{'200':{content:{'application/json':{schema:{properties:{Output_0:{properties:{iem_cd:{},prpr:{}}},Output_1:{type:'array',items:{properties:{work_bsop_date:{}}}}}}}}}}};
+const spec={paths:{'/krfuture/quote/v1/night':{post:operation},'/krfuture/order/v1/night':{post:operation},'/krfuture/quote/v1/day':{post:{summary:'주간'}}}};
+assert.deepEqual(inspectNightSchema(spec),[{path:'/krfuture/quote/v1/night',input:['iem_cd','mrkt_div_cls_code'],required:['iem_cd'],output:{Output_0:['iem_cd','prpr'],Output_1:['work_bsop_date']}}]);
+const logs=[];let calls=0;
+assert.equal(await main({request:async(url,options)=>{calls++;assert.equal(url,'https://www.nhplug.com/openapi-docs/krfuture/openapi.json');assert.equal(options.redirect,'error');assert.equal(options.headers,undefined);return {ok:true,headers:{get:()=>null},text:async()=>JSON.stringify(spec)}},log:x=>logs.push(x)}),true);
+assert.equal(calls,1);assert.match(logs.join('\n'),/PUBLIC_NIGHT_SPEC FOUND_1/);
+assert.equal(await main({request:async()=>{throw Error('secret-example')},log:x=>logs.push(x)}),false);
+assert.doesNotMatch(logs.join('\n'),/secret-example/);
+console.log('NH public night schema probe tests passed');
