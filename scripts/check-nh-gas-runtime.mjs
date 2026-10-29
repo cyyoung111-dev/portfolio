@@ -58,6 +58,8 @@ console.log('NH native GAS: activation, strict auth, KR/US quotes, master identi
 const {activateNhRuntime,selectNhReadbackCodes}=await import('./activate-nh-gas-runtime.mjs');
 const registered=[{code:'005930',currency:'KRW',type:'주식',market:'KRX'},{code:'NVDA',currency:'USD',type:'주식',market:'NASDAQ'}];
 assert.deepEqual(selectNhReadbackCodes(registered),['005930','NVDA']);
+assert.deepEqual(selectNhReadbackCodes([{...registered[0],type:'국내주식'},{...registered[1],type:'해외주식',market:'미국'}]),['005930','NVDA']);
+assert.deepEqual(selectNhReadbackCodes([{code:'F00001',type:'펀드',currency:'KRW'},...registered]),['005930','NVDA']);
 assert.throws(()=>selectNhReadbackCodes([...registered,registered[0]]),/DUPLICATE/);
 assert.throws(()=>selectNhReadbackCodes([registered[0]]),/TARGETS_MISSING/);
 const actions=[];
@@ -71,8 +73,11 @@ const liveMock=async(url,options)=>{
   else {assert.equal(p.get('persist'),'0');assert.equal(p.get('codes'),'005930,NVDA');body={status:'ok',prices:{'005930':232000,NVDA:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}};}
   return {ok:true,json:async()=>body};
 };
-const activation=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:liveMock});
+const reports=[];
+const activation=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:liveMock,report:row=>reports.push(row)});
 assert.equal(activation.status,'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED');assert.equal(activation.fullCoverageVerified,false);
+assert.deepEqual(reports,[{status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:2,krwRows:1,usdRows:1}]);
+assert.doesNotMatch(JSON.stringify(reports),/005930|NVDA|nh-key|nh-secret/);
 assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','getCodeListReadOnly','getPrices']);
 await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',key:'key',secret:'secret'}),/GAS_AUTH_NOT_CONFIGURED/);
 await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',request:async()=>({ok:true,json:async()=>({status:'ok'})})}),/AUTH_NOT_ENFORCED/);

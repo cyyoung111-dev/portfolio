@@ -6,15 +6,16 @@ export function selectNhReadbackCodes(codes){
     if(typeof item?.code!=='string')throw Error('NH_RUNTIME_CODE_MASTER_INVALID');
     const code=item.code.trim().toUpperCase();
     if(seen.has(code))throw Error('NH_RUNTIME_CODE_MASTER_DUPLICATE');seen.add(code);
-    const type=String(item.type||'').trim().toUpperCase(),market=String(item.market||'').trim().toUpperCase();
-    if(!['STOCK','주식','ETF'].includes(type))continue;
+    const type=String(item.type||'').trim().toUpperCase();
+    if(['FUND','펀드','TDF'].includes(type)||/^F000/.test(code))continue;
     if(item.currency==='KRW'&&/^[A-Z0-9]{6}$/.test(code))domestic.push(code);
-    if(item.currency==='USD'&&['','US','USA','NYSE','NASDAQ','AMEX','OTC'].includes(market)&&/^[A-Z][A-Z0-9.\-]{0,11}$/.test(code))overseas.push(code);
+    if(item.currency==='USD'&&/^[A-Z][A-Z0-9.\-]{0,11}$/.test(code))overseas.push(code);
   }
-  if(!domestic.length||!overseas.length)throw Error('NH_RUNTIME_CODE_TARGETS_MISSING');
+  if(!domestic.length)throw Error('NH_RUNTIME_CODE_TARGETS_MISSING_KR');
+  if(!overseas.length)throw Error('NH_RUNTIME_CODE_TARGETS_MISSING_US');
   return [domestic.includes('005930')?'005930':domestic[0],overseas.includes('AAPL')?'AAPL':overseas[0]];
 }
-export async function activateNhRuntime({url,token,key,secret,request=fetch}={}) {
+export async function activateNhRuntime({url,token,key,secret,request=fetch,report=()=>{}}={}) {
   let endpoint;try{endpoint=new URL(url);}catch{throw Error('NH_RUNTIME_GAS_URL_MISSING');}
   if(endpoint.protocol!=='https:'||endpoint.hostname!=='script.google.com'||!/^\/macros\/s\/[^/]+\/exec$/.test(endpoint.pathname)||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('NH_RUNTIME_GAS_URL_INVALID');
   if(!token)throw Error('NH_RUNTIME_GAS_AUTH_NOT_CONFIGURED');
@@ -34,6 +35,7 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch}={})
   }
   const master=await call('getCodeListReadOnly');
   if(master?.status!=='ok'||master.readOnly!==true||master.gasVersion!=='9.276')throw Error('NH_RUNTIME_CODE_MASTER_UNCONFIRMED');
+  report({status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:Array.isArray(master.codes)?master.codes.length:0,krwRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='KRW').length:0,usdRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='USD').length:0});
   const codes=selectNhReadbackCodes(master.codes);
   // No price-history / Snapshot write. Confirm the live web lookup is NH.
   let prices;
@@ -47,6 +49,6 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch}={})
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     if(process.env.GITHUB_REF!=='refs/heads/main')throw Error('NH_RUNTIME_MAIN_REQUIRED');
-    console.log(JSON.stringify(await activateNhRuntime({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,key:process.env.NHPLUG_APP_KEY,secret:process.env.NHPLUG_APP_SECRET})));
+    console.log(JSON.stringify(await activateNhRuntime({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,key:process.env.NHPLUG_APP_KEY,secret:process.env.NHPLUG_APP_SECRET,report:row=>console.log(JSON.stringify(row))})));
   }catch(error){console.error(/^NH_RUNTIME_[A-Z_]+$/.test(error?.message||'')?error.message:'NH_RUNTIME_FAILED');process.exitCode=1;}
 }
