@@ -82,7 +82,7 @@ bad([{...trades[0],ratio:-1,tradeType:'split'}],/NH_GAS_UNIVERSE_SPLIT_RATIO_INV
 bad([{...trades[0],tradeType:'REPAIR'}],/NH_GAS_UNIVERSE_TRADE_BAD_ROW/);
 assert.throws(()=>buildGasHeldUniverseCandidate({date,codeList:[...master,master[0]],trades}),/NH_GAS_UNIVERSE_MASTER_DUPLICATE_CODE/);
 assert.throws(()=>buildGasHeldUniverseCandidate({date:'2026-10-31',codeList:master,trades}),/NH_GAS_UNIVERSE_DATE_UNVERIFIED/);
-assert.throws(()=>buildGasHeldUniverseCandidate({date,codeList:master,trades,codeListVersion:'9.277'}),/NH_GAS_UNIVERSE_UNREVIEWED_GAS_VERSION/);
+assert.throws(()=>buildGasHeldUniverseCandidate({date,codeList:master,trades,codeListVersion:'9.278'}),/NH_GAS_UNIVERSE_UNREVIEWED_GAS_VERSION/);
 
 const endpoint='https://script.google.com/macros/s/TEST_DEPLOY_ID/exec';
 const token='PRIVATE_TEST_26';
@@ -94,11 +94,11 @@ const makeMock=({allowProbe=false,mutateSecond=false,brokenMaster=false}={})=>{
   const action=opt.body.get('action'),accessToken=opt.body.get('accessToken');
   actions.push(action);calls.push({action,accessToken});
   if(accessToken!==token)return {ok:true,json:async()=>allowProbe
-    ?{status:'ok',codes:master,readOnly:true,gasVersion:'9.276'}
+    ?{status:'ok',codes:master,readOnly:true,gasVersion:'9.277'}
     :{status:'error',message:'인증 실패'}};
   if(action==='getCodeListReadOnly')return {ok:true,json:async()=>brokenMaster
-    ?{status:'ok',codes:master,readOnly:false,gasVersion:'9.276'}
-    :{status:'ok',codes:master,readOnly:true,gasVersion:'9.276'}};
+    ?{status:'ok',codes:master,readOnly:false,gasVersion:'9.277'}
+    :{status:'ok',codes:master,readOnly:true,gasVersion:'9.277'}};
   assert.equal(action,'getTrades');
   const count=actions.filter(x=>x==='getTrades').length;
   return {ok:true,json:async()=>({status:'ok',trades:mutateSecond&&count===2
