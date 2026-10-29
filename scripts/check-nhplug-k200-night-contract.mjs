@@ -41,6 +41,7 @@ expectReject({ value: 350.27 }, 'PRICE_INVALID');
 expectReject({ priceType: 'SETTLEMENT' }, 'PRICE_TYPE_UNVERIFIED');
 expectReject({ source: 'KRX_OFFICIAL' }, 'SOURCE_OR_FINALITY_INVALID');
 expectReject({ officialClose: true }, 'SOURCE_OR_FINALITY_INVALID');
+expectReject({ officialClose: undefined }, 'SOURCE_OR_FINALITY_INVALID');
 expectReject({ observedAt: '2026-10-28T17:59:59+09:00' }, 'WRONG_NIGHT_SESSION');
 expectReject({ observedAt: '2026-10-29T06:00:01+09:00' }, 'WRONG_NIGHT_SESSION');
 expectReject({ observedAt: '2026-10-29T05:59:58' }, 'TIMESTAMP_INVALID');
@@ -60,6 +61,8 @@ assert.throws(() => upsertNightReference([record,record], record), /DUPLICATE_ST
 
 const older = buildNightReference({ ...base, receivedAt: '2026-10-29T06:03:00+09:00' });
 assert.equal(upsertNightReference(initial.rows, older).outcome, 'STALE_IGNORED');
+const staleTrade = buildNightReference({ ...base, observedAt:'2026-10-29T05:57:00+09:00', receivedAt:'2026-10-29T06:15:00+09:00' });
+assert.equal(upsertNightReference(initial.rows, staleTrade).outcome, 'STALE_IGNORED');
 const newer = buildNightReference({
   ...base, value: '350.30', observedAt: '2026-10-29T05:59:59+09:00',
   receivedAt: '2026-10-29T06:10:00+09:00'
