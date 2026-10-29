@@ -101,6 +101,13 @@ jobs:
         run: GAS_DEPLOY_DIAGNOSTIC_ONLY=true node scripts/deploy-gas.mjs
       - name: Deploy GAS
         run: node scripts/deploy-gas.mjs
+      - name: Activate NH current prices after real GAS deployment
+        if: env.GAS_DEPLOY_DRY_RUN != 'true'
+        continue-on-error: true
+        env:
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/activate-nh-gas-runtime.mjs
       - name: Verify KRX 37-code source coverage after live GAS deployment
         if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         continue-on-error: true

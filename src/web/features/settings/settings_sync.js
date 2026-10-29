@@ -1706,3 +1706,22 @@ async function saveKrxAuthKeyFromUI() {
   showToast('GAS 연결 후 서버 측에 저장할 수 있습니다', 'warn');
   setStatus('보안을 위해 API 키를 브라우저에 저장하지 않습니다.', false);
 }
+
+async function saveNhConfigFromUI() {
+  const target = $el('nhConfigStatus');
+  const key = String($el('nhAppKeyInput')?.value || '').trim();
+  const secret = String($el('nhAppSecretInput')?.value || '').trim();
+  if (!key || !secret) { if (target) target.textContent = 'NH App Key와 App Secret을 모두 입력해주세요.'; return; }
+  if (target) target.textContent = 'NH 연결 및 현재가 조회 중…';
+  try {
+    const data = await requestGsheetFormJson('saveNhConfig', { data: JSON.stringify({ key, secret }) }, { timeoutMs: 90000, retry: 0 });
+    if (!data || data.status !== 'ok' || !data.nh?.enabled) throw new Error(data?.message || 'NH 전환 미확인');
+    window.GAS_API_KEY_STATUS = { ...(window.GAS_API_KEY_STATUS || {}), nh: data.nh };
+    if (target) target.textContent = 'NH 운영 연결 완료 · Toss 호출 중단. 가격을 갱신해주세요.';
+  } catch (error) {
+    if (target) target.textContent = 'NH 연결 실패: ' + (error.message || '응답 오류');
+  } finally {
+    if ($el('nhAppKeyInput')) $el('nhAppKeyInput').value = '';
+    if ($el('nhAppSecretInput')) $el('nhAppSecretInput').value = '';
+  }
+}

@@ -659,8 +659,17 @@ function renderGsheetView(area) {
         <div id="krxAuthKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${krxAuthKey ? 'KRX AUTH_KEY가 저장되어 있습니다.' : 'KRX AUTH_KEY가 없으면 GOOGLEFINANCE 또는 기존 fallback을 사용합니다.'}</div>
       </div>
 
-      <!-- Toss Open API 설정: 원문은 GAS Script Properties에만 저장 -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="font-size:.72rem;font-weight:700">NH PLUG 국내·미국 현재가</div>
+        <div id="nhConfigStatus" style="font-size:.68rem;margin:8px 0">${window.GAS_API_KEY_STATUS?.nh?.enabled ? 'NH 운영 중 · Toss 호출 중단' : 'NH 운영 연결 필요'}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input id="nhAppKeyInput" type="password" autocomplete="new-password" placeholder="NH App Key" />
+          <input id="nhAppSecretInput" type="password" autocomplete="new-password" placeholder="NH App Secret" />
+          <button id="btn-save-nh-config" class="btn-purple-sm">NH 연결 및 전환</button>
+        </div>
+      </div>
+      <!-- Toss Open API 설정: 원문은 GAS Script Properties에만 저장 -->
+      <div style="${window.GAS_API_KEY_STATUS?.nh?.enabled ? 'display:none;' : ''}background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
           <div>
             <div style="font-size:.72rem;font-weight:700;color:var(--text)">📈 Toss Securities Open API</div>

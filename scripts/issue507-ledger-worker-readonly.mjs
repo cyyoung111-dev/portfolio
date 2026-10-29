@@ -89,7 +89,7 @@ export function summarizeDiagnostics(payload,dates) {
 export function summarizeEvidence(automation,diagnostics){
   if(!automation||automation.mode!=='READ_ONLY'
     ||!['9.237','9.238','9.239','9.240','9.241','9.242','9.243','9.244',
-      '9.255','9.256','9.257','9.258','9.273','9.274','9.275'].includes(automation.gasVersion)
+      '9.255','9.256','9.257','9.258','9.273','9.274','9.276'].includes(automation.gasVersion)
     ||typeof automation.triggerReady!=='boolean'
     ||!Array.isArray(automation.triggerMissing)
     ||!Array.isArray(diagnostics)||diagnostics.length!==8)
@@ -224,7 +224,7 @@ export async function selfTest(){
       phase:'DATE_DIAGNOSTIC',processed:0,deferred:0,
       blockedDate:'2025-12-31',sourceCheck:''}},evidence);
   assert.equal(phased.workerLastPhase,'DATE_DIAGNOSTIC');
-  for(const gasVersion of ['9.255','9.256','9.257','9.258','9.273','9.274','9.275']) {
+  for(const gasVersion of ['9.255','9.256','9.257','9.258','9.273','9.274','9.276']) {
     const current=summarizeEvidence({...a,gasVersion,
       tradeSnapshotWorkerLastResult:{status:'RUNNING',
         at:'2026-10-19T11:07:00.000Z',runStartedAt:'2026-10-19T11:02:23.565Z',
