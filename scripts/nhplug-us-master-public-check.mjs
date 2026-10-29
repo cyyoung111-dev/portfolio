@@ -39,4 +39,6 @@ if(h&&b){
   const m=parseUSMaster(b,h,['AAPL','QQQ']);
   console.log('MASTER_PARSE_'+(m?'SCHEMA_VALID':'SCHEMA_INVALID'));
   if(m)for(const sym of ['AAPL','QQQ'])console.log(sym+'_MASTER_'+(m.has(sym)?'UNIQUE':'MISSING_OR_AMBIGUOUS'));
-}else console.log('MASTER_PARSE_NOT_ATTEMPTED');
+  if(!m || !['AAPL','QQQ'].every(sym=>m.has(sym))) process.exitCode=1;
+}else {console.log('MASTER_PARSE_NOT_ATTEMPTED'); process.exitCode=1;}
+
