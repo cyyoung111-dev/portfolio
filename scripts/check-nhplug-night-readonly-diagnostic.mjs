@@ -97,3 +97,18 @@ for(const [payload,reason] of [
  assert.doesNotMatch(messages.join('\n'),/dummy-secret/);
 }
 console.log('NH futures night-period read-only diagnostic synthetic checks passed');
+
+const {latestNightReference,compareNightReferences}=await import('./nhplug-night-tfl-compare.mjs');
+const candidate=[{code,contractMonth:'2026-12'}];
+const last=latestNightReference({...daily,Output_1:[...daily.Output_1,{work_bsop_date:'20261029',bsop_time:'060000',prpr:'351.50'}]},candidate,'2026-10-29');
+assert.equal(last.value,351.5);assert.equal(last.clock,'06:00:00');assert.equal(last.officialClose,false);
+assert.equal(latestNightReference(daily,candidate,'2026-10-30'),null);
+assert.equal(latestNightReference(daily,[...candidate,...candidate],'2026-10-29'),null);
+assert.equal(latestNightReference({...daily,Output_1:[...daily.Output_1,{...daily.Output_1[0],prpr:'350.30'}]},candidate,'2026-10-29'),null);
+const tfl={source:'TFL',kind:'REFERENCE',tradingDate:'2026-10-29',contract:'A01612',value:351.5};
+assert.equal(compareNightReferences(last,tfl).status,'MATCH_REFERENCE_ONLY');
+assert.equal(compareNightReferences(last,{...tfl,value:351.45}).differencePt,0.05);
+assert.equal(compareNightReferences(last,{...tfl,contract:'A01609'}).status,'DATE_OR_CONTRACT_MISMATCH');
+assert.equal(compareNightReferences(last,{...tfl,tradingDate:'2026-10-28'}).status,'DATE_OR_CONTRACT_MISMATCH');
+assert.equal(compareNightReferences(last,null).status,'TFL_SAME_DATE_CLOSED_REFERENCE_MISSING');
+console.log('NH/TFL public reference comparison: latest valid tick, conflict/date/month guards and difference passed');

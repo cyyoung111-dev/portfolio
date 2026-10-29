@@ -1,5 +1,10 @@
 name: NH PLUG 읽기 전용 진단
 on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/nhplug-night-tfl-compare.mjs
+      - .github/workflows/nhplug-readonly-diagnostic.yml
   workflow_dispatch:
     inputs:
       probe:
@@ -7,7 +12,7 @@ on:
         required: true
         default: quotes
         type: choice
-        options: [quotes, close, combined, night, sample_evidence]
+        options: [quotes, close, combined, night, sample_evidence, night_compare]
 permissions:
   contents: read
 concurrency:
@@ -58,3 +63,10 @@ jobs:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
         run: node scripts/nhplug-sample-evidence.mjs
+
+      - name: NH 야간 마지막 체결과 TFL 동일 월물 비교
+        if: inputs.probe == 'night_compare' || github.event_name == 'push'
+        env:
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/nhplug-night-tfl-compare.mjs
