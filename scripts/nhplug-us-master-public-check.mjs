@@ -25,6 +25,17 @@ if(h&&b){
   console.log('HEADER_SYMBOL_98_'+(/char\s+sSymbol\[12\][^\n]*@98\b/.test(h)?'YES':'NO'));
   let bad=0;for(let i=163;i<b.length;i+=164)if(b[i]!==10)bad++;
   console.log('RECORD_LF_BOUNDARY_BAD_'+bad);
+  const tuples=[...h.matchAll(/^\s*\(["']([A-Za-z0-9_]+)["']\s*,\s*(\d+)\s*\)\s*,?\s*$/gm)];
+  let offset=0;const offsets={};for(const m of tuples){if(offsets[m[1]]!==undefined){console.log('HEADER_DUPLICATE_'+m[1]);break;}offsets[m[1]]=offset;offset+=Number(m[2]);}
+  console.log('PYTHON_FIELDS_COUNT_'+tuples.length+' TOTAL_'+offset);
+  for(const name of ['sGIC','sNationCode','sSymbol'])console.log('PYTHON_OFFSET_'+name+'_'+(offsets[name]??'MISSING'));
+  if(offset===164&&offsets.sGIC===0&&offsets.sNationCode===95&&offsets.sSymbol===98&&bad===0){
+    for(const symbol of ['AAPL','QQQ']){
+      let found=new Set();
+      for(let i=0;i<b.length;i+=164){let country=Buffer.from(b.subarray(i+95,i+98)).toString('ascii').trim();let ticker=Buffer.from(b.subarray(i+98,i+110)).toString('ascii').trim();let code=Buffer.from(b.subarray(i,i+15)).toString('ascii').trim();if(country==='USA'&&ticker===symbol&&/^[A-Z0-9._-]{1,15}$/.test(code))found.add(code);}
+      console.log(symbol+'_PYTHON_MASTER_MATCHES_'+found.size);
+    }
+  }
   const m=parseUSMaster(b,h,['AAPL','QQQ']);
   console.log('MASTER_PARSE_'+(m?'SCHEMA_VALID':'SCHEMA_INVALID'));
   if(m)for(const sym of ['AAPL','QQQ'])console.log(sym+'_MASTER_'+(m.has(sym)?'UNIQUE':'MISSING_OR_AMBIGUOUS'));
