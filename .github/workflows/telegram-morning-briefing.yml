@@ -1,7 +1,7 @@
 name: Telegram morning market briefing
 on:
   schedule:
-    - cron: '0 23 * * 0-4' # 08:00 KST, Monday-Friday
+    - cron: '45 22 * * 0-4' # 07:45 KST, Monday-Friday
   workflow_dispatch:
 permissions:
   contents: read

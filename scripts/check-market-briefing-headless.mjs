@@ -23,9 +23,10 @@ const fetchedReference = await fetchPrekospiNight('2026-10-27',{fetchImpl:async(
 assert.equal(fetchedReference.receivedAt,'2026-10-26T21:25:00.000Z');
 assert.deepEqual(diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-10-27',prekospiReference:fetchedReference,decision:{publishable:false}}).nightReference,fetchedReference);
 assert.equal(diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-10-27',prekospiReference:fetchedReference,decision:{publishable:false}}).published,false,'reference alone must not be reported as published');
-assert.equal(scheduledWindow(new Date('2026-10-28T07:59:59+09:00')).allowed,false);
-assert.equal(scheduledWindow(new Date('2026-10-28T08:00:00+09:00')).allowed,true);
-assert.equal(scheduledWindow(new Date('2026-10-28T08:10:00+09:00')).allowed,false);
+assert.equal(scheduledWindow(new Date('2026-10-28T07:44:59+09:00')).allowed,false);
+assert.equal(scheduledWindow(new Date('2026-10-28T07:45:00+09:00')).allowed,true);
+assert.equal(scheduledWindow(new Date('2026-10-28T07:59:59+09:00')).allowed,true);
+assert.equal(scheduledWindow(new Date('2026-10-28T08:00:00+09:00')).allowed,false);
 const sampleChart={chart:{result:[{meta:{symbol:'^KS11',exchangeTimezoneName:'Asia/Seoul'},timestamp:[Date.parse('2026-10-26T06:30:00Z')/1000,Date.parse('2026-10-27T06:30:00Z')/1000,Date.parse('2026-10-28T00:00:00Z')/1000],indicators:{quote:[{close:[100,110,999]}]}}]}};
 const daily=await fetchDatedDaily('KOSPI','^KS11','2026-10-28',{now:new Date('2026-10-28T08:00:00+09:00'),fetchImpl:async()=>({ok:true,json:async()=>sampleChart})});
 assert.equal(daily.value,110,'당일 미확정 일봉을 전일 종가로 사용하지 않음');
@@ -39,7 +40,7 @@ await assert.rejects(()=>sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345','
 let delivered=0, textSent='';
 const testSender=async(_token,_chat,text)=>{delivered++;textSent=text;};
 const tomorrow='2026-10-28',fakeRef={source:'PREKOSPI',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T07:30:00+09:00`};
-const morningOptions={now:()=>new Date(`${tomorrow}T08:00:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
+const morningOptions={now:()=>new Date(`${tomorrow}T07:45:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
 const morning=await runTelegramMorning(morningOptions);
 assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/공식 종가 확인 전/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,attempt:2}),/TELEGRAM_RETRY_BLOCKED/);
@@ -617,7 +618,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
 // Repeated schedule opportunities share a durable, pre-send delivery claim.
 {
  const {prepareMorning,deliverPrepared}=await import('./telegram-morning-workflow.mjs');
- const now=()=>new Date('2026-10-28T08:05:00+09:00');let preparations=0,sends=0;
+ const now=()=>new Date('2026-10-28T07:50:00+09:00');let preparations=0,sends=0;
  const options={now,githubToken:'SECRET',repository:'cyyoung111-dev/portfolio',run:async({send})=>{preparations++;await send(null,null,'시장 요약');return {status:'SENT_SOURCE_MISSING'};}};
  const mock=(count,artifacts=[])=>async(url,opts)=>{assert.match(url,/api.github.com\/repos\/cyyoung111-dev\/portfolio\/actions\/artifacts/);assert.equal(opts.headers.authorization,'Bearer SECRET');return {ok:true,json:async()=>({total_count:count,artifacts})};};
  const prepared=await prepareMorning({...options,fetchImpl:mock(0)});
@@ -631,15 +632,15 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  assert.equal(skipped.status,'ALREADY_CLAIMED');assert.equal(preparations,1,'fallback schedule must not rebuild or send after a claim');
  await assert.rejects(()=>prepareMorning({...options,fetchImpl:async()=>{throw Error('SECRET');}}),/TELEGRAM_CLAIM_LOOKUP_FAILED/);
  await assert.rejects(()=>prepareMorning({...options,attempt:2,fetchImpl:mock(0)}),/TELEGRAM_WORKFLOW_CONFIG/);
- await assert.rejects(()=>prepareMorning({...options,now:()=>new Date('2026-10-28T08:10:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
+ await assert.rejects(()=>prepareMorning({...options,now:()=>new Date('2026-10-28T08:00:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
  await assert.rejects(()=>prepareMorning({...options,fetchImpl:mock(1,[])}),/TELEGRAM_CLAIM_SCHEMA/);
  assert.equal((await deliverPrepared(prepared,{now,send:async()=>{sends++;}})).status,'SENT');assert.equal(sends,1);
  await assert.rejects(()=>deliverPrepared({...prepared,date:'2026-10-27'},{now,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  await assert.rejects(()=>deliverPrepared(prepared,{now,attempt:2,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
- await assert.rejects(()=>deliverPrepared(prepared,{now:()=>new Date('2026-10-28T08:10:00+09:00'),send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
+ await assert.rejects(()=>deliverPrepared(prepared,{now:()=>new Date('2026-10-28T08:00:00+09:00'),send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  assert.equal(sends,1,'late or stale payload cannot send');
  const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
- assert.equal(wf.on.schedule[0].cron,'0 23 * * 0-4');
+ assert.equal(wf.on.schedule[0].cron,'45 22 * * 0-4');
  const captureWf=YAML.parse(fs.readFileSync('.github/workflows/tfl-night-capture.yml','utf8'));
  assert.equal(captureWf.on.schedule[0].cron,'30 22 * * 0-4');
  assert.equal(captureWf.permissions.contents,'read');
