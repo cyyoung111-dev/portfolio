@@ -132,7 +132,7 @@ const extract = name => {
       _latestConfirmedForeignCloseDate_:()=>'',_hasKrxHoldingsForCloseDate_:()=>false,
       batchUpsertPriceHistory(){writes++;throw Error('WRITE_REACHED');}
     });
-    for(const name of ['_isKrxDailyCloseTarget_','_assertSupportedDailyCloseMarkets_','_assessDailyKrxStockClose'])
+    for(const name of ['_isKrxDailyCloseTarget_','_assertSupportedDailyCloseMarkets_','_assessDailyKrxStockClose','fetchDomesticRegularCloses'])
       vm.runInContext(extract(name),ctx);
     vm.runInContext(definition,ctx);
     assert.throws(()=>ctx.saveDailyPriceHistory('2026-10-12',{requireAllKrx:true}),
@@ -157,6 +157,7 @@ const installKrxTarget = context => {
     context._isFundCode = v=>/^F\d{5}$/.test(String(v||''));
   vm.runInContext(extract('_isKrxDailyCloseTarget_'), context);
   vm.runInContext(extract('_assertSupportedDailyCloseMarkets_'), context);
+  vm.runInContext(extract('fetchDomesticRegularCloses'), context);
 };
 const closeSection = extract('saveDailyPriceHistory');
 const freshnessCall = closeSection.indexOf('_assessDailyKrxStockClose(items, krxPrev, requestedCloseDate)');
@@ -1709,7 +1710,7 @@ assert.equal(yahooQueries.length,beforeUnknownSymbol,
   vm.runInContext(extract('saveDailyPriceHistory'),closeVm);
   assert.throws(()=>closeVm.saveDailyPriceHistory('2026-10-08'),/EXPECTED_FOREIGN_PROBE/,
     '정상 USD·NASDAQ 종목은 실제 가격 저장함수에서 Yahoo를 조회해야 함');
-  assert.deepEqual(queries,['KRX:0','YAHOO:MSFT'],
+  assert.deepEqual(queries,['YAHOO:MSFT'],
     'KRX와 Yahoo 마감 대상은 동일 판정 함수로 정확히 분할');
 }
 console.log('✅ 통합 해외시장 Yahoo 심볼/실제 fetch 및 KRW 기본값 조회 경로 검증');
