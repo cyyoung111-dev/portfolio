@@ -31,9 +31,10 @@ function dailyDate(value) {
 }
 const status = (response) => Number.isInteger(response?.status)&&response.status>=100&&response.status<=599
   ? response.status : 0;
-async function post(request, url, token, input) {
+async function post(request, url, token, key, secret, input) {
   const res=await request(url,{method:'POST',headers:{
     'content-type':'application/json; charset=UTF-8',authorization:'Bearer '+token,
+    'x-client-id':key,'x-client-secret':secret,
   },body:JSON.stringify({Input_0:input}),redirect:'error',signal:AbortSignal.timeout(12000)});
   return {res,json:await res.json()};
 }
@@ -64,7 +65,7 @@ export async function diagnoseClose({key,secret,request=fetch,log=console.log,wa
   for(const [label,code] of TARGETS){
     await wait(1000);
     try{
-      const {res,json}=await post(request,ORIGIN+DAILY,auth,{
+      const {res,json}=await post(request,ORIGIN+DAILY,auth,key,secret,{
         market_cd:'KRX',iem_cd:code,array_cnt:'2',view_main_yn:'Y',
       });
       const rows=json?.Output_0;
@@ -75,7 +76,7 @@ export async function diagnoseClose({key,secret,request=fetch,log=console.log,wa
       if(res.status===401||res.status===429)break;
       if(label==='KR_ETF'){
         await wait(1000);
-        const etf=await post(request,ORIGIN+ETF,auth,{iem_cd:code});
+        const etf=await post(request,ORIGIN+ETF,auth,key,secret,{iem_cd:code});
         const output=etf.json?.Output_0;
         const valid=etf.res.ok && output?.iem_cd===code && numericPrice(output.stck_prpr)!==null;
         log('KR_ETF_CURRENT HTTP_'+status(etf.res)+' '+(valid?'CODE_AND_PRICE_PRESENT':'CODE_OR_PRICE_UNVERIFIED'));
