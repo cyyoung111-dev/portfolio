@@ -33,10 +33,15 @@ export function safeOverseasShape(data, expected) {
   let format = 'OTHER';
   if (typeof object?.iem_cd !== 'string') format = 'NONSTRING';
   else if (object.iem_cd.length === 0) format = 'EMPTY';
+  else if (object.iem_cd.trim().length === 0) format = 'BLANK';
   else if (typeof expected === 'string' && object.iem_cd === expected) format = 'EXACT';
   else if (typeof expected === 'string' && object.iem_cd.trim() === expected) format = 'PADDED';
   else if (typeof expected === 'string' && object.iem_cd.trim().toUpperCase() === expected) format = 'CASE_OR_PADDING';
-  return `OUTPUT_${shape} ID_FIELD_${has('iem_cd')} ID_MATCH_${idMatch} ID_FORMAT_${format} PRICE_FIELD_${has('trdprc')} DATE_FIELD_${has('trade_date')} CODE_${codeClass}`;
+  else if (/^0+$/.test(object.iem_cd.trim())) format = 'ZEROS';
+  else if (/^[A-Z0-9]{15}$/.test(object.iem_cd.trim())) format = 'ALNUM15';
+  const priceValid = positivePrice(object?.trdprc) ? 'YES' : 'NO';
+  const dateValid = validYYYYMMDD(object?.trade_date) ? 'YES' : 'NO';
+  return `OUTPUT_${shape} ID_FIELD_${has('iem_cd')} ID_MATCH_${idMatch} ID_FORMAT_${format} PRICE_FIELD_${has('trdprc')} PRICE_POSITIVE_${priceValid} DATE_FIELD_${has('trade_date')} DATE_VALID_${dateValid} CODE_${codeClass}`;
 }
 
 export async function diagnose({ key, secret, request = fetch, log = console.log, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
