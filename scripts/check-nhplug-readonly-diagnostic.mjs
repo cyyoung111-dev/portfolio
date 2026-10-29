@@ -7,12 +7,15 @@ const secret = 'dummy-secret';
 const token = 'dummy-token';
 const request = async (url, options) => {
   requests.push([url, options]);
-  return { ok: true, status: 200, json: async () => requests.length === 1 ? { access_token: token } : { Output_0: { value: 42 } } };
+  return { ok: true, status: 200, json: async () => requests.length === 1 ? { access_token: token } : { Output_0: { stck_prpr: '71300' } } };
 };
 assert.equal(await diagnose({ key, secret, request, log: x => logs.push(x), wait: async () => {} }), false);
 assert.equal(requests.length, 5);
 assert.equal(requests[0][1].redirect, 'error');
 assert.equal(requests[1][1].headers.authorization, `Bearer ${token}`);
+assert.match(logs.join('\n'), /KR_STOCK HTTP_200 OUTPUT_PRESENT PRICE_PRESENT_DATE_UNVERIFIED/);
+assert.match(logs.join('\n'), /KR_ETF HTTP_200 OUTPUT_PRESENT PRICE_PRESENT_DATE_UNVERIFIED/);
+assert.match(logs.join('\n'), /US_STOCK HTTP_200 OUTPUT_PRESENT PRICE_UNVERIFIED/);
 assert.match(logs.join('\n'), /KOSPI200_NIGHT_FUTURE NOT_RUN_SPEC_UNCONFIRMED/);
 assert.doesNotMatch(logs.join('\n'), /dummy/);
 const failureLogs = [];
@@ -21,3 +24,7 @@ assert.equal(await diagnose({ key, secret, request: async () => { n++; throw Err
 assert.equal(n, 1);
 assert.doesNotMatch(failureLogs.join('\n'), /dummy/);
 console.log('NH readonly diagnostic checks passed');
+
+const missingLogs = [];
+await diagnose({ key, secret, request: async url => ({ ok: true, status: 200, json: async () => url.includes('/oauth2/token') ? { access_token: token } : { Output_0: { stck_prpr: '0' } } }), log: x => missingLogs.push(x), wait: async () => {} });
+assert.match(missingLogs.join('\n'), /KR_STOCK HTTP_200 OUTPUT_PRESENT PRICE_MISSING/);
