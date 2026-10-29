@@ -9,6 +9,13 @@ const chart={meta:{symbol:'^KS11',exchangeTimezoneName:'Asia/Seoul',currentTradi
 const fetchImpl=async()=>({ok:true,json:async()=>({chart:{result:[chart]}})});
 const row=await fetchClosingIndex('KOSPI','^KS11',date,{fetchImpl,now:now()});
 assert.equal(row.date,date);assert.equal(row.value,101);assert.ok(Math.abs(row.changePercent-1)<1e-10);
+// A gap must not turn a multi-session return into a daily change.
+chart.timestamp.unshift(Date.parse('2026-10-28T09:00:00+09:00')/1000);
+chart.indicators.quote[0].close.unshift(90);
+chart.indicators.quote[0].close[1]=null;
+const gap=await fetchClosingIndex('KOSPI','^KS11',date,{fetchImpl,now:now()});
+assert.equal(gap.value,101);assert.equal(gap.changePercent,null);
+chart.timestamp.shift();chart.indicators.quote[0].close.shift();chart.indicators.quote[0].close[0]=100;
 assert.equal(await fetchClosingIndex('KOSPI','^KS11',date,{fetchImpl,now:new Date(date+'T15:29:00+09:00')}),null);
 chart.meta.currentTradingPeriod.regular.end=Date.parse('2026-10-29T15:30:00+09:00')/1000;
 assert.equal(await fetchClosingIndex('KOSPI','^KS11',date,{fetchImpl,now:now()}),null);

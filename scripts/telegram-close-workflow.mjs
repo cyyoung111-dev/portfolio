@@ -4,6 +4,16 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {fetchDatedDaily,sendTelegram} from './telegram-morning-briefing.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
+function previousKrxSession(date){
+  const cursor=new Date(date+'T00:00:00Z');
+  for(let n=0;n<20;n++){
+    cursor.setUTCDate(cursor.getUTCDate()-1);
+    const candidate=cursor.toISOString().slice(0,10),status=krxSessionStatus(candidate);
+    if(status==='UNKNOWN')return null;
+    if(status==='OPEN')return candidate;
+  }
+  return null;
+}
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
 export function closeWindow(instant){
   const p=parts(instant),minute=Number(p.hour)*60+Number(p.minute);
@@ -32,7 +42,7 @@ export async function fetchClosingIndex(label,symbol,date,{fetchImpl=fetch,now=n
       if(day<=date){if(rows.has(day))return null;rows.set(day,value);}
     }
     const current=rows.get(date);if(!current)return null;
-    const prior=[...rows].filter(([day])=>day<date).sort((a,b)=>a[0].localeCompare(b[0])).at(-1)?.[1];
+    const prior=rows.get(previousKrxSession(date));
     return {label,symbol,date,value:current,changePercent:prior>0?(current/prior-1)*100:null};
   }catch{return null;}
 }
