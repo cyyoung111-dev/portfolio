@@ -143,3 +143,20 @@ const args=(f,candidate=base)=>({candidate,store:f.store,lock:f.lock});
  assert.equal(f.state.rows.length,1,'do not claim confirmed when release fails');
 }
 console.log('NH GAS night reference isolated lock, readback, failure and recovery tests passed');
+{
+ const prior=buildNightReference(base);
+ const reversed=Object.fromEntries(Object.entries(prior).reverse());
+ const f=fixture([reversed]);
+ assert.equal(persistNightReference(args(f)).status,'UNCHANGED_CONFIRMED');
+ assert.equal(f.state.writes,0);
+}
+{
+ const prior=buildNightReference(base);
+ const filler=Array.from({length:49999},(_,i)=>({storageKey:'other'+i}));
+ const f=fixture([...filler,prior]);
+ const next={...base,contract:'KA0173000',contractMonth:'2027-03'};
+ assert.equal(persistNightReference(args(f,next)).status,'CAPACITY_REACHED');
+ assert.equal(f.state.writes,0);
+ assert.equal(persistNightReference(args(f)).status,'UNCHANGED_CONFIRMED');
+}
+

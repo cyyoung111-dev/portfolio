@@ -25,7 +25,8 @@ function canonicalRow(row) {
 }
 function rowIsSame(actual, expected) {
   const canonical=canonicalRow(actual);
-  return canonical!==null && JSON.stringify(canonical)===JSON.stringify(expected);
+  const expectedCanonical=canonicalRow(expected);
+  return canonical!==null && expectedCanonical!==null && JSON.stringify(canonical)===JSON.stringify(expectedCanonical);
 }
 function safeRead(store) {
   const rows=store.listRows();
@@ -65,6 +66,7 @@ export function persistNightReference({candidate,store,lock}={}) {
     try { change=upsertNightReference(before,normalized); }
     catch { return result('CONFLICT'); }
     const needsWrite=change.outcome==='INSERTED'||change.outcome==='UPDATED';
+    if(change.outcome==='INSERTED' && before.length>=MAX_ROWS)return result('CAPACITY_REACHED');
     if(needsWrite) {
       const next=change.rows.find(row=>row.storageKey===key);
       const at=before.findIndex(row=>row.storageKey===key);
@@ -119,3 +121,4 @@ export function readNightForBriefing({tradingDate,asOf,store,lock}={}) {
       : {status:'REFERENCE_MISSING_OR_AMBIGUOUS',reference:null};
   });
 }
+
