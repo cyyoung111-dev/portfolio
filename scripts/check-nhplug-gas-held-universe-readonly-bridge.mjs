@@ -49,12 +49,11 @@ function extract(name) {
  return source.slice(start,end+2);
 }
 const context=vm.createContext({
- _cleanCode:v=>String(v||'').trim(),
  _normalizeDate:v=>String(v||'').trim().slice(0,10),
  Utilities:{formatDate:()=>{throw Error('unused GAS Date branch');}},
  CONFIG:{TIMEZONE:'Asia/Seoul'}
 });
-for(const name of ['_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAtDate','_calcCodeHoldingsAtDate']){
+for(const name of ['_cleanCode','_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAtDate','_calcCodeHoldingsAtDate']){
  vm.runInContext(extract(name),context);
 }
 const nameToCode=Object.fromEntries(master.map(x=>[x.name,x.code]));
@@ -63,6 +62,11 @@ const computed=context._calcCodeHoldingsAtDate(rows,date,nameToCode);
 const actual=Object.values(computed).map(x=>({code:x.code,quantity:x.qty})).sort((a,b)=>a.code.localeCompare(b.code));
 assert.deepEqual(JSON.parse(JSON.stringify(actual)),result.ledgerSnapshot.positions,
  'bridge parity against production GAS as-of trade replay');
+const numericTrade={...trades[0],code:'5930'};
+const numericResult=buildGasHeldUniverseCandidate({date,codeList:master,trades:[numericTrade]});
+const numericGas=context._calcCodeHoldingsAtDate([[numericTrade.date,numericTrade.tradeType,numericTrade.acct,numericTrade.name,numericTrade.code,numericTrade.qty,numericTrade.price,'주식','',0,0]],date,nameToCode);
+assert.equal(numericResult.ledgerSnapshot.positions[0].code,'005930');
+assert.equal(numericResult.ledgerSnapshot.positions[0].quantity,numericGas['005930'].qty);
 
 function bad(patch,expectedError){
  assert.throws(()=>buildGasHeldUniverseCandidate({date,codeList:master,trades:patch}),expectedError);
@@ -125,3 +129,4 @@ await assert.rejects(()=>fetchGasHeldUniverseCandidate({date,url:endpoint,token,
  /NH_GAS_UNIVERSE_TRANSPORT_FAILED/);
 assert.equal(sent,1,'never retry a network error with private data');
 console.log('NH GAS existing read-only endpoints, source parity, auth, non-atomic fail-closed checks passed');
+

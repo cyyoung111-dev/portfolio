@@ -14,6 +14,7 @@ function day(s){
 function cleanCode(v){
   if(typeof v!=='string')return '';
   const s=v.trim().toUpperCase();
+  if(/^\d+$/.test(s))return s.padStart(6,'0');
   return CODE.test(s)?s:'';
 }
 function number(v){
@@ -158,3 +159,4 @@ export async function fetchGasHeldUniverseCandidate({date,url,token,fetchImpl=fe
     date,codeList:master.codes,trades:second.trades,codeListVersion:master.gasVersion
   });
 }
+
