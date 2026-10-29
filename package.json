@@ -64,7 +64,7 @@
     "check:snapshot-recovery-maintenance": "node scripts/check-snapshot-recovery-maintenance.mjs",
     "check:price-history-integrity": "node scripts/check-price-history-integrity.mjs",
     "check:range-diagnosis-indexed": "node scripts/check-range-diagnosis-indexed.mjs",
-    "check:market-briefing-headless": "node scripts/check-tfl-night-reference.mjs && node scripts/check-market-briefing-headless.mjs",
+    "check:market-briefing-headless": "node scripts/check-tfl-night-reference.mjs && node scripts/check-market-briefing-headless.mjs && node scripts/check-telegram-close-workflow.mjs",
     "check:gas-deploy": "node scripts/check-gas-deploy.mjs && node scripts/check-gas-autorelease.mjs",
     "check:gas-menu": "node scripts/check-gas-menu.mjs",
     "check:ci-coverage": "node scripts/check-ci-coverage.mjs",

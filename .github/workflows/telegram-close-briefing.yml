@@ -1,0 +1,43 @@
+name: Telegram closing market briefing
+on:
+  schedule:
+    - cron: '30 7 * * 1-5' # 16:30 KST
+    - cron: '50 7 * * 1-5' # 16:50 KST fallback, only if unclaimed
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: telegram-close-briefing
+  cancel-in-progress: false
+jobs:
+  briefing:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prepare closing briefing and check durable claim
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/telegram-close-workflow.mjs prepare
+      - name: Claim delivery before contacting Telegram
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}
+          path: .telegram-close-runtime/claim.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Send claimed closing briefing once
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/telegram-close-workflow.mjs send
