@@ -14,12 +14,17 @@ export function inspectNightSchema(spec) {
     const request=op.requestBody?.content?.['application/json']?.schema?.properties?.Input_0;
     const response=op.responses?.['200']?.content?.['application/json']?.schema?.properties;
     if(!request?.properties||!response)continue;
-    const output={};
+    const output={}, evidence={};
     for(const name of ['Output_0','Output_1','Output_2']){
       const block=response[name];const fields=block?.type==='array'?block.items?.properties:block?.properties;
-      if(fields&&typeof fields==='object')output[name]=Object.keys(fields).filter(x=>/^[a-z0-9_]+$/.test(x)).sort();
+      if(fields&&typeof fields==='object') {
+        output[name]=Object.keys(fields).filter(x=>/^[a-z0-9_]+$/.test(x)).sort();
+        const selected=['iem_cd','last_tr_date','lstn_date','prpr','bsop_date','bsop_time','work_bsop_date','qry_date','qry_time','end_time_n'];
+        const desc=Object.fromEntries(selected.filter(x=>typeof fields[x]?.description==='string').map(x=>[x,fields[x].description.slice(0,250)]));
+        if(Object.keys(desc).length)evidence[name]=desc;
+      }
     }
-    rows.push({path,input:Object.keys(request.properties).filter(x=>/^[a-z0-9_]+$/.test(x)).sort(),required:(request.required||[]).filter(x=>/^[a-z0-9_]+$/.test(x)).sort(),output});
+    rows.push({path,input:Object.keys(request.properties).filter(x=>/^[a-z0-9_]+$/.test(x)).sort(),required:(request.required||[]).filter(x=>/^[a-z0-9_]+$/.test(x)).sort(),output,evidence});
   }
   return rows.sort((a,b)=>a.path.localeCompare(b.path));
 }
