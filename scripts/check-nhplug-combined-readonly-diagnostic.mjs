@@ -11,7 +11,7 @@ function fake({failStock=false}={}) {
     const input=JSON.parse(opts.body).Input_0;
     if(failStock && input.iem_cd==='005930')return res(401,{});
     if(url.endsWith('/currentDaily'))return res(200,{Output_0:[{bsop_date:'20261029',stck_clpr:'71300'}]});
-    const isUS=input.iem_cd==='AAPL'||input.iem_cd==='SPY';
+    const isUS=input.iem_cd==='AAPL'||input.iem_cd==='QQQ';
     return res(200,{Output_0:{iem_cd:input.iem_cd,...(isUS?{trdprc:'42.1',trade_date:'20261028'}:{stck_prpr:'71300'})}});
   };
   return {calls,request};

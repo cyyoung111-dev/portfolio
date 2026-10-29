@@ -9,7 +9,7 @@ const header = '@record 164\nchar sGIC[15]; /* @0 */\nchar sNationCode[3]; /* @9
 function masterRow(symbol,gic,country='USA') {
   const b=Buffer.alloc(164,32);b.write(gic,0,'ascii');b.write(country,95,'ascii');b.write(symbol,98,'ascii');b[163]=10;return b;
 }
-const master=Buffer.concat([masterRow('AAPL','USAAAPL'),masterRow('SPY','USASPY')]);
+const master=Buffer.concat([masterRow('AAPL','USAAAPL'),masterRow('QQQ','USAQQQ')]);
 const quotePayload = (symbol, overrides = {}) => ({
   Output_0: {
     iem_cd: symbol,
@@ -52,7 +52,7 @@ assert.equal(parseUSMaster(master.subarray(0,master.length-1),header,['AAPL']),n
 {
   const {ok,logs} = await run(makeRequests({
     AAPL:makeResponse(200,quotePayload('AAPL',{iem_cd:'USAAAPL'})),
-    SPY:makeResponse(200,quotePayload('SPY',{iem_cd:'USASPY'})),
+    QQQ:makeResponse(200,quotePayload('QQQ',{iem_cd:'USAQQQ'})),
   }).request);
   assert.equal(ok,true);
   assert.match(logs,/US_STOCK IDENTITY_PUBLIC_MASTER/);
@@ -90,7 +90,7 @@ assert.equal(parseUSMaster(master.subarray(0,master.length-1),header,['AAPL']),n
   ]);
   assert.deepEqual(apiCalls.map(x => JSON.parse(x.options.body).Input_0), [
     { iem_cd: '005930', market_cd: 'KRX' }, { iem_cd: '069500' },
-    { iem_cd: 'AAPL' }, { iem_cd: 'SPY' },
+    { iem_cd: 'AAPL' }, { iem_cd: 'QQQ' },
   ]);
   assert.equal(apiCalls[0].options.headers.authorization, `Bearer ${token}`);
   assert.ok(requests.filter(x => x.options.method === 'GET').every(x => !x.options.headers));
@@ -104,7 +104,7 @@ for (const [overrides, expected] of [
   [{ '005930': makeResponse(200, quotePayload('005930', { stck_prpr: '0' })) }, /KR_STOCK HTTP_200 PRICE_INVALID PREFLIGHT_FAIL/],
   [{ '069500': makeResponse(200, quotePayload('005930')) }, /KR_ETF HTTP_200 INSTRUMENT_UNVERIFIED PREFLIGHT_FAIL/],
   [{ AAPL: makeResponse(200, quotePayload('AAPL', { trdprc: 0 })) }, /US_STOCK HTTP_200 PRICE_INVALID PREFLIGHT_FAIL/],
-  [{ SPY: makeResponse(200, quotePayload('SPY', { trade_date: '20260230' })) }, /US_ETF HTTP_200 TRADE_DATE_INVALID PREFLIGHT_FAIL/],
+  [{ QQQ: makeResponse(200, quotePayload('QQQ', { trade_date: '20260230' })) }, /US_ETF HTTP_200 TRADE_DATE_INVALID PREFLIGHT_FAIL/],
   [{ AAPL: makeResponse(200, { message: { code: 'ERROR' } }) }, /US_STOCK HTTP_200 INSTRUMENT_UNVERIFIED PREFLIGHT_FAIL/],
 ]) {
   const { ok, logs } = await run(makeRequests(overrides).request);
