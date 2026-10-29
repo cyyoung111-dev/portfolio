@@ -30,15 +30,18 @@ const run = async (request) => {
   return { ok, logs: logs.join('\n') };
 };
 
-assert.equal(safeOverseasShape({Output_0:{iem_cd:secret,trdprc:secret},message:{rsp_cd:'IGW40301',rsp_msg:secret}},'AAPL'), 'OUTPUT_OBJECT ID_FIELD_YES ID_MATCH_NO ID_FORMAT_OTHER PRICE_FIELD_YES DATE_FIELD_NO CODE_GATEWAY');
-assert.equal(safeOverseasShape({Output_0:[secret],error_code:secret}), 'OUTPUT_ARRAY ID_FIELD_NO ID_MATCH_UNKNOWN ID_FORMAT_NONSTRING PRICE_FIELD_NO DATE_FIELD_NO CODE_OTHER');
+assert.equal(safeOverseasShape({Output_0:{iem_cd:secret,trdprc:secret},message:{rsp_cd:'IGW40301',rsp_msg:secret}},'AAPL'), 'OUTPUT_OBJECT ID_FIELD_YES ID_MATCH_NO ID_FORMAT_OTHER PRICE_FIELD_YES PRICE_POSITIVE_NO DATE_FIELD_NO DATE_VALID_NO CODE_GATEWAY');
+assert.equal(safeOverseasShape({Output_0:[secret],error_code:secret}), 'OUTPUT_ARRAY ID_FIELD_NO ID_MATCH_UNKNOWN ID_FORMAT_NONSTRING PRICE_FIELD_NO PRICE_POSITIVE_NO DATE_FIELD_NO DATE_VALID_NO CODE_OTHER');
 assert.match(safeOverseasShape({Output_0:{iem_cd:' AAPL  '}},'AAPL'), /ID_FORMAT_PADDED/);
 assert.match(safeOverseasShape({Output_0:{iem_cd:'aapl'}},'AAPL'), /ID_FORMAT_CASE_OR_PADDING/);
+assert.match(safeOverseasShape({Output_0:{iem_cd:'   ',trdprc:'42.1',trade_date:'20261028'}},'AAPL'), /ID_FORMAT_BLANK .*PRICE_POSITIVE_YES .*DATE_VALID_YES/);
+assert.match(safeOverseasShape({Output_0:{iem_cd:'0000'}},'AAPL'), /ID_FORMAT_ZEROS/);
+assert.match(safeOverseasShape({Output_0:{iem_cd:'AB1234567890123'}},'AAPL'), /ID_FORMAT_ALNUM15/);
 assert.doesNotMatch(safeOverseasShape({Output_0:{[secret]:secret},message:{rsp_cd:secret}}), /dummy/);
 {
   const {ok, logs} = await run(makeRequests({AAPL:makeResponse(200,{message:{rsp_cd:'IGW40301',rsp_msg:secret}})}).request);
   assert.equal(ok,false);
-  assert.match(logs,/US_STOCK RESPONSE_SHAPE OUTPUT_MISSING ID_FIELD_NO ID_MATCH_UNKNOWN ID_FORMAT_NONSTRING PRICE_FIELD_NO DATE_FIELD_NO CODE_GATEWAY/);
+  assert.match(logs,/US_STOCK RESPONSE_SHAPE OUTPUT_MISSING ID_FIELD_NO ID_MATCH_UNKNOWN ID_FORMAT_NONSTRING PRICE_FIELD_NO PRICE_POSITIVE_NO DATE_FIELD_NO DATE_VALID_NO CODE_GATEWAY/);
 }
 {
   const {ok,logs} = await run(makeRequests({AAPL:makeResponse(200,quotePayload(' AAPL '))}).request);
