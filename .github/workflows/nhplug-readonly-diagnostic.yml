@@ -8,6 +8,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   readonly:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: portfolio-market-data
     timeout-minutes: 5
