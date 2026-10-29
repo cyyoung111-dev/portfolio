@@ -47,11 +47,18 @@ expectReject({ observedAt: '2026-10-29T06:00:01+09:00' }, 'WRONG_NIGHT_SESSION')
 expectReject({ observedAt: '2026-10-29T05:59:58' }, 'TIMESTAMP_INVALID');
 expectReject({ observedAt: '2026-10-29T08:00:00+09:00' }, 'TIMESTAMP_INVALID');
 expectReject({ receivedAt: '2026-10-29T05:59:59+09:00' }, 'RECEIPT_OUTSIDE_CUTOFF');
-expectReject({ receivedAt: '2026-10-29T07:40:00+09:00' }, 'RECEIPT_OUTSIDE_CUTOFF');
+expectReject({ receivedAt: '2026-10-29T08:10:00+09:00' }, 'RECEIPT_OUTSIDE_CUTOFF');
 
 assert.equal(buildNightReference({ ...base, observedAt: '2026-10-28T18:00:00+09:00' }).status, 'REFERENCE');
 assert.equal(buildNightReference({ ...base, observedAt: '2026-10-29T06:00:00+09:00' }).status, 'REFERENCE');
 assert.equal(buildNightReference({ ...base, receivedAt: '2026-10-29T07:39:59+09:00' }).status, 'REFERENCE');
+assert.equal(buildNightReference({ ...base, receivedAt: '2026-10-29T08:09:59+09:00' }).status, 'REFERENCE');
+const retryCapture = buildNightReference({ ...base, receivedAt: '2026-10-29T08:05:00+09:00' });
+assert.equal(nightTelegramReference([retryCapture],target,new Date('2026-10-29T07:40:00+09:00')), null);
+assert.equal(nightTelegramReference([retryCapture],target,new Date('2026-10-29T08:06:00+09:00')).value, 350.25);
+assert.match(formatNightTelegramLine(retryCapture,target,new Date('2026-10-29T07:40:00+09:00')), /미확보/);
+assert.match(formatNightTelegramLine(retryCapture,target,new Date('2026-10-29T08:06:00+09:00')), /350.25pt/);
+assert.throws(() => nightTelegramReference([record],target,'2026-10-29T07:40:00'), /AS_OF_INVALID/);
 
 const initial = upsertNightReference([], record);
 assert.equal(initial.outcome, 'INSERTED');
