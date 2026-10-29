@@ -30,7 +30,13 @@ export function safeOverseasShape(data, expected) {
   const code = data?.message?.rsp_cd ?? data?.rsp_cd ?? data?.error_code;
   const codeClass = typeof code !== 'string' ? 'ABSENT' : /^IGW\d{5}$/.test(code) ? 'GATEWAY' : /^\d{5}$/.test(code) ? 'BUSINESS' : 'OTHER';
   const idMatch = has('iem_cd') === 'NO' || typeof expected !== 'string' ? 'UNKNOWN' : object.iem_cd === expected ? 'YES' : 'NO';
-  return `OUTPUT_${shape} ID_FIELD_${has('iem_cd')} ID_MATCH_${idMatch} PRICE_FIELD_${has('trdprc')} DATE_FIELD_${has('trade_date')} CODE_${codeClass}`;
+  let format = 'OTHER';
+  if (typeof object?.iem_cd !== 'string') format = 'NONSTRING';
+  else if (object.iem_cd.length === 0) format = 'EMPTY';
+  else if (typeof expected === 'string' && object.iem_cd === expected) format = 'EXACT';
+  else if (typeof expected === 'string' && object.iem_cd.trim() === expected) format = 'PADDED';
+  else if (typeof expected === 'string' && object.iem_cd.trim().toUpperCase() === expected) format = 'CASE_OR_PADDING';
+  return `OUTPUT_${shape} ID_FIELD_${has('iem_cd')} ID_MATCH_${idMatch} ID_FORMAT_${format} PRICE_FIELD_${has('trdprc')} DATE_FIELD_${has('trade_date')} CODE_${codeClass}`;
 }
 
 export async function diagnose({ key, secret, request = fetch, log = console.log, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
