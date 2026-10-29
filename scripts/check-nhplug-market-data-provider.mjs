@@ -41,3 +41,23 @@ const missingExpiry=createNhMarketDataProvider({key:'k',secret:'s',request:async
 await assert.rejects(missingExpiry.quote(kr),/EXPIRY_UNVERIFIED/);
 assert.equal(missingExpiryCalls,1);
 console.log('NH provider: identity, provisional close, market dates, serialized token reuse and error checks passed');
+
+// Exercise the exact trusted-runner entry, including master mapping and errors.
+const {runProviderPreflight}=await import('./nhplug-provider-live-preflight.mjs');
+const masterRow=(symbol,id)=>{const b=Buffer.alloc(164,32);b.write(id);b.write('USA',95);b.write(symbol,98);b[163]=10;return b;};
+const master=Buffer.concat([masterRow('AAPL','USAAAPL'),masterRow('QQQ','USAQQQ')]);
+const logs=[];let tokens=0;
+const request=async(url,options)=>{
+  if(url.endsWith('.h'))return {ok:true,text:async()=>'@record 164\nchar sGIC[15]; /* @0 */\nchar sNationCode[3]; /* @95 */\nchar sSymbol[12]; /* @98 */'};
+  if(url.endsWith('.mst'))return {ok:true,headers:{get:()=>String(master.length)},arrayBuffer:async()=>master};
+  if(url.includes('/oauth2/token')){tokens++;return {ok:true,json:async()=>({access_token:'private-token',expires_in:3600})};}
+  const code=JSON.parse(options.body).Input_0.iem_cd;
+  return {ok:true,json:async()=>({Output_0:{iem_cd:code==='AAPL'?'USAAAPL':code==='QQQ'?'USAQQQ':code,stck_prpr:'232000',trdprc:'349.67',trade_date:'20261029',secret:'private-response'}})};
+};
+assert.equal(await runProviderPreflight({key:'private-key',secret:'private-secret',request,log:v=>logs.push(v),wait:async()=>{},now:()=>new Date(at)}),true);
+assert.equal(tokens,1);
+assert.equal(logs.filter(x=>x.startsWith('{')).length,4);
+assert.doesNotMatch(logs.join('\n'),/private-|Bearer/);
+const failed=[];
+assert.equal(await runProviderPreflight({request:async()=>{throw Error('private-network-error');},log:v=>failed.push(v)}),false);
+assert.deepEqual(failed,['NH_PROVIDER_MASTER_UNVERIFIED']);

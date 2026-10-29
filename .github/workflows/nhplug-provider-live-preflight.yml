@@ -1,0 +1,30 @@
+name: NH provider live preflight
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nhplug-provider-live-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nhplug-readonly-diagnostic
+  cancel-in-progress: false
+jobs:
+  readonly:
+    if: github.ref == 'refs/heads/main'
+    environment: portfolio-market-data
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify server provider against NH public samples
+        env:
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/nhplug-provider-live-preflight.mjs
