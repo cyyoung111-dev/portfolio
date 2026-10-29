@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
-import { diagnose, safeOverseasShape } from './nhplug-readonly-diagnostic.mjs';
+import { diagnose, safeOverseasShape, parseUSMaster } from './nhplug-readonly-diagnostic.mjs';
 
 const key = 'dummy-key', secret = 'dummy-secret', token = 'dummy-token';
 const makeResponse = (status, payload) => ({
   ok: status >= 200 && status < 300, status, json: async () => payload,
 });
+const header = '@record 164\nchar sGIC[15]; /* @0 */\nchar sNationCode[3]; /* @95 */\nchar sSymbol[12]; /* @98 */';
+function masterRow(symbol,gic,country='USA') {
+  const b=Buffer.alloc(164,32);b.write(gic,0,'ascii');b.write(country,95,'ascii');b.write(symbol,98,'ascii');b[163]=10;return b;
+}
+const master=Buffer.concat([masterRow('AAPL','USAAAPL'),masterRow('SPY','USASPY')]);
 const quotePayload = (symbol, overrides = {}) => ({
   Output_0: {
     iem_cd: symbol,
@@ -18,6 +23,8 @@ const makeRequests = (overrides = {}) => {
   const request = async (url, options) => {
     requests.push({ url, options });
     if (url.includes('/oauth2/token')) return makeResponse(200, { access_token: token });
+    if (url.endsWith('/m_gtsstock.h')) return {ok:true,text:async()=>header};
+    if (url.endsWith('/m_gtsstock.mst')) return {ok:true,headers:{get:()=>String(master.length)},arrayBuffer:async()=>master};
     const symbol = JSON.parse(options.body).Input_0.iem_cd;
     return overrides[symbol] ?? makeResponse(200, quotePayload(symbol));
   };
@@ -38,6 +45,24 @@ assert.match(safeOverseasShape({Output_0:{iem_cd:'   ',trdprc:'42.1',trade_date:
 assert.match(safeOverseasShape({Output_0:{iem_cd:'0000'}},'AAPL'), /ID_FORMAT_ZEROS/);
 assert.match(safeOverseasShape({Output_0:{iem_cd:'AB1234567890123'}},'AAPL'), /ID_FORMAT_ALNUM15/);
 assert.doesNotMatch(safeOverseasShape({Output_0:{[secret]:secret},message:{rsp_cd:secret}}), /dummy/);
+assert.equal(parseUSMaster(master,header,['AAPL']).get('AAPL'),'USAAAPL');
+assert.equal(parseUSMaster(Buffer.concat([master,masterRow('AAPL','USAOTHER')]),header,['AAPL']).has('AAPL'),false);
+assert.equal(parseUSMaster(master,header.replace('@98','@99'),['AAPL']),null);
+assert.equal(parseUSMaster(master.subarray(0,master.length-1),header,['AAPL']),null);
+{
+  const {ok,logs} = await run(makeRequests({
+    AAPL:makeResponse(200,quotePayload('AAPL',{iem_cd:'USAAAPL'})),
+    SPY:makeResponse(200,quotePayload('SPY',{iem_cd:'USASPY'})),
+  }).request);
+  assert.equal(ok,true);
+  assert.match(logs,/US_STOCK IDENTITY_PUBLIC_MASTER/);
+  assert.match(logs,/US_ETF IDENTITY_PUBLIC_MASTER/);
+}
+{
+  const {ok,logs} = await run(makeRequests({AAPL:makeResponse(200,quotePayload('AAPL',{iem_cd:'USAOTHER'}))}).request);
+  assert.equal(ok,false);
+  assert.match(logs,/US_STOCK IDENTITY_MISMATCH/);
+}
 {
   const {ok, logs} = await run(makeRequests({AAPL:makeResponse(200,{message:{rsp_cd:'IGW40301',rsp_msg:secret}})}).request);
   assert.equal(ok,false);
@@ -55,18 +80,20 @@ assert.doesNotMatch(safeOverseasShape({Output_0:{[secret]:secret},message:{rsp_c
   const { request, requests } = makeRequests();
   const { ok, logs } = await run(request);
   assert.equal(ok, true);
-  assert.equal(requests.length, 5);
+  assert.equal(requests.length, 7);
   assert.equal(new URL(requests[0].url).pathname, '/oauth2/token');
   assert.equal(requests[0].options.redirect, 'error');
-  assert.deepEqual(requests.slice(1).map(x => new URL(x.url).pathname), [
+  const apiCalls = requests.filter(x => x.options.method === 'POST').slice(1);
+  assert.deepEqual(apiCalls.map(x => new URL(x.url).pathname), [
     '/krstock/quote/v1/currentPrice', '/krstock/quote/v1/etfCurrent',
     '/gbstock/quote/v1/current', '/gbstock/quote/v1/current',
   ]);
-  assert.deepEqual(requests.slice(1).map(x => JSON.parse(x.options.body).Input_0), [
+  assert.deepEqual(apiCalls.map(x => JSON.parse(x.options.body).Input_0), [
     { iem_cd: '005930', market_cd: 'KRX' }, { iem_cd: '069500' },
     { iem_cd: 'AAPL' }, { iem_cd: 'SPY' },
   ]);
-  assert.equal(requests[1].options.headers.authorization, `Bearer ${token}`);
+  assert.equal(apiCalls[0].options.headers.authorization, `Bearer ${token}`);
+  assert.ok(requests.filter(x => x.options.method === 'GET').every(x => !x.options.headers));
   assert.match(logs, /US_ETF HTTP_200 PRICE_PRESENT_DATE_FORMAT_VALID_FRESHNESS_UNVERIFIED PREFLIGHT_PASS/);
   assert.match(logs, /QUOTE_PREFLIGHT PASS NIGHT_FUTURE_UNVERIFIED/);
   assert.match(logs, /KOSPI200_NIGHT_FUTURE NOT_RUN_CONTRACT_PENDING/);
@@ -91,7 +118,7 @@ for (const [overrides, expected] of [
   const { request, requests } = makeRequests({ '069500': makeResponse(429, {}) });
   const { ok, logs } = await run(request);
   assert.equal(ok, false);
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 5);
   assert.match(logs, /KR_ETF HTTP_429/);
 }
 {
