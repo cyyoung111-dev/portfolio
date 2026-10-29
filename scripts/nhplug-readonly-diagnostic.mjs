@@ -10,12 +10,12 @@ const QUOTES = [
 ];
 
 function positivePrice(value) {
-  if (typeof value !== 'number' && !(typeof value === 'string' && /^\\d+(?:\\.\\d+)?$/.test(value.trim()))) return false;
+  if (typeof value !== 'number' && !(typeof value === 'string' && /^\d+(?:\\.\d+)?$/.test(value.trim()))) return false;
   return Number.isFinite(Number(value)) && Number(value) > 0;
 }
 
 function validYYYYMMDD(value) {
-  if (typeof value !== 'string' || !/^\\d{8}$/.test(value)) return false;
+  if (typeof value !== 'string' || !/^\d{8}$/.test(value)) return false;
   const y = Number(value.slice(0, 4)), m = Number(value.slice(4, 6)), d = Number(value.slice(6, 8));
   const parsed = new Date(Date.UTC(y, m - 1, d));
   return parsed.getUTCFullYear() === y && parsed.getUTCMonth() + 1 === m && parsed.getUTCDate() === d;
