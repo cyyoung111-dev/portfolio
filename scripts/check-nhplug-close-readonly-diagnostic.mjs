@@ -33,7 +33,11 @@ async function run(mock,options={}){
     {market_cd:'KRX',iem_cd:'069500',array_cnt:'2',view_main_yn:'Y'},
   ]);
   assert.equal(JSON.parse(mock.calls[3].options.body).Input_0.iem_cd,'069500');
-  assert.equal(mock.calls[1].options.headers.authorization,'Bearer '+token);
+  for(const call of mock.calls.slice(1)) {
+    assert.equal(call.options.headers.authorization,'Bearer '+token);
+    assert.equal(call.options.headers['x-client-id'],key);
+    assert.equal(call.options.headers['x-client-secret'],secret);
+  }
   assert.match(logs,/KR_STOCK_DAILY HTTP_200 EXACT_DATE_CLOSE_PRESENT/);
   assert.match(logs,/KR_ETF_DAILY HTTP_200 EXACT_DATE_CLOSE_PRESENT/);
   assert.match(logs,/REGULAR_CLOSE_PREFLIGHT PASS LIVE_EXCHANGE_FINALITY_UNVERIFIED/);
