@@ -13,7 +13,7 @@ export async function runBacklog({url,token,apply=false,fetchImpl=fetch}) {
   const rejected=await request('getAutomationStatus',{},bad);
   if(rejected.status!=='error'||rejected.message!=='인증 실패')throw Error('BACKLOG_CLIENT_AUTH_GUARD');
   const before=await request('getAutomationStatus');
-  if(before.status!=='ok'||before.gasVersion!=='9.276')throw Error('BACKLOG_CLIENT_VERSION');
+  if(before.status!=='ok'||before.gasVersion!=='9.277')throw Error('BACKLOG_CLIENT_VERSION');
   const r=await request('reconcileTradeSnapshotBacklog',{apply:apply?'1':'0'});
   if(r.status!=='ok'){
     const safe=new Set(['BACKLOG_AUTH_REQUIRED','BACKLOG_BAD_APPLY','BACKLOG_BUSY','BACKLOG_LEDGER_UNVERIFIED','BACKLOG_BAD_PENDING','BACKLOG_FUTURE_DEFERRED','BACKLOG_SNAPSHOT_REQUIRED','BACKLOG_DATE_LIMIT','BACKLOG_DEFERRED_LIMIT','BACKLOG_SOURCE_CHANGED','BACKLOG_BACKUP_LIMIT','BACKLOG_QUEUE_UNVERIFIED','BACKLOG_PENDING_UNVERIFIED',...['VALIDATE','READ','DATES','DIAGNOSE','VERIFY','COMMIT'].map(p=>'BACKLOG_'+p+'_FAILED')]);
@@ -28,7 +28,7 @@ export async function runBacklog({url,token,apply=false,fetchImpl=fetch}) {
   if(!r.counts||Object.keys(r.counts).some(k=>!allowed.includes(k))||Object.values(r.counts).some(n=>!Number.isSafeInteger(n)||n<0)
       ||Object.values(r.counts).reduce((a,b)=>a+b,0)!==r.checkedDates)throw Error('BACKLOG_CLIENT_BAD_COUNTS');
   const after=await request('getAutomationStatus');
-  if(after.status!=='ok'||after.gasVersion!=='9.276'||after.automation?.tradeSnapshotDeferredCount!==r.deferredAfter
+  if(after.status!=='ok'||after.gasVersion!=='9.277'||after.automation?.tradeSnapshotDeferredCount!==r.deferredAfter
       ||(r.pendingCleared&&after.automation?.pendingTradeSnapshotRebuildFrom))throw Error('BACKLOG_CLIENT_READBACK');
   return {mode:r.mode,...Object.fromEntries(nums.map(k=>[k,r[k]])),counts:r.counts,pendingCleared:r.pendingCleared,originalDataWritten:false,sourceStable:true};
 }

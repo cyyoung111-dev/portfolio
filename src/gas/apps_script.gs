@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.276
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.277
+//
+//  v9.277 변경사항 (2026.10.30):
+//  • 미등록 미국 티커를 NH 공식 미국 마스터의 정확한 식별 근거로 조회
+//  • 명시된 국내·해외 거래소 및 모호한 국내 6자리 코드 보호, 응답 통화로 환율 조회
 //
 //  v9.276 변경사항 (2026.10.29):
 //  • NH 현재가 운영 연결, 인증된 키 등록·활성화, NH 활성 시 Toss 외부 호출 차단
@@ -2339,7 +2343,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.276',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.277',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2418,7 +2422,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.276', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.277', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5024,7 +5028,7 @@ function handleGetPricesCompat(codesParam, persist) {
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
-    var cacheKey = 'prices_v9176_p' + (persist ? '1' : '0') + '_' + cacheHash;
+    var cacheKey = 'prices_v9277_p' + (persist ? '1' : '0') + '_' + cacheHash;
     var cached = cache.get(cacheKey);
     _priceTimingAdd_(timings, 'setup', setupStartedMs);
     if (cached) {
@@ -5100,7 +5104,7 @@ function handleGetPricesCompat(codesParam, persist) {
       });
       _priceTimingAdd_(timings, 'codeItems', codeItemsStartedMs);
       var targetItems = reqCodes.map(function(c){
-        return codeItemMap[c] || { code: c, name: codeNameMap[c] || c, currency: 'KRW' };
+        return codeItemMap[c] || { code: c, name: codeNameMap[c] || c, currency: 'KRW', nhMetadataMissing: true };
       });
       lookupMeta.usdItemPresent = _hasUsdPriceItems(targetItems);
       var tossPrices = {};
@@ -5207,13 +5211,17 @@ function handleGetPricesCompat(codesParam, persist) {
       if (!requestedSet[item.code] || !item.currency || item.currency === 'KRW') return;
       if (neededCurrencies.indexOf(item.currency) === -1) neededCurrencies.push(item.currency);
     });
+    Object.keys(tossPrices || {}).forEach(function(code){var currency=tossPrices[code]&&tossPrices[code].currency;if(currency&&currency!=='KRW'&&neededCurrencies.indexOf(currency)<0)neededCurrencies.push(currency);});
+    lookupMeta.usdItemPresent=lookupMeta.usdItemPresent||neededCurrencies.indexOf('USD')>=0;
     var exchangeRates = neededCurrencies.length > 0 ? fetchExchangeRates(ss, neededCurrencies) : {};
     _priceTimingAdd_(timings, 'other', otherStartedMs);
     var finalizeStartedMs = Date.now();
     lookupMeta.timings = timings;
     lookupMeta.serverElapsedMs = Date.now() - requestStartedMs;
     Logger.log('[price-lookup] ' + JSON.stringify(lookupMeta));
-    var payload = { prices: prices, priceDates: priceDates, missing: stillMissing, exchangeRates: exchangeRates, priceLookup: lookupMeta };
+    var priceCurrencies = {};
+    Object.keys(tossPrices || {}).forEach(function(code){if(tossPrices[code]&&tossPrices[code].source==='NH'&&Number(prices[code])===Number(tossPrices[code].price))priceCurrencies[code]=tossPrices[code].currency;});
+    var payload = { prices: prices, priceDates: priceDates, priceCurrencies: priceCurrencies, missing: stillMissing, exchangeRates: exchangeRates, priceLookup: lookupMeta };
     try { cache.put(cacheKey, JSON.stringify(payload), 60); } catch(cacheWriteErr) {}
     _priceTimingAdd_(timings, 'finalize', finalizeStartedMs);
     return jsonOk(payload);
@@ -6445,7 +6453,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.276' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.277' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13712,7 +13720,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.276',
+    gasVersion: '9.277',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13779,7 +13787,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.276' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.277' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16850,7 +16858,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.276' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.277' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17674,7 +17682,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.276' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.277' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17705,7 +17713,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.276'
+      gasVersion: '9.277'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19835,18 +19843,25 @@ function _nhUsMaster_(symbols) {
   symbols.forEach(function(symbol){if(ambiguous[symbol])delete found[symbol];});
   cache.put(key,JSON.stringify(found),symbols.every(function(symbol){return !!found[symbol];})?21600:60);return found;
 }
+function _nhUsCandidate_(item) {
+  var symbol=String(item&&item.code||'').toUpperCase(),currency=String(item&&item.currency||'KRW'),market=String(item&&item.market||'').toUpperCase();
+  if(!_isFundCode(symbol)&&currency==='USD')return true;
+  if(_isFundCode(symbol)||currency!=='KRW'||!/^[A-Z][A-Z0-9.\-]{0,11}$/.test(symbol))return false;
+  if(['KR','KRX','KOSPI','KOSDAQ','ETF','JP','TSE','TYO','HK','HKG','HKEX','UK','LSE','EU'].indexOf(market)>=0)return false;
+  return !!item.nhMetadataMissing||symbol.length!==6||['US','USA','NYSE','NASDAQ','AMEX','OTC','미국'].indexOf(market)>=0;
+}
 function fetchPricesNh(items,timings,meta) {
   var result={},credentials=_nhCredentials_(),started=Date.now(),cache=CacheService.getScriptCache();
   if(meta){meta.attempted=false;meta.status='NOT_RUN';meta.reason='NH_CREDENTIALS_MISSING';meta.provider='NH';}
   if(!credentials.key||!credentials.secret)return result;
   var targets=(items||[]).filter(function(item){return item&&item.code&&!_isFundCode(item.code)&&['KRW','USD'].indexOf(String(item.currency||'KRW'))>=0;});
   if(targets.length>80)throw new Error('NH_TOO_MANY_SYMBOLS');
-  var symbols=targets.filter(function(item){return item.currency==='USD';}).map(function(item){return String(item.code).toUpperCase();}),master={},masterReason='';
+  var symbols=targets.filter(function(item){return _nhUsCandidate_(item);}).map(function(item){return String(item.code).toUpperCase();}),master={},masterReason='';
   try {master=_nhUsMaster_(symbols);}catch(ignoreMaster){masterReason='NH_US_MASTER_UNAVAILABLE';}
   if(meta){meta.attempted=true;meta.status='REQUESTING';meta.reason=masterReason;}
   for(var i=0;i<targets.length;i++){
     if(Date.now()-started>65000){if(meta)meta.reason='NH_PARTIAL_TIME_BUDGET';break;}
-    var item=targets[i],symbol=String(item.code).toUpperCase(),us=item.currency==='USD',cacheKey='nh_quote_'+item.currency+'_'+symbol;
+    var item=targets[i],symbol=String(item.code).toUpperCase(),us=item.currency==='USD'||(_nhUsCandidate_(item)&&!!master[symbol]),cacheKey='nh_quote_'+(us?'USD':'KRW')+'_'+symbol;
     if(!(us?/^[A-Z][A-Z0-9.\-]{0,11}$/:/^[A-Z0-9]{6}$/).test(symbol))continue;
     if(us&&!master[symbol]){if(meta)meta.reason=masterReason||'NH_US_MASTER_PARTIAL';continue;}
     var raw=cache.get(cacheKey);
