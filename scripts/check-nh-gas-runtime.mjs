@@ -55,7 +55,11 @@ const failMeta={};assert.equal(Object.keys(s.ctx.fetchPricesToss([{code:'005930'
 assert.match(source,/params.action === 'saveNhConfig'\) return handleSaveNhConfig\(params\)/);
 assert.match(source,/\|provider='/);
 console.log('NH native GAS: activation, strict auth, KR/US quotes, master identity, cache, no Toss calls and 401 recovery passed');
-const {activateNhRuntime}=await import('./activate-nh-gas-runtime.mjs');
+const {activateNhRuntime,selectNhReadbackCodes}=await import('./activate-nh-gas-runtime.mjs');
+const registered=[{code:'005930',currency:'KRW',type:'주식',market:'KRX'},{code:'NVDA',currency:'USD',type:'주식',market:'NASDAQ'}];
+assert.deepEqual(selectNhReadbackCodes(registered),['005930','NVDA']);
+assert.throws(()=>selectNhReadbackCodes([...registered,registered[0]]),/DUPLICATE/);
+assert.throws(()=>selectNhReadbackCodes([registered[0]]),/TARGETS_MISSING/);
 const actions=[];
 const liveMock=async(url,options)=>{
   const p=new URLSearchParams(options.body);actions.push(p.get('action'));
@@ -63,12 +67,13 @@ const liveMock=async(url,options)=>{
   if(p.get('accessToken').endsWith('-DENY-PROBE'))body={status:'error'};
   else if(p.get('action')==='getSettings')body={status:'ok',gasVersion:'9.276',settings:{apiKeyStatus:{nh:{enabled:false}}}};
   else if(p.get('action')==='saveNhConfig')body={status:'ok',nh:{enabled:true}};
-  else {assert.equal(p.get('persist'),'0');body={status:'ok',prices:{'005930':232000,AAPL:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}};}
+  else if(p.get('action')==='getCodeListReadOnly')body={status:'ok',readOnly:true,gasVersion:'9.276',codes:registered};
+  else {assert.equal(p.get('persist'),'0');assert.equal(p.get('codes'),'005930,NVDA');body={status:'ok',prices:{'005930':232000,NVDA:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}};}
   return {ok:true,json:async()=>body};
 };
 const activation=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:liveMock});
 assert.equal(activation.status,'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED');assert.equal(activation.fullCoverageVerified,false);
-assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','getPrices']);
+assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','getCodeListReadOnly','getPrices']);
 await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',key:'key',secret:'secret'}),/GAS_AUTH_NOT_CONFIGURED/);
 await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',request:async()=>({ok:true,json:async()=>({status:'ok'})})}),/AUTH_NOT_ENFORCED/);
 const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
