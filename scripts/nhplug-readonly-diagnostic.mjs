@@ -26,10 +26,17 @@ function validYYYYMMDD(value) {
 // Public NH master only. Validate the current header layout and all LF boundaries;
 // do not guess if the master changes or if the same US ticker has multiple rows.
 export function parseUSMaster(bytes, header, symbols) {
-  if (typeof header !== 'string' || !/@record\s+164\b/.test(header) ||
-      !/char\s+sGIC\[15\][^\n]*@0\b/.test(header) ||
-      !/char\s+sNationCode\[3\][^\n]*@95\b/.test(header) ||
-      !/char\s+sSymbol\[12\][^\n]*@98\b/.test(header)) return null;
+  if (typeof header !== 'string' || !/@record\s+164\b/.test(header)) return null;
+  const cLayout=/char\s+sGIC\[15\][^\n]*@0\b/.test(header) &&
+      /char\s+sNationCode\[3\][^\n]*@95\b/.test(header) &&
+      /char\s+sSymbol\[12\][^\n]*@98\b/.test(header);
+  const fields=[...header.matchAll(/^\s*\(["']([A-Za-z0-9_]+)["']\s*,\s*(\d+)\s*\)\s*,?\s*$/gm)];
+  const offsets=new Map(), widths=new Map(); let offset=0,duplicate=false;
+  for(const field of fields){if(offsets.has(field[1]))duplicate=true;offsets.set(field[1],offset);widths.set(field[1],Number(field[2]));offset+=Number(field[2]);}
+  const pythonLayout=!duplicate && offset===164 && offsets.get('sGIC')===0 &&
+    offsets.get('sNationCode')===95 && offsets.get('sSymbol')===98 &&
+    widths.get('sGIC')===15 && widths.get('sNationCode')===3 && widths.get('sSymbol')===12;
+  if(!cLayout && !pythonLayout)return null;
   if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MASTER_MAX_BYTES || bytes.length % 164 !== 0) return null;
   const found = new Map(symbols.map(x => [x, new Set()]));
   const ascii = (a,b) => Buffer.from(bytes.subarray(a,b)).toString('ascii').trim();
@@ -43,12 +50,12 @@ export function parseUSMaster(bytes, header, symbols) {
 
 async function loadUSMaster(request) {
   try {
-    const options = { method:'GET', redirect:'error', signal:AbortSignal.timeout(15000) };
-    const h = await request(MASTER_ORIGIN+'m_gtsstock.h', options);
+    const options = ms => ({ method:'GET', redirect:'error', signal:AbortSignal.timeout(ms) });
+    const h = await request(MASTER_ORIGIN+'m_gtsstock.h', options(15000));
     if (!h.ok) return null;
     const header = await h.text();
     if (header.length > 100000) return null;
-    const m = await request(MASTER_ORIGIN+'m_gtsstock.mst', options);
+    const m = await request(MASTER_ORIGIN+'m_gtsstock.mst', options(75000));
     if (!m.ok) return null;
     const size=Number(m.headers?.get?.('content-length') || 0);
     if (size > MASTER_MAX_BYTES) return null;
@@ -160,5 +167,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const ok = await diagnose({ key: process.env.NHPLUG_APP_KEY, secret: process.env.NHPLUG_APP_SECRET });
   if (!ok) process.exitCode = 1;
 }
+
 
 

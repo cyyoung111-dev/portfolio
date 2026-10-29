@@ -46,6 +46,10 @@ assert.match(safeOverseasShape({Output_0:{iem_cd:'0000'}},'AAPL'), /ID_FORMAT_ZE
 assert.match(safeOverseasShape({Output_0:{iem_cd:'AB1234567890123'}},'AAPL'), /ID_FORMAT_ALNUM15/);
 assert.doesNotMatch(safeOverseasShape({Output_0:{[secret]:secret},message:{rsp_cd:secret}}), /dummy/);
 assert.equal(parseUSMaster(master,header,['AAPL']).get('AAPL'),'USAAAPL');
+const pyHeader=`@record 164\n("sGIC",15),\n("name1",40),\n("name2",40),\n("sNationCode",3),\n("sSymbol",12),\n("remaining",54),`;
+assert.equal(parseUSMaster(master,pyHeader,['AAPL','QQQ']).get('QQQ'),'USAQQQ');
+assert.equal(parseUSMaster(master,pyHeader.replace('("name1",40)','("name1",39)'),['AAPL']),null);
+assert.equal(parseUSMaster(master,pyHeader.replace('("name2",40)','("sGIC",40)'),['AAPL']),null);
 assert.equal(parseUSMaster(Buffer.concat([master,masterRow('AAPL','USAOTHER')]),header,['AAPL']).has('AAPL'),false);
 assert.equal(parseUSMaster(master,header.replace('@98','@99'),['AAPL']),null);
 assert.equal(parseUSMaster(master.subarray(0,master.length-1),header,['AAPL']),null);
@@ -144,4 +148,5 @@ for (const [overrides, expected] of [
   assert.doesNotMatch(logs.join('\n'), /dummy/);
 }
 console.log('NH PLUG read-only quote preflight regression checks passed');
+
 
