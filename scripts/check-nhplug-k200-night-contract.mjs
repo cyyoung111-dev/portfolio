@@ -27,7 +27,7 @@ assert.equal(record.receivedAt, '2026-10-28T21:05:11.000Z');
 assert.match(formatNightTelegramLine(record, target), /공식 종가·정산가 미확인/);
 assert.doesNotMatch(formatNightTelegramLine(record, target), /확정 종가/);
 
-expectReject({ tradingDate: '2026-10-28' }, 'RECEIPT_OUTSIDE_CUTOFF');
+expectReject({ tradingDate: '2026-10-28' }, 'WRONG_NIGHT_SESSION');
 expectReject({ tradingDate: '2026-02-30' }, 'IDENTITY_UNVERIFIED');
 expectReject({ instrument: 'KOSDAQ150_FUTURE' }, 'IDENTITY_UNVERIFIED');
 expectReject({ session: 'REGULAR' }, 'IDENTITY_UNVERIFIED');
