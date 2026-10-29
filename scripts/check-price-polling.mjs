@@ -154,13 +154,13 @@ console.log('✅ 현재가 polling 설정 탭 rows·손익·캐시 갱신, DOM �
 // Deferred responses verify concurrency without a wall-clock performance threshold.
 const innerLoader = source.match(/async function _fetchFromGsheetInner\(dateStr, options\) \{[\s\S]*?\n\}/)?.[0];
 assert.ok(innerLoader);
-async function checkParallelHistory({fundFailure=false, stale=false, stocks=true, funds=true}={}) {
+async function checkParallelHistory({fundFailure=false, stale=false, stocks=true, funds=true, usdQuote=false, missingFx=false}={}) {
   let finishStock, finishFund, connected=true;
   const calls=[];
   const stockResponse=new Promise(resolve=>{finishStock=resolve;});
   const fundResponse=new Promise((resolve,reject)=>{finishFund=fundFailure?reject:resolve;});
   const ctx=vm.createContext({
-    GSHEET_API_URL:'test-gas',window:{},console:{warn(){},info(){}},
+    GSHEET_API_URL:'test-gas',window:{},exchangeRates:{},console:{warn(){},info(){}},
     getGsheetConnectionGeneration:()=>1,isGsheetConnectionCurrent:()=>connected,
     normName:x=>x,normalizeStockCode:x=>x,
     rawHoldings:stocks?[{name:'Stock',code:'005930',qty:1}]:[],
@@ -170,15 +170,16 @@ async function checkParallelHistory({fundFailure=false, stale=false, stocks=true
     _kstDateOffset:()=> '2026-07-28',getDateStr:()=> '2026-10-26',
     requestGsheetActionJson:(action,params,opts)=>{
       calls.push({action,params,opts});
-      return action==='getPrices'?stockResponse:fundResponse;
+      return action==='getPrices'?stockResponse:params.codes==='005930'?Promise.resolve({status:'ok',prices:{}}):fundResponse;
     },
     MarketDataProvider:null,
   });
   ctx.window.MarketDataProvider={normalizeMarketPrice:({closePrice,marketDate})=>({
-    status:'OK',closePrice,sourceDate:marketDate,fallback:false
+    status:closePrice>0?'OK':'NEEDS_REVIEW',closePrice,sourceDate:marketDate,fallback:false
   })};
   const targetPredicate=source.match(/function _isCurrentPriceTarget\(item\) \{[\s\S]*?\n\}/)[0];
-  vm.runInContext(targetPredicate+'\n'+innerLoader,ctx);
+  const currencyNormalizer=source.match(/function _normalizeFetchedPriceCurrency\([^]*?\n\}/)[0];
+  vm.runInContext(currencyNormalizer+'\n'+targetPredicate+'\n'+innerLoader,ctx);
   const pending=vm.runInContext("_fetchFromGsheetInner('2026-10-26',{persist:true,targetUrl:'test-gas',generation:1})",ctx);
   await Promise.resolve(); await Promise.resolve();
   assert.equal(calls.length,Number(stocks)+Number(funds),'both independent reads start before either finishes');
@@ -193,10 +194,10 @@ async function checkParallelHistory({fundFailure=false, stale=false, stocks=true
     ]}});
   }
   if(stale) connected=false;
-  if(stocks)finishStock({status:'ok',prices:{'005930':200},priceDates:{'005930':'2026-10-26'}});
+  if(stocks)finishStock({status:'ok',prices:{'005930':usdQuote?350:200},priceDates:{'005930':'2026-10-26'},...(usdQuote?{priceCurrencies:{'005930':'USD'},exchangeRates:missingFx?{}:{USD:1400}}:{})});
   const result=await pending;
   if(stale){assert.equal(result,null);assert.equal(ctx.window._gsheetPriceMeta,undefined);return;}
-  assert.equal(result?.['005930'],stocks?200:undefined);
+  assert.equal(result?.['005930'],stocks?(usdQuote?(missingFx?undefined:490000):200):undefined);
   assert.equal(result?.Fund,funds&&!fundFailure?100:undefined);
   if(funds&&!fundFailure)assert.equal(result.__gsheetPriceMeta.Fund.sourceDate,'2026-10-26');
 }
@@ -206,3 +207,6 @@ await checkParallelHistory({stale:true});
 await checkParallelHistory({stocks:false});
 await checkParallelHistory({funds:false});
 console.log('PASS: independent stock/fund reads overlap; failure isolation and stale-connection guard preserved');
+
+await checkParallelHistory({usdQuote:true,funds:false});
+await checkParallelHistory({usdQuote:true,missingFx:true,funds:false});
