@@ -1,0 +1,23 @@
+name: NH PLUG 야간선물 공개 명세 확인
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/nhplug-night-public-schema.yml'
+      - 'scripts/nhplug-night-schema-probe.mjs'
+      - 'scripts/check-nhplug-night-schema-probe.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: 공개 명세 구조 확인
+        run: node scripts/nhplug-night-schema-probe.mjs
