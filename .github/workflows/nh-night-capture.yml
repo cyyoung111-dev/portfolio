@@ -1,9 +1,14 @@
 name: NH night reference capture
 on:
+  # Multiple spaced chances for best-effort GitHub scheduling.
+  # Daily artifact existence is checked before querying NH (see step below).
   schedule:
-    - cron: '30 22 * * 0-4' # 07:30 KST, Monday-Friday
+    - cron: '31 22 * * 0-4' # 07:31 KST, primary
+    - cron: '39 22 * * 0-4' # 07:39 KST, retry
+    - cron: '47 22 * * 0-4' # 07:47 KST, last retry
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: nh-night-capture
   cancel-in-progress: false
@@ -18,7 +23,25 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Check previously captured reference before NH request
+        id: prior
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          today="$(TZ=Asia/Seoul date +%F)"
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=nh-night-reference-${today}&per_page=100" --jq '.total_count')"
+          if ! [[ "$existing" =~ ^[0-9]+$ ]]; then
+            echo 'NH_ARTIFACT_LOOKUP_INVALID' >&2
+            exit 1
+          fi
+          if [ "$existing" -gt 0 ]; then
+            echo 'run_capture=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run_capture=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Capture NH reference
+        if: steps.prior.outputs.run_capture == 'true'
         id: capture
         env:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
