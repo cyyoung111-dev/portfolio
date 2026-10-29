@@ -84,6 +84,9 @@ const conflict = buildNightReference({
   ...base, value: '350.35', receivedAt: record.receivedAt
 });
 assert.throws(() => upsertNightReference(initial.rows, conflict), /CONFLICTING_SAME_RECEIPT/);
+const conflictingTrade = buildNightReference({ ...base, value:'350.35', receivedAt:'2026-10-29T06:15:00+09:00' });
+assert.throws(() => upsertNightReference(initial.rows, conflictingTrade), /CONFLICTING_SAME_TRADE/);
+assert.equal(initial.rows[0].value, 350.25);
 
 assert.equal(nightTelegramReference(update.rows, target).value, 350.30);
 assert.equal(nightTelegramReference(update.rows, '2026-10-30'), null);
@@ -93,3 +96,4 @@ assert.equal(nightTelegramReference([{ ...record, source:'KRX_OFFICIAL' }], targ
 assert.match(formatNightTelegramLine(null, target), /미확보/);
 
 console.log('NH PLUG KOSPI200 night persistence contract: synthetic tests passed');
+
