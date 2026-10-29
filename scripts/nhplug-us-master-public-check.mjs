@@ -19,6 +19,7 @@ async function read(path,kind){
 }
 const [h,b]=await Promise.all([read('m_gtsstock.h','HEADER'),read('m_gtsstock.mst','DATA')]);
 if(h&&b){
+  for(const line of h.split(/\r?\n/).filter(x=>/sGIC|sNationCode|sSymbol|@record/.test(x)).slice(0,8))console.log('PUBLIC_HEADER_LINE '+line.slice(0,220));
   console.log('HEADER_GIC_0_'+(/char\s+sGIC\[15\][^\n]*@0\b/.test(h)?'YES':'NO'));
   console.log('HEADER_NATION_95_'+(/char\s+sNationCode\[3\][^\n]*@95\b/.test(h)?'YES':'NO'));
   console.log('HEADER_SYMBOL_98_'+(/char\s+sSymbol\[12\][^\n]*@98\b/.test(h)?'YES':'NO'));
