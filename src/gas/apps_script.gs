@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.275
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.276
+//
+//  v9.276 변경사항 (2026.10.29):
+//  • NH 현재가 운영 연결, 인증된 키 등록·활성화, NH 활성 시 Toss 외부 호출 차단
+//  • 공급자별 캐시 분리, NH 현재가와 확정 종가·Snapshot 저장 경로 분리
 //
 //  v9.275 변경사항 (2026.10.28):
 //  • 복구 저장 요청 식별·완료 기록과 읽기 전용 확인, 동일 요청 재쓰기 방지
@@ -1238,6 +1242,7 @@ function _getApiKeyStatus() {
     publicDataApiKeyConfigured: !!_getPublicDataApiKey(),
     krxAuthKeyConfigured: !!_getKrxAuthKey(),
     requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim(),
+    nh: _nhConfigStatus_(),
     toss: _getTossConfigStatus_()
   };
 }
@@ -1427,6 +1432,7 @@ function doPost(e) {
     return jsonError('POST 파싱 실패: ' + err.message);
   }
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
+  if (params.action === 'saveNhConfig') return handleSaveNhConfig(params);
   if (params.action === 'recoverPendingKrxClose') return handleRecoverPendingKrxClose(params.date, params.apply);
   if (params.action === 'issue507Maintenance') return handleIssue507Maintenance(params.mode || '', params.apply || '0');
   if (params.action === 'reconcileTradeSnapshotBacklog') return handleReconcileTradeSnapshotBacklog(params.apply || '0');
@@ -1680,6 +1686,7 @@ function _tossCachedAccessToken_() {
 }
 
 function _tossIssueAccessTokenUnlocked_() {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
   // Check at the actual issue boundary, not only before waiting for lock.
   // Flipping relay ON while GAS waits must not revoke the VM-owned token.
   if (_tossRelayConfig_().enabled) return '';
@@ -1896,6 +1903,7 @@ function _tossDiagnosticAccessToken_() {
 // 호출자는 ScriptLock을 이미 소유한 상태여야 합니다.
 // 별도 Lock 객체로 재진입하면 기존 잠금의 해제를 기다리며 교착될 수 있습니다.
 function _tossDiagnosticIssueAccessTokenUnlocked_() {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
   var startedAt = Date.now();
   if (_tossRelayConfig_().enabled)
     return {ok:false,status:null,code:'RELAY_OAUTH_DELEGATED',
@@ -2015,6 +2023,7 @@ function _tossRelayAction_(path,query) {
   throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
 }
 function _tossRelayRequest_(config,path,query,timings) {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
   var started=Date.now(), response;
   var body=_tossRelayAction_(path,query);
   try {
@@ -2042,6 +2051,7 @@ function _tossRelayRequest_(config,path,query,timings) {
 }
 
 function _tossRequest_(path, query, group, timings) {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
   var relay=_tossRelayConfig_();
   if (relay.enabled) return _tossRelayRequest_(relay,path,query,timings);
   var tokenStartedMs = Date.now();
@@ -2113,6 +2123,7 @@ function _normalizeTossSymbol_(value) {
 }
 
 function fetchPricesToss(items, timings, providerMeta) {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) return fetchPricesNh(items, timings, providerMeta);
   var requestedBySymbol = {};
   var symbols = (items || []).map(function(item) {
     var requested = _tossSymbol_(item);
@@ -2150,6 +2161,7 @@ function fetchPricesToss(items, timings, providerMeta) {
 }
 
 function fetchHistoricalPricesToss(items, targetDate) {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) return {};
   var output = {};
   (items || []).forEach(function(item) {
     var symbol = _tossSymbol_(item);
@@ -2188,6 +2200,7 @@ function _tossDiagnostic403ProviderCode_(parsed, httpStatus) {
 
 // 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
 function _tossDiagnosticRequest_(path, query, token) {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
   var startedAt = Date.now();
   try {
     if (!token) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', elapsedMs: Date.now() - startedAt };
@@ -2221,6 +2234,7 @@ function _tossDiagnosticRequest_(path, query, token) {
 }
 
 function _tossPriceSmoke_(token) {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) throw new Error('TOSS_RETIRED_NH_ACTIVE');
   var startedAt = Date.now();
   try {
     if (!token) return { ok: false, status: null, resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
@@ -2325,7 +2339,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.275',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion: '9.276',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2333,6 +2347,7 @@ function _tossRelayMarketDataDiagnostic_() {
     oauth:oauth,endpoints:checks,priceSmoke:smoke});
 }
 function handleDiagnoseTossMarketData(forceFreshOAuth) {
+  if (typeof _nhEnabled_ === 'function' && _nhEnabled_()) return jsonError('TOSS_RETIRED_NH_ACTIVE');
   // Direct OAuth diagnostics would revoke the sole token owned by OCI relay.
   if (_tossRelayConfig_().enabled) return _tossRelayMarketDataDiagnostic_();
   var token = '', oauth;
@@ -2403,7 +2418,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.275', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.276', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5005,7 +5020,7 @@ function handleGetPricesCompat(codesParam, persist) {
     var triggerState = _ensureDailyTriggersOncePerDay(todayStr);
     var reqCodes = codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean);
     var cache = CacheService.getScriptCache();
-    var cacheRaw = todayStr + '|p=' + (persist ? '1' : '0') + '|' + reqCodes.slice().sort().join(',');
+    var cacheRaw = todayStr + '|p=' + (persist ? '1' : '0') + '|' + reqCodes.slice().sort().join(',') + '|provider=' + (typeof _nhEnabled_ === 'function' && _nhEnabled_() ? 'NH' : 'TOSS');
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
@@ -5092,10 +5107,12 @@ function handleGetPricesCompat(codesParam, persist) {
       var tossProviderMeta = { attempted: false, status: 'NOT_RUN', reason: '' };
       try {
         tossPrices = fetchPricesToss(targetItems, timings, tossProviderMeta);
+        lookupMeta.currentProvider = tossProviderMeta.provider || 'TOSS';
         lookupMeta.tossAttempted = !!tossProviderMeta.attempted;
         lookupMeta.tossStatus = tossProviderMeta.status || 'NOT_RUN';
         lookupMeta.tossReason = tossProviderMeta.reason || '';
       } catch(e) {
+        lookupMeta.currentProvider = tossProviderMeta.provider || 'TOSS';
         lookupMeta.tossAttempted = !!tossProviderMeta.attempted;
         lookupMeta.tossStatus = 'ERROR';
         lookupMeta.tossReason = 'REQUEST_ERROR';
@@ -6428,7 +6445,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.275' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.276' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -13695,7 +13712,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.275',
+    gasVersion: '9.276',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13762,7 +13779,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.275' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.276' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16833,7 +16850,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.275' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.276' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17657,7 +17674,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.275' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.276' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17688,7 +17705,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.275'
+      gasVersion: '9.276'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19747,4 +19764,126 @@ function handleResumeIncompletePortfolioClose(apply, phase) {
       if (lease && lease.token === token) props.deleteProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
     });
   }
+}
+
+// NH native GAS price provider
+// NH runtime is appended to apps_script.gs by the reviewed release change.
+function _nhEnabled_() {
+  return PropertiesService.getScriptProperties().getProperty('MARKET_DATA_PROVIDER') === 'NH';
+}
+function _nhCredentials_() {
+  var p=PropertiesService.getScriptProperties();
+  return {key:String(p.getProperty('NHPLUG_APP_KEY')||''),secret:String(p.getProperty('NHPLUG_APP_SECRET')||'')};
+}
+function _nhConfigStatus_() {
+  var c=_nhCredentials_();
+  return {enabled:_nhEnabled_(),keyConfigured:!!c.key,secretConfigured:!!c.secret};
+}
+function _nhJson_(url,options) {
+  var response;
+  try {response=UrlFetchApp.fetch(url,options);} catch(ignore) {throw new Error('NH_NETWORK_ERROR');}
+  var status=response.getResponseCode();
+  if(status<200||status>=300)throw new Error('NH_HTTP_'+status);
+  try {return JSON.parse(response.getContentText());} catch(ignore) {throw new Error('NH_RESPONSE_INVALID');}
+}
+function _nhAccessToken_(credentials) {
+  var cache=CacheService.getScriptCache(),cached=cache.get('nh_oauth_v1');
+  if(cached){try {var record=JSON.parse(cached);if(record.expiresAt>Date.now()+60000)return record.token;}catch(ignore){}}
+  var lock=LockService.getScriptLock(),owned=lock.hasLock&&lock.hasLock();
+  if(!owned&&!lock.tryLock(10000))throw new Error('NH_AUTH_BUSY');
+  try {
+    cached=cache.get('nh_oauth_v1');
+    if(cached){try {var second=JSON.parse(cached);if(second.expiresAt>Date.now()+60000)return second.token;}catch(ignore){}}
+    if(!credentials.key||!credentials.secret)throw new Error('NH_CREDENTIALS_MISSING');
+    var url='https://api.nhplug.com:8443/oauth2/token?appkey='+encodeURIComponent(credentials.key)+'&appsecretkey='+encodeURIComponent(credentials.secret)+'&grant_type=client_credentials&scope=oob';
+    var data=_nhJson_(url,{method:'post',contentType:'application/x-www-form-urlencoded',followRedirects:false,muteHttpExceptions:true});
+    var lifetime=Number(data.expires_in);
+    if(typeof data.access_token!=='string'||!data.access_token||!isFinite(lifetime)||lifetime<=60)throw new Error('NH_TOKEN_CONTRACT_INVALID');
+    cache.put('nh_oauth_v1',JSON.stringify({token:data.access_token,expiresAt:Date.now()+lifetime*1000}),Math.min(21600,Math.floor(lifetime-60)));
+    return data.access_token;
+  } finally {if(!owned)lock.releaseLock();}
+}
+function _nhPost_(path,input,credentials) {
+  var token=_nhAccessToken_(credentials);
+  try {return _nhJson_('https://api.nhplug.com:8443'+path,{method:'post',contentType:'application/json; charset=UTF-8',followRedirects:false,muteHttpExceptions:true,
+    headers:{Authorization:'Bearer '+token,'x-client-id':credentials.key,'x-client-secret':credentials.secret},payload:JSON.stringify({Input_0:input})});}
+  catch(error){if(error.message==='NH_HTTP_401')CacheService.getScriptCache().remove('nh_oauth_v1');throw error;}
+}
+function _nhUsMaster_(symbols) {
+  if(!symbols.length)return {};
+  var hash=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,symbols.slice().sort().join(','))).replace(/=+$/g,'');
+  var cache=CacheService.getScriptCache(),key='nh_master_'+hash,cached=cache.get(key);
+  if(cached){try {return JSON.parse(cached);}catch(ignore){}}
+  var base='https://www.nhplug.com/instruments/';
+  var headerResponse=UrlFetchApp.fetch(base+'m_gtsstock.h',{followRedirects:false,muteHttpExceptions:true});
+  var masterResponse=UrlFetchApp.fetch(base+'m_gtsstock.mst',{followRedirects:false,muteHttpExceptions:true});
+  if(headerResponse.getResponseCode()!==200||masterResponse.getResponseCode()!==200)throw new Error('NH_MASTER_HTTP_ERROR');
+  var header=headerResponse.getContentText(),fields=[],match,re=/^\s*\(["']([A-Za-z0-9_]+)["']\s*,\s*(\d+)\s*\)\s*,?\s*$/gm,offset=0,offsets={},widths={};
+  while((match=re.exec(header))!==null){if(offsets[match[1]]!==undefined)throw new Error('NH_MASTER_DUPLICATE_FIELD');offsets[match[1]]=offset;widths[match[1]]=Number(match[2]);offset+=Number(match[2]);}
+  if(!/@record\s+164\b/.test(header)||offset!==164||offsets.sGIC!==0||widths.sGIC!==15||offsets.sNationCode!==95||widths.sNationCode!==3||offsets.sSymbol!==98||widths.sSymbol!==12)throw new Error('NH_MASTER_SCHEMA_INVALID');
+  var bytes=masterResponse.getBlob().getBytes(),found={},ambiguous={};
+  if(!bytes.length||bytes.length>20*1024*1024||bytes.length%164)throw new Error('NH_MASTER_SIZE_INVALID');
+  function ascii(start,end){var value='';for(var j=start;j<end;j++)value+=String.fromCharCode(bytes[j]&255);return value.trim();}
+  for(var i=0;i<bytes.length;i+=164){
+    if(bytes[i+163]!==10)throw new Error('NH_MASTER_BOUNDARY_INVALID');
+    var country=ascii(i+95,i+98),symbol=ascii(i+98,i+110),gic=ascii(i,i+15);
+    if(country!=='USA'||symbols.indexOf(symbol)<0)continue;
+    if(!/^[A-Z0-9._-]{1,15}$/.test(gic))throw new Error('NH_MASTER_ID_INVALID');
+    if(found[symbol]&&found[symbol]!==gic)ambiguous[symbol]=true;
+    found[symbol]=gic;
+  }
+  symbols.forEach(function(symbol){if(!found[symbol]||ambiguous[symbol])throw new Error('NH_MASTER_ID_UNVERIFIED');});
+  cache.put(key,JSON.stringify(found),21600);return found;
+}
+function fetchPricesNh(items,timings,meta) {
+  var result={},credentials=_nhCredentials_(),started=Date.now(),cache=CacheService.getScriptCache();
+  if(meta){meta.attempted=false;meta.status='NOT_RUN';meta.reason='NH_CREDENTIALS_MISSING';meta.provider='NH';}
+  if(!credentials.key||!credentials.secret)return result;
+  var targets=(items||[]).filter(function(item){return item&&item.code&&!_isFundCode(item.code)&&['KRW','USD'].indexOf(String(item.currency||'KRW'))>=0;});
+  if(targets.length>80)throw new Error('NH_TOO_MANY_SYMBOLS');
+  var symbols=targets.filter(function(item){return item.currency==='USD';}).map(function(item){return String(item.code).toUpperCase();}),master=_nhUsMaster_(symbols);
+  if(meta){meta.attempted=true;meta.status='REQUESTING';meta.reason='';}
+  for(var i=0;i<targets.length;i++){
+    if(Date.now()-started>65000){if(meta)meta.reason='NH_PARTIAL_TIME_BUDGET';break;}
+    var item=targets[i],symbol=String(item.code).toUpperCase(),us=item.currency==='USD',cacheKey='nh_quote_'+item.currency+'_'+symbol;
+    if(!(us?/^[A-Z][A-Z0-9.\-]{0,11}$/:/^[A-Z0-9]{6}$/).test(symbol))continue;
+    var raw=cache.get(cacheKey);
+    if(raw){try {var old=JSON.parse(raw);if(old.source==='NH'&&old.price>0&&Date.now()-Date.parse(old.fetchedAt)>=0&&Date.now()-Date.parse(old.fetchedAt)<60000){result[item.code]=old;continue;}}catch(ignore){}}
+    var path=us?'/gbstock/quote/v1/current':String(item.type||'').toUpperCase()==='ETF'?'/krstock/quote/v1/etfCurrent':'/krstock/quote/v1/currentPrice';
+    var input={iem_cd:symbol};if(!us&&path.indexOf('currentPrice')>=0)input.market_cd='KRX';
+    try {
+      Utilities.sleep(1000);
+      var body=_nhPost_(path,input,credentials),row=body&&body.Output_0;
+      if(!row||Array.isArray(row)||(row.iem_cd!==symbol&&(!us||row.iem_cd!==master[symbol])))throw new Error('NH_IDENTITY_INVALID');
+      var value=us?row.trdprc:row.stck_prpr;
+      if(!/^[0-9]+(?:\.[0-9]+)?$/.test(String(value))||!isFinite(Number(value))||Number(value)<=0)throw new Error('NH_PRICE_INVALID');
+      var date=us?String(row.trade_date||''):'';
+      if(us){var day=date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6),parsed=new Date(day+'T00:00:00Z');if(!/^\d{8}$/.test(date)||!isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==day||date>Utilities.formatDate(new Date(),'UTC','yyyyMMdd'))throw new Error('NH_TRADE_DATE_INVALID');}
+      result[item.code]={price:Number(value),currency:us?'USD':'KRW',source:'NH',priceType:'REALTIME',status:'INDICATIVE',timestamp:null,marketDate:us?date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6):null,fetchedAt:new Date().toISOString(),exchangeTimeVerified:false};
+      cache.put(cacheKey,JSON.stringify(result[item.code]),60);
+    } catch(error){
+      if(meta)meta.reason=/^NH_[A-Z0-9_]+$/.test(error.message)?error.message:'NH_REQUEST_FAILED';
+      if(/NH_HTTP_(401|403|429)|NH_TOKEN_|NH_CREDENTIALS_|NH_NETWORK_ERROR/.test(error.message))break;
+    }
+  }
+  if(meta)meta.status=Object.keys(result).length?'SUCCESS':'EMPTY';
+  return result;
+}
+function handleSaveNhConfig(params) {
+  var props=PropertiesService.getScriptProperties(),expected=String(props.getProperty('access_token')||'').trim();
+  if(!expected||!params||params.accessToken!==expected)return jsonError('NH_STRICT_AUTH_REQUIRED');
+  try {
+    var input=JSON.parse(params.data||'{}'),key=String(input.key||'').trim(),secret=String(input.secret||'').trim();
+    if(!key||!secret||key.length>2048||secret.length>2048)throw new Error('NH_BOTH_CREDENTIALS_REQUIRED');
+    // Test direct GAS transport/auth before activating. Do not overwrite an
+    // existing working provider or credentials if the handshake fails.
+    var data=_nhJson_('https://api.nhplug.com:8443/oauth2/token?appkey='+encodeURIComponent(key)+'&appsecretkey='+encodeURIComponent(secret)+'&grant_type=client_credentials&scope=oob',{method:'post',contentType:'application/x-www-form-urlencoded',followRedirects:false,muteHttpExceptions:true});
+    if(typeof data.access_token!=='string'||!data.access_token||!isFinite(Number(data.expires_in))||Number(data.expires_in)<=60)throw new Error('NH_TOKEN_CONTRACT_INVALID');
+    var quote=_nhJson_('https://api.nhplug.com:8443/krstock/quote/v1/currentPrice',{method:'post',contentType:'application/json; charset=UTF-8',followRedirects:false,muteHttpExceptions:true,headers:{Authorization:'Bearer '+data.access_token,'x-client-id':key,'x-client-secret':secret},payload:JSON.stringify({Input_0:{iem_cd:'005930',market_cd:'KRX'}})});
+    if(!quote.Output_0||quote.Output_0.iem_cd!=='005930'||!isFinite(Number(quote.Output_0.stck_prpr))||Number(quote.Output_0.stck_prpr)<=0)throw new Error('NH_ACTIVATION_QUOTE_INVALID');
+    var lock=LockService.getScriptLock();if(!lock.tryLock(10000))throw new Error('NH_CONFIG_BUSY');
+    try {props.setProperties({NHPLUG_APP_KEY:key,NHPLUG_APP_SECRET:secret,MARKET_DATA_PROVIDER:'NH',TOSS_RELAY_MODE:'OFF'});['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY'].forEach(function(name){props.deleteProperty(name);});CacheService.getScriptCache().remove('toss_oauth_token_v1');CacheService.getScriptCache().put('nh_oauth_v1',JSON.stringify({token:data.access_token,expiresAt:Date.now()+Number(data.expires_in)*1000}),Math.min(21600,Math.floor(Number(data.expires_in)-60)));}
+    finally {lock.releaseLock();}
+    return jsonOk({nh:_nhConfigStatus_()});
+  } catch(error){return jsonError(/^NH_[A-Z0-9_]+$/.test(error.message)?error.message:'NH_CONFIG_FAILED');}
 }

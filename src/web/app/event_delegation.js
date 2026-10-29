@@ -44,6 +44,7 @@ function registerGlobalEventDelegation() {
     'btn-save-gsheet-url': () => typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
     'btn-save-public-data-key': () => typeof savePublicDataApiKeyFromUI === 'function' && savePublicDataApiKeyFromUI(),
     'btn-save-krx-auth-key': () => typeof saveKrxAuthKeyFromUI === 'function' && saveKrxAuthKeyFromUI(),
+    'btn-save-nh-config': () => typeof saveNhConfigFromUI === 'function' && saveNhConfigFromUI(),
     'btn-save-toss-config': () => typeof saveTossConfigFromUI === 'function' && saveTossConfigFromUI(),
     'btn-diagnose-toss': () => typeof diagnoseTossFromUI === 'function' && diagnoseTossFromUI(),
     'btn-clear-toss-config': () => typeof clearTossConfigFromUI === 'function' && clearTossConfigFromUI(),

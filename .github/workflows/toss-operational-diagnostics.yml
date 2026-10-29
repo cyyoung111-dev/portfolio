@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   verify-live-toss:
-    if: github.ref == 'refs/heads/main'
+    if: false # Toss API 운영 진단 중단: NH 전환
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 10
