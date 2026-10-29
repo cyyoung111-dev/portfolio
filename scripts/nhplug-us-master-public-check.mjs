@@ -3,10 +3,11 @@ const base='https://www.nhplug.com/instruments/';
 async function read(path,kind){
   try{
     const started=Date.now();
-    const r=await fetch(base+path,{redirect:'error',signal:AbortSignal.timeout(15000)});
+    const r=await fetch(base+path,{redirect:'error',signal:AbortSignal.timeout(75000)});
     console.log(kind+'_HTTP_'+r.status+' ELAPSED_MS_'+(Date.now()-started));
     if(!r.ok)return null;
     const size=Number(r.headers.get('content-length')||0);
+    console.log(kind+'_DECLARED_BYTES_'+size);
     if(size>20971520){console.log(kind+'_TOO_LARGE');return null;}
     if(kind==='HEADER'){const s=await r.text();console.log('HEADER_CHARS_'+s.length+' RECORD_164_'+(/@record\s+164\b/.test(s)?'YES':'NO'));return s.length<=100000?s:null;}
     const bytes=new Uint8Array(await r.arrayBuffer());console.log('DATA_BYTES_'+bytes.length+' MULTIPLE_164_'+(bytes.length%164===0?'YES':'NO'));return bytes.length<=20971520?bytes:null;
