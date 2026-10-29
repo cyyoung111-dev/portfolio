@@ -45,6 +45,7 @@ expectReject({ officialClose: undefined }, 'SOURCE_OR_FINALITY_INVALID');
 expectReject({ observedAt: '2026-10-28T17:59:59+09:00' }, 'WRONG_NIGHT_SESSION');
 expectReject({ observedAt: '2026-10-29T06:00:01+09:00' }, 'WRONG_NIGHT_SESSION');
 expectReject({ observedAt: '2026-10-29T05:59:58' }, 'TIMESTAMP_INVALID');
+assert.throws(() => buildNightReference({ ...base, tradingDate:'2026-03-02', observedAt:'2026-02-30T05:58:22+09:00', receivedAt:'2026-03-02T06:05:11+09:00' }), /TIMESTAMP_INVALID/);
 expectReject({ observedAt: '2026-10-29T08:00:00+09:00' }, 'TIMESTAMP_INVALID');
 expectReject({ receivedAt: '2026-10-29T05:59:59+09:00' }, 'RECEIPT_OUTSIDE_CUTOFF');
 expectReject({ receivedAt: '2026-10-29T08:10:00+09:00' }, 'RECEIPT_OUTSIDE_CUTOFF');
@@ -89,6 +90,8 @@ assert.throws(() => upsertNightReference(initial.rows, conflictingTrade), /CONFL
 assert.equal(initial.rows[0].value, 350.25);
 
 assert.equal(nightTelegramReference(update.rows, target).value, 350.30);
+assert.equal(nightTelegramReference([record, conflictingTrade], target, new Date('2026-10-29T07:30:00+09:00')), null);
+assert.equal(nightTelegramReference([record, record], target, new Date('2026-10-29T07:30:00+09:00')), null);
 assert.equal(nightTelegramReference(update.rows, '2026-10-30'), null);
 const secondContract = buildNightReference({ ...base, contract: '101H7', contractMonth: '2027-03' });
 assert.equal(nightTelegramReference([record,secondContract], target), null);
