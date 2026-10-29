@@ -80,8 +80,8 @@ export function safeOverseasShape(data, expected) {
   return `OUTPUT_${shape} ID_FIELD_${has('iem_cd')} ID_MATCH_${idMatch} ID_FORMAT_${format} PRICE_FIELD_${has('trdprc')} PRICE_POSITIVE_${priceValid} DATE_FIELD_${has('trade_date')} DATE_VALID_${dateValid} CODE_${codeClass}`;
 }
 
-export async function diagnose({ key, secret, request = fetch, log = console.log, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
-  if (!key || !secret) { log('AUTH MISSING_CREDENTIALS'); return false; }
+export async function issueToken({ key, secret, request = fetch, log = console.log }) {
+  if (!key || !secret) { log('AUTH MISSING_CREDENTIALS'); return null; }
 
   // NH's official token contract uses URL query parameters in a POST request.
   // Never print request URLs, credentials, raw responses, or the issued token.
@@ -93,13 +93,21 @@ export async function diagnose({ key, secret, request = fetch, log = console.log
       redirect: 'error', signal: AbortSignal.timeout(15000),
     });
     data = await response.json();
-  } catch { log('AUTH NETWORK_OR_RESPONSE_ERROR'); return false; }
+  } catch { log('AUTH NETWORK_OR_RESPONSE_ERROR'); return null; }
 
   if (!response.ok || typeof data?.access_token !== 'string' || !data.access_token) {
-    log(`AUTH FAILED HTTP_${response.status}`); return false;
+    log(`AUTH FAILED HTTP_${response.status}`); return null;
   }
   const token = data.access_token;
   log('AUTH TOKEN_RECEIVED');
+  return token;
+}
+
+export async function diagnose({ key, secret, request = fetch, log = console.log, wait = ms => new Promise(r => setTimeout(r, ms)), accessToken }) {
+  if (!key || !secret) { log('AUTH MISSING_CREDENTIALS'); return false; }
+  const token = accessToken || await issueToken({key,secret,request,log});
+  if (!token) return false;
+  let response, data;
 
   const usMaster = await loadUSMaster(request);
   log(`US_MASTER ${usMaster ? 'SCHEMA_OK' : 'UNAVAILABLE_OR_SCHEMA_INVALID'}`);
@@ -152,4 +160,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const ok = await diagnose({ key: process.env.NHPLUG_APP_KEY, secret: process.env.NHPLUG_APP_SECRET });
   if (!ok) process.exitCode = 1;
 }
+
 
