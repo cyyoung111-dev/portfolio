@@ -203,6 +203,26 @@ assert.match(source,/\|provider='/);
   assert.equal(health.tokenCached,true);
   assert.equal(health.tokenIssued,false);
   assert.equal(authCalls,1);
+  // 10:50 KST readback must query an actual dated NH 06:00 record using the
+  // already persisted OAuth bearer, never minting a second token.
+  p.advance(Date.parse('2026-10-30T10:50:00+09:00')-Date.parse('2026-10-30T07:35:00+09:00'));
+  p.cache.clear();
+  const probe=p.ctx.handleGetNhNightProbe({date:'2026-10-30',accessToken:'admin-token'});
+  assert.equal(probe.status,'ok');
+  assert.equal(probe.diagnosticOnly,true);
+  assert.equal(probe.tokenIssued,false);
+  assert.equal(probe.reference.value,351.5);
+  assert.equal(probe.reference.sourceUpdatedAt,'2026-10-30T06:00:00+09:00');
+  assert.equal(authCalls,1,'daytime diagnostic cannot reissue the NH bearer');
+  assert.equal(nightCalls,2,'daytime diagnostic must actually read NH nightPeriod');
+  assert.doesNotMatch(JSON.stringify(probe),/nh-key|nh-secret|nh-token|Bearer|accessToken/);
+  p.cache.clear();
+  p.props.delete('NHPLUG_AUTH_RECORD_V1');
+  const blocked=p.ctx.handleGetNhNightProbe({date:'2026-10-30',accessToken:'admin-token'});
+  assert.equal(blocked.status,'error');
+  assert.equal(blocked.message,'NH_PROXY_TOKEN_NOT_CACHED');
+  assert.equal(authCalls,1,'no cached token must fail before NH OAuth request');
+  assert.equal(nightCalls,2);
   assert.equal(p.ctx.handleGetNhNightProxy({date:'2026-10-29',accessToken:'admin-token'}).status,'error');
   assert.equal(nightCalls,1);
   const noAuth=setup({expiresIn:86400});
