@@ -22,20 +22,37 @@ export async function readbackOnce({now=()=>new Date(),request=fetch,
  let auth;
  try{auth=await callNhGasProxy('getNhAuthStatusProxy',{url,token,request});}
  catch{report(JSON.stringify({status:'NH_CENTRAL_STATUS_UNAVAILABLE'}));return {ok:false};}
- if(auth.tokenIssued!==false||auth.enabled!==true||auth.tokenCached!==true){
-   report(JSON.stringify({status:'NH_CENTRAL_CACHED_TOKEN_ABSENT',issued:false,querySkipped:true}));
+ if(auth.tokenIssued!==false||auth.enabled!==true){
+   report(JSON.stringify({status:'NH_CENTRAL_AUTH_STATUS_INVALID',querySkipped:true}));
    return {ok:false};
  }
- report(JSON.stringify({status:'NH_CENTRAL_CACHED_TOKEN_READY',issued:false}));
+ let issued=false;
+ if(auth.tokenCached!==true){
+   // The user explicitly approved ONE issuance after the cache was found empty.
+   // GAS owns a durable pre-issuance marker and script lock. A rerun must never
+   // bypass it or call the NH OAuth endpoint directly from this process.
+   try{
+     const boot=await callNhGasProxy('bootstrapNhTokenOnce20261030',{url,token,
+       date:clock.date,request});
+     if(boot.tokenCached!==true||typeof boot.tokenIssued!=='boolean'){
+       report(JSON.stringify({status:'NH_CENTRAL_BOOTSTRAP_UNVERIFIED'}));return {ok:false};
+     }
+     issued=boot.tokenIssued;
+   }catch{
+     report(JSON.stringify({status:'NH_CENTRAL_BOOTSTRAP_DENIED_OR_FAILED',querySkipped:true}));
+     return {ok:false};
+   }
+ }
+ report(JSON.stringify({status:'NH_CENTRAL_CACHED_TOKEN_READY',issued}));
  const reference=await fetchNhNightProbeFromGas(clock.date,{now,url,token,request});
  if(!reference){
-   report(JSON.stringify({status:'NH_CENTRAL_0600_REFERENCE_UNVERIFIED',issued:false}));
+   report(JSON.stringify({status:'NH_CENTRAL_0600_REFERENCE_UNVERIFIED',issued}));
    return {ok:false};
  }
  const result={status:'NH_CENTRAL_0600_REFERENCE_VERIFIED',date:reference.tradingDate,
    contract:reference.contract,contractMonth:reference.contractMonth,
    value:reference.value,sourceUpdatedAt:reference.sourceUpdatedAt,
-   receivedAt:reference.receivedAt,officialClose:false,issued:false};
+   receivedAt:reference.receivedAt,officialClose:false,issued};
  report(JSON.stringify(result));
  return {ok:true,reference};
 }
