@@ -89,7 +89,7 @@ for(const modified of [
  const {ok,logs}=await run(candidateMock,{accessToken:token});
  assert.equal(ok,true);
  assert.equal(candidateMock.calls.length,3,'reuse existing token and ETF request');
- assert.match(logs,/KR_ETF_EMBEDDED_INDEX CANDIDATE_ONLY code=001234 name=코스피 200 market=1 value=555\\.55 DATE_AND_FINALITY_UNVERIFIED/);
+ assert.match(logs,/KR_ETF_EMBEDDED_INDEX CANDIDATE_ONLY code=001234 name=코스피 200 market=1 value=555\.55 DATE_AND_FINALITY_UNVERIFIED/);
  assert.doesNotMatch(logs,/example-(key|secret|token)|12345|Output_4/);
 }
 {
