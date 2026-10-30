@@ -1,63 +1,62 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
-import {fetchDatedDaily,sendTelegram} from './telegram-morning-briefing.mjs';
+import {sendTelegram} from './telegram-morning-briefing.mjs';
+import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
+import {expectedMorningDate} from './telegram-morning-report.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
-function previousKrxSession(date){
-  const cursor=new Date(date+'T00:00:00Z');
-  for(let n=0;n<20;n++){
-    cursor.setUTCDate(cursor.getUTCDate()-1);
-    const candidate=cursor.toISOString().slice(0,10),status=krxSessionStatus(candidate);
-    if(status==='UNKNOWN')return null;
-    if(status==='OPEN')return candidate;
-  }
-  return null;
-}
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
 export function closeWindow(instant){
   const p=parts(instant),minute=Number(p.hour)*60+Number(p.minute);
   return {date:`${p.year}-${p.month}-${p.day}`,allowed:minute>=990&&minute<1030};
 }
-export async function fetchClosingIndex(label,symbol,date,{fetchImpl=fetch,now=new Date()}={}){
-  try{
-    if(!['^KS11','^KQ11'].includes(symbol)||krxSessionStatus(date)!=='OPEN')return null;
-    const base=Date.parse(date+'T00:00:00Z');
-    const url=new URL('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol));
-    url.searchParams.set('period1',String(base/1000-10*86400));
-    url.searchParams.set('period2',String(base/1000+86400));
-    url.searchParams.set('interval','1d');
-    const response=await fetchImpl(url.toString(),{redirect:'error',signal:AbortSignal.timeout(12000)});
-    if(!response.ok)return null;
-    const chart=(await response.json())?.chart?.result?.[0];
-    if(chart?.meta?.symbol!==symbol||chart.meta.exchangeTimezoneName!=='Asia/Seoul')return null;
-    const regular=chart.meta.currentTradingPeriod?.regular,end=Number(regular?.end)*1000;
-    if(!Number.isFinite(end)||end>now.getTime()||closeWindow(new Date(end)).date!==date)return null;
-    if(!Array.isArray(chart.timestamp)||!Array.isArray(chart.indicators?.quote?.[0]?.close))return null;
-    const rows=new Map();
-    for(let i=0;i<chart.timestamp.length;i++){
-      const instant=Number(chart.timestamp[i])*1000,value=chart.indicators.quote[0].close[i];
-      if(!Number.isFinite(instant)||instant>now.getTime()||typeof value!=='number'||!Number.isFinite(value)||value<=0)continue;
-      const day=closeWindow(new Date(instant)).date;
-      if(day<=date){if(rows.has(day))return null;rows.set(day,value);}
-    }
-    const current=rows.get(date);if(!current)return null;
-    const prior=rows.get(previousKrxSession(date));
-    return {label,symbol,date,value:current,changePercent:prior>0?(current/prior-1)*100:null};
-  }catch{return null;}
+
+const NH_VERIFIED=Object.freeze([
+ {label:'S&P 500',symbol:'^GSPC'},
+ {label:'NASDAQ',symbol:'^IXIC'},
+ {label:'NASDAQ100',symbol:'^NDX'}
+]);
+const NH_UNVERIFIED=Object.freeze(['KOSPI','KOSDAQ','KOSPI 200','다우존스','SOX','VIX','VKOSPI']);
+export function verifiedNhCloseRows(date,rows){
+ const expected=expectedMorningDate('SPX',date);
+ if(!expected||!Array.isArray(rows)||rows.length>10)return [];
+ const accepted=[];
+ for(const target of NH_VERIFIED){
+  const matches=rows.filter(row=>row?.symbol===target.symbol);
+  if(matches.length!==1)continue;
+  const row=matches[0];
+  if(row.label!==target.label||row.source!=='NH_INDEX_DAILY'
+    ||row.date!==expected||!Number.isFinite(row.value)||row.value<=0
+    ||(row.changePercent!==null&&!Number.isFinite(row.changePercent)))continue;
+  accepted.push({label:target.label,symbol:target.symbol,source:'NH_INDEX_DAILY',
+    date:expected,value:row.value,changePercent:row.changePercent});
+ }
+ return accepted;
 }
 export function formatClose(date,rows){
-  const lines=[`[${date} 장후 시장 브리핑]`,'Yahoo Finance 일봉 기준 · 지연 및 사후 정정 가능',''];
-  for(const [label,symbol] of [['KOSPI','^KS11'],['KOSDAQ','^KQ11'],['S&P 500','^GSPC'],['NASDAQ','^IXIC'],['반도체지수 SOX','^SOX'],['VIX','^VIX']]){
-    const row=rows.find(r=>r?.symbol===symbol);
-    if(!row){lines.push(label+': 미확보');continue;}
-    const change=Number.isFinite(row.changePercent)?` (${row.changePercent>=0?'+':''}${row.changePercent.toFixed(2)}%)`:'';
-    lines.push(`${label}: ${row.value.toLocaleString('en-US',{maximumFractionDigits:2})}${change} · ${row.date}`);
-  }
-  lines.push('','한국은 당일 장 마감값, 미국은 직전 완료 거래일 자료입니다.','NH 포트폴리오 가격·계좌 평가손익 및 KRX 공식 확정자료와는 별도입니다.');
-  return lines.join('\n');
+ const valid=verifiedNhCloseRows(date,rows),count=valid.length;
+ const lines=['['+date+' 장후 시장 브리핑]',
+  '기준: NH PLUG 완료 정규장 일봉 · KRX/Yahoo는 익거래일 사후 검산만','',
+  '■ 국내 시장 (NH 지수 종가 검증 전)'];
+ for(const label of NH_UNVERIFIED.slice(0,3))lines.push(label+': NH 지수 종가 코드 미검증');
+ lines.push('','■ 미국 시장 (직전 완료 거래일)');
+ for(const target of NH_VERIFIED){
+  const row=valid.find(r=>r.symbol===target.symbol);
+  if(!row){lines.push(target.label+': NH 완료 일봉 미확보');continue;}
+  const change=Number.isFinite(row.changePercent)
+    ?' ('+(row.changePercent>=0?'+':'')+row.changePercent.toFixed(2)+'%)':'';
+  lines.push(target.label+': '+row.value.toLocaleString('en-US',{maximumFractionDigits:2})
+    +change+' · '+row.date+' · NH');
+ }
+ for(const label of NH_UNVERIFIED.slice(3))lines.push(label+': NH 지수 코드 미검증');
+ lines.push('','NH 지수 확인 '+count+'/'+NH_VERIFIED.length+' · 미검증 지수 '+NH_UNVERIFIED.length+'개',
+  '당일 국내 종가/포트폴리오 손익은 NH 정규장 원천 연동 전까지 표시하지 않습니다.',
+  'NH 기준값은 거래소 공식 정산가를 뜻하지 않으며, 다른 원천 수치로 대체하지 않습니다.');
+ return lines.join('\n');
 }
-export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchKr=fetchClosingIndex,fetchPrior=fetchDatedDaily}={}){
+export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
+ gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -68,17 +67,20 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   try{response=await fetchImpl(`https://api.github.com/repos/${REPO}/actions/artifacts?name=${artifactName}&per_page=100`,{headers:{authorization:'Bearer '+githubToken,accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error();data=await response.json();}catch{throw Error('TELEGRAM_CLOSE_CLAIM_FAILED');}
   if(!Number.isSafeInteger(data.total_count)||data.total_count<0||!Array.isArray(data.artifacts)||data.total_count===0&&data.artifacts.length)throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');
   if(data.total_count>0){if(!data.artifacts.some(a=>a.name===artifactName))throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');return {ready:false,status:'ALREADY_CLAIMED',date:window.date};}
-  const args={fetchImpl,now:now()};
-  const rows=await Promise.all([
-    ...[['KOSPI','^KS11'],['KOSDAQ','^KQ11']].map(([label,symbol])=>fetchKr(label,symbol,window.date,args)),
-    ...[['S&P 500','^GSPC'],['NASDAQ','^IXIC'],['반도체지수 SOX','^SOX'],['VIX','^VIX']].map(([label,symbol])=>fetchPrior(label,symbol,window.date,args))
-  ]);
-  const last=closeWindow(now());if(!last.allowed||last.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
-  return {ready:true,status:'PREPARED',date:window.date,artifactName,message:formatClose(window.date,rows.filter(Boolean))};
+  // One central GAS cache-first NH index query. Neither KRX nor Yahoo may
+  // supply a number in the actual closing message or block publication.
+  const rows=await fetchNh(window.date,{url:gasUrl,token:gasToken,fetchImpl});
+  const verified=verifiedNhCloseRows(window.date,rows);
+  const last=closeWindow(now());
+  if(!last.allowed||last.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
+  if(!verified.length)return {ready:false,status:'NH_INDEX_CLOSE_NOT_READY',date:window.date};
+  return {ready:true,status:'PREPARED',date:window.date,artifactName,
+    nhConfirmed:verified.length,message:formatClose(window.date,verified)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
-  if(Number(attempt)!==1||!window.allowed||payload?.date!==window.date||payload?.artifactName!=='telegram-close-claim-'+window.date||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+  if(Number(attempt)!==1||!window.allowed||payload?.date!==window.date||payload?.artifactName!=='telegram-close-claim-'+window.date||!(Number.isSafeInteger(payload.nhConfirmed)&&payload.nhConfirmed>=1&&payload.nhConfirmed<=3)
+  ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
   await send(token,chatId,payload.message);return {status:'SENT',date:window.date};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
@@ -88,7 +90,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       const result=await prepareClose({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT});
       if(result.ready){fs.mkdirSync('.telegram-close-runtime',{recursive:true});fs.writeFileSync('.telegram-close-runtime/payload.json',JSON.stringify(result));fs.writeFileSync('.telegram-close-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));}
       fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
-      console.log(JSON.stringify({status:result.status,date:result.date}));
+      console.log(JSON.stringify({status:result.status,date:result.date,nhConfirmed:result.nhConfirmed||0}));
     }else if(process.argv[2]==='send'){
       console.log(JSON.stringify(await deliverClose(JSON.parse(fs.readFileSync('.telegram-close-runtime/payload.json','utf8')),{token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,attempt:process.env.GITHUB_RUN_ATTEMPT})));
     }else throw Error('TELEGRAM_CLOSE_MODE_INVALID');
