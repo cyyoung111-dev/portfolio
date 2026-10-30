@@ -12908,6 +12908,8 @@ function _getAutomationStatusData() {
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
+    // Read-only source of the historical KRX queue seed boundary; date only.
+    snapshotSuccessPropertyDate: _normalizeDate(props.getProperty('snapshot_last_success_date') || '') || '-',
     priceHistoryLastDate: priceHistoryLastDate,
     expectedSnapshotDate: expectedSnapshotDate,
     snapshotStale: snapshotStale,
