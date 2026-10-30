@@ -167,7 +167,7 @@ assert.equal(skipReadback.sampleCount,0);
 assert.equal(skipReadback.sampleVerificationSkipped,true);
 assert.deepEqual(autoCalls,['getSettings','getSettings','retireLegacyMarketData']);
 assert.match(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'),
-  /NH_RUNTIME_SKIP_READBACK_IF_ACTIVE: \\$\\{\\{ github\\.event_name == 'workflow_run'/);
+  /NH_RUNTIME_SKIP_READBACK_IF_ACTIVE:.*github\.event_name == 'workflow_run'/);
 const fallback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:async(url,options)=>{
   const p=new URLSearchParams(options.body);
   if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.278',codes:[registered[0]]})};
