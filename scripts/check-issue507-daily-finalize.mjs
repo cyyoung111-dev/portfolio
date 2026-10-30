@@ -36,5 +36,5 @@ for(const date of ['2026-10-27','2026-10-28','2026-10-29'])for(const blocked of 
  assert.deepEqual(s.writes,blocked?[]:[date]);
  assert.ok(!s.calls.includes('recoverPendingKrxClose')&&!s.calls.includes('getKrxHeldCloseCoverage'));
 }
-await assert.rejects(()=>runDaily({url,token,dates:['2026-10-28'],clearOnly:true}),/DAILY_DATES/);
+await assert.rejects(()=>runDaily({url,token,dates:['2026-10-30'],clearOnly:true}),/DAILY_DATES/);
 assert.match(workflow,/2026-10-22,23,26,27,28,29/,'manual allowed dates must identify newly verified 10\/29');
