@@ -72,8 +72,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   if(calendar!=='OPEN')throw new Error('TELEGRAM_CALENDAR_UNKNOWN');
   // Bounded concurrency reduces Yahoo rate limiting; the message still
   // identifies missing inputs rather than inferring or reusing stale prices.
-  // Prefer the GAS centralized NH dated closes; only unsupported/missing
-  // symbols use Yahoo. No NH credentials or bearer leave GAS.
+  // NH-supported indices never fall back to Yahoo or unverified GAS master.
+  // Other independently labeled reference series retain their existing policy.
   const [candidate,masterRows,nhRows]=await Promise.all([
     referenceFetch(first.date,{fetchImpl,now}),
     loadMorningMaster(first.date,{url:process.env.GAS_WEB_APP_URL,
