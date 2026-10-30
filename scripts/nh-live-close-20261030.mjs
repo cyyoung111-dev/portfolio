@@ -1,5 +1,5 @@
 import {pathToFileURL} from 'node:url';
-// One-shot production readback: no financial writes, no direct NH OAuth.
+// One-shot production readback: no financial writes or standalone GitHub NH OAuth.
 // No secrets, raw response bodies, or request headers may enter stdout.
 export function inspectNhCloses(status,diagnostic,emit=()=>{}) {
   if(status?.status!=='ok'||status.provider!=='NH'||status.enabled!==true
@@ -50,7 +50,8 @@ async function main() {
     try{return await response.json();}catch{throw Error('NH_LIVE_GAS_JSON_FAILED');}
   };
   const status=await post('getNhAuthStatusProxy');
-  // Cached bearer is mandatory; do NOT trigger NH OAuth merely for evidence.
+  // Warm bearer is a prerequisite. GAS may centrally renew a token if NH returns 401;
+  // this is NOT a zero-issuance guarantee, and no GitHub-side OAuth is attempted.
   if(status?.status!=='ok'||status.tokenCached!==true)throw Error('NH_LIVE_CACHED_TOKEN_NOT_READY');
   const diagnostic=await post('diagnoseNhMarketData');
   const result=inspectNhCloses(status,diagnostic,row=>console.log(JSON.stringify(row)));
