@@ -29,12 +29,12 @@ const workflow=fs.readFileSync('.github/workflows/issue-507-daily-finalize.yml',
 assert.match(workflow,/if: github\.event_name == 'workflow_dispatch' \|\| steps\.first\.outputs\.apply == 'true'/,'Only explicit manual dispatch or approved first installation may hit production GAS');assert.match(workflow,/git cat-file -e/);
 console.log('Daily exact-date finalize: dry-run, verified apply, source blocked, queue readback PASS');
 
-// Explicit 10/27 and newly verified 10/29 marker cleanup must never recover or rewrite source data.
-for(const date of ['2026-10-27','2026-10-29'])for(const blocked of [false,true]){
+// Explicitly verified 10/27, 10/28 and 10/29 marker cleanup must never recover or rewrite source data.
+for(const date of ['2026-10-27','2026-10-28','2026-10-29'])for(const blocked of [false,true]){
  const s=server({blocked,dates:[date]});
  await assert.rejects(()=>runDaily({url,token,apply:true,dates:[date],clearOnly:true,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);
  assert.deepEqual(s.writes,blocked?[]:[date]);
  assert.ok(!s.calls.includes('recoverPendingKrxClose')&&!s.calls.includes('getKrxHeldCloseCoverage'));
 }
 await assert.rejects(()=>runDaily({url,token,dates:['2026-10-28'],clearOnly:true}),/DAILY_DATES/);
-assert.match(workflow,/2026-10-22,23,26,27,29/,'manual allowed dates must identify newly verified 10\/29');
+assert.match(workflow,/2026-10-22,23,26,27,28,29/,'manual allowed dates must identify newly verified 10\/29');
