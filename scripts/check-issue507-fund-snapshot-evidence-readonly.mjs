@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {summarizeEvidence,summarizeFullIntegrity,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
+import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
 const history={status:'ok',date:TARGET_DATE,items:[{code:TARGET_CODE,evalAmt:150,source:'FUND_NAV'}]};
 const prices={status:'ok',prices:{[TARGET_CODE]:[{date:TARGET_DATE,price:150,source:'FUND_NAV'}]}};
 const run=(h,p)=>summarizeEvidence(h,p);
@@ -17,7 +17,9 @@ const integrity={status:'ok',diagnostic:{
  expectedCodes:[TARGET_CODE],storedCodes:[TARGET_CODE],missingCodes:[],unexpectedCodes:[],
  evalAmtMismatches:[{code:TARGET_CODE,expected:200,stored:150}],
  sourceMismatches:[{code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}],
- qtyMismatches:[],costAmtMismatches:[],priceIntegrity:[{code:TARGET_CODE,status:'VALID'}],
+ qtyMismatches:[],costAmtMismatches:[],evalUnitMismatches:[],priceIntegrity:[{code:TARGET_CODE,status:'VALID'}],
+ expectedRows:[[TARGET_DATE,TARGET_CODE],...Array.from({length:37},(_,i)=>[TARGET_DATE,'OTHER'+i])],
+ storedRows:[[TARGET_DATE,TARGET_CODE],...Array.from({length:37},(_,i)=>[TARGET_DATE,'OTHER'+i])],
  duplicateKeys:[],conflictKeys:[],sourceDataErrors:[]
 }};
 const recomputed=summarizeFullIntegrity(integrity);
@@ -28,6 +30,38 @@ assert.ok(!JSON.stringify(recomputed).includes('200'));
 assert.ok(!JSON.stringify(recomputed).includes('150'));
 assert.throws(()=>summarizeFullIntegrity({status:'ok',diagnostic:{...integrity.diagnostic,status:'PRIVATE'}}),/BAD_INTEGRITY/);
 assert.throws(()=>summarizeFullIntegrity({status:'error',message:'PRIVATE_TOKEN'}),/BAD_INTEGRITY/);
+
+
+// One target fund only, equal row counts, full persisted rows, and no other errors.
+const scope=classifySingleFundRepairReview(integrity);
+assert.equal(scope.candidate,true);
+assert.equal(scope.writeAuthorized,false);
+assert.equal(scope.mutationPerformed,false);
+assert.equal(scope.requiresBackup,true);
+assert.equal(scope.requiresWriterExclusion,true);
+const mutate=patch=>({status:'ok',diagnostic:{...integrity.diagnostic,...patch}});
+for(const patch of [
+ {evalAmtMismatches:[integrity.diagnostic.evalAmtMismatches[0],{code:'OTHER',expected:1,stored:2}]},
+ {sourceMismatches:[integrity.diagnostic.sourceMismatches[0],{code:'OTHER',expected:'A',stored:'B'}]},
+ {evalUnitMismatches:[{code:'OTHER'}]},
+ {qtyMismatches:[{code:TARGET_CODE}]},
+ {missingCodes:['OTHER']},
+ {expectedRowCount:39},
+ {storedRows:[]},
+ {sourceDataErrors:['PRIVATE_ACCOUNT']},
+ {duplicateKeys:[TARGET_DATE+'|'+TARGET_CODE]},
+ {conflictKeys:[TARGET_DATE+'|'+TARGET_CODE]},
+ {priceIntegrity:[{code:TARGET_CODE,status:'MISMATCH'}]},
+ {priceIntegrity:[{code:TARGET_CODE,status:'VALID'},{code:'OTHER',status:'MISMATCH'}]},
+ {status:'SOURCE_INCOMPLETE'},
+ {status:'VALID'}
+]){
+ const blocked=classifySingleFundRepairReview(mutate(patch));
+ assert.equal(blocked.candidate,false,JSON.stringify(Object.keys(patch)));
+ assert.equal(blocked.writeAuthorized,false);
+ assert.equal(blocked.classification,'REPAIR_PREFLIGHT_BLOCKED');
+ assert.ok(!JSON.stringify(blocked).includes('PRIVATE_ACCOUNT'));
+}
 
 const actions=[],emitted=[];
 await diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
@@ -47,6 +81,8 @@ assert.ok(actions.every(x=>x.accessToken==='PRIVATE_TOKEN'));
 assert.equal(emitted.length,1);
 assert.equal(emitted[0].fundAmountMismatch,true);
 assert.equal(emitted[0].fundSourceMismatch,true);
+assert.equal(emitted[0].candidate,true);
+assert.equal(emitted[0].writeAuthorized,false);
 assert.ok(!JSON.stringify(emitted).includes('PRIVATE_TOKEN'));
 for(const mock of [
  async()=>{throw Error('PRIVATE_ACCOUNT')},
