@@ -22,6 +22,7 @@ function setup(options={}) {
    }}),
   copyTo:()=>{assert.equal(held,true);let b=clone(get());if(options.badBackup)b[1][2]='bad';const copy=sheetFor(()=>b,x=>b=x,true);backups.push(b);return copy;},setName(){return this;}
  };}
+ props.set('issue507_f00001_quiescence_v1',JSON.stringify({httpIngressBlocked:true,menuAndTriggersBlocked:true,inFlightExecutionsDrained:true,externalWritersBlocked:true,observedAt:Date.now()}));
  const sheet=sheetFor(()=>data,x=>data=x);
  const ss={getSheetByName:()=>sheet};
  const ctx=vm.createContext({console,Date,Number,Logger:{log(){}},LockService:{getScriptLock:()=>({tryLock:()=>{if(options.lockBusy)return false;held=true;return true;},releaseLock:()=>{held=false;}})},
@@ -46,6 +47,10 @@ assert.deepEqual(h.data[1],h.expected[0]);assert.deepEqual(h.data.slice(2),h.ini
 assert.equal(h.data[2][10],'FUND_NAV_CARRY_INPUT_REQUIRED');assert.equal(h.props.has('issue507_f00001_approval_v1'),false);
 assert.throws(()=>h.run(true));assert.equal(h.writes.length,1);
 for(const options of [{lockBusy:true},{ledgerBusy:true},{badPrice:true},{formulas:true}]){const x=setup(options);assert.throws(()=>x.run(false));assert.equal(x.writes.length,0);assert.equal(x.held,false);}
+for(const field of ['httpIngressBlocked','menuAndTriggersBlocked','inFlightExecutionsDrained','externalWritersBlocked','observedAt']) {
+ const x=setup();const q=JSON.parse(x.props.get('issue507_f00001_quiescence_v1'));q[field]=field==='observedAt'?Date.now()-300001:false;x.props.set('issue507_f00001_quiescence_v1',JSON.stringify(q));assert.throws(()=>x.run(false),/APP_QUIESCENCE_REQUIRED/);assert.equal(x.backups.length,0);assert.equal(x.writes.length,0);
+}
+const noDrain=setup();noDrain.props.delete('issue507_f00001_quiescence_v1');assert.throws(()=>noDrain.run(false),/APP_QUIESCENCE_REQUIRED/);
 const denied=setup();assert.throws(()=>denied.run(true),/APPROVAL_REQUIRED/);assert.equal(denied.backups.length,0);
 for(const [key,value] of [['portfolio_close_stage','PRICE'],['portfolio_close_stage','FUND'],[setup().ctx.PORTFOLIO_FUND_LEASE_KEY,JSON.stringify({until:Date.now()+60000})],['portfolio_close_backfill_lease_v1','invalid'],['trade_snapshot_rebuild_pending_v1','pending']]) {
  const x=setup();x.props.set(key,value);assert.throws(()=>x.run(false));assert.equal(x.writes.length,0);

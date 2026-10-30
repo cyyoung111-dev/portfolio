@@ -8,6 +8,7 @@ function issue507F00001SnapshotRepair_(apply) {
     if (!lock.tryLock(1000)) throw new Error('WRITER_BUSY');
     owned=true;
     var props=PropertiesService.getScriptProperties();
+    _issue507F00001Quiescence_(props);
     _issue507F00001ExcludeWriters_(props);
     var ss=getss(), sheet=ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     var read=function(){return sheet.getRange(1,1,sheet.getLastRow(),sheet.getLastColumn()).getValues();};
@@ -39,6 +40,7 @@ function issue507F00001SnapshotRepair_(apply) {
     if (backup.getLastRow()!==before.length || backup.getLastColumn()!==before[0].length ||
         JSON.stringify(backup.getRange(1,1,before.length,before[0].length).getValues())!==JSON.stringify(before)) throw new Error('BACKUP_READBACK_FAILED');
     if (JSON.stringify(read())!==JSON.stringify(before) || _issue507F00001Sources_(ss)!==sources) throw new Error('SOURCE_CHANGED');
+    _issue507F00001Quiescence_(props);
     _issue507F00001ExcludeWriters_(props);
     // Consume before writing: response loss/partial failure cannot retry blindly.
     props.deleteProperty('issue507_f00001_approval_v1');
@@ -115,4 +117,17 @@ function _issue507F00001RowsProof_(d,after) {
   if(kb.length!==1 || kb[0].sourceDate!=='2026-10-29' || expected.F00002[10]!=='FUND_NAV_CARRY@2026-10-29' ||
      !/^FUND_NAV_CARRY_INPUT_REQUIRED(?:@2026-10-29)?$/.test(stored.F00002[10])) throw new Error('KB_WARNING_REQUIRED');
   return {expected:e,stored:s};
+}
+
+function _issue507F00001Quiescence_(props) {
+  // Manual refresh can fetch outside ScriptLock WITHOUT a shared lease.
+  // Never infer quiescence from empty leases. Rollout must first block ALL app
+  // HTTP/menu/trigger entry points and independently observe execution drain.
+  // This receipt is an operator attestation, not an automatic execution audit.
+  var raw=props.getProperty('issue507_f00001_quiescence_v1');
+  if(!raw) throw new Error('APP_QUIESCENCE_REQUIRED');
+  var q=JSON.parse(raw),age=Date.now()-Number(q.observedAt);
+  if(q.httpIngressBlocked!==true || q.menuAndTriggersBlocked!==true ||
+     q.inFlightExecutionsDrained!==true || q.externalWritersBlocked!==true ||
+     !Number.isFinite(age) || age<0 || age>300000) throw new Error('APP_QUIESCENCE_REQUIRED');
 }
