@@ -44,3 +44,13 @@
 - 차트: FDR 출처를 `FDR·KRX 참고 종가`로 명시하며, 캐시 실패 시 GAS의 `KRX_OFFICIAL + confirmedClose`인 행만 사용한다. `YAHOO_UNVERIFIED_DAILY`를 FDR/KRX 확정값으로 바꾸지 않는다.
 - 날짜별 휴장일엔 전일 값을 당일 종가로 승격하지 않고 미확보로 처리. 동일 일자/중복행은 제거가 아니라 오류로 중단. 개별 가격 데이터의 KRX/Yahoo 익거래일 감사 정책은 유지한다.
 - 남은 운영 검증: 공개 GitHub API CORS·rate limit, 실제 다음 마감 시 공개 커밋시각/지수 3개 실조회, 전일 KRX 공시가격과 일치 및 API 캐시 주기/이용약관, 화면 모바일 조회, Telegram 실수신. CI 모의검사만으로 실운영 완료 주장 금지.
+
+
+## 16:30 국내 종가 우선순위 보완 (2026-10-30)
+- KRX 공식 OpenAPI에는 KOSPI 시리즈 및 KOSDAQ 시리즈 일별시세 종가 `CLSPRC_IDX`, 날짜 `BAS_DD`가 명시되어 있다. 저장소의 운영 GAS `getBenchmarks`는 이미 16:00 KST 이후 같은 거래일의 공식 `KOSPI/KOSDAQ`만 확인하도록 설계되어 있다. 공식 API 문서: https://openapi.krx.co.kr/contents/OPP/INFO/service/OPPINFO004.cmd
+- KRX의 **별도 계약형 시장 데이터 분배상품**은 주간 1차 종가 **16:00**, 2차 **18:10** 전송한다고 공식 안내하지만, 이는 *무료 KRX OpenAPI의 16:00 게시 보장*이 아니다. 출처: https://openapi.krx.co.kr/contents/OPP/DATA/OPPDATA002.jsp
+- 16:30 마감 텔레그램은 기존 GAS의 `getBenchmarks(KOSPI,KOSDAQ,KOSPI200; from=to=당일; fresh=1)` 한 번만 추가 호출해 `seriesMeta.source=KRX_OFFICIAL`, `confirmedClose=true`, `officialDate=당일`, `series[].source=KRX_OFFICIAL`, 정확히 같은 거래일의 유일한 유효 값인 경우에만 **KRX 공식 종가**로 표시한다.
+- 동일 지수/거래일에 KRX 확정값이 있으면 FDR 게시 후 참고값보다 우선한다. KRX가 미게시·인증 오류·시계열 불명확이면 기존 FDR `FDR_KRX_CACHE`를 독립 증빙해 사용하며 미확보면 결측 그대로 표시한다.
+- KOSPI200은 GAS 공식 지수 제공 여부가 미검증이므로 `source=YAHOO` 등 타 공급원 결과를 공식 KRX로 승격하지 않는다. NH 지수 공급원으로 표시하지 않는다. KRX 공식 응답이 실제로 `KOSPI200`에 대해 증명되기 전에는 FDR 후보만 가능.
+- 손익그래프에서도 동일 날짜 KRX 공식 종가가 FDR 캐시에 덮어써지는 우선순위 버그를 수정했다.
+- **실조회 미완료**: 무료 KRX OpenAPI가 16:30 당일 실제 값 반환하는지(서비스 승인키, 게시 시점), KOSPI200 공식 경로/현재 거래일, 브라우저 수치·텔레그램 송신 결과는 추가 운영 검증이 필요하다.
