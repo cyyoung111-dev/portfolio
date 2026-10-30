@@ -82,7 +82,7 @@ bad([{...trades[0],ratio:-1,tradeType:'split'}],/NH_GAS_UNIVERSE_SPLIT_RATIO_INV
 bad([{...trades[0],tradeType:'REPAIR'}],/NH_GAS_UNIVERSE_TRADE_BAD_ROW/);
 assert.throws(()=>buildGasHeldUniverseCandidate({date,codeList:[...master,master[0]],trades}),/NH_GAS_UNIVERSE_MASTER_DUPLICATE_CODE/);
 assert.throws(()=>buildGasHeldUniverseCandidate({date:'2026-10-31',codeList:master,trades}),/NH_GAS_UNIVERSE_DATE_UNVERIFIED/);
-assert.throws(()=>buildGasHeldUniverseCandidate({date,codeList:master,trades,codeListVersion:'9.280'}),/NH_GAS_UNIVERSE_UNREVIEWED_GAS_VERSION/);
+assert.throws(()=>buildGasHeldUniverseCandidate({date,codeList:master,trades,codeListVersion:'9.999'}),/NH_GAS_UNIVERSE_UNREVIEWED_GAS_VERSION/);
 
 const endpoint='https://script.google.com/macros/s/TEST_DEPLOY_ID/exec';
 const token='PRIVATE_TEST_26';
