@@ -220,7 +220,7 @@ for(const [mutation,secondStatus] of [
  [{sourceMismatches:reviewFixture.diagnostic.sourceMismatches,
     fundNavStates:[{code:'F00002',sourceDate:'2026-10-28'}]}],
  [{}, {...kbStatus,fundResults:{F00002:{code:'F00002',dates:[{
-   ...activeRow('F00002','EXISTING_CONFIRMED')]}}}}]
+   ...activeRow('F00002','EXISTING_CONFIRMED')}]}}}}]
 ]){
  const payload=withSource({...reviewFixture.diagnostic,...mutation});
  const result=classifyF00001ScopedReview(payload,hanwhaStatus,secondStatus||kbStatus);
