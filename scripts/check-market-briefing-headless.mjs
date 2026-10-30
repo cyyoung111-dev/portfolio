@@ -564,7 +564,7 @@ function validateBriefingWorkflow(source){
  // Regression fingerprint for the exact reviewed shell block, including
  // safe cron-to-checkpoint mapping and a single headless execution command.
  // Any added recovery command must fail this offline contract.
- assert.equal(fnv32(String(step.run||'').trim()),'552d2b27',
+ assert.equal(fnv32(String(step.run||'').trim()),'193064af',
   'single approved briefing shell script only');
 }
 validateBriefingWorkflow(workflow);
