@@ -28,8 +28,9 @@ assert.deepEqual(await loadMorningMaster(date,{url:'http://example.com',token:'t
 assert.deepEqual(await loadMorningMaster(date,{url:'https://evil.example.com',token:'test-secret',fetchImpl}),[]);
 assert.deepEqual(await loadMorningMaster(date,{url:'https://script.google.com/macros/s/example/exec',token:'test-secret',fetchImpl:async()=>{throw Error('PRIVATE') }}),[]);
 const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
-assert.equal(wf.jobs.briefing.environment,'portfolio-production-gas');
+assert.equal(wf.jobs.briefing.environment,undefined,
+ 'the recurring Telegram workflow must not bypass existing GAS environment permissions');
 const prepare=wf.jobs.briefing.steps.find(x=>x.id==='prepare');
-assert.equal(prepare.env.GAS_WEB_APP_URL,'${{ vars.GAS_WEB_APP_URL }}');
-assert.equal(prepare.env.GAS_ACCESS_TOKEN,'${{ secrets.GAS_ACCESS_TOKEN }}');
+assert.equal(prepare.env.GAS_ACCESS_TOKEN,undefined);
+assert.equal(prepare.env.GAS_WEB_APP_URL,undefined);
 console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');
