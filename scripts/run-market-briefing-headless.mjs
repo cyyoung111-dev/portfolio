@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
-import {fetchNhNight} from './nh-night-reference.mjs';
+import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import '../src/web/domain/market/market_data_provider.js';
 import '../src/web/domain/market/market_briefing_master.js';
 import '../src/web/domain/market/market_briefing_provider_normalizer.js';
@@ -274,7 +274,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
   // A third-party last-observed value is diagnostic only. It must never enter
   // MARKET_MASTER, pass the KRX official gate or publish a false snapshot.
-  if (args.checkpoint === 'MORNING') result.prekospiReference = await fetchNhNight(args.tradingDate);
+  if (args.checkpoint === 'MORNING') result.prekospiReference = await fetchNhNightFromGas(args.tradingDate);
   const successful = headlessSucceeded(result);
   const diagnostic = diagnosticFor(result,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL]);
   console.log(JSON.stringify(diagnostic));

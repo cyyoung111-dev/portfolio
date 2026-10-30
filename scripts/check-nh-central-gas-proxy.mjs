@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import YAML from 'yaml';
 import {validateGasEndpoint,fetchNhNightFromGas,fetchNhNightProbeFromGas} from './nh-gas-proxy.mjs';
 import {readbackOnce,centralProbeWindow} from './nh-central-probe-20261030.mjs';
-import {runCentralNhDiagnostic} from './nh-central-diagnostic.mjs';
+import {runCentralNhDiagnostic,isSupportedNhCentralStatus} from './nh-central-diagnostic.mjs';
 import {captureMorning} from './nh-morning-capture.mjs';
 const url='https://script.google.com/macros/s/EXAMPLE123456/exec', token='TEST-GAS-ACCESS-TOKEN';
 for(const bad of ['http://script.google.com/macros/s/TEST/exec',
@@ -24,7 +24,7 @@ const request=async(target,options)=>{
  assert.equal(data.get('accessToken'),token);
  assert.ok(!data.has('appkey')&&!data.has('appsecretkey'));
  return {ok:true,json:async()=>data.get('action')==='getNhAuthStatusProxy'
-  ?{status:'ok',provider:'NH',readOnly:true,enabled:true,tokenCached:true,tokenIssued:false,gasVersion:'9.278'}
+  ?{status:'ok',provider:'NH',readOnly:true,enabled:true,tokenCached:true,tokenIssued:false,gasVersion:'9.281'}
   :data.get('action')==='getNhNightProbe'
    ?{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,diagnosticOnly:true,tokenIssued:false,reference:ref}
    :{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,reference:ref}};
@@ -43,6 +43,26 @@ const leak=await fetchNhNightFromGas('2026-10-30',{now,url,token,request:async()
 assert.equal(leak,null,'unexpected auth fields must never be stored in GH artifacts');
 const cap=await captureMorning({now,fetchNight:async()=>result});
 assert.equal(cap.status,'CAPTURED');
+const accepted={status:'ok',provider:'NH',readOnly:true,enabled:true,
+ tokenCached:true,tokenIssued:false,gasVersion:'9.281'};
+assert.equal(isSupportedNhCentralStatus(accepted),true,'current live GAS is accepted');
+assert.equal(isSupportedNhCentralStatus({...accepted,gasVersion:'9.282'}),true,'compatible minor release is accepted');
+for(const bad of [{...accepted,gasVersion:'9.280'},{...accepted,gasVersion:'10.281'},
+ {...accepted,tokenIssued:true},{...accepted,readOnly:false},{...accepted,enabled:false}]){
+ assert.equal(isSupportedNhCentralStatus(bad),false,'unsupported or unsafe status is rejected');
+}
+await assert.rejects(runCentralNhDiagnostic({mode:'status',url,token,
+ request:async()=>({ok:true,json:async()=>({...accepted,gasVersion:'9.280'})}),
+ log:()=>{}}),/NH_PROXY_STATUS_INVALID/);
+const headlessSource=fs.readFileSync('scripts/run-market-briefing-headless.mjs','utf8');
+const morningSource=fs.readFileSync('scripts/telegram-morning-briefing.mjs','utf8');
+assert.match(headlessSource,/import \{fetchNhNightFromGas\} from '\.\/nh-gas-proxy\.mjs'/);
+assert.match(headlessSource,/result\.prekospiReference = await fetchNhNightFromGas\(args\.tradingDate\)/);
+assert.match(morningSource,/return fetchNhNightFromGas\(date,options\)/);
+for(const source of [headlessSource,morningSource]){
+ assert.doesNotMatch(source,/NHPLUG_APP_KEY|NHPLUG_APP_SECRET|fetchNhNight\(/,
+ 'scheduled workers must not start a separate NH OAuth request');
+}
 const logs=[];
 assert.equal(await runCentralNhDiagnostic({mode:'status',now,url,token,request,
  log:x=>logs.push(x)}),true);
