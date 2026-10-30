@@ -2,7 +2,8 @@
 // price history, P&L, or Snapshots. Fail closed on missing/duplicate dates.
 import {expectedMorningDate} from './telegram-morning-report.mjs';
 const SETTINGS={
- DOW:{name:'다우존스',source:'FRED_DJIA',url:'https://fred.stlouisfed.org/graph/fredgraph.csv'},
+ DOW:{name:'다우존스',source:'FRED_DJIA',url:'https://fred.stlouisfed.org/graph/fredgraph.csv',code:'DJIA'},
+ SOX:{name:'SOX',source:'FRED_NASDAQSOX',url:'https://fred.stlouisfed.org/graph/fredgraph.csv',code:'NASDAQSOX'},
  VIX:{name:'VIX',source:'CBOE_VIX_DAILY',url:'https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv'}
 };
 const iso=s=>{
@@ -19,8 +20,8 @@ export function parseReferenceCsv(id,date,text){
  const lines=text.replace(/^\uFEFF/,'').trim().split(/\r?\n/);
  if(lines.length<3||lines.length>18000)return null;
  const columns=lines.shift().toUpperCase().split(',').map(s=>s.trim());
- const dateIdx=columns.indexOf(id==='DOW'?'OBSERVATION_DATE':'DATE');
- const priceIdx=columns.indexOf(id==='DOW'?'DJIA':'CLOSE');
+ const dateIdx=columns.indexOf(id==='VIX'?'DATE':'OBSERVATION_DATE');
+ const priceIdx=columns.indexOf(id==='VIX'?'CLOSE':SETTINGS[id].code);
  if(dateIdx<0||priceIdx<0||columns.length>12)return null;
  const prices=new Map(),duplicates=new Set();
  for(const line of lines){
@@ -45,7 +46,7 @@ export async function fetchSecondaryIndexes(day,{fetchImpl=fetch}={}){
  const from=new Date(Date.parse(expected+'T00:00:00Z')-21*86400000).toISOString().slice(0,10);
  const rows=await Promise.all(Object.entries(SETTINGS).map(async([id,config])=>{
   const url=new URL(config.url);
-  if(id==='DOW'){url.searchParams.set('id','DJIA');url.searchParams.set('cosd',from);url.searchParams.set('coed',expected);}
+  if(config.code){url.searchParams.set('id',config.code);url.searchParams.set('cosd',from);url.searchParams.set('coed',expected);}
   try{
    const response=await fetchImpl(url.href,{redirect:'error',signal:AbortSignal.timeout(6000)});
    if(!response.ok)return null;
