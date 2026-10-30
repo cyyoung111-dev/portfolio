@@ -37,6 +37,15 @@ export async function fetchNhNightFromGas(date,{now=()=>new Date(),
   let body;
   try{body=await callNhGasProxy('getNhNightProxy',{url,token,date,request});}catch{return null;}
   const ref=body.reference;
+  // Fail closed if the server ever accidentally returns more than the
+  // canonical reference schema. In particular, bearer/key/secret fields may
+  // never enter a GitHub artifact or an application log.
+  const responseKeys=['status','provider','readOnly','bearerExposed','reference'];
+  const referenceKeys=['source','kind','tradingDate','contract','contractMonth',
+    'value','clock','sourceUpdatedAt','receivedAt','officialClose'];
+  if(Object.keys(body).some(k=>!responseKeys.includes(k))||
+    !ref||typeof ref!=='object'||Array.isArray(ref)||
+    Object.keys(ref).some(k=>!referenceKeys.includes(k)))return null;
   if(body.bearerExposed!==false||!ref||ref.source!=='NH'||ref.kind!=='REFERENCE'
     ||ref.tradingDate!==date||ref.officialClose!==false
     ||ref.sourceUpdatedAt!==date+'T06:00:00+09:00'
