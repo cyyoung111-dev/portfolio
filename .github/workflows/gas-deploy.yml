@@ -126,6 +126,10 @@ jobs:
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
         continue-on-error: true
         run: node scripts/domestic-crosschecked-live-readback-20261030.mjs
+      - name: Read-only closing EOD provider end-to-end sample (no Telegram)
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
+        continue-on-error: true
+        run: node scripts/domestic-eod-integration-readback-20261030.mjs
       - name: Verify NH SP500 NASDAQ NASDAQ100 primary index series
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
         continue-on-error: true
