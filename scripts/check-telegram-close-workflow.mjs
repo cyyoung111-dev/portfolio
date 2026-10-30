@@ -36,7 +36,7 @@ assert.equal(parseReferenceCsv('VIX','2026-10-29',vixCsv+'10/29/2026,18,19,17,18
 const supplemental=formatClose(day,rows,[dow,vix]);
 assert.match(supplemental,/다우존스: 51,500.*FRED_DJIA 참고 \(NH 아님\)/);
 assert.match(supplemental,/VIX: 18.25.*CBOE_VIX_DAILY 참고 \(NH 아님\)/);
-assert.match(supplemental,/SOX: NH 코드 미검증 · 별도 참고값 미확보/);
+assert.match(supplemental,/SOX: NH 지수 코드 미검증 · 별도 참고값 미확보/);
 assert.match(supplemental,/NH 지수 확인 3\/3/);
 let refCalls=0;
 const refs=await fetchSecondaryIndexes(day,{fetchImpl:async url=>{
