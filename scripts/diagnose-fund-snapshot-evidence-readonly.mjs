@@ -115,6 +115,44 @@ export function classifySingleFundRepairReview(payload,date=TARGET_DATE,code=TAR
  };
 }
 
+
+// Reveal only date-scoped NAV publication states. A missing Friday entry is
+// NOT automatically a processing error; issuer publication timing must be checked.
+export function summarizeExactFundDay(payload,code,date=TARGET_DATE){
+ const item=payload?.fundResults?.[code];
+ const rows=item?.dates;
+ const NAV=new Set(['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY','UNPUBLISHED','NAV_MISSING']);
+ const STATE=new Set(['EXISTING_VALID','NOT_REQUIRED','WRITE_REQUIRED','NOT_CREATED']);
+ if(!['F00001','F00002'].includes(code)||payload?.status!=='ok'||item?.code!==code
+    ||!Array.isArray(rows)||rows.length>1)throw Error('FUND_SNAPSHOT_BAD_FUND_STATUS');
+ if(rows.length===0)return {code,date,active:false,navState:'NO_ACTIVE_POSITION',
+    publicationExpected:null,evaluationState:'NOT_REQUIRED',snapshotState:'NOT_REQUIRED'};
+ const row=rows[0];
+ if(row.code!==code||row.date!==date||!NAV.has(row.navState)||!STATE.has(row.evaluationState)
+    ||!STATE.has(row.snapshotState)||typeof row.publicationExpected!=='boolean'
+    ||row.reconciled!==true)throw Error('FUND_SNAPSHOT_BAD_FUND_STATUS');
+ return {code,date,active:true,navState:row.navState,
+  publicationExpected:row.publicationExpected,evaluationState:row.evaluationState,
+  snapshotState:row.snapshotState};
+}
+
+// Classify WHY an exact-date repair remains blocked without leaking other
+// portfolio codes, monetary amounts, original sources, units or row contents.
+export function summarizeMismatchScope(payload,date=TARGET_DATE,code=TARGET_CODE){
+ const d=payload?.diagnostic;
+ summarizeFullIntegrity(payload,date,code);
+ const categorize=key=>{
+  const rows=d[key];
+  const target=rows.some(row=>row?.code===code);
+  const other=rows.some(row=>typeof row?.code==='string'&&row.code!==code);
+  if(rows.some(row=>!row||typeof row.code!=='string'||!row.code))throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+  return target&&other?'TARGET_AND_OTHER':target?'TARGET_ONLY':other?'OTHER_ONLY':'NONE';
+ };
+ return {unitMismatchScope:categorize('evalUnitMismatches'),
+  sourceMismatchScope:categorize('sourceMismatches'),
+  evaluationAmountMismatchScope:categorize('evalAmtMismatches')};
+}
+
 export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_SNAPSHOT_TOKEN_MISSING');
@@ -134,7 +172,11 @@ export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const prices=await read('getPriceHistory',{from:TARGET_DATE,to:TARGET_DATE,codes:TARGET_CODE});
  const result=summarizeEvidence(history,prices);
  const integrity=await read('diagnoseSnapshotIntegrity',{date:TARGET_DATE});
- const complete={...result,...summarizeFullIntegrity(integrity),...classifySingleFundRepairReview(integrity)};
+ const hanwha=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00001'});
+ const kb=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00002'});
+ const complete={...result,...summarizeFullIntegrity(integrity),...classifySingleFundRepairReview(integrity),
+  ...summarizeMismatchScope(integrity),fundDayStates:[
+    summarizeExactFundDay(hanwha,'F00001'),summarizeExactFundDay(kb,'F00002')]};
  emit(complete);
  return complete;
 }
