@@ -28,9 +28,23 @@ assert.deepEqual(await loadMorningMaster(date,{url:'http://example.com',token:'t
 assert.deepEqual(await loadMorningMaster(date,{url:'https://evil.example.com',token:'test-secret',fetchImpl}),[]);
 assert.deepEqual(await loadMorningMaster(date,{url:'https://script.google.com/macros/s/example/exec',token:'test-secret',fetchImpl:async()=>{throw Error('PRIVATE') }}),[]);
 const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
-assert.equal(wf.jobs.briefing.environment,undefined,
- 'the recurring Telegram workflow must not bypass existing GAS environment permissions');
+assert.equal(wf.jobs.briefing.environment,'portfolio-production-gas',
+ 'GAS reads must use the existing protected production environment');
 const prepare=wf.jobs.briefing.steps.find(x=>x.id==='prepare');
-assert.equal(prepare.env.GAS_ACCESS_TOKEN,undefined);
-assert.equal(prepare.env.GAS_WEB_APP_URL,undefined);
-console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');
+assert.match(prepare.env.GAS_ACCESS_TOKEN,/^[$][{][{] secrets[.]GAS_ACCESS_TOKEN [}][}]$/);
+assert.match(prepare.env.GAS_WEB_APP_URL,/^[$][{][{] vars[.]GAS_WEB_APP_URL [}][}]$/);
+assert.equal(wf.jobs.briefing.steps.find(x=>x.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
+const knownDaily=[
+ {label:'SOX',symbol:'^SOX',date:'2026-10-29',value:9000,changePercent:1.3,source:'Yahoo Finance 일봉'},
+ {label:'VIX',symbol:'^VIX',date:'2026-10-29',value:16.5,changePercent:-1.1,source:'Yahoo Finance 일봉'}
+];
+const datedMaster=verifiedMorningMaster(date,[
+ {...row,seriesId:'SOX',value:9000,source:'NH_INDEX_DAILY'},
+ {...row,seriesId:'VIX',value:16.5,source:'NH_INDEX_DAILY'}
+]);
+const mergedIndicators=mergeMorningSourceRows(knownDaily,datedMaster);
+assert.deepEqual(mergedIndicators.map(x=>x.changePercent),[1.3,-1.1],
+ 'keep same-date Yahoo values and changes together when master lacks prior daily close');
+assert.ok(mergedIndicators.every(x=>x.source==='Yahoo Finance 일봉'),
+ 'source must match the chosen percentage and price');
+console.log('Morning GAS protected read and exact-day index fallback provenance PASS');
