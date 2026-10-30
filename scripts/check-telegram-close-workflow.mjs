@@ -29,25 +29,29 @@ assert.match(msg,/SOX: NH 지수 코드 미검증/);
 assert.match(msg,/NH 지수 확인 3\/3/);
 const dowCsv='observation_date,DJIA\n2026-10-28,51000\n2026-10-29,51500\n';
 const vixCsv='DATE,OPEN,HIGH,LOW,CLOSE\n10/28/2026,17.8,18.1,17.1,17.5\n10/29/2026,18,19,17,18.25\n';
+const soxCsv='observation_date,NASDAQSOX\n2026-10-28,11684.00\n2026-10-29,11518.20\n';
 const dow=parseReferenceCsv('DOW','2026-10-29',dowCsv),vix=parseReferenceCsv('VIX','2026-10-29',vixCsv);
+const sox=parseReferenceCsv('SOX','2026-10-29',soxCsv);
+assert.equal(sox.value,11518.20);assert.equal(sox.source,'FRED_NASDAQSOX');
+assert.equal(parseReferenceCsv('SOX','2026-10-30',soxCsv),null);
 assert.equal(dow.value,51500);assert.equal(vix.value,18.25);
 assert.equal(parseReferenceCsv('DOW','2026-10-30',dowCsv),null);
 assert.equal(parseReferenceCsv('VIX','2026-10-29',vixCsv+'10/29/2026,18,19,17,18.4\n'),null);
-const supplemental=formatClose(day,rows,[dow,vix]);
+const supplemental=formatClose(day,rows,[dow,vix,sox]);
 assert.match(supplemental,/다우존스: 51,500.*FRED_DJIA 참고 \(NH 아님\)/);
 assert.match(supplemental,/VIX: 18.25.*CBOE_VIX_DAILY 참고 \(NH 아님\)/);
-assert.match(supplemental,/SOX: NH 지수 코드 미검증 · 별도 참고값 미확보/);
+assert.match(supplemental,/SOX: 11,518.2.*FRED_NASDAQSOX 참고 \(NH 아님\)/);
 assert.match(supplemental,/NH 지수 확인 3\/3/);
 let refCalls=0;
 const refs=await fetchSecondaryIndexes(day,{fetchImpl:async url=>{
  refCalls++;
  if(url.startsWith('https://fred.stlouisfed.org/graph/fredgraph.csv'))
-  return {ok:true,headers:{get:()=> 'text/csv'},text:async()=>dowCsv};
+  return {ok:true,headers:{get:()=> 'text/csv'},text:async()=>url.includes('NASDAQSOX')?soxCsv:dowCsv};
  if(url==='https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv')
   return {ok:true,headers:{get:()=> 'text/csv'},text:async()=>vixCsv};
  throw Error('BAD_SOURCE');
 }});
-assert.equal(refCalls,2);assert.equal(refs.length,2);
+assert.equal(refCalls,3);assert.equal(refs.length,3);
 
 assert.doesNotMatch(msg,/Yahoo Finance 일봉 기준/);
 let fetched=0,sent=0;
