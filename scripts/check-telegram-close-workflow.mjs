@@ -68,16 +68,22 @@ const domesticGet=async url=>{
  if(url.includes('raw.githubusercontent.com'))
   return {ok:true,text:async()=>domesticFixture};
  if(url.includes('api.github.com/repos/FinanceData/fdr_krx_data_cache/commits'))
-  return {ok:true,json:async()=>[{commit:{committer:{date:'2026-10-30T10:58:41Z'}}}]};
+  return {ok:true,json:async()=>[{sha:'b'.repeat(40),commit:{committer:{date:'2026-10-30T10:58:41Z'}}}]};
  throw Error('unexpected index query');
 };
-const verifiedDomestic=await fetchDomesticCloseIndexes(day,{fetchImpl:domesticGet,now});
+const late=()=>new Date(day+'T20:10:00+09:00');
+const verifiedDomestic=await fetchDomesticCloseIndexes(day,{fetchImpl:domesticGet,now:late});
 assert.equal(verifiedDomestic.length,3);
 assert.ok(verifiedDomestic.every(x=>x.source==='FDR_KRX_CACHE'&&x.date===day));
 const earlyDomestic=await fetchDomesticCloseIndexes(day,{now,fetchImpl:async url=>url.includes('raw.githubusercontent.com')
  ?{ok:true,text:async()=>domesticFixture}
- :{ok:true,json:async()=>[{commit:{committer:{date:'2026-10-30T04:19:16Z'}}}]}});
+ :{ok:true,json:async()=>[{sha:'b'.repeat(40),commit:{committer:{date:'2026-10-30T04:19:16Z'}}}]}});
 assert.deepEqual(earlyDomestic,[],'intraday published row cannot show as close');
+const priorMissing='Date,Close,UpDown\\n2026-10-28,6012.44,1\\n2026-10-30,5668.26,2\\n'.replaceAll('\\n','\n');
+const miss=await fetchDomesticCloseIndexes(day,{now:late,fetchImpl:async url=>url.includes('raw.githubusercontent.com')
+ ?{ok:true,text:async()=>priorMissing}
+ :{ok:true,json:async()=>[{sha:'b'.repeat(40),commit:{committer:{date:'2026-10-30T10:58:41Z'}}}]}});
+assert.deepEqual(miss,[],'missing October 29 must not become a 2-day daily change');
 
 assert.doesNotMatch(msg,/Yahoo Finance 일봉 기준/);
 let fetched=0,sent=0;
