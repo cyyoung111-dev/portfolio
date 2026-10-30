@@ -8,24 +8,26 @@ assert.ok(runtime.includes('function fetchPricesNh('));
 const extract=name=>{const match=source.match(new RegExp('function '+name+'\\([^]*?\\n\\}'));assert.ok(match,name);return match[0];};
 const time=Date.parse('2026-10-29T14:30:00Z');
 class Clock extends Date {constructor(...args){super(...(args.length?args:[time]));}static now(){return time;}}
-function setup(){
+function setup({expiresIn=3600}={}){
+  let nowMs=time;
+  class TestClock extends Date {constructor(...args){super(...(args.length?args:[nowMs]));}static now(){return nowMs;}}
   const props=new Map([['access_token','admin-token']]),cache=new Map(),calls=[];
   let locked=false,status=200,wrongIdentity=false;
   const response=(data,code=200)=>({getResponseCode:()=>code,getContentText:()=>JSON.stringify(data)});
   const header='@record 164\n'+[['sGIC',15],['rest',80],['sNationCode',3],['sSymbol',12],['tail',54]].map(([n,w])=>`('${n}', ${w}),`).join('\n');
   const row=Buffer.alloc(164,32);row.write('USAAAPL');row.write('USA',95);row.write('AAPL',98);row[163]=10;
-  const ctx={Date:Clock,PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k),setProperties:o=>Object.entries(o).forEach(([k,v])=>props.set(k,v))})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},LockService:{getScriptLock:()=>({hasLock:()=>locked,tryLock:()=>{locked=true;return true;},releaseLock:()=>{locked=false;}})},Utilities:{sleep:()=>{},DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,v)=>createHash('sha256').update(v).digest(),base64EncodeWebSafe:v=>Buffer.from(v).toString('base64url'),formatDate:()=> '20261029'},jsonError:message=>({status:'error',message}),jsonOk:v=>({status:'ok',...v}),_isFundCode:code=>code.startsWith('F000'),_normalizeDate:s=>s,
+  const ctx={Date:TestClock,PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k),setProperties:o=>Object.entries(o).forEach(([k,v])=>props.set(k,v))})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},LockService:{getScriptLock:()=>({hasLock:()=>locked,tryLock:()=>{locked=true;return true;},releaseLock:()=>{locked=false;}})},Utilities:{sleep:()=>{},DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,v)=>createHash('sha256').update(v).digest(),base64EncodeWebSafe:v=>Buffer.from(v).toString('base64url'),formatDate:()=> '20261029'},jsonError:message=>({status:'error',message}),jsonOk:v=>({status:'ok',...v}),_isFundCode:code=>code.startsWith('F000'),_normalizeDate:s=>s,
     UrlFetchApp:{fetch:(url,options)=>{
       calls.push({url,options});assert.doesNotMatch(url,/tossinvest/);
       assert.equal(options.followRedirects,false);
       if(url.endsWith('.h'))return {getResponseCode:()=>200,getContentText:()=>header};
       if(url.endsWith('.mst'))return {getResponseCode:()=>200,getBlob:()=>({getBytes:()=>Array.from(row)})};
-      if(url.includes('/oauth2/token'))return response({access_token:'nh-token',expires_in:3600});
+      if(url.includes('/oauth2/token'))return response({access_token:'nh-token',expires_in:expiresIn});
       const code=JSON.parse(options.payload).Input_0.iem_cd;
       return response({Output_0:{iem_cd:wrongIdentity?'WRONG':code==='AAPL'?'USAAAPL':code,stck_prpr:'232000',trdprc:'349.6718',trade_date:'20261029'}},status);
     }}};
   vm.createContext(ctx);vm.runInContext(runtime+'\n'+['fetchPricesToss'].map(extract).join('\n'),ctx);
-  return {ctx,props,cache,calls,setStatus:v=>{status=v;},wrongIdentity:()=>{wrongIdentity=true;}};
+  return {ctx,props,cache,calls,advance:ms=>{nowMs+=ms;},setStatus:v=>{status=v;},wrongIdentity:()=>{wrongIdentity=true;}};
 }
 const s=setup();s.props.set('TOSS_CLIENT_ID','old-toss-id');s.props.set('TOSS_CLIENT_SECRET','old-toss-secret');
 assert.equal(s.ctx._nhUsCandidate_({code:'0046Y0',currency:'KRW'}),false);
@@ -36,6 +38,10 @@ assert.equal(s.ctx._nhUsCandidate_({code:'AAPL',currency:'KRW'}),true);
 assert.equal(s.ctx.handleSaveNhConfig({accessToken:'bad',data:'{}'}).status,'error');assert.equal(s.calls.length,0);
 assert.equal(s.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
 assert.equal(s.props.get('MARKET_DATA_PROVIDER'),'NH');assert.equal(s.props.has('TOSS_CLIENT_ID'),false);assert.equal(s.props.has('TOSS_CLIENT_SECRET'),false);
+const issuedAfterActivation=s.calls.filter(c=>c.url.includes('/oauth2/token')).length;
+assert.equal(s.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
+assert.equal(s.calls.filter(c=>c.url.includes('/oauth2/token')).length,issuedAfterActivation,
+ 'saving unchanged active NH credentials must not request another token');
 const orphan=setup();
 assert.equal(orphan.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
 const orphanPrice=orphan.ctx.fetchPricesToss([{code:'AAPL',currency:'KRW',nhMetadataMissing:true}],{},{});
@@ -61,8 +67,62 @@ const failed=setup();failed.wrongIdentity();
 assert.equal(failed.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'error');assert.equal(failed.props.has('MARKET_DATA_PROVIDER'),false);assert.equal(failed.props.has('NHPLUG_APP_KEY'),false);
 s.cache.delete('nh_quote_KRW_005930');s.setStatus(401);
 const failMeta={};assert.equal(Object.keys(s.ctx.fetchPricesToss([{code:'005930',currency:'KRW',type:'주식'}],{},failMeta)).length,0);assert.equal(failMeta.reason,'NH_HTTP_401');assert.equal(s.cache.has('nh_oauth_v1'),false);
+assert.equal(s.props.has('NHPLUG_AUTH_RECORD_V1'),false,'401 must invalidate persistent bearer too');
 assert.match(source,/params.action === 'saveNhConfig'\) return handleSaveNhConfig\(params\)/);
 assert.match(source,/\|provider='/);
+
+{
+  // CacheService expires after <=6h, but ScriptProperties persists only the
+  // current credential-scoped token until its server-provided expiry.
+  const reuse=setup({expiresIn:86400});
+  const keys={key:'nh-key',secret:'nh-secret'};
+  assert.equal(reuse.ctx._nhAccessToken_(keys),'nh-token');
+  const count=()=>reuse.calls.filter(c=>c.url.includes('/oauth2/token')).length;
+  assert.equal(count(),1);
+  const persisted=JSON.parse(reuse.props.get('NHPLUG_AUTH_RECORD_V1'));
+  assert.equal(persisted.token,'nh-token');
+  assert.ok(persisted.scope.length>12);
+  assert.ok(!JSON.stringify(persisted).includes('nh-secret'));
+  assert.ok(!JSON.stringify(persisted).includes('nh-key'));
+  reuse.cache.clear(); // simulate GAS cache eviction / a cold execution.
+  reuse.advance(7*3600*1000);
+  assert.equal(reuse.ctx._nhAccessToken_(keys),'nh-token');
+  assert.equal(count(),1,'7h after issuance must NOT reissue token');
+  reuse.cache.clear();
+  reuse.advance(16*3600*1000+58*60000); // 23h58m elapsed.
+  assert.equal(reuse.ctx._nhAccessToken_(keys),'nh-token');
+  assert.equal(count(),1,'still valid 23h58m after issuance');
+  reuse.cache.clear();
+  reuse.advance(120000); // expiry threshold reached
+  assert.equal(reuse.ctx._nhAccessToken_(keys),'nh-token');
+  assert.equal(count(),2,'near expiry must renew once');
+  reuse.cache.clear();
+  assert.equal(reuse.ctx._nhAccessToken_({key:'new-key',secret:'nh-secret'}),'nh-token');
+  assert.equal(count(),3,'changing credentials must never reuse previous credential token');
+}
+{
+  const throttle=setup({expiresIn:86400});
+  throttle.props.set('NHPLUG_APP_KEY','nh-key');
+  throttle.props.set('NHPLUG_APP_SECRET','nh-secret');
+  throttle.props.set('MARKET_DATA_PROVIDER','NH');
+  const count=()=>throttle.calls.filter(c=>c.url.includes('/oauth2/token')).length;
+  throttle.setStatus(429);
+  throttle.ctx.fetchPricesToss([{code:'005930',currency:'KRW'}],{},{});
+  assert.equal(count(),1);
+  assert.equal(throttle.props.has('NHPLUG_AUTH_RECORD_V1'),true,'429 must preserve bearer');
+  throttle.cache.clear();
+  throttle.setStatus(200);
+  throttle.ctx.fetchPricesToss([{code:'005930',currency:'KRW'}],{},{});
+  assert.equal(count(),1,'429 recovery must reuse the existing bearer');
+  throttle.cache.delete('nh_quote_KRW_005930');
+  throttle.setStatus(401);
+  throttle.ctx.fetchPricesToss([{code:'005930',currency:'KRW'}],{},{});
+  assert.equal(throttle.props.has('NHPLUG_AUTH_RECORD_V1'),false,'401 invalidates bearer');
+  throttle.setStatus(200);
+  throttle.ctx.fetchPricesToss([{code:'005930',currency:'KRW'}],{},{});
+  assert.equal(count(),2,'the next request after 401 renews once');
+}
+
 console.log('NH native GAS: activation, strict auth, KR/US quotes, master identity, cache, no Toss calls and 401 recovery passed');
 const {activateNhRuntime,selectNhReadbackCodes}=await import('./activate-nh-gas-runtime.mjs');
 const registered=[{code:'005930',currency:'KRW',type:'주식',market:'KRX'},{code:'NVDA',currency:'USD',type:'주식',market:'NASDAQ'}];
@@ -91,6 +151,23 @@ assert.equal(activation.registeredUsTarget,true);
 assert.deepEqual(reports,[{status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:2,krwRows:1,usdRows:1}]);
 assert.doesNotMatch(JSON.stringify(reports),/005930|NVDA|nh-key|nh-secret/);
 assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','retireLegacyMarketData','getCodeListReadOnly','getPrices']);
+const autoCalls=[];
+const skipReadback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',
+  token:'admin',skipReadbackIfActive:true,request:async(_url,options)=>{
+    const params=new URLSearchParams(options.body),action=params.get('action');
+    autoCalls.push(action);
+    if(params.get('accessToken').endsWith('-DENY-PROBE'))return {ok:true,json:async()=>({status:'error'})};
+    if(action==='getSettings')return {ok:true,json:async()=>({
+      status:'ok',gasVersion:'9.278',settings:{apiKeyStatus:{nh:{enabled:true}}}})};
+    if(action==='retireLegacyMarketData')return {ok:true,json:async()=>({status:'ok',retired:true})};
+    throw Error('AUTO_DEPLOY_MUST_NOT_CALL_NH_QUOTES_OR_CODE_MASTER');
+  }});
+assert.equal(skipReadback.status,'NH_ALREADY_ACTIVE_NO_TOKEN_REQUEST');
+assert.equal(skipReadback.sampleCount,0);
+assert.equal(skipReadback.sampleVerificationSkipped,true);
+assert.deepEqual(autoCalls,['getSettings','getSettings','retireLegacyMarketData']);
+assert.match(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'),
+  /NH_RUNTIME_SKIP_READBACK_IF_ACTIVE:.*github\.event_name == 'workflow_run'/);
 const fallback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:async(url,options)=>{
   const p=new URLSearchParams(options.body);
   if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.278',codes:[registered[0]]})};

@@ -107,6 +107,9 @@ jobs:
         env:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+          # Automated deployments should not re-authenticate NH on every commit.
+          # Manual deployments retain the full, explicit sample readback.
+          NH_RUNTIME_SKIP_READBACK_IF_ACTIVE: ${{ github.event_name == 'workflow_run' && 'true' || 'false' }}
         run: node scripts/activate-nh-gas-runtime.mjs
       - name: Verify KRX 37-code source coverage after live GAS deployment
         if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
