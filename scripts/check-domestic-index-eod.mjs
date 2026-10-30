@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import source from '../src/web/domain/market/domestic_index_eod.js';
+import {loadMorningDomesticDailyIndexes,runTelegramMorning} from './telegram-morning-briefing.mjs';
+import {mergeMorningSourceRows} from './telegram-morning-master.mjs';
 const day='2026-10-30';
 const csv='\uFEFFDate,Close,UpDown,Comp\n2026-10-28,6012.44,1,374.1\n2026-10-29,5937.66,2,-74.78\n2026-10-30,5668.26,2,-269.4\n';
 assert.deepEqual(source.parseYearCsv(csv,2026).map(x=>x.date),
@@ -57,4 +59,39 @@ function stub(stamp,{broken=false}={}){
 }
 await assert.rejects(source.loadSeries(['KOSPI'],'2026-02-30',day,{now}),/INDEX_RANGE_INVALID/);
 await assert.rejects(source.loadSeries(['KOSPI'],'2026-10-31','2026-10-31',{now}),/INDEX_RANGE_INVALID|INDEX_RANGE_TOO_WIDE/);
+const monday='2026-11-02';
+const mondayMorning=()=>new Date('2026-11-02T07:45:00+09:00');
+const indexCalls=[];
+const mondayFetch=async url=>{
+ indexCalls.push(url);
+ if(url.includes('raw.githubusercontent.com'))return {ok:true,text:async()=>csv};
+ if(url.includes('api.github.com/repos/FinanceData/fdr_krx_data_cache/commits'))
+  return {ok:true,json:async()=>[{sha:'b'.repeat(40),commit:{committer:{date:'2026-10-30T10:58:41Z'}}}]};
+ return {ok:false,status:503};
+};
+const priorIndexes=await loadMorningDomesticDailyIndexes(monday,{fetchImpl:mondayFetch,now:mondayMorning});
+assert.equal(priorIndexes.length,3);
+assert.deepEqual(priorIndexes.map(x=>x.date),['2026-10-30','2026-10-30','2026-10-30']);
+assert.ok(priorIndexes.every(x=>x.source==='FDR_KRX_CACHE'&&x.role==='NON_NH_DAILY_INDEX'));
+const merged=mergeMorningSourceRows([
+ {label:'KOSPI',symbol:'^KS11',date:'2026-10-30',value:9999,source:'Yahoo Finance 일봉'}
+],[],[],priorIndexes);
+assert.equal(merged.find(x=>x.symbol==='^KS11').value,5668.26);
+assert.deepEqual(mergeMorningSourceRows([],[],[],[priorIndexes[0],priorIndexes[0]]),[]);
+let delivered='',yahooIndexRequested=false;
+const morning=await runTelegramMorning({event:'schedule',now:mondayMorning,attempt:1,
+ token:'dummy',chatId:'dummy',referenceFetch:async()=>null,
+ send:async(_token,_chat,body)=>{delivered=body;},
+ fetchImpl:async(url,options)=>{
+  if(String(url).includes('finance.yahoo.com/v8/finance/chart/')){
+   const name=decodeURIComponent(new URL(url).pathname.split('/').at(-1));
+   if(['^KS11','^KQ11','^KS200'].includes(name))yahooIndexRequested=true;
+  }
+  return mondayFetch(url,options);
+ }});
+assert.equal(morning.status,'SENT_SOURCE_MISSING');
+assert.equal(yahooIndexRequested,false,'NH-missing domestic indexes must not query Yahoo');
+assert.match(delivered,/KOSPI: 5,668.26.*FDR·KRX 참고 종가/);
+assert.match(delivered,/KOSDAQ: 5,668.26.*FDR·KRX 참고 종가/);
+assert.match(delivered,/KOSPI200: 5,668.26.*FDR·KRX 참고 종가/);
 console.log('Domestic index EOD: date, post-close provenance, intraday exclusion, source labels PASS');
