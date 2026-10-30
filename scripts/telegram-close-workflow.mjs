@@ -87,7 +87,10 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   const last=closeWindow(now());
   if(!last.allowed||last.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   if(!verified.length)return {ready:false,status:'NH_INDEX_CLOSE_NOT_READY',date:window.date};
-  const secondary=await fetchSecondary(window.date,{fetchImpl});
+  // Supplemental providers are nonblocking, even when their adapter fails.
+  let secondary=[];
+  try {secondary=await fetchSecondary(window.date,{fetchImpl});}
+  catch {secondary=[];}
   const after=closeWindow(now());
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
