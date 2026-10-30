@@ -9,7 +9,7 @@ const makeRun=(id,hash=sha)=>({
 const deployedJob={name:'deploy',conclusion:'success',steps:[{name:'Deploy GAS',conclusion:'success'}]};
 const skippedJob={name:'deploy',conclusion:'skipped',steps:[]};
 function stub({runs=[makeRun(42)],jobsById={42:[deployedJob]},oldBlob=current,
- headBlob=current,failApi=false,failGit=false}={}){
+ headBlob=current,failApi=false,failGit=false,currentRunId=100}={}){
  const calls={urls:[],git:[]};
  const fetchImpl=async (url,opts)=>{
   calls.urls.push(url);
@@ -26,7 +26,7 @@ function stub({runs=[makeRun(42)],jobsById={42:[deployedJob]},oldBlob=current,
   if(args[0]==='rev-parse')return oldBlob+'\n';
   throw Error('UNEXPECTED_GIT');
  };
- return {calls,call:()=>checkGasAutoDeployEligibility({repository:repo,token,fetchImpl,gitExec})};
+ return {calls,call:()=>checkGasAutoDeployEligibility({repository:repo,token,currentRunId,fetchImpl,gitExec})};
 }
 let mock=stub();
 let result=await mock.call();
@@ -73,6 +73,16 @@ mock=stub({runs:[{...makeRun(61),conclusion:'success'},makeRun(42)],
  jobsById:{61:[skippedJob],42:[deployedJob]}});
 assert.deepEqual(await mock.call(),{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});
 
+
+// A currently running workflow is in the listing but cannot be a prior
+// mutating attempt; exclude exactly its verified run ID, not other pending.
+mock=stub({runs:[{...makeRun(100),conclusion:null},makeRun(42)],currentRunId:100});
+assert.deepEqual(await mock.call(),{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});
+mock=stub({runs:[{...makeRun(101),conclusion:null},{...makeRun(100),conclusion:null},makeRun(42)],currentRunId:100});
+assert.deepEqual(await mock.call(),{changed:true,reason:'PROVENANCE_NEWER_DEPLOY_NOT_PROVEN'});
+assert.deepEqual(await checkGasAutoDeployEligibility({repository:repo,token,currentRunId:''}),{
+ changed:true,reason:'PROVENANCE_CURRENT_RUN_UNVERIFIED'});
+
 for(const options of [
  {runs:[]}, {runs:[makeRun(51)],jobsById:{51:[skippedJob]}},
  {runs:[{...makeRun(42),head_repository:{full_name:'other/repo'}}]},
@@ -84,6 +94,6 @@ for(const options of [
  assert.ok(!JSON.stringify(out).includes(token));
  assert.ok(!JSON.stringify(out).includes('PRIVATE_REMOTE_DATA'));
 }
-assert.deepEqual(await checkGasAutoDeployEligibility({repository:'other/repo;rm -rf /',token}),{
+assert.deepEqual(await checkGasAutoDeployEligibility({repository:'other/repo;rm -rf /',token,currentRunId:100}),{
  changed:true,reason:'PROVENANCE_CONFIG_UNVERIFIED'});
 console.log('GAS auto release provenance: confirmed deployed blob only, pending failed release preserved, no secrets PASS');
