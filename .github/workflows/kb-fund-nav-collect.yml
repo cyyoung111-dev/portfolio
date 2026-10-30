@@ -4,10 +4,6 @@ on:
     - cron: '15 23 * * *' # 08:15 KST, before 08:45 KRX recovery
     - cron: '10 9 * * *'
   workflow_dispatch:
-  workflow_run:
-    workflows: [issue-507-fund-close-resume]
-    types: [completed]
-    branches: [main]
 permissions:
   contents: read
 concurrency:
@@ -15,12 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   collect:
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name != 'workflow_run' ||
-       (contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion) &&
-        github.event.workflow_run.head_branch == 'main' &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 90
