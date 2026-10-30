@@ -636,6 +636,18 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   assert.equal(calls,2,'stop on first transport error and never reach a write');
  }
 }
+// HTTP response bodies may time out after successful headers. Only a true
+// syntax error should be classified as malformed JSON.
+{
+ const {run}=await import('./collect-kb-fund-nav.mjs');
+ for(const [name,kind] of [['TimeoutError','TIMEOUT'],['AbortError','TIMEOUT'],['TypeError','NETWORK'],['SyntaxError','JSON']]){
+  let calls=0;
+  await assert.rejects(()=>run({url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),apply:true,
+   fetchImpl:async(_url,o)=>{calls++;return {ok:true,json:async()=>{if(o.body.get('accessToken')==='NAV_AUTH_PROBE')return {status:'error',message:'인증 실패'};throw Object.assign(Error('PRIVATE_ACCOUNT_AND_NAV'),{name});}};}
+  }),error=>error.message==='NAV_STATUS_'+kind+'_UNVERIFIED'&&!error.message.includes('PRIVATE'));
+  assert.equal(calls,2,'no write or retry after a body failure');
+ }
+}
 console.log('NAV collector: allowlisted GAS phase, sanitized transport error and no retry PASS');
 console.log('Collector active NAV owner: explicit deferred result, no external request or write: PASS');
 
