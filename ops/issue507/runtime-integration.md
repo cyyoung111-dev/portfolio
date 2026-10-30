@@ -35,7 +35,8 @@ HTTP·메뉴·트리거·실제 Properties·금융 원본을 변경하지 않는
    `{kind:"EXECUTIONS_UI",scope:"ALL_PROJECT_ACTORS_AND_VERSIONS",terminalOnly:true,reference:"비공개 증빙 ID"}`.
    이는 운영자 증빙 확인이며 코드가 Executions 화면을 자동 조회했다는 뜻이 아니다.
 4. `issue507BeginWriterDrain_()`은 metadata만 기록하고 DRAINING으로 신규 진입을 차단한다.
-   최초 진입은 5분 이내의 rollout 확인만 받는다. 반복 호출로 시작시각/활성 receipt를 지우지 않는다.
+   **최초 진입 및 OPEN에서 시작하는 모든 새 drain 주기**는 5분 이내의 새 rollout 확인만 받는다.
+   재개 후 이전 주기의 확인서를 재사용할 수 없고, 반복 호출로 시작시각/활성 receipt를 지우지 않는다.
    미초기화 gate는 기본 거부이므로 신규 후보를 먼저 공개 서비스로 전환하지 않는다.
 5. `issue507WriterDrainStatus_()`로 7분 연속 차단 관찰과 active receipt 0개를 확인한다.
    관찰 시간은 추가 조건일 뿐 기존 비계측 실행의 독립 종료 증빙을 대체하지 않는다.
