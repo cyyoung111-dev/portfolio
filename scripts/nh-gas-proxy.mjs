@@ -25,8 +25,11 @@ export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
     if(!response.ok)throw Error();
     body=await response.json();
   }catch{throw Error('NH_PROXY_NETWORK_OR_RESPONSE');}
-  if(body?.status!=='ok'||body?.provider!=='NH'||body.readOnly!==true)
+  if(body?.status!=='ok'||body?.provider!=='NH'||body.readOnly!==true) {
+    const code=body?.message;
+    if(body?.status==='error'&&typeof code==='string'&&/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code))throw Error(code);
     throw Error('NH_PROXY_UNAVAILABLE');
+  }
   return body;
 }
 export async function fetchNhNightFromGas(date,{now=()=>new Date(),
