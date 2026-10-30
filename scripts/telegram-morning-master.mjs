@@ -41,7 +41,7 @@ export async function loadMorningMaster(date,{url,token,fetchImpl=fetch,now=new 
     return verifiedMorningMaster(date,result.observations);
   }catch{return [];}
 }
-export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[]) {
+export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[],domesticIndexRows=[]) {
   const output=new Map(yahooRows.filter(r=>!NH_ONLY_INDEX_SET.has(r?.symbol)).map(r=>[r.symbol,r]));
   for(const r of masterRows){
     if(NH_ONLY_INDEX_SET.has(r?.symbol))continue;
