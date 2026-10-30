@@ -33,6 +33,36 @@ export function summarizeEvidence(history,prices,date=TARGET_DATE,code=TARGET_CO
       :'REPRESENTATIVES_MATCH_CHECK_FULL_GAS_PROVENANCE';
  return result;
 }
+
+// Compare exact-date stored Snapshot to GAS's own trade/price/NAV recomputation.
+// This API may contain sensitive rows, so emit ONLY selected enums/counts/booleans.
+export function summarizeFullIntegrity(payload,date=TARGET_DATE,code=TARGET_CODE) {
+ const d=payload?.diagnostic;
+ const allowed=new Set(['VALID','MISMATCH','PARTIAL','CONFLICT','NO_SNAPSHOT','SOURCE_INCOMPLETE','PRICE_SUSPICIOUS']);
+ const groups=['expectedCodes','storedCodes','missingCodes','unexpectedCodes','evalAmtMismatches',
+  'sourceMismatches','qtyMismatches','costAmtMismatches','priceIntegrity','duplicateKeys','conflictKeys',
+  'sourceDataErrors'];
+ if(payload?.status!=='ok'||!d||d.date!==date||!allowed.has(d.status)
+   ||!Number.isSafeInteger(d.expectedRowCount)||!Number.isSafeInteger(d.storedRowCount)
+   ||d.expectedRowCount<0||d.storedRowCount<0||d.expectedRowCount>100000||d.storedRowCount>100000
+   ||groups.some(k=>!Array.isArray(d[k])||d[k].length>100000))throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+ const codeIn=k=>d[k].some(x=>x===code||x?.code===code);
+ const targetPrices=d.priceIntegrity.filter(x=>x?.code===code);
+ if(targetPrices.length>1)throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+ const rawPriceState=targetPrices[0]?.status;
+ const fundPriceState=targetPrices.length===0?'NOT_REPORTED'
+   :rawPriceState==='VALID'?'VALID'
+   :rawPriceState==='MANUAL_PROTECTED'?'MANUAL_PROTECTED':'REVIEW_REQUIRED';
+ return {date,code,integrityStatus:d.status,
+  expectedRows:d.expectedRowCount,storedRows:d.storedRowCount,
+  fundExpectedPresent:codeIn('expectedCodes'),fundStoredPresent:codeIn('storedCodes'),
+  fundMissing:codeIn('missingCodes'),fundUnexpected:codeIn('unexpectedCodes'),
+  fundAmountMismatch:codeIn('evalAmtMismatches'),fundSourceMismatch:codeIn('sourceMismatches'),
+  fundQtyMismatch:codeIn('qtyMismatches'),fundCostMismatch:codeIn('costAmtMismatches'),
+  fundPriceIntegrityState:fundPriceState,sourceDataErrorPresent:d.sourceDataErrors.length>0,
+  unresolvedDuplicatesOrConflicts:d.duplicateKeys.length>0||d.conflictKeys.length>0};
+}
+
 export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_SNAPSHOT_TOKEN_MISSING');
@@ -51,8 +81,10 @@ export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const history=await read('getHistoryDetail',{date:TARGET_DATE});
  const prices=await read('getPriceHistory',{from:TARGET_DATE,to:TARGET_DATE,codes:TARGET_CODE});
  const result=summarizeEvidence(history,prices);
- emit(result);
- return result;
+ const integrity=await read('diagnoseSnapshotIntegrity',{date:TARGET_DATE});
+ const complete={...result,...summarizeFullIntegrity(integrity)};
+ emit(complete);
+ return complete;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{await diagnoseSnapshot({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
