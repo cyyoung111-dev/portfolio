@@ -111,6 +111,7 @@ assert.equal(safePublicationClose.krxPublicationWaiting,true);
 assert.equal(safePublicationClose.stage,'ERROR');
 
 const awaitingPublication={...good,close:safePublicationClose,overallStatus:'WARNING',
+  tradeSnapshotDeferredCount:0,
   pendingCount:1,pendingDates:['2026-10-29'],
   officialKrxPriceHistoryLastDate:'2026-10-28',snapshotLastDate:'2026-10-29',
   latestBackfill:{attempted:true,ok:false,failureClass:'KRX_PRICE_SOURCE_OR_COVERAGE'},
@@ -129,6 +130,9 @@ assert.equal(assessKrxOvernightHealth({...awaitingPublication,triggerReady:false
 assert.equal(assessKrxOvernightHealth({...awaitingPublication,overallStatus:'ERROR'},{now:atMorning}).status,'ACTION_REQUIRED');
 assert.equal(assessKrxOvernightHealth({...awaitingPublication,overallStatus:'INCOMPLETE'},{now:atMorning}).status,'ACTION_REQUIRED');
 assert.equal(assessKrxOvernightHealth({...awaitingPublication,tradeLedgerWriteUnverified:true},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,tradeSnapshotDeferredCount:1},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,
+  tradeSnapshotWorkerTriggerAudit:{clockReady:false}},{now:atMorning}).status,'ACTION_REQUIRED');
 assert.equal(assessKrxOvernightHealth({...awaitingPublication,
   pendingTradeSnapshotRebuildFrom:'2026-10-29'},{now:atMorning}).status,'ACTION_REQUIRED');
 assert.equal(assessKrxOvernightHealth({...awaitingPublication,officialKrxPriceHistoryLastDate:'2026-10-27'},
