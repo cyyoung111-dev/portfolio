@@ -63,6 +63,40 @@ export function summarizeFullIntegrity(payload,date=TARGET_DATE,code=TARGET_CODE
   unresolvedDuplicatesOrConflicts:d.duplicateKeys.length>0||d.conflictKeys.length>0};
 }
 
+
+// Analysis only. NEVER an authorization to repair or an input to any write path.
+// Reuse the full raw GAS integrity response in memory, but emit no account rows.
+export function classifySingleFundRepairReview(payload,date=TARGET_DATE,code=TARGET_CODE){
+ const summary=summarizeFullIntegrity(payload,date,code);
+ const d=payload.diagnostic;
+ const isTargetOnly=key=>d[key].length===1 && d[key][0]?.code===code;
+ const blocking=['missingCodes','unexpectedCodes','qtyMismatches','costAmtMismatches',
+  'evalUnitMismatches','duplicateKeys','conflictKeys'];
+ const noOtherDifferences=blocking.every(key=>d[key].length===0)
+  && isTargetOnly('evalAmtMismatches') && isTargetOnly('sourceMismatches');
+ const targetPrices=d.priceIntegrity.filter(row=>row?.code===code);
+ const expectedPresent=summary.fundExpectedPresent && summary.fundStoredPresent;
+ const lengthsAgree=d.expectedRowCount>0 && d.expectedRowCount===d.storedRowCount;
+ // RAW rows are necessary to reject a stale/compressed or partial diagnosis.
+ const rowsComplete=Array.isArray(d.expectedRows)&&Array.isArray(d.storedRows)
+  && d.expectedRows.length===d.expectedRowCount && d.storedRows.length===d.storedRowCount
+  && d.expectedRows.filter(row=>Array.isArray(row)&&row[1]===code).length===1
+  && d.storedRows.filter(row=>Array.isArray(row)&&row[1]===code).length===1;
+ const noOtherPriceWarnings=d.priceIntegrity.every(row=>
+  row && (row.status==='VALID'||row.status==='MANUAL_PROTECTED'));
+ const candidate=d.status==='MISMATCH'&&expectedPresent&&lengthsAgree&&rowsComplete
+  &&noOtherDifferences &&targetPrices.length===1&&targetPrices[0].status==='VALID'
+  &&noOtherPriceWarnings &&d.sourceDataErrors.length===0;
+ return {
+  date,code,candidate,
+  classification:candidate?'SINGLE_FUND_SNAPSHOT_REPAIR_REVIEW_CANDIDATE':'REPAIR_PREFLIGHT_BLOCKED',
+  scope:'F00001_2026_10_30_ONLY',
+  requiresBackup:true,requiresWriterExclusion:true,requiresExplicitApproval:true,
+  writeAuthorized:false,mutationPerformed:false,
+  noOtherDifferences,rowsComplete,otherPriceWarnings:!noOtherPriceWarnings
+ };
+}
+
 export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_SNAPSHOT_TOKEN_MISSING');
@@ -82,7 +116,7 @@ export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const prices=await read('getPriceHistory',{from:TARGET_DATE,to:TARGET_DATE,codes:TARGET_CODE});
  const result=summarizeEvidence(history,prices);
  const integrity=await read('diagnoseSnapshotIntegrity',{date:TARGET_DATE});
- const complete={...result,...summarizeFullIntegrity(integrity)};
+ const complete={...result,...summarizeFullIntegrity(integrity),...classifySingleFundRepairReview(integrity)};
  emit(complete);
  return complete;
 }
