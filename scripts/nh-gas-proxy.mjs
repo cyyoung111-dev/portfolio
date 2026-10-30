@@ -13,7 +13,7 @@ export function validateGasEndpoint(url){
 }
 export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
   token=process.env.GAS_ACCESS_TOKEN,date,request=fetch}={}){
-  if(!['getNhNightProxy','getNhAuthStatusProxy','getNhNightProbe'].includes(action)||!token||token.length<12)
+  if(!['getNhNightProxy','getNhAuthStatusProxy','getNhNightProbe','bootstrapNhTokenOnce20261030'].includes(action)||!token||token.length<12)
     throw Error('NH_PROXY_CONFIG');
   const target=validateGasEndpoint(url);
   const payload=new URLSearchParams({action,accessToken:token,...(date?{date}:{})});

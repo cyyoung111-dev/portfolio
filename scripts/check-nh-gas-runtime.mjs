@@ -16,7 +16,7 @@ function setup({expiresIn=3600}={}){
   const response=(data,code=200)=>({getResponseCode:()=>code,getContentText:()=>JSON.stringify(data)});
   const header='@record 164\n'+[['sGIC',15],['rest',80],['sNationCode',3],['sSymbol',12],['tail',54]].map(([n,w])=>`('${n}', ${w}),`).join('\n');
   const row=Buffer.alloc(164,32);row.write('USAAAPL');row.write('USA',95);row.write('AAPL',98);row[163]=10;
-  const ctx={Date:TestClock,PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k),setProperties:o=>Object.entries(o).forEach(([k,v])=>props.set(k,v))})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},LockService:{getScriptLock:()=>({hasLock:()=>locked,tryLock:()=>{locked=true;return true;},releaseLock:()=>{locked=false;}})},Utilities:{sleep:()=>{},DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,v)=>createHash('sha256').update(v).digest(),base64EncodeWebSafe:v=>Buffer.from(v).toString('base64url'),formatDate:()=> '20261029'},jsonError:message=>({status:'error',message}),jsonOk:v=>({status:'ok',...v}),_isFundCode:code=>code.startsWith('F000'),_normalizeDate:s=>s,
+  const ctx={Date:TestClock,PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k),setProperties:o=>Object.entries(o).forEach(([k,v])=>props.set(k,v)),setProperty:(k,v)=>props.set(k,v)})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},LockService:{getScriptLock:()=>({hasLock:()=>locked,tryLock:()=>{locked=true;return true;},releaseLock:()=>{locked=false;}})},Utilities:{sleep:()=>{},DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,v)=>createHash('sha256').update(v).digest(),base64EncodeWebSafe:v=>Buffer.from(v).toString('base64url'),formatDate:()=> '20261029'},jsonError:message=>({status:'error',message}),jsonOk:v=>({status:'ok',...v}),_isFundCode:code=>code.startsWith('F000'),_normalizeDate:s=>s,
     UrlFetchApp:{fetch:(url,options)=>{
       calls.push({url,options});assert.doesNotMatch(url,/tossinvest/);
       assert.equal(options.followRedirects,false);
@@ -232,6 +232,36 @@ assert.match(source,/\|provider='/);
   assert.equal(noAuth.ctx.handleGetNhNightProxy({date:'2026-10-30',accessToken:''}).status,'error',
     'missing optional legacy access_token must NOT make the NH proxy public');
   assert.equal(noAuth.calls.length,0);
+}
+
+
+{
+  const b=setup({expiresIn:86400});
+  b.advance(Date.parse('2026-10-30T11:16:00+09:00')-time);
+  b.ctx.Utilities.formatDate=(at,zone,fmt)=>{
+    const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+      timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+    }).formatToParts(at).map(x=>[x.type,x.value]));
+    return fmt==='yyyy-MM-dd'?p.year+'-'+p.month+'-'+p.day
+      :fmt==='HH'?p.hour:fmt==='mm'?p.minute:'';
+  };
+  b.props.set('NHPLUG_APP_KEY','nh-key');
+  b.props.set('NHPLUG_APP_SECRET','nh-secret');
+  b.props.set('MARKET_DATA_PROVIDER','NH');
+  const a={date:'2026-10-30',accessToken:'admin-token'};
+  assert.equal(b.ctx.handleBootstrapNhTokenOnce20261030({...a,accessToken:'invalid'}).status,'error');
+  const first=b.ctx.handleBootstrapNhTokenOnce20261030(a);
+  assert.equal(first.status,'ok');
+  assert.equal(first.tokenIssued,true);
+  assert.equal(b.props.get('NH_PROXY_20261030_OAUTH_ATTEMPT'),'1');
+  const again=b.ctx.handleBootstrapNhTokenOnce20261030(a);
+  assert.equal(again.status,'ok');
+  assert.equal(again.tokenIssued,false);
+  b.props.delete('NHPLUG_AUTH_RECORD_V1');
+  b.cache.clear();
+  assert.equal(b.ctx.handleBootstrapNhTokenOnce20261030(a).message,'NH_PROXY_BOOTSTRAP_ALREADY_ATTEMPTED');
+  assert.equal(b.calls.filter(x=>x.url.includes('/oauth2/token')).length,1);
 }
 
 console.log('NH native GAS: activation, strict auth, KR/US quotes, master identity, cache, no Toss calls and 401 recovery passed');

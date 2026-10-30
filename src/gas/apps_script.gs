@@ -1375,6 +1375,7 @@ function doPost(e) {
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'getNhNightProxy') return handleGetNhNightProxy(params);
   if (params.action === 'getNhNightProbe') return handleGetNhNightProbe(params);
+  if (params.action === 'bootstrapNhTokenOnce20261030') return handleBootstrapNhTokenOnce20261030(params);
   if (params.action === 'getNhAuthStatusProxy') return handleGetNhAuthStatusProxy(params);
   if (params.action === 'saveNhConfig') return handleSaveNhConfig(params);
   if (params.action === 'retireLegacyMarketData') return handleRetireLegacyMarketData(params);
@@ -19123,4 +19124,35 @@ function handleGetNhNightProbe(params) {
     var code=String(error&&error.message||'');
     return jsonError(/^NH_PROXY_[A-Z0-9_]+$/.test(code)?code:'NH_PROXY_UNAVAILABLE');
   }
+}
+
+// One-time operational bootstrap: user-approved NH OAuth issue, at most once.
+// Fixed UTC-independent KST calendar day and bounded hour; no outside clients
+// receive the NH bearer. The persistent attempt marker is written BEFORE
+// contacting NH, so retries and concurrent jobs cannot mint extra tokens.
+function handleBootstrapNhTokenOnce20261030(params) {
+  if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
+  var clock=_nhProxyKst_(new Date());
+  if(clock.date!=='2026-10-30'||params.date!==clock.date
+    ||clock.minutes<480||clock.minutes>=780)return jsonError('NH_PROXY_BOOTSTRAP_WINDOW');
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(10000))return jsonError('NH_PROXY_BOOTSTRAP_BUSY');
+  try{
+    var props=PropertiesService.getScriptProperties();
+    var creds=_nhCredentials_();
+    if(!_nhEnabled_()||!creds.key||!creds.secret)
+      return jsonError('NH_PROXY_NOT_CONFIGURED');
+    var scope=_nhTokenScope_(creds);
+    var existing=_nhValidTokenRecord_(props.getProperty('NHPLUG_AUTH_RECORD_V1'),scope);
+    if(existing)return jsonOk({provider:'NH',readOnly:true,tokenCached:true,tokenIssued:false});
+    if(props.getProperty('NH_PROXY_20261030_OAUTH_ATTEMPT'))
+      return jsonError('NH_PROXY_BOOTSTRAP_ALREADY_ATTEMPTED');
+    props.setProperty('NH_PROXY_20261030_OAUTH_ATTEMPT','1');
+    try{_nhAccessToken_(creds);}
+    catch(ignore){return jsonError('NH_PROXY_BOOTSTRAP_ISSUE_FAILED');}
+    var confirmed=_nhValidTokenRecord_(props.getProperty('NHPLUG_AUTH_RECORD_V1'),scope);
+    if(!confirmed)return jsonError('NH_PROXY_BOOTSTRAP_NOT_PERSISTED');
+    return jsonOk({provider:'NH',readOnly:true,tokenCached:true,tokenIssued:true});
+  }catch(ignore){return jsonError('NH_PROXY_BOOTSTRAP_UNAVAILABLE');}
+  finally{lock.releaseLock();}
 }
