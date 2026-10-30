@@ -2,7 +2,7 @@ import { krxSessionStatus } from './krx-session-calendar.mjs';
 import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {MORNING_SERIES, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
-import {loadMorningMaster,mergeMorningSourceRows} from './telegram-morning-master.mjs';
+import {loadMorningMaster,mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
 export async function fetchNightReference(date,options={}) { return fetchNhNightFromGas(date,options); }
 
 // All supported verified daily sources; no abbreviated seven-ticker list.
