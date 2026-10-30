@@ -526,8 +526,7 @@ assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재�
 // otherwise use workflow_dispatch with production GAS credentials.
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
 const guard="github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')";
-const schedules=['15 21 * * 0-4','15 0 * * 1-5',
- '30 7 * * 1-5','15 11 * * 1-5'];
+const schedules=['30 7 * * 1-5','15 11 * * 1-5'];
 const fnv32=str=>{
  let h=2166136261;
  for(let i=0;i<str.length;i++)h=Math.imul(h^str.charCodeAt(i),16777619)>>>0;
@@ -537,8 +536,11 @@ function validateBriefingWorkflow(source){
  const doc=YAML.parseDocument(source,{uniqueKeys:true,version:'1.2'});
  assert.equal(doc.errors.length,0,'Briefing YAML parses without duplicate keys');
  const wf=doc.toJS({maxAliasCount:0});
- assert.deepEqual(wf.on.schedule.map(x=>x.cron),schedules,'original 5 checkpoints unchanged');
+ assert.deepEqual(wf.on.schedule.map(x=>x.cron),schedules,'NH-only night: KRX headless night cron removed');
  assert.ok(Object.hasOwn(wf.on,'workflow_dispatch'),'manual route preserved');
+ assert.deepEqual(wf.on.workflow_dispatch.inputs.checkpoint.options,
+   ['KRX_FINAL','EVENING'],'no manual KRX night revalidation');
+ assert.ok(!String(source).includes('checkpoint=NIGHT_FINAL'),'no KRX night cron mapping');
  assert.ok(!Object.hasOwn(wf.on,'push'),'no push event with production credentials');
  assert.equal(wf.permissions.contents,'read');
  assert.equal(wf.permissions.actions,'read');
@@ -562,7 +564,7 @@ function validateBriefingWorkflow(source){
  // Regression fingerprint for the exact reviewed shell block, including
  // safe cron-to-checkpoint mapping and a single headless execution command.
  // Any added recovery command must fail this offline contract.
- assert.equal(fnv32(String(step.run||'').trim()),'877424da',
+ assert.equal(fnv32(String(step.run||'').trim()),'552d2b27',
   'single approved briefing shell script only');
 }
 validateBriefingWorkflow(workflow);
