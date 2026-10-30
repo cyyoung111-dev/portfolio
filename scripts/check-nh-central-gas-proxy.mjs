@@ -79,13 +79,37 @@ assert.equal(p.ok,true);
 assert.match(lines.join('\n'),/NH_CENTRAL_0600_REFERENCE_VERIFIED/);
 assert.match(lines.join('\n'),/"issued":false/);
 assert.doesNotMatch(lines.join('\n'),/TEST-GAS-ACCESS-TOKEN|Bearer|nh-key/);
-let statusOnly=0;
-const noToken=await readbackOnce({now:clock,url,token,report:()=>{},
-  request:async(_url,opts)=>{statusOnly++;assert.equal(new URLSearchParams(opts.body).get('action'),'getNhAuthStatusProxy');
-    return {ok:true,json:async()=>({status:'ok',provider:'NH',readOnly:true,enabled:true,
-      tokenCached:false,tokenIssued:false,gasVersion:'9.278'})};}});
-assert.equal(noToken.ok,false);
-assert.equal(statusOnly,1,'no token cached: must not perform price query or OAuth');
+let callsWithoutCache=[];
+const booted=await readbackOnce({now:clock,url,token,report:x=>callsWithoutCache.push(x),
+  request:async(_url,opts)=>{
+    const act=new URLSearchParams(opts.body).get('action');
+    callsWithoutCache.push(act);
+    const body=act==='getNhAuthStatusProxy'
+      ?{status:'ok',provider:'NH',readOnly:true,enabled:true,tokenCached:false,
+        tokenIssued:false,gasVersion:'9.278'}
+      :act==='bootstrapNhTokenOnce20261030'
+        ?{status:'ok',provider:'NH',readOnly:true,tokenIssued:true,tokenCached:true}
+        :{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,
+          diagnosticOnly:true,tokenIssued:false,reference:ref};
+    return {ok:true,json:async()=>body};
+  }});
+assert.equal(booted.ok,true);
+assert.deepEqual(callsWithoutCache.filter(x=>typeof x==='string'&&
+  ['getNhAuthStatusProxy','bootstrapNhTokenOnce20261030','getNhNightProbe'].includes(x)),
+  ['getNhAuthStatusProxy','bootstrapNhTokenOnce20261030','getNhNightProbe']);
+assert.match(callsWithoutCache.join('\n'),/"issued":true/);
+let rejects=0;
+const denied=await readbackOnce({now:clock,url,token,report:()=>{},
+  request:async(_url,opts)=>{
+    rejects++;
+    const act=new URLSearchParams(opts.body).get('action');
+    if(act==='getNhAuthStatusProxy')return {ok:true,json:async()=>({
+      status:'ok',provider:'NH',readOnly:true,enabled:true,tokenCached:false,
+      tokenIssued:false,gasVersion:'9.278'})};
+    return {ok:true,json:async()=>({status:'error',message:'NH_PROXY_BOOTSTRAP_ALREADY_ATTEMPTED'})};
+  }});
+assert.equal(denied.ok,false);
+assert.equal(rejects,2,'denied one-time bootstrap must never reach NH price query');
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 assert.ok(wf.jobs.deploy.steps.some(x=>x.name.includes('central NH 06:00 readback')
  && x.run==='node scripts/nh-central-probe-20261030.mjs'&&x['continue-on-error']===true));
