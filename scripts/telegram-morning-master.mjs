@@ -44,7 +44,12 @@ export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[]) {
     const earlier=output.get(r.symbol);
     // Keep only trusted dated source and never displace a newer completed daily
     // observation with an older stored value.
-    if(!earlier || r.date>=earlier.date)output.set(r.symbol,r);
+    // Official KR closes supersede Yahoo, but a MARKET_MASTER observation
+    // without previous close must not erase the same-date Yahoo daily change.
+    // Keep price and percent from the SAME provider to avoid synthetic returns.
+    if(!earlier || r.date>earlier.date ||
+      (r.date===earlier.date && (r.source==='KRX_OFFICIAL'||!Number.isFinite(earlier.changePercent))))
+      output.set(r.symbol,r);
   }
   for(const row of nhRows){
     if(row?.source!=='NH_INDEX_DAILY'||!/\d{4}-\d{2}-\d{2}/.test(row.date)||!Number.isFinite(row.value)||row.value<=0)continue;
