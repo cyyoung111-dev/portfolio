@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
+import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose}
  from './telegram-close-workflow.mjs';
@@ -8,7 +9,9 @@ import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyInd
 const day='2026-10-30',now=()=>new Date(day+'T16:30:00+09:00');
 assert.equal(closeWindow(new Date(day+'T16:29:59+09:00')).allowed,false);
 assert.equal(closeWindow(now()).allowed,true);
-assert.equal(closeWindow(new Date(day+'T17:10:00+09:00')).allowed,false);
+assert.equal(closeWindow(new Date(day+'T17:10:00+09:00')).allowed,true);
+assert.equal(closeWindow(new Date(day+'T19:59:59+09:00')).allowed,true);
+assert.equal(closeWindow(new Date(day+'T20:00:00+09:00')).allowed,false);
 const rows=[
  {label:'S&P 500',symbol:'^GSPC',date:'2026-10-29',value:7720.39,changePercent:0.5,source:'NH_INDEX_DAILY'},
  {label:'NASDAQ',symbol:'^IXIC',date:'2026-10-29',value:26184.72,changePercent:1.2,source:'NH_INDEX_DAILY'},
@@ -182,7 +185,7 @@ assert.equal(sent,1);
 await assert.rejects(deliverClose(prepared,{now,attempt:2,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 await assert.rejects(deliverClose({...prepared,date:'2026-10-29'},{now,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 await assert.rejects(deliverClose({...prepared,nhConfirmed:0},{now,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
-await assert.rejects(deliverClose(prepared,{now:()=>new Date(day+'T17:10:00+09:00'),
+await assert.rejects(deliverClose(prepared,{now:()=>new Date(day+'T20:00:00+09:00'),
  send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 assert.equal(sent,1);
 const domesticOnly=await prepareClose({...options,
@@ -230,5 +233,56 @@ assert.match(JSON.stringify(workflow.on.schedule),/50 7/);
 assert.match(JSON.stringify(workflow.on.schedule),/2 8/);
 assert.ok(Object.hasOwn(workflow.on,'workflow_dispatch'),
  'guarded manual rescue must be enabled');
+// The observed scheduler incident started morning at 11:07 and created no
+// closing run. Independent completions may recover only inside each window.
+const env={GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',GITHUB_REF:'refs/heads/main',
+ GITHUB_RUN_ATTEMPT:'1',GITHUB_EVENT_NAME:'workflow_run'};
+const completion={action:'completed',workflow_run:{name:'gas-deploy',
+ path:'.github/workflows/gas-deploy.yml',event:'workflow_run',head_branch:'main',
+ head_repository:{full_name:env.GITHUB_REPOSITORY},status:'completed',conclusion:'success',run_attempt:1}};
+assert.equal(deliveryTrigger('close',env,completion,true),true);
+assert.equal(deliveryTrigger('close',env,completion,false),false);
+for(const patch of [{event:'pull_request'},{head_branch:'feature'},
+ {head_repository:{full_name:'other/fork'}},{path:'.github/workflows/other.yml'},
+ {conclusion:'failure'},{run_attempt:2},{name:'quality-check'}]){
+ assert.throws(()=>deliveryTrigger('close',env,{...completion,
+  workflow_run:{...completion.workflow_run,...patch}},true),/TRIGGER_INVALID/);
+}
+for(const patch of [{GITHUB_REF:'refs/heads/feature'},{GITHUB_RUN_ATTEMPT:'2'},
+ {GITHUB_REPOSITORY:'other/fork'}]){
+ assert.throws(()=>deliveryTrigger('close',{...env,...patch},completion,true),/TRIGGER_INVALID/);
+}
+const morningCompletion={...completion,workflow_run:{...completion.workflow_run,
+ name:'NH night reference capture',path:'.github/workflows/nh-night-capture.yml',event:'schedule'}};
+assert.equal(deliveryTrigger('morning',env,morningCompletion,true),true);
+assert.equal(deliveryTrigger('morning',env,morningCompletion,false),false);
+assert.throws(()=>deliveryTrigger('morning',env,completion,true),/TRIGGER_INVALID/);
+assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
+ {ref:'refs/heads/main',repository:{full_name:env.GITHUB_REPOSITORY}},true),true);
+assert.throws(()=>deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
+ {ref:'refs/heads/feature'},true),/TRIGGER_INVALID/);
+const triggerSource=fs.readFileSync('scripts/telegram-delivery-trigger.mjs','utf8');
+const unsafe=await import('data:text/javascript,'+encodeURIComponent(triggerSource.replace(
+ "||run.head_repository?.full_name!==REPO",'')));
+assert.throws(()=>assert.throws(()=>unsafe.deliveryTrigger('close',env,{...completion,
+ workflow_run:{...completion.workflow_run,head_repository:{full_name:'other/fork'}}},true)),
+ 'the fork rejection oracle must detect removal of the trust guard');
+assert.deepEqual(workflow.on.workflow_run.workflows,['market-briefing-headless','gas-deploy']);
+assert.deepEqual(workflow.on.workflow_run.branches,['main']);
+assert.equal(workflow.concurrency.group,'telegram-close-briefing');
+assert.equal(workflow.concurrency['cancel-in-progress'],false);
+const recoveryNow=()=>new Date(day+'T18:30:00+09:00');
+const recovered=await prepareClose({...options,now:recoveryNow});
+assert.equal(recovered.ready,true,'delayed same-day scheduler can still prepare');
+assert.equal((await deliverClose(recovered,{now:recoveryNow,send:async()=>{}})).status,'SENT');
+assert.equal((await prepareClose({...options,now:recoveryNow,fetchImpl:async()=>({ok:true,
+ json:async()=>({total_count:1,artifacts:[{name:'telegram-close-claim-'+day}]})})})).status,
+ 'ALREADY_CLAIMED','fallback and schedule must use the same date claim');
+await assert.rejects(deliverClose(recovered,{now:()=>new Date('2026-10-31T18:30:00+09:00'),
+ send:async()=>assert.fail('cross-date send')}),/PAYLOAD_INVALID/);
+const morningWorkflow=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
+assert.deepEqual(morningWorkflow.on.workflow_run.workflows,['NH night reference capture']);
+assert.equal(morningWorkflow.concurrency.group,'telegram-morning-briefing');
+assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare').if,/workflow_run/);
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
 console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');
