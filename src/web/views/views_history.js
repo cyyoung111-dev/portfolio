@@ -175,10 +175,19 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       .sort((a, b) => a.date.localeCompare(b.date));
     const mdd = _calcHistoryMdd(dailyMddPoints.length ? dailyMddPoints : arr, dailyMddPoints.length ? 'raw' : 'idx');
     const usedSymbol = String(benchMetaMap[benchType] || '');
+    const latestRaw = benchRaw.filter(row => row?.date && Number(row?.value)>0
+      && (!lastSnapshotDate || row.date<=lastSnapshotDate)).at(-1);
+    const sourceSet = [...new Set(benchRaw.map(row=>String(row?.source||'SOURCE_NOT_TAGGED')))];
+    const sourceLabel = sourceSet.map(source=>source==='NH_REGULAR_CLOSE'?'NH'
+      :source==='KRX_OFFICIAL'?'KRX'
+      :source.includes('YAHOO')?'Yahoo':'원천 미확인').join(' + ');
+    const latestDate=latestRaw?.sourceDate||latestRaw?.date||'';
+    const latestPrice=Number(latestRaw?.value)||0;
     const displayType = benchType;
     const chartDisplayType = displayType;
     const visual = HISTORY_BENCHMARK_VISUALS[benchType] || { color: '#94a3b8', dash: '' };
-    return { type: benchType, displayType, chartDisplayType, usedSymbol, color: visual.color, dash: visual.dash, pts: arr, mdd };
+    return { type: benchType, displayType, chartDisplayType, usedSymbol, color: visual.color, dash: visual.dash, pts: arr, mdd,
+      sourceLabel,latestDate,latestPrice };
   }).filter(x => x.pts.length > 1);
   const hasBench = benchLines.length > 0;
   const allIdx = hasBench ? benchLines.flatMap(x => x.pts.map(p => p.idx)) : [];
@@ -287,6 +296,8 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         const delta = last ? (last.idx - 100) : 0;
         return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">${line.displayType} 변화</div>
+        <div style="font-size:.61rem;color:var(--muted)">${_escapeHtml(line.sourceLabel)} · ${_escapeHtml(line.latestDate||"날짜 미확인")}</div>
+        <div style="font-size:.64rem;font-weight:600;color:var(--text)">${line.latestPrice?line.latestPrice.toLocaleString("ko-KR",{maximumFractionDigits:4}):"값 미확보"} · 실제 조회값</div>
         <div style="font-size:.88rem;font-weight:700;color:${line.color}">${(delta >= 0 ? '+' : '') + delta.toFixed(1)}%</div>
         <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">MDD ${line.mdd.pct.toFixed(1)}%</div>
         ${line.mdd?.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(line.mdd.peakDate)} → ${_fmtHistDateCompact(line.mdd.troughDate)}</div>` : ''}

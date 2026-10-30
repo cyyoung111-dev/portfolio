@@ -28,7 +28,11 @@ async function _loadBenchmarkBundle(types, fromDate, toDate) {
   for (const type of types) {
     const rawPoints = Array.isArray(data?.series?.[type]) ? data.series[type] : [];
     const points = rawPoints
-      .map(point => ({ date: _normalizeHistDate(point.date || ''), value: parseFloat(point.value || 0) }))
+      .map(point => ({
+        date:_normalizeHistDate(point.date||''),value:parseFloat(point.value||0),
+        source:String(point.source||data?.seriesMeta?.[type]?.source||'SOURCE_NOT_TAGGED'),
+        sourceDate:_normalizeHistDate(point.sourceDate||point.date||'')
+      }))
       .filter(point => point.date && point.value > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
     seriesMap[type] = points;
@@ -66,7 +70,11 @@ async function _fetchBenchmarkSeries(type, fromDate, toDate) {
   if (data.status === 'error') return { points: [], symbol: '', error: (data.message || '비교지수 조회 실패').toString() };
   const arr = Array.isArray(data.points) ? data.points : [];
   const points = arr
-    .map(p => ({ date: _normalizeHistDate(p.date || ''), value: parseFloat(p.value || 0) }))
+    .map(p => ({
+      date:_normalizeHistDate(p.date||''),value:parseFloat(p.value||0),
+      source:String(p.source||data?.seriesMeta?.source||'SOURCE_NOT_TAGGED'),
+      sourceDate:_normalizeHistDate(p.sourceDate||p.date||'')
+    }))
     .filter(p => p.date && p.value > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
   return { points, symbol: (data.symbol || '').toString().trim() };

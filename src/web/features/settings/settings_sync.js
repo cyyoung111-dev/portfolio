@@ -1585,12 +1585,31 @@ async function saveNhConfigFromUI() {
   }
 }
 
+// Only genuine dated NH regular closes qualify for a numeric confirmation.
+function _formatNhVerifiedCloseSample(code,row) {
+  const date=String(row?.usedDate||row?.marketDate||'');
+  const source=String(row?.source||''),currency=String(row?.currency||''),price=Number(row?.price);
+  if(!row||!Number.isFinite(price)||price<=0||!/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ||row.marketDate!==date||row.usedDate!==date||row.priceType!=='REGULAR_CLOSE'
+    ||row.status!=='CONFIRMED'||source!=='NH_REGULAR_CLOSE'
+    ||!['KRW','USD'].includes(currency))return code+' NH 확정종가 미확보';
+  return code+' '+price.toLocaleString('ko-KR',{maximumFractionDigits:4})+' '+currency+' · '+date+' · NH 정규장';
+}
+
 async function diagnoseNhFromUI() {
   const target=$el('nhConfigStatus');
   if(target)target.textContent='NH 한국·미국 연결 확인 중…';
   try {
     const data=await requestGsheetFormJson('diagnoseNhMarketData',{}, {timeoutMs:90000,retry:0});
-    if(data?.status!=='ok'||data.readOnly!==true)throw new Error(data?.message||'NH 진단 응답 오류');
-    if(target)target.textContent=(data.quotesConnected?'NH 한국·미국 현재가 연결 정상':'NH 현재가 일부 미확인')+' · '+(data.closeSampleComplete?'최근 정규장 종가 표본 확보':'최근 정규장 종가 일부 미확보');
+    if(data?.status!=='ok'||data.readOnly!==true||data.provider!=='NH')
+      throw new Error(data?.message||'NH 진단 응답 오류');
+    const lines=[
+      data.quotesConnected?'NH 한국·미국 현재가 표본 연결':'NH 현재가 표본 일부 미확인',
+      _formatNhVerifiedCloseSample('005930',data.closes?.['005930']),
+      _formatNhVerifiedCloseSample('AAPL',data.closes?.AAPL),
+      data.closeSampleComplete?'정규장 종가 표본 2/2 확보':'정규장 종가 표본 전체 미확인',
+      '읽기 전용 표본 진단 · 전체 보유종목 및 평가손익 검증과 별개'
+    ];
+    if(target){target.textContent=lines.join('\n');target.style.whiteSpace='pre-line';}
   }catch(error){if(target)target.textContent='NH 연결 미확인: '+(error.message||'응답 오류');}
 }
