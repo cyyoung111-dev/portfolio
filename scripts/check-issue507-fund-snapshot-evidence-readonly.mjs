@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,summarizeSourceMismatchKinds,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
+import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,summarizeSourceMismatchKinds,summarizeKnownFundSourcePairs,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
 const history={status:'ok',date:TARGET_DATE,items:[{code:TARGET_CODE,evalAmt:150,source:'FUND_NAV'}]};
 const prices={status:'ok',prices:{[TARGET_CODE]:[{date:TARGET_DATE,price:150,source:'FUND_NAV'}]}};
 const run=(h,p)=>summarizeEvidence(h,p);
@@ -133,6 +133,52 @@ assert.throws(()=>summarizeSourceMismatchKinds(withSource({sourceMismatches:[
  {code:TARGET_CODE,expected:'FUND_NAV',stored:'MANUAL'},
  {code:TARGET_CODE,expected:'FUND_NAV',stored:'MANUAL'}]})),/BAD_INTEGRITY/);
 
+
+// The other exact source-only mismatch must be attributable to a known fund,
+// with no guessed underlying NAV, dates, amount or other asset identities.
+const carryFundStatus=withSource({
+ sourceMismatches:[
+  {code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY@2026-10-29'},
+  {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'FUND_NAV_CARRY_INPUT_REQUIRED@2026-10-29'}],
+ fundNavStates:[{code:'F00002',sourceDate:'2026-10-29'}]
+});
+assert.deepEqual(summarizeKnownFundSourcePairs(carryFundStatus),{
+ knownFundSourcePairs:{
+  F00002:{mismatch:true,expectedKind:'CARRY_NAV',storedKind:'CARRY_INPUT_REQUIRED',
+    expectedCarryDateMatchesNav:true,storedCarryDateMatchesNav:true,
+    bothCarryFamilies:true,confirmedNavExpected:false,writeAuthorized:false},
+  F00003:{mismatch:false}
+ }
+});
+const changedProvider=withSource({
+ sourceMismatches:[{code:'F00002',expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}],
+ fundNavStates:[{code:'F00002',sourceDate:'2026-10-29'}]
+});
+const observed=summarizeKnownFundSourcePairs(changedProvider).knownFundSourcePairs.F00002;
+assert.deepEqual({expectedKind:observed.expectedKind,storedKind:observed.storedKind,
+ bothCarry:observed.bothCarryFamilies},{expectedKind:'CONFIRMED_NAV',
+ storedKind:'CARRY_NAV',bothCarry:false});
+assert.equal(observed.expectedCarryDateMatchesNav,null);
+const dateConflict=withSource({
+ sourceMismatches:[{code:'F00003',expected:'FUND_NAV_CARRY@2026-10-28',stored:'FUND_NAV_CARRY_INPUT_REQUIRED'}],
+ fundNavStates:[{code:'F00003',sourceDate:'2026-10-29'}]
+});
+const f3=summarizeKnownFundSourcePairs(dateConflict).knownFundSourcePairs.F00003;
+assert.equal(f3.expectedCarryDateMatchesNav,false);
+assert.equal(f3.storedCarryDateMatchesNav,null);
+for(const input of [
+ {sourceMismatches:[{code:'F00002',expected:'PRIVATE',stored:'PRIVATE'}]},
+ {sourceMismatches:[{code:'F00002',expected:'FUND_NAV',stored:'MANUAL'},
+                    {code:'F00002',expected:'FUND_NAV',stored:'MANUAL'}]},
+ {sourceMismatches:[{code:'F00002',expected:null,stored:'MANUAL'}]},
+ {sourceMismatches:[{code:'F00002',expected:'FUND_NAV',stored:'MANUAL'}],
+  fundNavStates:[{code:'F00002',sourceDate:'2026-10-29'},
+   {code:'F00002',sourceDate:'2026-10-29'}]}
+])assert.throws(()=>summarizeKnownFundSourcePairs(withSource(input)),/BAD_INTEGRITY/);
+const noUnknownLeak=withSource({sourceMismatches:[
+ {code:'UNKNOWN_PRIVATE_ASSET',expected:'OTHER_PROVIDER_SECRET',stored:'PRIVATE_TOKEN'}]});
+assert.ok(!JSON.stringify(summarizeKnownFundSourcePairs(noUnknownLeak)).includes('PRIVATE'));
+
 const actions=[],emitted=[];
 await diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
  token:'PRIVATE_TOKEN',emit:x=>emitted.push(x),
@@ -158,6 +204,7 @@ assert.equal(emitted[0].fundDayStates[1].navState,'NAV_MISSING');
 assert.equal(emitted[0].sourceMismatchScope,'TARGET_ONLY');
 assert.equal(emitted[0].targetSourceKinds.expectedSourceKind,'CONFIRMED_NAV');
 assert.equal(emitted[0].otherMismatchCount,0);
+assert.deepEqual(emitted[0].knownFundSourcePairs,{F00002:{mismatch:false},F00003:{mismatch:false}});
 assert.equal(emitted[0].writeAuthorized,false);
 assert.equal(emitted[0].candidate,true);
 assert.deepEqual(emitted[0].blockers,[]);
