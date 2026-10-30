@@ -55,6 +55,9 @@ jobs:
         with:
           node-version: '24'
       - name: Verify exact-date sources, recover empty date, clear verified markers
+        # A later gas-deploy completion must not re-run stale historic previews.
+        # The one-time first-install approved action and explicit manual dispatch remain enabled.
+        if: github.event_name == 'workflow_dispatch' || steps.first.outputs.apply == 'true'
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
