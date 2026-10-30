@@ -18787,28 +18787,84 @@ function _nhJson_(url,options) {
   if(status<200||status>=300)throw new Error('NH_HTTP_'+status);
   try {return JSON.parse(response.getContentText());} catch(ignore) {throw new Error('NH_RESPONSE_INVALID');}
 }
+// NH PLUG tokens are valid for the server-returned expires_in (normally 24h).
+// CacheService has a hard 6h TTL, so also retain the credential-scoped bearer
+// in ScriptProperties, where this same script already stores NH credentials.
+// Never expose the token via Settings, logs, artifacts, or client responses.
+function _nhTokenScope_(credentials) {
+  return Utilities.base64EncodeWebSafe(Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    JSON.stringify(['NH_PLUG','api.nhplug.com:8443',credentials.key,credentials.secret])
+  )).replace(/=+$/g,'');
+}
+function _nhValidTokenRecord_(raw,scope) {
+  if(!raw)return null;
+  try {
+    var record=JSON.parse(raw),expiry=Number(record.expiresAt);
+    if(record.scope===scope&&typeof record.token==='string'&&record.token.length>0
+      &&isFinite(expiry)&&expiry>Date.now()+60000)return record;
+  } catch(ignore){}
+  return null;
+}
+function _nhSaveTokenRecord_(record,props,cache) {
+  // Store no more than 24h, leaving a full minute for clocks and requests.
+  props.setProperties({NHPLUG_AUTH_RECORD_V1:JSON.stringify(record)});
+  var ttl=Math.max(1,Math.min(21600,Math.floor((record.expiresAt-Date.now()-60000)/1000)));
+  cache.put('nh_oauth_v1',JSON.stringify(record),ttl);
+}
 function _nhAccessToken_(credentials) {
-  var cache=CacheService.getScriptCache(),cached=cache.get('nh_oauth_v1');
-  if(cached){try {var record=JSON.parse(cached);if(record.expiresAt>Date.now()+60000)return record.token;}catch(ignore){}}
+  if(!credentials||!credentials.key||!credentials.secret)throw new Error('NH_CREDENTIALS_MISSING');
+  var scope=_nhTokenScope_(credentials),cache=CacheService.getScriptCache();
+  var cached=_nhValidTokenRecord_(cache.get('nh_oauth_v1'),scope);
+  if(cached)return cached.token;
+  var props=PropertiesService.getScriptProperties();
+  var persisted=_nhValidTokenRecord_(props.getProperty('NHPLUG_AUTH_RECORD_V1'),scope);
+  if(persisted){
+    var ttl=Math.max(1,Math.min(21600,Math.floor((persisted.expiresAt-Date.now()-60000)/1000)));
+    cache.put('nh_oauth_v1',JSON.stringify(persisted),ttl);
+    return persisted.token;
+  }
   var lock=LockService.getScriptLock(),owned=lock.hasLock&&lock.hasLock();
   if(!owned&&!lock.tryLock(10000))throw new Error('NH_AUTH_BUSY');
   try {
-    cached=cache.get('nh_oauth_v1');
-    if(cached){try {var second=JSON.parse(cached);if(second.expiresAt>Date.now()+60000)return second.token;}catch(ignore){}}
-    if(!credentials.key||!credentials.secret)throw new Error('NH_CREDENTIALS_MISSING');
+    // Double-check both cache layers after acquiring the global lock.
+    cached=_nhValidTokenRecord_(cache.get('nh_oauth_v1'),scope);
+    if(cached)return cached.token;
+    persisted=_nhValidTokenRecord_(props.getProperty('NHPLUG_AUTH_RECORD_V1'),scope);
+    if(persisted){
+      var remaining=Math.max(1,Math.min(21600,Math.floor((persisted.expiresAt-Date.now()-60000)/1000)));
+      cache.put('nh_oauth_v1',JSON.stringify(persisted),remaining);
+      return persisted.token;
+    }
     var url='https://api.nhplug.com:8443/oauth2/token?appkey='+encodeURIComponent(credentials.key)+'&appsecretkey='+encodeURIComponent(credentials.secret)+'&grant_type=client_credentials&scope=oob';
+    var issuedAt=Date.now();
     var data=_nhJson_(url,{method:'post',contentType:'application/x-www-form-urlencoded',followRedirects:false,muteHttpExceptions:true});
     var lifetime=Number(data.expires_in);
     if(typeof data.access_token!=='string'||!data.access_token||!isFinite(lifetime)||lifetime<=60)throw new Error('NH_TOKEN_CONTRACT_INVALID');
-    cache.put('nh_oauth_v1',JSON.stringify({token:data.access_token,expiresAt:Date.now()+lifetime*1000}),Math.min(21600,Math.floor(lifetime-60)));
-    return data.access_token;
+    var record={scope:scope,token:data.access_token,expiresAt:issuedAt+Math.min(lifetime,86400)*1000};
+    _nhSaveTokenRecord_(record,props,cache);
+    return record.token;
+  } finally {if(!owned)lock.releaseLock();}
+}
+function _nhForgetToken_(token) {
+  // 401 means invalid bearer. Do not revoke a newer bearer created by a
+  // concurrent request. Never invalidate on 429 / network or parser errors.
+  var lock=LockService.getScriptLock(),owned=lock.hasLock&&lock.hasLock();
+  if(!owned&&!lock.tryLock(10000))throw new Error('NH_AUTH_BUSY');
+  try {
+    var cache=CacheService.getScriptCache(),props=PropertiesService.getScriptProperties();
+    var raw=cache.get('nh_oauth_v1'),stored=props.getProperty('NHPLUG_AUTH_RECORD_V1'),record;
+    try{record=JSON.parse(raw);}catch(ignore){record=null;}
+    if(record&&record.token===token)cache.remove('nh_oauth_v1');
+    try{record=JSON.parse(stored);}catch(ignore){record=null;}
+    if(record&&record.token===token)props.deleteProperty('NHPLUG_AUTH_RECORD_V1');
   } finally {if(!owned)lock.releaseLock();}
 }
 function _nhPost_(path,input,credentials) {
   var token=_nhAccessToken_(credentials);
   try {return _nhJson_('https://api.nhplug.com:8443'+path,{method:'post',contentType:'application/json; charset=UTF-8',followRedirects:false,muteHttpExceptions:true,
     headers:{Authorization:'Bearer '+token,'x-client-id':credentials.key,'x-client-secret':credentials.secret},payload:JSON.stringify({Input_0:input})});}
-  catch(error){if(error.message==='NH_HTTP_401')CacheService.getScriptCache().remove('nh_oauth_v1');throw error;}
+  catch(error){if(error.message==='NH_HTTP_401')_nhForgetToken_(token);throw error;}
 }
 function _nhUsMaster_(symbols) {
   if(!symbols.length)return {};
@@ -18885,6 +18941,9 @@ function handleSaveNhConfig(params) {
   try {
     var input=JSON.parse(params.data||'{}'),key=String(input.key||'').trim(),secret=String(input.secret||'').trim();
     if(!key||!secret||key.length>2048||secret.length>2048)throw new Error('NH_BOTH_CREDENTIALS_REQUIRED');
+    // Re-saving unchanged active credentials must not issue another token.
+    if(_nhEnabled_()&&props.getProperty('NHPLUG_APP_KEY')===key
+      &&props.getProperty('NHPLUG_APP_SECRET')===secret)return jsonOk({nh:_nhConfigStatus_()});
     // Test direct GAS transport/auth before activating. Do not overwrite an
     // existing working provider or credentials if the handshake fails.
     var data=_nhJson_('https://api.nhplug.com:8443/oauth2/token?appkey='+encodeURIComponent(key)+'&appsecretkey='+encodeURIComponent(secret)+'&grant_type=client_credentials&scope=oob',{method:'post',contentType:'application/x-www-form-urlencoded',followRedirects:false,muteHttpExceptions:true});
@@ -18892,7 +18951,14 @@ function handleSaveNhConfig(params) {
     var quote=_nhJson_('https://api.nhplug.com:8443/krstock/quote/v1/currentPrice',{method:'post',contentType:'application/json; charset=UTF-8',followRedirects:false,muteHttpExceptions:true,headers:{Authorization:'Bearer '+data.access_token,'x-client-id':key,'x-client-secret':secret},payload:JSON.stringify({Input_0:{iem_cd:'005930',market_cd:'KRX'}})});
     if(!quote.Output_0||quote.Output_0.iem_cd!=='005930'||!isFinite(Number(quote.Output_0.stck_prpr))||Number(quote.Output_0.stck_prpr)<=0)throw new Error('NH_ACTIVATION_QUOTE_INVALID');
     var lock=LockService.getScriptLock();if(!lock.tryLock(10000))throw new Error('NH_CONFIG_BUSY');
-    try {props.setProperties({NHPLUG_APP_KEY:key,NHPLUG_APP_SECRET:secret,MARKET_DATA_PROVIDER:'NH'});['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY'].forEach(function(name){props.deleteProperty(name);});CacheService.getScriptCache().remove('toss_oauth_token_v1');CacheService.getScriptCache().put('nh_oauth_v1',JSON.stringify({token:data.access_token,expiresAt:Date.now()+Number(data.expires_in)*1000}),Math.min(21600,Math.floor(Number(data.expires_in)-60)));}
+    try {
+      props.setProperties({NHPLUG_APP_KEY:key,NHPLUG_APP_SECRET:secret,MARKET_DATA_PROVIDER:'NH'});
+      ['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY'].forEach(function(name){props.deleteProperty(name);});
+      CacheService.getScriptCache().remove('toss_oauth_token_v1');
+      _nhSaveTokenRecord_({scope:_nhTokenScope_({key:key,secret:secret}),
+        token:data.access_token,expiresAt:Date.now()+Math.min(Number(data.expires_in),86400)*1000},
+        props,CacheService.getScriptCache());
+    }
     finally {lock.releaseLock();}
     return jsonOk({nh:_nhConfigStatus_()});
   } catch(error){return jsonError(/^NH_[A-Z0-9_]+$/.test(error.message)?error.message:'NH_CONFIG_FAILED');}
