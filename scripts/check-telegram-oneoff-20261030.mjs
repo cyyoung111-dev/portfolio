@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import YAML from 'yaml';
+import {prepareOneoff,deliverOneoff,oneoffWindow,ONEOFF_DATE,ONEOFF_CLAIM} from './telegram-oneoff-20261030.mjs';
+const date=ONEOFF_DATE,at=()=>new Date(date+'T09:20:00+09:00');
+assert.equal(oneoffWindow(new Date(date+'T08:09:59+09:00')).allowed,false);
+assert.equal(oneoffWindow(new Date(date+'T08:10:00+09:00')).allowed,true);
+assert.equal(oneoffWindow(new Date(date+'T10:29:59+09:00')).allowed,true);
+assert.equal(oneoffWindow(new Date(date+'T10:30:00+09:00')).allowed,false);
+assert.equal(oneoffWindow(new Date('2026-10-29T09:20:00+09:00')).allowed,false);
+const reference={source:'NH',kind:'REFERENCE',tradingDate:date,officialClose:false,
+ sourceUpdatedAt:date+'T06:00:00+09:00',value:900.05,contract:'KA016C000',
+ contractMonth:'2026-12',receivedAt:date+'T09:20:00+09:00'};
+let queries=0,claims=0;
+const quoteFetch=async (label,symbol)=>symbol==='^KS11'?{label,symbol,date:'2026-10-29',value:4100,changePercent:1,source:'Yahoo Finance 일봉'}:null;
+const common={now:at,repository:'cyyoung111-dev/portfolio',gitToken:'x',
+ referenceFetch:async()=>reference,quoteFetch};
+const fetchImpl=async url=>{queries++;assert.match(url,/actions\/artifacts/);return {ok:true,json:async()=>({total_count:claims,artifacts:claims?[{name:ONEOFF_CLAIM}]:[]})};};
+const prepared=await prepareOneoff({...common,fetchImpl});
+assert.equal(prepared.ready,true);
+assert.equal(prepared.nhReference,true);
+assert.equal(prepared.quoteCount,1);
+assert.match(prepared.message,/지연 발송/);
+assert.match(prepared.message,/900\.05/);
+assert.match(prepared.message,/4100|4,100/);
+claims=1;
+const duplicate=await prepareOneoff({...common,fetchImpl});
+assert.deepEqual(duplicate,{ready:false,status:'ALREADY_CLAIMED'});
+let sends=0;
+const sent=await deliverOneoff(prepared,{now:at,send:async()=>{sends++;}});
+assert.equal(sent.status,'SENT');
+await assert.rejects(()=>deliverOneoff(prepared,{now:()=>new Date(date+'T10:30:00+09:00'),send:async()=>{sends++;}}),/ONEOFF_SEND_BLOCKED/);
+assert.equal(sends,1);
+await assert.rejects(()=>prepareOneoff({...common,now:()=>new Date('2026-10-31T09:20:00+09:00'),fetchImpl}),/ONEOFF_DATE_OR_WINDOW_INVALID/);
+await assert.rejects(()=>prepareOneoff({...common,fetchImpl:async()=>({ok:false})}),/ONEOFF_CLAIM_LOOKUP_FAILED/);
+assert.ok(queries>=2);
+const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-oneoff-20261030.yml','utf8'));
+assert.deepEqual(Object.keys(wf.on),['push']);
+assert.deepEqual(wf.on.push.branches,['main']);
+assert.deepEqual(wf.on.push.paths,['.github/workflows/telegram-oneoff-20261030.yml']);
+assert.equal(wf.concurrency.group,'telegram-morning-briefing');
+assert.equal(wf.jobs['send-one-time'].environment,'portfolio-market-data');
+const steps=wf.jobs['send-one-time'].steps;
+const claimIndex=steps.findIndex(x=>x.uses==='actions/upload-artifact@v4');
+const sendIndex=steps.findIndex(x=>String(x.run||'').endsWith('telegram-oneoff-20261030.mjs send'));
+assert.ok(claimIndex>=0&&sendIndex>claimIndex);
+assert.equal(steps[claimIndex].with.name,ONEOFF_CLAIM);
+console.log('October 30 one-shot delayed Telegram date, duplicate guard, payload and workflow: PASS');
