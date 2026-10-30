@@ -84,6 +84,23 @@ export function classifySingleFundRepairReview(payload,date=TARGET_DATE,code=TAR
   && d.storedRows.filter(row=>Array.isArray(row)&&row[1]===code).length===1;
  const noOtherPriceWarnings=d.priceIntegrity.every(row=>
   row && (row.status==='VALID'||row.status==='MANUAL_PROTECTED'));
+ // Only hard-coded category names leave the process; never log values, codes, rows or errors.
+ const blockers=[];
+ const blockedCategory={missingCodes:'MISSING_ROW',unexpectedCodes:'UNEXPECTED_ROW',
+  qtyMismatches:'QUANTITY_MISMATCH',costAmtMismatches:'COST_MISMATCH',
+  evalUnitMismatches:'EVALUATION_UNIT_MISMATCH',duplicateKeys:'DUPLICATE_ROW',
+  conflictKeys:'CONFLICT_ROW'};
+ for(const [key,label] of Object.entries(blockedCategory))
+  if(d[key].length)blockers.push(label);
+ if(!isTargetOnly('evalAmtMismatches'))blockers.push('EVALUATION_AMOUNT_SCOPE');
+ if(!isTargetOnly('sourceMismatches'))blockers.push('SOURCE_SCOPE');
+ if(!expectedPresent)blockers.push('FUND_ROW_ABSENT');
+ if(!lengthsAgree)blockers.push('ROW_COUNT_MISMATCH');
+ if(!rowsComplete)blockers.push('RAW_ROW_EVIDENCE_INCOMPLETE');
+ if(targetPrices.length!==1||targetPrices[0].status!=='VALID')blockers.push('TARGET_PRICE_UNVERIFIED');
+ if(!noOtherPriceWarnings)blockers.push('OTHER_PRICE_WARNINGS');
+ if(d.sourceDataErrors.length)blockers.push('SOURCE_DATA_ERRORS');
+ if(d.status!=='MISMATCH')blockers.push('INTEGRITY_STATUS_NOT_MISMATCH');
  const candidate=d.status==='MISMATCH'&&expectedPresent&&lengthsAgree&&rowsComplete
   &&noOtherDifferences &&targetPrices.length===1&&targetPrices[0].status==='VALID'
   &&noOtherPriceWarnings &&d.sourceDataErrors.length===0;
@@ -93,7 +110,8 @@ export function classifySingleFundRepairReview(payload,date=TARGET_DATE,code=TAR
   scope:'F00001_2026_10_30_ONLY',
   requiresBackup:true,requiresWriterExclusion:true,requiresExplicitApproval:true,
   writeAuthorized:false,mutationPerformed:false,
-  noOtherDifferences,rowsComplete,otherPriceWarnings:!noOtherPriceWarnings
+  noOtherDifferences,rowsComplete,otherPriceWarnings:!noOtherPriceWarnings,
+  blockers
  };
 }
 
