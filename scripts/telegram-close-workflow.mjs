@@ -6,6 +6,7 @@ import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {expectedMorningDate} from './telegram-morning-report.mjs';
 import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
+import {fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -47,13 +48,26 @@ function previousOpenDate(date){
  }
  return null;
 }
-export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>new Date()}={}){
+export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>new Date(),
+ gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
+ fetchOfficial=fetchOfficialDailyIndexes}={}){
  const previous=previousOpenDate(date);
  if(!previous||krxSessionStatus(date)!=='OPEN')return [];
  const from=new Date(Date.parse(previous+'T00:00:00Z')-2*86400000).toISOString().slice(0,10);
- const out=await domesticIndexEod.loadSeries(['KOSPI','KOSDAQ','KOSPI200'],from,date,{fetchImpl,now});
+ // KRX official same-day result takes precedence when GAS confirms actual publication.
+ const [official,out]=await Promise.all([
+  Promise.resolve().then(()=>fetchOfficial(date,{url:gasUrl,token:gasToken,fetchImpl,now})).catch(()=>[]),
+  domesticIndexEod.loadSeries(['KOSPI','KOSDAQ','KOSPI200'],from,date,{fetchImpl,now})
+    .catch(()=>({seriesMap:{}}))
+ ]);
  const labels={KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI 200'};
  return Object.keys(labels).flatMap(type=>{
+  const verified=Array.isArray(official)?official.filter(r=>r?.type===type&&r.date===date
+    &&r.source==='KRX_OFFICIAL'&&r.role==='NON_NH_DAILY_INDEX'
+    &&r.priceType==='CONFIRMED_REGULAR_CLOSE'
+    &&Number.isFinite(r.value)&&r.value>0):[];
+  if(verified.length===1)return verified;
+  if(verified.length>1)return [];
   const list=out.seriesMap[type]||[],current=list.filter(x=>x.date===date);
   const prior=list.filter(x=>x.date<date).at(-1);
   if(current.length!==1||!prior||prior.date!==previous||current[0].source!=='FDR_KRX_CACHE'
@@ -66,17 +80,20 @@ export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>ne
 export function formatClose(date,rows,secondary=[],domestic=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
  const lines=['['+date+' 장후 시장 브리핑]',
-  '기준: NH PLUG(지원 지수) · 국내 3대 지수는 비NH 공개 EOD 참고값','',
+  '기준: NH PLUG(지원 지수) · 국내 지수 KRX 공식 종가 우선 / FDR 공개 EOD 참고','',
   '■ 국내 시장 (비NH 공개 일별 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
-  const matches=domestic.filter(x=>x?.label===label&&x.date===date&&
-   x.source==='FDR_KRX_CACHE'&&x.role==='NON_NH_DAILY_INDEX'&&
-   Number.isFinite(x.value)&&x.value>0&&Number.isFinite(x.changePercent));
+  const matches=domestic.filter(x=>x?.label===label&&x.date===date
+   &&x.role==='NON_NH_DAILY_INDEX'&&Number.isFinite(x.value)&&x.value>0
+   &&((x.source==='KRX_OFFICIAL'&&x.priceType==='CONFIRMED_REGULAR_CLOSE')
+     ||x.source==='FDR_KRX_CACHE'&&Number.isFinite(x.changePercent)));
   if(matches.length!==1){lines.push(label+': 검증된 당일 종가 미확보');continue;}
   const x=matches[0];
+  const change=Number.isFinite(x.changePercent)
+    ?' ('+(x.changePercent>=0?'+':'')+x.changePercent.toFixed(2)+'%)':'';
+  const provenance=x.source==='KRX_OFFICIAL'?'KRX 공식 종가':'FDR/KRX 공개 참고';
   lines.push(label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
-    +' ('+(x.changePercent>=0?'+':'')+x.changePercent.toFixed(2)+'%)'
-    +' · '+date+' · FDR/KRX 공개 참고 (NH 아님)');
+    +change+' · '+date+' · '+provenance+' (NH 아님)');
  }
  lines.push('','■ 미국 시장 (직전 완료 거래일)');
  for(const target of NH_VERIFIED){
@@ -129,7 +146,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   let secondary=[],domestic=[];
   await Promise.all([
    (async()=>{try{secondary=await fetchSecondary(window.date,{fetchImpl});}catch{secondary=[];}})(),
-   (async()=>{try{domestic=await fetchDomestic(window.date,{fetchImpl,now});}catch{domestic=[];}})()
+   (async()=>{try{domestic=await fetchDomestic(window.date,{fetchImpl,now,gasUrl,gasToken});}catch{domestic=[];}})()
   ]);
   const after=closeWindow(now());
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
