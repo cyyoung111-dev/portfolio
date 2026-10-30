@@ -19365,6 +19365,14 @@ function _nhGlobalIndexDailySeries_(type,fromDate,toDate){
  // cannot silently discard older period points.
  if(Date.parse(first+'T00:00:00Z')-earliest>7*86400000
    ||Date.parse(end+'T00:00:00Z')-Date.parse(last+'T00:00:00Z')>7*86400000)return null;
+ // Reject internal missing sessions as well, otherwise a thin response
+ // silently carries stale prices and calculates a non-adjacent previousClose.
+ var usSession={code:'AAPL',market:'NASDAQ',currency:'USD'};
+ for(var ms=earliest;ms<=Date.parse(end+'T00:00:00Z');ms+=86400000){
+   var instant=new Date(ms),day=instant.toISOString().slice(0,10),weekday=instant.getUTCDay();
+   if(weekday===0||weekday===6||_foreignConfirmedExchangeHoliday_(usSession,day))continue;
+   if(!byDate[day])return null;
+ }
  var newest=points[points.length-1],prior=points[points.length-2];
  var result={points:points,symbol:'NH:'+config.code,code:config.code,source:'NH_INDEX_DAILY',
    current:{symbol:config.code,price:newest.value,previousClose:prior.value,

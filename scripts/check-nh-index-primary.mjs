@@ -8,6 +8,7 @@ assert.ok(code.length>1000);
 const calls=[],cache=new Map(),fallbacks=[];
 const ctx={_nhCredentials_:()=>({key:'k',secret:'s'}),
  _foreignMarketRegularCloseCutoff_:()=> '2026-10-29',
+ _foreignConfirmedExchangeHoliday_:()=>false,
  _nhCloseDate_:d=>String(d||'').replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3'),
  _nhPost_:(path,input)=>{
    calls.push({path,input});
@@ -33,6 +34,13 @@ for (const [type,code,expected] of [['NASDAQ','COMP',26184.72],['NASDAQ100','NDX
  assert.equal(row.points.at(-1).sourceDate,'2026-10-29');
 }
 assert.equal(fallbacks.length,0);
+assert.equal(ok.current.previousClose,7680.12,'adjacent session close');
+ctx._nhPost_=()=>({Output_0:{iem_cd:'SPX',iem_nm:'S&P500'},Output_1:[
+ {bsop_date:'20261022',ovrs_prpr:'7600.12'},{bsop_date:'20261029',ovrs_prpr:'7720.39'}]});
+assert.equal(ctx.fetchIndexPrimarySeries('SP500','2026-10-22','2026-10-29').source,'NH_INDEX_DAILY','cached valid result remains NH');
+cache.delete('nh_global_index_v1_SP500_2026-10-22_2026-10-29');
+assert.equal(ctx.fetchIndexPrimarySeries('SP500','2026-10-22','2026-10-29').source,'YAHOO_FINANCE','actual midweek 23-28 gap rejects NH');
+assert.equal(ctx.fetchIndexPrimarySeries('SP500','2026-10-21','2026-10-29').source,'YAHOO_FINANCE','internal missing sessions must reject NH');
 ctx._nhPost_=()=>({Output_0:{iem_cd:'WRONG',iem_nm:'S&P500'},Output_1:[]});
 const miss=ctx.fetchIndexPrimarySeries('SP500','2026-10-21','2026-10-29');
 assert.equal(miss.source,'YAHOO_FINANCE');assert.equal(miss.points[0].source,'YAHOO_UNVERIFIED_DAILY');
