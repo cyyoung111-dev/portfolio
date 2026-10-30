@@ -40,7 +40,11 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
     }
     if(!r.ok)throw Error('NAV_'+phase+'_HTTP_UNVERIFIED');
     try{return await r.json();}
-    catch{throw Error('NAV_'+phase+'_JSON_UNVERIFIED');}
+    catch(error){
+      const kind=['TimeoutError','AbortError'].includes(error?.name)?'TIMEOUT'
+        :error?.name==='TypeError'?'NETWORK':'JSON';
+      throw Error('NAV_'+phase+'_'+kind+'_UNVERIFIED');
+    }
   };
   const probe=await request('getAutomationStatus',{},token==='NAV_AUTH_PROBE'?'NAV_AUTH_PROBE_ALT':'NAV_AUTH_PROBE');
   if(probe.status!=='error'||probe.message!=='인증 실패')throw Error('NAV_AUTH_GUARD');
