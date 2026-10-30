@@ -57,7 +57,7 @@ export function formatClose(date,rows,secondary=[]){
     &&Number.isFinite(row.value)&&row.value>0
     &&((label==='다우존스'&&row.source==='FRED_DJIA')
       ||(label==='VIX'&&row.source==='CBOE_VIX_DAILY')));
-  if(candidates.length!==1){lines.push(label+': NH 코드 미검증 · 별도 참고값 미확보');continue;}
+  if(candidates.length!==1){lines.push(label+': NH 지수 코드 미검증 · 별도 참고값 미확보');continue;}
   const item=candidates[0];
   lines.push(label+': '+item.value.toLocaleString('en-US',{maximumFractionDigits:2})
     +' · '+item.date+' · '+item.source+' 참고 (NH 아님)');
