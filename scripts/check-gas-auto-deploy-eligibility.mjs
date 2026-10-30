@@ -46,6 +46,19 @@ mock=stub({runs:[makeRun(55,old),makeRun(42)],jobsById:{
  55:[{name:'deploy',conclusion:'failure',steps:[{name:'Deploy GAS',conclusion:'failure'}]}],
  42:[deployedJob]},oldBlob:old});
 assert.deepEqual(await mock.call(),{changed:true,reason:'DEPLOYED_SOURCE_DIFFERS'});
+
+// Manual releases can mutate the live project even when their source differs
+// from the newest successful automatic run; unknown dry-run inputs fail closed.
+mock=stub({runs:[{...makeRun(58),event:'workflow_dispatch',conclusion:'success'},makeRun(42)]});
+assert.deepEqual(await mock.call(),{
+ changed:true,reason:'PROVENANCE_NEWER_MANUAL_DEPLOY_UNVERIFIED'});
+assert.equal(mock.calls.git.length,0,'manual override must prevent false no-op');
+mock=stub({runs:[{...makeRun(58),event:'workflow_dispatch',conclusion:'failure'},makeRun(42)]});
+assert.equal((await mock.call()).changed,true,'even failed manual may have partially written');
+mock=stub({runs:[makeRun(80),{...makeRun(58),event:'workflow_dispatch',conclusion:'success'}],
+ jobsById:{80:[deployedJob]}});
+assert.deepEqual(await mock.call(),{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});
+
 for(const options of [
  {runs:[]}, {runs:[makeRun(51)],jobsById:{51:[skippedJob]}},
  {runs:[{...makeRun(42),head_repository:{full_name:'other/repo'}}]},
