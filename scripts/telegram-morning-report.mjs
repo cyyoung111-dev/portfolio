@@ -33,7 +33,7 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
       const item=MORNING_SERIES[i];
       try {
         const row=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
-        if(row && row.symbol===item.symbol && row.label===item.label && /^\\d{4}-\\d{2}-\\d{2}$/.test(row.date)
+        if(row && row.symbol===item.symbol && row.label===item.label && /^\d{4}-\d{2}-\d{2}$/.test(row.date)
           && row.date<date && Number.isFinite(Number(row.value)) && Number(row.value)>0)
           list[i]={...row};
       } catch { /* failed source is explicitly reported as unavailable */ }
@@ -110,7 +110,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
    +' · NH 야선 '+(reference?'확보':'미확보'),
   '일봉은 각 항목 [날짜] 기준이며 현재가·KRX 공식 정산가와 다릅니다.',
   '미확보 데이터는 추정하지 않았습니다.'];
-  const message=lines.join('\\n');
+  const message=lines.join('\n');
   if(message.length>3900)throw Error('TELEGRAM_FULL_BRIEFING_TOO_LONG');
   return message;
 }
