@@ -1,0 +1,25 @@
+name: issue-507-fund-status-readonly
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue507-fund-status-readonly
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read-only fund close status and bounded resume preflight
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          RESUME_READ_ONLY: '1'
+        run: node scripts/run-incomplete-close-resume.mjs
