@@ -1,6 +1,9 @@
 import {MORNING_SERIES} from './telegram-morning-report.mjs';
 
 const DOMESTIC_OFFICIAL=new Set(['KOSPI','KOSDAQ','SAMSUNG','SKHYNIX']);
+// NH-confirmed US indices cannot be silently replaced by Yahoo or an unverified master.
+export const NH_ONLY_INDEX_SYMBOLS=Object.freeze(['^GSPC','^IXIC','^NDX']);
+const NH_ONLY_INDEX_SET=new Set(NH_ONLY_INDEX_SYMBOLS);
 export function verifiedMorningMaster(date,observations=[],{cutoff=date+'T07:30:00+09:00'}={}) {
   const limit=Date.parse(cutoff),earliest=Date.parse(date+'T00:00:00Z')-8*86400000;
   if(!Number.isFinite(limit)||!Array.isArray(observations))return [];
