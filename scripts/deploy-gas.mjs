@@ -28,12 +28,13 @@ export function extractExpectedGasVersion(source) {
 // source blob. A function name, comment, or version string is not evidence
 // that the stacked KRX/NAV/Snapshot implementations are present.
 //
-// The pinned Git blob ID below is the exact GAS file content reviewed on
-// PR #481 (not a commit ID). When approving a new GAS source/version, update
-// this manifest with the reviewed full-file blob SHA in the same reviewed PR.
+// Pinned Git blob IDs refer to exact reviewed full-file GAS source content.
+// The 9.278 auth-cache rollout preserves both the prior deployed source and
+// the new PR #727 source, so strict pre-deploy drift checks can transition.
+// Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
-  '9.278': 'c77c539568f2dc3b2af4bcb729e8e38bbf6cee82',
+  '9.278': Object.freeze(['e383b7c3809ce6426aa3d502bb6c22a6bb175dbf','c77c539568f2dc3b2af4bcb729e8e38bbf6cee82']),
   '9.277': 'e8d762248ca0e33d3a9031b16dd3f7b7d6d260e6',
   '9.276': '3c39d3689c84671ddd42265e5c7e84c5d20f90f5',
   '9.275': '59266e9dfa486c049634310b7f0fbea2320f4d08',
@@ -133,8 +134,9 @@ export function assertGasReleaseReady(source) {
   const reviewed = REVIEWED_GAS_SOURCE_BLOBS[version];
   if (!reviewed) throw new Error(`GAS_RELEASE_UNREVIEWED_VERSION: ${version}`);
   const actual = gasSourceBlobSha(source);
-  if (actual !== reviewed) {
-    throw new Error(`GAS_RELEASE_SOURCE_NOT_APPROVED: version=${version} actualBlob=${actual} reviewedBlob=${reviewed}`);
+  const approvedBlobs = Array.isArray(reviewed) ? reviewed : [reviewed];
+  if (!approvedBlobs.includes(actual)) {
+    throw new Error(`GAS_RELEASE_SOURCE_NOT_APPROVED: version=${version} actualBlob=${actual} reviewedBlobs=${approvedBlobs.join(',')}`);
   }
   return version;
 }
