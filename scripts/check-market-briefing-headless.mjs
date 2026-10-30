@@ -53,7 +53,7 @@ const tflRef={...fakeRef,source:'NH',contract:'KA016C000',value:900.05};
 const tflMorning=await runTelegramMorning({...morningOptions,referenceFetch:async()=>tflRef});
 assert.equal(tflMorning.status,'SENT_REFERENCE');
 assert.equal(tflMorning.referenceSource,'NH');assert.equal(tflMorning.referenceDate,tomorrow);assert.equal(tflMorning.referenceContract,'KA016C000');
-assert.match(textSent,/06:00 KST \(NH\)/);assert.match(textSent,/900\.05pt/);
+assert.match(textSent,/NH PLUG 06:00 운영 확정 기준/);assert.match(textSent,/900\.05pt/);
 const tflBad=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...tflRef,contract:''})});
 assert.equal(tflBad.status,'SENT_SOURCE_MISSING');assert.doesNotMatch(textSent,/900\.05/);
 // The headless calendar consumes the GAS source of truth (including temporary
