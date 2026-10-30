@@ -305,6 +305,8 @@ export function summarizeBackfillStatus(payload) {
     tradeSnapshotWorkerLastBusy,
     tradeSnapshotWorkerTriggerAudit,
     officialKrxPriceHistoryLastDate:safeDate(a.officialKrxPriceHistoryLastDate),
+    // Distinguish physical Snapshot coverage from the producer's queue seed cursor.
+    snapshotSuccessPropertyDate:safeDate(a.snapshotSuccessPropertyDate),
     snapshotLastDate:safeDate(a.snapshotLastDate),
     priceHistoryLastDate:safeDate(a.priceHistoryLastDate),
     latestBackfill:checkpoint(a.backfillLastResult),
