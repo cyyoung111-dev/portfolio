@@ -21,9 +21,10 @@ function dateInZone(instant, zone) {
   const p=Object.fromEntries(parts.map(part=>[part.type,part.value]));
   return `${p.year}-${p.month}-${p.day}`;
 }
-export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,now=new Date()}={}) {
+export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,now=new Date(),host='query1.finance.yahoo.com'}={}) {
   try {
-    const url=new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
+    if(!['query1.finance.yahoo.com','query2.finance.yahoo.com'].includes(host))return null;
+    const url=new URL(`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}`);
     const end=Date.parse(`${tradingDate}T00:00:00Z`);
     url.searchParams.set('period1',String(Math.floor((end-14*DAY)/1000)));
     url.searchParams.set('period2',String(Math.floor((end+DAY)/1000)));

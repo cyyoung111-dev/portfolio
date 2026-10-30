@@ -1,3 +1,5 @@
+import {krxSessionStatus} from './krx-session-calendar.mjs';
+
 // Original multi-asset morning briefing structure, rendered in one Telegram message.
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
 export const MORNING_SERIES = Object.freeze([
@@ -7,6 +9,7 @@ export const MORNING_SERIES = Object.freeze([
   {id:'SAMSUNG',label:'삼성전자',symbol:'005930.KS'},
   {id:'SKHYNIX',label:'SK하이닉스',symbol:'000660.KS'},
   {id:'SPX',label:'S&P 500',symbol:'^GSPC'},
+  {id:'DOW',label:'다우존스',symbol:'^DJI'},
   {id:'NDX',label:'NASDAQ100',symbol:'^NDX'},
   {id:'NASDAQ',label:'NASDAQ',symbol:'^IXIC'},
   {id:'SOX',label:'SOX',symbol:'^SOX'},
@@ -23,6 +26,34 @@ export const MORNING_SERIES = Object.freeze([
   {id:'BTC',label:'BTC',symbol:'BTC-USD'},
 ]);
 
+// The 07:30 KST briefing must not quietly mix October 28 closes with
+// October 29 US session closes. Missing an expected candle is NOT permission
+// to roll back to an older valid number. US market holidays need separate
+// confirmation; until confirmed, show unavailable rather than invent a close.
+const KR_IDS = new Set(['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX']);
+export function expectedMorningDate(id,date){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||'')))return null;
+  const cursor=new Date(date+'T00:00:00Z');
+  if(!Number.isFinite(cursor.getTime())||cursor.toISOString().slice(0,10)!==date)return null;
+  for(let i=0;i<12;i++){
+    cursor.setUTCDate(cursor.getUTCDate()-1);
+    const candidate=cursor.toISOString().slice(0,10);
+    if(id==='BTC')return candidate; // 24/7, last completed UTC calendar day
+    if(KR_IDS.has(id)){
+      const state=krxSessionStatus(candidate);
+      if(state==='OPEN')return candidate;
+      if(state==='UNKNOWN')return null;
+      continue;
+    }
+    if(![0,6].includes(cursor.getUTCDay()))return candidate; // US/FX prior weekday
+  }
+  return null;
+}
+export function hasExpectedMorningDate(item,date,row){
+  return !!row && row.symbol===item.symbol && row.label===item.label
+    && typeof row.date==='string' && row.date===expectedMorningDate(item.id,date)
+    && Number.isFinite(row.value) && row.value>0;
+}
 export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetchImpl=fetch,concurrency=4}={}) {
   if(typeof fetchDaily!=='function')throw Error('MORNING_FETCHER_REQUIRED');
   const list=Array(MORNING_SERIES.length).fill(null);
@@ -33,9 +64,15 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
       const item=MORNING_SERIES[i];
       try {
         const row=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
-        if(row && row.symbol===item.symbol && row.label===item.label && /^\d{4}-\d{2}-\d{2}$/.test(row.date)
-          && row.date<date && Number.isFinite(Number(row.value)) && Number(row.value)>0)
-          list[i]={...row};
+        if(hasExpectedMorningDate(item,date,row)){list[i]={...row};continue;}
+        // A provider may return an outdated candle even after the US close.
+        // Retry once against the alternate Yahoo chart host, but accept ONLY
+        // the latest expected completed session. No stale-price fallback.
+        if(row?.date && row.date<date && !hasExpectedMorningDate(item,date,row)
+          && row.source==='Yahoo Finance 일봉'){
+          const retry=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl,host:'query2.finance.yahoo.com'});
+          if(hasExpectedMorningDate(item,date,retry))list[i]={...retry};
+        }
       } catch { /* failed source is explicitly reported as unavailable */ }
     }
   }
@@ -85,13 +122,13 @@ function outlook(map) {
     'Bear: VIX 반등·원화 약세·반도체 상대약세 시'];
 }
 export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
-  const map=new Map(rows.filter(x=>x && x.symbol && x.date<date).map(x=>[x.symbol,x]));
+  const map=new Map(rows.filter(x=>{const item=MORNING_SERIES.find(i=>i.symbol===x?.symbol);return item&&hasExpectedMorningDate(item,date,x);}).map(x=>[x.symbol,x]));
   const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 원천은 개별 날짜·출처 표시 (NH 야선 포함)','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id)),
   '거래대금·외국인/기관·시장폭(A/D·ADR20): 미확보','',
   '■ 3. 밤사이 미국장 / 반도체',
-  ...['SPX','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id)),'',
+  ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id)),'',
   '■ 4. 코스피200 야간선물 (06:00)',
   reference && Number.isFinite(reference.value) && reference.value>0
     ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt · 마감 기준 '+reference.tradingDate+' 06:00 KST (NH) · 참고값'
@@ -107,10 +144,10 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   'FedWatch·Finviz 히트맵·주요 이벤트: 별도 검증 필요','',
   '■ 8. 오늘의 시나리오 (조건부, 확률 미산정)',
   ...outlook(map),'',
-  '■ QC: 검증된 전일 일봉 '+map.size+'/'+MORNING_SERIES.length
+  '■ QC: 기준 거래일과 일치한 일봉 '+map.size+'/'+MORNING_SERIES.length
    +' · NH 야선 '+(reference?'확보':'미확보'),
   '일봉은 각 항목 [날짜] 기준이며 현재가·KRX 공식 정산가와 다릅니다.',
-  '미확보 데이터는 추정하지 않았습니다.'];
+  '미확보 항목은 원천 갱신 지연 또는 거래일 미검증으로 표기합니다.'];
   const message=lines.join('\n');
   if(message.length>3900)throw Error('TELEGRAM_FULL_BRIEFING_TOO_LONG');
   return message;
