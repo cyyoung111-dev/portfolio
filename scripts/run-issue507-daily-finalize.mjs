@@ -7,7 +7,7 @@ import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 export const DATES=Object.freeze(['2026-10-22','2026-10-23','2026-10-26']);
 export async function runDaily({url,token,apply=false,fetchImpl=fetch,emit=()=>{},dates=DATES,clearOnly=false}){
   const endpoint=validateWebAppUrl(url);
-  if(typeof clearOnly!=='boolean'||!Array.isArray(dates)||!dates.length||dates.length>4||new Set(dates).size!==dates.length||dates.some(d=>![...DATES,'2026-10-27','2026-10-29'].includes(d)))throw Error('DAILY_DATES');
+  if(typeof clearOnly!=='boolean'||!Array.isArray(dates)||!dates.length||dates.length>4||new Set(dates).size!==dates.length||dates.some(d=>![...DATES,'2026-10-27','2026-10-28','2026-10-29'].includes(d)))throw Error('DAILY_DATES');
   if(typeof apply!=='boolean'||typeof token!=='string'||!token.trim())throw Error('DAILY_INPUT');
   const opts={url:endpoint,token,fetchImpl},out=[];
   for(const date of dates){
