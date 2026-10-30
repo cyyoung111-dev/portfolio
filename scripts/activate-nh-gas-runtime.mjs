@@ -26,7 +26,7 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   const denied=await call('getSettings',token+'-DENY-PROBE');
   if(denied?.status!=='error')throw Error('NH_RUNTIME_GAS_AUTH_NOT_ENFORCED');
   const before=await call('getSettings');
-  if(before?.status!=='ok'||before.gasVersion!=='9.279')throw Error('NH_RUNTIME_GAS_VERSION_MISMATCH');
+  if(before?.status!=='ok'||before.gasVersion!=='9.280')throw Error('NH_RUNTIME_GAS_VERSION_MISMATCH');
   if(!before.settings?.apiKeyStatus?.nh?.enabled){
     if(!key||!secret)throw Error('NH_RUNTIME_KEYS_NOT_CONFIGURED');
     const saved=await call('saveNhConfig',token,{key,secret});
@@ -40,11 +40,11 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   // Explicit manual deploys still perform full sample verification.
   if(before.settings.apiKeyStatus.nh.enabled===true && skipReadbackIfActive===true){
     return {status:'NH_ALREADY_ACTIVE_NO_TOKEN_REQUEST',sampleCount:0,legacyProviderRemoved:true,
-      gasVersion:'9.279',registeredUsTarget:false,fullCoverageVerified:false,closeVerified:false,
+      gasVersion:'9.280',registeredUsTarget:false,fullCoverageVerified:false,closeVerified:false,
       sampleVerificationSkipped:true};
   }
   const master=await call('getCodeListReadOnly');
-  if(master?.status!=='ok'||master.readOnly!==true||master.gasVersion!=='9.279')throw Error('NH_RUNTIME_CODE_MASTER_UNCONFIRMED');
+  if(master?.status!=='ok'||master.readOnly!==true||master.gasVersion!=='9.280')throw Error('NH_RUNTIME_CODE_MASTER_UNCONFIRMED');
   report({status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:Array.isArray(master.codes)?master.codes.length:0,krwRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='KRW').length:0,usdRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='USD').length:0});
   const codes=selectNhReadbackCodes(master.codes);
   // No price-history / Snapshot write. Confirm the live web lookup is NH.
@@ -56,7 +56,7 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   if(codes.some(code=>!(Number(prices.prices?.[code])>0)))throw Error('NH_RUNTIME_READBACK_PRICE_MISSING');
   const diagnostic=await call('diagnoseNhMarketData');
   report({status:'NH_REGULAR_CLOSE_SAMPLE_READBACK',readOnly:diagnostic?.readOnly===true,quotesConnected:diagnostic?.quotesConnected===true,closes:diagnostic?.closes||{},closeSampleComplete:diagnostic?.closeSampleComplete===true,fullCoverageVerified:false});
-  return {status:'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED',sampleCount:2,legacyProviderRemoved:true,gasVersion:'9.279',registeredUsTarget:master.codes.some(row=>row?.currency==='USD'&&String(row.code||'').trim().toUpperCase()===codes[1]),fullCoverageVerified:false,closeVerified:false};
+  return {status:'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED',sampleCount:2,legacyProviderRemoved:true,gasVersion:'9.280',registeredUsTarget:master.codes.some(row=>row?.currency==='USD'&&String(row.code||'').trim().toUpperCase()===codes[1]),fullCoverageVerified:false,closeVerified:false};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
