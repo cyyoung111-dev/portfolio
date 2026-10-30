@@ -54,6 +54,31 @@ assert.match(text,/NASDAQ: 26,184.72.*NH PLUG 일봉/);
 assert.match(text,/NASDAQ100: 29,402.51.*NH PLUG 일봉/);
 const yy=[{label:'S&P 500',symbol:'^GSPC',date:'2026-10-29',value:7000,source:'Yahoo Finance 일봉'}];
 assert.equal(mergeMorningSourceRows(yy,[],nh)[0].value,7720.39);
+assert.deepEqual(NH_ONLY_INDEX_SYMBOLS,['^GSPC','^IXIC','^NDX']);
+assert.deepEqual(mergeMorningSourceRows(yy,[],[]),[],
+ 'NH missing must not silently fall back to Yahoo for the same index');
+assert.deepEqual(mergeMorningSourceRows([],[
+ {label:'NASDAQ',symbol:'^IXIC',date:'2026-10-29',value:26000,source:'MARKET_MASTER'}
+],[]),[],'unverified market master cannot override missing NH');
+let sentMessage='',requestedYahoo=[];
+const outage=await runTelegramMorning({
+ now:()=>new Date('2026-10-30T07:45:00+09:00'),event:'schedule',attempt:1,
+ token:'test',chatId:'test',referenceFetch:async()=>null,
+ fetchImpl:async target=>{
+  const requestUrl=String(target);
+  if(requestUrl.includes('/v8/finance/chart/'))
+   requestedYahoo.push(decodeURIComponent(new URL(requestUrl).pathname.split('/').at(-1)));
+  return {ok:false};
+ },
+ send:async(_token,_chat,text)=>{sentMessage=text;}
+});
+assert.equal(outage.status,'SENT_SOURCE_MISSING');
+assert.ok(requestedYahoo.length<=18);
+assert.ok(NH_ONLY_INDEX_SYMBOLS.every(symbol=>!requestedYahoo.includes(symbol)),
+ 'the three NH operating indices are never queried via Yahoo when NH is missing');
+assert.match(sentMessage,/S&P 500: 미확보/);
+assert.match(sentMessage,/NASDAQ: 미확보/);
+assert.match(sentMessage,/NASDAQ100: 미확보/);
 
 async function altered(change){
  return readNhMorningIndexes(day,{url,token:'TEST-GAS-ACCESS',
