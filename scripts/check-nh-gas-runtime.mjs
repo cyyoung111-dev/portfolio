@@ -123,6 +123,97 @@ assert.match(source,/\|provider='/);
   assert.equal(count(),2,'the next request after 401 renews once');
 }
 
+
+{
+  // Central GAS route: never exposes OAuth bearer, verifies 06:00 actual NH
+  // reference and caches validated data across retry runs.
+  const p=setup({expiresIn:86400});
+  p.advance(Date.parse('2026-10-30T07:35:00+09:00')-time);
+  p.props.set('access_token','admin-token');
+  p.props.set('NHPLUG_APP_KEY','nh-key');
+  p.props.set('NHPLUG_APP_SECRET','nh-secret');
+  p.props.set('MARKET_DATA_PROVIDER','NH');
+  const clockFormat=(date,zone,fmt)=>{
+    const o=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+      timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+    }).formatToParts(date).map(x=>[x.type,x.value]));
+    if(fmt==='yyyy-MM-dd')return o.year+'-'+o.month+'-'+o.day;
+    if(fmt==='HH')return o.hour;
+    if(fmt==='mm')return o.minute;
+    return o.year+o.month+o.day;
+  };
+  p.ctx.Utilities.formatDate=clockFormat;
+  p.ctx.Utilities.newBlob=bytes=>({getDataAsString:charset=>
+    new TextDecoder('euc-kr',{fatal:true}).decode(Uint8Array.from(bytes.map(x=>x&255)))});
+  const record=(code,nameBytes)=>{
+    const bytes=Buffer.alloc(30,0x20);
+    bytes.write(code,'ascii');
+    for(let i=0;i<nameBytes.length;i++)bytes[9+i]=nameBytes[i];
+    bytes[29]=10;
+    return bytes;
+  };
+  const cp=[188,177,185,176,50,54,49,50,191,249,107,112];
+  const fixture=Buffer.concat([
+    record('K10111111',[75,79,83,80,73,50,48,48]),
+    record('KA016C000',cp)
+  ]);
+  let masterCalls=0,nightCalls=0,authCalls=0;
+  const orig=p.ctx.UrlFetchApp.fetch;
+  p.ctx.UrlFetchApp.fetch=(url,options)=>{
+    if(url.endsWith('/m_future.h')){masterCalls++;return {getResponseCode:()=>200,
+      getContentText:()=>'@record 30 char sCode[9]; char sName[20]; char dummy[1];'};}
+    if(url.endsWith('/m_future.mst'))return {getResponseCode:()=>200,
+      getBlob:()=>({getBytes:()=>Array.from(fixture)})};
+    if(url.includes('/oauth2/token'))authCalls++;
+    if(url.endsWith('/krfuture/quote/v1/nightPeriod')){
+      nightCalls++;
+      assert.equal(options.method,'post');
+      assert.equal(JSON.parse(options.payload).Input_0.iem_cd,'KA016C000');
+      return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({
+        Output_0:{iem_cd:'KA016C000',end_time_n:'060000'},
+        Output_1:[
+          {work_bsop_date:'20261030',bsop_time:'055959',prpr:'350.25'},
+          {work_bsop_date:'20261030',bsop_time:'060000',prpr:'351.50'}
+        ]
+      })};
+    }
+    return orig(url,options);
+  };
+  assert.match(source,/params.action === 'getNhNightProxy'/);
+  assert.equal(p.ctx.handleGetNhNightProxy({date:'2026-10-30',accessToken:'wrong'}).status,'error');
+  assert.equal(nightCalls,0);
+  const response=p.ctx.handleGetNhNightProxy({date:'2026-10-30',accessToken:'admin-token'});
+  assert.equal(response.status,'ok');
+  assert.equal(response.provider,'NH');
+  assert.equal(response.reference.value,351.5);
+  assert.equal(response.reference.tradingDate,'2026-10-30');
+  assert.equal(response.reference.sourceUpdatedAt,'2026-10-30T06:00:00+09:00');
+  assert.equal(response.bearerExposed,false);
+  assert.equal(authCalls,1);
+  assert.equal(nightCalls,1);
+  assert.equal(masterCalls,1);
+  assert.doesNotMatch(JSON.stringify(response),/nh-key|nh-secret|nh-token|Bearer|accessToken/);
+  const second=p.ctx.handleGetNhNightProxy({date:'2026-10-30',accessToken:'admin-token'});
+  assert.equal(second.status,'ok');
+  assert.equal(nightCalls,1);
+  assert.equal(authCalls,1);
+  const health=p.ctx.handleGetNhAuthStatusProxy({accessToken:'admin-token'});
+  assert.equal(health.status,'ok');
+  assert.equal(health.tokenCached,true);
+  assert.equal(health.tokenIssued,false);
+  assert.equal(authCalls,1);
+  assert.equal(p.ctx.handleGetNhNightProxy({date:'2026-10-29',accessToken:'admin-token'}).status,'error');
+  assert.equal(nightCalls,1);
+  const noAuth=setup({expiresIn:86400});
+  noAuth.props.set('MARKET_DATA_PROVIDER','NH');
+  noAuth.props.set('NHPLUG_APP_KEY','nh-key');
+  noAuth.props.set('NHPLUG_APP_SECRET','nh-secret');
+  assert.equal(noAuth.ctx.handleGetNhNightProxy({date:'2026-10-30',accessToken:''}).status,'error',
+    'missing optional legacy access_token must NOT make the NH proxy public');
+  assert.equal(noAuth.calls.length,0);
+}
+
 console.log('NH native GAS: activation, strict auth, KR/US quotes, master identity, cache, no Toss calls and 401 recovery passed');
 const {activateNhRuntime,selectNhReadbackCodes}=await import('./activate-nh-gas-runtime.mjs');
 const registered=[{code:'005930',currency:'KRW',type:'주식',market:'KRX'},{code:'NVDA',currency:'USD',type:'주식',market:'NASDAQ'}];
