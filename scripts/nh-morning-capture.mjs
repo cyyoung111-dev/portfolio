@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {fetchNhNight,validateNhNight} from './nh-night-reference.mjs';
+import {validateNhNight} from './nh-night-reference.mjs';
+import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 export function captureWindow(now) {
@@ -8,7 +9,7 @@ export function captureWindow(now) {
   const date=`${parts.year}-${parts.month}-${parts.day}`,minute=Number(parts.hour)*60+Number(parts.minute);
   return {date,allowed:minute>=450&&minute<480};
 }
-export async function captureMorning({now=()=>new Date(),fetchNight=fetchNhNight}={}) {
+export async function captureMorning({now=()=>new Date(),fetchNight=fetchNhNightFromGas}={}) {
   const start=captureWindow(now());
   if(!start.allowed)return {status:'OUTSIDE_CAPTURE_WINDOW',ready:false,date:start.date};
   if(krxSessionStatus(start.date)!=='OPEN')return {status:'MARKET_NOT_OPEN',ready:false,date:start.date};

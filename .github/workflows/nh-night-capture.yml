@@ -16,14 +16,14 @@ jobs:
   capture:
     if: github.ref == 'refs/heads/main' && github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    environment: portfolio-market-data
+    environment: portfolio-production-gas
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Check previously captured reference before NH request
+      - name: Check previously captured reference before GAS request
         id: prior
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,8 +44,8 @@ jobs:
         if: steps.prior.outputs.run_capture == 'true'
         id: capture
         env:
-          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
-          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/nh-morning-capture.mjs
       - name: Save dated reference
         if: steps.capture.outputs.ready == 'true'

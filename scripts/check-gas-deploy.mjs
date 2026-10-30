@@ -576,7 +576,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='c77c539568f2dc3b2af4bcb729e8e38bbf6cee82';
+const approvedFullSourceBlob='dca53650aae621c3d9efb97d677dfb763f48b84d';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -631,7 +631,7 @@ if (hasStackedKrxRecovery) {
 }
 
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
-assert.ok(deployScript.includes("'9.278': Object.freeze(['e383b7c3809ce6426aa3d502bb6c22a6bb175dbf','c77c539568f2dc3b2af4bcb729e8e38bbf6cee82'])"),
+assert.ok(deployScript.includes("'9.278': Object.freeze(['e383b7c3809ce6426aa3d502bb6c22a6bb175dbf','c77c539568f2dc3b2af4bcb729e8e38bbf6cee82','dca53650aae621c3d9efb97d677dfb763f48b84d'])"),
   'only the two independently reviewed full source blobs may be accepted for 9.278');
 assert.ok(deployScript.includes('Array.isArray(reviewed) ? reviewed : [reviewed]'),
   'source approvals must preserve exact per-version pinning');

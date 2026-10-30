@@ -1,18 +1,13 @@
 name: NH PLUG 읽기 전용 진단
 on:
-  push:
-    branches: [main]
-    paths:
-      - scripts/nh-night-reference.mjs
-      - .github/workflows/nhplug-readonly-diagnostic.yml
   workflow_dispatch:
     inputs:
       probe:
-        description: 'Read-only quote preflight or T+0 regular close validation'
+        description: 'GAS centralized NH token status (no issuance) or verified night reference in 07:30–08:00 KST'
         required: true
-        default: quotes
+        default: status
         type: choice
-        options: [quotes, close, combined, night, sample_evidence]
+        options: [status, night]
 permissions:
   contents: read
 concurrency:
@@ -20,10 +15,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   readonly:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: portfolio-market-data
-    timeout-minutes: 5
+    environment: portfolio-production-gas
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,43 +26,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: 인증 및 조회 진단
-        if: inputs.probe == 'quotes'
+      - name: NH centralized read-only status or night reference
         env:
-          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
-          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
-        run: node scripts/nhplug-readonly-diagnostic.mjs
-      - name: 15:30 정규장 당일 종가 조회 검증
-        if: inputs.probe == 'close'
-        env:
-          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
-          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
-        run: node scripts/nhplug-close-readonly-diagnostic.mjs
-      - name: 시세 및 당일 종가 통합 조회 검증
-        if: inputs.probe == 'combined'
-        env:
-          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
-          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
-        run: node scripts/nhplug-combined-readonly-diagnostic.mjs
-
-      - name: KOSPI200 야간선물 기간조회 읽기 전용 테스트
-        if: inputs.probe == 'night'
-        env:
-          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
-          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
-        run: node scripts/nhplug-night-readonly-diagnostic.mjs
-
-      - name: 공개 표본 가격과 거래일 검증
-        if: inputs.probe == 'sample_evidence'
-        env:
-          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
-          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
-        run: node scripts/nhplug-sample-evidence.mjs
-
-
-      - name: NH 야간 마감 기준시각과 가격 읽기
-        if: github.event_name == 'push'
-        env:
-          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
-          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
-        run: node scripts/nh-night-reference.mjs
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          NH_CENTRAL_DIAG_MODE: ${{ inputs.probe }}
+        run: node scripts/nh-central-diagnostic.mjs
