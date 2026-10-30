@@ -52,12 +52,15 @@ async function _loadBenchmarkBundle(types, fromDate, toDate) {
       for(const type of domesticTypes){
         const krxOnly=seriesMap[type].filter(p=>p.source==='KRX_OFFICIAL'
           &&data?.seriesMeta?.[type]?.confirmedClose===true);
-        const byDate=new Map(krxOnly.map(p=>[p.date,p]));
-        for(const p of derived.seriesMap[type]||[])byDate.set(p.date,p);
+        // An official exact-date KRX close must never be overwritten by
+        // a third-party published cache row for the same session.
+        const byDate=new Map((derived.seriesMap[type]||[]).map(p=>[p.date,p]));
+        for(const p of krxOnly)byDate.set(p.date,p);
         const verified=[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
         seriesMap[type]=verified;
         if(verified.length){
-          metaMap[type]='FDR_KRX_CACHE:'+DomesticIndexEod.SYMBOLS[type];
+          metaMap[type]=(verified.at(-1).source==='KRX_OFFICIAL'
+            ?'KRX_OFFICIAL:':'FDR_KRX_CACHE:')+DomesticIndexEod.SYMBOLS[type];
           const pos=failedTypes.indexOf(type);if(pos>=0)failedTypes.splice(pos,1);
           delete errorMap[type];
         }else{
