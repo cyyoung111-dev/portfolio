@@ -44,9 +44,10 @@ export async function readbackOnce({now=()=>new Date(),request=fetch,
    }
  }
  report(JSON.stringify({status:'NH_CENTRAL_CACHED_TOKEN_READY',issued}));
- const reference=await fetchNhNightProbeFromGas(clock.date,{now,url,token,request});
+ let reason='NH_PROXY_UNAVAILABLE';
+ const reference=await fetchNhNightProbeFromGas(clock.date,{now,url,token,request,onError:code=>{reason=code;}});
  if(!reference){
-   report(JSON.stringify({status:'NH_CENTRAL_0600_REFERENCE_UNVERIFIED',issued}));
+   report(JSON.stringify({status:'NH_CENTRAL_0600_REFERENCE_UNVERIFIED',reason,issued}));
    return {ok:false};
  }
  const result={status:'NH_CENTRAL_0600_REFERENCE_VERIFIED',date:reference.tradingDate,
