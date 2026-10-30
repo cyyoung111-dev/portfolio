@@ -22,6 +22,26 @@ assert.deepEqual(sample.checkedTypes.map(x=>x.state),[
  'OFFICIAL_REFERENCE_MATCH','OFFICIAL_REFERENCE_MATCH','OFFICIAL_NOT_VERIFIED']);
 assert.equal(sample.checkedTypes[2].validatedOfficialClose,null,'Yahoo must not become KRX official');
 assert.equal(sample.checkedTypes[2].returnedSource,'YAHOO_UNVERIFIED_DAILY');
+assert.equal(sample.checkedTypes[2].unverifiedDatedValue,905);
+assert.equal(sample.checkedTypes[2].validatedOfficialClose,null);
+assert.equal(sample.checkedTypes[2].unverifiedReferenceMatch,null);
+const yahooOnKrxFailure=structuredClone(response);
+yahooOnKrxFailure.series.KOSPI[0].source='YAHOO_UNVERIFIED_DAILY';
+yahooOnKrxFailure.series.KOSDAQ[0].source='YAHOO_UNVERIFIED_DAILY';
+yahooOnKrxFailure.seriesMeta.KOSPI={source:'YAHOO_FINANCE',confirmedClose:false};
+yahooOnKrxFailure.seriesMeta.KOSDAQ={source:'YAHOO_FINANCE',confirmedClose:false};
+yahooOnKrxFailure.errors={KRX_OFFICIAL:
+  'KOSPI:2026-10-30:EMPTY_TRADING_DATE, KOSDAQ:2026-10-30:HTTP_403'};
+const unverified=summarizeKrxDomesticCloseReadback(yahooOnKrxFailure);
+assert.equal(unverified.verifiedOfficialCount,0);
+assert.equal(unverified.checkedTypes[0].unverifiedDatedValue,5730.74);
+assert.equal(unverified.checkedTypes[0].unverifiedReferenceMatch,true);
+assert.equal(unverified.checkedTypes[1].unverifiedReferenceMatch,true);
+assert.equal(unverified.krxSourceFailureCode,'EMPTY_TRADING_DATE|HTTP_403');
+const hidden=summarizeKrxDomesticCloseReadback({...yahooOnKrxFailure,
+ errors:{KRX_OFFICIAL:'private-protected-token-example-1234'}});
+assert.equal(hidden.krxSourceFailureCode,'OTHER_REDACTED');
+assert.ok(!JSON.stringify(hidden).includes('private-protected-token-example-1234'));
 assert.equal(sample.writesPerformed,0);
 const incorrect=structuredClone(response);
 incorrect.series.KOSPI[0].value=5668.26;
