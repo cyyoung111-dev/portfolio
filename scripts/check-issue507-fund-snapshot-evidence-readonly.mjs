@@ -35,6 +35,7 @@ assert.throws(()=>summarizeFullIntegrity({status:'error',message:'PRIVATE_TOKEN'
 // One target fund only, equal row counts, full persisted rows, and no other errors.
 const scope=classifySingleFundRepairReview(integrity);
 assert.equal(scope.candidate,true);
+assert.deepEqual(scope.blockers,[]);
 assert.equal(scope.writeAuthorized,false);
 assert.equal(scope.mutationPerformed,false);
 assert.equal(scope.requiresBackup,true);
@@ -60,8 +61,20 @@ for(const patch of [
  assert.equal(blocked.candidate,false,JSON.stringify(Object.keys(patch)));
  assert.equal(blocked.writeAuthorized,false);
  assert.equal(blocked.classification,'REPAIR_PREFLIGHT_BLOCKED');
+ assert.ok(blocked.blockers.length>=1,'blocked result must explain why');
+ assert.ok(blocked.blockers.every(x=>/^[A-Z_]+$/.test(x)),'enum only');
  assert.ok(!JSON.stringify(blocked).includes('PRIVATE_ACCOUNT'));
 }
+
+
+// Only sanitized static labels are emitted; never expose raw codes, numbers or errors.
+const amountUnit=classifySingleFundRepairReview(mutate({evalUnitMismatches:[{code:TARGET_CODE,expected:999999999,stored:777777777}]}));
+assert.deepEqual(amountUnit.blockers,['EVALUATION_UNIT_MISMATCH']);
+assert.ok(!JSON.stringify(amountUnit).includes('999999999'));
+assert.ok(!JSON.stringify(amountUnit).includes('777777777'));
+const unrelated=classifySingleFundRepairReview(mutate({sourceMismatches:[{code:TARGET_CODE},{code:'PRIVATE_CODE'}]}));
+assert.deepEqual(unrelated.blockers,['SOURCE_SCOPE']);
+assert.ok(!JSON.stringify(unrelated).includes('PRIVATE_CODE'));
 
 const actions=[],emitted=[];
 await diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
@@ -82,6 +95,7 @@ assert.equal(emitted.length,1);
 assert.equal(emitted[0].fundAmountMismatch,true);
 assert.equal(emitted[0].fundSourceMismatch,true);
 assert.equal(emitted[0].candidate,true);
+assert.deepEqual(emitted[0].blockers,[]);
 assert.equal(emitted[0].writeAuthorized,false);
 assert.ok(!JSON.stringify(emitted).includes('PRIVATE_TOKEN'));
 for(const mock of [
