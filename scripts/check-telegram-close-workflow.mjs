@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {closeWindow,verifiedNhCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose}
+import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose}
  from './telegram-close-workflow.mjs';
 import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 const day='2026-10-30',now=()=>new Date(day+'T16:30:00+09:00');
@@ -54,14 +54,27 @@ const refs=await fetchSecondaryIndexes(day,{fetchImpl:async url=>{
 }});
 assert.equal(refCalls,3);assert.equal(refs.length,3);
 const domestic=[
- {label:'KOSPI',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',value:5668.26,changePercent:-4.54},
- {label:'KOSDAQ',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',value:723.15,changePercent:-3.99},
- {label:'KOSPI 200',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',value:890.07,changePercent:-4.89}
+ {type:'KOSPI',label:'KOSPI',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',priceType:'PUBLISHED_EOD_REFERENCE',value:5668.26,changePercent:-4.54},
+ {type:'KOSDAQ',label:'KOSDAQ',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',priceType:'PUBLISHED_EOD_REFERENCE',value:723.15,changePercent:-3.99},
+ {type:'KOSPI200',label:'KOSPI 200',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',priceType:'PUBLISHED_EOD_REFERENCE',value:890.07,changePercent:-4.89}
 ];
 const dailyMsg=formatClose(day,rows,[],domestic);
 assert.match(dailyMsg,/KOSPI: 5,668.26.*FDR\/KRX 공개 참고 \(NH 아님\)/);
 assert.match(dailyMsg,/KOSDAQ: 723.15.*2026-10-30/);
 assert.match(dailyMsg,/KOSPI 200: 890.07/);
+assert.equal(verifiedDomesticCloseRows(day,domestic).length,3);
+for(const invalid of [
+  {...domestic[0],date:'2026-10-29'},
+  {...domestic[0],source:'YAHOO'},
+  {...domestic[0],priceType:'INTRADAY'},
+  {...domestic[0],type:'KOSDAQ'},
+  {...domestic[0],value:0},
+  {...domestic[0],changePercent:Infinity},
+  {...domestic[0],role:'NH_OPERATING_CLOSE'}
+])assert.deepEqual(verifiedDomesticCloseRows(day,[invalid]),[],
+  'unverified domestic row must never authorize delivery');
+assert.deepEqual(verifiedDomesticCloseRows(day,[domestic[0],domestic[0]]),[],
+  'duplicated domestic close cannot authorize delivery');
 assert.match(formatClose(day,rows,[],[domestic[0],domestic[0]]),/KOSPI: 검증된 당일 종가 미확보/,
  'duplicate index references must fail closed');
 const domesticFixture='Date,Close,UpDown\n2026-10-29,5937.66,2\n2026-10-30,5668.26,2\n';
@@ -157,6 +170,7 @@ options.fetchSecondary=async()=>[dow,vix];
 options.fetchDomestic=async()=>[];
 const prepared=await prepareClose(options);
 assert.equal(prepared.ready,true);assert.equal(fetched,1);assert.equal(prepared.nhConfirmed,3);
+assert.equal(prepared.domesticConfirmed,0);
 assert.match(prepared.message,/NH PLUG/);
 assert.match(prepared.message,/CBOE_VIX_DAILY 참고/);
 const providerDown=await prepareClose({...options,fetchSecondary:async()=>{throw Error('PROVIDER_DOWN');}});
@@ -171,10 +185,32 @@ await assert.rejects(deliverClose({...prepared,nhConfirmed:0},{now,send:async()=
 await assert.rejects(deliverClose(prepared,{now:()=>new Date(day+'T17:10:00+09:00'),
  send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 assert.equal(sent,1);
+const domesticOnly=await prepareClose({...options,
+ fetchNh:async()=>{throw Error('NH_TEMPORARILY_UNAVAILABLE');},
+ fetchDomestic:async()=>[...domestic],
+ fetchSecondary:async()=>[]});
+assert.equal(domesticOnly.ready,true,'published domestic EOD must independently authorize report');
+assert.equal(domesticOnly.nhConfirmed,0);
+assert.equal(domesticOnly.domesticConfirmed,3);
+assert.match(domesticOnly.message,/KOSPI: 5,668.26/);
+assert.match(domesticOnly.message,/S&P 500: NH 완료 일봉 미확보/);
+assert.equal((await deliverClose(domesticOnly,{now,send:async()=>{sent++;}})).status,'SENT');
+assert.equal(sent,2);
+const officialOnly=await prepareClose({...options,fetchNh:async()=>[],
+ fetchDomestic:async()=>[official[0]],fetchSecondary:async()=>[]});
+assert.equal(officialOnly.ready,true);
+assert.equal(officialOnly.domesticConfirmed,1);
+assert.equal(officialOnly.nhConfirmed,0);
+assert.match(officialOnly.message,/KOSPI: 5,668.26.*KRX 공식 종가/);
 const empty=await prepareClose({...options,fetchNh:async()=>[{...rows[0],source:'KRX_OFFICIAL'}]});
-assert.equal(empty.ready,false);assert.equal(empty.status,'NH_INDEX_CLOSE_NOT_READY');
+assert.equal(empty.ready,false);assert.equal(empty.status,'NO_VERIFIED_INDEX_CLOSE');
 const refOnly=await prepareClose({...options,fetchNh:async()=>[],fetchSecondary:async()=>[dow,vix]});
-assert.equal(refOnly.ready,false,'non-NH reference may not publish NH report');
+assert.equal(refOnly.ready,false,'FRED/CBOE-only references cannot authorize report');
+assert.equal(refOnly.status,'NO_VERIFIED_INDEX_CLOSE');
+const badDomestic=await prepareClose({...options,fetchNh:async()=>[],
+ fetchDomestic:async()=>[{...domestic[0],date:'2026-10-29'}]});
+assert.equal(badDomestic.ready,false);
+await assert.rejects(deliverClose({...domesticOnly,domesticConfirmed:0},{now,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 const claimed=await prepareClose({...options,fetchImpl:async()=>({ok:true,
  json:async()=>({total_count:1,artifacts:[{name:'telegram-close-claim-'+day}]})})});
 assert.equal(claimed.ready,false);
@@ -189,6 +225,10 @@ assert.match(step.env.GAS_WEB_APP_URL,/vars[.]GAS_WEB_APP_URL/);
 const send=workflow.jobs.briefing.steps.find(s=>s.name==='Send claimed closing briefing once');
 assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
 assert.match(JSON.stringify(workflow.on.schedule),/30 7/);
+assert.match(JSON.stringify(workflow.on.schedule),/38 7/);
 assert.match(JSON.stringify(workflow.on.schedule),/50 7/);
+assert.match(JSON.stringify(workflow.on.schedule),/2 8/);
+assert.ok(Object.hasOwn(workflow.on,'workflow_dispatch'),
+ 'guarded manual rescue must be enabled');
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
-console.log('NH-only closing Telegram: strict dated source, no KRX/Yahoo fallback, protected GAS and duplicate guard PASS');
+console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');

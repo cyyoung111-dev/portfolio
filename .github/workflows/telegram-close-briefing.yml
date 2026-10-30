@@ -1,8 +1,15 @@
 name: Telegram closing market briefing
 on:
+  # Schedule delivery is best-effort. Multiple staggered triggers help
+  # recovery, but only a dated claim can authorize a single Telegram send.
   schedule:
-    - cron: '30 7 * * 1-5' # 16:30 KST
-    - cron: '50 7 * * 1-5' # 16:50 KST fallback, only if unclaimed
+    - cron: '30 7 * * 1-5' # 16:30 KST primary
+    - cron: '38 7 * * 1-5' # 16:38 KST fallback
+    - cron: '50 7 * * 1-5' # 16:50 KST fallback
+    - cron: '2 8 * * 1-5'  # 17:02 KST final fallback, 17:10 cutoff
+  # Same-day manual rescue on main ONLY, within the same time/date gate.
+  # No test Telegram message and no bypass of durable claim checks.
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read

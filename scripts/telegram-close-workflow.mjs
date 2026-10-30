@@ -74,19 +74,39 @@ export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>ne
    ||current[0].role!=='NON_NH_DAILY_INDEX'||current[0].priceType!=='PUBLISHED_EOD_REFERENCE')
     return [];
   return [{type,label:labels[type],date,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',
-    value:current[0].value,changePercent:(current[0].value/prior.value-1)*100}];
+    value:current[0].value,changePercent:(current[0].value/prior.value-1)*100,
+    priceType:'PUBLISHED_EOD_REFERENCE'}];
  });
+}
+// The domestic KRX/FDR EOD reference can independently justify a closing
+// briefing. This does not promote it to an NH stock/ETF operating close.
+export function verifiedDomesticCloseRows(date,rows){
+ if(!Array.isArray(rows)||rows.length>12)return [];
+ const valid=[];
+ for(const [label,type] of [['KOSPI','KOSPI'],['KOSDAQ','KOSDAQ'],['KOSPI 200','KOSPI200']]){
+  const candidates=rows.filter(r=>r?.label===label);
+  if(candidates.length!==1)continue;
+  const r=candidates[0];
+  if(r.type!==type||r.date!==date||r.role!=='NON_NH_DAILY_INDEX'
+    ||!Number.isFinite(r.value)||r.value<=0)continue;
+  if(r.source==='KRX_OFFICIAL'){
+   if(r.priceType!=='CONFIRMED_REGULAR_CLOSE'
+     ||r.changePercent!==null&&r.changePercent!==undefined&&!Number.isFinite(r.changePercent))continue;
+  }else if(r.source==='FDR_KRX_CACHE'){
+   if(r.priceType!=='PUBLISHED_EOD_REFERENCE'||!Number.isFinite(r.changePercent))continue;
+  }else continue;
+  valid.push(r);
+ }
+ return valid;
 }
 export function formatClose(date,rows,secondary=[],domestic=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
+ const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
   '기준: NH PLUG(지원 지수) · 국내 지수 KRX 공식 종가 우선 / FDR 공개 EOD 참고','',
   '■ 국내 시장 (비NH 공개 일별 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
-  const matches=domestic.filter(x=>x?.label===label&&x.date===date
-   &&x.role==='NON_NH_DAILY_INDEX'&&Number.isFinite(x.value)&&x.value>0
-   &&((x.source==='KRX_OFFICIAL'&&x.priceType==='CONFIRMED_REGULAR_CLOSE')
-     ||x.source==='FDR_KRX_CACHE'&&Number.isFinite(x.changePercent)));
+  const matches=validDomestic.filter(x=>x.label===label);
   if(matches.length!==1){lines.push(label+': 검증된 당일 종가 미확보');continue;}
   const x=matches[0];
   const change=Number.isFinite(x.changePercent)
@@ -136,38 +156,43 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   try{response=await fetchImpl(`https://api.github.com/repos/${REPO}/actions/artifacts?name=${artifactName}&per_page=100`,{headers:{authorization:'Bearer '+githubToken,accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error();data=await response.json();}catch{throw Error('TELEGRAM_CLOSE_CLAIM_FAILED');}
   if(!Number.isSafeInteger(data.total_count)||data.total_count<0||!Array.isArray(data.artifacts)||data.total_count===0&&data.artifacts.length)throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');
   if(data.total_count>0){if(!data.artifacts.some(a=>a.name===artifactName))throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');return {ready:false,status:'ALREADY_CLAIMED',date:window.date};}
-  // One central GAS cache-first NH index query. Neither KRX nor Yahoo may
-  // supply a number in the actual closing message or block publication.
-  const rows=await fetchNh(window.date,{url:gasUrl,token:gasToken,fetchImpl});
-  const verified=verifiedNhCloseRows(window.date,rows);
-  const last=closeWindow(now());
-  if(!last.allowed||last.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
-  if(!verified.length)return {ready:false,status:'NH_INDEX_CLOSE_NOT_READY',date:window.date};
-  // Supplemental providers are nonblocking, even when their adapter fails.
-  let secondary=[],domestic=[];
+  // US NH indices and Korean KRX/FDR EOD references are independently
+  // eligible. A missing NH response must not block verified domestic closes.
+  // FRED/CBOE secondary references alone NEVER authorize sending.
+  let rows=[],secondary=[],domestic=[];
   await Promise.all([
+   (async()=>{try{rows=await fetchNh(window.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{rows=[];}})(),
    (async()=>{try{secondary=await fetchSecondary(window.date,{fetchImpl});}catch{secondary=[];}})(),
    (async()=>{try{domestic=await fetchDomestic(window.date,{fetchImpl,now,gasUrl,gasToken});}catch{domestic=[];}})()
   ]);
+  const verified=verifiedNhCloseRows(window.date,rows);
+  const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const after=closeWindow(now());
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
+  if(verified.length+domesticVerified.length===0)
+    return {ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:window.date};
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
-    nhConfirmed:verified.length,message:formatClose(window.date,verified,secondary,domestic)};
+    nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
+    message:formatClose(window.date,verified,secondary,domesticVerified)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
-  if(Number(attempt)!==1||!window.allowed||payload?.date!==window.date||payload?.artifactName!=='telegram-close-claim-'+window.date||!(Number.isSafeInteger(payload.nhConfirmed)&&payload.nhConfirmed>=1&&payload.nhConfirmed<=3)
+  if(Number(attempt)!==1||!window.allowed||payload?.date!==window.date||payload?.artifactName!=='telegram-close-claim-'+window.date||!(Number.isSafeInteger(payload.nhConfirmed)&&payload.nhConfirmed>=0&&payload.nhConfirmed<=3)
+  ||!(Number.isSafeInteger(payload.domesticConfirmed)&&payload.domesticConfirmed>=0&&payload.domesticConfirmed<=3)
+  ||payload.nhConfirmed+payload.domesticConfirmed<1
   ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
   await send(token,chatId,payload.message);return {status:'SENT',date:window.date};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
-    if(process.env.GITHUB_EVENT_NAME!=='schedule'||process.env.GITHUB_REF!=='refs/heads/main')throw Error('TELEGRAM_CLOSE_EVENT_INVALID');
+    if(!['schedule','workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME)
+     ||process.env.GITHUB_REF!=='refs/heads/main')throw Error('TELEGRAM_CLOSE_EVENT_INVALID');
     if(process.argv[2]==='prepare'){
       const result=await prepareClose({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT});
       if(result.ready){fs.mkdirSync('.telegram-close-runtime',{recursive:true});fs.writeFileSync('.telegram-close-runtime/payload.json',JSON.stringify(result));fs.writeFileSync('.telegram-close-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));}
       fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
-      console.log(JSON.stringify({status:result.status,date:result.date,nhConfirmed:result.nhConfirmed||0}));
+      console.log(JSON.stringify({status:result.status,date:result.date,
+        nhConfirmed:result.nhConfirmed||0,domesticConfirmed:result.domesticConfirmed||0}));
     }else if(process.argv[2]==='send'){
       console.log(JSON.stringify(await deliverClose(JSON.parse(fs.readFileSync('.telegram-close-runtime/payload.json','utf8')),{token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,attempt:process.env.GITHUB_RUN_ATTEMPT})));
     }else throw Error('TELEGRAM_CLOSE_MODE_INVALID');
