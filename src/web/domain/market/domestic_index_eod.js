@@ -54,16 +54,26 @@ async function loadSeries(types,from,to,{fetchImpl=fetch,now=()=>new Date()}={})
   for(let year=Number(from.slice(0,4));year<=Number(to.slice(0,4));year++){
    try {
     const filename='year_'+symbol+'/'+year+'.csv';
-    const raw=(await fetchChecked(BASE+filename,fetchImpl,'DATA')).text();
-    const csv=await raw;
-    const rows=parseYearCsv(csv,year);
-    let released=rows;
+    let csvUrl=BASE+filename;
+    let stamp=null;
     if(year===Number(today.slice(0,4))){
+     // Resolve immutable revision BEFORE reading the CSV. Never validate a
+     // mutable master CSV with an unrelated later commit's timestamp.
      const u=new URL(META);u.searchParams.set('path','data/index/'+filename);u.searchParams.set('per_page','1');
      const response=await fetchChecked(u.href,fetchImpl,'PROVENANCE');
      const records=await response.json();
      if(!Array.isArray(records)||records.length!==1)throw Error('INDEX_PUBLICATION_UNKNOWN');
-     const stamp=records[0]?.commit?.committer?.date;
+     const commit=records[0],hash=commit?.sha;
+     stamp=commit?.commit?.committer?.date;
+     const publishedMs=Date.parse(stamp||'');
+     if(!/^[0-9a-f]{40}$/.test(String(hash||''))||!Number.isFinite(publishedMs)
+       ||publishedMs>now().getTime())throw Error('INDEX_PUBLICATION_UNKNOWN');
+     csvUrl='https://raw.githubusercontent.com/FinanceData/fdr_krx_data_cache/'+hash+'/data/index/'+filename;
+    }
+    const csv=await (await fetchChecked(csvUrl,fetchImpl,'DATA')).text();
+    const rows=parseYearCsv(csv,year);
+    let released=rows;
+    if(stamp!==null){
      released=approvedRows(rows,stamp,today);
      if(!released.length)failures.push('NO_POST_CLOSE_PUBLICATION');
     }
