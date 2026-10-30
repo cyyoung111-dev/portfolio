@@ -58,7 +58,8 @@ function isExpectedPublicationWait(data,{now,today,issues,slots}) {
   // Only the sanitized, independently verified publication-wait state may
   // suppress the overnight incident exit status. Missing proof fails closed.
   const close=data.close;
-  if(!close||close.summaryPresent!==true||close.summaryRunDate!==target
+  if(!close||close.state!=='ERROR'||close.stage!=='PRICE'||close.priceOk!==false
+    ||close.runDate!==target||close.summaryPresent!==true||close.summaryRunDate!==target
     ||close.fundState!=='DONE'||close.fundOk!==true
     ||close.fundErrorPresent!==false||close.fundWarningPresent!==false
     ||close.closeErrorPresent!==false||close.closeErrorCount!==0
