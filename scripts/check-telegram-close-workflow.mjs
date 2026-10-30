@@ -4,6 +4,7 @@ import YAML from 'yaml';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import {closeWindow,verifiedNhCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose}
  from './telegram-close-workflow.mjs';
+import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 const day='2026-10-30',now=()=>new Date(day+'T16:30:00+09:00');
 assert.equal(closeWindow(new Date(day+'T16:29:59+09:00')).allowed,false);
 assert.equal(closeWindow(now()).allowed,true);
@@ -84,6 +85,61 @@ const miss=await fetchDomesticCloseIndexes(day,{now:late,fetchImpl:async url=>ur
  ?{ok:true,text:async()=>priorMissing}
  :{ok:true,json:async()=>[{sha:'b'.repeat(40),commit:{committer:{date:'2026-10-30T10:58:41Z'}}}]}});
 assert.deepEqual(miss,[],'missing October 29 must not become a 2-day daily change');
+
+const officialPayload={status:'ok',
+ series:{KOSPI:[{date:day,value:5668.26,source:'KRX_OFFICIAL'}],
+ KOSDAQ:[{date:day,value:723.15,source:'KRX_OFFICIAL',changePercent:-3.99}],
+ KOSPI200:[{date:day,value:890.07,source:'YAHOO_UNVERIFIED_DAILY'}]},
+ seriesMeta:{KOSPI:{confirmedClose:true,officialDate:day,source:'KRX_OFFICIAL'},
+ KOSDAQ:{confirmedClose:true,officialDate:day,source:'KRX_OFFICIAL'},
+ KOSPI200:{confirmedClose:false,officialDate:day,source:'YAHOO_UNVERIFIED_DAILY'}}
+};
+assert.equal(isOfficialCloseWindow(day,new Date(day+'T15:59:59+09:00')),false);
+assert.equal(isOfficialCloseWindow(day,new Date(day+'T16:00:00+09:00')),true);
+assert.equal(isOfficialCloseWindow('2026-10-31',new Date('2026-10-31T16:30:00+09:00')),false);
+const official=selectOfficialDailyIndexRows(day,officialPayload);
+assert.deepEqual(official.map(x=>x.type),['KOSPI','KOSDAQ']);
+assert.equal(official[0].priceType,'CONFIRMED_REGULAR_CLOSE');
+assert.equal(official[0].changePercent,null);
+assert.deepEqual(selectOfficialDailyIndexRows(day,{
+ ...officialPayload,seriesMeta:{...officialPayload.seriesMeta,
+ KOSPI:{...officialPayload.seriesMeta.KOSPI,officialDate:'2026-10-29'},
+ KOSDAQ:{...officialPayload.seriesMeta.KOSDAQ,confirmedClose:false}}
+}),[]);
+assert.deepEqual(selectOfficialDailyIndexRows(day,{
+ ...officialPayload,series:{...officialPayload.series,KOSPI:[officialPayload.series.KOSPI[0],
+ officialPayload.series.KOSPI[0]]}
+}).map(x=>x.type),['KOSDAQ'],'duplicate official daily rows must fail closed');
+let officialRequests=0;
+const actualOfficial=await fetchOfficialDailyIndexes(day,{
+ url:'https://script.google.com/macros/s/EXAMPLE123/exec',token:'TEST-GAS-TOKEN',now,
+ fetchImpl:async(url,init)=>{
+  officialRequests++;
+  const form=new URLSearchParams(init.body);
+  assert.equal(form.get('action'),'getBenchmarks');
+  assert.equal(form.get('benchmarks'),'KOSPI,KOSDAQ,KOSPI200');
+  assert.equal(form.get('fresh'),'1');
+  assert.equal(form.get('from'),day);
+  assert.equal(form.get('to'),day);
+  assert.equal(form.get('accessToken'),'TEST-GAS-TOKEN');
+  return {ok:true,json:async()=>officialPayload};
+ }});
+assert.equal(officialRequests,1);
+assert.deepEqual(actualOfficial.map(x=>x.type),['KOSPI','KOSDAQ']);
+assert.deepEqual(await fetchOfficialDailyIndexes(day,{url:'http://example.com',token:'X',now,fetchImpl:async()=>{
+ throw Error('HTTP must not be called');
+}}),[]);
+assert.deepEqual(await fetchOfficialDailyIndexes(day,{url:'https://script.google.com/macros/s/ID/exec',token:'X',
+ now:()=>new Date(day+'T15:59:59+09:00'),fetchImpl:async()=>{throw Error('too soon')}}),[]);
+const priority=await fetchDomesticCloseIndexes(day,{
+ now:late,fetchImpl:domesticGet,gasUrl:'https://script.google.com/macros/s/EXAMPLE123/exec',
+ gasToken:'TEST-GAS-TOKEN',fetchOfficial:async()=>official
+});
+assert.deepEqual(priority.map(x=>x.source),['KRX_OFFICIAL','KRX_OFFICIAL','FDR_KRX_CACHE']);
+const officialText=formatClose(day,rows,[],priority);
+assert.match(officialText,/KOSPI: 5,668.26.*KRX 공식 종가 \(NH 아님\)/);
+assert.match(officialText,/KOSDAQ: 723.15.*KRX 공식 종가 \(NH 아님\)/);
+assert.match(officialText,/KOSPI 200: 5,668.26.*FDR\/KRX 공개 참고 \(NH 아님\)/);
 
 assert.doesNotMatch(msg,/Yahoo Finance 일봉 기준/);
 let fetched=0,sent=0;
