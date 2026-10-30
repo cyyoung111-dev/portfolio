@@ -73,8 +73,10 @@ function _issue507GateInvoke_(name,fn,self,args) {
 function issue507BeginWriterDrain_() {
   return _issue507GateAtomic_(function(props){
     var rollout=_issue507GateRollout_(props),raw=props.getProperty('issue507_writer_gate_v1');
-    if(!raw && Date.now()-rollout.verifiedAt>300000)throw new Error('GATE_ROLLOUT_STALE');
     var s=raw?_issue507GateRead_(props):{releaseId:ISSUE507_GATE_RELEASE_ID,mode:'DRAINING',active:{},completed:[],finished:0,barrierAt:Date.now()};
+    // Each NEW drain cycle requires a fresh independent rollout attestation.
+    // A previous OPEN->DRAINING->OPEN cycle cannot reuse its old proof.
+    if((!raw || s.mode==='OPEN') && Date.now()-rollout.verifiedAt>300000)throw new Error('GATE_ROLLOUT_STALE');
     if(s.mode==='OPEN'){s.mode='DRAINING';s.barrierAt=Date.now();}
     // Repeated begin NEVER resets barrier or removes active execution records.
     if(rollout.verifiedAt>s.barrierAt)throw new Error('GATE_ROLLOUT_AFTER_BARRIER');
