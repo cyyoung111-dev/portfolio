@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {collectMorningSeries,formatFullMorningBriefing} from './telegram-morning-report.mjs';
-import {mergeMorningSourceRows} from './telegram-morning-master.mjs';
+import {mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
+import {runTelegramMorning} from './telegram-morning-briefing.mjs';
 
 const day='2026-10-30',url='https://script.google.com/macros/s/EXAMPLE123456/exec';
 const prices={SP500:['SPX',7720.39,7680.12],NASDAQ:['COMP',26184.72,26000],
