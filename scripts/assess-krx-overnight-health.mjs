@@ -54,6 +54,17 @@ function isExpectedPublicationWait(data,{now,today,issues,slots}) {
   if(!Number.isFinite(minute)||minute>=480)return false;
   const target=previousOpenKrxDate(today);
   if(!target||data.pendingCount!==1||data.pendingDates[0]!==target)return false;
+  // An ERROR automation can also represent a separate fund or ledger failure.
+  // Only the sanitized, independently verified publication-wait state may
+  // suppress the overnight incident exit status. Missing proof fails closed.
+  const close=data.close;
+  if(!close||close.summaryPresent!==true||close.summaryRunDate!==target
+    ||close.fundState!=='DONE'||close.fundOk!==true
+    ||close.fundErrorPresent!==false||close.fundWarningPresent!==false
+    ||close.closeErrorPresent!==false||close.closeErrorCount!==0
+    ||close.runStale===true||close.snapshotStale===true
+    ||close.krxPublicationWaiting!==true||close.krxPublicationTradeDate!==target
+    ||close.krxPublicationAvailableAfter!==today+'T08:00:00+09:00')return false;
   if(data.officialKrxPriceHistoryLastDate!==previousOpenKrxDate(target)
     ||data.snapshotLastDate<data.officialKrxPriceHistoryLastDate
     ||data.snapshotLastDate>target)return false;
