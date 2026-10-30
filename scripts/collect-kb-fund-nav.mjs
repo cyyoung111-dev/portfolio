@@ -22,10 +22,25 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
   const offset=n=>new Date(Date.parse(today+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
   const from=offset(-31),to=today;
+  // Only predefined operation/error enums reach public Actions logs. Never
+  // expose GAS response bodies, raw exceptions, credentials or fund values.
   const request=async(action,args={},credential=token)=>{
-    const r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:credential}),signal:AbortSignal.timeout(300000)});
-    if(!r.ok)throw Error('NAV_GAS_HTTP');
-    return r.json();
+    const phase=action==='getAutomationStatus'?'STATUS'
+      :action==='previewFundNavImport'?'PREVIEW'
+      :action==='getFundValuationStatus'?'VALUATION'
+      :action==='collectKbFundNav'?(args.mode==='import'?'IMPORT':'REFRESH')
+      :'UNKNOWN';
+    let r;
+    try {
+      r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:credential}),signal:AbortSignal.timeout(300000)});
+    } catch(error) {
+      const kind=['TimeoutError','AbortError'].includes(error?.name)?'TIMEOUT':'NETWORK';
+      // A timed-out import/refresh may already have committed. No blind retry.
+      throw Error('NAV_'+phase+'_'+kind+'_UNVERIFIED');
+    }
+    if(!r.ok)throw Error('NAV_'+phase+'_HTTP_UNVERIFIED');
+    try{return await r.json();}
+    catch{throw Error('NAV_'+phase+'_JSON_UNVERIFIED');}
   };
   const probe=await request('getAutomationStatus',{},token==='NAV_AUTH_PROBE'?'NAV_AUTH_PROBE_ALT':'NAV_AUTH_PROBE');
   if(probe.status!=='error'||probe.message!=='인증 실패')throw Error('NAV_AUTH_GUARD');
