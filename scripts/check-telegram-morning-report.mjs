@@ -39,4 +39,35 @@ const all=await collectMorningSeries(date,{concurrency:4,fetchDaily:async(label,
 assert.equal(calls,20);assert.equal(all.length,20);assert.ok(max<=4);
 const stale=await collectMorningSeries(date,{fetchDaily:async(label,symbol)=>({label,symbol,date,value:900})});
 assert.equal(stale.length,0,'same-day incomplete daily prices must not pass');
+
+const {validWindow,prepareCorrection,sendCorrection,CLAIM}=await import('./telegram-morning-correction-20261030.mjs');
+assert.equal(validWindow(new Date('2026-10-30T09:45:00+09:00')),true);
+assert.equal(validWindow(new Date('2026-10-31T09:45:00+09:00')),false);
+let correctionClaimCount=0,correctionSends=0;
+const correctionMock=async(url)=>{assert.match(String(url),/actions\/artifacts/);
+ return {ok:true,json:async()=>({total_count:correctionClaimCount,
+   artifacts:correctionClaimCount?[{name:CLAIM}]:[]})};};
+const correction=await prepareCorrection({now:()=>new Date('2026-10-30T09:45:00+09:00'),
+ token:'GITHUB_TEST_ONLY',repository:'cyyoung111-dev/portfolio',fetchImpl:correctionMock,
+ referenceFetch:async()=>({source:'NH',kind:'REFERENCE',tradingDate:'2026-10-30',officialClose:false,
+   sourceUpdatedAt:'2026-10-30T06:00:00+09:00',value:900.05}),
+ quoteFetch:async(label,symbol)=> ['^KS11','^KQ11','^GSPC','^SOX','^VIX','KRW=X'].includes(symbol)
+    ?{label,symbol,date:'2026-10-29',value:100,changePercent:0.5}:null});
+assert.equal(correction.ready,true);
+assert.match(correction.message,/장전 브리핑 정정본/);
+assert.match(correction.message,/오늘의 결론/);
+assert.match(correction.message,/수급·유동성/);
+assert.match(correction.message,/900.05pt/);
+assert.ok(correction.seriesCount>=4);
+correctionClaimCount=1;
+const duplicate=await prepareCorrection({now:()=>new Date('2026-10-30T09:45:00+09:00'),
+ token:'GITHUB_TEST_ONLY',fetchImpl:correctionMock});
+assert.equal(duplicate.status,'ALREADY_CLAIMED');
+await sendCorrection(correction,{now:()=>new Date('2026-10-30T09:45:00+09:00'),
+ send:async()=>{correctionSends++;}});
+assert.equal(correctionSends,1);
+await assert.rejects(()=>sendCorrection(correction,{now:()=>new Date('2026-10-31T09:45:00+09:00'),
+ send:async()=>{correctionSends++;}}),/CORRECTION_SEND_DENIED/);
+assert.equal(correctionSends,1);
+
 console.log('Full morning Telegram report: grouping, verified date, missing flags, rate cap, scenarios PASS');
