@@ -25,8 +25,11 @@ export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
     if(!response.ok)throw Error();
     body=await response.json();
   }catch{throw Error('NH_PROXY_NETWORK_OR_RESPONSE');}
-  if(body?.status!=='ok'||body?.provider!=='NH'||body.readOnly!==true)
+  if(body?.status!=='ok'||body?.provider!=='NH'||body.readOnly!==true) {
+    const code=body?.message;
+    if(body?.status==='error'&&typeof code==='string'&&/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code))throw Error(code);
     throw Error('NH_PROXY_UNAVAILABLE');
+  }
   return body;
 }
 export async function fetchNhNightFromGas(date,{now=()=>new Date(),
@@ -57,7 +60,8 @@ export async function fetchNhNightFromGas(date,{now=()=>new Date(),
 }
 
 export async function fetchNhNightProbeFromGas(date,{now=()=>new Date(),
- url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,request=fetch}={}){
+ url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,request=fetch,
+ onError=()=>{}}={}){
  const instant=now(),p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
    timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
    hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(x=>[x.type,x.value]));
@@ -65,7 +69,11 @@ export async function fetchNhNightProbeFromGas(date,{now=()=>new Date(),
  if(date!==p.year+'-'+p.month+'-'+p.day||minute<480||minute>=780)return null;
  let body;
  try{body=await callNhGasProxy('getNhNightProbe',{url,token,date,request});}
- catch{return null;}
+ catch(error) {
+   const code=String(error?.message||'');
+   if(/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code))onError(code);
+   return null;
+ }
  const ref=body.reference;
  const requiredOuter=['status','provider','readOnly','bearerExposed','diagnosticOnly','tokenIssued','reference'];
  const requiredRef=['source','kind','tradingDate','contract','contractMonth','value','clock',

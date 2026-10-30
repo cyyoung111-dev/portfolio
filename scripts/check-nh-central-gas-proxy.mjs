@@ -73,6 +73,13 @@ assert.equal(centralProbeWindow(new Date('2026-10-30T07:50:00+09:00')).allowed,f
 const clock=()=>new Date('2026-10-30T10:50:00+09:00');
 const probe=await fetchNhNightProbeFromGas('2026-10-30',{now:clock,url,token,request});
 assert.equal(probe.value,351.5);
+const failureCodes=[];
+const noTick=await fetchNhNightProbeFromGas('2026-10-30',{now:clock,url,token,
+ onError:x=>failureCodes.push(x),request:async()=>({
+ ok:true,json:async()=>({status:'error',message:'NH_PROXY_0600_NOT_VERIFIED'})
+ })});
+assert.equal(noTick,null);
+assert.deepEqual(failureCodes,['NH_PROXY_0600_NOT_VERIFIED']);
 const lines=[];
 const p=await readbackOnce({now:clock,url,token,request,report:x=>lines.push(x)});
 assert.equal(p.ok,true);
