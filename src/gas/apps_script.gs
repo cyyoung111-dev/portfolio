@@ -19271,9 +19271,16 @@ var NH_INDEX_PROBE_CODES_V1=[
  {type:'SOX',code:'SOX',name:'SEMICONDUCTOR|반도체|PHLX'},
  {type:'VIX',code:'VIX',name:'VIX|VOLATILITY|변동성'}
 ];
-function _nhIndexProbeOne_(item,date,credentials){
+function _nhIndexProbeOne_(item,date,credentials,existingBearer){
  var p={iem_cd:item.code,end_dt:date.replace(/-/g,''),array_cnt:'0002',maxavg:'000',gubun:'1',xtick:'001',today_cls:'0'};
- var result=_nhPost_('/gbstock/quote/v1/symbolIndexFxPeriod',p,credentials);
+ if(!existingBearer)throw new Error('NH_INDEX_NO_CACHED_BEARER');
+ // Do not route through _nhPost_: it can acquire a fresh bearer after
+ // a 60s expiry crossing even when an earlier cache check passed.
+ var result=_nhJson_('https://api.nhplug.com:8443/gbstock/quote/v1/symbolIndexFxPeriod',
+   {method:'post',contentType:'application/json; charset=UTF-8',
+    followRedirects:false,muteHttpExceptions:true,
+    headers:{Authorization:'Bearer '+existingBearer,'x-client-id':credentials.key,'x-client-secret':credentials.secret},
+    payload:JSON.stringify({Input_0:p})});
  var head=result&&result.Output_0;
  if(!head||Array.isArray(head)||String(head.iem_cd||'').trim().toUpperCase()!==item.code)
    return {type:item.type,code:item.code,status:'CODE_UNVERIFIED'};
@@ -19295,10 +19302,13 @@ function handleGetNhIndexProbe(params){
  if(!valid())return jsonError('NH_INDEX_CACHED_TOKEN_REQUIRED');
  var records=[],stopped=false;
  for(var i=0;i<NH_INDEX_PROBE_CODES_V1.length;i++){
-   if(!valid()){stopped=true;break;}
    if(i)Utilities.sleep(300);
+   // Check the persisted record AFTER the delay. Never issue fresh OAuth
+   // during this diagnosis; expire closed and do not request further codes.
+   var existing=_nhValidTokenRecord_(p.getProperty('NHPLUG_AUTH_RECORD_V1'),_nhTokenScope_(c));
+   if(!existing){stopped=true;break;}
    var item=NH_INDEX_PROBE_CODES_V1[i];
-   try{records.push(_nhIndexProbeOne_(item,'2026-10-29',c));}
+   try{records.push(_nhIndexProbeOne_(item,'2026-10-29',c,existing.token));}
    catch(error){
      var stop=/^NH_HTTP_(401|403|429)$/.test(String(error.message||''));
      records.push({type:item.type,code:item.code,status:stop?'HTTP_OR_RATE_LIMIT':'NOT_VERIFIED'});
