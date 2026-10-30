@@ -88,27 +88,33 @@ const nextKrxOpen = date => {
   return null;
 };
 export function auditNhCloseNextDay({tradingDate,asOf,nhRows=[],krxRows=[],yahooRows=[]}={}) {
-  if(!validDate(tradingDate)||krxSessionStatus(tradingDate)!=='OPEN'
-    ||typeof asOf!=='string'||!ISO_WITH_OFFSET.test(asOf)
+  if(!validDate(tradingDate)||typeof asOf!=='string'||!ISO_WITH_OFFSET.test(asOf)
     ||!Number.isFinite(Date.parse(asOf)))throw Error('NH_AUDIT_DATE_INVALID');
-  const firstOpen=nextKrxOpen(tradingDate);
-  if(!firstOpen)throw Error('NH_AUDIT_NEXT_SESSION_UNKNOWN');
-  if(Date.parse(asOf)<Date.parse(firstOpen+'T08:00:00+09:00'))
-    throw Error('NH_AUDIT_BEFORE_NEXT_PUBLICATION');
+  // Korea and US have independent calendars. NH provides the dated regular
+  // close. A US Friday bar may publish on Saturday KST before Korea reopens.
+  const nextCalendarDay=new Date(Date.parse(tradingDate+'T00:00:00Z')+86400000)
+    .toISOString().slice(0,10);
+  const firstKrxOpen=nextKrxOpen(tradingDate);
+  const firstKrxPublication=firstKrxOpen?Date.parse(firstKrxOpen+'T08:00:00+09:00'):NaN;
+  const firstUsPublication=Date.parse(nextCalendarDay+'T00:00:00+09:00');
   if(!Array.isArray(nhRows)||!Array.isArray(krxRows)||!Array.isArray(yahooRows)
     ||nhRows.length>100||krxRows.length>100||yahooRows.length>100)
     throw Error('NH_AUDIT_INPUT_INVALID');
-  const now=Date.parse(asOf);
+  const now=Date.parse(asOf),usWeekday=new Date(tradingDate+'T00:00:00Z').getUTCDay();
   const trustedNh=row=>row&&typeof row.code==='string'
-    &&/^[A-Z0-9]{1,12}$/.test(row.code)
+    &&(row.currency==='KRW'
+      ? /^[A-Z0-9]{6}$/.test(row.code)&&krxSessionStatus(tradingDate)==='OPEN'
+      : row.currency==='USD'
+        &&/^[A-Z][A-Z0-9.\-]{0,11}$/.test(row.code)
+        &&usWeekday!==0&&usWeekday!==6)
     &&row.source==='NH_REGULAR_CLOSE'&&row.priceType==='REGULAR_CLOSE'
     &&row.status==='CONFIRMED'&&row.usedDate===tradingDate&&row.marketDate===tradingDate
-    &&['KRW','USD'].includes(row.currency)&&num(row.price)!==null;
-  const trustedAudit=(row,source,currency)=>row&&row.source===source
+    &&num(row.price)!==null;
+  const trustedAudit=(row,source,currency,earliest)=>row&&row.source===source
     &&row.code&&row.date===tradingDate&&row.currency===currency&&num(row.price)!==null
     &&row.completed===true&&typeof row.publishedAt==='string'
     &&ISO_WITH_OFFSET.test(row.publishedAt)
-    &&Date.parse(row.publishedAt)>=Date.parse(firstOpen+'T00:00:00+09:00')
+    &&Date.parse(row.publishedAt)>=earliest
     &&Date.parse(row.publishedAt)<=now
     &&(source!=='YAHOO_DAILY_CLOSE'||row.adjusted===false);
   const priceMap=rows=>{
@@ -124,9 +130,14 @@ export function auditNhCloseNextDay({tradingDate,asOf,nhRows=[],krxRows=[],yahoo
   const results=allCodes.map(code=>{
     const rows=nh.get(code)||[],base=rows.length===1&&trustedNh(rows[0])?rows[0]:null;
     if(!base)return {code,status:'NH_INVALID_OR_DUPLICATE',krx:'NOT_CHECKED',yahoo:'NOT_CHECKED'};
+    const earliest=base.currency==='KRW'?firstKrxPublication:firstUsPublication;
+    if(!Number.isFinite(earliest)||now<earliest)
+      return {code,status:'NEXT_DAY_NOT_PUBLISHED',krx:'NOT_CHECKED',yahoo:'NOT_CHECKED'};
     const compare=(map,source)=>{
       const evidence=map.get(code)||[];
-      const valid=evidence.length===1&&trustedAudit(evidence[0],source,base.currency)?evidence[0]:null;
+      const published=source==='KRX_OFFICIAL'?firstKrxPublication:earliest;
+      const valid=evidence.length===1
+        &&trustedAudit(evidence[0],source,base.currency,published)?evidence[0]:null;
       if(!valid)return {status:'NOT_VERIFIED'};
       const delta=Number(valid.price)-Number(base.price);
       return {status:delta===0?'MATCH':'DIFFERENCE',delta,price:Number(valid.price)};
