@@ -118,6 +118,10 @@ jobs:
       # The fixed 2026-10-29 six-code exploration is retained as a diagnostic
       # script, not repeated on every unrelated main push / GAS no-op deploy.
       # Reintroduce only via an explicitly scoped, reviewed read-only workflow.
+      - name: Read-only Shinhan 2026-10-30 public index EOD evidence
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
+        continue-on-error: true
+        run: node scripts/shinhan-index-live-readback-20261030.mjs
       - name: Verify NH SP500 NASDAQ NASDAQ100 primary index series
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
         continue-on-error: true
