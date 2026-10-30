@@ -21,10 +21,13 @@ async function main(){
  let u;try{u=new URL(uri);}catch{throw Error('NH_INDEX_READBACK_URL');}
  if(u.protocol!=='https:'||u.hostname!=='script.google.com'
   ||!/^\/macros\/s\/[^/]+\/exec$/.test(u.pathname)||u.search)throw Error('NH_INDEX_READBACK_URL');
+ // Historical 2026-10-29 three-index acceptance is immutable: use the
+ // normal validated NH-first cache path instead of force-refetching on every
+ // unrelated main merge. Uncached data still follows the usual NH-first read.
  const response=await fetch(u.href,{method:'POST',
   headers:{'content-type':'application/x-www-form-urlencoded'},
   body:new URLSearchParams({action:'getBenchmarks',accessToken:token,
-   benchmarks:'SP500,NASDAQ,NASDAQ100',from:'2026-10-22',to:'2026-10-29',fresh:'1'}),
+   benchmarks:'SP500,NASDAQ,NASDAQ100',from:'2026-10-22',to:'2026-10-29',fresh:'0'}),
   redirect:'follow',signal:AbortSignal.timeout(90000)});
  if(!response.ok)throw Error('NH_INDEX_READBACK_HTTP');
  const data=await response.json();
