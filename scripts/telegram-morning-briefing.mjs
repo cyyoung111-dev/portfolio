@@ -2,7 +2,7 @@ import { krxSessionStatus } from './krx-session-calendar.mjs';
 import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {MORNING_SERIES, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
-import {loadMorningMaster,mergeMorningSourceRows} from './telegram-morning-master.mjs';
+import {loadMorningMaster,mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
 export async function fetchNightReference(date,options={}) { return fetchNhNightFromGas(date,options); }
 
 // All supported verified daily sources; no abbreviated seven-ticker list.
@@ -72,8 +72,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   if(calendar!=='OPEN')throw new Error('TELEGRAM_CALENDAR_UNKNOWN');
   // Bounded concurrency reduces Yahoo rate limiting; the message still
   // identifies missing inputs rather than inferring or reusing stale prices.
-  // Prefer the GAS centralized NH dated closes; only unsupported/missing
-  // symbols use Yahoo. No NH credentials or bearer leave GAS.
+  // NH-supported indices never fall back to Yahoo or unverified GAS master.
+  // Other independently labeled reference series retain their existing policy.
   const [candidate,masterRows,nhRows]=await Promise.all([
     referenceFetch(first.date,{fetchImpl,now}),
     loadMorningMaster(first.date,{url:process.env.GAS_WEB_APP_URL,
@@ -82,7 +82,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
       token:process.env.GAS_ACCESS_TOKEN,fetchImpl,now:now()}),
   ]);
   const quotes=await collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,
-    now:now(),fetchImpl,skipSymbols:new Set(nhRows.map(row=>row.symbol))});
+    now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,...nhRows.map(row=>row.symbol)])});
   const values=mergeMorningSourceRows(quotes,masterRows,nhRows);
   const last=scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
