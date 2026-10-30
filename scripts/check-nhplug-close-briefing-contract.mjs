@@ -91,11 +91,28 @@ assert.ok(Math.abs(audited.results.find(x=>x.code==='AAPL').yahoo.delta-.09)<1e-
 assert.equal(audited.results.find(x=>x.code==='AAPL').nhPrice,348.91);
 assert.equal(audited.results.find(x=>x.code==='AAPL').krx.status,'NOT_APPLICABLE');
 assert.equal(JSON.stringify(auditInput),auditOriginal,'independent audit cannot alter NH or comparison evidence');
-assert.throws(()=>auditNhCloseNextDay({...auditInput,asOf:'2026-10-30T07:59:59+09:00'}),
- /NH_AUDIT_BEFORE_NEXT_PUBLICATION/);
+assert.equal(auditNhCloseNextDay({...auditInput,asOf:'2026-10-30T07:59:59+09:00'})
+ .results.find(x=>x.code==='005930').status,'NEXT_DAY_NOT_PUBLISHED');
+const usFriday={
+  code:'BRK.B',source:'NH_REGULAR_CLOSE',priceType:'REGULAR_CLOSE',
+  status:'CONFIRMED',usedDate:'2026-10-09',marketDate:'2026-10-09',currency:'USD',price:495
+};
+const usAudit=auditNhCloseNextDay({tradingDate:'2026-10-09',asOf:'2026-10-12T09:00:00+09:00',
+ nhRows:[usFriday],yahooRows:[{code:'BRK.B',source:'YAHOO_DAILY_CLOSE',
+ price:495,date:'2026-10-09',currency:'USD',completed:true,adjusted:false,
+ publishedAt:'2026-10-10T06:00:00+09:00'}]});
+assert.equal(usAudit.results[0].status,'NH_OPERATING_CLOSE');
+assert.equal(usAudit.results[0].yahoo.status,'MATCH','Friday US close on KRX holiday must survive Monday audit');
+const usSaturday=auditNhCloseNextDay({tradingDate:'2026-10-30',asOf:'2026-11-02T09:00:00+09:00',
+ nhRows:[{...usFriday,code:'BRK-B',usedDate:'2026-10-30',marketDate:'2026-10-30'}],
+ yahooRows:[{code:'BRK-B',source:'YAHOO_DAILY_CLOSE',price:495,date:'2026-10-30',
+ currency:'USD',completed:true,adjusted:false,publishedAt:'2026-10-31T06:00:00+09:00'}]});
+assert.equal(usSaturday.results[0].yahoo.status,'MATCH',
+ 'US Friday completion can be published before Monday KRX open');
 for(const invalid of [
  {...auditInput,krxRows:[{...verifiedKRX,date:'2026-10-28'}]},
  {...auditInput,krxRows:[{...verifiedKRX,completed:false}]},
+ {...auditInput,krxRows:[{...verifiedKRX,publishedAt:'2026-10-30T07:59:59+09:00'}]},
  {...auditInput,krxRows:[{...verifiedKRX,publishedAt:'2026-10-29T16:00:00+09:00'}]},
  {...auditInput,krxRows:[verifiedKRX,verifiedKRX]},
 ])assert.equal(auditNhCloseNextDay(invalid).results.find(x=>x.code==='005930').krx.status,'NOT_VERIFIED');
