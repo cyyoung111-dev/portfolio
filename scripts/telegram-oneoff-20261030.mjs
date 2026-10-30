@@ -51,8 +51,8 @@ export async function prepareOneoff({
   if(!reference && !rows.length)throw Error('ONEOFF_SOURCES_UNAVAILABLE');
   const end=oneoffWindow(now());
   if(!end.allowed)throw Error('ONEOFF_WINDOW_EXPIRED');
-  const header='[10월 30일 브리핑 지연 발송]\\n예약 누락으로 '+end.clock+
-    ' KST에 수동 발송합니다. 장중 실시간 가격은 포함하지 않습니다.\\n\\n';
+  const header='[10월 30일 브리핑 지연 발송]\n예약 누락으로 '+end.clock+
+    ' KST에 수동 발송합니다. 장중 실시간 가격은 포함하지 않습니다.\n\n';
   const message=header+formatMorningBriefing(ONEOFF_DATE,reference,rows);
   if(message.length>4000)throw Error('ONEOFF_MESSAGE_TOO_LONG');
   return {ready:true,status:'PREPARED',date:ONEOFF_DATE,claim:ONEOFF_CLAIM,message,quoteCount:rows.length,nhReference:!!reference};
@@ -75,7 +75,7 @@ if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){
         fs.writeFileSync('.telegram-oneoff-runtime/payload.json',JSON.stringify(result));
         fs.writeFileSync('.telegram-oneoff-runtime/claim.json',JSON.stringify({date:ONEOFF_DATE,runId:process.env.GITHUB_RUN_ID}));
       }
-      fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready='+result.ready+'\\n');
+      fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready='+result.ready+'\n');
       console.log(JSON.stringify({status:result.status,date:ONEOFF_DATE,quoteCount:result.quoteCount||0,nhReference:result.nhReference||false}));
     }else if(process.argv[2]==='send'){
       console.log(JSON.stringify(await deliverOneoff(JSON.parse(fs.readFileSync('.telegram-oneoff-runtime/payload.json','utf8')),
