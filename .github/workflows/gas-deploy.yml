@@ -119,6 +119,10 @@ jobs:
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
         continue-on-error: true
         run: node scripts/nh-index-probe.mjs
+      - name: Verify NH SP500 NASDAQ NASDAQ100 primary index series
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
+        continue-on-error: true
+        run: node scripts/nh-index-primary-readback.mjs
       - name: Verify KRX 37-code source coverage after live GAS deployment
         if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         continue-on-error: true

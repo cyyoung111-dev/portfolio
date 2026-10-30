@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.280
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.281
 //
-//  v9.280 변경사항 (2026.10.30):
+//  v9.281 변경사항 (2026.10.30):
 //  • 한국·미국 정규장 종가 NH 우선, KRX/Yahoo 누락 보완
 //  • 일일 저장·휴장·서머타임·정확한 거래일 검증 유지
 //
@@ -4911,7 +4911,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       points = domestic.points || [];
       if (points.length) usedSymbol = key;
     } else {
-      var yahoo = fetchYahooIndexSeries(key, fromDate, toDate);
+      var yahoo = fetchIndexPrimarySeries(key, fromDate, toDate);
       points = yahoo.points;
       usedSymbol = yahoo.symbol;
     }
@@ -4919,7 +4919,9 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       return jsonError('선택 기간의 ' + key + ' 데이터를 조회하지 못했습니다.');
     }
     var current = null;
-    try { current = fetchYahooIndexCurrent(key); } catch(ignoreCurrent) { /* 현재값 실패 시 확정 일봉은 보존 */ }
+    try { current = key==='VKOSPI' ? fetchYahooIndexCurrent(key)
+      : yahoo&&yahoo.source==='NH_INDEX_DAILY'?yahoo.current:fetchYahooIndexCurrent(key);
+    }catch(ignoreCurrent){}
     return jsonOk({ benchmark: key, symbol: usedSymbol, points: points, current: current });
   } catch(err) {
     return jsonError('getBenchmark 실패: ' + err.message);
@@ -4944,7 +4946,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     var sessionPhase = toDate === today()
       ? (_isKrxOfficialCloseAvailableTime_(new Date(), toDate) ? 'after_close' : 'before_close')
       : 'historical';
-    var cacheKey = 'benchmarks_v9195_' + sessionPhase + '_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+    var cacheKey = 'benchmarks_v9281_' + sessionPhase + '_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
     var cached = forceRefresh ? null : cache.get(cacheKey);
     if (cached) return jsonOk(JSON.parse(cached));
 
@@ -4972,10 +4974,11 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
 
       } else {
         try {
-          var yahoo = fetchYahooIndexSeries(type, fromDate, toDate);
+          var yahoo = fetchIndexPrimarySeries(type, fromDate, toDate);
           series[type] = yahoo.points;
           symbols[type] = yahoo.symbol;
-          current[type] = fetchYahooIndexCurrent(type);
+          current[type] = yahoo.source==='NH_INDEX_DAILY' ? yahoo.current : fetchYahooIndexCurrent(type);
+          if(yahoo.source==='NH_INDEX_DAILY')seriesMeta[type]={source:'NH_INDEX_DAILY',confirmedClose:false,confirmation:'NH_DATED_PERIOD_DAILY',providerCode:yahoo.code};
           if (yahoo.error) providerErrors[type] = yahoo.error;
         } catch(error) { series[type] = []; providerErrors[type] = error.message || 'YAHOO_ERROR'; }
       }
@@ -5579,7 +5582,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.280' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.281' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12850,7 +12853,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.280',
+    gasVersion: '9.281',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12917,7 +12920,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.280' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.281' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15991,7 +15994,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.280' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.281' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -16815,7 +16818,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.280' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.281' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16846,7 +16849,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.280'
+      gasVersion: '9.281'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19077,7 +19080,7 @@ function handleDiagnoseNhMarketData(params) {
     var items=[{code:'005930',currency:'KRW',market:'KRX'},{code:'AAPL',currency:'USD',market:'NASDAQ'}];
     var meta={},quotes=fetchPricesNh(items,{},meta),date=today();
     var closes=fetchNhRegularCloses(items,date,{useMarketCloseCutoffs:true});
-    return jsonOk({gasVersion: '9.280',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
+    return jsonOk({gasVersion: '9.281',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
   }catch(error){return jsonError('NH_DIAGNOSTIC_FAILED');}
 }
 
@@ -19106,7 +19109,7 @@ function handleGetNhAuthStatusProxy(params) {
     PropertiesService.getScriptProperties().getProperty('NHPLUG_AUTH_RECORD_V1'),_nhTokenScope_(creds)):null;
   // Never issue a token or return its value for a status check.
   return jsonOk({provider:'NH',enabled:enabled,tokenCached:!!existing,tokenIssued:false,
-    gasVersion: '9.280',readOnly:true});
+    gasVersion: '9.281',readOnly:true});
 }
 function _nhProxyFutureCandidate_(today) {
   var prefix='https://www.nhplug.com/instruments/m_future';
@@ -19315,6 +19318,68 @@ function handleGetNhIndexProbe(params){
      if(stop){stopped=true;break;}
    }
  }
- return jsonOk({provider:'NH',readOnly:true,gasVersion:'9.280',date:'2026-10-29',
+ return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.281',date:'2026-10-29',
    candidateOnly:true,mappingVerified:false,results:records,stopped:stopped});
+}
+
+
+// Proven NH index codes from GAS probe 2026-10-29, independently reconciled
+// with S&P 500 and Nasdaq official reported daily closes. Other symbols are
+// deliberately NOT mapped to NH without an exact identity/price verification.
+var NH_VERIFIED_GLOBAL_INDEX_CODES_V1={
+ SP500:{code:'SPX',name:'S&P\\s*500|S&P500'},
+ NASDAQ:{code:'COMP',name:'나스닥\\s*종합|NASDAQ\\s*COMPOSITE'},
+ NASDAQ100:{code:'NDX',name:'나스닥\\s*100|NASDAQ\\s*100'}
+};
+function _nhGlobalIndexDailySeries_(type,fromDate,toDate){
+ var config=NH_VERIFIED_GLOBAL_INDEX_CODES_V1[type];
+ if(!config)return null;
+ var earliest=Date.parse(fromDate+'T00:00:00Z'),latest=Date.parse(toDate+'T00:00:00Z');
+ if(!isFinite(earliest)||!isFinite(latest)||latest<earliest||latest-earliest>375*86400000)return null;
+ var creds=_nhCredentials_();if(!creds.key||!creds.secret)return null;
+ var cutoff=_foreignMarketRegularCloseCutoff_({code:'AAPL',currency:'USD',market:'NASDAQ'},new Date());
+ var end=toDate<cutoff?toDate:cutoff;
+ if(end<fromDate)return null;
+ var cache=CacheService.getScriptCache(),cacheKey='nh_global_index_v1_'+type+'_'+fromDate+'_'+end;
+ var cached=cache.get(cacheKey);
+ if(cached){try{return JSON.parse(cached);}catch(ignoreCached){}}
+ var input={iem_cd:config.code,end_dt:end.replace(/-/g,''),array_cnt:'0400',maxavg:'000',gubun:'1',xtick:'001',today_cls:'0'};
+ var response=_nhPost_('/gbstock/quote/v1/symbolIndexFxPeriod',input,creds);
+ var identity=response&&response.Output_0,rows=response&&response.Output_1;
+ if(!identity||Array.isArray(identity)||String(identity.iem_cd||'').trim().toUpperCase()!==config.code
+   ||!(new RegExp(config.name,'i')).test(String(identity.iem_nm||''))
+   ||!Array.isArray(rows)||!rows.length)return null;
+ var byDate={},duplicates={};
+ rows.forEach(function(row){
+  var date=_nhCloseDate_(row&&row.bsop_date),raw=String(row&&row.ovrs_prpr||'');
+  if(date<fromDate||date>end||!date||!/^\\d+(?:\\.\\d+)?$/.test(raw)||!(Number(raw)>0))return;
+  if(byDate[date])duplicates[date]=true;
+  byDate[date]={date:date,value:Number(raw),source:'NH_INDEX_DAILY',sourceDate:date,
+    status:'CONFIRMED',priceType:'REGULAR_CLOSE',providerCode:config.code};
+ });
+ if(Object.keys(duplicates).length)return null;
+ var points=Object.keys(byDate).sort().map(function(date){return byDate[date];});
+ if(points.length<2)return null;
+ var first=points[0].date,last=points[points.length-1].date;
+ // We must have near-full dated coverage for charts. A partial response
+ // cannot silently discard older period points.
+ if(Date.parse(first+'T00:00:00Z')-earliest>7*86400000
+   ||Date.parse(end+'T00:00:00Z')-Date.parse(last+'T00:00:00Z')>7*86400000)return null;
+ var newest=points[points.length-1],prior=points[points.length-2];
+ var result={points:points,symbol:'NH:'+config.code,code:config.code,source:'NH_INDEX_DAILY',
+   current:{symbol:config.code,price:newest.value,previousClose:prior.value,
+     change:newest.value-prior.value,changePct:(newest.value/prior.value-1)*100,
+     timestamp:null,source:'NH_INDEX_DAILY',status:'CONFIRMED',date:newest.date}};
+ try{cache.put(cacheKey,JSON.stringify(result),21600);}catch(ignoreCacheWrite){}
+ return result;
+}
+function fetchIndexPrimarySeries(type,fromDate,toDate){
+ if(NH_VERIFIED_GLOBAL_INDEX_CODES_V1[type]){
+  try{var nh=_nhGlobalIndexDailySeries_(type,fromDate,toDate);if(nh&&nh.points.length)return nh;}
+  catch(error){Logger.log('[NH_INDEX] '+type+' source unavailable (no stale promotion)');}
+ }
+ var legacy=fetchYahooIndexSeries(type,fromDate,toDate);
+ return {points:(legacy.points||[]).map(function(row){return {date:row.date,value:row.value,
+   source:'YAHOO_UNVERIFIED_DAILY',sourceDate:row.date};}),
+   symbol:legacy.symbol,error:legacy.error,source:'YAHOO_FINANCE',current:null};
 }
