@@ -34,6 +34,10 @@ const invalid=await fetchNhNightFromGas('2026-10-30',{now,url,token,request:asyn
  ok:true,json:async()=>({status:'ok',provider:'NH',readOnly:true,bearerExposed:false,
  reference:{...ref,clock:'05:59:59'}})})});
 assert.equal(invalid,null);
+const leak=await fetchNhNightFromGas('2026-10-30',{now,url,token,request:async()=>({
+ ok:true,json:async()=>({status:'ok',provider:'NH',readOnly:true,bearerExposed:false,
+ reference:{...ref,access_token:'UNEXPECTED_BEARER'}})})});
+assert.equal(leak,null,'unexpected auth fields must never be stored in GH artifacts');
 const cap=await captureMorning({now,fetchNight:async()=>result});
 assert.equal(cap.status,'CAPTURED');
 const logs=[];
