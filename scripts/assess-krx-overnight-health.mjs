@@ -33,6 +33,62 @@ function previousDay(date) {
   const d=new Date(date+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-1);
   return d.toISOString().slice(0,10);
 }
+// Only a single exact T-1 KRX-open date may be a known 08:00 publication wait.
+// Unknown holidays, multiple backlogs and non-provider failures still alert.
+function previousOpenKrxDate(date) {
+  let cursor=date;
+  for(let i=0;i<14;i++) {
+    cursor=previousDay(cursor);
+    const session=krxSessionStatus(cursor);
+    if(session==='OPEN')return cursor;
+    if(session!=='CLOSED')return null;
+  }
+  return null;
+}
+function isExpectedPublicationWait(data,{now,today,issues,slots}) {
+  if(krxSessionStatus(today)!=='OPEN')return false;
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+    timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+  }).formatToParts(now).map(p=>[p.type,p.value]));
+  const minute=Number(parts.hour)*60+Number(parts.minute);
+  if(!Number.isFinite(minute)||minute>=480)return false;
+  const target=previousOpenKrxDate(today);
+  if(!target||data.pendingCount!==1||data.pendingDates[0]!==target)return false;
+  // The GAS producer marks exact KRX publication waiting as WARNING.
+  // An ERROR/INCOMPLETE overall result can represent independent failures.
+  if(data.overallStatus!=='WARNING')return false;
+  // An ERROR automation can also represent a separate fund or ledger failure.
+  // Only the sanitized, independently verified publication-wait state may
+  // suppress the overnight incident exit status. Missing proof fails closed.
+  const close=data.close;
+  if(!close||close.state!=='ERROR'||close.stage!=='ERROR'||close.priceOk!==false
+    ||close.runDate!==target||close.summaryPresent!==true||close.summaryRunDate!==target
+    ||close.fundState!=='DONE'||close.fundOk!==true
+    ||close.fundErrorPresent!==false||close.fundWarningPresent!==false
+    // Production _krxClosePublicationState_ requires nonempty price-only
+    // close.errors and validates EVERY entry against the exact T/T-1 dates.
+    // A zero count is therefore incompatible with waiting=true.
+    ||!Number.isSafeInteger(close.closeErrorCount)||close.closeErrorCount<1
+    ||close.runStale===true||close.snapshotStale===true
+    ||close.krxPublicationWaiting!==true||close.krxPublicationTradeDate!==target
+    ||close.krxPublicationAvailableAfter!==today+'T08:00:00+09:00')return false;
+  if(data.officialKrxPriceHistoryLastDate!==previousOpenKrxDate(target)
+    ||data.snapshotLastDate<data.officialKrxPriceHistoryLastDate
+    ||data.snapshotLastDate>target)return false;
+  if(data.triggerReady!==true||data.tradeLedgerWriteUnverified===true
+    ||data.tradeSnapshotDeferredCount!==0
+    ||(data.tradeSnapshotWorkerTriggerAudit
+       &&data.tradeSnapshotWorkerTriggerAudit.clockReady!==true)
+    ||(data.pendingTradeSnapshotRebuildFrom&&data.pendingTradeSnapshotRebuildFrom!=='-'))return false;
+  if(data.latestBackfill?.attempted!==true||data.latestBackfill?.ok!==false
+    ||data.latestBackfill?.failureClass!=='KRX_PRICE_SOURCE_OR_COVERAGE'
+    ||data.latestHistoricalBackfill?.attempted!==true
+    ||data.latestHistoricalBackfill?.ok!==false
+    ||data.latestHistoricalBackfill?.failureClass!=='KRX_PRICE_SOURCE_OR_COVERAGE')return false;
+  if(!['NO_WORK','SUCCEEDED'].includes(slots['2310'])||slots['0030']!=='FAILED')return false;
+  const expected=['AUTOMATION_NOT_NORMAL','HISTORICAL_0030_FAILED','PENDING_KRX_DATES'];
+  return issues.length===expected.length&&issues.every(issue=>expected.includes(issue));
+}
 export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   if (!data || data.mode !== 'READ_ONLY' || !Array.isArray(data.pendingDates)
       || !Number.isSafeInteger(data.pendingCount)
@@ -105,9 +161,14 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   const snapshot=data.snapshotLastDate;
   if (official==='-' || snapshot==='-') issues.push('LAST_DATE_UNAVAILABLE');
   else if (snapshot < official) issues.push('KRX_SNAPSHOT_STALE');
+  // The overnight 00:30 KRX producer cannot receive T-1 official bars
+  // before the following KRX trading day's 08:00 publication. This is not
+  // healthy/completed; keep the pending/failed evidence and never write data.
+  const publicationWaiting=isExpectedPublicationWait(data,{now,today,issues,slots:slotStates});
   return {
     mode:'READ_ONLY',
-    status:issues.length?'ACTION_REQUIRED':'HEALTHY',
+    status:publicationWaiting?'AWAITING_PROVIDER_PUBLICATION':issues.length?'ACTION_REQUIRED':'HEALTHY',
+    publicationWaitTargetDate:publicationWaiting?data.pendingDates[0]:null,
     gasVersion:String(data.gasVersion||''),
     issues,
     historicalSlotStates:slotStates,
@@ -145,6 +206,7 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| 항목 | 결과 |',
         '|---|---|',
         '| 운영 판정 | '+result.status+' |',
+        '| 공식 게시 대기 대상일 | '+(result.publicationWaitTargetDate||'-')+' |',
         '| GAS 버전 | '+result.gasVersion.replace(/[^0-9.]/g,'')+' |',
         '| 잔여 큐 | '+result.pendingCount+'건 |',
         '| KRX 개장일 대기 | '+result.pendingSessionCounts.open+'건 |',
@@ -167,7 +229,7 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
       ];
       fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join('\n')+'\n');
     }
-    if(result.status!=='HEALTHY')process.exitCode=1;
+    if(result.status==='ACTION_REQUIRED')process.exitCode=1;
   } catch(error) {
     const code=String(error?.message||'');
     console.error(/^KRX_OVERNIGHT_[A-Z_]+$/.test(code)?code:'KRX_OVERNIGHT_DIAGNOSTIC_FAILED');

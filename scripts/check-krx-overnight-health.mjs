@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
+import {summarizeCloseStatus} from './diagnose-backfill-status.mjs';
 import YAML from 'yaml';
 import {assessKrxOvernightHealth} from './assess-krx-overnight-health.mjs';
 
@@ -72,6 +74,95 @@ assert.deepEqual(waiting.issues,['PENDING_KRX_DATES','AUTOMATION_NOT_NORMAL']);
 assert.equal(waiting.pendingCount,3);
 assert.deepEqual(waiting.pendingSessionCounts,{open:2,closed:1,unknown:0});
 assert.equal(waiting.lastBackfillOk,false);
+// Publication is T+1 08:00 KST. The 02:30/06:57 check must not
+// report an unexpected incident when the *only* missing row is yesterday's
+// KRX official open-session close, and all evidence attributes it to KRX.
+// Obtain a reachable waiting state from the production GAS source and the
+// production read-only sanitizer, not an impossible synthetic close shape.
+const gasSource=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const begin=gasSource.indexOf('function _krxClosePublicationState_(');
+const finish=gasSource.indexOf('\nfunction _getAutomationStatusData()',begin);
+assert.ok(begin>0&&finish>begin,'production publication detector must exist');
+const productionContext={
+  _fundDateOffset:(date,offset)=>new Date(Date.parse(date+'T00:00:00Z')+offset*86400000).toISOString().slice(0,10),
+  _krxCalendarStatus_:date=>[0,6].includes(new Date(date+'T00:00:00Z').getUTCDay())?'CLOSED':'OPEN'
+};
+vm.createContext(productionContext);
+vm.runInContext(gasSource.slice(begin,finish),productionContext);
+const productionClose={
+  runDate:'2026-10-29',priceOk:false,fundOk:true,
+  errors:['일반 종목 확정 종가 원천일 불일치: 요청 2026-10-29, 실제 KRX 2026-10-28 · 정상 거래일 종가 이월 확정 금지']
+};
+const atMorning=new Date('2026-10-30T06:57:00+09:00');
+const providerWaiting=productionContext._krxClosePublicationState_(
+  productionClose,['2026-10-29'],atMorning.getTime());
+assert.equal(providerWaiting.waiting,true);
+assert.equal(providerWaiting.availableAfter,'2026-10-30T08:00:00+09:00');
+const safePublicationClose=summarizeCloseStatus({
+  portfolioClose:productionClose,
+  closeRun:{state:'ERROR',stage:'ERROR',runDate:'2026-10-29'},
+  fundAttempt:{state:'DONE'},
+  portfolioCloseLastError:productionClose.errors.join(' | '),
+  portfolioCloseRunStale:false,snapshotStale:false,
+  krxPublication:providerWaiting,fundLastError:'',fundLastWarning:''
+});
+assert.equal(safePublicationClose.closeErrorCount,1);
+assert.equal(safePublicationClose.krxPublicationWaiting,true);
+assert.equal(safePublicationClose.stage,'ERROR');
+
+const awaitingPublication={...good,close:safePublicationClose,overallStatus:'WARNING',
+  tradeSnapshotDeferredCount:0,
+  pendingCount:1,pendingDates:['2026-10-29'],
+  officialKrxPriceHistoryLastDate:'2026-10-28',snapshotLastDate:'2026-10-29',
+  latestBackfill:{attempted:true,ok:false,failureClass:'KRX_PRICE_SOURCE_OR_COVERAGE'},
+  latestHistoricalBackfill:{attempted:true,ok:false,failureClass:'KRX_PRICE_SOURCE_OR_COVERAGE'},
+  historical2310:slot('2026-10-29','NO_WORK'),
+  historical0030:slot('2026-10-30','FAILED')};
+const publication=assessKrxOvernightHealth(awaitingPublication,{now:atMorning});
+assert.equal(publication.status,'AWAITING_PROVIDER_PUBLICATION');
+assert.equal(publication.publicationWaitTargetDate,'2026-10-29');
+assert.deepEqual(publication.issues,['PENDING_KRX_DATES','AUTOMATION_NOT_NORMAL','HISTORICAL_0030_FAILED']);
+assert.equal(assessKrxOvernightHealth(awaitingPublication,{now:new Date('2026-10-30T08:00:00+09:00')}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,pendingDates:['2026-10-28','2026-10-29'],pendingCount:2},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,
+  latestHistoricalBackfill:{...awaitingPublication.latestHistoricalBackfill,failureClass:'BACKUP_SAFETY_FAILED'}},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,triggerReady:false},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,overallStatus:'ERROR'},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,overallStatus:'INCOMPLETE'},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,tradeLedgerWriteUnverified:true},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,tradeSnapshotDeferredCount:1},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,
+  tradeSnapshotWorkerTriggerAudit:{clockReady:false}},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,
+  pendingTradeSnapshotRebuildFrom:'2026-10-29'},{now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,officialKrxPriceHistoryLastDate:'2026-10-27'},
+  {now:atMorning}).status,'ACTION_REQUIRED');
+assert.equal(assessKrxOvernightHealth({...awaitingPublication,pendingDates:['2026-10-28']},
+  {now:atMorning}).status,'ACTION_REQUIRED');
+for(const brokenClose of [
+  {...safePublicationClose,state:'INCOMPLETE'},
+  {...safePublicationClose,state:'COMPLETE'},
+  {...safePublicationClose,stage:'FUND'},
+  {...safePublicationClose,priceOk:true},
+  {...safePublicationClose,runDate:'2026-10-28'},
+  {...safePublicationClose,fundErrorPresent:true},
+  {...safePublicationClose,fundWarningPresent:true},
+  {...safePublicationClose,fundState:'ERROR'},
+  {...safePublicationClose,fundOk:false},
+  {...safePublicationClose,closeErrorCount:0},
+  {...safePublicationClose,closeErrorCount:-1},
+  {...safePublicationClose,summaryRunDate:'2026-10-28'},
+  {...safePublicationClose,krxPublicationWaiting:false},
+  {...safePublicationClose,krxPublicationTradeDate:'2026-10-28'},
+  {...safePublicationClose,krxPublicationAvailableAfter:'2026-10-31T08:00:00+09:00'},
+  {...safePublicationClose,runStale:true},
+  {...safePublicationClose,snapshotStale:true},
+  null,
+]) assert.equal(assessKrxOvernightHealth({...awaitingPublication,close:brokenClose},
+  {now:atMorning}).status,'ACTION_REQUIRED',
+  'independent close/fund errors or missing proof must not be silenced');
+
+
 // Oct 10 was KRX CLOSED. It cannot be used as an official KRX close date,
 // but may still need a foreign/fund Snapshot. Do NOT clear it or mark healthy.
 const holidayPending=assess({...good,pendingCount:1,pendingDates:['2026-10-10']});
