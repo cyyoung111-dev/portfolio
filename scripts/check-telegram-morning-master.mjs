@@ -31,11 +31,20 @@ const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing
 assert.equal(wf.jobs.briefing.environment,'portfolio-production-gas',
  'GAS reads must use the existing protected production environment');
 const prepare=wf.jobs.briefing.steps.find(x=>x.id==='prepare');
-assert.equal(prepare.env.GAS_ACCESS_TOKEN,'
-console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');
-+'{{ secrets.GAS_ACCESS_TOKEN }}');
-assert.equal(prepare.env.GAS_WEB_APP_URL,'
-console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');
-+'{{ vars.GAS_WEB_APP_URL }}');
+assert.match(prepare.env.GAS_ACCESS_TOKEN,/^[$][{][{] secrets[.]GAS_ACCESS_TOKEN [}][}]$/);
+assert.match(prepare.env.GAS_WEB_APP_URL,/^[$][{][{] vars[.]GAS_WEB_APP_URL [}][}]$/);
 assert.equal(wf.jobs.briefing.steps.find(x=>x.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
-console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');
+const knownDaily=[
+ {label:'SOX',symbol:'^SOX',date:'2026-10-29',value:9000,changePercent:1.3,source:'Yahoo Finance 일봉'},
+ {label:'VIX',symbol:'^VIX',date:'2026-10-29',value:16.5,changePercent:-1.1,source:'Yahoo Finance 일봉'}
+];
+const datedMaster=verifiedMorningMaster(date,[
+ {...row,seriesId:'SOX',value:9000,source:'NH_INDEX_DAILY'},
+ {...row,seriesId:'VIX',value:16.5,source:'NH_INDEX_DAILY'}
+]);
+const mergedIndicators=mergeMorningSourceRows(knownDaily,datedMaster);
+assert.deepEqual(mergedIndicators.map(x=>x.changePercent),[1.3,-1.1],
+ 'keep same-date Yahoo values and changes together when master lacks prior daily close');
+assert.ok(mergedIndicators.every(x=>x.source==='Yahoo Finance 일봉'),
+ 'source must match the chosen percentage and price');
+console.log('Morning GAS protected read and exact-day index fallback provenance PASS');
