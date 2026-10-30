@@ -2,8 +2,8 @@ name: market-briefing-headless
 
 on:
   schedule:
-    - cron: '15 21 * * 0-4' # 06:15 KST, same-date provider not always published
-    - cron: '15 0 * * 1-5'  # 09:15 KST T+1 confirmed PRIOR KRX session catch-up
+    # 06:00 KST NH PLUG reference uses the dedicated Telegram morning pipeline.
+    # Do not schedule redundant KRX night-futures official rechecks.
     - cron: '30 7 * * 1-5'   # 16:30 KST
     - cron: '15 11 * * 1-5' # 20:15 KST
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
         description: 처리할 checkpoint
         required: true
         type: choice
-        options: [NIGHT_FINAL, MORNING, KRX_FINAL, EVENING]
+        options: [KRX_FINAL, EVENING]
       trading_date:
         description: 거래일(YYYY-MM-DD, 비우면 KST 오늘)
         required: false
@@ -51,8 +51,6 @@ jobs:
             checkpoint="$MANUAL_CHECKPOINT"
           else
             case "${{ github.event.schedule }}" in
-              '15 21 * * 0-4') checkpoint=NIGHT_FINAL ;;
-              '15 0 * * 1-5') checkpoint=NIGHT_FINAL ;;
               '30 7 * * 1-5') checkpoint=KRX_FINAL ;;
               '15 11 * * 1-5') checkpoint=EVENING ;;
               *) echo '예약 checkpoint를 결정할 수 없습니다.' >&2; exit 1 ;;
