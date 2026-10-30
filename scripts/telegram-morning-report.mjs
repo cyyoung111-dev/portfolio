@@ -54,7 +54,7 @@ export function hasExpectedMorningDate(item,date,row){
     && typeof row.date==='string' && row.date===expectedMorningDate(item.id,date)
     && Number.isFinite(row.value) && row.value>0;
 }
-export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetchImpl=fetch,concurrency=4}={}) {
+export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetchImpl=fetch,concurrency=4,skipSymbols=new Set()}={}) {
   if(typeof fetchDaily!=='function')throw Error('MORNING_FETCHER_REQUIRED');
   const list=Array(MORNING_SERIES.length).fill(null);
   let index=0;
@@ -62,6 +62,7 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
     while(index<MORNING_SERIES.length) {
       const i=index++;
       const item=MORNING_SERIES[i];
+      if(skipSymbols.has(item.symbol))continue;
       try {
         const row=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
         if(hasExpectedMorningDate(item,date,row)){list[i]={...row};continue;}
@@ -92,7 +93,7 @@ function entry(map,id){
   else if(id==='BTC')unit=' USD';
   const v=amount.toLocaleString('en-US',{maximumFractionDigits:id==='UST10Y'?3:2});
   const change=Number.isFinite(r.changePercent)?' ('+(r.changePercent>=0?'+':'')+r.changePercent.toFixed(2)+'%)':'';
-  const proof=r.source==='KRX_OFFICIAL'?'KRX 공식':r.source==='MARKET_MASTER'?'GAS 원장':'Yahoo 일봉';
+  const proof=r.source==='KRX_OFFICIAL'?'KRX 공식':r.source==='MARKET_MASTER'?'GAS 원장':r.source==='NH_INDEX_DAILY'?'NH PLUG 일봉':'Yahoo 일봉';
   return info.label+': '+v+unit+change+' ['+r.date+' · '+proof+']';
 }
 function evidence(map,id){

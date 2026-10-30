@@ -47,6 +47,13 @@ const all=await collectMorningSeries(date,{concurrency:4,fetchDaily:async(label,
  return {label,symbol,date:'2026-10-29',value:1,changePercent:0};
 }});
 assert.equal(calls,21);assert.equal(all.length,21);assert.ok(max<=4);
+let bypassCalls=0;
+const bypass=await collectMorningSeries(date,{skipSymbols:new Set(['^GSPC','^IXIC','^NDX']),
+ fetchDaily:async(label,symbol)=>{bypassCalls++;return {label,symbol,date:'2026-10-29',value:1,changePercent:0};}});
+assert.equal(bypassCalls,18);assert.equal(bypass.length,18);
+const nhReport=formatFullMorningBriefing(date,ref,[{label:'S&P 500',symbol:'^GSPC',
+ date:'2026-10-29',value:7720.39,changePercent:0.52,source:'NH_INDEX_DAILY'}]);
+assert.match(nhReport,/S&P 500: 7,720.39.*NH PLUG 일봉/);
 const stale=await collectMorningSeries(date,{fetchDaily:async(label,symbol)=>({label,symbol,date,value:900})});
 assert.equal(stale.length,0,'same-day incomplete daily prices must not pass');
 

@@ -28,9 +28,14 @@ assert.deepEqual(await loadMorningMaster(date,{url:'http://example.com',token:'t
 assert.deepEqual(await loadMorningMaster(date,{url:'https://evil.example.com',token:'test-secret',fetchImpl}),[]);
 assert.deepEqual(await loadMorningMaster(date,{url:'https://script.google.com/macros/s/example/exec',token:'test-secret',fetchImpl:async()=>{throw Error('PRIVATE') }}),[]);
 const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
-assert.equal(wf.jobs.briefing.environment,undefined,
- 'the recurring Telegram workflow must not bypass existing GAS environment permissions');
+assert.equal(wf.jobs.briefing.environment,'portfolio-production-gas',
+ 'GAS reads must use the existing protected production environment');
 const prepare=wf.jobs.briefing.steps.find(x=>x.id==='prepare');
-assert.equal(prepare.env.GAS_ACCESS_TOKEN,undefined);
-assert.equal(prepare.env.GAS_WEB_APP_URL,undefined);
+assert.equal(prepare.env.GAS_ACCESS_TOKEN,'
+console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');
++'{{ secrets.GAS_ACCESS_TOKEN }}');
+assert.equal(prepare.env.GAS_WEB_APP_URL,'
+console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');
++'{{ vars.GAS_WEB_APP_URL }}');
+assert.equal(wf.jobs.briefing.steps.find(x=>x.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
 console.log('Morning read-only GAS MARKET_MASTER timestamp/source/provider guards PASS');

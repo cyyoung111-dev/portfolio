@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { formatMorningBriefing, fetchDatedDaily, sendTelegram } from './telegram-morning-briefing.mjs';
-import { fetchNhNight } from './nh-night-reference.mjs';
+import { fetchNhNightFromGas } from './nh-gas-proxy.mjs';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 
 // Explicitly scoped, single-date recovery for the missing scheduled briefing.
@@ -23,7 +23,7 @@ export function oneoffWindow(instant) {
 }
 export async function prepareOneoff({
   now=()=>new Date(),fetchImpl=fetch,gitToken,repository,
-  referenceFetch=fetchNhNight,quoteFetch=fetchDatedDaily
+  referenceFetch=fetchNhNightFromGas,quoteFetch=fetchDatedDaily
 }={}) {
   const w=oneoffWindow(now());
   if (!w.allowed || krxSessionStatus(ONEOFF_DATE)!=='OPEN') throw Error('ONEOFF_DATE_OR_WINDOW_INVALID');

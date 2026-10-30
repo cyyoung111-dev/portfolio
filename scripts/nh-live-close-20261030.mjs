@@ -1,4 +1,5 @@
 import {pathToFileURL} from 'node:url';
+import {supportedNhGasVersion} from './nh-gas-version.mjs';
 // One-shot production readback: no financial writes or standalone GitHub NH OAuth.
 // No secrets, raw response bodies, or request headers may enter stdout.
 export function inspectNhCloses(status,diagnostic,emit=()=>{}) {
@@ -6,7 +7,7 @@ export function inspectNhCloses(status,diagnostic,emit=()=>{}) {
     ||status.tokenCached!==true||status.tokenIssued!==false)
     throw Error('NH_LIVE_CACHED_TOKEN_NOT_READY');
   if(diagnostic?.status!=='ok'||diagnostic?.readOnly!==true
-    ||diagnostic?.provider!=='NH'||diagnostic?.gasVersion!=='9.279')
+    ||diagnostic?.provider!=='NH'||!supportedNhGasVersion(diagnostic?.gasVersion))
     throw Error('NH_LIVE_READONLY_DIAGNOSTIC_INVALID');
   const results=[];
   for(const [code,currency] of [['005930','KRW'],['AAPL','USD']]){

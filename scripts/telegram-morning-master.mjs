@@ -38,13 +38,18 @@ export async function loadMorningMaster(date,{url,token,fetchImpl=fetch,now=new 
     return verifiedMorningMaster(date,result.observations);
   }catch{return [];}
 }
-export function mergeMorningSourceRows(yahooRows=[],masterRows=[]) {
+export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[]) {
   const output=new Map(yahooRows.map(r=>[r.symbol,r]));
   for(const r of masterRows){
     const earlier=output.get(r.symbol);
     // Keep only trusted dated source and never displace a newer completed daily
     // observation with an older stored value.
     if(!earlier || r.date>=earlier.date)output.set(r.symbol,r);
+  }
+  for(const row of nhRows){
+    if(row?.source!=='NH_INDEX_DAILY'||!/\d{4}-\d{2}-\d{2}/.test(row.date)||!Number.isFinite(row.value)||row.value<=0)continue;
+    const prior=output.get(row.symbol);
+    if(!prior||row.date>=prior.date)output.set(row.symbol,row);
   }
   return [...output.values()];
 }

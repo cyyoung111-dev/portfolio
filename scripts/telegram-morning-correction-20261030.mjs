@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {formatMorningBriefing,fetchDatedDaily,sendTelegram} from './telegram-morning-briefing.mjs';
 import {collectMorningSeries} from './telegram-morning-report.mjs';
-import {fetchNhNight} from './nh-night-reference.mjs';
+import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 export const DATE='2026-10-30';
@@ -16,7 +16,7 @@ export function validWindow(now){
   const t=clock(now);return t.date===DATE&&t.minute>=560&&t.minute<660;
 }
 export async function prepareCorrection({now=()=>new Date(),fetchImpl=fetch,token,repository=REPO,
-  referenceFetch=fetchNhNight,quoteFetch=fetchDatedDaily}={}){
+  referenceFetch=fetchNhNightFromGas,quoteFetch=fetchDatedDaily}={}){
   if(!validWindow(now())||krxSessionStatus(DATE)!=='OPEN')throw Error('CORRECTION_WINDOW');
   if(repository!==REPO||!token)throw Error('CORRECTION_CONFIG');
   const response=await fetchImpl('https://api.github.com/repos/'+REPO+'/actions/artifacts?name='+CLAIM+'&per_page=100',{
