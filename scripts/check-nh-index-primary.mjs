@@ -12,8 +12,12 @@ const ctx={_nhCredentials_:()=>({key:'k',secret:'s'}),
  _nhCloseDate_:d=>String(d||'').replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3'),
  _nhPost_:(path,input)=>{
    calls.push({path,input});
+   const dates=['20261022','20261023','20261026','20261027','20261028','20261029'];
+   const values={SPX:[7600.12,7609.12,7660.12,7670.12,7680.12,7720.39],
+     COMP:[25750.21,25800.21,25840.21,25900.21,26000.21,26184.72],
+     NDX:[29110.08,29125.08,29200.08,29250.08,29300.08,29402.51]};
    return {Output_0:{iem_cd:input.iem_cd,iem_nm:({SPX:'S&P 500',COMP:'나스닥 종합',NDX:'NASDAQ 100'}[input.iem_cd]||'UNKNOWN')},
-     Output_1:[{bsop_date:'20261022',ovrs_prpr:({SPX:'7600.12',COMP:'25750.21',NDX:'29110.08'}[input.iem_cd]||'0')},{bsop_date:'20261029',ovrs_prpr:({SPX:'7720.39',COMP:'26184.72',NDX:'29402.51'}[input.iem_cd]||'0')}]};
+     Output_1:dates.map((date,i)=>({bsop_date:date,ovrs_prpr:String(values[input.iem_cd]?.[i]||0)}))};
  },
  CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},
  fetchYahooIndexSeries:(type)=>{fallbacks.push(type);return {symbol:'^GSPC',points:[{date:'2026-10-29',value:7700}]};},
