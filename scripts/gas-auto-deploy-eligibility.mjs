@@ -19,7 +19,7 @@ export async function checkGasAutoDeployEligibility({repository,token,fetchImpl=
  if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(repository||''))
    ||typeof token!=='string'||!token.trim())return unverified('PROVENANCE_CONFIG_UNVERIFIED');
  try{
-  const runs=await readJson(API+'/repos/'+repository+'/actions/runs?per_page=100&event=workflow_run&status=success',
+  const runs=await readJson(API+'/repos/'+repository+'/actions/runs?per_page=100',
    token,fetchImpl);
   if(!Array.isArray(runs.workflow_runs))return unverified('PROVENANCE_RUNS_UNVERIFIED');
   for(const run of runs.workflow_runs){
@@ -31,6 +31,12 @@ export async function checkGasAutoDeployEligibility({repository,token,fetchImpl=
    const deployed=jobs.jobs.some(job=>job?.name==='deploy'&&job.conclusion==='success'
       &&Array.isArray(job.steps)&&job.steps.some(step=>step.name==='Deploy GAS'&&step.conclusion==='success'));
    if(!deployed)continue; // Validation-only success or skipped production is not a release.
+   // Dispatch inputs are not available on the run-list API. A newer manual
+   // attempt may have deployed a different source or changed HEAD; do not
+   // confuse its dry-run with a confirmed release. Force the normal path.
+   if(runs.workflow_runs.some(other=>other?.name==='gas-deploy'
+      &&other.event==='workflow_dispatch'&&Number(other.id)>Number(run.id)))
+      return unverified('PROVENANCE_NEWER_MANUAL_DEPLOY_UNVERIFIED');
    const sha=String(run.head_sha);
    // The run is now fully proven; any Git/GitHub read failure MUST permit deployment.
    gitExec('git',['fetch','--no-tags','--depth=1','origin',sha],{stdio:'ignore',timeout:20000});
