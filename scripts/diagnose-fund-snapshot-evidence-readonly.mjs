@@ -297,6 +297,9 @@ export function classifyF00001ScopedReview(integrity,hanwhaStatus,kbStatus){
   &&pairs.F00002.expectedKind==='CARRY_NAV'
   &&pairs.F00002.storedKind==='CARRY_INPUT_REQUIRED'
   &&pairs.F00002.expectedCarryDateMatchesNav===true
+  // An undated input-required warning is allowed, but an explicit wrong
+  // NAV source date is NEVER a valid exception for the F00001-only review.
+  &&pairs.F00002.storedCarryDateMatchesNav!==false
   &&pairs.F00002.bothCarryFamilies===true
   &&pairs.F00002.confirmedNavExpected===false
   &&pairs.F00003?.mismatch===false;
