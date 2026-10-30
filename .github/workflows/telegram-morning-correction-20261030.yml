@@ -1,0 +1,46 @@
+name: Telegram full morning correction 2026-10-30
+# One-time only: newly introduced workflow path on main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/telegram-morning-correction-20261030.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: telegram-morning-briefing
+  cancel-in-progress: false
+jobs:
+  correction:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-market-data
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prepare verified full report (no GAS writes)
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
+          NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
+        run: node scripts/telegram-morning-correction-20261030.mjs prepare
+      - name: Claim correction date before contacting Telegram
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-morning-correction-claim-2026-10-30
+          path: .telegram-correction-runtime/claim.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Send full corrected morning report
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/telegram-morning-correction-20261030.mjs send
