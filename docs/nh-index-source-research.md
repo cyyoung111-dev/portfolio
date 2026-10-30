@@ -19,3 +19,18 @@
 - 다우/VIX/SOX는 비NH 참고값으로만 별도 표시. NH 지수 수치/평가손익/Snapshot/발송 필수 게이트로 승격하지 않음.
 - VKOSPI, DXY 등은 동일 정체성과 라이선스/공개시간 확인 전까지 미검증. DXY와 다른 달러지수 혼용 금지.
 - 다른 공급원 실패 또는 구 거래일 결과가 나오면 미확보. KRX/Yahoo는 원칙적으로 다음 거래일 NH 종가 독립 검산에만 사용.
+
+
+## 공개 개발자 구현 비교 (동일 지수, 서로 다른 API 코드)
+- **NH PLUG 공식 카탈로그 검사:** `scripts/nh-domestic-index-catalog-probe.mjs`는 공개 `krstock/openapi.json`만 GET 1회 조회하여 독립 현물지수 endpoint 후보와 ETF `Output_4`를 구분한다. **로그의 endpoint 후보는 실조회/운영 확정이 아니며 NH 토큰·거래원장·GAS를 사용하지 않는다.** 테스트는 모의 OpenAPI 문서만 사용한다.
+- **한국투자증권 공식 예제:** `/uapi/domestic-stock/v1/quotations/inquire-index-price`(TR `FHPUP02100000`), `FID_COND_MRKT_DIV_CODE=U`; `FID_INPUT_ISCD=0001` 코스피, `1001` 코스닥, `2001` 코스피200. 원문: https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_index_price/inquire_index_price.py . **KIS 전용 코드이며 NH에 전용 금지.** 별도 키·토큰·공표시각/라이선스 검증이 없으면 운영 연결 불가.
+- **FinanceDataReader:** `KS11`(코스피), `KQ11`(코스닥), `KS200`(코스피200) 일별 지수. https://github.com/FinanceData/FinanceDataReader . **비NH 시계열**이며 당일 NH 종가로 승격하지 않는다.
+- **pykrx/KRX:** 코스피 `1001`, 코스피200 `1028` 등의 KRX 지수 코드와 `get_index_ohlcv_by_date`; 조회 시점·지수명 매핑 오류 가능성이 있어 일자/코드/종가 엄격 검증. https://github.com/sharebook-kr/pykrx . **KIS의 `1001`과 pykrx의 `1001` 의미는 다르다.** 
+- **Koscom 시장지수 전문 API:** `GET /v3/market/realtime/index/{marketcode}/{issuecode}/index`, 응답의 `trdPrc`(지수), `trdTm`(거래시각), `cmpprevddPrc`(전일 대비). https://koscom.gitbook.io/open-api/api/marketv3/index/realtime ; 전용 인증·이용 조건과 KOSPI200 정확한 코드 별도 확인 필요.
+- **NH 실시간 채널:** 공식 국내주식 채널 `oc/nc/mc`는 종목코드 체결가(주식/ETF)이고 `uB`는 채권지수다. 코스피/코스닥/코스피200 전용 현물지수 스트림을 확인한 것은 아니다. https://github.com/PLUG-OpenAPI/nhplug-sdk/blob/main/docs/realtime_channels.md .
+
+### 운영 결정 게이트
+1. NH가 정본 API에서 **KOSPI·KOSDAQ·KOSPI200 각각의 독립 코드·거래일·확정 종가**를 제공하는지 먼저 확인한다. 공개 사양에 필드만 있는 단계에서는 `NH 미검증`.
+2. 기존 중앙 GAS OAuth 24시간 캐시 재사용, 최소 읽기전용 실응답으로 `endpoint+코드+지수명+날짜+종가+기준시각` 검증. 하나라도 빠지면 운영 브리핑에는 `미확보`.
+3. NH가 미지원이면 KIS/Koscom은 **명시적 비NH 참고지표로만 별도 표시**할 수 있다. 사용자가 지정한 NH 단일 운영 종가 및 KRX/Yahoo 익거래일 독립 감사 규정은 변경하지 않는다.
+4. 가격이력·손익·Snapshot·정규장 마감/장전 브리핑에 다른 공급원을 NH로 위장하여 자동 대체하는 기능은 추가하지 않는다.
