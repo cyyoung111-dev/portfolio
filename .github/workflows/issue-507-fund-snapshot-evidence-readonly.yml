@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   inspect:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 15
