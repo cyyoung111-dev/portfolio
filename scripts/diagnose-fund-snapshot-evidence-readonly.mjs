@@ -40,7 +40,7 @@ export function summarizeFullIntegrity(payload,date=TARGET_DATE,code=TARGET_CODE
  const d=payload?.diagnostic;
  const allowed=new Set(['VALID','MISMATCH','PARTIAL','CONFLICT','NO_SNAPSHOT','SOURCE_INCOMPLETE','PRICE_SUSPICIOUS']);
  const groups=['expectedCodes','storedCodes','missingCodes','unexpectedCodes','evalAmtMismatches',
-  'sourceMismatches','qtyMismatches','costAmtMismatches','priceIntegrity','duplicateKeys','conflictKeys',
+  'sourceMismatches','qtyMismatches','costAmtMismatches','evalUnitMismatches','priceIntegrity','duplicateKeys','conflictKeys',
   'sourceDataErrors'];
  if(payload?.status!=='ok'||!d||d.date!==date||!allowed.has(d.status)
    ||!Number.isSafeInteger(d.expectedRowCount)||!Number.isSafeInteger(d.storedRowCount)
