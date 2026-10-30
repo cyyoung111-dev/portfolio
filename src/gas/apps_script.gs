@@ -1373,6 +1373,8 @@ function doPost(e) {
     return jsonError('POST 파싱 실패: ' + err.message);
   }
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
+  if (params.action === 'getNhNightProxy') return handleGetNhNightProxy(params);
+  if (params.action === 'getNhAuthStatusProxy') return handleGetNhAuthStatusProxy(params);
   if (params.action === 'saveNhConfig') return handleSaveNhConfig(params);
   if (params.action === 'retireLegacyMarketData') return handleRetireLegacyMarketData(params);
   if (params.action === 'recoverPendingKrxClose') return handleRecoverPendingKrxClose(params.date, params.apply);
@@ -18970,4 +18972,132 @@ function handleRetireLegacyMarketData(params) {
   ['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY','TOSS_RELAY_MODE','TOSS_LAST_DIAGNOSTIC_AT','TOSS_LAST_DIAGNOSTIC_OK','TOSS_LAST_DIAGNOSTIC_CODE'].forEach(function(key){props.deleteProperty(key);});
   CacheService.getScriptCache().remove('toss_oauth_token_v1');
   return jsonOk({retired:true,financialDataWrites:0});
+}
+
+
+// NH-only read-only central proxy. OAuth tokens stay in GAS ScriptProperties.
+// This endpoint is POST-only and rejects a missing GAS access token even if
+// legacy web-app compatibility currently allows unauthenticated requests.
+function _nhProxyAuthenticated_(params) {
+  var expected=String(PropertiesService.getScriptProperties().getProperty('access_token')||'').trim();
+  var got=String(params&&params.accessToken||'');
+  if(!expected||!got||got.length!==expected.length)return false;
+  var mismatch=0;
+  for(var i=0;i<expected.length;i++)mismatch |= expected.charCodeAt(i)^got.charCodeAt(i);
+  return mismatch===0;
+}
+function _nhProxyKst_(instant) {
+  var day=Utilities.formatDate(instant,'Asia/Seoul','yyyy-MM-dd');
+  var hour=Number(Utilities.formatDate(instant,'Asia/Seoul','HH'));
+  var minute=Number(Utilities.formatDate(instant,'Asia/Seoul','mm'));
+  return {date:day,minutes:hour*60+minute};
+}
+function handleGetNhAuthStatusProxy(params) {
+  if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
+  var creds=_nhCredentials_(),enabled=_nhEnabled_()&&!!creds.key&&!!creds.secret;
+  var existing=enabled?_nhValidTokenRecord_(
+    PropertiesService.getScriptProperties().getProperty('NHPLUG_AUTH_RECORD_V1'),_nhTokenScope_(creds)):null;
+  // Never issue a token or return its value for a status check.
+  return jsonOk({provider:'NH',enabled:enabled,tokenCached:!!existing,tokenIssued:false,
+    gasVersion:'9.278',readOnly:true});
+}
+function _nhProxyFutureCandidate_(today) {
+  var prefix='https://www.nhplug.com/instruments/m_future';
+  var header=UrlFetchApp.fetch(prefix+'.h',{followRedirects:false,muteHttpExceptions:true});
+  if(header.getResponseCode()!==200)throw new Error('NH_PROXY_MASTER_HEADER_UNAVAILABLE');
+  var content=header.getContentText();
+  if(content.length>100000||!/@record\s+30\b/.test(content)
+    ||!/char\s+sCode\[9\]/.test(content)||!/char\s+sName\[20\]/.test(content)
+    ||!/char\s+dummy\[1\]/.test(content))throw new Error('NH_PROXY_MASTER_HEADER_INVALID');
+  var response=UrlFetchApp.fetch(prefix+'.mst',{followRedirects:false,muteHttpExceptions:true});
+  if(response.getResponseCode()!==200)throw new Error('NH_PROXY_MASTER_UNAVAILABLE');
+  var bytes=response.getBlob().getBytes();
+  if(!bytes.length||bytes.length>1000000||bytes.length%30)throw new Error('NH_PROXY_MASTER_LENGTH');
+  var all=[],sentinel='';
+  function ascii(from,to){var out='';for(var k=from;k<to;k++)out+=String.fromCharCode(bytes[k]&255);return out.trim();}
+  for(var i=0;i<bytes.length;i+=30) {
+    if((bytes[i+29]&255)!==10)throw new Error('NH_PROXY_MASTER_BOUNDARY');
+    var code=ascii(i,i+9);
+    if(!/^K[A-Z0-9]{8}$/.test(code))throw new Error('NH_PROXY_MASTER_CODE');
+    if(!sentinel)sentinel=code;
+    var name=Utilities.newBlob(bytes.slice(i+9,i+29)).getDataAsString('EUC-KR').trim();
+    if(!name||/[\x00-\x1f\uFFFD]/.test(name))throw new Error('NH_PROXY_MASTER_NAME');
+    var match=/^선물(\d{2})(03|06|09|12)월kp$/i.exec(name);
+    if(match)all.push({contract:code,contractMonth:'20'+match[1]+'-'+match[2]});
+  }
+  if(sentinel!=='K10111111'||!all.length)throw new Error('NH_PROXY_MASTER_UNVERIFIED');
+  var month=today.slice(0,7);
+  var current=all.filter(function(x){return x.contractMonth>=month;})
+    .sort(function(a,b){return a.contractMonth.localeCompare(b.contractMonth);});
+  if(!current.length)return null;
+  var front=current.filter(function(x){return x.contractMonth===current[0].contractMonth;});
+  if(front.length!==1)return null;
+  return front[0];
+}
+function _nhProxyNightReference_(today,now) {
+  var kst=_nhProxyKst_(now);
+  if(kst.date!==today||kst.minutes<450||kst.minutes>=480)throw new Error('NH_PROXY_WINDOW');
+  var props=PropertiesService.getScriptProperties();
+  var creds=_nhCredentials_();
+  if(!_nhEnabled_()||!creds.key||!creds.secret)throw new Error('NH_PROXY_NOT_CONFIGURED');
+  var cache=CacheService.getScriptCache(),key='nh_night_proxy_v1_'+today;
+  var prior=cache.get(key);
+  if(prior){try {var candidate=JSON.parse(prior);
+    if(candidate.source==='NH'&&candidate.kind==='REFERENCE'&&candidate.tradingDate===today
+      &&candidate.sourceUpdatedAt===today+'T06:00:00+09:00'&&candidate.officialClose===false
+      &&Number(candidate.value)>0)return candidate;
+  }catch(ignore){}}
+  var lock=LockService.getScriptLock(),owned=lock.hasLock&&lock.hasLock();
+  if(!owned&&!lock.tryLock(10000))throw new Error('NH_PROXY_BUSY');
+  try {
+    prior=cache.get(key);
+    if(prior){try {var second=JSON.parse(prior);
+      if(second.source==='NH'&&second.kind==='REFERENCE'&&second.tradingDate===today
+        &&second.officialClose===false&&second.sourceUpdatedAt===today+'T06:00:00+09:00'
+        &&Number(second.value)>0)return second;
+    }catch(ignore){}}
+    var contract=_nhProxyFutureCandidate_(today);
+    if(!contract)throw new Error('NH_PROXY_NO_CONTRACT');
+    var body=_nhPost_('/krfuture/quote/v1/nightPeriod',{
+      iem_cd:contract.contract,mrkt_div_cls_code:'F',gubun:'7',
+      out1_scale_change:'0',out2_scale_change:'0',today_cls_code:'0',
+      edate:today.replace(/-/g,''),array_cnt:'20',xtick:'001'
+    },creds);
+    var head=body&&body.Output_0;
+    if(!head||head.iem_cd!==contract.contract||
+      (head.end_time_n!==undefined&&head.end_time_n!==null&&
+        head.end_time_n!==''&&head.end_time_n!=='060000'))
+      throw new Error('NH_PROXY_IDENTITY_OR_SESSION');
+    if(!Array.isArray(body.Output_1))throw new Error('NH_PROXY_NO_TICKS');
+    var final=body.Output_1.filter(function(x) {
+      var n=Number(x&&x.prpr);
+      return x&&x.work_bsop_date===today.replace(/-/g,'')&&x.bsop_time==='060000'
+        &&(typeof x.prpr==='string'||typeof x.prpr==='number')
+        &&/^\d+(?:\.\d+)?$/.test(String(x.prpr))
+        &&isFinite(n)&&n>0&&Math.abs(n*20-Math.round(n*20))<1e-7;
+    });
+    if(!final.length||final.some(function(x){return Number(x.prpr)!==Number(final[0].prpr);}))
+      throw new Error('NH_PROXY_0600_NOT_VERIFIED');
+    var value=Number(final[0].prpr);
+    var output={source:'NH',kind:'REFERENCE',tradingDate:today,contract:contract.contract,
+      contractMonth:contract.contractMonth,value:value,clock:'06:00:00',
+      sourceUpdatedAt:today+'T06:00:00+09:00',receivedAt:new Date().toISOString(),
+      officialClose:false};
+    cache.put(key,JSON.stringify(output),Math.min(21600,Math.max(60,Math.floor((Date.parse(today+'T15:00:00+09:00')-Date.now())/1000))));
+    return output;
+  }finally {if(!owned)lock.releaseLock();}
+}
+function handleGetNhNightProxy(params) {
+  if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
+  var now=new Date(),kst=_nhProxyKst_(now);
+  if(params.date!==kst.date||!/^\d{4}-\d{2}-\d{2}$/.test(params.date||'')
+    ||kst.minutes<450||kst.minutes>=480)return jsonError('NH_PROXY_WINDOW');
+  try{
+    return jsonOk({provider:'NH',reference:_nhProxyNightReference_(params.date,now),readOnly:true,
+      bearerExposed:false});
+  }catch(error){
+    // No upstream response, credentials or bearer may be returned to clients.
+    var allowed=/^NH_PROXY_[A-Z0-9_]+$/.test(String(error&&error.message||''));
+    return jsonError(allowed?error.message:'NH_PROXY_UNAVAILABLE');
+  }
 }
