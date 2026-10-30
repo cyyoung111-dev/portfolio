@@ -4,11 +4,13 @@
 function issue507F00001SnapshotRepair_(apply) {
   if (apply !== false && apply !== true) throw new Error('EXPLICIT_MODE_REQUIRED');
   var lock=LockService.getScriptLock(), owned=false;
+  var previousInside=typeof _issue507GateInside_!=='undefined' && _issue507GateInside_;
   try {
     if (!lock.tryLock(1000)) throw new Error('WRITER_BUSY');
     owned=true;
     var props=PropertiesService.getScriptProperties();
     _issue507F00001Quiescence_(props);
+    _issue507GateInside_=true; // exclusive repair owns ScriptLock + verified drain
     _issue507F00001ExcludeWriters_(props);
     var ss=getss(), sheet=ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     var read=function(){return sheet.getRange(1,1,sheet.getLastRow(),sheet.getLastColumn()).getValues();};
@@ -55,7 +57,7 @@ function issue507F00001SnapshotRepair_(apply) {
     _issue507F00001RowsProof_(after,true);
     _touchSnapshotIntegritySourceRevision({date:'2026-10-30'});
     return {mode:'APPLIED',rows:39,changed:1,otherRowsPreserved:true,f00002WarningPreserved:true,backupRetained:true};
-  } finally {if(owned)lock.releaseLock();}
+  } finally {_issue507GateInside_=previousInside;if(owned)lock.releaseLock();}
 }
 function _issue507F00001Hash_(value) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify(value)).map(function(b){return ('0'+((b+256)%256).toString(16)).slice(-2);}).join('');
@@ -120,6 +122,8 @@ function _issue507F00001RowsProof_(d,after) {
 }
 
 function _issue507F00001Quiescence_(props) {
+  // Mandatory runtime gate; a manual boolean receipt alone is insufficient.
+  _issue507AssertDrain_();
   // Manual refresh can fetch outside ScriptLock WITHOUT a shared lease.
   // Never infer quiescence from empty leases. Rollout must first block ALL app
   // HTTP/menu/trigger entry points and independently observe execution drain.
