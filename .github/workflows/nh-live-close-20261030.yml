@@ -1,0 +1,27 @@
+name: NH regular-close numeric readback 20261030
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nh-live-close-20261030.yml'
+permissions:
+  contents: read
+concurrency:
+  group: nh-live-close-20261030
+  cancel-in-progress: false
+jobs:
+  readback:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read only NH completed regular closes, without OAuth issuance
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/nh-live-close-20261030.mjs
