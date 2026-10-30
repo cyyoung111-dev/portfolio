@@ -234,6 +234,36 @@ assert.match(source,/\|provider='/);
   assert.equal(noAuth.calls.length,0);
 }
 
+
+{
+  const b=setup({expiresIn:86400});
+  b.advance(Date.parse('2026-10-30T11:16:00+09:00')-time);
+  b.ctx.Utilities.formatDate=(at,zone,fmt)=>{
+    const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+      timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+    }).formatToParts(at).map(x=>[x.type,x.value]));
+    return fmt==='yyyy-MM-dd'?p.year+'-'+p.month+'-'+p.day
+      :fmt==='HH'?p.hour:fmt==='mm'?p.minute:'';
+  };
+  b.props.set('NHPLUG_APP_KEY','nh-key');
+  b.props.set('NHPLUG_APP_SECRET','nh-secret');
+  b.props.set('MARKET_DATA_PROVIDER','NH');
+  const a={date:'2026-10-30',accessToken:'admin-token'};
+  assert.equal(b.ctx.handleBootstrapNhTokenOnce20261030({...a,accessToken:'invalid'}).status,'error');
+  const first=b.ctx.handleBootstrapNhTokenOnce20261030(a);
+  assert.equal(first.status,'ok');
+  assert.equal(first.tokenIssued,true);
+  assert.equal(b.props.get('NH_PROXY_20261030_OAUTH_ATTEMPT'),'1');
+  const again=b.ctx.handleBootstrapNhTokenOnce20261030(a);
+  assert.equal(again.status,'ok');
+  assert.equal(again.tokenIssued,false);
+  b.props.delete('NHPLUG_AUTH_RECORD_V1');
+  b.cache.clear();
+  assert.equal(b.ctx.handleBootstrapNhTokenOnce20261030(a).message,'NH_PROXY_BOOTSTRAP_ALREADY_ATTEMPTED');
+  assert.equal(b.calls.filter(x=>x.url.includes('/oauth2/token')).length,1);
+}
+
 console.log('NH native GAS: activation, strict auth, KR/US quotes, master identity, cache, no Toss calls and 401 recovery passed');
 const {activateNhRuntime,selectNhReadbackCodes}=await import('./activate-nh-gas-runtime.mjs');
 const registered=[{code:'005930',currency:'KRW',type:'주식',market:'KRX'},{code:'NVDA',currency:'USD',type:'주식',market:'NASDAQ'}];
