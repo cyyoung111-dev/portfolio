@@ -14,10 +14,12 @@ async function readJson(url,token,fetchImpl){
  if(!response?.ok)throw Error('PROVENANCE_API_UNVERIFIED');
  return response.json();
 }
-export async function checkGasAutoDeployEligibility({repository,token,fetchImpl=fetch,gitExec=execFileSync}={}){
+export async function checkGasAutoDeployEligibility({repository,token,currentRunId,fetchImpl=fetch,gitExec=execFileSync}={}){
  const unverified=reason=>({changed:true,reason});
  if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(repository||''))
    ||typeof token!=='string'||!token.trim())return unverified('PROVENANCE_CONFIG_UNVERIFIED');
+ if(!Number.isSafeInteger(Number(currentRunId))||Number(currentRunId)<=0)
+  return unverified('PROVENANCE_CURRENT_RUN_UNVERIFIED');
  try{
   const runs=await readJson(API+'/repos/'+repository+'/actions/runs?per_page=100',
    token,fetchImpl);
@@ -37,7 +39,8 @@ export async function checkGasAutoDeployEligibility({repository,token,fetchImpl=
    // attempt may have deployed a different source or changed HEAD; do not
    // confuse its dry-run with a confirmed release. Force the normal path.
    if(runs.workflow_runs.some(other=>other?.name==='gas-deploy'
-      &&Number.isSafeInteger(other.id)&&Number(other.id)>Number(run.id)
+      &&Number.isSafeInteger(other.id)&&Number(other.id)!==Number(currentRunId)
+      &&Number(other.id)>Number(run.id)
       &&(other.event==='workflow_dispatch'
         ||(other.event==='workflow_run'&&other.conclusion!=='success'))))
       return unverified('PROVENANCE_NEWER_DEPLOY_NOT_PROVEN');
@@ -56,7 +59,8 @@ export async function checkGasAutoDeployEligibility({repository,token,fetchImpl=
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const result=await checkGasAutoDeployEligibility({
-  repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN});
+  repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,
+  currentRunId:process.env.GITHUB_RUN_ID});
  if(process.env.GITHUB_OUTPUT)
   fs.appendFileSync(process.env.GITHUB_OUTPUT,'changed='+String(result.changed)+'\n');
  console.log(JSON.stringify(result)); // Only 2 fixed fields; no URLs, tokens, file source or SHA.
