@@ -36,14 +36,27 @@ export function verifiedNhCloseRows(date,rows){
  }
  return accepted;
 }
+function previousOpenDate(date){
+ const start=Date.parse(date+'T00:00:00Z');
+ if(!Number.isFinite(start))return null;
+ for(let n=1;n<=14;n++){
+  const candidate=new Date(start-n*86400000).toISOString().slice(0,10);
+  const session=krxSessionStatus(candidate);
+  if(session==='UNKNOWN')return null;
+  if(session==='OPEN')return candidate;
+ }
+ return null;
+}
 export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>new Date()}={}){
- const from=new Date(Date.parse(date+'T00:00:00Z')-14*86400000).toISOString().slice(0,10);
+ const previous=previousOpenDate(date);
+ if(!previous||krxSessionStatus(date)!=='OPEN')return [];
+ const from=new Date(Date.parse(previous+'T00:00:00Z')-2*86400000).toISOString().slice(0,10);
  const out=await domesticIndexEod.loadSeries(['KOSPI','KOSDAQ','KOSPI200'],from,date,{fetchImpl,now});
  const labels={KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI 200'};
  return Object.keys(labels).flatMap(type=>{
   const list=out.seriesMap[type]||[],current=list.filter(x=>x.date===date);
   const prior=list.filter(x=>x.date<date).at(-1);
-  if(current.length!==1||!prior||current[0].source!=='FDR_KRX_CACHE'
+  if(current.length!==1||!prior||prior.date!==previous||current[0].source!=='FDR_KRX_CACHE'
    ||current[0].role!=='NON_NH_DAILY_INDEX'||current[0].priceType!=='PUBLISHED_EOD_REFERENCE')
     return [];
   return [{type,label:labels[type],date,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',
