@@ -278,10 +278,11 @@ const liveMock=async(url,options)=>{
   const p=new URLSearchParams(options.body);actions.push(p.get('action'));
   let body;
   if(p.get('accessToken').endsWith('-DENY-PROBE'))body={status:'error'};
-  else if(p.get('action')==='getSettings')body={status:'ok',gasVersion:'9.278',settings:{apiKeyStatus:{nh:{enabled:false}}}};
+  else if(p.get('action')==='getSettings')body={status:'ok',gasVersion:'9.279',settings:{apiKeyStatus:{nh:{enabled:false}}}};
   else if(p.get('action')==='saveNhConfig')body={status:'ok',nh:{enabled:true}};
+  else if(p.get('action')==='diagnoseNhMarketData')body={status:'ok',readOnly:true,quotesConnected:true,closes:{},closeSampleComplete:false};
   else if(p.get('action')==='retireLegacyMarketData')body={status:'ok',retired:true};
-  else if(p.get('action')==='getCodeListReadOnly')body={status:'ok',readOnly:true,gasVersion:'9.278',codes:registered};
+  else if(p.get('action')==='getCodeListReadOnly')body={status:'ok',readOnly:true,gasVersion:'9.279',codes:registered};
   else {assert.equal(p.get('persist'),'0');assert.equal(p.get('codes'),'005930,NVDA');body={status:'ok',prices:{'005930':232000,NVDA:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}};}
   return {ok:true,json:async()=>body};
 };
@@ -289,9 +290,9 @@ const reports=[];
 const activation=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:liveMock,report:row=>reports.push(row)});
 assert.equal(activation.status,'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED');assert.equal(activation.fullCoverageVerified,false);
 assert.equal(activation.registeredUsTarget,true);
-assert.deepEqual(reports,[{status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:2,krwRows:1,usdRows:1}]);
+assert.deepEqual(reports[0],{status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:2,krwRows:1,usdRows:1});assert.equal(reports[1].status,'NH_REGULAR_CLOSE_SAMPLE_READBACK');
 assert.doesNotMatch(JSON.stringify(reports),/005930|NVDA|nh-key|nh-secret/);
-assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','retireLegacyMarketData','getCodeListReadOnly','getPrices']);
+assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','retireLegacyMarketData','getCodeListReadOnly','getPrices','diagnoseNhMarketData']);
 const autoCalls=[];
 const skipReadback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',
   token:'admin',skipReadbackIfActive:true,request:async(_url,options)=>{
@@ -299,7 +300,7 @@ const skipReadback=await activateNhRuntime({url:'https://script.google.com/macro
     autoCalls.push(action);
     if(params.get('accessToken').endsWith('-DENY-PROBE'))return {ok:true,json:async()=>({status:'error'})};
     if(action==='getSettings')return {ok:true,json:async()=>({
-      status:'ok',gasVersion:'9.278',settings:{apiKeyStatus:{nh:{enabled:true}}}})};
+      status:'ok',gasVersion:'9.279',settings:{apiKeyStatus:{nh:{enabled:true}}}})};
     if(action==='retireLegacyMarketData')return {ok:true,json:async()=>({status:'ok',retired:true})};
     throw Error('AUTO_DEPLOY_MUST_NOT_CALL_NH_QUOTES_OR_CODE_MASTER');
   }});
@@ -311,7 +312,7 @@ assert.match(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'),
   /NH_RUNTIME_SKIP_READBACK_IF_ACTIVE:.*github\.event_name == 'workflow_run'/);
 const fallback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:async(url,options)=>{
   const p=new URLSearchParams(options.body);
-  if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.278',codes:[registered[0]]})};
+  if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.279',codes:[registered[0]]})};
   if(p.get('action')==='getPrices'){assert.equal(p.get('codes'),'005930,AAPL');assert.equal(p.get('persist'),'0');return {ok:true,json:async()=>({status:'ok',prices:{'005930':232000,AAPL:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}})};}
   return liveMock(url,options);
 }});
@@ -349,3 +350,67 @@ const missingCredentials=setup(),missingMeta={};
 assert.equal(Object.keys(missingCredentials.ctx.fetchPricesToss([{code:'005930',currency:'KRW'}],{},missingMeta)).length,0);
 assert.equal(missingMeta.provider,'NH');assert.equal(missingCredentials.calls.length,0);
 assert.equal(activation.legacyProviderRemoved,true);
+
+// Execute the production close provider and its caller. Time/calendar boundaries
+// use production helpers, not a duplicate implementation of session selection.
+function closeSetup(instant='2026-10-30T07:00:00+09:00') {
+  const calls=[],cache=new Map();let reply,fail=false;
+  class CloseClock extends Date {constructor(...args){super(...(args.length?args:[instant]));}static now(){return Date.parse(instant);}}
+  const ctx={Date:CloseClock,CONFIG:{TIMEZONE:'Asia/Seoul'},Logger:{log:()=>{}},_cleanCode:x=>String(x||''),_isFundCode:x=>String(x).startsWith('F000'),
+    _nhCredentials_:()=>({key:'test-key',secret:'test-secret'}),CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},
+    Utilities:{sleep:()=>{},formatDate:(date,tz,fmt)=>{const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).map(x=>[x.type,x.value]));return fmt==='H'?String(Number(p.hour)):fmt==='HHmm'?p.hour+p.minute:p.year+'-'+p.month+'-'+p.day;}},
+    _nhPost_:(path,input)=>{calls.push({path,input});if(fail)throw Error('NH_HTTP_429');return reply|| (path.includes('currentDaily')?{Output_0:[{bsop_date:'26/10/29',stck_clpr:'232000'}]}:{Output_0:[{iem_cd:'AAPL',trdprc:99999}],Output_1:[{trade_date:'20261029',bsop_date:'20261029',close_prc:'250.125'}]});},
+    fetchPricesKrx:items=>Object.fromEntries(items.filter(x=>x.code==='005930').map(x=>[x.code,{price:231000,source:'KRX'}])),
+    fetchPricesYahooRegularClose:(items,date)=>Object.fromEntries(items.map(x=>[x.code,{price:249,usedDate:date,marketDate:date,source:'YAHOO_REGULAR_CLOSE',status:'CONFIRMED',priceType:'REGULAR_CLOSE'}]))};
+  vm.createContext(ctx);
+  const constants=['FOREIGN_US_EQUITY_CLOSED_DATES_','KRX_CONFIRMED_CLOSED_DATES_2026','KRX_CONFIRMED_CLOSED_DATES_2027'].map(n=>source.match(new RegExp('var '+n+' = \\{[^]*?\\n\\};'))[0]).join('\n');
+  vm.runInContext(constants+'\n'+['_foreignMarketTimeZone_','_foreignConfirmedExchangeHoliday_','_foreignMarketRegularCloseCutoff_','_krxCalendarStatus_','_isKrxDailyCloseTarget_','_normalizeDate','_isConfirmedHistoryPrice_','_nhCloseDate_','fetchNhRegularCloses','fetchPricesGoogleFinance'].map(extract).join('\n'),ctx);
+  return {ctx,calls,reply:x=>{reply=x;},fail:()=>{fail=true;}};
+}
+const kr={code:'005930',currency:'KRW',market:'KRX'},us={code:'AAPL',currency:'USD',market:'NASDAQ'};
+let c=closeSetup();
+let closes=c.ctx.fetchPricesGoogleFinance([kr,us],'2026-10-30',null,{useMarketCloseCutoffs:true});
+assert.equal(closes['005930'].price,232000);assert.equal(closes.AAPL.price,250.125);
+assert.equal(closes['005930'].source,'NH_REGULAR_CLOSE');assert.equal(closes.AAPL.source,'NH_REGULAR_CLOSE');
+assert.equal(closes['005930'].marketDate,'2026-10-29');assert.equal(closes.AAPL.marketDate,'2026-10-29');
+assert.equal(closes.AAPL.currency,'USD');assert.equal(closes.AAPL.status,'CONFIRMED');
+const usInput=c.calls.find(x=>x.path.endsWith('/period')).input;
+assert.equal(usInput.market_cls,'1');assert.equal(usInput.gubun,'3');assert.equal(usInput.today_cls,'0');
+assert.equal(usInput.end_dt,'20261029');
+const beforeCache=c.calls.length;c.ctx.fetchNhRegularCloses([kr,us],'2026-10-30',{useMarketCloseCutoffs:true});assert.equal(c.calls.length,beforeCache);
+for(const [raw,expected] of [['20261029','2026-10-29'],['26/10/29','2026-10-29'],['20260230',''],['26/02/30',''],['','']])assert.equal(c.ctx._nhCloseDate_(raw),expected);
+for(const row of [[],[{trade_date:'20261028',close_prc:250}],[{trade_date:'20261029',bsop_date:'20261028',close_prc:250}],[{trade_date:'20261029',close_prc:0}],[{trade_date:'20261029',close_prc:'Infinity'}],[{trade_date:'20261029',close_prc:250},{trade_date:'20261029',close_prc:250}]]){
+  c=closeSetup();c.reply({Output_0:[{iem_cd:'AAPL',trdprc:999}],Output_1:row});
+  assert.equal(c.ctx.fetchPricesGoogleFinance([us],'2026-10-29',null).AAPL.source,'YAHOO_REGULAR_CLOSE');
+}
+c=closeSetup();c.reply({Output_0:[{iem_cd:'TSLA'}],Output_1:[{trade_date:'20261029',close_prc:250}]});assert.equal(c.ctx.fetchNhRegularCloses([us],'2026-10-29').AAPL,undefined);
+c=closeSetup();c.fail();closes=c.ctx.fetchPricesGoogleFinance([kr,us],'2026-10-29',null);assert.equal(closes['005930'].source,'KRX');assert.equal(closes.AAPL.source,'YAHOO_REGULAR_CLOSE');assert.equal(c.calls.length,1);
+// Intraday, weekends, holidays, DST and the New York publication buffer.
+for(const [instant,date,target,expected] of [
+ ['2026-10-30T05:30:00+09:00','2026-10-29',us,0],
+ ['2026-10-30T07:00:00+09:00','2026-10-29',us,1],
+ ['2026-11-03T06:30:00+09:00','2026-11-02',us,0],
+ ['2026-11-03T07:30:00+09:00','2026-11-02',us,1],
+ ['2026-11-27T08:00:00+09:00','2026-11-26',us,0],
+ ['2026-10-31T17:00:00+09:00','2026-10-31',kr,0],
+ ['2026-10-30T15:59:00+09:00','2026-10-30',kr,0],
+ ['2026-10-30T16:00:00+09:00','2026-10-30',kr,1]
+]){c=closeSetup(instant);c.ctx.fetchNhRegularCloses([target],date);assert.equal(c.calls.length,expected,instant);}
+console.log('NH regular closes: KR/US actual provider and fallback, exact dates, daily close field, identity, cache, holidays, intraday and DST passed');
+
+c=closeSetup();c.ctx._countBusinessWeekdaysBetween=()=>0;
+vm.runInContext(['fetchDomesticRegularCloses','_assessDailyKrxStockClose','_verifyForeignDailyCloseCoverage_'].map(extract).join('\n'),c.ctx);
+const daily=c.ctx.fetchDomesticRegularCloses([kr],'2026-10-29');
+assert.equal(daily['005930'].source,'NH_REGULAR_CLOSE');
+assert.equal(c.ctx._assessDailyKrxStockClose([kr],daily,'2026-10-29').confirmed,1);
+assert.equal(c.ctx._verifyForeignDailyCloseCoverage_([us],c.ctx.fetchNhRegularCloses([us],'2026-10-29'),new Date('2026-10-30T07:00:00+09:00')),1);
+assert.throws(()=>c.ctx._assessDailyKrxStockClose([kr],{'005930':{price:100,source:'NH',usedDate:'2026-10-29'}},'2026-10-29'));
+assert.throws(()=>c.ctx._verifyForeignDailyCloseCoverage_([us],{AAPL:{price:100,source:'NH',usedDate:'2026-10-29'}},new Date('2026-10-30T07:00:00+09:00')));
+console.log('Daily close production admission accepts NH confirmed bars and rejects NH indicative quotes');
+
+vm.runInContext(extract('_getOfficialKrxPriceHistoryLastDate'),c.ctx);
+const mixedHistory=[['2026-10-28','005930','','','','NH_REGULAR_CLOSE'],['2026-10-29','AAPL','','','','NH_REGULAR_CLOSE'],['2026-10-30','ABCDEF','','','','NH_REGULAR_CLOSE']];
+const ph={getLastRow:()=>4,getRange:()=>({getValues:()=>mixedHistory})};
+assert.equal(c.ctx._getOfficialKrxPriceHistoryLastDate(ph,[kr,us,{code:'ABCDEF',currency:'USD',market:'NASDAQ'}]),'2026-10-28');
+assert.equal(c.ctx._getOfficialKrxPriceHistoryLastDate(ph,[]),'-');
+console.log('NH domestic recent-close date: US bars and missing master cannot hide domestic delay');

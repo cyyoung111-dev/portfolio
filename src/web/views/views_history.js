@@ -659,11 +659,12 @@ function renderGsheetView(area) {
       </div>
 
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
-        <div style="font-size:.72rem;font-weight:700">NH PLUG 국내·미국 현재가</div>
-        <div id="nhConfigStatus" style="font-size:.68rem;margin:8px 0">${window.GAS_API_KEY_STATUS?.nh?.enabled ? 'NH 운영 중' : 'NH 운영 연결 필요'}</div>
+        <div style="font-size:.72rem;font-weight:700">NH PLUG 국내·미국 현재가·종가</div>
+        <div id="nhConfigStatus" style="font-size:.68rem;margin:8px 0">${window.GAS_API_KEY_STATUS?.nh?.enabled ? 'NH 설정됨 · 연결상태 확인 가능' : 'NH 운영 연결 필요'}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <input id="nhAppKeyInput" type="password" autocomplete="new-password" placeholder="NH App Key" />
           <input id="nhAppSecretInput" type="password" autocomplete="new-password" placeholder="NH App Secret" />
+          <button id="btn-diagnose-nh" class="btn-purple-sm">NH PLUG 연결상태 확인</button>
           <button id="btn-save-nh-config" class="btn-purple-sm">NH 연결 및 전환</button>
         </div>
       </div>
