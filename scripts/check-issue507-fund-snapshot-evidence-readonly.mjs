@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,summarizeSourceMismatchKinds,summarizeKnownFundSourcePairs,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
+import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,summarizeSourceMismatchKinds,summarizeKnownFundSourcePairs,classifyF00001ScopedReview,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
 const history={status:'ok',date:TARGET_DATE,items:[{code:TARGET_CODE,evalAmt:150,source:'FUND_NAV'}]};
 const prices={status:'ok',prices:{[TARGET_CODE]:[{date:TARGET_DATE,price:150,source:'FUND_NAV'}]}};
 const run=(h,p)=>summarizeEvidence(h,p);
@@ -179,6 +179,59 @@ const noUnknownLeak=withSource({sourceMismatches:[
  {code:'UNKNOWN_PRIVATE_ASSET',expected:'OTHER_PROVIDER_SECRET',stored:'PRIVATE_TOKEN'}]});
 assert.ok(!JSON.stringify(summarizeKnownFundSourcePairs(noUnknownLeak)).includes('PRIVATE'));
 
+
+// Review only: F00001 confirmed NAV needs exact single-row review, while the
+// F00002 missing-Friday NAV label must remain intact and NEVER be auto-erased.
+const reviewFixture=withSource({
+ expectedCodes:[TARGET_CODE,'F00002'],storedCodes:[TARGET_CODE,'F00002'],
+ expectedRows:[[TARGET_DATE,TARGET_CODE],[TARGET_DATE,'F00002'],...Array.from({length:36},(_,i)=>[TARGET_DATE,'OTHER'+i])],
+ storedRows:[[TARGET_DATE,TARGET_CODE],[TARGET_DATE,'F00002'],...Array.from({length:36},(_,i)=>[TARGET_DATE,'OTHER'+i])],
+ evalUnitMismatches:[{code:TARGET_CODE,expected:888,stored:777}],
+ sourceMismatches:[
+  {code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY@2026-10-29'},
+  {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'FUND_NAV_CARRY_INPUT_REQUIRED'}],
+ fundNavStates:[{code:'F00002',sourceDate:'2026-10-29'}],
+ priceIntegrity:[{code:TARGET_CODE,status:'VALID'},{code:'F00002',status:'VALID'}]
+});
+const review=classifyF00001ScopedReview(reviewFixture,hanwhaStatus,kbStatus);
+assert.equal(review.reviewOnlyCandidate,true);
+assert.equal(review.existingSingleFundGateBlocked,true);
+assert.equal(review.retainF00002MissingNavWarning,true);
+assert.equal(review.writeAuthorized,false);
+assert.equal(review.mutationPerformed,false);
+assert.equal(review.requiresBackup,true);
+assert.equal(review.requiresWriterExclusion,true);
+assert.equal(review.requiresExplicitApproval,true);
+assert.deepEqual(review.blockers,[]);
+assert.ok(!JSON.stringify(review).includes('888'));
+for(const [mutation,secondStatus] of [
+ [{qtyMismatches:[{code:'F00002'}]}],
+ [{evalAmtMismatches:[{code:TARGET_CODE},{code:'F00002'}]}],
+ [{sourceMismatches:[{code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY@2026-10-29'},
+     {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'MANUAL'}]}],
+ [{sourceMismatches:[{code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY@2026-10-29'},
+     {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'FUND_NAV_CARRY_INPUT_REQUIRED'},
+     {code:'PRIVATE_ACCOUNT',expected:'MANUAL',stored:'OTHER'}]}],
+ [{priceIntegrity:[{code:TARGET_CODE,status:'VALID'},{code:'F00002',status:'SUSPICIOUS'}]}],
+ [{sourceDataErrors:['PRIVATE_SECRET']}],
+ [{expectedRowCount:39}],
+ [{storedRows:[]}],
+ [{evalUnitMismatches:[]}],
+ [{sourceMismatches:reviewFixture.diagnostic.sourceMismatches,
+    fundNavStates:[{code:'F00002',sourceDate:'2026-10-28'}]}],
+ [{}, {...kbStatus,fundResults:{F00002:{code:'F00002',dates:[{
+   ...activeRow('F00002','EXISTING_CONFIRMED')]}}}}]
+]){
+ const payload=withSource({...reviewFixture.diagnostic,...mutation});
+ const result=classifyF00001ScopedReview(payload,hanwhaStatus,secondStatus||kbStatus);
+ assert.equal(result.reviewOnlyCandidate,false,JSON.stringify(Object.keys(mutation)));
+ assert.equal(result.writeAuthorized,false);
+ assert.equal(result.retainF00002MissingNavWarning,true);
+ assert.ok(result.blockers.length>=1);
+ assert.ok(result.blockers.every(x=>/^[A-Z_]+$/.test(x)));
+ assert.ok(!JSON.stringify(result).includes('PRIVATE'));
+}
+
 const actions=[],emitted=[];
 await diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
  token:'PRIVATE_TOKEN',emit:x=>emitted.push(x),
@@ -206,6 +259,8 @@ assert.equal(emitted[0].targetSourceKinds.expectedSourceKind,'CONFIRMED_NAV');
 assert.equal(emitted[0].otherMismatchCount,0);
 assert.deepEqual(emitted[0].knownFundSourcePairs,{F00002:{mismatch:false},F00003:{mismatch:false}});
 assert.equal(emitted[0].writeAuthorized,false);
+assert.equal(emitted[0].scopedRepairReview.writeAuthorized,false);
+assert.equal(emitted[0].scopedRepairReview.reviewOnlyCandidate,false);
 assert.equal(emitted[0].candidate,true);
 assert.deepEqual(emitted[0].blockers,[]);
 assert.equal(emitted[0].writeAuthorized,false);
