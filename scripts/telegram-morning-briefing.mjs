@@ -1,6 +1,7 @@
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import {fetchNhNight} from './nh-night-reference.mjs';
 import {MORNING_SERIES, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
+import {loadMorningMaster,mergeMorningSourceRows} from './telegram-morning-master.mjs';
 export async function fetchNightReference(date,options={}) { return fetchNhNight(date,options); }
 
 // All supported verified daily sources; no abbreviated seven-ticker list.
@@ -69,10 +70,13 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   if(calendar!=='OPEN')throw new Error('TELEGRAM_CALENDAR_UNKNOWN');
   // Bounded concurrency reduces Yahoo rate limiting; the message still
   // identifies missing inputs rather than inferring or reusing stale prices.
-  const [candidate,values]=await Promise.all([
+  const [candidate,quotes,masterRows]=await Promise.all([
     referenceFetch(first.date,{fetchImpl,now}),
     collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,now:now(),fetchImpl}),
+    loadMorningMaster(first.date,{url:process.env.GAS_WEB_APP_URL,
+      token:process.env.GAS_ACCESS_TOKEN,fetchImpl,now:now()}),
   ]);
+  const values=mergeMorningSourceRows(quotes,masterRows);
   const last=scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
   const reference=candidate && candidate.source==='NH' && /^K[A-Z0-9]{8}$/.test(candidate.contract||'') && candidate.kind==='REFERENCE'
