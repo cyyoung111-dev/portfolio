@@ -73,6 +73,7 @@ function checkWorkflow(source){
   assert.equal(sourceStep.run,'node scripts/gas-auto-deploy-eligibility.mjs');
   assert.match(JSON.stringify(sourceStep.env),/github.token/);
   assert.match(JSON.stringify(sourceStep.env),/github.repository/);
+  assert.match(JSON.stringify(sourceStep.env),/github.run_id/);
   const expr=String.fromCharCode(36,123,123)+' steps.gas_source.outputs.changed '+String.fromCharCode(125,125);
   assert.equal(validate.outputs.auto_source_changed,expr);
   assert.match(deploy.if,/needs\.validate\.outputs\.auto_source_changed == 'true'/);
