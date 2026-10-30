@@ -4,6 +4,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {sendTelegram} from './telegram-morning-briefing.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {expectedMorningDate} from './telegram-morning-report.mjs';
+import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -34,7 +35,7 @@ export function verifiedNhCloseRows(date,rows){
  }
  return accepted;
 }
-export function formatClose(date,rows){
+export function formatClose(date,rows,secondary=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
  const lines=['['+date+' 장후 시장 브리핑]',
   '기준: NH PLUG 완료 정규장 일봉 · KRX/Yahoo는 익거래일 사후 검산만','',
@@ -49,14 +50,26 @@ export function formatClose(date,rows){
   lines.push(target.label+': '+row.value.toLocaleString('en-US',{maximumFractionDigits:2})
     +change+' · '+row.date+' · NH');
  }
- for(const label of NH_UNVERIFIED.slice(3))lines.push(label+': NH 지수 코드 미검증');
+ lines.push('','■ 비NH 공식 외부 참고 지표');
+ for(const label of NH_UNVERIFIED.slice(3)){
+  const candidates=secondary.filter(row=>row?.label===label&&row.role==='NON_NH_REFERENCE_ONLY'
+    &&row.date===expectedMorningDate('SPX',date)
+    &&Number.isFinite(row.value)&&row.value>0
+    &&((label==='다우존스'&&row.source==='FRED_DJIA')
+      ||(label==='VIX'&&row.source==='CBOE_VIX_DAILY')));
+  if(candidates.length!==1){lines.push(label+': NH 코드 미검증 · 별도 참고값 미확보');continue;}
+  const item=candidates[0];
+  lines.push(label+': '+item.value.toLocaleString('en-US',{maximumFractionDigits:2})
+    +' · '+item.date+' · '+item.source+' 참고 (NH 아님)');
+ }
  lines.push('','NH 지수 확인 '+count+'/'+NH_VERIFIED.length+' · 미검증 지수 '+NH_UNVERIFIED.length+'개',
   '당일 국내 종가/포트폴리오 손익은 NH 정규장 원천 연동 전까지 표시하지 않습니다.',
   'NH 기준값은 거래소 공식 정산가를 뜻하지 않으며, 다른 원천 수치로 대체하지 않습니다.');
  return lines.join('\n');
 }
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
- gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
+ gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
+ fetchSecondary=fetchSecondaryIndexes}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -74,8 +87,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   const last=closeWindow(now());
   if(!last.allowed||last.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   if(!verified.length)return {ready:false,status:'NH_INDEX_CLOSE_NOT_READY',date:window.date};
+  const secondary=await fetchSecondary(window.date,{fetchImpl});
+  const after=closeWindow(now());
+  if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
-    nhConfirmed:verified.length,message:formatClose(window.date,verified)};
+    nhConfirmed:verified.length,message:formatClose(window.date,verified,secondary)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
