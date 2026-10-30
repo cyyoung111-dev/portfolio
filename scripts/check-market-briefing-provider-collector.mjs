@@ -181,3 +181,7 @@ assert.equal(defaultNightDate,'2026-09-18');
 assert.equal(browserNight.payload.K200_NIGHT.sourceDate,'2026-09-18');
 const oldNight=await collector.collect(nightRequest,'2026-09-18',{checkpoint:'MORNING',nightSourceDate:'2026-09-17'});
 assert.equal(oldNight.payload.K200_NIGHT,undefined,'never remap older BAS_DD into current briefing');
+
+const nhHistory=collector.normalizeStockPoint('SAMSUNG','005930',{price:99999,sourceDate:'2026-09-18',source:'NH'},[{date:'2026-09-18',price:80500,source:'NH_REGULAR_CLOSE'}],'2026-09-18');
+assert.equal(nhHistory.status,'FINAL');assert.equal(nhHistory.value,80500);assert.equal(nhHistory.source,'NH_REGULAR_CLOSE');
+assert.equal(collector.normalizeStockPoint('SAMSUNG','005930',{price:99999,sourceDate:'2026-09-18',source:'NH'},[{date:'2026-09-18',price:80500,source:'NH'}],'2026-09-18').status,'PARTIAL');

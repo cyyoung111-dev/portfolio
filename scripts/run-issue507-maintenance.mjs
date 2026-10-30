@@ -15,7 +15,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
   const rejected=await request('getAutomationStatus',{},token==='ISSUE507_BAD_AUTH'?'ISSUE507_BAD_AUTH_ALT':'ISSUE507_BAD_AUTH');
   if(rejected.status!=='error'||rejected.message!=='인증 실패')throw Error('MAINTENANCE_AUTH_GUARD');
   const before=await request('getAutomationStatus');
-  if(before.status!=='ok'||before.gasVersion!=='9.278')throw Error('MAINTENANCE_VERSION');
+  if(before.status!=='ok'||before.gasVersion!=='9.279')throw Error('MAINTENANCE_VERSION');
   const summaries=[];
   for(const mode of ['reconcile','yearendPrices']) {
     let r;
@@ -34,7 +34,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
     summaries.push({mode,status:'OK',applied:r.applied,...Object.fromEntries(keys.map(k=>[k,r[k]]))});
   }
   const after=await request('getAutomationStatus');
-  if(after.status!=='ok'||after.gasVersion!=='9.278')throw Error('MAINTENANCE_POSTCHECK');
+  if(after.status!=='ok'||after.gasVersion!=='9.279')throw Error('MAINTENANCE_POSTCHECK');
   const q=summaries.find(x=>x.mode==='reconcile');
   if(q.status==='OK'&&after.automation?.tradeSnapshotDeferredCount!==q.remaining)throw Error('MAINTENANCE_QUEUE_READBACK');
   const complete=summaries.every(r=>r.status==='OK' && (!apply || r.mode==='reconcile' || r.added===r.needed));
@@ -45,7 +45,7 @@ export async function selfTest() {
   let count=0;
   const fixture=async(_url,opts)=>{const a=Object.fromEntries(opts.body);count++;let d;
     if(a.accessToken==='ISSUE507_BAD_AUTH')d={status:'error',message:'인증 실패'};
-    else if(a.action==='getAutomationStatus')d={status:'ok',gasVersion:'9.278',automation:{tradeSnapshotDeferredCount:count<4?31:1}};
+    else if(a.action==='getAutomationStatus')d={status:'ok',gasVersion:'9.279',automation:{tradeSnapshotDeferredCount:count<4?31:1}};
     else if(a.mode==='yearendPrices')d={status:'ok',mode:a.mode,applied:true,needed:3,available:3,added:3,private:'NOT_FOR_LOGS'};
     else d={status:'ok',mode:a.mode,applied:true,checked:31,verifiedValid:30,removed:30,before:31,remaining:1,originalDataWritten:false};
     return {ok:true,json:async()=>d};};
@@ -57,7 +57,7 @@ export async function selfTest() {
   assert.equal(partial.complete,false);
   assert.equal(r.complete,true);
   assert.equal(partial.summaries[0].removed,30);assert.equal(partial.summaries[1].status,'UNVERIFIED');assert.equal(partial.deferredCount,1);
-  const blocked=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(_u,o)=>({ok:true,json:async()=>o.body.get('accessToken')==='ISSUE507_BAD_AUTH'?{status:'error',message:'인증 실패'}:o.body.get('action')==='getAutomationStatus'?{status:'ok',gasVersion:'9.278',automation:{tradeSnapshotDeferredCount:31}}:{status:'error',message:'PRIVATE_BUSY'}})});
+  const blocked=await run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',apply:true,fetchImpl:async(_u,o)=>({ok:true,json:async()=>o.body.get('accessToken')==='ISSUE507_BAD_AUTH'?{status:'error',message:'인증 실패'}:o.body.get('action')==='getAutomationStatus'?{status:'ok',gasVersion:'9.279',automation:{tradeSnapshotDeferredCount:31}}:{status:'error',message:'PRIVATE_BUSY'}})});
   assert.equal(blocked.complete,false);assert.equal(blocked.deferredCount,31);assert.ok(blocked.summaries.every(x=>x.status==='BLOCKED'));assert.ok(!JSON.stringify(blocked).includes('PRIVATE_BUSY'));assert.ok(blocked.summaries.every(x=>x.reason==='UNCLASSIFIED'));
   await assert.rejects(()=>run({url:'https://example.com',token:'TEST',fetchImpl:fixture}));
   await assert.rejects(()=>run({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl:async()=>{throw Error('PRIVATE');}}),/^Error: MAINTENANCE_NETWORK$/);

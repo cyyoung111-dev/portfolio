@@ -1584,3 +1584,13 @@ async function saveNhConfigFromUI() {
     if ($el('nhAppSecretInput')) $el('nhAppSecretInput').value = '';
   }
 }
+
+async function diagnoseNhFromUI() {
+  const target=$el('nhConfigStatus');
+  if(target)target.textContent='NH 한국·미국 연결 확인 중…';
+  try {
+    const data=await requestGsheetFormJson('diagnoseNhMarketData',{}, {timeoutMs:90000,retry:0});
+    if(data?.status!=='ok'||data.readOnly!==true)throw new Error(data?.message||'NH 진단 응답 오류');
+    if(target)target.textContent=(data.quotesConnected?'NH 한국·미국 현재가 연결 정상':'NH 현재가 일부 미확인')+' · '+(data.closeSampleComplete?'최근 정규장 종가 표본 확보':'최근 정규장 종가 일부 미확보');
+  }catch(error){if(target)target.textContent='NH 연결 미확인: '+(error.message||'응답 오류');}
+}
