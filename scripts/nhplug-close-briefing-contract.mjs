@@ -50,7 +50,7 @@ export function prepareNhCloseBriefing({tradingDate,expected,observations=[],asO
     seen.add(row.code);
   }
   const lines=['['+tradingDate+' 한국장 마감 브리핑]',
-    'NH PLUG 제공 당일 KRX 정규장 종가 (KRX 공식 종가와 교차검증 전)',''];
+    '운영 종가 기준: NH PLUG 당일 정규장 종가 · KRX/Yahoo 익거래일 사후 대조',''];
   let verifiedCount=0;
   for(const row of expected){
     const found=selectedClose(observations,row.code,tradingDate,at,open);
@@ -64,11 +64,88 @@ export function prepareNhCloseBriefing({tradingDate,expected,observations=[],asO
   }
   lines.splice(3,0,'종목 수집 '+verifiedCount+'/'+expected.length+' · 미확보 '+(expected.length-verifiedCount));
   lines.push('','시장지수·계좌 평가손익: 별도 검증된 원천 연동 전');
-  lines.push('이 메시지는 미발송 검증용 초안입니다. 매매·계좌 데이터와 KRX 공식 확정가격으로 사용하지 마세요.');
+  lines.push('NH 운영 기준 종가는 거래소 공식 정산가격을 의미하지 않습니다. 본 메시지는 미발송 검증용 초안입니다.');
   const message=lines.join('\n');
   if(message.length>4096)throw Error('CLOSE_MESSAGE_TOO_LARGE');
   return Object.freeze({
     status:verifiedCount===expected.length?'SOURCE_ROWS_PRESENT_FINALITY_UNVERIFIED':'INCOMPLETE',
     tradingDate,total:expected.length,received:verifiedCount,missing:expected.length-verifiedCount,message,
   });
+}
+
+// Pure audit after independent, date-complete KRX / Yahoo candles arrive.
+// This never changes NH source rows or retroactively edits any briefing,
+// price-history cell or Snapshot. Any discrepancy is a separate report.
+const nextKrxOpen = date => {
+  let d=new Date(date+'T00:00:00Z');
+  for(let i=0;i<16;i++){
+    d=new Date(d.getTime()+86400000);
+    const target=d.toISOString().slice(0,10);
+    const status=krxSessionStatus(target);
+    if(status==='OPEN')return target;
+    if(status==='UNKNOWN')return null;
+  }
+  return null;
+};
+export function auditNhCloseNextDay({tradingDate,asOf,nhRows=[],krxRows=[],yahooRows=[]}={}) {
+  if(!validDate(tradingDate)||typeof asOf!=='string'||!ISO_WITH_OFFSET.test(asOf)
+    ||!Number.isFinite(Date.parse(asOf)))throw Error('NH_AUDIT_DATE_INVALID');
+  // Korea and US have independent calendars. NH provides the dated regular
+  // close. A US Friday bar may publish on Saturday KST before Korea reopens.
+  const nextCalendarDay=new Date(Date.parse(tradingDate+'T00:00:00Z')+86400000)
+    .toISOString().slice(0,10);
+  const firstKrxOpen=nextKrxOpen(tradingDate);
+  const firstKrxPublication=firstKrxOpen?Date.parse(firstKrxOpen+'T08:00:00+09:00'):NaN;
+  const firstUsPublication=Date.parse(nextCalendarDay+'T00:00:00+09:00');
+  if(!Array.isArray(nhRows)||!Array.isArray(krxRows)||!Array.isArray(yahooRows)
+    ||nhRows.length>100||krxRows.length>100||yahooRows.length>100)
+    throw Error('NH_AUDIT_INPUT_INVALID');
+  const now=Date.parse(asOf),usWeekday=new Date(tradingDate+'T00:00:00Z').getUTCDay();
+  const trustedNh=row=>row&&typeof row.code==='string'
+    &&(row.currency==='KRW'
+      ? /^[A-Z0-9]{6}$/.test(row.code)&&krxSessionStatus(tradingDate)==='OPEN'
+      : row.currency==='USD'
+        &&/^[A-Z][A-Z0-9.\-]{0,11}$/.test(row.code)
+        &&usWeekday!==0&&usWeekday!==6)
+    &&row.source==='NH_REGULAR_CLOSE'&&row.priceType==='REGULAR_CLOSE'
+    &&row.status==='CONFIRMED'&&row.usedDate===tradingDate&&row.marketDate===tradingDate
+    &&num(row.price)!==null;
+  const trustedAudit=(row,source,currency,earliest)=>row&&row.source===source
+    &&row.code&&row.date===tradingDate&&row.currency===currency&&num(row.price)!==null
+    &&row.completed===true&&typeof row.publishedAt==='string'
+    &&ISO_WITH_OFFSET.test(row.publishedAt)
+    &&Date.parse(row.publishedAt)>=earliest
+    &&Date.parse(row.publishedAt)<=now
+    &&(source!=='YAHOO_DAILY_CLOSE'||row.adjusted===false);
+  const priceMap=rows=>{
+    const grouped=new Map();
+    for(const row of rows){const key=String(row?.code||'');
+      if(!grouped.has(key))grouped.set(key,[]);
+      grouped.get(key).push(row);
+    }
+    return grouped;
+  };
+  const nh=priceMap(nhRows),krx=priceMap(krxRows),yahoo=priceMap(yahooRows);
+  const allCodes=[...new Set(nhRows.map(row=>String(row?.code||'')))].sort();
+  const results=allCodes.map(code=>{
+    const rows=nh.get(code)||[],base=rows.length===1&&trustedNh(rows[0])?rows[0]:null;
+    if(!base)return {code,status:'NH_INVALID_OR_DUPLICATE',krx:'NOT_CHECKED',yahoo:'NOT_CHECKED'};
+    const earliest=base.currency==='KRW'?firstKrxPublication:firstUsPublication;
+    if(!Number.isFinite(earliest)||now<earliest)
+      return {code,status:'NEXT_DAY_NOT_PUBLISHED',krx:'NOT_CHECKED',yahoo:'NOT_CHECKED'};
+    const compare=(map,source)=>{
+      const evidence=map.get(code)||[];
+      const published=source==='KRX_OFFICIAL'?firstKrxPublication:earliest;
+      const valid=evidence.length===1
+        &&trustedAudit(evidence[0],source,base.currency,published)?evidence[0]:null;
+      if(!valid)return {status:'NOT_VERIFIED'};
+      const delta=Number(valid.price)-Number(base.price);
+      return {status:delta===0?'MATCH':'DIFFERENCE',delta,price:Number(valid.price)};
+    };
+    return {code,marketDate:tradingDate,nhPrice:Number(base.price),currency:base.currency,
+      status:'NH_OPERATING_CLOSE',krx:base.currency==='KRW'?compare(krx,'KRX_OFFICIAL'):{status:'NOT_APPLICABLE'},
+      yahoo:compare(yahoo,'YAHOO_DAILY_CLOSE')};
+  });
+  return Object.freeze({tradingDate,asOf,nhSource:'NH_REGULAR_CLOSE',
+    purpose:'NEXT_DAY_READ_ONLY_AUDIT',originalNhPreserved:true,writesPerformed:0,results});
 }

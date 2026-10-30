@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {prepareNhCloseBriefing} from './nhplug-close-briefing-contract.mjs';
+import {prepareNhCloseBriefing,auditNhCloseNextDay} from './nhplug-close-briefing-contract.mjs';
 
 const tradingDate='2026-10-29';
 const asOf='2026-10-29T16:00:00+09:00';
@@ -24,7 +24,7 @@ assert.match(ok.message,/삼성전자 \(005930\): 71,300원 \(\+1\.86%\)/);
 assert.match(ok.message,/KODEX 200 \(069500\): 31,000원/);
 assert.doesNotMatch(ok.message,/KODEX 200.*\([+-]?\d+\.\d+%\)/);
 assert.match(ok.message,/배당 ETF \(0046Y0\): 10,010원/);
-assert.match(ok.message,/KRX 공식 종가와 교차검증 전/);
+assert.match(ok.message,/NH PLUG 당일 정규장 종가 · KRX\/Yahoo 익거래일 사후 대조/);
 assert.match(ok.message,/시장지수·계좌 평가손익: 별도 검증된 원천 연동 전/);
 assert.ok(Object.isFrozen(ok));
 
@@ -66,4 +66,63 @@ assert.throws(()=>prepareNhCloseBriefing({...prepared,expected:[{...expected[0],
 const before=JSON.stringify(prepared);
 prepareNhCloseBriefing(prepared);
 assert.equal(JSON.stringify(prepared),before,'dry-run contract must not mutate input');
-console.log('NH 16:00 close briefing pure dry-run contract tests passed');
+
+const closeDate='2026-10-29',auditAt='2026-10-30T08:10:00+09:00';
+const baseNh=[
+ {code:'005930',source:'NH_REGULAR_CLOSE',priceType:'REGULAR_CLOSE',status:'CONFIRMED',
+  usedDate:closeDate,marketDate:closeDate,currency:'KRW',price:232000},
+ {code:'AAPL',source:'NH_REGULAR_CLOSE',priceType:'REGULAR_CLOSE',status:'CONFIRMED',
+  usedDate:closeDate,marketDate:closeDate,currency:'USD',price:348.91},
+];
+const verifiedKRX={code:'005930',source:'KRX_OFFICIAL',price:232000,date:closeDate,
+ currency:'KRW',completed:true,publishedAt:auditAt};
+const verifiedYahoo={code:'AAPL',source:'YAHOO_DAILY_CLOSE',price:349,date:closeDate,
+ currency:'USD',completed:true,adjusted:false,publishedAt:auditAt};
+const auditInput={tradingDate:closeDate,asOf:auditAt,nhRows:baseNh,
+  krxRows:[verifiedKRX],yahooRows:[verifiedYahoo]};
+const auditOriginal=JSON.stringify(auditInput);
+const audited=auditNhCloseNextDay(auditInput);
+assert.equal(audited.purpose,'NEXT_DAY_READ_ONLY_AUDIT');
+assert.equal(audited.writesPerformed,0);
+assert.equal(audited.originalNhPreserved,true);
+assert.equal(audited.results.find(x=>x.code==='005930').krx.status,'MATCH');
+assert.equal(audited.results.find(x=>x.code==='AAPL').yahoo.status,'DIFFERENCE');
+assert.ok(Math.abs(audited.results.find(x=>x.code==='AAPL').yahoo.delta-.09)<1e-8);
+assert.equal(audited.results.find(x=>x.code==='AAPL').nhPrice,348.91);
+assert.equal(audited.results.find(x=>x.code==='AAPL').krx.status,'NOT_APPLICABLE');
+assert.equal(JSON.stringify(auditInput),auditOriginal,'independent audit cannot alter NH or comparison evidence');
+assert.equal(auditNhCloseNextDay({...auditInput,asOf:'2026-10-30T07:59:59+09:00'})
+ .results.find(x=>x.code==='005930').status,'NEXT_DAY_NOT_PUBLISHED');
+const usFriday={
+  code:'BRK.B',source:'NH_REGULAR_CLOSE',priceType:'REGULAR_CLOSE',
+  status:'CONFIRMED',usedDate:'2026-10-09',marketDate:'2026-10-09',currency:'USD',price:495
+};
+const usAudit=auditNhCloseNextDay({tradingDate:'2026-10-09',asOf:'2026-10-12T09:00:00+09:00',
+ nhRows:[usFriday],yahooRows:[{code:'BRK.B',source:'YAHOO_DAILY_CLOSE',
+ price:495,date:'2026-10-09',currency:'USD',completed:true,adjusted:false,
+ publishedAt:'2026-10-10T06:00:00+09:00'}]});
+assert.equal(usAudit.results[0].status,'NH_OPERATING_CLOSE');
+assert.equal(usAudit.results[0].yahoo.status,'MATCH','Friday US close on KRX holiday must survive Monday audit');
+const usSaturday=auditNhCloseNextDay({tradingDate:'2026-10-30',asOf:'2026-11-02T09:00:00+09:00',
+ nhRows:[{...usFriday,code:'BRK-B',usedDate:'2026-10-30',marketDate:'2026-10-30'}],
+ yahooRows:[{code:'BRK-B',source:'YAHOO_DAILY_CLOSE',price:495,date:'2026-10-30',
+ currency:'USD',completed:true,adjusted:false,publishedAt:'2026-10-31T06:00:00+09:00'}]});
+assert.equal(usSaturday.results[0].yahoo.status,'MATCH',
+ 'US Friday completion can be published before Monday KRX open');
+for(const invalid of [
+ {...auditInput,krxRows:[{...verifiedKRX,date:'2026-10-28'}]},
+ {...auditInput,krxRows:[{...verifiedKRX,completed:false}]},
+ {...auditInput,krxRows:[{...verifiedKRX,publishedAt:'2026-10-30T07:59:59+09:00'}]},
+ {...auditInput,krxRows:[{...verifiedKRX,publishedAt:'2026-10-29T16:00:00+09:00'}]},
+ {...auditInput,krxRows:[verifiedKRX,verifiedKRX]},
+])assert.equal(auditNhCloseNextDay(invalid).results.find(x=>x.code==='005930').krx.status,'NOT_VERIFIED');
+for(const invalid of [
+ {...auditInput,yahooRows:[{...verifiedYahoo,adjusted:true}]},
+ {...auditInput,yahooRows:[{...verifiedYahoo,date:'2026-10-28'}]},
+ {...auditInput,yahooRows:[{...verifiedYahoo,completed:false}]},
+ {...auditInput,yahooRows:[verifiedYahoo,verifiedYahoo]},
+])assert.equal(auditNhCloseNextDay(invalid).results.find(x=>x.code==='AAPL').yahoo.status,'NOT_VERIFIED');
+assert.equal(auditNhCloseNextDay({...auditInput,nhRows:[baseNh[0],baseNh[0]]})
+ .results[0].status,'NH_INVALID_OR_DUPLICATE');
+
+console.log('NH 16:00 close briefing and next-day read-only audit contract tests passed');
