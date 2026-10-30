@@ -75,7 +75,15 @@ assert.equal(waiting.lastBackfillOk,false);
 // Publication is T+1 08:00 KST. The 02:30/06:57 check must not
 // report an unexpected incident when the *only* missing row is yesterday's
 // KRX official open-session close, and all evidence attributes it to KRX.
-const awaitingPublication={...good,overallStatus:'ERROR',
+const safePublicationClose={
+  summaryPresent:true,summaryRunDate:'2026-10-29',
+  fundState:'DONE',fundOk:true,fundErrorPresent:false,
+  fundWarningPresent:false,closeErrorPresent:false,closeErrorCount:0,
+  runStale:false,snapshotStale:false,
+  krxPublicationWaiting:true,krxPublicationTradeDate:'2026-10-29',
+  krxPublicationAvailableAfter:'2026-10-30T08:00:00+09:00'
+};
+const awaitingPublication={...good,close:safePublicationClose,overallStatus:'ERROR',
   pendingCount:1,pendingDates:['2026-10-29'],
   officialKrxPriceHistoryLastDate:'2026-10-28',snapshotLastDate:'2026-10-29',
   latestBackfill:{attempted:true,ok:false,failureClass:'KRX_PRICE_SOURCE_OR_COVERAGE'},
@@ -99,6 +107,24 @@ assert.equal(assessKrxOvernightHealth({...awaitingPublication,officialKrxPriceHi
   {now:atMorning}).status,'ACTION_REQUIRED');
 assert.equal(assessKrxOvernightHealth({...awaitingPublication,pendingDates:['2026-10-28']},
   {now:atMorning}).status,'ACTION_REQUIRED');
+for(const brokenClose of [
+  {...safePublicationClose,fundErrorPresent:true},
+  {...safePublicationClose,fundWarningPresent:true},
+  {...safePublicationClose,fundState:'ERROR'},
+  {...safePublicationClose,fundOk:false},
+  {...safePublicationClose,closeErrorPresent:true},
+  {...safePublicationClose,closeErrorCount:1},
+  {...safePublicationClose,summaryRunDate:'2026-10-28'},
+  {...safePublicationClose,krxPublicationWaiting:false},
+  {...safePublicationClose,krxPublicationTradeDate:'2026-10-28'},
+  {...safePublicationClose,krxPublicationAvailableAfter:'2026-10-31T08:00:00+09:00'},
+  {...safePublicationClose,runStale:true},
+  {...safePublicationClose,snapshotStale:true},
+  null,
+]) assert.equal(assessKrxOvernightHealth({...awaitingPublication,close:brokenClose},
+  {now:atMorning}).status,'ACTION_REQUIRED',
+  'independent close/fund errors or missing proof must not be silenced');
+
 
 // Oct 10 was KRX CLOSED. It cannot be used as an official KRX close date,
 // but may still need a foreign/fund Snapshot. Do NOT clear it or mark healthy.
