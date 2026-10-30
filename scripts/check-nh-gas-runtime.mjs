@@ -265,7 +265,7 @@ assert.match(source,/\|provider='/);
 }
 
 console.log('NH native GAS: activation, strict auth, KR/US quotes, master identity, cache, no Toss calls and 401 recovery passed');
-const {activateNhRuntime,selectNhReadbackCodes}=await import('./activate-nh-gas-runtime.mjs');
+const {activateNhRuntime,selectNhReadbackCodes,isCompatibleNhGasVersion}=await import('./activate-nh-gas-runtime.mjs');
 const registered=[{code:'005930',currency:'KRW',type:'주식',market:'KRX'},{code:'NVDA',currency:'USD',type:'주식',market:'NASDAQ'}];
 assert.deepEqual(selectNhReadbackCodes(registered),['005930','NVDA']);
 assert.deepEqual(selectNhReadbackCodes([{...registered[0],type:'국내주식'},{...registered[1],type:'해외주식',market:'미국'}]),['005930','NVDA']);
@@ -322,6 +322,43 @@ await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/
 const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 assert.ok(workflow.indexOf('run: node scripts/deploy-gas.mjs')<workflow.indexOf('run: node scripts/activate-nh-gas-runtime.mjs'));
 assert.match(workflow,/name: Activate NH current prices after real GAS deployment\n\s+if: env.GAS_DEPLOY_DRY_RUN != 'true'/);
+
+// Future GAS releases must not fail the activation step solely due to a
+// pinned 9.281 string; old, malformed and cross-version replies fail closed.
+for(const [version,allowed] of [['9.281',true],['9.282',true],['9.300',true],
+  ['9.280',false],['9.0280',false],['10.0',false],['9.281-rc1',false],['',false],[null,false]])
+  assert.equal(isCompatibleNhGasVersion(version),allowed,String(version));
+const versionRequest=(settingsVersion,masterVersion=settingsVersion,active=true)=>async(_url,options)=>{
+  const p=new URLSearchParams(options.body),action=p.get('action');
+  if(p.get('accessToken')?.endsWith('-DENY-PROBE'))return {ok:true,json:async()=>({status:'error'})};
+  if(action==='getSettings')return {ok:true,json:async()=>({status:'ok',gasVersion:settingsVersion,
+    settings:{apiKeyStatus:{nh:{enabled:active}}}})};
+  if(action==='retireLegacyMarketData')return {ok:true,json:async()=>({status:'ok',retired:true})};
+  if(action==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,
+    gasVersion:masterVersion,codes:registered})};
+  if(action==='getPrices')return {ok:true,json:async()=>({status:'ok',prices:{'005930':232000,NVDA:349.6718},
+    priceLookup:{currentProvider:'NH',tossResultCount:2}})};
+  if(action==='diagnoseNhMarketData')return {ok:true,json:async()=>({status:'ok',readOnly:true})};
+  throw Error('UNEXPECTED_VERSION_TEST_ACTION');
+};
+for(const version of ['9.281','9.282']){
+  const skipped=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',
+    skipReadbackIfActive:true,request:versionRequest(version)});
+  assert.equal(skipped.status,'NH_ALREADY_ACTIVE_NO_TOKEN_REQUEST');
+  assert.equal(skipped.gasVersion,version);
+  assert.equal(skipped.sampleVerificationSkipped,true);
+}
+const nextRelease=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',
+  token:'admin',request:versionRequest('9.282')});
+assert.equal(nextRelease.status,'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED');
+assert.equal(nextRelease.gasVersion,'9.282');
+await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',
+  token:'admin',request:versionRequest('9.280')}),/NH_RUNTIME_GAS_VERSION_MISMATCH/);
+await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',
+  token:'admin',request:versionRequest('10.0')}),/NH_RUNTIME_GAS_VERSION_MISMATCH/);
+await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',
+  token:'admin',request:versionRequest('9.282','9.281'),skipReadbackIfActive:false}),
+  /NH_RUNTIME_CODE_MASTER_UNCONFIRMED/);
 
 // Reproduce the reviewed valuation defect using the actual fetch normalization
 // and actual production computeRows, with independent KRW expectations.
