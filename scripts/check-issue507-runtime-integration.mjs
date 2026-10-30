@@ -89,6 +89,9 @@ ctx.doPost({postData:{contents:'action=refreshFundValuations&from=2026-10-30&to=
 assert.deepEqual(enters,['doPost']);assert.equal(fetched,2);assert.deepEqual(exits,['owner']);
 // Real registry + original manual refresh handler, while another GAS context
 // closes admission during its external-fetch interval.
+// This is a THIRD drain cycle: an old operator receipt must fail until renewed.
+assert.throws(()=>maintenance.issue507BeginWriterDrain_(),/GATE_ROLLOUT_STALE/);
+props.set('issue507_writer_gate_rollout_v1',JSON.stringify({...receipt,verifiedAt:now}));
 ctx._issue507GateEnter_=realEnter;ctx._issue507GateExit_=realExit;
 ctx._issue507Original__refreshFundValuations_=()=>{
  assert.equal(Object.keys(JSON.parse(props.get('issue507_writer_gate_v1')).active).length,1);
