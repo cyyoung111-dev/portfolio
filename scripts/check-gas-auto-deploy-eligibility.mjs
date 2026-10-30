@@ -51,12 +51,26 @@ assert.deepEqual(await mock.call(),{changed:true,reason:'DEPLOYED_SOURCE_DIFFERS
 // from the newest successful automatic run; unknown dry-run inputs fail closed.
 mock=stub({runs:[{...makeRun(58),event:'workflow_dispatch',conclusion:'success'},makeRun(42)]});
 assert.deepEqual(await mock.call(),{
- changed:true,reason:'PROVENANCE_NEWER_MANUAL_DEPLOY_UNVERIFIED'});
+ changed:true,reason:'PROVENANCE_NEWER_DEPLOY_NOT_PROVEN'});
 assert.equal(mock.calls.git.length,0,'manual override must prevent false no-op');
 mock=stub({runs:[{...makeRun(58),event:'workflow_dispatch',conclusion:'failure'},makeRun(42)]});
 assert.equal((await mock.call()).changed,true,'even failed manual may have partially written');
 mock=stub({runs:[makeRun(80),{...makeRun(58),event:'workflow_dispatch',conclusion:'success'}],
  jobsById:{80:[deployedJob]}});
+assert.deepEqual(await mock.call(),{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});
+
+
+// A later failed/cancelled or still-running auto deployment may have PUT to
+// production before verification/rollback failed. Never suppress recovery.
+for(const conclusion of ['failure','cancelled',null]){
+ mock=stub({runs:[{...makeRun(61),conclusion},makeRun(42)]});
+ const result=await mock.call();
+ assert.deepEqual(result,{changed:true,reason:'PROVENANCE_NEWER_DEPLOY_NOT_PROVEN'});
+ assert.equal(mock.calls.git.length,0);
+}
+// Newer successful validation-only auto workflow cannot change deployment.
+mock=stub({runs:[{...makeRun(61),conclusion:'success'},makeRun(42)],
+ jobsById:{61:[skippedJob],42:[deployedJob]}});
 assert.deepEqual(await mock.call(),{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});
 
 for(const options of [
