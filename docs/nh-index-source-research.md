@@ -11,6 +11,7 @@
 - market-data-hub: 여러 공급원 연결 및 커버리지/품질 검증: https://github.com/selvaz/market-data-hub/blob/main/docs/ARCHITECTURE.md
 - 다우: FRED DJIA 종가, https://fred.stlouisfed.org/series/DJIA
 - VIX: Cboe 공식 일별 종가, https://www.cboe.com/tradable_products/vix/vix_historical_data
-- 다우/VIX는 비NH 참고값으로만 별도 표시. NH 지수 수치/평가손익/Snapshot/발송 필수 게이트로 승격하지 않음.
-- SOX, VKOSPI, DXY 등은 동일 정체성과 라이선스/공개시간 확인 전까지 미검증. DXY와 다른 달러지수 혼용 금지.
+- SOX: FRED NASDAQSOX (원천 Nasdaq PHLX Semiconductor Price Index) https://fred.stlouisfed.org/series/NASDAQSOX. Nasdaq의 재배포 및 라이선스 조건은 운영 공개 전 별도 확인.
+- 다우/VIX/SOX는 비NH 참고값으로만 별도 표시. NH 지수 수치/평가손익/Snapshot/발송 필수 게이트로 승격하지 않음.
+- VKOSPI, DXY 등은 동일 정체성과 라이선스/공개시간 확인 전까지 미검증. DXY와 다른 달러지수 혼용 금지.
 - 다른 공급원 실패 또는 구 거래일 결과가 나오면 미확보. KRX/Yahoo는 원칙적으로 다음 거래일 NH 종가 독립 검산에만 사용.
