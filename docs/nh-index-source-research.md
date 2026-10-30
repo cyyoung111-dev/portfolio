@@ -1,6 +1,10 @@
 # NH 지수 소스 조사 및 운영 규칙 (2026-10-30)
 
 ## 국내 현물 3지수의 NH 연결 상태
+- **추가 확인 (공식 OpenAPI 명세 기준 2026-10-15):** NH 국내주식 `POST /krstock/quote/v1/etfCurrent` (입력 `Input_0.iem_cd`, ETF 종목코드)의 **`Output_4`에 실제 국내 지수 관련 응답 필드** `bstp_cls_code`(지수코드), `bstp_kor_isnm`(업종명), `prpr_nmix`(지수), `prdy_vrss`(등락폭), `jisukpgubun`(1 코스피/2 코스닥)가 명시됨. 출처: https://www.nhplug.com/openapi-docs/krstock/openapi.json 의 `etfCurrent` 응답.
+- 이 경로는 **ETF에 연결된 지수 참고값**을 반환할 수 있는 후보이며, KOSPI/KOSDAQ/KOSPI200 각각의 공식 코드·동일 지수 정체성·일자·당일 정규장 확정 종가 및 API 실제 반환 여부를 보장하지 않음. 특히 `Output_4`에는 별도 지수 기준일·확정 상태 필드가 없어 그 자체로 `NH_OPERATING_CLOSE` 승격 금지.
+- 기존 `nhplug-close-readonly-diagnostic.mjs`가 이미 수행하는 `etfCurrent(069500)` 응답을 **추가 호출 없이** 분석하도록 후보 검사를 보강함. 모의 응답 테스트는 계약 확인일 뿐 운영 실수치 조회 증거가 아니며, 중앙 GAS 캐시 bearer로 기존 동일 조회를 재사용한 실제 `Output_4` 확인/공식 지수코드 대조는 미완료.
+- NH 지원 범위를 확정하기 위해: ETF 식별→기존 cached-token **읽기전용 호출 1회 이하** (가능하면 기존 조회 재사용)→응답의 `Output_4` 코드/업종명/거래소/값 검증→현물 지수 동일성 및 거래일·확정시각 검증→확인 시에만 운영 연결. 무응답이면 미지원 단정 없이 기술지원 확인. **신규 토큰 발급·별도 동시 조회 금지**.
 - 국내 KOSPI, KOSDAQ, KOSPI200 현물지수의 NH PLUG 공식 endpoint/요청필드/코드/실수치는 확인되지 않음. 공문서 API 카탈로그는 국내주식/ETF 현재가·일자별 API는 열거하지만 국내 현물지수 조회 전용 API는 보이지 않음: https://www.nhplug.com/apiservice
 - NH 가격 API로 KOSPI200 선물, ETF, 보유 개별종목 가격을 현물지수 대신 사용하지 않는다.
 - 기존 GAS getBenchmarks 국내 두 지수는 KRX+Yahoo 공급원이며 NH라고 재표시 불가.
