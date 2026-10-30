@@ -53,22 +53,13 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.release.outputs.sha }}
-          fetch-depth: 2
-      - name: Check source change for automatic GAS deployment
+      - name: Verify last successful production GAS source
         id: gas_source
         if: github.event_name == 'workflow_run'
-        shell: bash
-        run: |
-          # The selected SHA is a trusted main commit. Compare its first parent.
-          # If proof is unavailable, retain deployment eligibility (fail closed).
-          if git cat-file -e 'HEAD^:src/gas/apps_script.gs' 2>/dev/null &&
-             git diff --quiet HEAD^ HEAD -- src/gas/apps_script.gs; then
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-            echo 'GAS_SOURCE_UNCHANGED: auto deployment safely skipped'
-          else
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-            echo 'GAS_SOURCE_CHANGED_OR_UNVERIFIED: full release validation required'
-          fi
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/gas-auto-deploy-eligibility.mjs
       - name: Install dependencies
         if: github.event_name != 'workflow_run' || steps.gas_source.outputs.changed == 'true'
         run: |
