@@ -38,6 +38,10 @@ assert.equal(s.ctx._nhUsCandidate_({code:'AAPL',currency:'KRW'}),true);
 assert.equal(s.ctx.handleSaveNhConfig({accessToken:'bad',data:'{}'}).status,'error');assert.equal(s.calls.length,0);
 assert.equal(s.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
 assert.equal(s.props.get('MARKET_DATA_PROVIDER'),'NH');assert.equal(s.props.has('TOSS_CLIENT_ID'),false);assert.equal(s.props.has('TOSS_CLIENT_SECRET'),false);
+const issuedAfterActivation=s.calls.filter(c=>c.url.includes('/oauth2/token')).length;
+assert.equal(s.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
+assert.equal(s.calls.filter(c=>c.url.includes('/oauth2/token')).length,issuedAfterActivation,
+ 'saving unchanged active NH credentials must not request another token');
 const orphan=setup();
 assert.equal(orphan.ctx.handleSaveNhConfig({accessToken:'admin-token',data:JSON.stringify({key:'nh-key',secret:'nh-secret'})}).status,'ok');
 const orphanPrice=orphan.ctx.fetchPricesToss([{code:'AAPL',currency:'KRW',nhMetadataMissing:true}],{},{});
@@ -147,6 +151,23 @@ assert.equal(activation.registeredUsTarget,true);
 assert.deepEqual(reports,[{status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:2,krwRows:1,usdRows:1}]);
 assert.doesNotMatch(JSON.stringify(reports),/005930|NVDA|nh-key|nh-secret/);
 assert.deepEqual(actions,['getSettings','getSettings','saveNhConfig','retireLegacyMarketData','getCodeListReadOnly','getPrices']);
+const autoCalls=[];
+const skipReadback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',
+  token:'admin',skipReadbackIfActive:true,request:async(_url,options)=>{
+    const params=new URLSearchParams(options.body),action=params.get('action');
+    autoCalls.push(action);
+    if(params.get('accessToken').endsWith('-DENY-PROBE'))return {ok:true,json:async()=>({status:'error'})};
+    if(action==='getSettings')return {ok:true,json:async()=>({
+      status:'ok',gasVersion:'9.278',settings:{apiKeyStatus:{nh:{enabled:true}}}})};
+    if(action==='retireLegacyMarketData')return {ok:true,json:async()=>({status:'ok',retired:true})};
+    throw Error('AUTO_DEPLOY_MUST_NOT_CALL_NH_QUOTES_OR_CODE_MASTER');
+  }});
+assert.equal(skipReadback.status,'NH_ALREADY_ACTIVE_NO_TOKEN_REQUEST');
+assert.equal(skipReadback.sampleCount,0);
+assert.equal(skipReadback.sampleVerificationSkipped,true);
+assert.deepEqual(autoCalls,['getSettings','getSettings','retireLegacyMarketData']);
+assert.match(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'),
+  /NH_RUNTIME_SKIP_READBACK_IF_ACTIVE: \\$\\{\\{ github\\.event_name == 'workflow_run'/);
 const fallback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:async(url,options)=>{
   const p=new URLSearchParams(options.body);
   if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.278',codes:[registered[0]]})};
