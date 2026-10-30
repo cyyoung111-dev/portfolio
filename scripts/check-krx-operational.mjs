@@ -751,3 +751,22 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
  assert.ok(nav.includes("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"));
 }
 console.log('Fund resume explicit APPLY consent and scheduled/manual NAV gating PASS');
+
+
+// Dedicated fund status checks cannot offer an APPLY toggle and must never
+// schedule or continue a write. Even failed HTTP read-back is safe to rerun.
+{
+ const fs=await import('node:fs');
+ const d=fs.readFileSync('.github/workflows/issue-507-fund-status-readonly.yml','utf8');
+ assert.ok(d.includes('name: issue-507-fund-status-readonly'));
+ assert.ok(d.includes('workflow_dispatch:'));
+ assert.ok(!d.includes('workflow_run:'));
+ assert.ok(!d.includes('schedule:'));
+ assert.ok(!d.includes('inputs:'));
+ assert.ok(d.includes("RESUME_READ_ONLY: '1'"));
+ assert.ok(d.includes('node scripts/run-incomplete-close-resume.mjs'));
+ assert.ok(!d.includes('confirm_recovery'));
+ assert.ok(!d.includes('APPLY:'));
+ assert.ok(d.includes("github.ref == 'refs/heads/main'"));
+}
+console.log('Dedicated fund readonly status: no apply option, no scheduled fanout PASS');
