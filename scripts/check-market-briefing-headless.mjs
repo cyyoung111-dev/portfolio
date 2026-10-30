@@ -43,7 +43,7 @@ const testSender=async(_token,_chat,text)=>{delivered++;textSent=text;};
 const tomorrow='2026-10-28',fakeRef={source:'NH',contract:'KA016C000',contractMonth:'2026-12',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T07:30:00+09:00`};
 const morningOptions={now:()=>new Date(`${tomorrow}T07:45:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
 const morning=await runTelegramMorning(morningOptions);
-assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/마감 기준/);
+assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/NH PLUG 06:00 운영 확정 기준/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,attempt:2}),/TELEGRAM_RETRY_BLOCKED/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(`${tomorrow}T08:10:00+09:00`)}),/TELEGRAM_SCHEDULE_LATE/);
 assert.equal(delivered,1,'재시도 및 지연 실행에서 메시지 중복 발송 금지');
