@@ -13,6 +13,8 @@ function extractType(type,data){
   status:data?.status,seriesMeta:{[type]:meta},series:{[type]:rows}
  })[0]||null;
  const observed=matching.length===1?matching[0]:null;
+ const visibleValue=Number(observed?.value);
+ const inspectedValue=Number.isFinite(visibleValue)&&visibleValue>0?visibleValue:null;
  const official=selected!==null;
  const value=official?selected.value:null;
  const reference=REFERENCES[type];
@@ -28,10 +30,20 @@ function extractType(type,data){
   returnedDate:observed?.date||null,
   returnedSource:typeof observed?.source==='string'?observed.source.slice(0,32):null,
   validatedOfficialClose:value,
+  unverifiedDatedValue:official?null:inspectedValue,
+  unverifiedReferenceMatch:!official&&reference!==undefined&&inspectedValue!==null
+    ?Math.abs(inspectedValue-reference)<0.005:null,
   independentReference:reference??null,
   absoluteDifference:official&&reference!==undefined?Math.round((value-reference)*100)/100:null,
   datedRowCount:matching.length,
  };
+}
+function classifyKrxError(error){
+ const input=String(error||'');
+ if(!input)return 'NONE_REPORTED';
+ const kinds=['EMPTY_TRADING_DATE','HTTP_401','HTTP_403','HTTP_429',
+  'FETCH_FAILED','TIMEOUT','CALENDAR_UNKNOWN','AUTH_KEY','NO_DATA','INVALID'];
+ return kinds.filter(kind=>input.includes(kind)).join('|')||'OTHER_REDACTED';
 }
 export function summarizeKrxDomesticCloseReadback(data){
  const checks=TYPES.map(t=>extractType(t,data));
@@ -40,6 +52,8 @@ export function summarizeKrxDomesticCloseReadback(data){
   targetDate:TARGET,
   responseStatus:data?.status==='ok'?'ok':'NON_OK',
   checkedTypes:checks,
+  krxSourceFailureCode:classifyKrxError(data?.errors?.KRX_OFFICIAL),
+  krxErrorPresent:!!data?.errors?.KRX_OFFICIAL,
   verifiedOfficialCount:checks.filter(x=>x.state.startsWith('OFFICIAL_')&&x.validatedOfficialClose!==null).length,
   independentlyMatchedCount:checks.filter(x=>x.state==='OFFICIAL_REFERENCE_MATCH').length,
   completeVerifiedAndMatched:checks.every(x=>x.state==='OFFICIAL_REFERENCE_MATCH'||x.state==='OFFICIAL_UNCROSSCHECKED'),
