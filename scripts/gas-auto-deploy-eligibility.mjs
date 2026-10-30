@@ -21,12 +21,22 @@ export async function checkGasAutoDeployEligibility({repository,token,currentRun
  if(!Number.isSafeInteger(Number(currentRunId))||Number(currentRunId)<=0)
   return unverified('PROVENANCE_CURRENT_RUN_UNVERIFIED');
  try{
-  const runs=await readJson(API+'/repos/'+repository+'/actions/runs?per_page=100',
-   token,fetchImpl);
-  if(!Array.isArray(runs.workflow_runs))return unverified('PROVENANCE_RUNS_UNVERIFIED');
+  // Repo-wide last 100 runs are overwhelmed by unrelated workflows. Query
+  // this exact GAS workflow with bounded pagination so a proven real deploy
+  // is not lost behind hundreds of no-op or unrelated completed runs.
+  const runs=[];
+  for(let page=1;page<=5;page++){
+   const pageResult=await readJson(API+'/repos/'+repository+
+    '/actions/workflows/gas-deploy.yml/runs?per_page=100&page='+page,
+    token,fetchImpl);
+   if(!Array.isArray(pageResult?.workflow_runs)||pageResult.workflow_runs.length>100)
+     return unverified('PROVENANCE_RUNS_UNVERIFIED');
+   runs.push(...pageResult.workflow_runs);
+   if(pageResult.workflow_runs.length<100)break;
+  }
   // Sort explicitly: never trust API ordering when selecting deployed baseline.
-  runs.workflow_runs.sort((a,b)=>Number(b?.id||0)-Number(a?.id||0));
-  for(const run of runs.workflow_runs){
+  runs.sort((a,b)=>Number(b?.id||0)-Number(a?.id||0));
+  for(const run of runs){
    if(run?.name!=='gas-deploy'||run.event!=='workflow_run'||run.conclusion!=='success'
       ||run.head_branch!=='main'||run.head_repository?.full_name!==repository
       ||!Number.isSafeInteger(run.id)||!SHA.test(String(run.head_sha||'')))continue;
@@ -38,7 +48,7 @@ export async function checkGasAutoDeployEligibility({repository,token,currentRun
    // Dispatch inputs are not available on the run-list API. A newer manual
    // attempt may have deployed a different source or changed HEAD; do not
    // confuse its dry-run with a confirmed release. Force the normal path.
-   if(runs.workflow_runs.some(other=>other?.name==='gas-deploy'
+   if(runs.some(other=>other?.name==='gas-deploy'
       &&Number.isSafeInteger(other.id)&&Number(other.id)!==Number(currentRunId)
       &&Number(other.id)>Number(run.id)
       &&(other.event==='workflow_dispatch'
