@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {closeWindow,verifiedNhCloseRows,formatClose,prepareClose,deliverClose}
+import {closeWindow,verifiedNhCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose}
  from './telegram-close-workflow.mjs';
 const day='2026-10-30',now=()=>new Date(day+'T16:30:00+09:00');
 assert.equal(closeWindow(new Date(day+'T16:29:59+09:00')).allowed,false);
@@ -20,11 +20,11 @@ assert.equal(verifiedNhCloseRows(day,[rows[0],rows[0]]).length,0);
 assert.equal(verifiedNhCloseRows(day,[{...rows[0],value:0}]).length,0);
 assert.equal(verifiedNhCloseRows(day,[{...rows[0],label:'S&P 100'}]).length,0);
 const msg=formatClose(day,rows);
-assert.match(msg,/NH PLUG 완료 정규장 일봉/);
+assert.match(msg,/NH PLUG\(지원 지수\)/);
 assert.match(msg,/S&P 500: 7,720.39.*2026-10-29.*NH/);
 assert.match(msg,/NASDAQ: 26,184.72.*NH/);
 assert.match(msg,/NASDAQ100: 29,402.51.*NH/);
-assert.match(msg,/KOSPI: NH 지수 종가 코드 미검증/);
+assert.match(msg,/KOSPI: 검증된 당일 종가 미확보/);
 assert.match(msg,/SOX: NH 지수 코드 미검증/);
 assert.match(msg,/NH 지수 확인 3\/3/);
 const dowCsv='observation_date,DJIA\n2026-10-28,51000\n2026-10-29,51500\n';
@@ -52,6 +52,32 @@ const refs=await fetchSecondaryIndexes(day,{fetchImpl:async url=>{
  throw Error('BAD_SOURCE');
 }});
 assert.equal(refCalls,3);assert.equal(refs.length,3);
+const domestic=[
+ {label:'KOSPI',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',value:5668.26,changePercent:-4.54},
+ {label:'KOSDAQ',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',value:723.15,changePercent:-3.99},
+ {label:'KOSPI 200',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',value:890.07,changePercent:-4.89}
+];
+const dailyMsg=formatClose(day,rows,[],domestic);
+assert.match(dailyMsg,/KOSPI: 5,668.26.*FDR\/KRX 공개 참고 \(NH 아님\)/);
+assert.match(dailyMsg,/KOSDAQ: 723.15.*2026-10-30/);
+assert.match(dailyMsg,/KOSPI 200: 890.07/);
+assert.match(formatClose(day,rows,[],[domestic[0],domestic[0]]),/KOSPI: 검증된 당일 종가 미확보/,
+ 'duplicate index references must fail closed');
+const domesticFixture='Date,Close,UpDown\n2026-10-29,5937.66,2\n2026-10-30,5668.26,2\n';
+const domesticGet=async url=>{
+ if(url.includes('raw.githubusercontent.com'))
+  return {ok:true,text:async()=>domesticFixture};
+ if(url.includes('api.github.com/repos/FinanceData/fdr_krx_data_cache/commits'))
+  return {ok:true,json:async()=>[{commit:{committer:{date:'2026-10-30T10:58:41Z'}}}]};
+ throw Error('unexpected index query');
+};
+const verifiedDomestic=await fetchDomesticCloseIndexes(day,{fetchImpl:domesticGet,now});
+assert.equal(verifiedDomestic.length,3);
+assert.ok(verifiedDomestic.every(x=>x.source==='FDR_KRX_CACHE'&&x.date===day));
+const earlyDomestic=await fetchDomesticCloseIndexes(day,{now,fetchImpl:async url=>url.includes('raw.githubusercontent.com')
+ ?{ok:true,text:async()=>domesticFixture}
+ :{ok:true,json:async()=>[{commit:{committer:{date:'2026-10-30T04:19:16Z'}}}]}});
+assert.deepEqual(earlyDomestic,[],'intraday published row cannot show as close');
 
 assert.doesNotMatch(msg,/Yahoo Finance 일봉 기준/);
 let fetched=0,sent=0;
@@ -66,6 +92,7 @@ const options={now,githubToken:'dummy',repository:'cyyoung111-dev/portfolio',
   assert.equal(opts.url,'https://script.google.com/macros/s/EXAMPLE123/exec');return rows;
  }};
 options.fetchSecondary=async()=>[dow,vix];
+options.fetchDomestic=async()=>[];
 const prepared=await prepareClose(options);
 assert.equal(prepared.ready,true);assert.equal(fetched,1);assert.equal(prepared.nhConfirmed,3);
 assert.match(prepared.message,/NH PLUG/);
