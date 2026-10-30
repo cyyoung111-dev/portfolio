@@ -28,11 +28,12 @@ const bad=server({badApply:true});await assert.rejects(()=>runDaily({url,token,a
 const workflow=fs.readFileSync('.github/workflows/issue-507-daily-finalize.yml','utf8');assert.match(workflow,/APPROVED_PARENT: 78f4b15173b087acf58b4d64e1ea7d1ba74cb42a/);assert.match(workflow,/portfolio-production-gas/);assert.match(workflow,/git cat-file -e/);
 console.log('Daily exact-date finalize: dry-run, verified apply, source blocked, queue readback PASS');
 
-// Explicit 10/27 cleanup cannot repair financial source data, even on failed proof.
-for(const blocked of [false,true]){
- const s=server({blocked,dates:['2026-10-27']});
- await assert.rejects(()=>runDaily({url,token,apply:true,dates:['2026-10-27'],clearOnly:true,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);
- assert.deepEqual(s.writes,blocked?[]:['2026-10-27']);
+// Explicit 10/27 and newly verified 10/29 marker cleanup must never recover or rewrite source data.
+for(const date of ['2026-10-27','2026-10-29'])for(const blocked of [false,true]){
+ const s=server({blocked,dates:[date]});
+ await assert.rejects(()=>runDaily({url,token,apply:true,dates:[date],clearOnly:true,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);
+ assert.deepEqual(s.writes,blocked?[]:[date]);
  assert.ok(!s.calls.includes('recoverPendingKrxClose')&&!s.calls.includes('getKrxHeldCloseCoverage'));
 }
 await assert.rejects(()=>runDaily({url,token,dates:['2026-10-28'],clearOnly:true}),/DAILY_DATES/);
+assert.match(workflow,/2026-10-22,23,26,27,29/,'manual allowed dates must identify newly verified 10\/29');
