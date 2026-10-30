@@ -631,6 +631,12 @@ if (hasStackedKrxRecovery) {
 }
 
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
+assert.match(deployScript, /'9\\.278': Object\\.freeze\\(\\[/,
+  'approved transition must retain both reviewed full-file blobs');
+assert.ok(deployScript.includes('e383b7c3809ce6426aa3d502bb6c22a6bb175dbf'));
+assert.ok(deployScript.includes('c77c539568f2dc3b2af4bcb729e8e38bbf6cee82'));
+assert.match(deployScript, /Array\\.isArray\\(reviewed\\).*\\? reviewed : \\[reviewed\\]/,
+  'older pinned GAS versions and new multi-blob transition must be explicit');
 assert.match(deployScript, /dryRun\s*\?\s*extractExpectedGasVersion\(source\)\s*:\s*assertGasReleaseReady\(source\)/,
   'production preflight must run before GAS credentials and API writes');
 assert.ok(
