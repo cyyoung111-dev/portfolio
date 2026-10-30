@@ -117,9 +117,10 @@ export function formatClose(date,rows,secondary=[],domestic=[]){
   lines.push(label+': '+item.value.toLocaleString('en-US',{maximumFractionDigits:2})
     +' · '+item.date+' · '+item.source+' 참고 (NH 아님)');
  }
- lines.push('','NH 지수 확인 '+count+'/'+NH_VERIFIED.length+' · 미검증 지수 '+NH_UNVERIFIED.length+'개',
-  '당일 국내 종가/포트폴리오 손익은 NH 정규장 원천 연동 전까지 표시하지 않습니다.',
-  'NH 기준값은 거래소 공식 정산가를 뜻하지 않으며, 다른 원천 수치로 대체하지 않습니다.');
+ lines.push('','NH 지수 확인 '+count+'/'+NH_VERIFIED.length+' · NH 별도 검증 대상 지수 '+NH_UNVERIFIED.length+'개',
+  '국내 3대 지수는 KRX 공식 확인값 또는 출처가 표시된 공개 일별 참고값입니다.',
+  '보유 주식·ETF 종가 및 포트폴리오 손익의 기준은 NH PLUG로 유지합니다.',
+  'NH 지수 일봉은 거래소의 별도 정산가격으로 오인하지 않습니다.');
  return lines.join('\n');
 }
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
