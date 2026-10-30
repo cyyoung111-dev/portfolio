@@ -224,7 +224,7 @@ assert.match(source,/\|provider='/);
   assert.equal(authCalls,1,'no cached token must fail before NH OAuth request');
   assert.equal(nightCalls,2);
   assert.equal(p.ctx.handleGetNhNightProxy({date:'2026-10-29',accessToken:'admin-token'}).status,'error');
-  assert.equal(nightCalls,1);
+  assert.equal(nightCalls,2);
   const noAuth=setup({expiresIn:86400});
   noAuth.props.set('MARKET_DATA_PROVIDER','NH');
   noAuth.props.set('NHPLUG_APP_KEY','nh-key');
