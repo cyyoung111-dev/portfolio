@@ -14,7 +14,7 @@ export function selectNhReadbackCodes(codes){
   // These public fallbacks check feed connectivity, never account coverage.
   return [domestic.includes('005930')?'005930':domestic[0]||'005930',overseas.includes('AAPL')?'AAPL':overseas[0]||'AAPL'];
 }
-export async function activateNhRuntime({url,token,key,secret,request=fetch,report=()=>{}}={}) {
+export async function activateNhRuntime({url,token,key,secret,request=fetch,report=()=>{},skipReadbackIfActive=false}={}) {
   let endpoint;try{endpoint=new URL(url);}catch{throw Error('NH_RUNTIME_GAS_URL_MISSING');}
   if(endpoint.protocol!=='https:'||endpoint.hostname!=='script.google.com'||!/^\/macros\/s\/[^/]+\/exec$/.test(endpoint.pathname)||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('NH_RUNTIME_GAS_URL_INVALID');
   if(!token)throw Error('NH_RUNTIME_GAS_AUTH_NOT_CONFIGURED');
@@ -34,6 +34,15 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   }
   const retired=await call('retireLegacyMarketData');
   if(retired?.status!=='ok'||retired.retired!==true)throw Error('NH_RUNTIME_LEGACY_CONFIG_CLEANUP_FAILED');
+  // On an automatic deploy with NH already active, activation has already
+  // been verified by prior deployments. Repeating the price readback after
+  // every unrelated commit can trigger unnecessary NH auth/quote requests.
+  // Explicit manual deploys still perform full sample verification.
+  if(before.settings.apiKeyStatus.nh.enabled===true && skipReadbackIfActive===true){
+    return {status:'NH_ALREADY_ACTIVE_NO_TOKEN_REQUEST',sampleCount:0,legacyProviderRemoved:true,
+      gasVersion:'9.278',registeredUsTarget:false,fullCoverageVerified:false,closeVerified:false,
+      sampleVerificationSkipped:true};
+  }
   const master=await call('getCodeListReadOnly');
   if(master?.status!=='ok'||master.readOnly!==true||master.gasVersion!=='9.278')throw Error('NH_RUNTIME_CODE_MASTER_UNCONFIRMED');
   report({status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:Array.isArray(master.codes)?master.codes.length:0,krwRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='KRW').length:0,usdRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='USD').length:0});
@@ -50,6 +59,6 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     if(process.env.GITHUB_REF!=='refs/heads/main')throw Error('NH_RUNTIME_MAIN_REQUIRED');
-    console.log(JSON.stringify(await activateNhRuntime({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,key:process.env.NHPLUG_APP_KEY,secret:process.env.NHPLUG_APP_SECRET,report:row=>console.log(JSON.stringify(row))})));
+    console.log(JSON.stringify(await activateNhRuntime({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,key:process.env.NHPLUG_APP_KEY,secret:process.env.NHPLUG_APP_SECRET,skipReadbackIfActive:process.env.NH_RUNTIME_SKIP_READBACK_IF_ACTIVE==='true',report:row=>console.log(JSON.stringify(row))})));
   }catch(error){console.error(/^NH_RUNTIME_[A-Z_]+$/.test(error?.message||'')?error.message:'NH_RUNTIME_FAILED');process.exitCode=1;}
 }
