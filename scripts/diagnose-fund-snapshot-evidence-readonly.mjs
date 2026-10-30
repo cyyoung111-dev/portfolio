@@ -207,6 +207,55 @@ export function summarizeSourceMismatchKinds(payload,date=TARGET_DATE,code=TARGE
   writeAuthorized:false};
 }
 
+
+// Exact, explicitly configured fund IDs only. Check source-family transitions
+// without leaking NAV value, date, units, holdings, or arbitrary asset codes.
+// Do NOT treat semantic similarity as a write authorization.
+export function summarizeKnownFundSourcePairs(payload,date=TARGET_DATE) {
+ summarizeFullIntegrity(payload,date,TARGET_CODE);
+ const d=payload.diagnostic;
+ const funds=['F00002','F00003'];
+ const states=Array.isArray(d.fundNavStates)?d.fundNavStates:[];
+ const kind=source=>{
+  if(typeof source!=='string')throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+  if(source==='FUND_NAV')return 'CONFIRMED_NAV';
+  if(/^FUND_NAV_CARRY(?:@\d{4}-\d{2}-\d{2})?$/.test(source))return 'CARRY_NAV';
+  if(/^FUND_NAV_CARRY_INPUT_REQUIRED(?:@\d{4}-\d{2}-\d{2})?$/.test(source))return 'CARRY_INPUT_REQUIRED';
+  if(source==='MANUAL')return 'MANUAL';
+  if(source==='')return 'UNLABELED';
+  return 'OTHER_PROVIDER';
+ };
+ const output={};
+ for(const code of funds){
+  const rows=d.sourceMismatches.filter(row=>row?.code===code);
+  const navStates=states.filter(row=>row?.code===code);
+  if(rows.length>1||navStates.length>1)throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+  if(!rows.length){output[code]={mismatch:false};continue;}
+  const row=rows[0];
+  if(typeof row.expected!=='string'||typeof row.stored!=='string'
+    ||row.expected===row.stored)throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+  const state=navStates[0];
+  const sourceDate=typeof state?.sourceDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(state.sourceDate)?
+    state.sourceDate:null;
+  const expectedKind=kind(row.expected),storedKind=kind(row.stored);
+  const datedCarryMatches=source=>{
+   if(!sourceDate)return null;
+   const suffix=source.match(/^FUND_NAV_CARRY(?:_INPUT_REQUIRED)?@(\d{4}-\d{2}-\d{2})$/);
+   return suffix?suffix[1]===sourceDate:null;
+  };
+  output[code]={
+   mismatch:true,expectedKind,storedKind,
+   expectedCarryDateMatchesNav:datedCarryMatches(row.expected),
+   storedCarryDateMatchesNav:datedCarryMatches(row.stored),
+   bothCarryFamilies:['CARRY_NAV','CARRY_INPUT_REQUIRED'].includes(expectedKind)
+     &&['CARRY_NAV','CARRY_INPUT_REQUIRED'].includes(storedKind),
+   confirmedNavExpected:expectedKind==='CONFIRMED_NAV',
+   writeAuthorized:false
+  };
+ }
+ return {knownFundSourcePairs:output};
+}
+
 export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_SNAPSHOT_TOKEN_MISSING');
@@ -229,7 +278,7 @@ export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const hanwha=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00001'});
  const kb=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00002'});
  const complete={...result,...summarizeFullIntegrity(integrity),...classifySingleFundRepairReview(integrity),
-  ...summarizeMismatchScope(integrity),...summarizeSourceMismatchKinds(integrity),fundDayStates:[
+  ...summarizeMismatchScope(integrity),...summarizeSourceMismatchKinds(integrity),...summarizeKnownFundSourcePairs(integrity),fundDayStates:[
     summarizeExactFundDay(hanwha,'F00001'),summarizeExactFundDay(kb,'F00002')]};
  emit(complete);
  return complete;
