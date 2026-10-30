@@ -13,13 +13,18 @@ on:
   workflow_dispatch:
     inputs:
       dates:
-        description: 'KRX official close dates (YYYY-MM-DD, comma separated)'
+        description: '점검일 1~3개 입력 (YYYY-MM-DD, 쉼표 구분, 예: 2026-10-29)'
         type: string
         required: true
-        default: '2026-10-12,2026-10-13,2026-10-14'
 
 permissions:
   contents: read
+
+# Serialize manual and push diagnostics: both perform many authenticated GAS
+# reads and full-snapshot proofs, which must not compete for the same locks.
+concurrency:
+  group: krx-operational-diagnostics-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   diagnose:
@@ -64,14 +69,14 @@ jobs:
       # KRX / ledger completeness. Each date is independently checked by the
       # existing authenticated apply=0 endpoint, without mutating the queue.
       - name: Read-only exact KRX+ledger+full Snapshot proof for 10/06–08
-        if: always()
+        if: always() && github.event_name == 'push'
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/preview-krx-pending-reconcile.mjs --dates "2026-10-06,2026-10-07,2026-10-08" --allow-blocked
 
       - name: Read-only exact KRX+ledger+full Snapshot proof for 10/15
-        if: always()
+        if: always() && github.event_name == 'push'
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
