@@ -92,8 +92,8 @@ const future=[
   trade('2026-02-02','sell','SECOND','000002',2,0)
 ];
 const c=context(),p=c.env;
-// Synthetic replay runs against candidate GAS v9.279, not a deployed live instance.
-const assertPinnedGasVersion=value=>assert.equal(value,'9.279',
+// Synthetic replay runs against candidate GAS v9.280, not a deployed live instance.
+const assertPinnedGasVersion=value=>assert.equal(value,'9.280',
   'GAS version drift: review test/production before relying on policy');
 assertPinnedGasVersion(c.version());
 // Negative control ensures the version gate actually rejects a wrong version.
