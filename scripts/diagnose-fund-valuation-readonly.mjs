@@ -7,7 +7,7 @@ import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 export const FUNDS=Object.freeze(['F00001','F00002','F00003']);
 const NAV_STATES=new Set(['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY','UNPUBLISHED','NAV_MISSING']);
 const ROW_STATES=new Set(['EXISTING_VALID','NOT_REQUIRED','WRITE_REQUIRED','NOT_CREATED']);
-const DATE=/^\\d{4}-\\d{2}-\\d{2}$/;
+const DATE=/^\d{4}-\d{2}-\d{2}$/;
 
 function validDate(value) {
  if(typeof value!=='string'||!DATE.test(value))return false;
