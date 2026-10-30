@@ -1,12 +1,10 @@
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import {fetchNhNight} from './nh-night-reference.mjs';
+import {MORNING_SERIES, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
 export async function fetchNightReference(date,options={}) { return fetchNhNight(date,options); }
 
-const SERIES = Object.freeze([
-  ['KOSPI', '^KS11'], ['KOSDAQ', '^KQ11'], ['S&P 500', '^GSPC'],
-  ['NASDAQ', '^IXIC'], ['반도체지수 SOX', '^SOX'], ['VIX', '^VIX'],
-  ['원/달러', 'KRW=X'],
-]);
+// All supported verified daily sources; no abbreviated seven-ticker list.
+const SERIES = MORNING_SERIES;
 const DAY = 86400000;
 
 function kstParts(instant) {
@@ -49,19 +47,9 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
   } catch { return null; }
 }
 export function formatMorningBriefing(tradingDate, reference, rows) {
-  const lines=[`[${tradingDate} 장전 시장 요약]`, ''];
-  if(reference) lines.push(`코스피200 야간선물: ${reference.value.toFixed(2)}pt · 마감 기준 ${reference.tradingDate} 06:00 KST (NH)`);
-  else lines.push('코스피200 야간선물: 당일 참고값 미확보');
-  lines.push('', '전일 시장 지표 (Yahoo Finance 일봉, 지연 가능)');
-  for(const [label,symbol] of SERIES){
-    const row=(rows||[]).find(item=>item?.symbol===symbol && item.label===label);
-    if(!row){lines.push(`${label}: 미확보`);continue;}
-    const change=Number.isFinite(row.changePercent)?` (${row.changePercent>=0?'+':''}${row.changePercent.toFixed(2)}%)`:'';
-    lines.push(`${label}: ${row.value.toLocaleString('en-US',{maximumFractionDigits:2})}${change} · ${row.date}`);
-  }
-  lines.push('', '각 수치는 기준일을 확인하세요. 야간선물은 NH의 마감 시점 체결값입니다.');
-  return lines.join('\n');
+  return formatFullMorningBriefing(tradingDate, reference, rows);
 }
+
 export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   if(!/^\d+:[A-Za-z0-9_-]{20,}$/.test(String(token||''))||! /^-?\d+$/.test(String(chatId||'')))throw new Error('TELEGRAM_CONFIG_INVALID');
   try {
@@ -79,9 +67,11 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   const calendar=krxSessionStatus(first.date);
   if(calendar==='CLOSED')return {status:'MARKET_CLOSED'};
   if(calendar!=='OPEN')throw new Error('TELEGRAM_CALENDAR_UNKNOWN');
-  const [candidate,...values]=await Promise.all([
+  // Bounded concurrency reduces Yahoo rate limiting; the message still
+  // identifies missing inputs rather than inferring or reusing stale prices.
+  const [candidate,values]=await Promise.all([
     referenceFetch(first.date,{fetchImpl,now}),
-    ...SERIES.map(([label,symbol])=>fetchDatedDaily(label,symbol,first.date,{fetchImpl,now:now()})),
+    collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,now:now(),fetchImpl}),
   ]);
   const last=scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
@@ -90,9 +80,9 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && Number.isFinite(candidate.value) && candidate.value>0
     && Number.isFinite(Date.parse(candidate.receivedAt)) && Date.parse(candidate.receivedAt)<=now().getTime()
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
-  const message=formatMorningBriefing(first.date,reference,values.filter(Boolean));
+  const message=formatMorningBriefing(first.date,reference,values);
   await send(token,chatId,message,{fetchImpl});
-  return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.filter(Boolean).length,
+  return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,
     referenceSource:reference?.source||'NONE',referenceDate:reference?.tradingDate||null,
     referenceTime:reference?.sourceUpdatedAt||null,referenceContract:reference?.contract||null};
 }
