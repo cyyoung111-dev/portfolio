@@ -213,6 +213,10 @@ for(const [mutation,secondStatus] of [
      {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'FUND_NAV_CARRY_INPUT_REQUIRED'},
      {code:'PRIVATE_ACCOUNT',expected:'MANUAL',stored:'OTHER'}]}],
  [{priceIntegrity:[{code:TARGET_CODE,status:'VALID'},{code:'F00002',status:'SUSPICIOUS'}]}],
+ [{sourceMismatches:[
+  {code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY@2026-10-29'},
+  {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',
+   stored:'FUND_NAV_CARRY_INPUT_REQUIRED@2026-10-28'}]}],
  [{sourceDataErrors:['PRIVATE_SECRET']}],
  [{expectedRowCount:39}],
  [{storedRows:[]}],
