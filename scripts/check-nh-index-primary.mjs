@@ -11,8 +11,8 @@ const ctx={_nhCredentials_:()=>({key:'k',secret:'s'}),
  _nhCloseDate_:d=>String(d||'').replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3'),
  _nhPost_:(path,input)=>{
    calls.push({path,input});
-   return {Output_0:{iem_cd:input.iem_cd,iem_nm:'S&P500'},
-     Output_1:[{bsop_date:'20261022',ovrs_prpr:'7600.12'},{bsop_date:'20261029',ovrs_prpr:'7720.39'}]};
+   return {Output_0:{iem_cd:input.iem_cd,iem_nm:({SPX:'S&P 500',COMP:'나스닥 종합',NDX:'NASDAQ 100'}[input.iem_cd]||'UNKNOWN')},
+     Output_1:[{bsop_date:'20261022',ovrs_prpr:({SPX:'7600.12',COMP:'25750.21',NDX:'29110.08'}[input.iem_cd]||'0')},{bsop_date:'20261029',ovrs_prpr:({SPX:'7720.39',COMP:'26184.72',NDX:'29402.51'}[input.iem_cd]||'0')}]};
  },
  CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},
  fetchYahooIndexSeries:(type)=>{fallbacks.push(type);return {symbol:'^GSPC',points:[{date:'2026-10-29',value:7700}]};},
@@ -24,6 +24,14 @@ assert.equal(ok.source,'NH_INDEX_DAILY');assert.equal(ok.points.at(-1).value,772
 assert.equal(ok.points.at(-1).sourceDate,'2026-10-29');assert.equal(ok.current.source,'NH_INDEX_DAILY');
 assert.equal(calls[0].path,'/gbstock/quote/v1/symbolIndexFxPeriod');
 assert.equal(calls[0].input.gubun,'1');assert.equal(calls[0].input.xtick,'001');assert.equal(calls[0].input.array_cnt,'0400');
+for (const [type,code,expected] of [['NASDAQ','COMP',26184.72],['NASDAQ100','NDX',29402.51]]) {
+ const row=ctx.fetchIndexPrimarySeries(type,'2026-10-22','2026-10-29');
+ assert.equal(row.source,'NH_INDEX_DAILY',type+' must not silently fall back to Yahoo');
+ assert.equal(row.code,code);
+ assert.equal(row.points.at(-1).value,expected);
+ assert.equal(row.points.at(-1).source,'NH_INDEX_DAILY');
+ assert.equal(row.points.at(-1).sourceDate,'2026-10-29');
+}
 assert.equal(fallbacks.length,0);
 ctx._nhPost_=()=>({Output_0:{iem_cd:'WRONG',iem_nm:'S&P500'},Output_1:[]});
 const miss=ctx.fetchIndexPrimarySeries('SP500','2026-10-21','2026-10-29');

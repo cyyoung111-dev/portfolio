@@ -19327,9 +19327,9 @@ function handleGetNhIndexProbe(params){
 // with S&P 500 and Nasdaq official reported daily closes. Other symbols are
 // deliberately NOT mapped to NH without an exact identity/price verification.
 var NH_VERIFIED_GLOBAL_INDEX_CODES_V1={
- SP500:{code:'SPX',name:'S&P\s*500|S&P500'},
- NASDAQ:{code:'COMP',name:'나스닥\s*종합|NASDAQ\s*COMPOSITE'},
- NASDAQ100:{code:'NDX',name:'나스닥\s*100|NASDAQ\s*100'}
+ SP500:{code:'SPX',name:'S&P\\s*500|S&P500'},
+ NASDAQ:{code:'COMP',name:'나스닥\\s*종합|NASDAQ\\s*COMPOSITE'},
+ NASDAQ100:{code:'NDX',name:'나스닥\\s*100|NASDAQ\\s*100'}
 };
 function _nhGlobalIndexDailySeries_(type,fromDate,toDate){
  var config=NH_VERIFIED_GLOBAL_INDEX_CODES_V1[type];
