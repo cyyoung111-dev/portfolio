@@ -20,7 +20,7 @@ export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fe
     const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'CATALOG';
     throw Error('DIVIDEND_DIAG_'+reason);
   }
-  if(catalog.readOnly!==true||catalog.gasVersion!=='9.279') throw Error('DIVIDEND_DIAG_VERSION');
+  if(catalog.readOnly!==true||catalog.gasVersion!=='9.280') throw Error('DIVIDEND_DIAG_VERSION');
   const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&
     !['ETF','TDF','펀드','FUND'].includes(String(c.assetType||c.type||'').toUpperCase()));
   const unique=[...new Map(stocks.map(c=>[String(c.code),c])).values()];
