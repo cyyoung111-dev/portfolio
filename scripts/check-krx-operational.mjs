@@ -733,21 +733,21 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
 }
 
 
-// Manual fund continuation is write-capable. It requires explicit typed
-// acknowledgement; a failed/skipped resume must not fan out to NAV imports.
+// Manual fund continuation is write-capable. Require explicit typed
+// acknowledgement; failed/skipped resume cannot fan out to NAV imports.
 {
  const fs=await import('node:fs');
  const resume=fs.readFileSync('.github/workflows/issue-507-fund-close-resume.yml','utf8');
  const nav=fs.readFileSync('.github/workflows/kb-fund-nav-collect.yml','utf8');
- assert.match(resume,/diagnose_only:[\\s\\S]*?default: true/);
- assert.match(resume,/confirm_recovery:[\\s\\S]*?default: ''/);
- assert.match(resume,/if: github\\.event_name == 'workflow_dispatch' && inputs\\.diagnose_only == false/);
- assert.match(resume,/if \\[ \\"\\$CONFIRM_RECOVERY\\" != 'APPLY' \\]/);
- assert.match(resume,/RESUME_READ_ONLY:/);
- assert.doesNotMatch(nav,/workflow_run:/,'NAV must not run on skipped/failed fund resume');
- assert.match(nav,/workflow_dispatch:/);
- assert.match(nav,/cron: '15 23 \\* \\* \\*'/);
- assert.match(nav,/cron: '10 9 \\* \\* \\*'/);
- assert.match(nav,/event_name == 'schedule' \\|\\| github\\.event_name == 'workflow_dispatch'/);
+ assert.ok(resume.includes('diagnose_only:')&&resume.includes('default: true'));
+ assert.ok(resume.includes('confirm_recovery:')&&resume.includes("default: ''"));
+ assert.ok(resume.includes("if: github.event_name == 'workflow_dispatch' && inputs.diagnose_only == false"));
+ assert.ok(resume.includes("if [ \"$CONFIRM_RECOVERY\" != 'APPLY' ]; then"));
+ assert.ok(resume.includes('RESUME_READ_ONLY:'));
+ assert.ok(!nav.includes('workflow_run:'),'failed/skipped fund resume cannot trigger NAV');
+ assert.ok(nav.includes('workflow_dispatch:'));
+ assert.ok(nav.includes("cron: '15 23 * * *'"));
+ assert.ok(nav.includes("cron: '10 9 * * *'"));
+ assert.ok(nav.includes("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"));
 }
 console.log('Fund resume explicit APPLY consent and scheduled/manual NAV gating PASS');
