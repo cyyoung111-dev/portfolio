@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {scheduledWindow,runTelegramMorning,sendTelegram} from './telegram-morning-briefing.mjs';
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
+import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,run=runTelegramMorning,loadReference=loadCapturedNight}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
@@ -36,7 +37,12 @@ export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,a
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
-  if(process.env.GITHUB_EVENT_NAME!=='schedule')throw Error('TELEGRAM_EVENT_INVALID');
+  if(!['schedule','workflow_run'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
+  if(!deliveryTrigger('morning',process.env,JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),scheduledWindow(new Date()).allowed)){
+   if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
+   console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW'}));
+   process.exit(0);
+  }
   if(process.argv[2]==='prepare'){
    const result=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT});
    if(result.ready){

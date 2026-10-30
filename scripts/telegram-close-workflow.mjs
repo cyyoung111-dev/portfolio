@@ -9,12 +9,13 @@ import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 import {fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 import {fetchShinhanIndexEod} from './shinhan-korean-index-eod.mjs';
 import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close.mjs';
+import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
 export function closeWindow(instant){
   const p=parts(instant),minute=Number(p.hour)*60+Number(p.minute);
-  return {date:`${p.year}-${p.month}-${p.day}`,allowed:minute>=990&&minute<1030};
+  return {date:`${p.year}-${p.month}-${p.day}`,allowed:minute>=990&&minute<1200};
 }
 
 const NH_VERIFIED=Object.freeze([
@@ -200,8 +201,11 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
-    if(!['schedule','workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME)
-     ||process.env.GITHUB_REF!=='refs/heads/main')throw Error('TELEGRAM_CLOSE_EVENT_INVALID');
+    if(!deliveryTrigger('close',process.env,JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),closeWindow(new Date()).allowed)){
+      if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
+      console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW'}));
+      process.exit(0);
+    }
     if(process.argv[2]==='prepare'){
       const result=await prepareClose({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT});
       if(result.ready){fs.mkdirSync('.telegram-close-runtime',{recursive:true});fs.writeFileSync('.telegram-close-runtime/payload.json',JSON.stringify(result));fs.writeFileSync('.telegram-close-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));}

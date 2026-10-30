@@ -8,6 +8,10 @@ on:
     - cron: '57 22 * * 0-4' # 07:57 KST, fallback 2
     - cron: '5 23 * * 0-4'  # 08:05 KST, last fallback (08:10 cutoff)
   workflow_dispatch:
+  workflow_run:
+    workflows: ['NH night reference capture']
+    types: [completed]
+    branches: [main]
 permissions:
   contents: read
   actions: read
@@ -16,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   briefing:
-    if: github.ref == 'refs/heads/main'
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'schedule'))
     runs-on: ubuntu-latest
     environment: portfolio-production-gas
     timeout-minutes: 5
@@ -34,7 +38,7 @@ jobs:
         run: node scripts/telegram-morning-briefing.mjs
       - name: Prepare scheduled briefing and inspect durable claim
         id: prepare
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_run'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
