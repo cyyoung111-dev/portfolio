@@ -98,6 +98,13 @@ export async function diagnoseClose({key,secret,request=fetch,log=console.log,wa
         const output=etf.json?.Output_0;
         const valid=etf.res.ok && output?.iem_cd===code && numericPrice(output.stck_prpr)!==null;
         log('KR_ETF_CURRENT HTTP_'+status(etf.res)+' '+(valid?'CODE_AND_PRICE_PRESENT':'CODE_OR_PRICE_UNVERIFIED'));
+        const embedded=valid?inspectEtfEmbeddedIndex(etf.json,code):null;
+        if(embedded)log('KR_ETF_EMBEDDED_INDEX CANDIDATE_ONLY code='+embedded.indexCode
+          +' name='+embedded.indexName+' market='+embedded.marketCode
+          +' value='+embedded.indexValue+' DATE_AND_FINALITY_UNVERIFIED');
+        else log('KR_ETF_EMBEDDED_INDEX NOT_VERIFIED');
+        // ETF-associated index data has no independent trading date/close proof.
+        // Never save it to official market indices or the portfolio price history.
         if(!valid)passed=false;
         if(etf.res.status===401||etf.res.status===429)break;
       }
