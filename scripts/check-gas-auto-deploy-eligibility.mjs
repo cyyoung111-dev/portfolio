@@ -8,7 +8,7 @@ const makeRun=(id,hash=sha)=>({
 });
 const deployedJob={name:'deploy',conclusion:'success',steps:[{name:'Deploy GAS',conclusion:'success'}]};
 const skippedJob={name:'deploy',conclusion:'skipped',steps:[]};
-function stub({runs=[makeRun(42)],jobsById={42:[deployedJob]},oldBlob=current,
+function stub({runs=[makeRun(42)],pages=null,jobsById={42:[deployedJob]},oldBlob=current,
  headBlob=current,failApi=false,failGit=false,currentRunId=100}={}){
  const calls={urls:[],git:[]};
  const fetchImpl=async (url,opts)=>{
@@ -16,7 +16,10 @@ function stub({runs=[makeRun(42)],jobsById={42:[deployedJob]},oldBlob=current,
   assert.equal(opts.headers.authorization,'Bearer '+token);
   if(failApi) return {ok:false,status:403};
   const match=url.match(/\/runs\/(\d+)\/jobs\?/);
-  return {ok:true,json:async()=>match?{jobs:jobsById[Number(match[1])]||[]}:{workflow_runs:runs}};
+  const page=Number(url.match(/[?&]page=(\d+)/)?.[1]||1);
+  if(!match)assert.match(url,/\/actions\/workflows\/gas-deploy\.yml\/runs\?per_page=100&page=/);
+  return {ok:true,json:async()=>match?{jobs:jobsById[Number(match[1])]||[]}
+    :{workflow_runs:pages?pages[page-1]||[]:runs}};
  };
  const gitExec=(_binary,args)=>{
   calls.git.push(args);
@@ -37,6 +40,26 @@ assert.ok(!JSON.stringify(result).includes(token));
 mock=stub({oldBlob:old});
 result=await mock.call();
 assert.deepEqual(result,{changed:true,reason:'DEPLOYED_SOURCE_DIFFERS'});
+
+// More than 100 unrelated repository runs must not bury a production GAS
+// release. Page two's real deployment remains the baseline.
+const oneHundredNoOps=Array.from({length:100},(_,i)=>makeRun(1000-i));
+mock=stub({pages:[oneHundredNoOps,[makeRun(42)]],jobsById:{42:[deployedJob]}});
+assert.deepEqual(await mock.call(),{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});
+assert.ok(mock.calls.urls.some(u=>u.includes('gas-deploy.yml/runs?per_page=100&page=2')));
+assert.equal(mock.calls.urls.filter(u=>u.includes('/actions/workflows/')).length,2);
+assert.ok(mock.calls.git.some(x=>x[0]==='fetch'));
+// An unresolved failure from page one still blocks a page-two baseline.
+const pageFailure=[{...makeRun(1010),conclusion:'failure'},...oneHundredNoOps.slice(0,99)];
+mock=stub({pages:[pageFailure,[makeRun(42)]],jobsById:{42:[deployedJob]}});
+assert.deepEqual(await mock.call(),{changed:true,reason:'PROVENANCE_NEWER_DEPLOY_NOT_PROVEN'});
+// If the real deploy is beyond the bounded history, fail closed.
+const allNoOps=Array.from({length:5},(_,page)=>Array.from({length:100},(_,i)=>makeRun(5000-page*100-i)));
+mock=stub({pages:allNoOps});
+const pagedMissing=await mock.call();
+assert.deepEqual(pagedMissing,{changed:true,reason:'PROVENANCE_NO_PROVEN_DEPLOYMENT'});
+assert.equal(mock.calls.urls.filter(u=>u.includes('/actions/workflows/')).length,5);
+
 // A newer validation-only successful run MUST NOT mask an older real deployment.
 mock=stub({runs:[makeRun(51,old),makeRun(42)],jobsById:{51:[skippedJob],42:[deployedJob]}});
 assert.deepEqual(await mock.call(),{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});
