@@ -86,7 +86,7 @@ function outlook(map) {
 }
 export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const map=new Map(rows.filter(x=>x && x.symbol && x.date<date).map(x=>[x.symbol,x]));
-  const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 출처: GAS 원장·KRX·Yahoo 일봉·NH 야선','',
+  const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 원천은 개별 날짜·출처 표시 (NH 야선 포함)','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id)),
   '거래대금·외국인/기관·시장폭(A/D·ADR20): 미확보','',
