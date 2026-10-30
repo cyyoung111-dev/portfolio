@@ -76,6 +76,9 @@ function isExpectedPublicationWait(data,{now,today,issues,slots}) {
     ||data.snapshotLastDate<data.officialKrxPriceHistoryLastDate
     ||data.snapshotLastDate>target)return false;
   if(data.triggerReady!==true||data.tradeLedgerWriteUnverified===true
+    ||data.tradeSnapshotDeferredCount!==0
+    ||(data.tradeSnapshotWorkerTriggerAudit
+       &&data.tradeSnapshotWorkerTriggerAudit.clockReady!==true)
     ||(data.pendingTradeSnapshotRebuildFrom&&data.pendingTradeSnapshotRebuildFrom!=='-'))return false;
   if(data.latestBackfill?.attempted!==true||data.latestBackfill?.ok!==false
     ||data.latestBackfill?.failureClass!=='KRX_PRICE_SOURCE_OR_COVERAGE'
