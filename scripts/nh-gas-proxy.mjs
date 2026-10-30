@@ -13,7 +13,7 @@ export function validateGasEndpoint(url){
 }
 export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
   token=process.env.GAS_ACCESS_TOKEN,date,request=fetch}={}){
-  if(!['getNhNightProxy','getNhAuthStatusProxy'].includes(action)||!token||token.length<12)
+  if(!['getNhNightProxy','getNhAuthStatusProxy','getNhNightProbe'].includes(action)||!token||token.length<12)
     throw Error('NH_PROXY_CONFIG');
   const target=validateGasEndpoint(url);
   const payload=new URLSearchParams({action,accessToken:token,...(date?{date}:{})});
@@ -54,4 +54,31 @@ export async function fetchNhNightFromGas(date,{now=()=>new Date(),
     return null;
   return validateNhNight({date,clock:ref.clock,contract:ref.contract,
     contractMonth:ref.contractMonth,value:ref.value},date,ref.receivedAt);
+}
+
+export async function fetchNhNightProbeFromGas(date,{now=()=>new Date(),
+ url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,request=fetch}={}){
+ const instant=now(),p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+   timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
+   hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(x=>[x.type,x.value]));
+ const minute=Number(p.hour)*60+Number(p.minute);
+ if(date!==p.year+'-'+p.month+'-'+p.day||minute<480||minute>=780)return null;
+ let body;
+ try{body=await callNhGasProxy('getNhNightProbe',{url,token,date,request});}
+ catch{return null;}
+ const ref=body.reference;
+ const requiredOuter=['status','provider','readOnly','bearerExposed','diagnosticOnly','tokenIssued','reference'];
+ const requiredRef=['source','kind','tradingDate','contract','contractMonth','value','clock',
+ 'sourceUpdatedAt','receivedAt','officialClose'];
+ if(body.bearerExposed!==false||body.diagnosticOnly!==true||body.tokenIssued!==false
+  ||!ref||typeof ref!=='object'||Array.isArray(ref)
+  ||Object.keys(body).some(k=>!requiredOuter.includes(k))
+  ||Object.keys(ref).some(k=>!requiredRef.includes(k))
+  ||ref.source!=='NH'||ref.kind!=='REFERENCE'||ref.tradingDate!==date
+  ||ref.officialClose!==false||ref.sourceUpdatedAt!==date+'T06:00:00+09:00'
+  ||typeof ref.receivedAt!=='string'
+  ||!Number.isFinite(Date.parse(ref.receivedAt))
+  ||Date.parse(ref.receivedAt)>instant.getTime()+2000)return null;
+ return validateNhNight({date,clock:ref.clock,contract:ref.contract,
+  contractMonth:ref.contractMonth,value:ref.value},date,ref.receivedAt);
 }

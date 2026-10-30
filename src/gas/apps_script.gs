@@ -1374,6 +1374,7 @@ function doPost(e) {
   }
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'getNhNightProxy') return handleGetNhNightProxy(params);
+  if (params.action === 'getNhNightProbe') return handleGetNhNightProbe(params);
   if (params.action === 'getNhAuthStatusProxy') return handleGetNhAuthStatusProxy(params);
   if (params.action === 'saveNhConfig') return handleSaveNhConfig(params);
   if (params.action === 'retireLegacyMarketData') return handleRetireLegacyMarketData(params);
@@ -19034,12 +19035,16 @@ function _nhProxyFutureCandidate_(today) {
   if(front.length!==1)return null;
   return front[0];
 }
-function _nhProxyNightReference_(today,now) {
+function _nhProxyNightReference_(today,now,diagnosticOnly) {
   var kst=_nhProxyKst_(now);
-  if(kst.date!==today||kst.minutes<450||kst.minutes>=480)throw new Error('NH_PROXY_WINDOW');
+  if(kst.date!==today
+    ||(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<450||kst.minutes>=480)))
+    throw new Error('NH_PROXY_WINDOW');
   var props=PropertiesService.getScriptProperties();
   var creds=_nhCredentials_();
   if(!_nhEnabled_()||!creds.key||!creds.secret)throw new Error('NH_PROXY_NOT_CONFIGURED');
+  if(diagnosticOnly&&!_nhValidTokenRecord_(props.getProperty('NHPLUG_AUTH_RECORD_V1'),
+      _nhTokenScope_(creds)))throw new Error('NH_PROXY_TOKEN_NOT_CACHED');
   var cache=CacheService.getScriptCache(),key='nh_night_proxy_v1_'+today;
   var prior=cache.get(key);
   if(prior){try {var candidate=JSON.parse(prior);
@@ -19099,5 +19104,23 @@ function handleGetNhNightProxy(params) {
     // No upstream response, credentials or bearer may be returned to clients.
     var allowed=/^NH_PROXY_[A-Z0-9_]+$/.test(String(error&&error.message||''));
     return jsonError(allowed?error.message:'NH_PROXY_UNAVAILABLE');
+  }
+}
+
+function handleGetNhNightProbe(params) {
+  // Narrow daytime verification after the 06:00 capture. This diagnostic
+  // NEVER authorizes a new NH OAuth token, writes snapshots or creates the
+  // scheduled GitHub artifact. The 07:30 capture window is untouched.
+  if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
+  var now=new Date(),kst=_nhProxyKst_(now);
+  if(params.date!==kst.date||!/^\d{4}-\d{2}-\d{2}$/.test(params.date||'')
+    ||kst.minutes<480||kst.minutes>=780)return jsonError('NH_PROXY_WINDOW');
+  try {
+    var reference=_nhProxyNightReference_(params.date,now,true);
+    return jsonOk({provider:'NH',reference:reference,readOnly:true,
+      bearerExposed:false,diagnosticOnly:true,tokenIssued:false});
+  }catch(error){
+    var code=String(error&&error.message||'');
+    return jsonError(/^NH_PROXY_[A-Z0-9_]+$/.test(code)?code:'NH_PROXY_UNAVAILABLE');
   }
 }
