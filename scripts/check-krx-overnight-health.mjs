@@ -76,6 +76,7 @@ assert.equal(waiting.lastBackfillOk,false);
 // report an unexpected incident when the *only* missing row is yesterday's
 // KRX official open-session close, and all evidence attributes it to KRX.
 const safePublicationClose={
+  state:'ERROR',stage:'PRICE',priceOk:false,runDate:'2026-10-29',
   summaryPresent:true,summaryRunDate:'2026-10-29',
   fundState:'DONE',fundOk:true,fundErrorPresent:false,
   fundWarningPresent:false,closeErrorPresent:false,closeErrorCount:0,
@@ -108,6 +109,11 @@ assert.equal(assessKrxOvernightHealth({...awaitingPublication,officialKrxPriceHi
 assert.equal(assessKrxOvernightHealth({...awaitingPublication,pendingDates:['2026-10-28']},
   {now:atMorning}).status,'ACTION_REQUIRED');
 for(const brokenClose of [
+  {...safePublicationClose,state:'INCOMPLETE'},
+  {...safePublicationClose,state:'COMPLETE'},
+  {...safePublicationClose,stage:'FUND'},
+  {...safePublicationClose,priceOk:true},
+  {...safePublicationClose,runDate:'2026-10-28'},
   {...safePublicationClose,fundErrorPresent:true},
   {...safePublicationClose,fundWarningPresent:true},
   {...safePublicationClose,fundState:'ERROR'},
