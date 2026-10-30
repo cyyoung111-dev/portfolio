@@ -22,6 +22,8 @@ export async function checkGasAutoDeployEligibility({repository,token,fetchImpl=
   const runs=await readJson(API+'/repos/'+repository+'/actions/runs?per_page=100',
    token,fetchImpl);
   if(!Array.isArray(runs.workflow_runs))return unverified('PROVENANCE_RUNS_UNVERIFIED');
+  // Sort explicitly: never trust API ordering when selecting deployed baseline.
+  runs.workflow_runs.sort((a,b)=>Number(b?.id||0)-Number(a?.id||0));
   for(const run of runs.workflow_runs){
    if(run?.name!=='gas-deploy'||run.event!=='workflow_run'||run.conclusion!=='success'
       ||run.head_branch!=='main'||run.head_repository?.full_name!==repository
@@ -35,8 +37,10 @@ export async function checkGasAutoDeployEligibility({repository,token,fetchImpl=
    // attempt may have deployed a different source or changed HEAD; do not
    // confuse its dry-run with a confirmed release. Force the normal path.
    if(runs.workflow_runs.some(other=>other?.name==='gas-deploy'
-      &&other.event==='workflow_dispatch'&&Number(other.id)>Number(run.id)))
-      return unverified('PROVENANCE_NEWER_MANUAL_DEPLOY_UNVERIFIED');
+      &&Number.isSafeInteger(other.id)&&Number(other.id)>Number(run.id)
+      &&(other.event==='workflow_dispatch'
+        ||(other.event==='workflow_run'&&other.conclusion!=='success'))))
+      return unverified('PROVENANCE_NEWER_DEPLOY_NOT_PROVEN');
    const sha=String(run.head_sha);
    // The run is now fully proven; any Git/GitHub read failure MUST permit deployment.
    gitExec('git',['fetch','--no-tags','--depth=1','origin',sha],{stdio:'ignore',timeout:20000});
