@@ -66,6 +66,22 @@ function checkWorkflow(source){
   assert.equal(deploy.steps[0].with.ref,'$'+'{{ needs.validate.outputs.sha }}');
   assert.equal(deploy.env.GAS_EXPECTED_MAIN_SHA,'$'+'{{ needs.validate.outputs.sha }}');
   assert.equal(deploy.concurrency['cancel-in-progress'],false);
+  // Last proven successful production source, never merely HEAD's first parent.
+  const sourceStep=validate.steps.find(step=>step.id==='gas_source');
+  assert.ok(sourceStep,'proven deployment source preflight is required');
+  assert.equal(sourceStep.if,"github.event_name == 'workflow_run'");
+  assert.equal(sourceStep.run,'node scripts/gas-auto-deploy-eligibility.mjs');
+  assert.match(JSON.stringify(sourceStep.env),/github.token/);
+  assert.match(JSON.stringify(sourceStep.env),/github.repository/);
+  assert.match(JSON.stringify(sourceStep.env),/github.run_id/);
+  const expr=String.fromCharCode(36,123,123)+' steps.gas_source.outputs.changed '+String.fromCharCode(125,125);
+  assert.equal(validate.outputs.auto_source_changed,expr);
+  assert.match(deploy.if,/needs\.validate\.outputs\.auto_source_changed == 'true'/);
+  for(const stepName of ['Install dependencies','Full release checks']){
+    const step=validate.steps.find(x=>x.name===stepName);
+    assert.match(step.if,/steps\.gas_source\.outputs\.changed == 'true'/);
+    assert.match(step.if,/github\.event_name != 'workflow_run'/);
+  }
   assert.ok(validate.steps.some(s=>s.run==='node scripts/gas-release-gate.mjs'));
   assert.ok(validate.steps.some(s=>s.run==='npm run check:ci'));
   assert.ok(!JSON.stringify(validate).includes('secrets.CLASPRC_JSON'));
@@ -78,8 +94,11 @@ checkWorkflow(source);
   quality.on.push.paths=['src/gas/apps_script.gs'];
   assert.throws(()=>checkReleaseCoverage(quality));
 }
-for(const [before,after] of [["vars.GAS_AUTO_DEPLOY_ENABLED == 'true'","true"],
-  ["head_branch == 'main'","head_branch != 'main'"],['portfolio-production-gas','other'],
+for(const [before,after] of [
+  ["needs.validate.outputs.auto_source_changed == 'true'","true"],
+  ["node scripts/gas-auto-deploy-eligibility.mjs","echo changed=false"],
+  ["vars.GAS_AUTO_DEPLOY_ENABLED == 'true'","true"],
+    ["head_branch == 'main'","head_branch != 'main'"],['portfolio-production-gas','other'],
   ['npm run check:ci','npm run check:gas']]){
   assert.throws(()=>checkWorkflow(source.replaceAll(before,after)));
 }
