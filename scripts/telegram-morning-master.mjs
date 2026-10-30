@@ -42,8 +42,9 @@ export async function loadMorningMaster(date,{url,token,fetchImpl=fetch,now=new 
   }catch{return [];}
 }
 export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[]) {
-  const output=new Map(yahooRows.map(r=>[r.symbol,r]));
+  const output=new Map(yahooRows.filter(r=>!NH_ONLY_INDEX_SET.has(r?.symbol)).map(r=>[r.symbol,r]));
   for(const r of masterRows){
+    if(NH_ONLY_INDEX_SET.has(r?.symbol))continue;
     const earlier=output.get(r.symbol);
     // Keep only trusted dated source and never displace a newer completed daily
     // observation with an older stored value.
