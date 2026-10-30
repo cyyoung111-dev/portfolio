@@ -55,7 +55,8 @@ function entry(map,id){
   else if(id==='BTC')unit=' USD';
   const v=amount.toLocaleString('en-US',{maximumFractionDigits:id==='UST10Y'?3:2});
   const change=Number.isFinite(r.changePercent)?' ('+(r.changePercent>=0?'+':'')+r.changePercent.toFixed(2)+'%)':'';
-  return info.label+': '+v+unit+change+' ['+r.date+']';
+  const proof=r.source==='KRX_OFFICIAL'?'KRX 공식':r.source==='MARKET_MASTER'?'GAS 원장':'Yahoo 일봉';
+  return info.label+': '+v+unit+change+' ['+r.date+' · '+proof+']';
 }
 function evidence(map,id){
   const symbol=MORNING_SERIES.find(x=>x.id===id)?.symbol;
@@ -85,7 +86,7 @@ function outlook(map) {
 }
 export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const map=new Map(rows.filter(x=>x && x.symbol && x.date<date).map(x=>[x.symbol,x]));
-  const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 자료: 최근 완료 일봉·NH 야선','',
+  const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 출처: GAS 원장·KRX·Yahoo 일봉·NH 야선','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id)),
   '거래대금·외국인/기관·시장폭(A/D·ADR20): 미확보','',
