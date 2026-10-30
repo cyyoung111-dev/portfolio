@@ -54,6 +54,7 @@ HTTP·메뉴·트리거·실제 Properties·금융 원본을 변경하지 않는
 - 기존 Process API audit의 `PROCESS_API_ACCESS_DENIED`/`workerExecutionVerified=false`를 바꾸지 않는다.
 - 신규 계측 실행은 공유 receipt와 finally 종료 증거로 판정하므로 `script.processes` 권한이 없어도
   정상 drain을 증명할 수 있다. 증빙 범위는 계측 소스만이며 기존 worker 성공 여부와 별개다.
+- 종료 receipt는 30초 ScriptLock 획득을 최대 3회 시도한다. 재시도는 잠금 획득에만 적용하고 생산 본문이나 metadata mutation은 반복하지 않는다. 일시 경합 해소 시 정상 종료 기록을 남기며, 소진 시 해당 active 기록을 보존하고 GATE_COMPLETION_LOCK_TIMEOUT으로 경보한다.
 - 강제종료/쓰기실패/receipt readback 오류는 active 기록을 남겨 적용을 차단한다. 만료만으로 지우지 않는다.
   Process API 오류를 근거로 성공/종료 처리하지 않는다. 누락된 finally의 종료 증거를 별도로 확보하지
   못하면 적용 불가/운영 재개 보류로 보고한다. 별도 승인·증빙을 갖춘 복구 전에는 활성 기록을 삭제하지 않는다.

@@ -2,9 +2,16 @@
 // Original alias functions are private implementation details; direct editor
 // calls and other deployments must be disabled by the rollout operator.
 var _issue507GateInside_=false;
-function _issue507GateAtomic_(fn) {
+function _issue507GateAtomic_(fn,completion) {
   var lock=LockService.getScriptLock(),owned=lock.hasLock();
-  if(!owned)lock.waitLock(1000);
+  if(!owned){
+    // Completion must not become a permanent orphan after ordinary long-held
+    // production locks. Retry ONLY acquisition, never the metadata mutation.
+    for(var attempt=0;attempt<(completion?3:1);attempt++){
+      try{lock.waitLock(completion?30000:1000);break;}
+      catch(error){if(!completion || attempt===2)throw new Error(completion?'GATE_COMPLETION_LOCK_TIMEOUT':'GATE_LOCK_BUSY');}
+    }
+  }
   try{return fn(PropertiesService.getScriptProperties());}
   finally{if(!owned)lock.releaseLock();}
 }
@@ -54,7 +61,7 @@ function _issue507GateExit_(token) {
     s.completed.push({token:token,name:s.active[token].name,startedAt:s.active[token].startedAt,endedAt:Date.now(),state:'ENDED'});
     s.completed=s.completed.slice(-8);
     delete s.active[token];s.finished++;_issue507GateSave_(props,s);
-  });
+  },true);
 }
 function _issue507GateInvoke_(name,fn,self,args) {
   if(_issue507GateInside_)return fn.apply(self,args);

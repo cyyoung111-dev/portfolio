@@ -14,10 +14,10 @@ let now=1800000000000,sequence=0;
 const props=new Map();const clone=x=>JSON.parse(JSON.stringify(x));
 const propertyApi={getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k)};
 const runtime=fs.readFileSync('ops/issue507/writer-gate.gs','utf8');
-function context(){let held=false;const lock={hasLock:()=>held,waitLock:()=>{assert.equal(held,false);held=true;},releaseLock:()=>{held=false;}};
+function context(){let held=false,failures=0;const waits=[];const lock={hasLock:()=>held,waitLock:ms=>{waits.push(ms);assert.equal(held,false);if(failures-->0)throw Error('temporary busy');held=true;},releaseLock:()=>{held=false;}};
  const c=vm.createContext({Date:{now:()=>now},PropertiesService:{getScriptProperties:()=>propertyApi},
  LockService:{getScriptLock:()=>lock},Utilities:{getUuid:()=> 'synthetic-'+(++sequence)},console});
- vm.runInContext(`var ISSUE507_GATE_RELEASE_ID='${manifest.releaseId}';\n`+runtime,c);return c;}
+ vm.runInContext(`var ISSUE507_GATE_RELEASE_ID='${manifest.releaseId}';\n`+runtime,c);c.setLockFailures=n=>{failures=n;waits.length=0;};c.lockWaits=waits;return c;}
 const gate=context();
 const receipt={releaseId:manifest.releaseId,oldDeploymentsDisabled:true,externalWritersBlocked:true,editorsBlocked:true,legacyDrainEvidence:{kind:'EXECUTIONS_UI',scope:'ALL_PROJECT_ACTORS_AND_VERSIONS',terminalOnly:true,reference:'SYNTHETIC_EVIDENCE'},verifiedAt:now};
 props.set('issue507_writer_gate_rollout_v1',JSON.stringify(receipt));
@@ -30,14 +30,32 @@ now++;assert.equal(gate._issue507AssertDrain_().processApiRequired,false);
 gate.issue507BeginWriterDrain_();assert.equal(props.get('issue507_writer_gate_v1'),initial);
 assert.equal(gate.issue507ResumeWriters_().mode,'OPEN');
 // An in-flight manual refresh remains registered BEFORE external NAV fetch.
+// Normal completion retries 30s lock acquisition; never reruns producer work.
+const contended=gate._issue507GateEnter_('contended-completion');
+gate.setLockFailures(2);gate._issue507GateExit_(contended);
+assert.deepEqual(gate.lockWaits,[30000,30000,30000]);
+assert.equal(Object.keys(JSON.parse(props.get('issue507_writer_gate_v1')).active).length,0);
+const stuck=gate._issue507GateEnter_('exhausted-completion');gate.setLockFailures(3);
+assert.throws(()=>gate._issue507GateExit_(stuck),/COMPLETION_LOCK_TIMEOUT/);
+assert.equal(JSON.parse(props.get('issue507_writer_gate_v1')).active[stuck].name,'exhausted-completion');
+// Later independently invoked completion for the SAME owner is permitted;
+// it cannot delete a different active execution or re-run financial work.
+gate.setLockFailures(0);gate._issue507GateExit_(stuck);
+const quotaOwner=gate._issue507GateEnter_('metadata-failure');
+const saveProperty=propertyApi.setProperty;let mutations=0;
+propertyApi.setProperty=()=>{mutations++;throw Error('synthetic quota');};
+assert.throws(()=>gate._issue507GateExit_(quotaOwner),/synthetic quota/);assert.equal(mutations,1);
+assert.ok(JSON.parse(props.get('issue507_writer_gate_v1')).active[quotaOwner]);
+propertyApi.setProperty=saveProperty;gate._issue507GateExit_(quotaOwner);
+const finishedBefore=JSON.parse(props.get('issue507_writer_gate_v1')).finished;
 const token=gate._issue507GateEnter_('handleRefreshFundValuations');
 const maintenance=context();maintenance.issue507BeginWriterDrain_();now+=420000;
 assert.throws(()=>maintenance._issue507AssertDrain_(),/NOT_DRAINED/);
 assert.throws(()=>maintenance._issue507GateEnter_('runDailyPriceHistory'),/MAINTENANCE/);
 // No expiry inference: a killed execution still blocks after an entire day.
 now+=86400000;assert.throws(()=>maintenance._issue507AssertDrain_(),/NOT_DRAINED/);
-gate._issue507GateExit_(token);assert.equal(maintenance._issue507AssertDrain_().finished,1);
-const s=JSON.parse(props.get('issue507_writer_gate_v1'));assert.equal(Object.keys(s.active).length,0);assert.equal(s.completed[0].token,token);assert.equal(s.completed[0].state,'ENDED');assert.ok(s.completed[0].endedAt>=s.completed[0].startedAt);
+gate._issue507GateExit_(token);assert.equal(maintenance._issue507AssertDrain_().finished,finishedBefore+1);
+const s=JSON.parse(props.get('issue507_writer_gate_v1'));assert.equal(Object.keys(s.active).length,0);assert.equal(s.completed.at(-1).token,token);assert.equal(s.completed[0].state,'ENDED');assert.ok(s.completed[0].endedAt>=s.completed[0].startedAt);
 props.set('issue507_f00001_approval_v1','live');assert.throws(()=>maintenance.issue507ResumeWriters_(),/APPROVAL_STILL_LIVE/);props.delete('issue507_f00001_approval_v1');
 maintenance.issue507ResumeWriters_();
 assert.throws(()=>gate._issue507GateInvoke_('throws',()=>{throw Error('fixture failure');},null,[]),/fixture failure/);
