@@ -8,7 +8,7 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  try {initial=await runBackfillStatus({url:endpoint,token,fetchImpl});}
  catch(error){if(readOnly)emit({phase:'INITIAL_STATUS',requestState:'FAILED',elapsedMs:Date.now()-initialStarted});throw error;}
  if(readOnly)emit({phase:'INITIAL_STATUS',elapsedMs:Date.now()-initialStarted,...initial});
- if(initial.gasVersion!=='9.280')throw Error('RESUME_VERSION');
+ if(initial.gasVersion!=='9.281')throw Error('RESUME_VERSION');
  if(!readOnly&&initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
  const waitingFundDone=status=>status.close.krxPublicationWaiting && status.close.fundOk===true
    && status.close.fundState==='DONE' && !status.close.fundErrorPresent && !status.close.fundWarningPresent;
