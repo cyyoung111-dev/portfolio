@@ -5,6 +5,7 @@ import {sendTelegram} from './telegram-morning-briefing.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {expectedMorningDate} from './telegram-morning-report.mjs';
 import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
+import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -35,12 +36,35 @@ export function verifiedNhCloseRows(date,rows){
  }
  return accepted;
 }
-export function formatClose(date,rows,secondary=[]){
+export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>new Date()}={}){
+ const from=new Date(Date.parse(date+'T00:00:00Z')-14*86400000).toISOString().slice(0,10);
+ const out=await domesticIndexEod.loadSeries(['KOSPI','KOSDAQ','KOSPI200'],from,date,{fetchImpl,now});
+ const labels={KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI 200'};
+ return Object.keys(labels).flatMap(type=>{
+  const list=out.seriesMap[type]||[],current=list.filter(x=>x.date===date);
+  const prior=list.filter(x=>x.date<date).at(-1);
+  if(current.length!==1||!prior||current[0].source!=='FDR_KRX_CACHE'
+   ||current[0].role!=='NON_NH_DAILY_INDEX'||current[0].priceType!=='PUBLISHED_EOD_REFERENCE')
+    return [];
+  return [{type,label:labels[type],date,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',
+    value:current[0].value,changePercent:(current[0].value/prior.value-1)*100}];
+ });
+}
+export function formatClose(date,rows,secondary=[],domestic=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
  const lines=['['+date+' 장후 시장 브리핑]',
-  '기준: NH PLUG 완료 정규장 일봉 · KRX/Yahoo는 익거래일 사후 검산만','',
-  '■ 국내 시장 (NH 지수 종가 검증 전)'];
- for(const label of NH_UNVERIFIED.slice(0,3))lines.push(label+': NH 지수 종가 코드 미검증');
+  '기준: NH PLUG(지원 지수) · 국내 3대 지수는 비NH 공개 EOD 참고값','',
+  '■ 국내 시장 (비NH 공개 일별 종가)'];
+ for(const label of NH_UNVERIFIED.slice(0,3)){
+  const matches=domestic.filter(x=>x?.label===label&&x.date===date&&
+   x.source==='FDR_KRX_CACHE'&&x.role==='NON_NH_DAILY_INDEX'&&
+   Number.isFinite(x.value)&&x.value>0&&Number.isFinite(x.changePercent));
+  if(matches.length!==1){lines.push(label+': 검증된 당일 종가 미확보');continue;}
+  const x=matches[0];
+  lines.push(label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
+    +' ('+(x.changePercent>=0?'+':'')+x.changePercent.toFixed(2)+'%)'
+    +' · '+date+' · FDR/KRX 공개 참고 (NH 아님)');
+ }
  lines.push('','■ 미국 시장 (직전 완료 거래일)');
  for(const target of NH_VERIFIED){
   const row=valid.find(r=>r.symbol===target.symbol);
@@ -70,7 +94,7 @@ export function formatClose(date,rows,secondary=[]){
 }
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
- fetchSecondary=fetchSecondaryIndexes}={}){
+ fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -89,13 +113,15 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   if(!last.allowed||last.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   if(!verified.length)return {ready:false,status:'NH_INDEX_CLOSE_NOT_READY',date:window.date};
   // Supplemental providers are nonblocking, even when their adapter fails.
-  let secondary=[];
-  try {secondary=await fetchSecondary(window.date,{fetchImpl});}
-  catch {secondary=[];}
+  let secondary=[],domestic=[];
+  await Promise.all([
+   (async()=>{try{secondary=await fetchSecondary(window.date,{fetchImpl});}catch{secondary=[];}})(),
+   (async()=>{try{domestic=await fetchDomestic(window.date,{fetchImpl,now});}catch{domestic=[];}})()
+  ]);
   const after=closeWindow(now());
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
-    nhConfirmed:verified.length,message:formatClose(window.date,verified,secondary)};
+    nhConfirmed:verified.length,message:formatClose(window.date,verified,secondary,domestic)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
