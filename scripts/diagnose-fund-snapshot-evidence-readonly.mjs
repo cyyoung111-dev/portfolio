@@ -153,6 +153,60 @@ export function summarizeMismatchScope(payload,date=TARGET_DATE,code=TARGET_CODE
   evaluationAmountMismatchScope:categorize('evalAmtMismatches')};
 }
 
+
+// Read-only semantic split of Snapshot source mismatches. The approved GAS
+// writer is NOT called. Never reveal source strings, instruments or amounts.
+export function summarizeSourceMismatchKinds(payload,date=TARGET_DATE,code=TARGET_CODE){
+ summarizeFullIntegrity(payload,date,code);
+ const d=payload.diagnostic;
+ const rows=d.sourceMismatches;
+ const fundStates=Array.isArray(d.fundNavStates)?d.fundNavStates:[];
+ const safeDate=/^\d{4}-\d{2}-\d{2}$/;
+ const kind=s=>{
+  if(typeof s!=='string')throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+  if(s==='FUND_NAV')return 'CONFIRMED_NAV';
+  if(/^FUND_NAV_CARRY(?:_INPUT_REQUIRED)?(?:@\d{4}-\d{2}-\d{2})?$/.test(s))return 'CARRY_NAV';
+  if(s==='MANUAL')return 'MANUAL';
+  if(s==='')return 'UNLABELED';
+  return 'OTHER_PROVIDER';
+ };
+ const isCarryLabelAlias=row=>{
+  if(!/^F\d{5}$/.test(row.code))return false;
+  const state=fundStates.filter(x=>x?.code===row.code);
+  if(state.length!==1||!safeDate.test(String(state[0].sourceDate||'')))return false;
+  const dateSuffix='@'+state[0].sourceDate;
+  const a=row.expected,b=row.stored;
+  // Only same NAV family & identical proven NAV source date: suffix-only
+  // differences may be semantically equivalent, not proof of full integrity.
+  return (a==='FUND_NAV_CARRY'+dateSuffix&&b==='FUND_NAV_CARRY')
+   ||(b==='FUND_NAV_CARRY'+dateSuffix&&a==='FUND_NAV_CARRY')
+   ||(a==='FUND_NAV_CARRY_INPUT_REQUIRED'+dateSuffix&&
+     (b==='FUND_NAV_CARRY_INPUT_REQUIRED'||b==='FUND_NAV_CARRY'+dateSuffix));
+ };
+ let target=null,otherMismatchCount=0,otherFundCount=0,otherNonFundCount=0,
+  otherCarryAliasReviewCount=0,otherNonAliasCount=0;
+ for(const row of rows){
+  if(!row||typeof row.code!=='string'||!row.code
+    ||typeof row.expected!=='string'||typeof row.stored!=='string'
+    ||row.expected===row.stored)throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+  if(row.code===code){
+   if(target)throw Error('FUND_SNAPSHOT_BAD_INTEGRITY');
+   target={expectedSourceKind:kind(row.expected),storedSourceKind:kind(row.stored),
+     carryAliasReview:isCarryLabelAlias(row)};
+  }else{
+   otherMismatchCount++;
+   if(/^F\d{5}$/.test(row.code))otherFundCount++;else otherNonFundCount++;
+   if(isCarryLabelAlias(row))otherCarryAliasReviewCount++;else otherNonAliasCount++;
+  }
+ }
+ return {targetSourceKinds:target??{expectedSourceKind:'NO_MISMATCH',
+   storedSourceKind:'NO_MISMATCH',carryAliasReview:false},
+  otherMismatchCount,otherFundCount,otherNonFundCount,
+  otherCarryAliasReviewCount,otherNonAliasCount,
+  allOtherSourceDifferencesCarryAliases:otherMismatchCount>0&&otherNonAliasCount===0,
+  writeAuthorized:false};
+}
+
 export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_SNAPSHOT_TOKEN_MISSING');
@@ -175,7 +229,7 @@ export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const hanwha=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00001'});
  const kb=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00002'});
  const complete={...result,...summarizeFullIntegrity(integrity),...classifySingleFundRepairReview(integrity),
-  ...summarizeMismatchScope(integrity),fundDayStates:[
+  ...summarizeMismatchScope(integrity),...summarizeSourceMismatchKinds(integrity),fundDayStates:[
     summarizeExactFundDay(hanwha,'F00001'),summarizeExactFundDay(kb,'F00002')]};
  emit(complete);
  return complete;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
+import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,summarizeSourceMismatchKinds,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
 const history={status:'ok',date:TARGET_DATE,items:[{code:TARGET_CODE,evalAmt:150,source:'FUND_NAV'}]};
 const prices={status:'ok',prices:{[TARGET_CODE]:[{date:TARGET_DATE,price:150,source:'FUND_NAV'}]}};
 const run=(h,p)=>summarizeEvidence(h,p);
@@ -101,6 +101,38 @@ assert.deepEqual(summarizeMismatchScope(multiMismatch),{
 assert.ok(!JSON.stringify(summarizeMismatchScope(multiMismatch)).includes('PRIVATE'));
 assert.throws(()=>summarizeMismatchScope(mutate({sourceMismatches:[{code:null}]})),/BAD_INTEGRITY/);
 
+
+const withSource=patch=>({status:'ok',diagnostic:{...integrity.diagnostic,...patch}});
+const rawSources=withSource({
+ sourceMismatches:[
+  {code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY@2026-10-29'},
+  {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'FUND_NAV_CARRY'},
+  {code:'PRIVATE_OTHER_STOCK',expected:'NH_REGULAR_CLOSE',stored:'UNVERIFIED_SOURCE_NAME'}],
+ fundNavStates:[{code:'F00002',sourceDate:'2026-10-29'}]
+});
+const classified=summarizeSourceMismatchKinds(rawSources);
+assert.deepEqual(classified,{
+ targetSourceKinds:{expectedSourceKind:'CONFIRMED_NAV',storedSourceKind:'CARRY_NAV',carryAliasReview:false},
+ otherMismatchCount:2,otherFundCount:1,otherNonFundCount:1,
+ otherCarryAliasReviewCount:1,otherNonAliasCount:1,
+ allOtherSourceDifferencesCarryAliases:false,writeAuthorized:false});
+assert.ok(!JSON.stringify(classified).includes('PRIVATE'));
+assert.ok(!JSON.stringify(classified).includes('2026-10-29'));
+const aliasesOnly=withSource({
+ sourceMismatches:[
+  {code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY'},
+  {code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'FUND_NAV_CARRY'}],
+ fundNavStates:[{code:'F00002',sourceDate:'2026-10-29'}]});
+assert.equal(summarizeSourceMismatchKinds(aliasesOnly).allOtherSourceDifferencesCarryAliases,true);
+assert.equal(summarizeSourceMismatchKinds(withSource({
+ sourceMismatches:[{code:'F00002',expected:'FUND_NAV_CARRY@2026-10-29',stored:'FUND_NAV_CARRY'}],
+ fundNavStates:[]})).otherCarryAliasReviewCount,0,'alias requires proven sourceDate');
+assert.throws(()=>summarizeSourceMismatchKinds(withSource({sourceMismatches:[
+ {code:'PRIVATE',expected:'PRIVATE',stored:'PRIVATE'}]})),/BAD_INTEGRITY/);
+assert.throws(()=>summarizeSourceMismatchKinds(withSource({sourceMismatches:[
+ {code:TARGET_CODE,expected:'FUND_NAV',stored:'MANUAL'},
+ {code:TARGET_CODE,expected:'FUND_NAV',stored:'MANUAL'}]})),/BAD_INTEGRITY/);
+
 const actions=[],emitted=[];
 await diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
  token:'PRIVATE_TOKEN',emit:x=>emitted.push(x),
@@ -124,6 +156,9 @@ assert.equal(emitted[0].fundSourceMismatch,true);
 assert.equal(emitted[0].fundDayStates[0].navState,'EXISTING_CONFIRMED');
 assert.equal(emitted[0].fundDayStates[1].navState,'NAV_MISSING');
 assert.equal(emitted[0].sourceMismatchScope,'TARGET_ONLY');
+assert.equal(emitted[0].targetSourceKinds.expectedSourceKind,'CONFIRMED_NAV');
+assert.equal(emitted[0].otherMismatchCount,0);
+assert.equal(emitted[0].writeAuthorized,false);
 assert.equal(emitted[0].candidate,true);
 assert.deepEqual(emitted[0].blockers,[]);
 assert.equal(emitted[0].writeAuthorized,false);
