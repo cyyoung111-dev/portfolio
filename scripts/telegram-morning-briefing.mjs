@@ -82,7 +82,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
       token:process.env.GAS_ACCESS_TOKEN,fetchImpl,now:now()}),
   ]);
   const quotes=await collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,
-    now:now(),fetchImpl,skipSymbols:new Set(nhRows.map(row=>row.symbol))});
+    now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,...nhRows.map(row=>row.symbol)])});
   const values=mergeMorningSourceRows(quotes,masterRows,nhRows);
   const last=scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
