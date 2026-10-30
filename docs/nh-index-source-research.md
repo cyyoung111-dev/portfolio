@@ -62,3 +62,11 @@
 - **수동 복구:** GitHub Actions → Telegram closing market briefing → Run workflow → Branch: main. 한국 거래일 16:30–17:09 KST에만 허가. 오래된 날짜, 휴장일, 검증 지수 0건, 이미 claim된 날짜, main 외 실행은 발송 불가. 외부 스케줄러나 별도 GAS 트리거는 이번 변경에 설치하지 않음.
 - 2026-10-30 16:56 KST 당시 해당 마감 워크플로 당일 실행 미확인. 10/30 장전 run #40989811565는 예약보다 늦게 시작하여 TELEGRAM_SCHEDULE_LATE. 다중 cron만으로 확정 발송 보증 불가. 운영 실행/텔레그램 실제 수신/16:30 KRX 당일 종가 실조회는 별도 검증.
 - 수정 범위: 마감 워크플로 스크립트·스케줄 YAML·테스트 및 이 문서. NH 신규 토큰 발급, 기존 GAS/가격이력/Snapshot 변경 없음.
+
+## KRX 당일 OpenAPI 미게시 시 독립 공개종가 교차검증 (2026-10-30)
+- 10/30 GAS 운영 실조회에서 KOSPI/KOSDAQ/KOSPI200 모두 `KRX_OFFICIAL confirmedClose` 0건, KRX `EMPTY_TRADING_DATE`. GAS가 반환한 Yahoo 동일일자 일봉은 각각 5730.740234375 / 724.3800048828125 / 899.780029296875. 2자리 종가 5730.74 / 724.38 / 899.78은 당일 15:44 KST 신한 공개 지수 현황과 일치. 증빙: https://open.shinhansec.com/goodicyber/stock_jisu.jsp . 이 페이지는 **KRX 공식 API가 아니며** 신한 자체 게시 참고자료.
+- 새 읽기 전용 `scripts/shinhan-korean-index-eod.mjs`은 페이지 `종합지수 / YYYY.MM.DD HH:MM`과 KOSPI/KOSDAQ/KOSPI200 3개 지수 행을 비교한다. 동일 날짜, 15:40 KST 이후 갱신 시각, 인지된 게시 시각이 현재 미래가 아님, 유일 행/정상 수치/최대 용량 조건을 만족해야 공개 게시값을 채택. URL/리다이렉트/콘텐츠 유형 제한 및 예외 격리.
+- `scripts/yahoo-shinhan-crosschecked-close.mjs`: 기존 GAS `getBenchmarks`의 `YAHOO_UNVERIFIED_DAILY` 같은 날짜·지수 행이 해당 공개 지수의 **소수 둘째 자리까지** 같을 때만 독립 `YAHOO_SHINHAN_CROSSCHECKED_EOD` 참고 종가 채택. KRX 공식 종가가 있으면 그 값 우선, 비교 불가면 기존 SHA 고정·16:40 이후 갱신 FDR 참고값만 사용, 그마저 없으면 미확보. 중복/전일값/장중/미확인 지수는 승격 금지.
+- 원천 표시는 `Yahoo·신한 일치 참고 종가 (NH 아님)`으로 구분하고 개별 종목/ETF NH 종가, 원장/Snapshot을 변경하지 않는다. 기존 KRX 무료 OpenAPI의 `KRX_OFFICIAL` 응답을 조작하거나 위장하지 않음. 신한 공개 페이지의 사용조건 및 서버 CORS·HTTP 안정성은 실제 GitHub runner/서비스 측에서 별도 검증 필요.
+- 이번 연결은 **서버측 Telegram 16:30 마감 브리핑 우선**이다. 손익그래프는 브라우저에서 신한 사이트를 직접 호출할 때의 CORS 가능 여부와 정식 검증값 저장/전달 경로가 별도 확인되기 전에는 이 새 교차검증값을 자동 채택하지 않음. 기존 브라우저 공식 KRX 및 검증된 FDR 과거 일봉 경로는 유지.
+- 10/30에 한정한 공개 HTTP 실조회 `scripts/shinhan-index-live-readback-20261030.mjs`는 GAS 배포의 trusted main workflow_run 중 딱 하루 실행; 자격증명/시트쓰기/토큰 생성 없음. 실제 라이브 응답/실제 Telegram 수신은 별도 점검해야 운영 완료.
