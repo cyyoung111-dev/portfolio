@@ -18,7 +18,7 @@ export async function loadMorningDomesticDailyIndexes(date,{fetchImpl=fetch,now=
       ||before[0].source!=='FDR_KRX_CACHE'||current[0].role!=='NON_NH_DAILY_INDEX')
     return [];
    return [{label:config.label,symbol:config.symbol,date:expected,value:current[0].value,
-     changePercent:(current[0].value/before[0].value-1)*100,source:'FDR_KRX_CACHE'}];
+     changePercent:(current[0].value/before[0].value-1)*100,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX'}];
   });
  }catch{return [];}
 }
