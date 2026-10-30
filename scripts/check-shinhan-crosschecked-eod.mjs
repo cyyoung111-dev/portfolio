@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {parseShinhanIndexPage,fetchShinhanIndexEod} from './shinhan-korean-index-eod.mjs';
+import {parseShinhanIndexPage,fetchShinhanIndexEod,probeShinhanIndexEod} from './shinhan-korean-index-eod.mjs';
 import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close.mjs';
 import {fetchDomesticCloseIndexes,verifiedDomesticCloseRows,formatClose} from './telegram-close-workflow.mjs';
 const date='2026-10-30',now=()=>new Date('2026-10-30T16:35:00+09:00');
@@ -23,6 +23,18 @@ const s=await fetchShinhanIndexEod(date,{now,fetchImpl:async(u,init)=>{
  assert.equal(init.method,'GET');return {ok:true,headers:{get:()=> 'text/html;charset=utf-8'},text:async()=>html};
 }});
 assert.equal(calls,1);assert.equal(s.values.KOSPI200,899.78);
+const encoded=Buffer.from('wb7H1cH2vPYgLyAyMDI2LjEwLjMwIDE1OjQ0IEtPU1BJIDU3MzAuNzQgMjA2LjkyIEtPU0RBUSA3MjQuMzggMjguODUgS09TUEkyMDAgODk5Ljc4IDM2LjA5IL3Fx9Gx3cC2wfbB1si4u+cgwdawocGkurg=','base64');
+const eucKr=await probeShinhanIndexEod(date,{now,fetchImpl:async()=>({
+ ok:true,status:200,headers:{get:()=> 'text/html; charset=euc-kr'},
+ arrayBuffer:async()=>encoded.buffer.slice(encoded.byteOffset,encoded.byteOffset+encoded.byteLength)
+})});
+assert.equal(eucKr.status,'PARSED_EUC_KR');
+assert.deepEqual(eucKr.data.values,{KOSPI:5730.74,KOSDAQ:724.38,KOSPI200:899.78});
+const forbidden=await probeShinhanIndexEod(date,{now,fetchImpl:async()=>({
+ ok:false,status:403
+})});
+assert.equal(forbidden.status,'HTTP_403');
+assert.equal(forbidden.data,null);
 const gas={status:'ok',seriesMeta:{
  KOSPI:{source:'YAHOO_FINANCE',confirmedClose:false},KOSDAQ:{source:'YAHOO_FINANCE',confirmedClose:false},
  KOSPI200:{confirmedClose:false}},series:{
