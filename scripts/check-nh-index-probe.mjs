@@ -23,4 +23,15 @@ const z=summarize({status:'ok',provider:'NH',tokenCached:true,tokenIssued:false}
 assert.equal(z.mappingsVerified,false);assert.equal(z.samples[0].value,6931.22);
 assert.match(code,/NH_INDEX_CACHED_TOKEN_REQUIRED/);
 assert.match(code,/if \(params.action === 'getNhIndexProbe'\)/);
-console.log('NH index code candidate discovery: production parser and safety PASS');
+
+const releaseWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+const readbackSource=fs.readFileSync('scripts/nh-index-primary-readback.mjs','utf8');
+assert.doesNotMatch(releaseWorkflow,/run:\s*node scripts\/nh-index-probe\.mjs/,
+ 'historical six-code NH exploration must not repeat on every main release');
+assert.match(releaseWorkflow,/run:\s*node scripts\/nh-index-primary-readback\.mjs/,
+ 'keep verified SPX, COMP and NDX post-release readback');
+assert.match(readbackSource,/benchmarks:'SP500,NASDAQ,NASDAQ100',from:'2026-10-22',to:'2026-10-29',fresh:'0'/,
+ 'historical verified index readback must not bypass the shared GAS cache');
+assert.doesNotMatch(readbackSource,/fresh:'1'/,
+ 'never force unneeded external API refetches for the immutable historical acceptance fixture');
+console.log('NH index historical duplicate-call suppression and safety PASS');
