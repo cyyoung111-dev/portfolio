@@ -33,14 +33,36 @@ export function parseShinhanIndexPage(html,{expectedDate,now=new Date()}={}){
  }
  return {date,publishedAt:publishedAt.toISOString(),source:SOURCE,values};
 }
-export async function fetchShinhanIndexEod(date,{fetchImpl=fetch,now=()=>new Date()}={}){
- if(!dateRE.test(String(date||'')))return null;
+export async function probeShinhanIndexEod(date,{fetchImpl=fetch,now=()=>new Date()}={}){
+ if(!dateRE.test(String(date||'')))return {status:'INVALID_DATE',data:null};
  try{
   const r=await fetchImpl(URL,{method:'GET',redirect:'error',
-   headers:{accept:'text/html'},signal:AbortSignal.timeout(8500)});
-  if(!r?.ok)return null;
+   headers:{accept:'text/html,application/xhtml+xml',
+    'user-agent':'Mozilla/5.0 (compatible; PortfolioEodMonitor/1.0)'},
+   signal:AbortSignal.timeout(8500)});
+  if(!r?.ok)return {status:'HTTP_'+(Number.isInteger(r?.status)?r.status:'OTHER'),data:null};
   const ct=r.headers?.get?.('content-type')||'text/html';
-  if(!/text\/html/i.test(ct))return null;
-  return parseShinhanIndexPage(await r.text(),{expectedDate:date,now:now()});
- }catch{return null;}
+  if(!/text\/html|application\/xhtml\+xml/i.test(ct))return {status:'INVALID_CONTENT_TYPE',data:null};
+  let variants=[];
+  if(typeof r.arrayBuffer==='function'){
+   const buf=new Uint8Array(await r.arrayBuffer());
+   if(buf.length>160000)return {status:'HTML_TOO_LARGE',data:null};
+   for(const encoding of ['utf-8','euc-kr']){
+    try{variants.push({encoding,html:new TextDecoder(encoding,{fatal:true}).decode(buf)});}
+    catch{/* invalid bytes for this codec; try next */}
+   }
+  }else if(typeof r.text==='function'){
+   variants=[{encoding:'response-text',html:await r.text()}];
+  }
+  for(const variant of variants){
+   try{
+    const parsed=parseShinhanIndexPage(variant.html,{expectedDate:date,now:now()});
+    if(parsed)return {status:'PARSED_'+variant.encoding.toUpperCase().replace('-','_'),data:parsed};
+   }catch{/* one invalid decode must not elevate unverified data */}
+  }
+  return {status:'HTML_DATE_OR_SCHEMA_UNVERIFIED',data:null};
+ }catch{return {status:'HTTP_OR_NETWORK_UNAVAILABLE',data:null};}
+}
+export async function fetchShinhanIndexEod(date,options={}){
+ return (await probeShinhanIndexEod(date,options)).data;
 }
