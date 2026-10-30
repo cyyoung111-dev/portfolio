@@ -256,6 +256,76 @@ export function summarizeKnownFundSourcePairs(payload,date=TARGET_DATE) {
  return {knownFundSourcePairs:output};
 }
 
+
+// A narrower *review* gate, NOT a repair authorization. The GAS integrity
+// still reports MISMATCH and the original single-fund gate remains blocked.
+// F00002 may legitimately require a new NAV; preserve its explicit warning.
+// Fail closed on any extra row, amount, unit, provenance or price discrepancy.
+export function classifyF00001ScopedReview(integrity,hanwhaStatus,kbStatus){
+ const old=classifySingleFundRepairReview(integrity);
+ const d=integrity.diagnostic;
+ const h=summarizeExactFundDay(hanwhaStatus,'F00001');
+ const k=summarizeExactFundDay(kbStatus,'F00002');
+ const pairs=summarizeKnownFundSourcePairs(integrity).knownFundSourcePairs;
+ const kinds=summarizeSourceMismatchKinds(integrity);
+ const exact=(group,codes)=>d[group].length===codes.length&&
+  codes.every(code=>d[group].filter(row=>row?.code===code).length===1);
+ const allCodes=d.expectedCodes.length===d.storedCodes.length
+  &&d.expectedCodes.every(code=>d.storedCodes.includes(code));
+ const noOtherChanges=['missingCodes','unexpectedCodes','qtyMismatches',
+  'costAmtMismatches','duplicateKeys','conflictKeys','sourceDataErrors']
+  .every(group=>d[group].length===0);
+ const codeCount=(rows,code)=>Array.isArray(rows)?
+  rows.filter(row=>Array.isArray(row)&&row[1]===code).length:0;
+ const rowProof=old.rowsComplete&&d.expectedRowCount===d.storedRowCount
+  &&d.expectedRowCount>0&&allCodes
+  &&['F00001','F00002'].every(code=>
+   codeCount(d.expectedRows,code)===1&&codeCount(d.storedRows,code)===1);
+ const statusProof=d.status==='MISMATCH'
+  &&h.active&&h.navState==='EXISTING_CONFIRMED'&&h.publicationExpected
+  &&h.evaluationState==='EXISTING_VALID'&&h.snapshotState==='WRITE_REQUIRED'
+  &&k.active&&k.navState==='NAV_MISSING'&&k.publicationExpected
+  &&k.evaluationState==='EXISTING_VALID'&&k.snapshotState==='EXISTING_VALID';
+ const exactDiffs=exact('evalUnitMismatches',['F00001'])
+  &&exact('evalAmtMismatches',['F00001'])
+  &&exact('sourceMismatches',['F00001','F00002'])
+  &&kinds.targetSourceKinds.expectedSourceKind==='CONFIRMED_NAV'
+  &&kinds.targetSourceKinds.storedSourceKind==='CARRY_NAV'
+  &&kinds.otherMismatchCount===1&&kinds.otherFundCount===1
+  &&kinds.otherNonFundCount===0;
+ const kbWarningPreserved=pairs.F00002?.mismatch===true
+  &&pairs.F00002.expectedKind==='CARRY_NAV'
+  &&pairs.F00002.storedKind==='CARRY_INPUT_REQUIRED'
+  &&pairs.F00002.expectedCarryDateMatchesNav===true
+  // An undated input-required warning is allowed, but an explicit wrong
+  // NAV source date is NEVER a valid exception for the F00001-only review.
+  &&pairs.F00002.storedCarryDateMatchesNav!==false
+  &&pairs.F00002.bothCarryFamilies===true
+  &&pairs.F00002.confirmedNavExpected===false
+  &&pairs.F00003?.mismatch===false;
+ const allPricesVerified=Array.isArray(d.priceIntegrity)
+  &&d.priceIntegrity.some(row=>row?.code==='F00001'&&row.status==='VALID')
+  &&d.priceIntegrity.every(row=>row?.status==='VALID');
+ const flags={rowProof,statusProof,exactDiffs,kbWarningPreserved,
+  allPricesVerified,noOtherChanges,originalSingleFundGateBlocked:old.candidate===false};
+ const blockers=Object.entries(flags).filter(([,passed])=>!passed)
+  .map(([name])=>({
+   rowProof:'ROW_PROOF',statusProof:'FUND_DAY_STATE',
+   exactDiffs:'DIFFERENCE_SCOPE',kbWarningPreserved:'KB_MISSING_NAV_WARNING',
+   allPricesVerified:'PRICE_INTEGRITY',noOtherChanges:'OTHER_MISMATCHES',
+   originalSingleFundGateBlocked:'ORIGINAL_GATE'
+  })[name]);
+ const reviewOnlyCandidate=blockers.length===0;
+ return {date:TARGET_DATE,reviewOnlyCandidate,
+  classification:reviewOnlyCandidate?'F00001_SCOPED_REPAIR_REVIEW_ONLY':'F00001_SCOPED_REVIEW_BLOCKED',
+  blockers,retainF00002MissingNavWarning:true,
+  targetScope:'F00001_ONE_EXISTING_ROW_ONLY',
+  requiresFreshFullRecheck:true,requiresBackup:true,
+  requiresWriterExclusion:true,requiresExplicitApproval:true,
+  existingSingleFundGateBlocked:old.candidate===false,
+  writeAuthorized:false,mutationPerformed:false};
+}
+
 export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_SNAPSHOT_TOKEN_MISSING');
@@ -278,7 +348,8 @@ export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const hanwha=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00001'});
  const kb=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00002'});
  const complete={...result,...summarizeFullIntegrity(integrity),...classifySingleFundRepairReview(integrity),
-  ...summarizeMismatchScope(integrity),...summarizeSourceMismatchKinds(integrity),...summarizeKnownFundSourcePairs(integrity),fundDayStates:[
+  ...summarizeMismatchScope(integrity),...summarizeSourceMismatchKinds(integrity),...summarizeKnownFundSourcePairs(integrity),
+  scopedRepairReview:classifyF00001ScopedReview(integrity,hanwha,kb),fundDayStates:[
     summarizeExactFundDay(hanwha,'F00001'),summarizeExactFundDay(kb,'F00002')]};
  emit(complete);
  return complete;
