@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {validateGasEndpoint,fetchNhNightFromGas} from './nh-gas-proxy.mjs';
+import {validateGasEndpoint,fetchNhNightFromGas,fetchNhNightProbeFromGas} from './nh-gas-proxy.mjs';
+import {readbackOnce,centralProbeWindow} from './nh-central-probe-20261030.mjs';
 import {runCentralNhDiagnostic} from './nh-central-diagnostic.mjs';
 import {captureMorning} from './nh-morning-capture.mjs';
 const url='https://script.google.com/macros/s/EXAMPLE123456/exec', token='TEST-GAS-ACCESS-TOKEN';
@@ -24,7 +25,9 @@ const request=async(target,options)=>{
  assert.ok(!data.has('appkey')&&!data.has('appsecretkey'));
  return {ok:true,json:async()=>data.get('action')==='getNhAuthStatusProxy'
   ?{status:'ok',provider:'NH',readOnly:true,enabled:true,tokenCached:true,tokenIssued:false,gasVersion:'9.278'}
-  :{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,reference:ref}};
+  :data.get('action')==='getNhNightProbe'
+   ?{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,diagnosticOnly:true,tokenIssued:false,reference:ref}
+   :{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,reference:ref}};
 };
 const result=await fetchNhNightFromGas('2026-10-30',{now,url,token,request});
 assert.equal(result.value,351.5);assert.equal(result.officialClose,false);
@@ -64,4 +67,27 @@ assert.ok(!JSON.stringify(diag).includes('NHPLUG_APP_KEY'));
 assert.ok(!JSON.stringify(diag).includes('NHPLUG_APP_SECRET'));
 assert.ok(fs.readFileSync('scripts/nh-morning-capture.mjs','utf8')
  .includes('fetchNight=fetchNhNightFromGas'));
+assert.equal(centralProbeWindow(new Date('2026-10-30T10:50:00+09:00')).allowed,true);
+assert.equal(centralProbeWindow(new Date('2026-10-31T10:50:00+09:00')).allowed,false);
+assert.equal(centralProbeWindow(new Date('2026-10-30T07:50:00+09:00')).allowed,false);
+const clock=()=>new Date('2026-10-30T10:50:00+09:00');
+const probe=await fetchNhNightProbeFromGas('2026-10-30',{now:clock,url,token,request});
+assert.equal(probe.value,351.5);
+const lines=[];
+const p=await readbackOnce({now:clock,url,token,request,report:x=>lines.push(x)});
+assert.equal(p.ok,true);
+assert.match(lines.join('\n'),/NH_CENTRAL_0600_REFERENCE_VERIFIED/);
+assert.match(lines.join('\n'),/"issued":false/);
+assert.doesNotMatch(lines.join('\n'),/TEST-GAS-ACCESS-TOKEN|Bearer|nh-key/);
+let statusOnly=0;
+const noToken=await readbackOnce({now:clock,url,token,report:()=>{},
+  request:async(_url,opts)=>{statusOnly++;assert.equal(new URLSearchParams(opts.body).get('action'),'getNhAuthStatusProxy');
+    return {ok:true,json:async()=>({status:'ok',provider:'NH',readOnly:true,enabled:true,
+      tokenCached:false,tokenIssued:false,gasVersion:'9.278'})};}});
+assert.equal(noToken.ok,false);
+assert.equal(statusOnly,1,'no token cached: must not perform price query or OAuth');
+const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
+assert.ok(wf.jobs.deploy.steps.some(x=>x.name.includes('central NH 06:00 readback')
+ && x.run==='node scripts/nh-central-probe-20261030.mjs'&&x['continue-on-error']===true));
+
 console.log('Central NH GAS no-direct-OAuth, date, bearer isolation, workflows PASS');
