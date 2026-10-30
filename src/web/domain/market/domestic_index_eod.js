@@ -43,7 +43,7 @@ async function fetchChecked(url,fetchImpl,kind){
 }
 async function loadSeries(types,from,to,{fetchImpl=fetch,now=()=>new Date()}={}){
  if(!validDate(from)||!validDate(to)||from>to)throw Error('INDEX_RANGE_INVALID');
- const today=kstDate(now());if(to>today)to=today;
+ const today=kstDate(now());if(from>today)throw Error('INDEX_RANGE_INVALID');if(to>today)to=today;
  const out={seriesMap:{},errors:{},source:SOURCE};
  const requested=[...new Set(types)].filter(t=>Object.hasOwn(SYMBOLS,t));
  if(!requested.length)return out;
