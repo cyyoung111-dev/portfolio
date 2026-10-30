@@ -34,6 +34,7 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.280': '2c9ebe55ad9fd0ce6ee8670eefc78c0b7ac86e1d',
   '9.279': '0eef172226b95bf32c05036955c9a1fa432b636f',
   '9.278': Object.freeze(['e383b7c3809ce6426aa3d502bb6c22a6bb175dbf','c77c539568f2dc3b2af4bcb729e8e38bbf6cee82','dca53650aae621c3d9efb97d677dfb763f48b84d','85e5a73565344b24007e81acd80db2b3a1067e46','df680956105a1184a9fdacfc41725626f7b74d72']),
   '9.277': 'e8d762248ca0e33d3a9031b16dd3f7b7d6d260e6',
