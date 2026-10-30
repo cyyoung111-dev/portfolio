@@ -19327,9 +19327,9 @@ function handleGetNhIndexProbe(params){
 // with S&P 500 and Nasdaq official reported daily closes. Other symbols are
 // deliberately NOT mapped to NH without an exact identity/price verification.
 var NH_VERIFIED_GLOBAL_INDEX_CODES_V1={
- SP500:{code:'SPX',name:'S&P\\s*500|S&P500'},
- NASDAQ:{code:'COMP',name:'나스닥\\s*종합|NASDAQ\\s*COMPOSITE'},
- NASDAQ100:{code:'NDX',name:'나스닥\\s*100|NASDAQ\\s*100'}
+ SP500:{code:'SPX',name:'S&P\s*500|S&P500'},
+ NASDAQ:{code:'COMP',name:'나스닥\s*종합|NASDAQ\s*COMPOSITE'},
+ NASDAQ100:{code:'NDX',name:'나스닥\s*100|NASDAQ\s*100'}
 };
 function _nhGlobalIndexDailySeries_(type,fromDate,toDate){
  var config=NH_VERIFIED_GLOBAL_INDEX_CODES_V1[type];
@@ -19352,7 +19352,7 @@ function _nhGlobalIndexDailySeries_(type,fromDate,toDate){
  var byDate={},duplicates={};
  rows.forEach(function(row){
   var date=_nhCloseDate_(row&&row.bsop_date),raw=String(row&&row.ovrs_prpr||'');
-  if(date<fromDate||date>end||!date||!/^\\d+(?:\\.\\d+)?$/.test(raw)||!(Number(raw)>0))return;
+  if(date<fromDate||date>end||!date||!/^\d+(?:\.\d+)?$/.test(raw)||!(Number(raw)>0))return;
   if(byDate[date])duplicates[date]=true;
   byDate[date]={date:date,value:Number(raw),source:'NH_INDEX_DAILY',sourceDate:date,
     status:'CONFIRMED',priceType:'REGULAR_CLOSE',providerCode:config.code};
