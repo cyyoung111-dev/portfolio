@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {summarizeEvidence,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
+import {summarizeEvidence,summarizeFullIntegrity,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
 const history={status:'ok',date:TARGET_DATE,items:[{code:TARGET_CODE,evalAmt:150,source:'FUND_NAV'}]};
 const prices={status:'ok',prices:{[TARGET_CODE]:[{date:TARGET_DATE,price:150,source:'FUND_NAV'}]}};
 const run=(h,p)=>summarizeEvidence(h,p);
@@ -12,21 +12,41 @@ assert.equal(run({...history,items:[{...history.items[0],source:'FUND_NAV_CARRY@
 assert.throws(()=>run({...history,items:[history.items[0],history.items[0]]},prices),/AMBIGUOUS_ROWS/);
 assert.throws(()=>run({...history,items:[{...history.items[0],source:'PRIVATE_ACCOUNT'}]},prices),/BAD_RESPONSE/);
 assert.throws(()=>run({status:'error',message:'PRIVATE_ACCOUNT'},prices),/BAD_RESPONSE/);
+const integrity={status:'ok',diagnostic:{
+ date:TARGET_DATE,status:'MISMATCH',expectedRowCount:38,storedRowCount:38,
+ expectedCodes:[TARGET_CODE],storedCodes:[TARGET_CODE],missingCodes:[],unexpectedCodes:[],
+ evalAmtMismatches:[{code:TARGET_CODE,expected:200,stored:150}],
+ sourceMismatches:[{code:TARGET_CODE,expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}],
+ qtyMismatches:[],costAmtMismatches:[],priceIntegrity:[{code:TARGET_CODE,status:'VALID'}],
+ duplicateKeys:[],conflictKeys:[],sourceDataErrors:[]
+}};
+const recomputed=summarizeFullIntegrity(integrity);
+assert.deepEqual({status:recomputed.integrityStatus,amount:recomputed.fundAmountMismatch,
+ source:recomputed.fundSourceMismatch,price:recomputed.fundPriceIntegrityState},
+ {status:'MISMATCH',amount:true,source:true,price:'VALID'});
+assert.ok(!JSON.stringify(recomputed).includes('200'));
+assert.ok(!JSON.stringify(recomputed).includes('150'));
+assert.throws(()=>summarizeFullIntegrity({status:'ok',diagnostic:{...integrity.diagnostic,status:'PRIVATE'}}),/BAD_INTEGRITY/);
+assert.throws(()=>summarizeFullIntegrity({status:'error',message:'PRIVATE_TOKEN'}),/BAD_INTEGRITY/);
+
 const actions=[],emitted=[];
 await diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
  token:'PRIVATE_TOKEN',emit:x=>emitted.push(x),
  fetchImpl:async (_url,{body})=>{
   actions.push(Object.fromEntries(body.entries()));
   const action=body.get('action');
-  return {ok:true,json:async()=>action==='getHistoryDetail'?history:prices};
+  return {ok:true,json:async()=>action==='getHistoryDetail'?history:action==='getPriceHistory'?prices:integrity};
  }});
-assert.deepEqual(actions.map(x=>x.action),['getHistoryDetail','getPriceHistory']);
+assert.deepEqual(actions.map(x=>x.action),['getHistoryDetail','getPriceHistory','diagnoseSnapshotIntegrity']);
+assert.equal(actions[2].date,TARGET_DATE);
 assert.equal(actions[0].date,TARGET_DATE);
 assert.equal(actions[1].from,TARGET_DATE);
 assert.equal(actions[1].to,TARGET_DATE);
 assert.equal(actions[1].codes,TARGET_CODE);
 assert.ok(actions.every(x=>x.accessToken==='PRIVATE_TOKEN'));
 assert.equal(emitted.length,1);
+assert.equal(emitted[0].fundAmountMismatch,true);
+assert.equal(emitted[0].fundSourceMismatch,true);
 assert.ok(!JSON.stringify(emitted).includes('PRIVATE_TOKEN'));
 for(const mock of [
  async()=>{throw Error('PRIVATE_ACCOUNT')},
