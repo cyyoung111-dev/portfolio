@@ -2,13 +2,19 @@ import {pathToFileURL} from 'node:url';
 import {callNhGasProxy,fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 
 // This CLI never requests NH OAuth tokens; only the GAS backend holds them.
+export function isSupportedNhCentralStatus(response) {
+  const version = /^9\.(\d{3,})$/.exec(String(response?.gasVersion||''));
+  return response?.status==='ok' && response?.provider==='NH' &&
+    response?.readOnly===true && response?.enabled===true &&
+    response?.tokenIssued===false && typeof response?.tokenCached==='boolean' &&
+    !!version && Number(version[1])>=281;
+}
 export async function runCentralNhDiagnostic({mode='status',request=fetch,
   now=()=>new Date(),url=process.env.GAS_WEB_APP_URL,
   token=process.env.GAS_ACCESS_TOKEN,log=console.log}={}){
   if(mode==='status'){
     const response=await callNhGasProxy('getNhAuthStatusProxy',{url,token,request});
-    if(response.tokenIssued!==false || response.gasVersion!=='9.278'
-      ||typeof response.tokenCached!=='boolean'||response.enabled!==true)
+    if(!isSupportedNhCentralStatus(response))
       throw Error('NH_PROXY_STATUS_INVALID');
     log('NH_CENTRAL STATUS_OK TOKEN_CACHED_'+(response.tokenCached?'YES':'NO')+' NO_NH_OAUTH_REQUEST');
     return true;
