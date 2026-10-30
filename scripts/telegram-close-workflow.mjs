@@ -7,6 +7,8 @@ import {expectedMorningDate} from './telegram-morning-report.mjs';
 import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 import {fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
+import {fetchShinhanIndexEod} from './shinhan-korean-index-eod.mjs';
+import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -50,16 +52,20 @@ function previousOpenDate(date){
 }
 export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>new Date(),
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
- fetchOfficial=fetchOfficialDailyIndexes}={}){
+ fetchOfficial=fetchOfficialDailyIndexes,fetchShinhan=fetchShinhanIndexEod}={}){
  const previous=previousOpenDate(date);
  if(!previous||krxSessionStatus(date)!=='OPEN')return [];
  const from=new Date(Date.parse(previous+'T00:00:00Z')-2*86400000).toISOString().slice(0,10);
  // KRX official same-day result takes precedence when GAS confirms actual publication.
- const [official,out]=await Promise.all([
-  Promise.resolve().then(()=>fetchOfficial(date,{url:gasUrl,token:gasToken,fetchImpl,now})).catch(()=>[]),
+ let gasPayload=null;
+ const [official,out,shinhan]=await Promise.all([
+  Promise.resolve().then(()=>fetchOfficial(date,{url:gasUrl,token:gasToken,fetchImpl,now,
+    onResponse:payload=>{gasPayload=payload;}})).catch(()=>[]),
   domesticIndexEod.loadSeries(['KOSPI','KOSDAQ','KOSPI200'],from,date,{fetchImpl,now})
-    .catch(()=>({seriesMap:{}}))
+    .catch(()=>({seriesMap:{}})),
+  Promise.resolve().then(()=>fetchShinhan(date,{fetchImpl,now})).catch(()=>null)
  ]);
+ const crosschecked=verifyCrosscheckedYahooIndexes(date,gasPayload,shinhan,previous,out.seriesMap||{});
  const labels={KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI 200'};
  return Object.keys(labels).flatMap(type=>{
   const verified=Array.isArray(official)?official.filter(r=>r?.type===type&&r.date===date
@@ -68,6 +74,9 @@ export async function fetchDomesticCloseIndexes(date,{fetchImpl=fetch,now=()=>ne
     &&Number.isFinite(r.value)&&r.value>0):[];
   if(verified.length===1)return verified;
   if(verified.length>1)return [];
+  const independent=crosschecked.filter(r=>r.type===type);
+  if(independent.length===1)return independent;
+  if(independent.length>1)return [];
   const list=out.seriesMap[type]||[],current=list.filter(x=>x.date===date);
   const prior=list.filter(x=>x.date<date).at(-1);
   if(current.length!==1||!prior||prior.date!==previous||current[0].source!=='FDR_KRX_CACHE'
@@ -94,6 +103,11 @@ export function verifiedDomesticCloseRows(date,rows){
      ||r.changePercent!==null&&r.changePercent!==undefined&&!Number.isFinite(r.changePercent))continue;
   }else if(r.source==='FDR_KRX_CACHE'){
    if(r.priceType!=='PUBLISHED_EOD_REFERENCE'||!Number.isFinite(r.changePercent))continue;
+  }else if(r.source==='YAHOO_SHINHAN_CROSSCHECKED_EOD'){
+   if(r.priceType!=='INDEPENDENT_CROSSCHECKED_EOD'
+     ||r.comparisonSource!=='SHINHAN_PUBLIC_INDEX'
+     ||!Number.isFinite(Date.parse(r.comparisonPublishedAt||''))
+     ||r.changePercent!==null&&!Number.isFinite(r.changePercent))continue;
   }else continue;
   valid.push(r);
  }
@@ -103,7 +117,7 @@ export function formatClose(date,rows,secondary=[],domestic=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
-  '기준: NH PLUG(지원 지수) · 국내 지수 KRX 공식 종가 우선 / FDR 공개 EOD 참고','',
+  '기준: NH PLUG(지원 지수) · 국내 지수 KRX 공식 우선 / Yahoo·신한 교차검증 / FDR 공개 EOD','',
   '■ 국내 시장 (비NH 공개 일별 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
   const matches=validDomestic.filter(x=>x.label===label);
@@ -111,7 +125,8 @@ export function formatClose(date,rows,secondary=[],domestic=[]){
   const x=matches[0];
   const change=Number.isFinite(x.changePercent)
     ?' ('+(x.changePercent>=0?'+':'')+x.changePercent.toFixed(2)+'%)':'';
-  const provenance=x.source==='KRX_OFFICIAL'?'KRX 공식 종가':'FDR/KRX 공개 참고';
+  const provenance=x.source==='KRX_OFFICIAL'?'KRX 공식 종가'
+    :x.source==='YAHOO_SHINHAN_CROSSCHECKED_EOD'?'Yahoo·신한 일치 참고 종가':'FDR/KRX 공개 참고';
   lines.push(label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
     +change+' · '+date+' · '+provenance+' (NH 아님)');
  }
@@ -138,7 +153,7 @@ export function formatClose(date,rows,secondary=[],domestic=[]){
     +' · '+item.date+' · '+item.source+' 참고 (NH 아님)');
  }
  lines.push('','NH 지수 확인 '+count+'/'+NH_VERIFIED.length+' · NH 별도 검증 대상 지수 '+NH_UNVERIFIED.length+'개',
-  '국내 3대 지수는 KRX 공식 확인값 또는 출처가 표시된 공개 일별 참고값입니다.',
+  '국내 3대 지수는 KRX 공식 또는 날짜·값이 교차검증된 비NH 공개 참고값입니다.',
   '보유 주식·ETF 종가 및 포트폴리오 손익의 기준은 NH PLUG로 유지합니다.',
   'NH 지수 일봉은 거래소의 별도 정산가격으로 오인하지 않습니다.');
  return lines.join('\n');
