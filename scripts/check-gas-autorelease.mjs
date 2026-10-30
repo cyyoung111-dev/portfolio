@@ -66,20 +66,17 @@ function checkWorkflow(source){
   assert.equal(deploy.steps[0].with.ref,'$'+'{{ needs.validate.outputs.sha }}');
   assert.equal(deploy.env.GAS_EXPECTED_MAIN_SHA,'$'+'{{ needs.validate.outputs.sha }}');
   assert.equal(deploy.concurrency['cancel-in-progress'],false);
-  // Quota guard: no Google API or duplicate CI on non-GAS main commits.
+  // Last proven successful production source, never merely HEAD's first parent.
   const sourceStep=validate.steps.find(step=>step.id==='gas_source');
-  assert.ok(sourceStep,'main source-change preflight is required');
+  assert.ok(sourceStep,'proven deployment source preflight is required');
   assert.equal(sourceStep.if,"github.event_name == 'workflow_run'");
-  assert.match(sourceStep.run,/git cat-file -e 'HEAD\^:src\/gas\/apps_script\.gs'/);
-  assert.match(sourceStep.run,/git diff --quiet HEAD\^ HEAD -- src\/gas\/apps_script\.gs/);
-  assert.match(sourceStep.run,/changed=false/);
-  assert.match(sourceStep.run,/changed=true/);
-  const selected=validate.steps.find(step=>step.name==='Checkout selected immutable release');
-  assert.equal(selected.with['fetch-depth'],2,'first parent must be fetched');
+  assert.equal(sourceStep.run,'node scripts/gas-auto-deploy-eligibility.mjs');
+  assert.match(JSON.stringify(sourceStep.env),/github.token/);
+  assert.match(JSON.stringify(sourceStep.env),/github.repository/);
   const expr=String.fromCharCode(36,123,123)+' steps.gas_source.outputs.changed '+String.fromCharCode(125,125);
   assert.equal(validate.outputs.auto_source_changed,expr);
   assert.match(deploy.if,/needs\.validate\.outputs\.auto_source_changed == 'true'/);
-  for(const stepName of ['Install dependencies','Full release checks']) {
+  for(const stepName of ['Install dependencies','Full release checks']){
     const step=validate.steps.find(x=>x.name===stepName);
     assert.match(step.if,/steps\.gas_source\.outputs\.changed == 'true'/);
     assert.match(step.if,/github\.event_name != 'workflow_run'/);
@@ -98,11 +95,9 @@ checkWorkflow(source);
 }
 for(const [before,after] of [
   ["needs.validate.outputs.auto_source_changed == 'true'","true"],
-  ["git diff --quiet HEAD^ HEAD -- src/gas/apps_script.gs","git diff --quiet HEAD^ HEAD -- package.json"],
-  ["fetch-depth: 2","fetch-depth: 1"],
-  ["changed=false","changed=true"],
+  ["node scripts/gas-auto-deploy-eligibility.mjs","echo changed=false"],
   ["vars.GAS_AUTO_DEPLOY_ENABLED == 'true'","true"],
-  ["head_branch == 'main'","head_branch != 'main'"],['portfolio-production-gas','other'],
+    ["head_branch == 'main'","head_branch != 'main'"],['portfolio-production-gas','other'],
   ['npm run check:ci','npm run check:gas']]){
   assert.throws(()=>checkWorkflow(source.replaceAll(before,after)));
 }
