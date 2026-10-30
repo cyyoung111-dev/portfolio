@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 const production=fs.readFileSync('src/gas/apps_script.gs','utf8');
 const moduleSource=fs.readFileSync('ops/issue507/f00001-snapshot-repair.gs','utf8');
 const clone=x=>JSON.parse(JSON.stringify(x));
-function setup(options={}) {
+export function setup(options={}) {
  const date='2026-10-30';
  const expected=Array.from({length:39},(_,i)=>[date,i<3?'F0000'+(i+1):'TEST'+i,'fixture',1,100,100,150,150,50,50,'TEST','']);
  expected[0][10]='FUND_NAV';expected[1][10]='FUND_NAV_CARRY@2026-10-29';
@@ -29,6 +29,7 @@ function setup(options={}) {
   PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k)})},
   SpreadsheetApp:{flush(){}},Utilities:{getUuid:()=> 'synthetic',DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,x)=>Array.from(crypto.createHash('sha256').update(x).digest())}});
  vm.runInContext(production,ctx);vm.runInContext(moduleSource,ctx);
+ ctx._issue507AssertDrain_=()=>({activeCount:0}); // real gate is exercised by runtime integration tests
  ctx.getss=()=>ss;ctx._buildSnapshotRowsFromTradeAndPriceHistory=()=>clone(expected);
  ctx._readRawSnapshotRowsByDate=()=>clone(data.slice(1).filter(r=>r[0]===date));
  ctx.getCodeItems=()=>[];ctx._getFundEvaluationAtDate=()=>({sourceDate:'2026-10-29'});
