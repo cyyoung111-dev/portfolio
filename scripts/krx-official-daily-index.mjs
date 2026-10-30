@@ -38,7 +38,7 @@ export function selectOfficialDailyIndexRows(date,payload){
 }
 export async function fetchOfficialDailyIndexes(date,{
  url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,
- fetchImpl=fetch,now=()=>new Date()
+ fetchImpl=fetch,now=()=>new Date(),onResponse
 }={}){
  if(!isOfficialCloseWindow(date,now())||!url||!token)return [];
  try{
@@ -51,6 +51,10 @@ export async function fetchOfficialDailyIndexes(date,{
     headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
     body:form,redirect:'follow',signal:AbortSignal.timeout(17000)});
   if(!res?.ok)return [];
-  return selectOfficialDailyIndexRows(date,await res.json());
+  const payload=await res.json();
+  // The caller may cross-check Yahoo-dated rows independently; this must
+  // never weaken the KRX official source/finality selection above.
+  if(typeof onResponse==='function')onResponse(payload);
+  return selectOfficialDailyIndexRows(date,payload);
  }catch{return [];}
 }
