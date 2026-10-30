@@ -29,6 +29,24 @@ function dailyDate(value) {
   const parsed=Date.parse(d+'T00:00:00Z');
   return Number.isFinite(parsed)&&new Date(parsed).toISOString().slice(0,10)===d ? d : null;
 }
+// The public NH krstock OpenAPI documents ETF current Output_4 with an embedded
+// index quote. This is NOT a dedicated KOSPI/KOSDAQ/KOSPI200 daily endpoint.
+// Its market index identity/date/finality must be proven separately.
+export function inspectEtfEmbeddedIndex(response,expectedEtfCode){
+  const etf=response?.Output_0,embedded=response?.Output_4;
+  if(!etf||etf.iem_cd!==expectedEtfCode||!embedded||typeof embedded!=='object'||Array.isArray(embedded))
+    return null;
+  const code=String(embedded.bstp_cls_code??'').trim();
+  const name=String(embedded.bstp_kor_isnm??'').trim();
+  const market=String(embedded.jisukpgubun??'').trim();
+  const value=numericPrice(embedded.prpr_nmix);
+  // Prevent accidental display of malformed index names or arbitrary raw response.
+  if(!/^[A-Za-z0-9]{1,6}$/.test(code)
+      || !/^[가-힣A-Za-z0-9 .()_\-]{1,40}$/.test(name)
+      || !['1','2'].includes(market)||value===null)return null;
+  return {source:'NH_ETF_EMBEDDED_INDEX',status:'CANDIDATE_NOT_REGULAR_CLOSE',
+    etfCode:expectedEtfCode,indexCode:code,indexName:name,marketCode:market,indexValue:value};
+}
 const status = (response) => Number.isInteger(response?.status)&&response.status>=100&&response.status<=599
   ? response.status : 0;
 async function post(request, url, token, key, secret, input) {
@@ -80,6 +98,13 @@ export async function diagnoseClose({key,secret,request=fetch,log=console.log,wa
         const output=etf.json?.Output_0;
         const valid=etf.res.ok && output?.iem_cd===code && numericPrice(output.stck_prpr)!==null;
         log('KR_ETF_CURRENT HTTP_'+status(etf.res)+' '+(valid?'CODE_AND_PRICE_PRESENT':'CODE_OR_PRICE_UNVERIFIED'));
+        const embedded=valid?inspectEtfEmbeddedIndex(etf.json,code):null;
+        if(embedded)log('KR_ETF_EMBEDDED_INDEX CANDIDATE_ONLY code='+embedded.indexCode
+          +' name='+embedded.indexName+' market='+embedded.marketCode
+          +' value='+embedded.indexValue+' DATE_AND_FINALITY_UNVERIFIED');
+        else log('KR_ETF_EMBEDDED_INDEX NOT_VERIFIED');
+        // ETF-associated index data has no independent trading date/close proof.
+        // Never save it to official market indices or the portfolio price history.
         if(!valid)passed=false;
         if(etf.res.status===401||etf.res.status===429)break;
       }

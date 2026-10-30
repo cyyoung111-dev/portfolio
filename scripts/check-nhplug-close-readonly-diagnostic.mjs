@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {diagnoseClose} from './nhplug-close-readonly-diagnostic.mjs';
+import {diagnoseClose,inspectEtfEmbeddedIndex} from './nhplug-close-readonly-diagnostic.mjs';
 
 const key='example-key',secret='example-secret',token='example-token';
 const time=()=>new Date('2026-10-29T07:00:00Z'); // 16:00 KST
@@ -63,5 +63,38 @@ for(const [changes,pattern] of [
   const logs=[];
   assert.equal(await diagnoseClose({key:'',secret,log:x=>logs.push(x)}),false);
   assert.match(logs.join('\n'),/CREDENTIALS_MISSING/);
+}
+// An ETF-associated index is observable, but it is NOT proof of an official
+// market index series, trading date or the regular-session closing price.
+const etfCandidate={
+  Output_0:{iem_cd:'069500',stck_prpr:12345},
+  Output_4:{bstp_cls_code:'001234',bstp_kor_isnm:'코스피 200',
+    jisukpgubun:'1',prpr_nmix:555.55,prdy_vrss:1.2}
+};
+assert.deepEqual(inspectEtfEmbeddedIndex(etfCandidate,'069500'),{
+  source:'NH_ETF_EMBEDDED_INDEX',status:'CANDIDATE_NOT_REGULAR_CLOSE',
+  etfCode:'069500',indexCode:'001234',indexName:'코스피 200',
+  marketCode:'1',indexValue:555.55
+});
+for(const modified of [
+  {...etfCandidate,Output_0:{...etfCandidate.Output_0,iem_cd:'005930'}},
+  {...etfCandidate,Output_4:{...etfCandidate.Output_4,jisukpgubun:'3'}},
+  {...etfCandidate,Output_4:{...etfCandidate.Output_4,prpr_nmix:-1}},
+  {...etfCandidate,Output_4:{...etfCandidate.Output_4,bstp_kor_isnm:'bad\\nline'}},
+  {...etfCandidate,Output_4:{...etfCandidate.Output_4,bstp_cls_code:''}},
+  {...etfCandidate,Output_4:undefined}
+])assert.equal(inspectEtfEmbeddedIndex(modified,'069500'),null);
+{
+ const candidateMock=fake({etf:response(etfCandidate)});
+ const {ok,logs}=await run(candidateMock,{accessToken:token});
+ assert.equal(ok,true);
+ assert.equal(candidateMock.calls.length,3,'reuse existing token and ETF request');
+ assert.match(logs,/KR_ETF_EMBEDDED_INDEX CANDIDATE_ONLY code=001234 name=코스피 200 market=1 value=555\.55 DATE_AND_FINALITY_UNVERIFIED/);
+ assert.doesNotMatch(logs,/example-(key|secret|token)|12345|Output_4/);
+}
+{
+ const noIndex=fake();
+ const {logs}=await run(noIndex,{accessToken:token});
+ assert.match(logs,/KR_ETF_EMBEDDED_INDEX NOT_VERIFIED/);
 }
 console.log('NH PLUG regular session close diagnostic synthetic tests passed');
