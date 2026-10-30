@@ -54,15 +54,21 @@ function isExpectedPublicationWait(data,{now,today,issues,slots}) {
   if(!Number.isFinite(minute)||minute>=480)return false;
   const target=previousOpenKrxDate(today);
   if(!target||data.pendingCount!==1||data.pendingDates[0]!==target)return false;
+  // The GAS producer marks exact KRX publication waiting as WARNING.
+  // An ERROR/INCOMPLETE overall result can represent independent failures.
+  if(data.overallStatus!=='WARNING')return false;
   // An ERROR automation can also represent a separate fund or ledger failure.
   // Only the sanitized, independently verified publication-wait state may
   // suppress the overnight incident exit status. Missing proof fails closed.
   const close=data.close;
-  if(!close||close.state!=='ERROR'||close.stage!=='PRICE'||close.priceOk!==false
+  if(!close||close.state!=='ERROR'||close.stage!=='ERROR'||close.priceOk!==false
     ||close.runDate!==target||close.summaryPresent!==true||close.summaryRunDate!==target
     ||close.fundState!=='DONE'||close.fundOk!==true
     ||close.fundErrorPresent!==false||close.fundWarningPresent!==false
-    ||close.closeErrorPresent!==false||close.closeErrorCount!==0
+    // Production _krxClosePublicationState_ requires nonempty price-only
+    // close.errors and validates EVERY entry against the exact T/T-1 dates.
+    // A zero count is therefore incompatible with waiting=true.
+    ||!Number.isSafeInteger(close.closeErrorCount)||close.closeErrorCount<1
     ||close.runStale===true||close.snapshotStale===true
     ||close.krxPublicationWaiting!==true||close.krxPublicationTradeDate!==target
     ||close.krxPublicationAvailableAfter!==today+'T08:00:00+09:00')return false;
