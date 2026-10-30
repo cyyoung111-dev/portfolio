@@ -304,6 +304,13 @@ assert.equal(statusSample.triggerReady,false);
 assert.equal(statusSample.gasVersionReady,false,
   'legacy GAS without 08:45 writer must fail the readiness gate');
 assert.equal(statusSample.pendingCount,3);
+assert.equal(statusSample.snapshotSuccessPropertyDate,'-','legacy GAS responses remain readable');
+const markerFixture=statusFixture();
+markerFixture.automation.snapshotSuccessPropertyDate='2026-10-27';
+assert.equal(summarizeBackfillStatus(markerFixture).snapshotSuccessPropertyDate,'2026-10-27');
+markerFixture.automation.snapshotSuccessPropertyDate='2026-10-40';
+assert.throws(()=>summarizeBackfillStatus(markerFixture),/AUTOMATION_DIAG_BAD_DATE/,'invalid seed cursor is rejected');
+
 assert.deepEqual(statusSample.pendingDates,['2026-10-08','2026-10-12','2026-10-13']);
 assert.equal(statusSample.latestBackfill.ok,false);
 assert.equal(statusSample.latestBackfill.targetDate,'2026-10-13');
