@@ -29,6 +29,11 @@ now+=419999;assert.throws(()=>gate._issue507AssertDrain_(),/NOT_DRAINED/);
 now++;assert.equal(gate._issue507AssertDrain_().processApiRequired,false);
 gate.issue507BeginWriterDrain_();assert.equal(props.get('issue507_writer_gate_v1'),initial);
 assert.equal(gate.issue507ResumeWriters_().mode,'OPEN');
+// A second maintenance cycle cannot reuse the prior cycle's aged rollout
+// attestation. Re-verify blocked legacy/editor/external writers before drain.
+assert.throws(()=>gate.issue507BeginWriterDrain_(),/GATE_ROLLOUT_STALE/);
+assert.equal(JSON.parse(props.get('issue507_writer_gate_v1')).mode,'OPEN');
+props.set('issue507_writer_gate_rollout_v1',JSON.stringify({...receipt,verifiedAt:now}));
 // An in-flight manual refresh remains registered BEFORE external NAV fetch.
 // Normal completion retries 30s lock acquisition; never reruns producer work.
 const contended=gate._issue507GateEnter_('contended-completion');
