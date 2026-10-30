@@ -180,6 +180,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     const sourceSet = [...new Set(benchRaw.map(row=>String(row?.source||'SOURCE_NOT_TAGGED')))];
     const sourceLabel = sourceSet.map(source=>source==='NH_REGULAR_CLOSE'?'NH'
       :source==='KRX_OFFICIAL'?'KRX'
+      :source==='FDR_KRX_CACHE'?'FDR·KRX 참고 종가'
       :source.includes('YAHOO')?'Yahoo':'원천 미확인').join(' + ');
     const latestDate=latestRaw?.sourceDate||latestRaw?.date||'';
     const latestPrice=Number(latestRaw?.value)||0;

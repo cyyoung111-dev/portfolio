@@ -41,7 +41,7 @@ export async function loadMorningMaster(date,{url,token,fetchImpl=fetch,now=new 
     return verifiedMorningMaster(date,result.observations);
   }catch{return [];}
 }
-export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[]) {
+export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[],domesticIndexRows=[]) {
   const output=new Map(yahooRows.filter(r=>!NH_ONLY_INDEX_SET.has(r?.symbol)).map(r=>[r.symbol,r]));
   for(const r of masterRows){
     if(NH_ONLY_INDEX_SET.has(r?.symbol))continue;
@@ -59,6 +59,16 @@ export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[]) {
     if(row?.source!=='NH_INDEX_DAILY'||!/\d{4}-\d{2}-\d{2}/.test(row.date)||!Number.isFinite(row.value)||row.value<=0)continue;
     const prior=output.get(row.symbol);
     if(!prior||row.date>=prior.date)output.set(row.symbol,row);
+  }
+  const known=new Set(['^KS11','^KQ11','^KS200']);
+  for(const symbol of known){
+    const rows=domesticIndexRows.filter(r=>r?.symbol===symbol);
+    if(rows.length!==1)continue;
+    const r=rows[0];
+    if(r.source!=='FDR_KRX_CACHE'||r.role!=='NON_NH_DAILY_INDEX'
+      ||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)
+      ||!Number.isFinite(r.value)||r.value<=0||!Number.isFinite(r.changePercent))continue;
+    output.set(symbol,r);
   }
   return [...output.values()];
 }

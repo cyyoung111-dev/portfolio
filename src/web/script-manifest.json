@@ -32,6 +32,7 @@
     "views/views_asset_schedule_chart.js",
     "views/views_history_legacy_guard.js",
     "views/views_history_utils.js",
+    "domain/market/domestic_index_eod.js",
     "views/views_history_benchmark.js",
     "views/views_history_state.js",
     "views/views_history_pipeline.js",

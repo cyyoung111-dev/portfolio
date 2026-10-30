@@ -42,6 +42,42 @@ async function _loadBenchmarkBundle(types, fromDate, toDate) {
       errorMap[type] = requestError || String(data?.errors?.[type] || '선택 기간의 데이터를 찾지 못했습니다.');
     }
   }
+  // KRX-derived public daily series is an explicit, separate index reference.
+  // No source can be relabeled as NH. Ignore any EOD cache row published before
+  // the Korean regular-session close; retain only actual KRX-official GAS rows.
+  const domesticTypes=types.filter(type=>['KOSPI','KOSDAQ','KOSPI200'].includes(type));
+  if(domesticTypes.length && typeof DomesticIndexEod!=='undefined'){
+    try {
+      const derived=await DomesticIndexEod.loadSeries(domesticTypes,fromDate,toDate);
+      for(const type of domesticTypes){
+        const krxOnly=seriesMap[type].filter(p=>p.source==='KRX_OFFICIAL'
+          &&data?.seriesMeta?.[type]?.confirmedClose===true);
+        const byDate=new Map(krxOnly.map(p=>[p.date,p]));
+        for(const p of derived.seriesMap[type]||[])byDate.set(p.date,p);
+        const verified=[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
+        seriesMap[type]=verified;
+        if(verified.length){
+          metaMap[type]='FDR_KRX_CACHE:'+DomesticIndexEod.SYMBOLS[type];
+          const pos=failedTypes.indexOf(type);if(pos>=0)failedTypes.splice(pos,1);
+          delete errorMap[type];
+        }else{
+          const pos=failedTypes.indexOf(type);if(pos<0)failedTypes.push(type);
+          errorMap[type]=derived.errors[type]||'검증된 국내 지수 종가가 없습니다.';
+        }
+      }
+    } catch(error) {
+      // Do not erase a successfully validated KRX official series if the
+      // independent public source is temporarily unavailable.
+      for(const type of domesticTypes){
+        seriesMap[type]=seriesMap[type].filter(p=>p.source==='KRX_OFFICIAL'
+          &&data?.seriesMeta?.[type]?.confirmedClose===true);
+        if(!seriesMap[type].length){
+          if(!failedTypes.includes(type))failedTypes.push(type);
+          errorMap[type]='국내 지수 공개 종가 조회 실패';
+        }
+      }
+    }
+  }
   const warningMsg = types.some(type => type === 'KOSPI' || type === 'KOSDAQ') ? String(data?.errors?.KRX_OFFICIAL || '').slice(0,350) : '';
   return { seriesMap, metaMap, errorMap, failedTypes, warningMsg };
 }
