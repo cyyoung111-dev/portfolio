@@ -40,7 +40,7 @@ export async function prepareCorrection({now=()=>new Date(),fetchImpl=fetch,toke
   const core=new Set(['^KS11','^KQ11','^GSPC','^SOX','^VIX','KRW=X']);
   if(rows.filter(r=>core.has(r.symbol)).length<4)throw Error('CORRECTION_CORE_DATA_INSUFFICIENT');
   if(!validWindow(now()))throw Error('CORRECTION_WINDOW_EXPIRED');
-  const message='[10월 30일 장전 브리핑 정정본]\\n앞서 발송한 축약본 대신 종합 시장 브리핑을 제공합니다. 기준일·데이터 공백을 확인하세요.\\n\\n'
+  const message='[10월 30일 장전 브리핑 정정본]\n앞서 발송한 축약본 대신 종합 시장 브리핑을 제공합니다. 기준일·데이터 공백을 확인하세요.\n\n'
     +formatMorningBriefing(DATE,hasRef?reference:null,rows);
   if(message.length>3900)throw Error('CORRECTION_MESSAGE_OVERLONG');
   return {ready:true,status:'PREPARED',date:DATE,claim:CLAIM,message,referenceSource:hasRef?'NH':'NONE',seriesCount:rows.length};
@@ -63,7 +63,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
        fs.writeFileSync('.telegram-correction-runtime/payload.json',JSON.stringify(result));
        fs.writeFileSync('.telegram-correction-runtime/claim.json',JSON.stringify({date:DATE,run:process.env.GITHUB_RUN_ID}));
      }
-     fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready='+result.ready+'\\n');
+     fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready='+result.ready+'\n');
      console.log(JSON.stringify({status:result.status,seriesCount:result.seriesCount||0,referenceSource:result.referenceSource||'NONE'}));
    }else if(process.argv[2]==='send'){
      console.log(JSON.stringify(await sendCorrection(JSON.parse(fs.readFileSync('.telegram-correction-runtime/payload.json','utf8')),
