@@ -43,7 +43,7 @@ const testSender=async(_token,_chat,text)=>{delivered++;textSent=text;};
 const tomorrow='2026-10-28',fakeRef={source:'NH',contract:'KA016C000',contractMonth:'2026-12',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T07:30:00+09:00`};
 const morningOptions={now:()=>new Date(`${tomorrow}T07:45:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
 const morning=await runTelegramMorning(morningOptions);
-assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/마감 기준/);
+assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/NH PLUG 06:00 운영 확정 기준/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,attempt:2}),/TELEGRAM_RETRY_BLOCKED/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(`${tomorrow}T08:10:00+09:00`)}),/TELEGRAM_SCHEDULE_LATE/);
 assert.equal(delivered,1,'재시도 및 지연 실행에서 메시지 중복 발송 금지');
@@ -53,7 +53,7 @@ const tflRef={...fakeRef,source:'NH',contract:'KA016C000',value:900.05};
 const tflMorning=await runTelegramMorning({...morningOptions,referenceFetch:async()=>tflRef});
 assert.equal(tflMorning.status,'SENT_REFERENCE');
 assert.equal(tflMorning.referenceSource,'NH');assert.equal(tflMorning.referenceDate,tomorrow);assert.equal(tflMorning.referenceContract,'KA016C000');
-assert.match(textSent,/06:00 KST \(NH\)/);assert.match(textSent,/900\.05pt/);
+assert.match(textSent,/NH PLUG 06:00 운영 확정 기준/);assert.match(textSent,/900\.05pt/);
 const tflBad=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...tflRef,contract:''})});
 assert.equal(tflBad.status,'SENT_SOURCE_MISSING');assert.doesNotMatch(textSent,/900\.05/);
 // The headless calendar consumes the GAS source of truth (including temporary
@@ -526,8 +526,7 @@ assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재�
 // otherwise use workflow_dispatch with production GAS credentials.
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
 const guard="github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')";
-const schedules=['15 21 * * 0-4','15 0 * * 1-5',
- '30 7 * * 1-5','15 11 * * 1-5'];
+const schedules=['30 7 * * 1-5','15 11 * * 1-5'];
 const fnv32=str=>{
  let h=2166136261;
  for(let i=0;i<str.length;i++)h=Math.imul(h^str.charCodeAt(i),16777619)>>>0;
@@ -537,8 +536,11 @@ function validateBriefingWorkflow(source){
  const doc=YAML.parseDocument(source,{uniqueKeys:true,version:'1.2'});
  assert.equal(doc.errors.length,0,'Briefing YAML parses without duplicate keys');
  const wf=doc.toJS({maxAliasCount:0});
- assert.deepEqual(wf.on.schedule.map(x=>x.cron),schedules,'original 5 checkpoints unchanged');
+ assert.deepEqual(wf.on.schedule.map(x=>x.cron),schedules,'NH-only night: KRX headless night cron removed');
  assert.ok(Object.hasOwn(wf.on,'workflow_dispatch'),'manual route preserved');
+ assert.deepEqual(wf.on.workflow_dispatch.inputs.checkpoint.options,
+   ['KRX_FINAL','EVENING'],'no manual KRX night revalidation');
+ assert.ok(!String(source).includes('checkpoint=NIGHT_FINAL'),'no KRX night cron mapping');
  assert.ok(!Object.hasOwn(wf.on,'push'),'no push event with production credentials');
  assert.equal(wf.permissions.contents,'read');
  assert.equal(wf.permissions.actions,'read');
@@ -562,7 +564,7 @@ function validateBriefingWorkflow(source){
  // Regression fingerprint for the exact reviewed shell block, including
  // safe cron-to-checkpoint mapping and a single headless execution command.
  // Any added recovery command must fail this offline contract.
- assert.equal(fnv32(String(step.run||'').trim()),'877424da',
+ assert.equal(fnv32(String(step.run||'').trim()),'193064af',
   'single approved briefing shell script only');
 }
 validateBriefingWorkflow(workflow);

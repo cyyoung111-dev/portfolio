@@ -132,7 +132,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id)),'',
   '■ 4. 코스피200 야간선물 (06:00)',
   reference && Number.isFinite(reference.value) && reference.value>0
-    ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt · 마감 기준 '+reference.tradingDate+' 06:00 KST (NH) · 참고값'
+    ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt · NH PLUG 06:00 운영 확정 기준 ('+reference.tradingDate+') · 마지막 체결값, 거래소 공식 정산가 아님'
     :'코스피200 야간선물: 당일 참고값 미확보',
   '미국 선물 ES/NQ/YM/RTY: 장전 실시간 검증값 미확보','',
   '■ 5. 환율 / 금리 / 변동성',

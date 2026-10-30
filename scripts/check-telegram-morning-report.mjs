@@ -27,7 +27,8 @@ for (const part of ['오늘의 결론','전일 한국장','밤사이 미국장',
 assert.match(report,/위험선호 신호 우세/);
 assert.match(report,/다우존스: 52,342.56.*2026-10-29/);
 assert.match(report,/900.05pt/);
-assert.match(report,/06:00 KST \(NH\)/);
+assert.match(report,/NH PLUG 06:00 운영 확정 기준/);
+assert.match(report,/마지막 체결값, 거래소 공식 정산가 아님/);
 assert.match(report,/4.12% \(Yahoo \^TNX 환산\)/);
 assert.match(report,/외국인\/기관.*미확보/);
 assert.match(report,/미국 선물 ES\/NQ\/YM\/RTY: 장전 실시간 검증값 미확보/);
