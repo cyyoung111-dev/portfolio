@@ -66,10 +66,9 @@ function checkWorkflow(source){
   assert.equal(deploy.steps[0].with.ref,'$'+'{{ needs.validate.outputs.sha }}');
   assert.equal(deploy.env.GAS_EXPECTED_MAIN_SHA,'$'+'{{ needs.validate.outputs.sha }}');
   assert.equal(deploy.concurrency['cancel-in-progress'],false);
-  // Quota guard: routine main changes must not invoke Google Apps Script API
-  // or repeat a second copy of the full quality suite.
+  // Quota guard: no Google API or duplicate CI on non-GAS main commits.
   const sourceStep=validate.steps.find(step=>step.id==='gas_source');
-  assert.ok(sourceStep,'trusted main source-change preflight is required');
+  assert.ok(sourceStep,'main source-change preflight is required');
   assert.equal(sourceStep.if,"github.event_name == 'workflow_run'");
   assert.match(sourceStep.run,/git cat-file -e 'HEAD\^:src\/gas\/apps_script\.gs'/);
   assert.match(sourceStep.run,/git diff --quiet HEAD\^ HEAD -- src\/gas\/apps_script\.gs/);
@@ -77,8 +76,14 @@ function checkWorkflow(source){
   assert.match(sourceStep.run,/changed=true/);
   const selected=validate.steps.find(step=>step.name==='Checkout selected immutable release');
   assert.equal(selected.with['fetch-depth'],2,'first parent must be fetched');
-  assert.equal(validate.outputs.auto_source_changed,
-    '
+  const expr=String.fromCharCode(36,123,123)+' steps.gas_source.outputs.changed '+String.fromCharCode(125,125);
+  assert.equal(validate.outputs.auto_source_changed,expr);
+  assert.match(deploy.if,/needs\.validate\.outputs\.auto_source_changed == 'true'/);
+  for(const stepName of ['Install dependencies','Full release checks']) {
+    const step=validate.steps.find(x=>x.name===stepName);
+    assert.match(step.if,/steps\.gas_source\.outputs\.changed == 'true'/);
+    assert.match(step.if,/github\.event_name != 'workflow_run'/);
+  }
   assert.ok(validate.steps.some(s=>s.run==='node scripts/gas-release-gate.mjs'));
   assert.ok(validate.steps.some(s=>s.run==='npm run check:ci'));
   assert.ok(!JSON.stringify(validate).includes('secrets.CLASPRC_JSON'));
