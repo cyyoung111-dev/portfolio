@@ -111,6 +111,10 @@ jobs:
           # Manual deployments retain the full, explicit sample readback.
           NH_RUNTIME_SKIP_READBACK_IF_ACTIVE: ${{ github.event_name == 'workflow_run' && 'true' || 'false' }}
         run: node scripts/activate-nh-gas-runtime.mjs
+      - name: One-time 2026-10-30 central NH 06:00 readback (no new token)
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
+        continue-on-error: true
+        run: node scripts/nh-central-probe-20261030.mjs
       - name: Verify KRX 37-code source coverage after live GAS deployment
         if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         continue-on-error: true
