@@ -19951,7 +19951,7 @@ function fetchIndexPrimarySeries(type,fromDate,toDate){
    symbol:legacy.symbol,error:legacy.error,source:'YAHOO_FINANCE',current:null};
 }
 
-var ISSUE507_GATE_RELEASE_ID='13d68223866768b2c0d55a3aaaab9637d7120e52b2b8c2bd7a128240f81f8061';
+var ISSUE507_GATE_RELEASE_ID='257c26d1ad789d8f036e74d56418644385e8860dab8c5551fb8c2f493e9626b5';
 // GAS v9.282: inline admission guards cover the 555 original functions.
 // Original alias functions are private implementation details; direct editor
 // calls and other deployments must be disabled by the rollout operator.
@@ -20030,16 +20030,25 @@ function _issue507GateReconcile_(props,s) {
     var e=JSON.parse(raw),owner=s.active[token];
     if(e.releaseId!==s.releaseId || e.token!==token || e.name!==owner.name ||
        e.startedAt!==owner.startedAt || !Number.isFinite(e.endedAt) ||
-       e.endedAt<e.startedAt || e.endedAt>Date.now() || e.state!=='ENDED')throw new Error('GATE_END_PROOF_INVALID');
+       e.endedAt<e.startedAt || e.endedAt>Date.now() || e.state!=='ENDED' ||
+       typeof e.acknowledged!=='boolean')throw new Error('GATE_END_PROOF_INVALID');
     s.completed.push({token:token,name:e.name,startedAt:e.startedAt,endedAt:e.endedAt,state:'ENDED'});
     s.completed=s.completed.slice(-8);delete s.active[token];s.finished++;ended.push(key);
   });
-  if(ended.length){
-    // Persist removal BEFORE deleting evidence. A crash/readback failure keeps
-    // terminal proof; it never turns an unproven active run into completed.
-    _issue507GateSave_(props,s);
-    ended.forEach(function(key){props.deleteProperty(key);});
-  }
+  if(ended.length)_issue507GateSave_(props,s);
+  // Never delete UNACKED proof: its producer may still be between set/readback.
+  // GC can collect ACKED orphans even after the eight-entry history rolls over.
+  var values=props.getProperties();
+  Object.keys(values).forEach(function(key){
+    if(key.indexOf('issue507_writer_end_v1_')!==0)return;
+    var e;try{e=JSON.parse(values[key]);}catch(ignore){return;}
+    if(!e || e.acknowledged!==true || e.releaseId!==s.releaseId || e.state!=='ENDED' ||
+       typeof e.token!=='string' || !/^[A-Za-z0-9-]{1,80}$/.test(e.token) ||
+       key!==_issue507GateEndKey_(e.token) || s.active[e.token] ||
+       typeof e.name!=='string' || !Number.isFinite(e.startedAt) || !Number.isFinite(e.endedAt) ||
+       e.endedAt<e.startedAt || e.endedAt>Date.now())return;
+    props.deleteProperty(key);
+  });
   return s;
 }
 function _issue507GateExit_(token) {
@@ -20051,9 +20060,13 @@ function _issue507GateExit_(token) {
   // Each execution exclusively owns this key. Record ENDED without ScriptLock
   // so a 240-second financial writer cannot strand normal completions.
   var key=_issue507GateEndKey_(token),raw=JSON.stringify({releaseId:s.releaseId,token:token,
-    name:owner.name,startedAt:owner.startedAt,endedAt:Date.now(),state:'ENDED'});
+    name:owner.name,startedAt:owner.startedAt,endedAt:Date.now(),state:'ENDED',acknowledged:false});
   try{props.setProperty(key,raw);if(props.getProperty(key)!==raw)throw new Error('readback');}
   catch(error){throw new Error('GATE_COMPLETION_RECEIPT_UNVERIFIED');}
+  // Only the producer sets ACK after its own exact readback. No ACK readback:
+  // a collector may legitimately delete ACKED evidence immediately.
+  try{var acknowledged=JSON.parse(raw);acknowledged.acknowledged=true;props.setProperty(key,JSON.stringify(acknowledged));}
+  catch(error){if(typeof Logger!=='undefined')Logger.log('GATE_COMPLETION_ACK_DEFERRED');}
   try{_issue507GateAtomic_(function(p){_issue507GateReconcile_(p,_issue507GateRead_(p));},true);}
   catch(error){
     // Durable terminal proof survives; next admission/begin/drain reconciles

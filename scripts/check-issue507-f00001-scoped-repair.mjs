@@ -27,7 +27,7 @@ export function setup(options={}) {
  const sheet=sheetFor(()=>data,x=>data=x);
  const ss={getSheetByName:()=>sheet};
  const ctx=vm.createContext({console,Date,Number,Logger:{log(){}},LockService:{getScriptLock:()=>({tryLock:()=>{if(options.lockBusy)return false;held=true;return true;},releaseLock:()=>{held=false;}})},
-  PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k)})},
+  PropertiesService:{getScriptProperties:()=>({getProperties:()=>Object.fromEntries(props),getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k)})},
   SpreadsheetApp:{flush(){}},Utilities:{getUuid:()=> 'synthetic',DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,x)=>Array.from(crypto.createHash('sha256').update(x).digest())}});
  vm.runInContext(production,ctx);vm.runInContext(moduleSource,ctx);
  ctx._issue507AssertDrain_=()=>({activeCount:0}); // real gate is exercised by runtime integration tests

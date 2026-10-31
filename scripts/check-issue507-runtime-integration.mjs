@@ -12,7 +12,7 @@ assert.throws(()=>assertGasProjectFileSet([{name:'appsscript',type:'JSON',source
  {name:'Code',type:'SERVER_JS',source:candidate},{name:'repair',type:'SERVER_JS',source:'function x(){}'}],'Code',[]),/UNREVIEWED_FILES/);
 let now=1800000000000,sequence=0;
 const props=new Map();const clone=x=>JSON.parse(JSON.stringify(x));
-const propertyApi={getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k)};
+const propertyApi={getProperties:()=>Object.fromEntries(props),getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k)};
 const runtime=fs.readFileSync('ops/issue507/writer-gate.gs','utf8');
 function context(){let held=false,failures=0;const waits=[];const lock={hasLock:()=>held,waitLock:ms=>{waits.push(ms);assert.equal(held,false);if(failures-->0)throw Error('temporary busy');held=true;},releaseLock:()=>{held=false;}};
  const c=vm.createContext({Date:{now:()=>now},PropertiesService:{getScriptProperties:()=>propertyApi},
@@ -63,7 +63,7 @@ gate._issue507GateExit_(deferredOwner);assert.equal(JSON.parse(props.get('issue5
 // Invalid terminal proof cannot clear any active owner.
 const forgedOwner=gate._issue507GateEnter_('invalid-proof');
 const activeState=JSON.parse(props.get('issue507_writer_gate_v1'));
-props.set('issue507_writer_end_v1_'+forgedOwner,JSON.stringify({releaseId:manifest.releaseId,token:forgedOwner,...activeState.active[forgedOwner],state:'ENDED',endedAt:now+1}));
+props.set('issue507_writer_end_v1_'+forgedOwner,JSON.stringify({releaseId:manifest.releaseId,token:forgedOwner,...activeState.active[forgedOwner],state:'ENDED',acknowledged:false,endedAt:now+1}));
 assert.throws(()=>gate._issue507GateEnter_('blocked-by-invalid-proof'),/END_PROOF_INVALID/);
 props.delete('issue507_writer_end_v1_'+forgedOwner);gate._issue507GateExit_(forgedOwner);
 const finishedBefore=JSON.parse(props.get('issue507_writer_gate_v1')).finished;

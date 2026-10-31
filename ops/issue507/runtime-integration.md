@@ -50,6 +50,8 @@ HTTP·메뉴·트리거·실제 Properties·금융 원본을 변경하지 않는
 8. 승인 capability를 모두 소비/폐기한 후 `issue507ResumeWriters_()`로 OPEN 복귀한다.
    실패 때에도 gate를 자동 OPEN으로 바꾸지 않는다. 복구/재개 승인은 결과를 보고 결정한다.
 
+종료 증빙의 UNACKED/ACKED 소유권·삭제 순서는 [completion-protocol.md](completion-protocol.md)를 따른다.
+
 ## Process API 403 대안과 실패 처리
 
 - 기존 Process API audit의 `PROCESS_API_ACCESS_DENIED`/`workerExecutionVerified=false`를 바꾸지 않는다.

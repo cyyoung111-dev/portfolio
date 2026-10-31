@@ -14,11 +14,12 @@ assert.doesNotThrow(()=>assertWriterGateReleaseTransition(base,live));
 assert.doesNotThrow(()=>assertWriterGateReleaseTransition(live,live));
 assert.throws(()=>assertWriterGateReleaseTransition(live,base),/GATE_REMOVAL_ROLLBACK_BLOCKED/);
 const names=[...base.matchAll(/^function (\w+)\s*\(/gm)].map(m=>m[1]);
-function create(){
- const props=new Map();let held=false,uuid=0,failures=0;const lock={hasLock:()=>held,waitLock:()=>{assert.equal(held,false);if(failures-->0)throw Error('long financial lock');held=true;},releaseLock:()=>{held=false;}};
- const ctx=vm.createContext({console,Date,LockService:{getScriptLock:()=>lock},Utilities:{getUuid:()=> 'live-fixture-'+(++uuid),formatDate:(d,tz)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(d)},
-  PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k)})}});
- vm.runInContext(live,ctx);return {ctx,props,setLockFailures:n=>{failures=n;},get held(){return held;}};
+let liveSequence=0;
+function create(props=new Map(),program=live){
+ let held=false,failures=0,hook=()=>{};const lock={hasLock:()=>held,waitLock:()=>{assert.equal(held,false);if(failures-->0)throw Error('long financial lock');held=true;},releaseLock:()=>{held=false;}};
+ const ctx=vm.createContext({console,Date,LockService:{getScriptLock:()=>lock},Utilities:{getUuid:()=> 'live-fixture-'+(++liveSequence),formatDate:(d,tz)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(d)},
+  PropertiesService:{getScriptProperties:()=>({getProperties:()=>Object.fromEntries(props),getProperty:k=>props.get(k)||null,setProperty:(k,v)=>{props.set(k,v);hook(k,v);},deleteProperty:k=>props.delete(k)})}});
+ vm.runInContext(program,ctx);return {ctx,props,setPropertyHook:fn=>{hook=fn;},setLockFailures:n=>{failures=n;},get held(){return held;}};
 }
 const h=create();let produced=0;
 h.ctx.getss=()=>({});h.ctx._createFundRecoveryDiagnostic=()=>null;h.ctx._fundRecoveryDiagnosticStart=()=>{};h.ctx._fundRecoveryDiagnosticFinish=()=>{};
@@ -44,6 +45,25 @@ for(let i=0;i<30;i++)assert.equal(typeof longLock.ctx.today(),'string');
 longLock.ctx._issue507GateExit_=realExit;longLock.setLockFailures(0);longLock.ctx.today();
 assert.equal(Object.keys(JSON.parse(longLock.props.get('issue507_writer_gate_v1')).active).length,0);
 assert.equal([...longLock.props.keys()].filter(k=>k.startsWith('issue507_writer_end_v1_')).length,0);
+// Two real LIVE VM contexts share Properties. A collector completes >8 runs
+// between producer set/readback, then deletes ACKED proof before producer's
+// cleanup. UNACKED proof is retained, so original today() still returns.
+const race=create(),collector=create(race.props);let first=true,ackFirst=true;
+race.setPropertyHook((key,value)=>{
+ if(!key.startsWith('issue507_writer_end_v1_'))return;
+ const e=JSON.parse(value);
+ if(first && !e.acknowledged){first=false;for(let i=0;i<40;i++)collector.ctx.today();}
+ else if(!first && ackFirst && e.acknowledged){ackFirst=false;collector.ctx.today();assert.equal(race.props.has(key),false);}
+});
+assert.equal(typeof race.ctx.today(),'string');assert.equal(first,false);assert.equal(ackFirst,false);
+assert.equal(Object.keys(JSON.parse(race.props.get('issue507_writer_gate_v1')).active).length,0);
+assert.equal([...race.props.keys()].filter(k=>k.startsWith('issue507_writer_end_v1_')).length,0);
+// Mutation oracle: permitting GC of UNACKED proof reintroduces the reviewed
+// result-loss race. The same two-context interleaving MUST then fail.
+const unsafe=live.replace('e.acknowledged!==true || e.releaseId','false || e.releaseId');assert.notEqual(unsafe,live);
+const mutant=create(new Map(),unsafe),mutantCollector=create(mutant.props,unsafe);let interleave=true;
+mutant.setPropertyHook((key,value)=>{if(interleave && key.startsWith('issue507_writer_end_v1_') && !JSON.parse(value).acknowledged){interleave=false;mutantCollector.ctx.today();}});
+assert.throws(()=>mutant.ctx.today(),/GATE_COMPLETION_RECEIPT_UNVERIFIED/);
 // Unknown stored release state is not erased to recover service automatically.
 const failedBootstrap=create();failedBootstrap.props.set=()=>{throw Error('BOOTSTRAP_QUOTA');};assert.throws(()=>failedBootstrap.ctx.today(),/BOOTSTRAP_QUOTA/);assert.equal(failedBootstrap.held,false);
 const bad=create();bad.props.set('issue507_writer_gate_v1',JSON.stringify({...s,releaseId:'wrong'}));assert.throws(()=>bad.ctx.today(),/GATE_STATE_INVALID/);
