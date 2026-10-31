@@ -1,0 +1,41 @@
+name: issue507-oct30-domestic-close-readonly
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-oct30-domestic-close-readonly.mjs'
+      - 'scripts/check-issue507-oct30-domestic-close-readonly.mjs'
+      - '.github/workflows/issue507-oct30-domestic-close-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate one-date close coverage with synthetic read-only inputs
+        run: |
+          node --check scripts/issue507-oct30-domestic-close-readonly.mjs
+          node scripts/check-issue507-oct30-domestic-close-readonly.mjs
+  operational-readonly:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: portfolio-production-gas
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read GAS source and domestic 2026-10-30 history (no writes)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-oct30-domestic-close-readonly.mjs
