@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import {planIssue507Oct30ScopedRevaluation,TARGET_DATE}
   from './issue507-oct30-scoped-valuation-plan.mjs';
@@ -70,6 +71,48 @@ assert.ok(!JSON.stringify(p.summary).includes('PRIVATE_STOCK')
   &&!JSON.stringify(p.summary).includes('PRIVATE_FUND')
   &&!JSON.stringify(p.summary).includes('000001')
   &&!JSON.stringify(p.summary).includes('120.6'));
+
+// Execute the actual production function, not just string-match its formula.
+// Each mock contains one held domestic stock/ETF, a real exact-day price, and
+// its true historical quantity/cost. No financial writes or external calls.
+function executeActualProduction(item,quote){
+ const code=item.code,meta={code,name:'PRIVATE_STOCK',currency:'KRW',market:'KR'};
+ const sheet={getLastRow:()=>2,getLastColumn:()=>11,
+   getRange:()=>({getValues:()=>[[null,null,null,'PRIVATE_STOCK',code]]})};
+ const context={
+   _issue507GateInside_:true,
+   CONFIG:{SHEET_TRADES:'거래원장'},
+   getCodeItems:()=>[meta],
+   _cleanCode:v=>String(v||'').trim().toUpperCase(),
+   _calcCodeHoldingsAtDate:()=>({[code]:{code,name:'PRIVATE_STOCK',qty:item.qty,costAmt:item.costAmt}}),
+   _applyFundUnitLifecycleToSnapshotHoldings:()=>{},
+   _readFundUnits:()=>[],
+   getPriceHistoryRow:()=>({[code]:quote.price}),
+   _getPriceSourceByDate:()=>({[code]:{src:quote.source,savedAt:''}}),
+   getLatestPriceHistoryEntries:()=>({}),
+   _getHistoricalExchangeRates:()=>({}),
+   _isFundCode:v=>/^F\d{5}$/.test(v),
+   _dedupeSnapshotRows:v=>v,
+   Logger:{log:()=>{}},
+   ss:{getSheetByName:()=>sheet}
+ };
+ const actual=vm.runInNewContext(fn+
+   '\n_buildSnapshotRowsFromTradeAndPriceHistory(ss, "2026-10-30")',
+   context,{timeout:3000});
+ assert.equal(actual.length,1,'actual production function must return exactly one row');
+ return Array.from(actual[0]);
+}
+for(let n=0;n<37;n++){
+ const actual=executeActualProduction(held[n],quotes[held[n].code]);
+ const wanted=p.privatePlan.domestic[n].after;
+ assert.equal(JSON.stringify(actual),JSON.stringify(wanted),
+   'all 12 production row fields must match private dry-run for each held code');
+}
+// Production rounds sub-0.5 exact-day prices down to zero and substitutes
+// purchase cost. Financial repair must REJECT such input, not write zero value.
+const tiny=executeActualProduction(held[0],{price:0.49,source:'KRX'});
+assert.equal(tiny[7],held[0].costAmt);
+
 let failures=0;
 function wrong(change,reason){
  const data=cloned();change(data);
@@ -89,6 +132,7 @@ wrong(x=>x.officialCloses['000001'].usedDate='2026-10-29','OFFICIAL_NOT_EXACT');
 wrong(x=>x.officialCloses['000001'].source='KRX_CARRY','OFFICIAL_NOT_EXACT');
 wrong(x=>x.officialCloses['000001'].source='YAHOO','OFFICIAL_NOT_EXACT');
 wrong(x=>x.officialCloses['000001'].price=0,'OFFICIAL_NOT_EXACT');
+wrong(x=>x.officialCloses['000001'].price=0.49,'SOURCE_ROUNDS_TO_ZERO');
 wrong(x=>x.officialCloses['000001'].price=Infinity,'OFFICIAL_NOT_EXACT');
 wrong(x=>x.officialCloses['000002'].price='9'.repeat(308),'REVALUATION_OVERFLOW');
 wrong(x=>x.snapshotRows[37][1]=x.snapshotRows[38][1],'SNAPSHOT_SCOPE');
@@ -110,6 +154,7 @@ assert.equal(p.summary.writerLockVerified,false);
 console.log(JSON.stringify({mode:'ISSUE507_SCOPED_VALUATION_DRYRUN_TEST',
  result:'PASS',negativeCases:failures,
  domesticRevaluations:p.summary.domesticRowRevaluations,
+ realProductionFunctionRuns:38,
  unchangedFundRows:p.summary.unchangedFundRows,
  productionSourceBlob:sha.slice(0,12),
  actualFinancialWrites:0,actualGASDeploy:false,nhTokenRequests:0}));
