@@ -33,7 +33,8 @@ function mock({qualityRuns=quality,gasRuns=gas,
     const id=Number(path.match(/\/runs\/(\d+)\/jobs$/)[1]);
     value={jobs:jobs[id]??(missingJob?[]:[skipped])};
   }else throw Error('UNEXPECTED_URL:'+url);
-  if(parsed.searchParams.get('page')!=='1'||parsed.searchParams.get('per_page')!=='100')
+  if(/\/(?:runs|jobs)$/.test(path) &&
+    (parsed.searchParams.get('page')!=='1'||parsed.searchParams.get('per_page')!=='100'))
     throw Error('UNEXPECTED_PAGINATION');
   return {ok:true,json:async()=>value};
  };
