@@ -524,7 +524,12 @@ export async function deploy() {
   // Validate *all* files before checking alreadyDeployed or starting any write.
   // A malicious extra SERVER_JS cannot ride along with a pinned apps_script.gs.
   if (!dryRun) assertGasProjectFileSet(currentContent.files, target.name, deployedContent.files);
-  if(!dryRun)assertWriterGateReleaseTransition(deployedTarget.source,source);
+  if(!dryRun){
+    // A partially failed release can leave gated project HEAD with an
+    // uninstrumented web-app deployment. Verify BOTH, not just /exec.
+    assertWriterGateReleaseTransition(deployedTarget.source,source);
+    assertWriterGateReleaseTransition(target.source,source);
+  }
   const releaseState=inspectGasReleaseState({headSource:target.source,publishedSource:deployedTarget.source});
   console.log(JSON.stringify(releaseState));
   if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');
