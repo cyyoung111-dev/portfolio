@@ -21,6 +21,11 @@ function actual(name){
  return gas.slice(start,end+2);
 }
 const realHeld=actual('_getDailyHeldCodeItems');
+const realCalc=actual('_calcCodeHoldingsAtDate');
+const realLedger=actual('calcHoldingsAtDate');
+const realReducer=actual('_applyHoldingTrade');
+const realSnapshotState=actual('_snapshotHoldingState');
+const realClean=actual('_cleanCode');
 const realKrxFilter=actual('_isKrxDailyCloseTarget_');
 const realAggregate=actual('handleGetKrxHeldCloseCoverage');
 const realTarget=actual('_krxHeldTargetCloseEvidence_');
@@ -39,7 +44,7 @@ function initial(){
    code,name:'PRIVATE_STOCK',currency:'KRW',
    market:i<16?'KR':'ETF',type:i<16?'주식':'ETF'
  }));
- const trades=names.map(code=>[DAY,'BUY','','PRIVATE_STOCK',code,1,100,'KR','','','']);
+ const trades=names.map(code=>[DAY,'buy','','PRIVATE_STOCK',code,1,100,'주식','','','']);
  const snapshot=names.map(code=>[DAY,code,'PRIVATE_STOCK',1,100,100,110,110,
     10,10,'KRX_CARRY@2026-10-29','PRIVATE_STAMP']);
  for(const [code,nav] of [['F00001',1200],['F00002',1450]]){
@@ -73,18 +78,13 @@ function vmTest(data,afterFetch){
   PRICE_HISTORY:sheet(data.history,6)
  };
  const ss={getSheetByName:name=>current[name]||null};
- const ledger=()=>Object.fromEntries(data.trades.map(row=>row[4]).map(code=>[
-   code,{code,name:'PRIVATE_STOCK',qty:1,costAmt:100}
- ]));
  const context={
    _issue507GateInside_:true,CONFIG:{
      SHEET_TRADES:'TRADES',SHEET_SNAPSHOT:'SNAPSHOT',SHEET_PH:'PRICE_HISTORY'
    },
    getss:()=>ss,getCodeItems:()=>data.catalog,
-   _cleanCode:x=>String(x||'').trim().toUpperCase(),
    _normalizeDate:x=>String(x||'').slice(0,10),
    _isFundCode:x=>/^F\d{5}$/.test(x),
-   _calcCodeHoldingsAtDate:ledger,
    today:()=> '2026-10-31',
    fetchPricesKrx:(held,date)=>{
      fetchCalls++;
@@ -96,6 +96,7 @@ function vmTest(data,afterFetch){
    jsonOk:o=>({status:'ok',...o}),jsonError:message=>({status:'error',message})
  };
  const src=[
+  realClean,realReducer,realSnapshotState,realLedger,realCalc,
   realKrxFilter,realHeld,realTarget,realAggregate,
   PRIVATE_GAS_FUNCTION,PRIVATE_LIVE_READONLY_FUNCTION
  ].join('\n');
@@ -172,6 +173,13 @@ bad(x=>{x.history[0][3]=1201},
 bad(x=>{x.snapshot.pop()},/ISSUE507_OCT30_LIVE_PROOF_TARGET_SCOPE/);
 bad(x=>{x.history.pop()},/ISSUE507_OCT30_LIVE_PROOF_TARGET_SCOPE/);
 bad(x=>{x.trades.pop()},/ISSUE507_OCT30_LIVE_PROOF_HELD_SCOPE/);
+bad(x=>{x.trades[0][0]='2026-10-31'},
+ /ISSUE507_OCT30_LIVE_PROOF_HELD_SCOPE/);
+bad(x=>{x.trades[0][1]='BUY'},
+ /ISSUE507_OCT30_LIVE_PROOF_HELD_SCOPE/);
+bad(x=>{x.trades.push([DAY,'sell','','RENAMED_STOCK','000001',1,100,'주식','','',''])},
+ /ISSUE507_OCT30_LIVE_PROOF_HELD_SCOPE/);
+
 bad(x=>{x.catalog[0].market='NASDAQ'},/ISSUE507_OCT30_LIVE_PROOF_HELD_SCOPE/);
 bad(x=>{x.catalog[0].type='ETF';x.catalog[0].market='ETF'},
  /ISSUE507_QUOTE_PROOF_MARKET_SCOPE_DRIFT/);
@@ -184,7 +192,7 @@ bad(x=>{},/ISSUE507_OCT30_LIVE_PROOF_TARGET_CHANGED_DURING_READ/,
 console.log(JSON.stringify({
  mode:'ISSUE507_OCT30_PRIVATE_SINGLE_PASS_SOURCE_TEST',
  result:'PASS',syntheticValidProofs:1,negativeCases:failed,
- actualProductionFunctionsExecuted:4,realSourceTestRuns:realSourceRuns,
+ actualProductionFunctionsExecuted:9,realSourceTestRuns:realSourceRuns,
  officialKRXFetchPerProof:1,verifiedHeldCodes:37,financialWrites:0,
  nhTokenRequests:0,gasDeployed:false,
  productionSourceBlob:sha.slice(0,12)
