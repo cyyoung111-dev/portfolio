@@ -110,6 +110,8 @@ rejected(x=>{x.plan.privatePlan.domestic[0].after[7]++;
  x.afterSnapshot[0][7]++},'VALUATION_NOT_PRODUCTION_EQUIVALENT');
 rejected(x=>x.afterHistory[2][3]++,'EXACT_PRICE_HISTORY_MISMATCH');
 rejected(x=>x.plan.privatePlan.domestic[0].rowIndex=-1,'PATCH_PLAN_SCOPE');
+rejected(x=>x.plan.privatePlan.domestic[0].rowIndex=1,'PATCH_INDEX_DRIFT');
+rejected(x=>{x.plan.privatePlan.domestic[0].before[4]=null; x.beforeSnapshot[0][4]=null; x.plan.privatePlan.domestic[0].after[4]=null; x.afterSnapshot[0][4]=null},'NONFINITE_SOURCE_OR_POSITION');
 rejected(x=>x.plan.privatePlan.priceHistoryInserts[0][1]='999999','PATCH_READBACK_MISMATCH');
 // This verifier is a fail-closed audit only; it never sets a recovery marker.
 assert.equal(result.safeToFinalize,false);
