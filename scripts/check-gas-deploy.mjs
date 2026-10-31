@@ -42,6 +42,59 @@ await assert.rejects(()=>rollbackGasCode({
 assert.equal(unsafeRollbackReads,0);
 assert.equal(unsafeRollbackWrites,0);
 
+// P1 regression: a failed first v9.282 release may leave HEAD gated but
+// deployment v9.281 ungated. The second attempt must NOT restore that old
+// deployment even though both HEAD sources contain the gate.
+const gated=tag=>[{name:'Code',type:'SERVER_JS',
+ source:"var ISSUE507_GATE_RELEASE_ID='stable-issue507';\\n// "+tag}];
+const ungated=[{name:'Code',type:'SERVER_JS',source:'// v9.281 uninstrumented'}];
+const rollbackOptions=overrides=>({
+ beforeFiles:gated('first-attempt-HEAD'),
+ candidateFiles:gated('latest-HEAD'),
+ beforePublishedFiles:ungated,
+ beforeDeployment:{deploymentConfig:{versionNumber:11}},
+ newVersion:12,
+ readFiles:async()=>{unsafeRollbackReads++;return gated('latest-HEAD');},
+ writeFiles:async()=>{unsafeRollbackWrites++;},
+ readDeployment:async()=>({deploymentConfig:{versionNumber:12}}),
+ writeDeployment:async()=>{unsafeRollbackWrites++;},
+ ...overrides
+});
+let preCheckReads=unsafeRollbackReads,preCheckWrites=unsafeRollbackWrites;
+await assert.rejects(()=>rollbackGasCode(rollbackOptions()),/GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.equal(unsafeRollbackReads,preCheckReads,'ungated historical deployment must fail before read side effects');
+assert.equal(unsafeRollbackWrites,preCheckWrites,'ungated historical deployment must fail before writes');
+await assert.rejects(()=>rollbackGasCode(rollbackOptions({beforePublishedFiles:undefined})),
+ /GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/,'unavailable historical version fails closed');
+await assert.rejects(()=>rollbackGasCode(rollbackOptions({beforePublishedFiles:gated('gate-only').map(f=>({...f,
+ source:f.source.replace('stable-issue507','different-release')}))})),
+ /GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/,'different release owner cannot be restored');
+assert.equal(unsafeRollbackWrites,preCheckWrites);
+// Even same-gate HEAD is insufficient if it points at a previous release.
+await assert.rejects(()=>rollbackGasCode(rollbackOptions({
+ beforeFiles:gated('gate-only').map(f=>({...f,source:f.source.replace('stable-issue507','different-release')})),
+ beforePublishedFiles:gated('historical'),
+})),/GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.equal(unsafeRollbackWrites,preCheckWrites);
+
+// Positive control: true gate-preserving rollback can restore both HEAD and
+// deployment when the version-numbered historical source uses the SAME
+// execution owner. No financial sheet touched.
+let safeHead=gated('new'),safeVersion=12,safeHeadWrites=0,safeDeploymentWrites=0;
+const safeRollback=await rollbackGasCode(rollbackOptions({
+ beforeFiles:gated('original'),candidateFiles:gated('new'),
+ beforePublishedFiles:gated('published-original'),
+ readFiles:async()=>safeHead,
+ writeFiles:async v=>{safeHead=v;safeHeadWrites++;},
+ readDeployment:async()=>({deploymentConfig:{versionNumber:safeVersion}}),
+ writeDeployment:async cfg=>{safeVersion=cfg.versionNumber;safeDeploymentWrites++;},
+}));
+assert.deepEqual(safeRollback,{headRestored:true,deploymentRestored:true,dataWrites:0});
+assert.equal(safeHeadWrites,1);
+assert.equal(safeDeploymentWrites,1);
+assert.equal(safeHead[0].source,gated('original')[0].source);
+assert.equal(safeVersion,11);
+
 assert.equal(deploymentIdFromWebAppUrl('https://script.google.com/macros/s/AKfycb-example/exec'), 'AKfycb-example');
 assert.throws(() => deploymentIdFromWebAppUrl('https://example.com/not-gas'), /deployment ID/);
 
