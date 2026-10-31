@@ -68,8 +68,12 @@ async function manualSyncByTab(tabId) {
         if (area) renderDivView(area, true);
       }
     } else if (tabId === 'asset') {
-      const r1 = await persistRealEstateSettings(true);
-      ok = !!r1;
+      // An old local loan/real-estate cache must never be uploaded before
+      // the connected workbook has been fully and safely restored.
+      if (_gsBootRestored && !_gsPortfolioRestoreRequired) {
+        const r1 = await persistRealEstateSettings(true);
+        ok = !!r1;
+      }
     } else if (tabId === 'trades') {
       // 거래 탭의 "재동기화"는 로컬→GAS 업로드가 아니라 GAS 원격 원장을 현재 브라우저로
       // 다시 받는 명시적 pull 동작입니다. 다른 기기의 최신 거래를 오래된 로컬 캐시가 덮지 않게 합니다.
@@ -81,7 +85,28 @@ async function manualSyncByTab(tabId) {
         showToast(`거래 ${rawTrades.length}건 · 보유 ${rawHoldings.length}건 원격 복원`, 'ok');
       }
     } else {
-      // ★ 기초정보 탭: 로컬 데이터 있으면 로컬→GAS, 없으면 GAS→로컬
+      // A read-only emergency master may populate 40+ local codes even when
+      // Settings/trades/holdings were never restored. Do NOT interpret it as
+      // authority to sync the incomplete browser cache back to GAS.
+      // When bootstrap failed, this button is an authoritative GAS -> local
+      // restore retry, not a write. The forced path checks both remote ledgers.
+      const needsRemoteRestore = !_gsBootRestored || _gsPortfolioRestoreRequired;
+      if (needsRemoteRestore) {
+        const loaded = await loadSettings(undefined, { forcePortfolioRestore: true });
+        ok = !!loaded;
+        if (ok) {
+          try { refreshAll(); } catch(e) {}
+          try { if (typeof buildStockMgmt === 'function') buildStockMgmt(); } catch(e) {}
+          try { if (typeof buildSectorMgmt === 'function') buildSectorMgmt(); } catch(e) {}
+          try { if (typeof buildAcctMgmt === 'function') buildAcctMgmt(); } catch(e) {}
+        } else {
+          const reason = typeof getGsheetSettingsLoadFailure === 'function'
+            ? getGsheetSettingsLoadFailure() : '';
+          _setTabSyncStatus(tabId, 'fail',
+            '⚠️ 전체 GAS 복원 미완료 · ' + String(reason || '연결 진단 필요'));
+        }
+      } else {
+      // 기존 정상 복원 상태의 동기화 동작은 유지합니다.
       const hasLocalData = EDITABLE_PRICES.length > 0 || rawTrades.length > 0;
       if (hasLocalData) {
         // 로컬 데이터 있음 → GAS에 업로드
@@ -107,6 +132,7 @@ async function manualSyncByTab(tabId) {
           ok = true;
         }
       }
+      }
     }
   } catch (e) {
     ok = false;
@@ -120,7 +146,10 @@ async function manualSyncByTab(tabId) {
     if (tabId === 'div' && typeof _setDividendLinkState === 'function') _setDividendLinkState('ok', '✅ GAS 저장 배당 데이터를 현재 화면에 다시 반영했습니다.');
     showToast('재동기화 완료', 'ok');
   } else {
-    _setTabSyncStatus(tabId, 'fail');
+    // Preserve a stage-specific failure on stock-master recovery instead of
+    // replacing it with the unhelpful generic failed-at timestamp.
+    if (tabId !== 'stocks' || (_gsBootRestored && !_gsPortfolioRestoreRequired))
+      _setTabSyncStatus(tabId, 'fail');
     if (tabId === 'div' && typeof _setDividendLinkState === 'function') _setDividendLinkState('fail', '❌ GAS 배당 데이터 다시 받기에 실패했습니다.');
     showToast('재동기화 실패', 'error');
   }
