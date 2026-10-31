@@ -31,14 +31,23 @@ export const MORNING_SERIES = Object.freeze([
 // to roll back to an older valid number. US market holidays need separate
 // confirmation; until confirmed, show unavailable rather than invent a close.
 const KR_IDS = new Set(['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX']);
-export function expectedMorningDate(id,date){
+export function expectedMorningDate(id,date,now=null){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||'')))return null;
   const cursor=new Date(date+'T00:00:00Z');
   if(!Number.isFinite(cursor.getTime())||cursor.toISOString().slice(0,10)!==date)return null;
   for(let i=0;i<12;i++){
     cursor.setUTCDate(cursor.getUTCDate()-1);
     const candidate=cursor.toISOString().slice(0,10);
-    if(id==='BTC')return candidate; // 24/7, last completed UTC calendar day
+    if(id==='BTC'){
+      // The UTC day cannot be FINAL before its midnight boundary.
+      // At 07:40 KST the prior KST date is still the CURRENT UTC day.
+      if(now instanceof Date&&Number.isFinite(now.getTime())
+        &&candidate>=now.toISOString().slice(0,10)){
+        cursor.setUTCDate(cursor.getUTCDate()-1);
+        return cursor.toISOString().slice(0,10);
+      }
+      return candidate;
+    }
     if(KR_IDS.has(id)){
       const state=krxSessionStatus(candidate);
       if(state==='OPEN')return candidate;
@@ -49,9 +58,9 @@ export function expectedMorningDate(id,date){
   }
   return null;
 }
-export function hasExpectedMorningDate(item,date,row){
+export function hasExpectedMorningDate(item,date,row,now=null){
   return !!row && row.symbol===item.symbol && row.label===item.label
-    && typeof row.date==='string' && row.date===expectedMorningDate(item.id,date)
+    && typeof row.date==='string' && row.date===expectedMorningDate(item.id,date,now)
     && Number.isFinite(row.value) && row.value>0;
 }
 export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetchImpl=fetch,concurrency=4,skipSymbols=new Set()}={}) {
@@ -65,14 +74,14 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
       if(skipSymbols.has(item.symbol))continue;
       try {
         const row=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
-        if(hasExpectedMorningDate(item,date,row)){list[i]={...row};continue;}
+        if(hasExpectedMorningDate(item,date,row,now)){list[i]={...row};continue;}
         // A provider may return an outdated candle even after the US close.
         // Retry once against the alternate Yahoo chart host, but accept ONLY
         // the latest expected completed session. No stale-price fallback.
-        if(row?.date && row.date<date && !hasExpectedMorningDate(item,date,row)
+        if(row?.date && row.date<date && !hasExpectedMorningDate(item,date,row,now)
           && row.source==='Yahoo Finance 일봉'){
           const retry=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl,host:'query2.finance.yahoo.com'});
-          if(hasExpectedMorningDate(item,date,retry))list[i]={...retry};
+          if(hasExpectedMorningDate(item,date,retry,now))list[i]={...retry};
         }
       } catch { /* failed source is explicitly reported as unavailable */ }
     }
@@ -123,7 +132,7 @@ function outlook(map) {
     'Bear: VIX 반등·원화 약세·반도체 상대약세 시'];
 }
 export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
-  const map=new Map(rows.filter(x=>{const item=MORNING_SERIES.find(i=>i.symbol===x?.symbol);return item&&hasExpectedMorningDate(item,date,x);}).map(x=>[x.symbol,x]));
+  const map=new Map(rows.filter(x=>{const item=MORNING_SERIES.find(i=>i.symbol===x?.symbol);return item&&hasExpectedMorningDate(item,date,x,options?.now||null);}).map(x=>[x.symbol,x]));
   const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 원천은 개별 날짜·출처 표시 (NH 야선 포함)','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id)),
