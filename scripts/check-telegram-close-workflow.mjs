@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import YAML from 'yaml';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
@@ -280,9 +283,90 @@ assert.equal((await prepareClose({...options,now:recoveryNow,fetchImpl:async()=>
  'ALREADY_CLAIMED','fallback and schedule must use the same date claim');
 await assert.rejects(deliverClose(recovered,{now:()=>new Date('2026-10-31T18:30:00+09:00'),
  send:async()=>assert.fail('cross-date send')}),/PAYLOAD_INVALID/);
+// Manual morning rescue is never a bypass for 07:40-08:10 KST, trade date,
+ // first-attempt restriction, artifact claim, or genuine SENT confirmation.
+const dispatchEnv={...env,GITHUB_EVENT_NAME:'workflow_dispatch'};
+assert.equal(deliveryTrigger('morning',dispatchEnv,{},true),true);
+for(const patch of [{GITHUB_REF:'refs/heads/feature'},
+ {GITHUB_REPOSITORY:'fork/repo'},{GITHUB_RUN_ATTEMPT:'2'}])
+ assert.throws(()=>deliveryTrigger('morning',{...dispatchEnv,...patch},{},true),/TRIGGER_INVALID/);
+const morningNow=()=>new Date('2026-10-30T07:50:00+09:00');
+let manualLookups=0,manualSends=0;
+const {prepareMorning,deliverPrepared}=await import('./telegram-morning-workflow.mjs');
+const manualPrepared=await prepareMorning({
+ now:morningNow,githubToken:'SYNTHETIC_TEST_TOKEN',repository:env.GITHUB_REPOSITORY,
+ fetchImpl:async()=>{manualLookups++;return {ok:true,json:async()=>({total_count:0,artifacts:[]})};},
+ loadReference:async()=>null,
+ run:async({send})=>{await send('','','SYNTHETIC SAFE MORNING REPORT');return {referenceSource:'NONE'};}
+});
+assert.equal(manualPrepared.ready,true);
+assert.equal(manualPrepared.artifactName,'telegram-morning-claim-2026-10-30');
+assert.equal(manualLookups,1);
+assert.equal((await deliverPrepared(manualPrepared,{now:morningNow,
+ send:async()=>{manualSends++;}})).status,'SENT');
+assert.equal(manualSends,1);
+const already=await prepareMorning({
+ now:morningNow,githubToken:'SYNTHETIC_TEST_TOKEN',repository:env.GITHUB_REPOSITORY,
+ fetchImpl:async()=>({ok:true,json:async()=>({total_count:1,
+ artifacts:[{name:'telegram-morning-claim-2026-10-30'}]})}),
+ loadReference:async()=>assert.fail('claimed; must not fetch NH'),
+ run:async()=>assert.fail('claimed; must not prepare')});
+assert.equal(already.status,'ALREADY_CLAIMED');
+await assert.rejects(prepareMorning({now:()=>new Date('2026-10-30T11:07:00+09:00'),
+ githubToken:'SYNTHETIC_TEST_TOKEN',repository:env.GITHUB_REPOSITORY,
+ fetchImpl:async()=>assert.fail('late; must not query anything')}),/SCHEDULE_LATE/);
+await assert.rejects(deliverPrepared(manualPrepared,{
+ now:()=>new Date('2026-10-30T08:10:00+09:00'),
+ send:async()=>assert.fail('late; must not send')}),/PREPARED_INVALID/);
+await assert.rejects(deliverPrepared(manualPrepared,{
+ now:morningNow,attempt:2,
+ send:async()=>assert.fail('rerun; must not send')}),/PREPARED_INVALID/);
+await assert.rejects(deliverPrepared({...manualPrepared,date:'2026-10-29'},{
+ now:morningNow,send:async()=>assert.fail('cross-date; must not send')}),/PREPARED_INVALID/);
+assert.equal(manualSends,1);
 const morningWorkflow=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
 assert.deepEqual(morningWorkflow.on.workflow_run.workflows,['NH night reference capture']);
 assert.equal(morningWorkflow.concurrency.group,'telegram-morning-briefing');
 assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare').if,/workflow_run/);
+assert.equal(morningWorkflow.on.workflow_dispatch.inputs.mode.default,'rescue');
+assert.deepEqual(morningWorkflow.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test']);
+assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare').if,/inputs.mode == 'rescue'/);
+assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Manual connection test only').if,/inputs.mode == 'connection_test'/);
+assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.TELEGRAM_BOT_TOKEN,'${{ secrets.TELEGRAM_BOT_TOKEN }}');
+
+const morningPrepareStep=morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare');
+const morningSendStep=morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once');
+assert.equal(morningPrepareStep.env.TELEGRAM_DISPATCH_MODE,"${{ inputs.mode || '' }}");
+assert.equal(morningSendStep.env.TELEGRAM_DISPATCH_MODE,morningPrepareStep.env.TELEGRAM_DISPATCH_MODE,
+ 'workflow_dispatch rescue must be present on BOTH prepare and send process environments');
+assert.equal(morningSendStep.env.GAS_ACCESS_TOKEN,undefined,
+ 'never pass operational GAS access token to Telegram send');
+// Validate the real CLI guard for both prepare and send modes with a synthetic
+// GitHub event and intentionally absent payload. No Telegram API is contacted.
+const sandbox=fs.mkdtempSync(join(tmpdir(),'telegram-dispatch-guard-'));
+try{
+ const eventPath=join(sandbox,'event.json');
+ fs.writeFileSync(eventPath,JSON.stringify({inputs:{mode:'rescue'}}));
+ const baseEnv={...process.env,GITHUB_EVENT_NAME:'workflow_dispatch',
+   GITHUB_EVENT_PATH:eventPath,GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',
+   GITHUB_REF:'refs/heads/main',GITHUB_RUN_ATTEMPT:'1',
+   TELEGRAM_BOT_TOKEN:'INTENTIONALLY_INVALID',TELEGRAM_CHAT_ID:'0'};
+ const cli=(mode,dispatch)=>spawnSync(process.execPath,
+   ['scripts/telegram-morning-workflow.mjs',mode],
+   {encoding:'utf8',env:{...baseEnv,TELEGRAM_DISPATCH_MODE:dispatch}});
+ const denied=cli('send','');
+ assert.equal(denied.status,1);
+ assert.match(denied.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/);
+ const deniedTest=cli('send','connection_test');
+ assert.equal(deniedTest.status,1);
+ assert.match(deniedTest.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/);
+ const acceptedMode=cli('send','rescue');
+ assert.equal(acceptedMode.status,1,'missing payload must fail closed');
+ assert.doesNotMatch(acceptedMode.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/,
+   'rescue send mode must pass process guard to dated payload verification');
+}finally{fs.rmSync(sandbox,{recursive:true,force:true});}
+
+assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
+
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
 console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');

@@ -7,7 +7,16 @@ on:
     - cron: '49 22 * * 0-4' # 07:49 KST, fallback 1
     - cron: '57 22 * * 0-4' # 07:57 KST, fallback 2
     - cron: '5 23 * * 0-4'  # 08:05 KST, last fallback (08:10 cutoff)
+  # Explicit same-day rescue remains inside the original clock/date and claim gates.
+  # Connection tests must be selected deliberately, never the default.
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Guarded same-day rescue or explicit connection test'
+        type: choice
+        required: true
+        default: rescue
+        options: [rescue, connection_test]
   workflow_run:
     workflows: ['NH night reference capture']
     types: [completed]
@@ -30,7 +39,7 @@ jobs:
         with:
           node-version: '24'
       - name: Manual connection test only
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'connection_test'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -38,11 +47,12 @@ jobs:
         run: node scripts/telegram-morning-briefing.mjs
       - name: Prepare scheduled briefing and inspect durable claim
         id: prepare
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_run'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'rescue')
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          TELEGRAM_DISPATCH_MODE: ${{ inputs.mode || '' }}
         run: node scripts/telegram-morning-workflow.mjs prepare
       - name: Claim delivery date before contacting Telegram
         if: steps.prepare.outputs.ready == 'true'
@@ -58,4 +68,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # The separate send process must receive the same rescue mode.
+          TELEGRAM_DISPATCH_MODE: ${{ inputs.mode || '' }}
         run: node scripts/telegram-morning-workflow.mjs send
