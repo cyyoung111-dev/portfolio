@@ -12,7 +12,7 @@ on:
         required: true
         default: false
       dates:
-        description: '대기열만 정리할 날짜 (허용: 2026-10-22,23,26,27,28,29 전체 날짜 형식, 쉼표 구분)'
+        description: '대기열만 정리할 날짜 (허용: 2026-10-22,23,26,27,28,29,30 전체 날짜 형식, 쉼표 구분 (10/30은 검증 후 보류 해제만))'
         type: string
         required: true
         default: '2026-10-27'
