@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import YAML from 'yaml';
-import {DATE,REPO,windowFor,selectPeriod,claimFor,formatClosingTest,prepareSunday,deliverSunday,persistConfirmedSundaySent,deliverAndRecordSunday}
+import {DATE,REPO,windowFor,selectPeriod,claimFor,formatClosingTest,prepareSunday,composeSunday,deliverSunday,persistConfirmedSundaySent,deliverAndRecordSunday}
  from './telegram-sunday-test-20261101.mjs';
 
 const morning=()=>new Date('2026-11-01T07:45:00+09:00');
@@ -93,6 +93,53 @@ assert.equal(nonDay.status,'OUTSIDE_ONE_DAY_TEST_WINDOW');
 assert.equal((await prepareSunday({...options,period:'close',now:morning})).ready,false);
 await assert.rejects(prepareSunday({...options,now:closing,period:'close',
  fetchImpl:async()=>({ok:false})}),/CLAIM_LOOKUP_FAILED/);
+// Verify the real production formatter and prepare->compose path, not only
+// injected mock messages. Every external request is rejected by the fixture,
+// so this cannot fetch NH OAuth, GAS secrets, prices, or contact Telegram.
+for (const [period,clock] of [['morning',morning],['close',closing]]) {
+  const attemptedUrls=[];
+  let claimChecks=0;
+  const network=async endpoint=>{
+    const url=String(endpoint);
+    attemptedUrls.push(url);
+    if (url===`https://api.github.com/repos/${REPO}/actions/artifacts?name=${claimFor(period)}&per_page=100`) {
+      claimChecks++;
+      return {ok:true,status:200,json:async()=>({total_count:0,artifacts:[]})};
+    }
+    // All live market-provider lookups fail closed, with no actual requests.
+    return {ok:false,status:503};
+  };
+  const full=await composeSunday(period,{
+    now:clock,gasUrl:'',gasToken:'',fetchImpl:network
+  });
+  assert.equal(full.sourceCount,0);
+  assert.equal(typeof full.text,'string');
+  assert.ok(full.text.length>100 && full.text.length<=4000);
+  assert.ok(full.text.startsWith('[일요일 '));
+  assert.match(full.text,/2026-11-01/);
+  assert.match(full.text,/일요일 휴장/);
+  assert.match(full.text,/미확보|자료 부족/);
+  const readyWithRealCompose=await prepareSunday({
+    period,now:clock,repository:REPO,gitToken:'SYNTHETIC-GITHUB',
+    fetchImpl:network,
+    compose:async (chosen,opts)=>composeSunday(chosen,{
+      ...opts,gasUrl:'',gasToken:''
+    })
+  });
+  assert.equal(claimChecks,1,'real prepare must check one dated claim');
+  assert.equal(readyWithRealCompose.status,'PREPARED');
+  assert.equal(readyWithRealCompose.ready,true);
+  assert.equal(readyWithRealCompose.date,DATE);
+  assert.equal(readyWithRealCompose.claim,claimFor(period));
+  assert.equal(readyWithRealCompose.sourceCount,0);
+  assert.equal(readyWithRealCompose.message,full.text);
+  assert.ok(readyWithRealCompose.message.length<=4000,
+    'the actual full message must fit the Telegram transport contract');
+  assert.ok(attemptedUrls.every(u=>!u.includes('api.telegram.org')
+    && !u.includes('oauth2.googleapis.com') && !u.includes('script.googleapis.com')),
+  'read-only composer must not request Telegram, Google OAuth or Script APIs');
+}
+
 const rows=[{label:'KOSPI',symbol:'^KS11',date:'2026-10-30',value:4100,
  changePercent:1,source:'FDR_KRX_CACHE'},
  {label:'S&P 500',symbol:'^GSPC',date:'2026-10-30',value:7000,
