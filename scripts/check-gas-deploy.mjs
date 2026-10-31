@@ -7,6 +7,7 @@ import {
   extractExpectedGasVersion,
   assertGasReleaseReady,
   assertIssue507ManualReleasePermission,
+  assertWriterGateReleaseTransition,
   rollbackGasCode,
   assertGasProjectFileSet,
   assertGasCreatedVersionReady,
@@ -94,6 +95,12 @@ assert.equal(safeHeadWrites,1);
 assert.equal(safeDeploymentWrites,1);
 assert.equal(safeHead[0].source,gated('original')[0].source);
 assert.equal(safeVersion,11);
+assert.throws(()=>assertWriterGateReleaseTransition(
+ "var ISSUE507_GATE_RELEASE_ID='stable-issue507';","// v9.281 uninstrumented"),
+ /GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.doesNotThrow(()=>assertWriterGateReleaseTransition(
+ "var ISSUE507_GATE_RELEASE_ID='stable-issue507';",
+ "var ISSUE507_GATE_RELEASE_ID='stable-issue507';"));
 
 assert.equal(deploymentIdFromWebAppUrl('https://script.google.com/macros/s/AKfycb-example/exec'), 'AKfycb-example');
 assert.throws(() => deploymentIdFromWebAppUrl('https://example.com/not-gas'), /deployment ID/);
@@ -715,6 +722,8 @@ assert.match(issue507ReleaseWorkflow,/approve_9282:\s*\n(?:.|\n)*?default:\s*fal
 assert.match(issue507ReleaseWorkflow,/GAS_9282_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9282/);
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
 assert.match(deployScript,/assertIssue507ManualReleasePermission\(\{/);
+assert.match(deployScript,/assertWriterGateReleaseTransition\(deployedTarget\.source,source\)/);
+assert.match(deployScript,/assertWriterGateReleaseTransition\(target\.source,source\)/);
 assert.ok(deployScript.indexOf('assertIssue507ManualReleasePermission({') < deployScript.indexOf('const accessToken = await getAccessToken()'),'manual release gate must run before OAuth');
 assert.ok(deployScript.includes("'9.278': Object.freeze(['e383b7c3809ce6426aa3d502bb6c22a6bb175dbf','c77c539568f2dc3b2af4bcb729e8e38bbf6cee82','dca53650aae621c3d9efb97d677dfb763f48b84d','85e5a73565344b24007e81acd80db2b3a1067e46','df680956105a1184a9fdacfc41725626f7b74d72'])"),
   'only exact reviewed GAS full-source blobs may be accepted for 9.278');
