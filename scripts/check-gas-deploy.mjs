@@ -657,9 +657,9 @@ if (hasStackedKrxRecovery) {
     'partial stacked source should not pass the production readiness gate');
 }
 
-const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
-assert.match(workflow,/approve_9282:\s*\n(?:.|\n)*?default:\s*false/);
-assert.match(workflow,/GAS_9282_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9282/);
+const issue507ReleaseWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+assert.match(issue507ReleaseWorkflow,/approve_9282:\s*\n(?:.|\n)*?default:\s*false/);
+assert.match(issue507ReleaseWorkflow,/GAS_9282_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9282/);
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
 assert.match(deployScript,/assertIssue507ManualReleasePermission\(\{/);
 assert.ok(deployScript.indexOf('assertIssue507ManualReleasePermission({') < deployScript.indexOf('const accessToken = await getAccessToken()'),'manual release gate must run before OAuth');
