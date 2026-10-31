@@ -30,7 +30,7 @@ beforeSnapshot.push(...fundCodes.map((c,i)=>{
 const beforeHistory=fundCodes.map((c,i)=>
  [DAY,c,'PRIVATE_FUND',1400+i*200,'','FUND_NAV']);
 const domestic=stocks.map((c,i)=>{
- const before=beforeSnapshot[i],px=120.6+i,qty=before[3],cost=before[5];
+ const before=beforeSnapshot[i].slice(),px=120.6+i,qty=before[3],cost=before[5];
  const amount=Math.round(Math.round(px)*qty),pnl=amount-cost;
  const after=before.slice();
  after[6]=Number((amount/qty).toFixed(2));
@@ -47,8 +47,8 @@ const plan={summary:{
  domesticRowRevaluations:37,priceHistoryInserts:37,
  unchangedFundRows:2,sourceScope:'KRX_OR_KRX_OTP_EXACT_DATE'
  },privatePlan:{domestic,priceHistoryInserts:insert}};
-const afterSnapshot=domestic.map(x=>x.after).concat(beforeSnapshot.slice(37));
-const afterHistory=beforeHistory.concat(insert);
+const afterSnapshot=domestic.map(x=>x.after.slice()).concat(beforeSnapshot.slice(37).map(x=>x.slice()));
+const afterHistory=beforeHistory.map(x=>x.slice()).concat(insert.map(x=>x.slice()));
 const args={date:DAY,beforeSnapshot,afterSnapshot,beforeHistory,afterHistory,plan};
 const immutable=structuredClone(args), clone=()=>structuredClone(args);
 const result=verifyIssue507Oct30PostState(clone());
