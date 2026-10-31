@@ -68,4 +68,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # The separate send process must receive the same rescue mode.
+          TELEGRAM_DISPATCH_MODE: ${{ inputs.mode || '' }}
         run: node scripts/telegram-morning-workflow.mjs send
