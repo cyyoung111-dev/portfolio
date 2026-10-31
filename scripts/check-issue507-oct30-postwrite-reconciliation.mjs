@@ -93,7 +93,7 @@ rejected(x=>x.beforeHistory[0][5]='MANUAL','FUND_PROTECTION');
 rejected(x=>x.afterSnapshot[0][7]++,'PATCH_READBACK_MISMATCH');
 rejected(x=>x.afterSnapshot[0]=x.beforeSnapshot[0].slice(),'PATCH_READBACK_MISMATCH');
 rejected(x=>x.plan.privatePlan.domestic[0].before[7]++,'PATCH_READBACK_MISMATCH');
-rejected(x=>x.plan.privatePlan.domestic[0].code=x.plan.privatePlan.domestic[1].code,'PATCH_PLAN_SCOPE');
+rejected(x=>{x.plan.privatePlan.domestic[1].code=x.plan.privatePlan.domestic[0].code; x.plan.privatePlan.domestic[1].rowIndex=0},'PATCH_PLAN_SCOPE');
 rejected(x=>x.plan.privatePlan.priceHistoryInserts[0][5]='YAHOO','HISTORY_PLAN_SCOPE');
 rejected(x=>x.plan.privatePlan.priceHistoryInserts[0][0]='2026-10-29','HISTORY_PLAN_SCOPE');
 rejected(x=>x.plan.privatePlan.priceHistoryInserts[0][3]=0.49,'NONFINITE_SOURCE_OR_POSITION');
