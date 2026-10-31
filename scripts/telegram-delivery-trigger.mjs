@@ -14,7 +14,10 @@ export function deliveryTrigger(kind,env,event,withinWindow=false){
   throw Error('TELEGRAM_TRIGGER_INVALID');
  if(['schedule','workflow_dispatch'].includes(env.GITHUB_EVENT_NAME))return true;
  if(kind==='close'&&env.GITHUB_EVENT_NAME==='push'
-  &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO)return true;
+  &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO)
+  // A workflow-file push outside the 16:30–20:00 KST window is a no-op.
+  // The actual scheduled/dispatch delivery gates remain unchanged.
+  return withinWindow===true;
  const run=event?.workflow_run,expected=UPSTREAM[kind][run?.name];
  if(env.GITHUB_EVENT_NAME!=='workflow_run'||event?.action!=='completed'||!expected
   ||run.path!==expected[0]||!expected[1].includes(run.event)
