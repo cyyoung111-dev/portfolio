@@ -23,7 +23,7 @@ function _issue507Oct30GuardedPrivateReadOnlyRun_(opts) {
   var now=Date.now();
   var deadline=Number(expiryText);
   if(!legacy ||enabled!=='true'||secret.length<32||secret.length>256
-      ||!/^\\d{13}$/.test(expiryText)||!isFinite(deadline)
+      ||!/^\d{13}$/.test(expiryText)||!isFinite(deadline)
       ||!isFinite(now)||deadline<=now||deadline-now>600000)deny();
   var provided=typeof opts.proofKey==='string'?opts.proofKey:'';
   if(provided.length!==secret.length)deny();
