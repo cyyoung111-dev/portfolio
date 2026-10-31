@@ -4,25 +4,25 @@ import {createHash} from 'node:crypto';
 import {evaluateOct30SelectiveRecovery,DATE} from './issue507-oct30-selective-recovery-preflight.mjs';
 
 const source=fs.readFileSync('src/gas/apps_script.gs');
-const blobHash=createHash('sha1').update('blob '+source.length+'\\0').update(source).digest('hex');
+const blobHash=createHash('sha1').update('blob '+source.length+'\0').update(source).digest('hex');
 assert.equal(blobHash,'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134',
   'v9.281/v9.282 frozen GAS source must remain immutable');
 const gas=source.toString('utf8');
 function productionFunction(name){
  const start=gas.indexOf('function '+name+'(');
  assert.ok(start>=0,'production function missing: '+name);
- const next=gas.indexOf('\\nfunction ',start+10);
+ const next=gas.indexOf('\nfunction ',start+10);
  return gas.slice(start,next<0?undefined:next);
 }
 const oldTargeted=productionFunction('_targetedKrxRecoveryPreflight_');
 const oldHandler=productionFunction('handleRecoverPendingKrxClose');
 const exactEvidence=productionFunction('handleGetKrxHeldCloseCoverage');
-assert.match(oldTargeted,/stored\\.snapshotRows\\s*!==\\s*0/,
+assert.match(oldTargeted,/stored\.snapshotRows\s*!==\s*0/,
  'existing targeted recovery accepts only empty Snapshot target dates');
-assert.match(oldTargeted,/stored\\.officialExactDateCodes\\s*!==\\s*0/);
-assert.match(oldTargeted,/stored\\.queuedForBackfill/);
-assert.match(oldHandler,/if\\s*\\(apply\\s*!==\\s*'1'\\)\\s*return jsonOk\\(\\{mode:'DRY_RUN'/);
-assert.match(exactEvidence,/var result=fetchPricesKrx\\(expected,date\\)/);
+assert.match(oldTargeted,/stored\.officialExactDateCodes\s*!==\s*0/);
+assert.match(oldTargeted,/stored\.queuedForBackfill/);
+assert.match(oldHandler,/if\s*\(apply\s*!==\s*'1'\)\s*return jsonOk\(\{mode:'DRY_RUN'/);
+assert.match(exactEvidence,/var result=fetchPricesKrx\(expected,date\)/);
 assert.match(exactEvidence,/officialExactDateCodes:confirmed/);
 const snap=Array.from({length:37},(_,i)=>({
  code:String(i+1).padStart(6,'0'),source:'KRX_CARRY@2026-10-29',
