@@ -34,7 +34,8 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
   meta = { '005930':{ sourceDate:'2026-10-13', isFallback:false } }, resolvedDate = '2026-10-13', disconnect = false, hideAfterFetch = false,
   embeddedMeta = null, embeddedDate = null,
   selectedDate = '2026-10-13', selectHistoryAfterFetch = false,
-  fullRestore = false, beginRestoreAfterFetch = false, rollDateAfterFetch = false } = {}) => {
+  fullRestore = false, beginRestoreAfterFetch = false, rollDateAfterFetch = false,
+  beginTradesRestoreAfterFetch = false, completeTradesRestoreAfterFetch = false } = {}) => {
   let networkCount = 0, repaintCount = 0, summaryCount = 0, cacheInvalidations = 0;
   let persistedCount = 0, badge = null, status = null, connected = true;
   const cache = { '005930': 1000 };
@@ -46,6 +47,7 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
     document:{ hidden }, GSHEET_API_URL:'https://script.google.com/macros/s/test/exec',
     _fullPortfolioUpdateInProgress:fullRestore,
     _gsBootRestored:true, _gsPortfolioRestoreRequired:false,
+    _gsSettingsLoadEpoch:1,
     $el:id=>id==='quickDateInput'?dateInput:null,
     window:{ _gsheetPriceMeta:meta, _gsheetResolvedPriceDate:resolvedDate },
     getGsheetConnectionGeneration:()=>1, isGsheetConnectionCurrent:()=>connected,
@@ -61,6 +63,16 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
       if (selectHistoryAfterFetch) dateInput.value='2026-10-09';
       if (beginRestoreAfterFetch) context._fullPortfolioUpdateInProgress=true;
       if (rollDateAfterFetch) nowDate='2026-10-14';
+      if (beginTradesRestoreAfterFetch) {
+        context._gsSettingsLoadEpoch=2;
+        context._gsBootRestored=false;
+        context._gsPortfolioRestoreRequired=true;
+      }
+      if (completeTradesRestoreAfterFetch) {
+        context._gsSettingsLoadEpoch=2;
+        context._gsBootRestored=true;
+        context._gsPortfolioRestoreRequired=false;
+      }
       if (response && embeddedMeta) Object.defineProperty(response, '__gsheetPriceMeta', {value:embeddedMeta});
       if (response && embeddedDate !== null) Object.defineProperty(response, '__gsheetResolvedPriceDate', {value:embeddedDate});
       return response;
@@ -165,6 +177,8 @@ for (const opts of [
   {fullRestore:true},
   {selectHistoryAfterFetch:true},
   {beginRestoreAfterFetch:true},
+  {beginTradesRestoreAfterFetch:true},
+  {completeTradesRestoreAfterFetch:true},
   {rollDateAfterFetch:true}
 ]) {
   const blocked=await testPoll(opts);
