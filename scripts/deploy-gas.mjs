@@ -398,16 +398,30 @@ export async function verifyDeploymentVersionWithRetry({
 
 // Roll back only our exact candidate. A third-party edit/version must never
 // be overwritten by automatic recovery. Financial data is never restored here.
-export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployment,newVersion,
+export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployment,beforePublishedFiles,newVersion,
   readFiles,writeFiles,readDeployment,writeDeployment}){
   const canonical=files=>JSON.stringify(sanitizeFiles(files).map(f=>({...f,
     source:f.source.replace(/\r\n/g,'\n')})).sort((a,b)=>(a.name+a.type).localeCompare(b.name+b.type)));
-  // Once the gate may have owned active receipts, never revert to a
-  // non-instrumented source automatically after a partial deployment.
-  const hasGate=files=>sanitizeFiles(files).some(f=>f.type==='SERVER_JS'&&
-    f.source.includes('var ISSUE507_GATE_RELEASE_ID='));
-  if(hasGate(candidateFiles)&&!hasGate(beforeFiles))
-    throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
+  // Two different rollback surfaces exist: HEAD and the immutable deployed
+  // version. A previous failed attempt can leave HEAD already instrumented
+  // while its web-app deployment still points at uninstrumented v9.281.
+  // Never roll the deployment back to that old version (or a gate with a
+  // different releaseId): stateful execution receipts could be bypassed.
+  // The previous published files are read by versionNumber before mutation.
+  const gateReleaseIds=files=>{
+    if(!Array.isArray(files))return [];
+    return sanitizeFiles(files).filter(f=>f.type==='SERVER_JS')
+      .flatMap(f=>[...f.source.matchAll(/\bvar\s+ISSUE507_GATE_RELEASE_ID\s*=\s*['"]([^'"]+)['"]\s*;/g)]
+        .map(m=>m[1]));
+  };
+  const candidateIds=gateReleaseIds(candidateFiles);
+  if(candidateIds.length){
+    const headIds=gateReleaseIds(beforeFiles);
+    const publishedIds=gateReleaseIds(beforePublishedFiles);
+    if(candidateIds.length!==1 || headIds.length!==1 || publishedIds.length!==1 ||
+      headIds[0]!==candidateIds[0] || publishedIds[0]!==candidateIds[0])
+      throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
+  }
   const current=await readFiles(),deployment=await readDeployment();
   const version=deployment?.deploymentConfig?.versionNumber;
   const oldVersion=beforeDeployment?.deploymentConfig?.versionNumber;
@@ -600,7 +614,7 @@ export async function deploy() {
     if(!mutationStarted)throw error;
     try{
       await rollbackGasCode({beforeFiles:currentContent.files,candidateFiles,beforeDeployment:deployment,
-        newVersion:newVersionNumber,
+        beforePublishedFiles:deployedContent.files,newVersion:newVersionNumber,
         readFiles:async()=> (await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`,{token:accessToken})).files,
         writeFiles:files=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`,{method:'PUT',token:accessToken,body:{files}}),
         readDeployment:()=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,{token:accessToken}),
