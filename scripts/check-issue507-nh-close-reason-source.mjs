@@ -22,7 +22,15 @@ function extract(source){
  assert.match(fn,/view_main_yn:'Y'/);
  return fn;
 }
-function simulate(fn,{latency=0,mode='OK',cacheHits=0,hasCredentials=true}={}){
+function extractProductionTimezone(source){
+ const configs=[...source.matchAll(/(?:^|\n)var CONFIG\s*=\s*\{([\s\S]*?)\n\};/g)];
+ assert.equal(configs.length,1,'one production CONFIG block required');
+ const zones=[...configs[0][1].matchAll(/(?:^|\n)\s*TIMEZONE\s*:\s*['"]([^'"]+)['"]/g)];
+ assert.equal(zones.length,1,'one production timezone required');
+ assert.equal(zones[0][1],'Asia/Seoul','production CONFIG.TIMEZONE must remain KST');
+ return zones[0][1];
+}
+function simulate(fn,timezone,{latency=0,mode='OK',cacheHits=0,hasCredentials=true}={}){
  let clock=0,requests=0,sleeps=0,logs=[],cacheReads=0;
  const FakeDate=class extends Date {
   constructor(...args){super(...(args.length?args:['2026-10-31T02:00:00Z']));}
@@ -48,10 +56,19 @@ function simulate(fn,{latency=0,mode='OK',cacheHits=0,hasCredentials=true}={}){
   _isKrxDailyCloseTarget_:()=>true,
   _krxCalendarStatus_:()=> 'OPEN',
   Utilities:{
-   formatDate:(_date,_tz,format)=>format==='yyyy-MM-dd'?'2026-10-31':'18:00',
+   formatDate:(date,tz,format)=>{
+    assert.equal(tz,timezone,'collector must use production source timezone');
+    const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+     timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',
+     hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+    }).formatToParts(date).map(x=>[x.type,x.value]));
+    if(format==='yyyy-MM-dd')return parts.year+'-'+parts.month+'-'+parts.day;
+    if(format==='HHmm')return parts.hour+parts.minute;
+    throw Error('unexpected date pattern');
+   },
    sleep:ms=>{assert.equal(ms,1000);clock+=ms;sleeps++;}
   },
-  CONFIG:{TIMEZONE:'Asia/Seoul'},
+  CONFIG:{TIMEZONE:timezone},
   Date:FakeDate,
   Logger:{log:msg=>logs.push(String(msg))},
   CacheService:{getScriptCache:()=>({
@@ -82,10 +99,22 @@ function oneReason(state,reason,expected){
   assert.ok(!line.includes(forbidden),'forbidden sensitive value in diagnostic');
  return output;
 }
-const pinned=extract(fs.readFileSync(fileURLToPath(
- new URL('../reference/gas-v9.281.gs',import.meta.url)),'utf8'));
+const pinnedSource=fs.readFileSync(fileURLToPath(
+ new URL('../reference/gas-v9.281.gs',import.meta.url)),'utf8');
+const pinned=extract(pinnedSource),pinnedZone=extractProductionTimezone(pinnedSource);
 const frozenGas=fs.readFileSync(fileURLToPath(
  new URL('../src/gas/apps_script.gs',import.meta.url)),'utf8');
+const candidateZone=extractProductionTimezone(frozenGas);
+assert.equal(candidateZone,pinnedZone,'baseline and candidate production zones agree');
+for(const source of [pinnedSource,frozenGas]){
+ assert.throws(()=>extractProductionTimezone(source.replace(
+  /TIMEZONE:\s*'Asia\/Seoul'/,"TIMEZONE: 'Etc/UTC'")),
+  /production CONFIG.TIMEZONE must remain KST/);
+}
+const boundary=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+ timeZone:candidateZone,year:'numeric',month:'2-digit',day:'2-digit'
+}).formatToParts(new Date('2026-10-30T15:10:00Z')).map(x=>[x.type,x.value]));
+assert.deepEqual([boundary.year,boundary.month,boundary.day],['2026','10','31']);
 const proposal=proposeNhCloseReasonSource(frozenGas);
 const candidate=extract(proposal);
 assert.notEqual(proposal,frozenGas,'proposal must be separate from frozen candidate');
@@ -109,7 +138,7 @@ const scenarios=[
 ];
 const checks=[];
 for(const [scenario,reason,expected,count] of scenarios){
- const before=simulate(pinned,scenario),after=simulate(candidate,scenario);
+ const before=simulate(pinned,pinnedZone,scenario),after=simulate(candidate,candidateZone,scenario);
  assert.equal(after.results,count,reason);
  assert.deepEqual(after.rawPrices,before.rawPrices,reason+' must preserve prices');
  assert.equal(after.requests,before.requests,reason+' must preserve call count');
@@ -122,7 +151,7 @@ for(const [scenario,reason,expected,count] of scenarios){
  checks.push({reason,observed:expected,returned:count});
 }
 const out={mode:'ISSUE507_NH_CLOSE_REASON_SOURCE_REGRESSION',result:'PASS',
- scenarios:checks,productionVersion:'9.282',baseline:'9.281',
+ scenarios:checks,productionVersion:'9.282',baseline:'9.281',sourceTimezone:candidateZone,
  productionSourceModified:false,proposalOnly:true,frozenSourceSha:APPROVED_GAS_BLOB,
  operationalReleasePerformed:false,
  credentialsUsed:false,nhTokenRequested:false,externalCalls:0,financialWrites:0};
