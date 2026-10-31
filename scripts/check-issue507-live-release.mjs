@@ -15,10 +15,10 @@ assert.doesNotThrow(()=>assertWriterGateReleaseTransition(live,live));
 assert.throws(()=>assertWriterGateReleaseTransition(live,base),/GATE_REMOVAL_ROLLBACK_BLOCKED/);
 const names=[...base.matchAll(/^function (\w+)\s*\(/gm)].map(m=>m[1]);
 function create(){
- const props=new Map();let held=false,uuid=0;const lock={hasLock:()=>held,waitLock:()=>{assert.equal(held,false);held=true;},releaseLock:()=>{held=false;}};
- const ctx=vm.createContext({console,Date,LockService:{getScriptLock:()=>lock},Utilities:{getUuid:()=> 'live-fixture-'+(++uuid)},
+ const props=new Map();let held=false,uuid=0,failures=0;const lock={hasLock:()=>held,waitLock:()=>{assert.equal(held,false);if(failures-->0)throw Error('long financial lock');held=true;},releaseLock:()=>{held=false;}};
+ const ctx=vm.createContext({console,Date,LockService:{getScriptLock:()=>lock},Utilities:{getUuid:()=> 'live-fixture-'+(++uuid),formatDate:(d,tz)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(d)},
   PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k)})}});
- vm.runInContext(live,ctx);return {ctx,props,get held(){return held;}};
+ vm.runInContext(live,ctx);return {ctx,props,setLockFailures:n=>{failures=n;},get held(){return held;}};
 }
 const h=create();let produced=0;
 h.ctx.getss=()=>({});h.ctx._createFundRecoveryDiagnostic=()=>null;h.ctx._fundRecoveryDiagnosticStart=()=>{};h.ctx._fundRecoveryDiagnosticFinish=()=>{};
@@ -36,6 +36,14 @@ assert.equal(full.ctx.doGet({parameter:{action:'getWriterGateStatus'}}).status,'
 full.ctx._isAuthorizedRequest=()=>true;
 assert.equal(full.ctx.doGet({parameter:{action:'getWriterGateStatus'}}).writerGate.mode,'DRAINING');
 assert.equal(full.held,false);
+// Reproduce P1 with actual LIVE today(): >24 normal completions each contend
+// with a long-held financial lock during cleanup. No capacity leak/result loss.
+const longLock=create(),realExit=longLock.ctx._issue507GateExit_;
+longLock.ctx._issue507GateExit_=token=>{longLock.setLockFailures(1);return realExit(token);};
+for(let i=0;i<30;i++)assert.equal(typeof longLock.ctx.today(),'string');
+longLock.ctx._issue507GateExit_=realExit;longLock.setLockFailures(0);longLock.ctx.today();
+assert.equal(Object.keys(JSON.parse(longLock.props.get('issue507_writer_gate_v1')).active).length,0);
+assert.equal([...longLock.props.keys()].filter(k=>k.startsWith('issue507_writer_end_v1_')).length,0);
 // Unknown stored release state is not erased to recover service automatically.
 const failedBootstrap=create();failedBootstrap.props.set=()=>{throw Error('BOOTSTRAP_QUOTA');};assert.throws(()=>failedBootstrap.ctx.today(),/BOOTSTRAP_QUOTA/);assert.equal(failedBootstrap.held,false);
 const bad=create();bad.props.set('issue507_writer_gate_v1',JSON.stringify({...s,releaseId:'wrong'}));assert.throws(()=>bad.ctx.today(),/GATE_STATE_INVALID/);

@@ -35,23 +35,37 @@ assert.throws(()=>gate.issue507BeginWriterDrain_(),/GATE_ROLLOUT_STALE/);
 assert.equal(JSON.parse(props.get('issue507_writer_gate_v1')).mode,'OPEN');
 props.set('issue507_writer_gate_rollout_v1',JSON.stringify({...receipt,verifiedAt:now}));
 // An in-flight manual refresh remains registered BEFORE external NAV fetch.
-// Normal completion retries 30s lock acquisition; never reruns producer work.
+// Completion writes a unique durable proof BEFORE trying the production lock.
 const contended=gate._issue507GateEnter_('contended-completion');
-gate.setLockFailures(2);gate._issue507GateExit_(contended);
-assert.deepEqual(gate.lockWaits,[30000,30000,30000]);
-assert.equal(Object.keys(JSON.parse(props.get('issue507_writer_gate_v1')).active).length,0);
-const stuck=gate._issue507GateEnter_('exhausted-completion');gate.setLockFailures(3);
-assert.throws(()=>gate._issue507GateExit_(stuck),/COMPLETION_LOCK_TIMEOUT/);
-assert.equal(JSON.parse(props.get('issue507_writer_gate_v1')).active[stuck].name,'exhausted-completion');
-// Later independently invoked completion for the SAME owner is permitted;
-// it cannot delete a different active execution or re-run financial work.
-gate.setLockFailures(0);gate._issue507GateExit_(stuck);
+gate.setLockFailures(1);assert.doesNotThrow(()=>gate._issue507GateExit_(contended));
+assert.deepEqual(gate.lockWaits,[1000]);
+assert.ok(props.get('issue507_writer_end_v1_'+contended));
+assert.ok(JSON.parse(props.get('issue507_writer_gate_v1')).active[contended]);
+gate.setLockFailures(0);const reconcileProbe=gate._issue507GateEnter_('reconcile-probe');gate._issue507GateExit_(reconcileProbe);
+assert.equal(props.has('issue507_writer_end_v1_'+contended),false);
 const quotaOwner=gate._issue507GateEnter_('metadata-failure');
 const saveProperty=propertyApi.setProperty;let mutations=0;
 propertyApi.setProperty=()=>{mutations++;throw Error('synthetic quota');};
-assert.throws(()=>gate._issue507GateExit_(quotaOwner),/synthetic quota/);assert.equal(mutations,1);
+assert.throws(()=>gate._issue507GateExit_(quotaOwner),/COMPLETION_RECEIPT_UNVERIFIED/);assert.equal(mutations,1);
 assert.ok(JSON.parse(props.get('issue507_writer_gate_v1')).active[quotaOwner]);
 propertyApi.setProperty=saveProperty;gate._issue507GateExit_(quotaOwner);
+// A cleanup write failure preserves the independent terminal receipt and
+// recovers on later admission, without repeating the completed producer body.
+const deferredOwner=gate._issue507GateEnter_('cleanup-write-failure');
+propertyApi.setProperty=(key,value)=>{if(key==='issue507_writer_gate_v1')throw Error('cleanup quota');return saveProperty(key,value);};
+assert.doesNotThrow(()=>gate._issue507GateExit_(deferredOwner));
+assert.ok(props.get('issue507_writer_end_v1_'+deferredOwner));
+propertyApi.setProperty=saveProperty;
+const nextOwner=gate._issue507GateEnter_('next-owner');gate._issue507GateExit_(nextOwner);
+assert.equal(props.has('issue507_writer_end_v1_'+deferredOwner),false);
+const beforeDuplicate=JSON.parse(props.get('issue507_writer_gate_v1')).finished;
+gate._issue507GateExit_(deferredOwner);assert.equal(JSON.parse(props.get('issue507_writer_gate_v1')).finished,beforeDuplicate);
+// Invalid terminal proof cannot clear any active owner.
+const forgedOwner=gate._issue507GateEnter_('invalid-proof');
+const activeState=JSON.parse(props.get('issue507_writer_gate_v1'));
+props.set('issue507_writer_end_v1_'+forgedOwner,JSON.stringify({releaseId:manifest.releaseId,token:forgedOwner,...activeState.active[forgedOwner],state:'ENDED',endedAt:now+1}));
+assert.throws(()=>gate._issue507GateEnter_('blocked-by-invalid-proof'),/END_PROOF_INVALID/);
+props.delete('issue507_writer_end_v1_'+forgedOwner);gate._issue507GateExit_(forgedOwner);
 const finishedBefore=JSON.parse(props.get('issue507_writer_gate_v1')).finished;
 const token=gate._issue507GateEnter_('handleRefreshFundValuations');
 const maintenance=context();maintenance.issue507BeginWriterDrain_();now+=420000;

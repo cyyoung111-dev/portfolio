@@ -8,6 +8,7 @@
 
 - 첫 진입이 ScriptLock 안에서 OPEN metadata를 생성한다. 일반 요청은 원래 본문으로 진행하고 종료 receipt를 남긴다.
 - OPEN은 legacy 실행 종료 증빙/금융 복구 승인이 아니다. 복구는 기존 독립 증빙·7분 barrier·active 0·fresh quiescence·정확한 39행 검산·일회 승인·native 백업/readback을 모두 요구한다.
+- 종료 증빙은 실행별 소유 key에 금융 ScriptLock 없이 먼저 저장한다. cleanup 경합/실패 후에도 다음 진입이 증빙을 검증·정리하므로 24건 capacity 누적 차단을 방지한다. 증빙 없는 강제종료는 임의 해제하지 않는다.
 - 이미 존재하는 DRAINING/알 수 없는 releaseId/손상된 상태를 초기화로 덮지 않는다. quota·잠금·metadata readback 실패는 명시적으로 차단한다. 배포 승인 전 기존 gate 속성 부재/일치 및 Properties 여유를 운영자가 확인해야 한다.
 - 인증된 `getWriterGateStatus`는 DRAINING에서도 metadata 상태만 반환한다. 토큰·원본·승인 binding은 반환하지 않으며 금융 시트를 읽거나 쓰지 않는다.
 - gate를 켜기 위해 NH 토큰을 발급하거나 Telegram을 전송하거나 트리거를 재설치하지 않는다. 원래 생산 로직은 버전 필드와 진입 guard 외에 변경하지 않는다.
