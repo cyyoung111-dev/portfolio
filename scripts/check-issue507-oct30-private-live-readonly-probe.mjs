@@ -73,7 +73,7 @@ function vmTest(data,afterFetch){
   PRICE_HISTORY:sheet(data.history,6)
  };
  const ss={getSheetByName:name=>current[name]||null};
- const ledger=()=>Object.fromEntries(names.map(code=>[
+ const ledger=()=>Object.fromEntries(data.trades.map(row=>row[4]).map(code=>[
    code,{code,name:'PRIVATE_STOCK',qty:1,costAmt:100}
  ]));
  const context={
@@ -104,13 +104,14 @@ function vmTest(data,afterFetch){
  const live=()=>{
    let out;
    try {out=ctx._issue507Oct30PrivateLiveReadOnlyProof_();}
-   finally {assert.equal(sheetWriteCount,0);assert.equal(fetchCalls,1);}
+   finally {assert.equal(sheetWriteCount,0);assert.ok(fetchCalls<=1,'one official fetch max');}
    return out;
  };
- return {live,ctx};
+ return {live,ctx,fetchCount:()=>fetchCalls};
 }
 const run=vmTest(exact());
 const result=run.live();
+assert.equal(run.fetchCount(),1,'exactly one official KRX fetch');
 assert.equal(result.mode,'ISSUE507_OCT30_PRIVATE_SINGLE_PASS_KRX_SOURCE');
 assert.equal(result.officialExactDatePerCodeVerified,37);
 assert.equal(result.stockConfirmed,16);
@@ -130,7 +131,7 @@ runs++;realSourceRuns++;
 // distinct sources with a single mock KRX read. Its targetEvidence is null,
 // and the returned response cannot contain individual prices or codes.
 {
- const state=exact();let calls=0;
+ const state=exact();
  const direct=vmTest(state);
  // Execute actual aggregate handler in its own fake GAS session.
  const proof=direct.ctx.handleGetKrxHeldCloseCoverage(DAY,'');
@@ -140,6 +141,7 @@ runs++;realSourceRuns++;
  assert.equal(proof.coverage.market.STOCK.confirmed,16);
  assert.equal(proof.coverage.market.ETF.confirmed,21);
  assert.equal(proof.targetEvidence,null);
+ assert.equal(direct.fetchCount(),1,'actual aggregate single read');
  assert.ok(!JSON.stringify(proof).includes('000001'));
  realSourceRuns++;runs++;
 }
