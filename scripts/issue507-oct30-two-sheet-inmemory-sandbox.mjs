@@ -102,6 +102,7 @@ export function runOct30TwoSheetInMemorySandbox({
      state.snapshot[patch.rowIndex]=COPY(patch.after);
      mutations++;
      if(i===7&&fault==='SNAPSHOT_PARTIAL')throw Error('SIMULATED_PARTIAL_SNAPSHOT');
+     if(i===7&&fault==='ROLLBACK_FAILURE')throw Error('SIMULATED_RESTORE_FAILURE_INJECTION');
    }
    if(fault==='SNAPSHOT_DONE')throw Error('SIMULATED_NO_READBACK');
    if(fault==='READBACK_CORRUPT')
