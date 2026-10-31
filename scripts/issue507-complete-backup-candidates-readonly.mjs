@@ -77,8 +77,9 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   const result=classifyCandidates(await request(endpoint,token,'diagnoseWorkbookCells',fetchImpl));
   const after=validateInventory(await request(endpoint,token,'getAutomationStatus',fetchImpl));
   guard(before.dates.join('|')===after.dates.join('|')
-    &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom,'QUEUE_DRIFT');
-  return {...result,deferredQueueStableWithinCall:true};
+    &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom
+    &&before.gasVersion===after.gasVersion,'QUEUE_DRIFT');
+  return {...result,gasVersionChecked:before.gasVersion,deferredQueueStableWithinCall:true};
 }
 export async function selfTest(){
   const original={
@@ -159,6 +160,31 @@ export async function selfTest(){
   assert.equal(result.deferredQueueStableWithinCall,true);
   assert.equal(result.restoreAllowed,false);
   assert.equal(result.writesPerformed,0);
+  assert.equal(result.gasVersionChecked,'9.244');
+  for(const version of ['9.281','9.282']){
+    const versioned={...status,gasVersion:version,
+      automation:{...status.automation,gasVersion:version}};
+    const upgraded=await runReadonly({
+      url:'https://script.google.com/macros/s/TEST/exec',token:'TOKEN',
+      fetchImpl:async(_url,opts)=>({ok:true,json:async()=>opts.body.get('accessToken')!=='TOKEN'
+        ?{status:'error',message:'인증 실패'}
+        :opts.body.get('action')==='getAutomationStatus'?versioned:original})
+    });
+    assert.equal(upgraded.gasVersionChecked,version);
+    assert.equal(upgraded.restoreAllowed,false);
+    assert.equal(upgraded.deleteAllowed,false);
+    assert.equal(upgraded.writesPerformed,0);
+  }
+  let observedStatuses=0;
+  await assert.rejects(()=>runReadonly({
+    url:'https://script.google.com/macros/s/TEST/exec',token:'TOKEN',
+    fetchImpl:async(_url,opts)=>({ok:true,json:async()=>opts.body.get('accessToken')!=='TOKEN'
+      ?{status:'error',message:'인증 실패'}
+      :opts.body.get('action')==='getAutomationStatus'
+        ?{...status,gasVersion:++observedStatuses===1?'9.281':'9.282',
+          automation:{...status.automation,gasVersion:observedStatuses===1?'9.281':'9.282'}}
+        :original})
+  }),/QUEUE_DRIFT/);
   console.log('ISSUE507_COMPLETE_BACKUP_CANDIDATES_READ_ONLY_CONTRACT_OK');
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
