@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import YAML from 'yaml';
-import {DATE,REPO,windowFor,selectPeriod,claimFor,formatClosingTest,prepareSunday,deliverSunday}
+import {DATE,REPO,windowFor,selectPeriod,claimFor,formatClosingTest,prepareSunday,deliverSunday,persistConfirmedSundaySent}
  from './telegram-sunday-test-20261101.mjs';
 
 const morning=()=>new Date('2026-11-01T07:45:00+09:00');
@@ -36,6 +38,39 @@ assert.equal(reads,1);assert.equal(builds,1);
 const confirmed=await deliverSunday(ready,{now:morning,send:async()=>{sends++;}});
 assert.equal(confirmed.status,'SENT');
 assert.equal(sends,1);
+// Execute the exact production receipt writer against a real temporary file.
+const proofDir=fs.mkdtempSync(join(tmpdir(),'sunday-telegram-sent-'));
+try {
+  const proofPath=join(proofDir,'sent.json');
+  const proof=persistConfirmedSundaySent(confirmed,ready,{path:proofPath,runId:'SYNTHETIC_RUN'});
+  const persisted=JSON.parse(fs.readFileSync(proofPath,'utf8'));
+  assert.deepEqual(persisted,proof);
+  assert.deepEqual(Object.keys(persisted),['status','testDate','period','claim','workflowRunId']);
+  assert.equal(persisted.status,'SENT');
+  assert.equal(persisted.testDate,DATE);
+  assert.equal(persisted.period,'morning');
+  assert.equal(persisted.claim,claimFor('morning'));
+  assert.equal(persisted.workflowRunId,'SYNTHETIC_RUN');
+  assert.doesNotMatch(JSON.stringify(persisted),/SYNTHETIC-GITHUB|CHAT_ID|TELEGRAM_BOT_TOKEN|source labels only/);
+  assert.throws(()=>persistConfirmedSundaySent(confirmed,ready,{path:proofPath,runId:'DUPLICATE'}),
+    /EEXIST/,'SENT receipt must not overwrite an existing proof');
+  const failPath=join(proofDir,'should-not-exist.json');
+  await assert.rejects(deliverSunday(ready,{
+    now:morning,send:async()=>{throw Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY');}
+  }),/TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY/);
+  assert.equal(fs.existsSync(failPath),false,'failed send must not create a success artifact');
+  assert.throws(()=>persistConfirmedSundaySent({status:'PREPARED'},ready,{path:failPath}),
+    /SEND_PROOF_INVALID/);
+  assert.equal(fs.existsSync(failPath),false);
+  assert.throws(()=>persistConfirmedSundaySent(confirmed,{...ready,date:'2026-11-08'},{path:failPath}),
+    /SEND_PROOF_INVALID/);
+  assert.equal(fs.existsSync(failPath),false);
+  assert.throws(()=>persistConfirmedSundaySent({...confirmed,period:'close'},ready,{path:failPath}),
+    /SEND_PROOF_INVALID/);
+  assert.equal(fs.existsSync(failPath),false);
+} finally {
+  fs.rmSync(proofDir,{recursive:true,force:true});
+}
 claimed=true;
 assert.equal((await prepareSunday(options)).status,'ALREADY_CLAIMED');
 assert.equal(builds,1,'duplicate must not fetch or build market report');
@@ -89,9 +124,10 @@ assert.equal(steps[sentProof].with['if-no-files-found'],'error');
 assert.equal(steps[sentProof].env,undefined,'proof upload must not receive operational tokens');
 assert.match(scriptSource,/const sent=await deliverSunday\(payload,/,
  'SENT proof must follow actual deliverSunday await');
-assert.match(scriptSource,/fs\.writeFileSync\('\.sunday-test-runtime\/sent\.json'/);
-assert.match(scriptSource,/status:sent\.status,testDate:sent\.testDate,period:sent\.period/,
- 'proof must be based on send result, not PREPARED');
+assert.match(scriptSource,/persistConfirmedSundaySent\(sent,payload,/,
+ 'production send CLI must invoke the tested receipt writer');
+assert.match(scriptSource,/if\(sent\?\.status!=='SENT'/,
+ 'proof must verify the accepted response before writing');
 assert.doesNotMatch(scriptSource,/chatId:String\(process\.env\.TELEGRAM_CHAT_ID\)/,
  'SENT artifact must never contain Telegram credentials or recipient');
 
