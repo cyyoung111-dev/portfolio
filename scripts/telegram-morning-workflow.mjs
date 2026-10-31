@@ -3,6 +3,7 @@ import {pathToFileURL} from 'node:url';
 import {scheduledWindow,runTelegramMorning,sendTelegram} from './telegram-morning-briefing.mjs';
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
+import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,run=runTelegramMorning,loadReference=loadCapturedNight}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
@@ -57,7 +58,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
    console.log(JSON.stringify({status:result.status,date:result.date,referenceSource:result.referenceSource||'NONE'}));
   }else if(process.argv[2]==='send'){
-   console.log(JSON.stringify(await deliverPrepared(JSON.parse(fs.readFileSync('.telegram-runtime/payload.json','utf8')),{token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,attempt:process.env.GITHUB_RUN_ATTEMPT})));
+   const payload=JSON.parse(fs.readFileSync('.telegram-runtime/payload.json','utf8'));
+   const sent=await deliverAndRecordWeekday(payload,{
+     kind:'morning',deliver:deliverPrepared,
+     token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,
+     attempt:process.env.GITHUB_RUN_ATTEMPT,
+     path:'.telegram-runtime/sent.json',runId:process.env.GITHUB_RUN_ID||''
+   });
+   console.log(JSON.stringify(sent));
   }else throw Error('TELEGRAM_WORKFLOW_MODE');
  }catch(e){console.error(/^TELEGRAM_[A-Z_]+$/.test(e?.message||'')?e.message:'TELEGRAM_WORKFLOW_FAILED');process.exitCode=1;}
 }
