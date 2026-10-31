@@ -435,14 +435,21 @@ function _resolvePriceDateLabel(baseLabel, key, responseMeta) {
   return baseLabel;
 }
 
+let _fullPortfolioUpdateInProgress = false;
+
 async function quickFetchByDate() {
+  // A price-only request must finish before an authoritative GAS restore starts.
+  if (_fullPortfolioUpdateInProgress || _manualPriceRefreshInFlight) return;
   const dateInput = $el('quickDateInput');
   const btn = $el('quickFetchBtn');
+  const priceBtn = $el('quickPriceBtn');
 
   if (!dateInput.value) dateInput.value = getDateStr(0);
   const targetDate = dateInput.value;
 
+  _fullPortfolioUpdateInProgress = true;
   btn.disabled = true;
+  if (priceBtn) priceBtn.disabled = true;
   btn.setAttribute('aria-busy', 'true');
   // 고정 너비 버튼 안에서 날짜·상태 영역과 겹치지 않도록 로딩 문구를 짧게 유지합니다.
   btn.querySelector('span').textContent = '로딩';
@@ -451,8 +458,10 @@ async function quickFetchByDate() {
   if (!GSHEET_API_URL) {
     setStatusLabel('❌ 구글시트 미연동 · <button data-status-action="gsheet" class="btn-link">🔗 연동 →</button>', 'error');
     btn.disabled = false;
+    if (priceBtn) priceBtn.disabled = false;
     btn.removeAttribute('aria-busy');
     btn.querySelector('span').textContent = '업데이트';
+    _fullPortfolioUpdateInProgress = false;
     return;
   }
 
@@ -549,7 +558,9 @@ async function quickFetchByDate() {
   } catch(e) {
     setStatusLabel('❌ 조회 실패: ' + e.message, 'error');
   } finally {
+    _fullPortfolioUpdateInProgress = false;
     btn.disabled = false;
+    if (priceBtn) priceBtn.disabled = false;
     btn.removeAttribute('aria-busy');
     btn.querySelector('span').textContent = '업데이트';
   }
@@ -675,20 +686,35 @@ let _pricePollingTimer = null;
 let _pricePollingVisibilityBound = false;
 
 async function pollCurrentPrices() {
-  if (document.hidden || !GSHEET_API_URL) return;
+  if (document.hidden || !GSHEET_API_URL || _fullPortfolioUpdateInProgress) return false;
+  if (typeof _gsBootRestored !== 'undefined'
+      && (!_gsBootRestored || _gsPortfolioRestoreRequired)) return false;
   try {
     const requestDate = getDateStr(0);
+    // A trades-tab reload can begin and finish while the quote request waits.
+    // Snapshot its epoch so even a completed intermediate restore invalidates
+    // the stale response before touching displayed portfolio prices.
+    const settingsLoadEpoch = typeof _gsSettingsLoadEpoch !== 'undefined'
+      ? _gsSettingsLoadEpoch : null;
+    const dateInput = typeof $el === 'function' ? $el('quickDateInput') : null;
+    if (dateInput?.value && dateInput.value !== requestDate) return false;
     const targetUrl = String(GSHEET_API_URL || '').trim();
     const generation = typeof getGsheetConnectionGeneration === 'function'
       ? getGsheetConnectionGeneration() : 0;
     const results = await fetchFromGsheet(requestDate, { persist: false, polling: true });
     // Never apply an in-flight request to a different workbook or hidden tab.
-    if (document.hidden || String(GSHEET_API_URL || '').trim() !== targetUrl
+    if (document.hidden || _fullPortfolioUpdateInProgress
+        || (typeof _gsBootRestored !== 'undefined'
+            && (!_gsBootRestored || _gsPortfolioRestoreRequired))
+        || (settingsLoadEpoch !== null && _gsSettingsLoadEpoch !== settingsLoadEpoch)
+        || getDateStr(0) !== requestDate
+        || (dateInput?.value && dateInput.value !== requestDate)
+        || String(GSHEET_API_URL || '').trim() !== targetUrl
         || (typeof isGsheetConnectionCurrent === 'function'
-          && !isGsheetConnectionCurrent(targetUrl, generation))) return;
-    if (!results || Object.keys(results).length === 0) return;
+          && !isGsheetConnectionCurrent(targetUrl, generation))) return false;
+    if (!results || Object.keys(results).length === 0) return false;
     const entries = Object.entries(results).filter(([, price]) => Number(price) > 0);
-    if (!entries.length) return;
+    if (!entries.length) return false;
     const meta = results.__gsheetPriceMeta
       || ((window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object')
         ? window._gsheetPriceMeta : {});
@@ -736,9 +762,68 @@ async function pollCurrentPrices() {
       if (typeof invalidateViewCache === 'function') invalidateViewCache();
       renderSummary();
     }
+    return true;
   } catch (e) {
     console.warn('[price-polling] 현재가 갱신 실패:', e.message);
     setStatusLabel('⚠️ 현재가 polling 실패 · 마지막 정상값 유지', 'warn');
+    return false;
+  }
+}
+
+let _manualPriceRefreshInFlight = null;
+
+// Read-only price action: reuse the exact same non-persistent polling path.
+// Full server restore remains the explicit "업데이트" action and bootstrap.
+async function refreshCurrentPricesOnly() {
+  const btn = $el('quickPriceBtn');
+  const fullBtn = $el('quickFetchBtn');
+  const dateInput = $el('quickDateInput');
+  if (!btn) return false;
+  if (_manualPriceRefreshInFlight) return _manualPriceRefreshInFlight;
+  if (!GSHEET_API_URL) {
+    setStatusLabel('현재가 조회 불가 · GAS 연결 설정이 필요합니다', 'warn');
+    return false;
+  }
+  if (fullBtn && fullBtn.disabled) {
+    setStatusLabel('전체 데이터 복원 진행 중 · 완료 후 현재가를 갱신해주세요', 'warn');
+    return false;
+  }
+  if (typeof _gsBootRestored !== 'undefined'
+      && (!_gsBootRestored || _gsPortfolioRestoreRequired)) {
+    setStatusLabel('원격 데이터 복원 미완료 · 전체 업데이트로 연결 상태를 확인해주세요', 'warn');
+    return false;
+  }
+  // Never show a today's quote as if it belonged to a selected past date.
+  if (dateInput?.value && dateInput.value !== getDateStr(0)) {
+    setStatusLabel('현재가 갱신은 오늘 날짜에서만 가능합니다 · 날짜를 오늘로 변경해주세요', 'warn');
+    return false;
+  }
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  const label = btn.querySelector('span');
+  if (label) label.textContent = '조회 중';
+  if (fullBtn) fullBtn.disabled = true;
+  setStatusLabel('NH 현재가 확인 중 · 거래·보유·Snapshot 동기화 없음', 'loading');
+  const pending = (async () => {
+    try {
+      const ok = await pollCurrentPrices();
+      if (!ok) setStatusLabel('현재가 미확보 · 마지막 정상 평가가격 유지', 'warn');
+      return ok;
+    } catch (_) {
+      setStatusLabel('현재가 조회 실패 · 마지막 정상 평가가격 유지', 'warn');
+      return false;
+    } finally {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      if (label) label.textContent = '현재가';
+      if (fullBtn) fullBtn.disabled = false;
+    }
+  })();
+  _manualPriceRefreshInFlight = pending;
+  try {
+    return await pending;
+  } finally {
+    if (_manualPriceRefreshInFlight === pending) _manualPriceRefreshInFlight = null;
   }
 }
 

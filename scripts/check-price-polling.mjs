@@ -32,14 +32,23 @@ const recomputeSource = 'function recomputeRows() {' + recompute[1] + '\n}';
 const resolverSource = 'function _resolvePriceDateLabel(baseLabel, key, responseMeta) {' + resolver[1] + '\n}';
 const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930': 12345 }, fail = false,
   meta = { '005930':{ sourceDate:'2026-10-13', isFallback:false } }, resolvedDate = '2026-10-13', disconnect = false, hideAfterFetch = false,
-  embeddedMeta = null, embeddedDate = null } = {}) => {
+  embeddedMeta = null, embeddedDate = null,
+  selectedDate = '2026-10-13', selectHistoryAfterFetch = false,
+  fullRestore = false, beginRestoreAfterFetch = false, rollDateAfterFetch = false,
+  beginTradesRestoreAfterFetch = false, completeTradesRestoreAfterFetch = false } = {}) => {
   let networkCount = 0, repaintCount = 0, summaryCount = 0, cacheInvalidations = 0;
   let persistedCount = 0, badge = null, status = null, connected = true;
   const cache = { '005930': 1000 };
   const rows = [], savedPriceDates = {};
   const rawHoldings = [{ code:'005930', qty:2, costAmt:12000 }];
+  const dateInput = {value:selectedDate};
+  let nowDate='2026-10-13';
   const context = vm.createContext({
     document:{ hidden }, GSHEET_API_URL:'https://script.google.com/macros/s/test/exec',
+    _fullPortfolioUpdateInProgress:fullRestore,
+    _gsBootRestored:true, _gsPortfolioRestoreRequired:false,
+    _gsSettingsLoadEpoch:1,
+    $el:id=>id==='quickDateInput'?dateInput:null,
     window:{ _gsheetPriceMeta:meta, _gsheetResolvedPriceDate:resolvedDate },
     getGsheetConnectionGeneration:()=>1, isGsheetConnectionCurrent:()=>connected,
     savedPriceDates, lastUpdated:'2026.10.08',
@@ -51,11 +60,24 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
       if (fail) throw Error('network failure');
       if (disconnect) connected = false;
       if (hideAfterFetch) context.document.hidden = true;
+      if (selectHistoryAfterFetch) dateInput.value='2026-10-09';
+      if (beginRestoreAfterFetch) context._fullPortfolioUpdateInProgress=true;
+      if (rollDateAfterFetch) nowDate='2026-10-14';
+      if (beginTradesRestoreAfterFetch) {
+        context._gsSettingsLoadEpoch=2;
+        context._gsBootRestored=false;
+        context._gsPortfolioRestoreRequired=true;
+      }
+      if (completeTradesRestoreAfterFetch) {
+        context._gsSettingsLoadEpoch=2;
+        context._gsBootRestored=true;
+        context._gsPortfolioRestoreRequired=false;
+      }
       if (response && embeddedMeta) Object.defineProperty(response, '__gsheetPriceMeta', {value:embeddedMeta});
       if (response && embeddedDate !== null) Object.defineProperty(response, '__gsheetResolvedPriceDate', {value:embeddedDate});
       return response;
     },
-    getDateStr:()=> '2026-10-13', updateDateBadge:(...args)=>{badge=args;},
+    getDateStr:()=> nowDate, updateDateBadge:(...args)=>{badge=args;},
     _priceLookupSummary:()=> 'test', _priceStatusLayout:(head,detail,note)=>head+' '+note,
     setStatusLabel:(...args)=>{status=args;},
     computeRows:holdings => holdings.map(h => ({
@@ -148,6 +170,25 @@ for (const options of [{view:'gsheet',disconnect:true},{view:'gsheet',hideAfterF
   assert.equal(stale.cache['005930'],1000,'응답 전 연결 변경/숨김 시 가격 적용 금지');
   assert.equal(stale.summaryCount,0);
 }
+// Historical display and a concurrent full restore must not receive today's
+// periodic quotes, including when the date/restore changes during an await.
+for (const opts of [
+  {selectedDate:'2026-10-09'},
+  {fullRestore:true},
+  {selectHistoryAfterFetch:true},
+  {beginRestoreAfterFetch:true},
+  {beginTradesRestoreAfterFetch:true},
+  {completeTradesRestoreAfterFetch:true},
+  {rollDateAfterFetch:true}
+]) {
+  const blocked=await testPoll(opts);
+  assert.equal(blocked.cache['005930'],1000,'out-of-date price must not overwrite historical/restore display');
+  assert.equal(blocked.rows.length,0);
+  assert.equal(blocked.summaryCount,0);
+  assert.equal(blocked.persistedCount,0);
+  if(opts.selectedDate || opts.fullRestore) assert.equal(blocked.networkCount,0,'blocked state must not call provider');
+  else assert.equal(blocked.networkCount,1,'late state change discards completed response');
+}
 console.log('✅ 현재가 polling 설정 탭 rows·손익·캐시 갱신, DOM 보존, 비영속성, 실패/hidden 회귀 통과');
 
 // Actual price loader: fund history must start before the stock request finishes.
@@ -210,3 +251,66 @@ console.log('PASS: independent stock/fund reads overlap; failure isolation and s
 
 await checkParallelHistory({usdQuote:true,funds:false});
 await checkParallelHistory({usdQuote:true,missingFx:true,funds:false});
+
+
+// Manual quote-only button must never run the full portfolio restore or a
+// persistent price write. Keep the real button handler under VM test.
+const html = fs.readFileSync('src/web/index.html', 'utf8');
+const delegates = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
+assert.match(html, /id="quickPriceBtn"/);
+assert.match(html, /aria-label="현재가만 갱신"/);
+assert.match(delegates, /quickPriceBtn:\s*\(\) => typeof refreshCurrentPricesOnly/);
+const manualMatch = source.match(/async function refreshCurrentPricesOnly\(\)\s*\{([\s\S]*?)\n\}/);
+assert.ok(manualMatch,'missing manual price-only handler');
+assert.doesNotMatch(manualMatch[1], /loadSettings\(|persist:\s*true|savePriceCache\(|getPriceHistory\(/);
+assert.match(manualMatch[1], /await pollCurrentPrices\(\)/);
+const manualSource = 'let _manualPriceRefreshInFlight = null;\n'
+  + 'async function refreshCurrentPricesOnly() {' + manualMatch[1] + '\n}';
+async function testManual({date='2026-11-01',connected=true,boot=true,fullBusy=false,
+  result=true,pending=false}={}) {
+  const calls=[],status=[];
+  const btn={disabled:false,busy:false,label:{textContent:'현재가'},
+    setAttribute(name){this.busy=name==='aria-busy';},
+    removeAttribute(name){if(name==='aria-busy')this.busy=false;},
+    querySelector(){return this.label;}};
+  const full={disabled:fullBusy};
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const ctx=vm.createContext({
+    GSHEET_API_URL: connected?'https://script.google.com/macros/s/TEST/exec':'',
+    _gsBootRestored: boot,_gsPortfolioRestoreRequired:false,
+    getDateStr:()=> '2026-11-01',
+    $el:id=>id==='quickPriceBtn'?btn:id==='quickFetchBtn'?full:id==='quickDateInput'?{value:date}:null,
+    setStatusLabel:(message,type)=>status.push({message,type}),
+    pollCurrentPrices:async()=>{calls.push('poll');if(pending)await gate;return result;}
+  });
+  vm.runInContext(manualSource,ctx);
+  const p=vm.runInContext('refreshCurrentPricesOnly()',ctx);
+  if(pending) {
+    await Promise.resolve();
+    assert.equal(btn.disabled,true,'manual request must block duplicate clicks');
+    assert.equal(full.disabled,true,'manual request must block concurrent full restore');
+    const duplicate=vm.runInContext('refreshCurrentPricesOnly()',ctx);
+    assert.equal(calls.length,1,'repeated manual clicks share one request');
+    release();
+    assert.equal(await duplicate,result);
+  }
+  const ok=await p;
+  assert.equal(btn.disabled,false);
+  assert.equal(btn.busy,false);
+  assert.equal(btn.label.textContent,'현재가');
+  assert.equal(full.disabled,fullBusy,'full button must be restored to original state');
+  return {ok,calls,status};
+}
+const manualOk=await testManual({pending:true});
+assert.equal(manualOk.ok,true);
+assert.equal(manualOk.calls.length,1);
+assert.equal((await testManual({date:'2026-10-30'})).calls.length,0,'past-date quote must not overwrite historical view');
+assert.equal((await testManual({boot:false})).calls.length,0,'unverified bootstrap blocks price-only button');
+assert.equal((await testManual({fullBusy:true})).calls.length,0,'full restore blocks concurrent quote refresh');
+assert.equal((await testManual({connected:false})).calls.length,0,'no GAS must not request price');
+const manualMissing=await testManual({result:false});
+assert.equal(manualMissing.ok,false);
+assert.equal(manualMissing.calls.length,1);
+assert.match(manualMissing.status.at(-1).message,/마지막 정상 평가가격 유지/);
+console.log('PRICE_ONLY_MANUAL_REFRESH PASS readonly=true fullRestore=false pastDateGuard=true');
