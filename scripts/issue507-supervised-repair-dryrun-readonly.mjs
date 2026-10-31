@@ -11,6 +11,9 @@ const STATUS=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT',
   'SOURCE_INCOMPLETE','NO_SNAPSHOT','PRICE_SUSPICIOUS']);
 const DIGEST=/^[0-9a-f]{64}$/;
 const CHUNK=6,MAX_DATES=60;
+// The strict-diagnostic response contract is independently present in the
+// pinned v9.281 baseline and reviewed v9.282 source. Preserve v9.244 legacy.
+const SUPPORTED_GAS_VERSIONS=new Set(['9.244','9.281','9.282']);
 function guard(ok,code){if(!ok)throw Error('ISSUE507_REPAIR_DRYRUN_'+code);}
 function count(n){guard(Number.isSafeInteger(n)&&n>=0&&n<=1000000,'COUNT');return n;}
 function iso(s){
@@ -23,8 +26,8 @@ function iso(s){
 // Importing that script here would double-run an operational audit.
 export function validateInventory(payload){
   const a=payload?.automation;
-  guard(payload?.status==='ok'&&payload.gasVersion==='9.244'&&
-    a?.gasVersion==='9.244'&&
+  guard(payload?.status==='ok'&&SUPPORTED_GAS_VERSIONS.has(payload.gasVersion)&&
+    a?.gasVersion===payload.gasVersion&&
     Array.isArray(a.tradeSnapshotDeferredDates)&&
     a.tradeSnapshotDeferredDates.length<=600&&
     a.tradeSnapshotDeferredCount===a.tradeSnapshotDeferredDates.length&&
@@ -40,7 +43,7 @@ export function validateInventory(payload){
     (!a.pendingTradeSnapshotRebuildFrom||iso(a.pendingTradeSnapshotRebuildFrom)),
     'INVENTORY_DATES');
   return {dates,cursor:a.tradeSnapshotDeferredCursor,
-    pendingFrom:a.pendingTradeSnapshotRebuildFrom};
+    pendingFrom:a.pendingTradeSnapshotRebuildFrom,gasVersion:payload.gasVersion};
 }
 
 function code(raw){
@@ -171,6 +174,8 @@ export function assessBatch(response,requested){
 }
 export function summarize(before,after,batches){
   guard(before?.dates&&after?.dates
+    &&SUPPORTED_GAS_VERSIONS.has(before.gasVersion)
+    &&before.gasVersion===after.gasVersion
     &&before.dates.join('|')===after.dates.join('|')
     &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom,
     'QUEUE_CHANGED');
@@ -204,7 +209,7 @@ export function summarize(before,after,batches){
     sourceUnverifiedStoredCodes:count(days.reduce((sum,d)=>sum+d.sourceUnverifiedStoredCodes,0)),
     sourceUnverifiedStoredRows:count(days.reduce((sum,d)=>sum+d.sourceUnverifiedStoredRows,0))
   };
-  return {mode:'STRICT_READ_ONLY_RECOVERY_DRYRUN',gasVersion:'9.244',
+  return {mode:'STRICT_READ_ONLY_RECOVERY_DRYRUN',gasVersion:before.gasVersion,
     sourceRevisionStable:true,sourceDigestStable:true,deferredQueueStable:true,
     // Within this invocation only: prior executions can have different source rows.
     crossRunSourceStabilityCertified:false,backupRegistrySignatureVerified:false,
@@ -278,6 +283,20 @@ export async function selfTest(){
     tradeSnapshotDeferredCount:2,tradeSnapshotDeferredOldestDate:'2026-01-08',
     tradeSnapshotDeferredCursor:'',pendingTradeSnapshotRebuildFrom:''}};
   assert.throws(()=>validateInventory(invalidInventory),/INVENTORY_DATES/);
+  // Do not mistake the still-running v9.281 and approved v9.282 contracts
+  // for unsupported versions. Reject any undeclared/unmatched gasVersion.
+  const validInventory={...invalidInventory,automation:{...invalidInventory.automation,
+    tradeSnapshotDeferredDates:['2026-01-07','2026-01-08'],
+    tradeSnapshotDeferredOldestDate:'2026-01-07'}};
+  for(const version of ['9.244','9.281','9.282']){
+    const v={...validInventory,gasVersion:version,
+      automation:{...validInventory.automation,gasVersion:version}};
+    assert.equal(validateInventory(v).gasVersion,version);
+  }
+  assert.throws(()=>validateInventory({...validInventory,gasVersion:'9.283'}),/INVENTORY_SCHEMA/);
+  assert.throws(()=>validateInventory({...validInventory,gasVersion:'9.281'}),/INVENTORY_SCHEMA/);
+  assert.throws(()=>validateInventory({...validInventory,gasVersion:'9.282',
+    automation:{...validInventory.automation,gasVersion:'9.281'}}),/INVENTORY_SCHEMA/);
   const x=fixtureDay(),a=assessDay(x);
   assert.equal(a.duplicateGroups,1);
   assert.equal(a.duplicateReasons.VALUATION_OR_SOURCE_DRIFT,1);
@@ -366,9 +385,11 @@ export async function selfTest(){
   const bad=structuredClone(x);bad.duplicateKeys=[];
   assert.throws(()=>assessDay(bad),/DRIFT/);
   const d='a'.repeat(64);
-  const before={dates:[x.date],cursor:x.date,pendingFrom:'2026-01-08'};
+  const before={dates:[x.date],cursor:x.date,pendingFrom:'2026-01-08',gasVersion:'9.244'};
   const batch={days:[a],digest:d,revision:'100'};
   const baselineReport=summarize(before,before,[batch]);
+  assert.equal(baselineReport.gasVersion,'9.244');
+  assert.throws(()=>summarize(before,{...before,gasVersion:'9.282'},[batch]),/QUEUE_CHANGED/);
   assert.equal(baselineReport.writeAllowed,false);
   assert.equal(baselineReport.expectedRowsWithStoredQtyCost,1);
   assert.equal(baselineReport.expectedRowsWithAnyStoredQtyCostCandidate,1);
@@ -396,6 +417,41 @@ export async function selfTest(){
     url:'https://script.google.com/macros/s/TEST/exec',
     token:'TEST_TOKEN',fetchImpl:stub});
   assert.equal(report.duplicateGroups,1);
+  assert.equal(report.gasVersion,'9.244');
+  for(const version of ['9.281','9.282']){
+    let count=0;
+    const upgraded=await runReadonly({
+      url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_TOKEN',
+      fetchImpl:async(_endpoint,opts)=>{
+        const action=opts.body.get('action');
+        const response=opts.body.get('accessToken')!=='TEST_TOKEN'
+          ?{status:'error',message:'인증 실패'}
+          :action==='getAutomationStatus'
+            ?{...baseStatus,gasVersion:version,
+              automation:{...baseStatus.automation,gasVersion:version}}
+            :payload;
+        count++;
+        return {ok:true,json:async()=>response};
+      }
+    });
+    assert.equal(upgraded.gasVersion,version);
+    assert.equal(upgraded.writeAllowed,false);
+    assert.equal(upgraded.changesToSourceData,0);
+    assert.equal(count,5);
+  }
+  let statusCall=0;
+  await assert.rejects(()=>runReadonly({
+    url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_TOKEN',
+    fetchImpl:async(_endpoint,opts)=>{
+      const obj=opts.body.get('accessToken')!=='TEST_TOKEN'
+        ?{status:'error',message:'인증 실패'}
+        :opts.body.get('action')==='getAutomationStatus'
+          ?{...baseStatus,gasVersion:++statusCall===1?'9.281':'9.282',
+             automation:{...baseStatus.automation,gasVersion:statusCall===1?'9.281':'9.282'}}
+          :payload;
+      return {ok:true,json:async()=>obj};
+    }
+  }),/QUEUE_CHANGED/,'a mid-audit release change must invalidate the proof');
   assert.equal(report.days.length,1);
   assert.equal(report.unexpectedStoredCodes,0);
   assert.equal(report.writeAllowed,false);
