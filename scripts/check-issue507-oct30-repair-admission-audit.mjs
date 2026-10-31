@@ -47,7 +47,9 @@ function invoke(name,s,{clock=now,rolloutAt=verifiedAt}={}){
   {timeout:2000});
 }
 const verifiedDrain=invoke('_issue507AssertDrain_',data);
-assert.equal(verifiedDrain.mode,'DRAINING');
+assert.equal(verifiedDrain.releaseId,'GATE-9.281');
+assert.equal(verifiedDrain.proof,'ADMISSION_BARRIER_AND_COMPLETION_RECEIPTS');
+assert.equal(verifiedDrain.activeCount,0);
 assert.equal(verifiedDrain.writeAuthorized,false,
  'drain is not permission to edit financial data');
 assert.throws(()=>invoke('_issue507GateEnter_',data),/GATE_MAINTENANCE/,
