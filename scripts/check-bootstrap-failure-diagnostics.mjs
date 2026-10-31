@@ -1664,3 +1664,59 @@ console.log('신규 완료 기록 ACK 유실 복구와 legacy 무전송 보류 �
  let writes=0;x.ctx.requestGsheetFormJson=async()=>{writes++;throw Error('write forbidden')};
  assert.equal(await x.ctx._retryPortfolioRemoteDirtySync({}),false);assert.equal(writes,0);assert.ok(x.ctx._getPortfolioRemoteDirty());
 }
+
+// The user's Android screenshot contained 40 read-only emergency stock codes,
+// while the overall GAS bootstrap remained unverified. A stock-tab "resync"
+// must NEVER upload this partial browser cache as Settings, codes or ledgers.
+for (const restored of [false,true]) {
+  const x=setup(),calls=[];
+  vm.runInContext(`_gsBootRestored=false; _gsPortfolioRestoreRequired=true;
+    EDITABLE_PRICES.push({name:'서버 임시 복원',code:'005930',assetType:'주식'});`,x.ctx);
+  x.ctx.loadSettings=async (_progress,opts)=>{
+    calls.push(['restore',opts?.forcePortfolioRestore===true]);
+    return restored;
+  };
+  x.ctx.getGsheetSettingsLoadFailure=()=> '거래·보유 읽기 확인 · TRADES_READ_FAILED';
+  x.ctx.saveSettings=async()=>{calls.push(['saveSettings']);return true;};
+  x.ctx.syncCodesToGsheet=async()=>{calls.push(['syncCodes']);return true;};
+  x.ctx.syncHoldingsToGsheet=async()=>{calls.push(['syncHoldings']);return true;};
+  x.ctx.syncTradesToGsheet=async()=>{calls.push(['syncTrades']);return true;};
+  x.ctx.refreshAll=()=>{};
+  x.ctx.buildStockMgmt=()=>{};
+  x.ctx.buildSectorMgmt=()=>{};
+  x.ctx.buildAcctMgmt=()=>{};
+  x.ctx.showToast=()=>{};
+  await x.ctx.manualSyncByTab('stocks');
+  assert.deepEqual(calls,[['restore',true]],'40 read-only codes cannot authorize any Settings/ledger upload');
+  const state=vm.runInContext('TAB_SYNC_STATUS.stocks',x.ctx);
+  assert.equal(state.state,restored?'ok':'fail');
+  if (!restored) assert.match(state.msg,/TRADES_READ_FAILED/,'manual resync must retain the actionable failure stage');
+  assert.equal(x.writes,0);
+}
+// The asset-panel resync must also never push local cache before confirmation.
+{
+  const x=setup(),calls=[];
+  vm.runInContext('_gsBootRestored=false; _gsPortfolioRestoreRequired=true',x.ctx);
+  x.ctx.persistRealEstateSettings=async()=>{calls.push('persistRealEstateSettings');return true;};
+  x.ctx.showToast=()=>{};
+  await x.ctx.manualSyncByTab('asset');
+  assert.deepEqual(calls,[]);
+  assert.equal(vm.runInContext('TAB_SYNC_STATUS.asset.state',x.ctx),'fail');
+}
+// Preserve the pre-existing upload action for a *verified* connected browser.
+{
+  const x=setup(),calls=[];
+  vm.runInContext("_gsBootRestored=true; _gsPortfolioRestoreRequired=false; EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});",x.ctx);
+  for(const key of ['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet'])
+    x.ctx[key]=async()=>{calls.push(key);return true;};
+  x.ctx.refreshAll=()=>{};
+  x.ctx.buildStockMgmt=()=>{};
+  x.ctx.buildSectorMgmt=()=>{};
+  x.ctx.buildAcctMgmt=()=>{};
+  x.ctx.showToast=()=>{};
+  await x.ctx.manualSyncByTab('stocks');
+  assert.deepEqual(calls,['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet']);
+  assert.equal(vm.runInContext('TAB_SYNC_STATUS.stocks.state',x.ctx),'ok');
+}
+console.log('PASS: stock/asset resync blocks provisional codes and local writes until GAS restore is verified');
+
