@@ -85,6 +85,8 @@ export function verifyIssue507Oct30PostState({
      reject('PATCH_PLAN_SCOPE');
    planCodes.add(c);
    const orig=bS.get(c),later=aS.get(c),insertion=historyPlan.get(c);
+   if(code(beforeSnapshot[change.rowIndex]?.[1])!==c)
+     reject('PATCH_INDEX_DRIFT');
    if(!orig||!later||!insertion||bH.has(c)
       ||!same(change.before,orig)||!same(change.after,later))
      reject('PATCH_READBACK_MISMATCH');
@@ -97,7 +99,9 @@ export function verifyIssue507Oct30PostState({
      if(!same(orig[i],later[i]))reject('COST_QTY_OR_METADATA_CHANGED');
    }
    const px=num(insertion[3]),qty=num(orig[3]),cost=num(orig[5]);
-   if(!ok(px)||!(px>=0.5)||!ok(qty)||!(qty>0)||!ok(cost)||cost<0)
+   if(!ok(px)||!(px>=0.5)||!ok(qty)||!(qty>0)||!ok(cost)||cost<0
+      ||!ok(num(orig[4]))
+      ||Math.abs(num(orig[4])-round2(cost/qty))>=0.000001)
      reject('NONFINITE_SOURCE_OR_POSITION');
    const amt=Math.round(Math.round(px)*qty);
    const pnl=amt-cost,unit=round2(amt/qty);
