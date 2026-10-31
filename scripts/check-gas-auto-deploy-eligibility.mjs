@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {checkGasAutoDeployEligibility} from './gas-auto-deploy-eligibility.mjs';
+import fs from 'node:fs';
+import {checkGasAutoDeployEligibility,isManualOnlyGasRelease} from './gas-auto-deploy-eligibility.mjs';
 const repo='cyyoung111-dev/portfolio',token='PRIVATE_AUTH_VALUE';
 const sha='a'.repeat(40),old='c'.repeat(40),current='b'.repeat(40);
 const makeRun=(id,hash=sha)=>({
@@ -9,7 +10,8 @@ const makeRun=(id,hash=sha)=>({
 const deployedJob={name:'deploy',conclusion:'success',steps:[{name:'Deploy GAS',conclusion:'success'}]};
 const skippedJob={name:'deploy',conclusion:'skipped',steps:[]};
 function stub({runs=[makeRun(42)],pages=null,jobsById={42:[deployedJob]},oldBlob=current,
- headBlob=current,failApi=false,failGit=false,currentRunId=100}={}){
+ headBlob=current,failApi=false,failGit=false,currentRunId=100,
+ sourceText='// Portfolio — Google Apps Script v9.281'}={}){
  const calls={urls:[],git:[]};
  const fetchImpl=async (url,opts)=>{
   calls.urls.push(url);
@@ -29,8 +31,27 @@ function stub({runs=[makeRun(42)],pages=null,jobsById={42:[deployedJob]},oldBlob
   if(args[0]==='rev-parse')return oldBlob+'\n';
   throw Error('UNEXPECTED_GIT');
  };
- return {calls,call:()=>checkGasAutoDeployEligibility({repository:repo,token,currentRunId,fetchImpl,gitExec})};
+ return {calls,call:()=>checkGasAutoDeployEligibility({repository:repo,token,currentRunId,fetchImpl,gitExec,readSource:()=>sourceText})};
 }
+// A stateful writer-gate v9.282 is never an automatic deployment decision.
+// It must short-circuit before network/provenance calls, while preserving the
+// outstanding/unknown deployment status for the later manual procedure.
+assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.282'),true);
+assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.281'),false);
+assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.283'),false);
+assert.equal(isManualOnlyGasRelease('// Version v9.282 without actual header'),false);
+let manualOnly=stub({sourceText:'// Dashboard — Google Apps Script  v9.282',failApi:true,failGit:true,oldBlob:old});
+assert.deepEqual(await manualOnly.call(),{
+ changed:true,reason:'GAS_9282_MANUAL_RELEASE_ONLY',manualOnly:true
+});
+assert.deepEqual(manualOnly.calls.urls,[],'manual-only v9.282 must not call GitHub release API');
+assert.deepEqual(manualOnly.calls.git,[],'manual-only v9.282 must not start Git fetch');
+const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+assert.match(workflow,/auto_manual_only:.*steps\.gas_source\.outputs\.manual_only/);
+assert.match(workflow,/needs\.validate\.outputs\.auto_manual_only != 'true'/);
+assert.match(workflow,/steps\.gas_source\.outputs\.manual_only != 'true'/);
+const autoCode=fs.readFileSync('scripts/gas-auto-deploy-eligibility.mjs','utf8');
+assert.match(autoCode,/manual_only='\+String\(result\.manualOnly===true\)/);
 let mock=stub();
 let result=await mock.call();
 assert.deepEqual(result,{changed:false,reason:'DEPLOYED_SOURCE_MATCH'});

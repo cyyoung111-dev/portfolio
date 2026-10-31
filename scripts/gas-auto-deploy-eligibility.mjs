@@ -7,6 +7,14 @@ import {pathToFileURL} from 'node:url';
 const SHA=/^[a-f0-9]{40}$/;
 const PATH='src/gas/apps_script.gs';
 const API='https://api.github.com';
+// GAS v9.282 is stateful: a green main push never authorizes first publish.
+// Inspect the actual checked-out HEAD header, not a PR title or git message.
+// Subsequent v9.283+ releases retain the existing provenance policy.
+export function isManualOnlyGasRelease(source) {
+ if(typeof source!=='string')return false;
+ const header=source.slice(0,2048).match(/\/\/[^\r\n]*Google Apps Script\s+v(\d+\.\d+)\b/);
+ return header?.[1]==='9.282';
+}
 async function readJson(url,token,fetchImpl){
  const response=await fetchImpl(url,{headers:{accept:'application/vnd.github+json',
    authorization:'Bearer '+token,'X-GitHub-Api-Version':'2022-11-28'},
@@ -14,13 +22,17 @@ async function readJson(url,token,fetchImpl){
  if(!response?.ok)throw Error('PROVENANCE_API_UNVERIFIED');
  return response.json();
 }
-export async function checkGasAutoDeployEligibility({repository,token,currentRunId,fetchImpl=fetch,gitExec=execFileSync}={}){
+export async function checkGasAutoDeployEligibility({repository,token,currentRunId,fetchImpl=fetch,gitExec=execFileSync,readSource=()=>fs.readFileSync(PATH,'utf8')}={}){
  const unverified=reason=>({changed:true,reason});
  if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(repository||''))
    ||typeof token!=='string'||!token.trim())return unverified('PROVENANCE_CONFIG_UNVERIFIED');
  if(!Number.isSafeInteger(Number(currentRunId))||Number(currentRunId)<=0)
   return unverified('PROVENANCE_CURRENT_RUN_UNVERIFIED');
  try{
+  // Preserve the pending/unknown provenance state but suppress the actual
+  // production job: an administrator must dispatch v9.282 explicitly.
+  if(isManualOnlyGasRelease(readSource()))
+    return {changed:true,reason:'GAS_9282_MANUAL_RELEASE_ONLY',manualOnly:true};
   // Repo-wide last 100 runs are overwhelmed by unrelated workflows. Query
   // this exact GAS workflow with bounded pagination so a proven real deploy
   // is not lost behind hundreds of no-op or unrelated completed runs.
@@ -72,6 +84,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,
   currentRunId:process.env.GITHUB_RUN_ID});
  if(process.env.GITHUB_OUTPUT)
-  fs.appendFileSync(process.env.GITHUB_OUTPUT,'changed='+String(result.changed)+'\n');
- console.log(JSON.stringify(result)); // Only 2 fixed fields; no URLs, tokens, file source or SHA.
+  fs.appendFileSync(process.env.GITHUB_OUTPUT,'changed='+String(result.changed)+'\n'
+    +'manual_only='+String(result.manualOnly===true)+'\n');
+ console.log(JSON.stringify(result)); // Fixed fields only; no URLs, tokens, source or SHA.
 }
