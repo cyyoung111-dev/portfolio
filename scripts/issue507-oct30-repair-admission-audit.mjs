@@ -104,9 +104,13 @@ export function simulateOct30PlannedRecovery(events){
       state==='SNAPSHOT_WRITTEN'?'READBACK':null;
     if(step!==expected)throw Error('ISSUE507_BARRIER_OUT_OF_ORDER');
     if(outcome!=='OK'){
-      state=historyWritten||snapshotWritten?
-        'INCIDENT_PARTIAL_UNKNOWN':'HALTED_NO_WRITES';
-      break;
+      // Even the *first* financial write may partially commit before a
+      // timeout, rejection or lost response; an absent ACK proves nothing.
+      // A backup-stage failure is the only no-financial-write condition.
+      state=step==='BACKUPS'?'HALTED_NO_WRITES':'INCIDENT_PARTIAL_UNKNOWN';
+      // Do not silently ignore a queued retry/extra event after a fault.
+      // The next loop iteration must throw TERMINAL_RETRY_DENIED.
+      continue;
     }
     if(step==='BACKUPS')state='BACKUPS_READY';
     if(step==='PRICE_HISTORY'){historyWritten=true;state='PRICE_WRITTEN';}
