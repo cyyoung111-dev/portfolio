@@ -1,0 +1,61 @@
+name: Telegram Sunday one-day morning and close test 2026-11-01
+on:
+  # One calendar date only. Node rejects all other dates, including future Sundays.
+  # GitHub schedule can be delayed; fallback slots share dated artifact claims.
+  schedule:
+    - cron: '35 22 * * 6' # Sunday 07:35 KST (Saturday UTC)
+    - cron: '50 22 * * 6' # Sunday 07:50 KST
+    - cron: '10 23 * * 6' # Sunday 08:10 KST
+    - cron: '45 23 * * 6' # Sunday 08:45 KST
+    - cron: '30 7 * * 0'  # Sunday 16:30 KST
+    - cron: '50 7 * * 0'  # Sunday 16:50 KST
+    - cron: '15 8 * * 0'  # Sunday 17:15 KST
+    - cron: '15 9 * * 0'  # Sunday 18:15 KST
+  workflow_dispatch:
+    inputs:
+      period:
+        description: 'Sunday November 1 test slot'
+        required: true
+        type: choice
+        options: [morning, close]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: telegram-sunday-20261101-once
+  cancel-in-progress: false
+jobs:
+  test:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prepare Sunday test using verified past market inputs
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/telegram-sunday-test-20261101.mjs prepare
+      - name: Claim test slot BEFORE Telegram send
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.claim }}
+          path: .sunday-test-runtime/claim.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Send exactly one claimed Sunday test
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/telegram-sunday-test-20261101.mjs send
