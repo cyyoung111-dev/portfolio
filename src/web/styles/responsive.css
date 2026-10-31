@@ -19,7 +19,7 @@
   .toolbar-section-danger{margin-left:0}
   .toolbar-btn{width:44px;height:44px}
   .toolbar-btn svg{width:14px;height:14px}
-  .action-update-card{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:6px;height:auto;min-height:52px;padding:3px;width:100%;overflow:visible}
+  .action-update-card{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px;gap:6px;height:auto;min-height:52px;padding:3px;width:100%;overflow:visible}
   .action-date-input{width:100%;min-width:0;font-size:.70rem}
   .action-refresh-btn{width:44px;height:44px;padding:5px 8px;font-size:.60rem}
   .action-refresh-btn svg{width:14px;height:14px}
