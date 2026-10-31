@@ -37,7 +37,13 @@ async function requestJsonWithPolicy(url, opts) {
       const res = await fetchWithTimeout(url, timeoutMs, fetchOptions);
       if (!res.ok) {
         const error = new Error(`HTTP ${res.status}`);
-        error.errorCode = 'SERVER_ERROR';
+        // Expose only a fixed HTTP status category, never URLs, tokens, or
+        // server response bodies. A 401/403 during bootstrap is not a
+        // missing stock-code error.
+        error.errorCode = res.status === 401 ? 'HTTP_401'
+          : res.status === 403 ? 'HTTP_403'
+          : res.status === 429 ? 'HTTP_429'
+          : 'SERVER_ERROR';
         throw error;
       }
       try { return await res.json(); }
