@@ -121,11 +121,12 @@ export function summarizeWorkbook(payload,targets=TARGETS){
 }
 export function report(before,after,items){
   check(before?.dates&&after?.dates&&before.dates.join('|')===after.dates.join('|')
-    &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom,'QUEUE_CHANGED');
+    &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom
+    &&before.gasVersion===after.gasVersion,'QUEUE_CHANGED');
   check(Array.isArray(items)&&items.length===TARGETS.length
     &&items.every((r,i)=>r.label===TARGETS[i].label),'SUMMARY');
   return {
-    mode:'BACKUP_REGISTRY_READ_ONLY',gasVersion:'9.244',
+    mode:'BACKUP_REGISTRY_READ_ONLY',gasVersion:before.gasVersion,
     deferredQueueStableWithinCall:true,
     sourceDigestVerified:false,sourceRevisionVerified:false,
     backupInventoryCount:items.length,backups:items,
@@ -358,6 +359,26 @@ export async function selfTest(){
   assert.equal(live.restoreAllowed,false);
   assert.equal(live.deleteAllowed,false);
   assert.equal(live.writesPerformed,0);
+  assert.equal(live.gasVersion,'9.244');
+  for(const version of ['9.281','9.282']){
+    const versioned={...status,gasVersion:version,
+      automation:{...status.automation,gasVersion:version}};
+    const revised=await runReadonly({
+      url:'https://script.google.com/macros/s/TEST/exec',token:'TOKEN',
+      fetchImpl:async(_url,options)=>({ok:true,json:async()=>options.body.get('accessToken')!=='TOKEN'
+        ?{status:'error',message:'인증 실패'}
+        :options.body.get('action')==='getAutomationStatus'?versioned:fixture})
+    });
+    assert.equal(revised.gasVersion,version);
+    assert.equal(revised.restoreAllowed,false);
+    assert.equal(revised.deleteAllowed,false);
+    assert.equal(revised.writesPerformed,0);
+  }
+  const beforeV281=validateInventory({...status,gasVersion:'9.281',
+    automation:{...status.automation,gasVersion:'9.281'}});
+  const afterV282=validateInventory({...status,gasVersion:'9.282',
+    automation:{...status.automation,gasVersion:'9.282'}});
+  assert.throws(()=>report(beforeV281,afterV282,out),/QUEUE_CHANGED/);
   const drift={...status,automation:{...status.automation,tradeSnapshotDeferredDates:['2026-01-23'],
     tradeSnapshotDeferredOldestDate:'2026-01-23'}};
   const before=validateInventory(status),after=validateInventory(drift);
