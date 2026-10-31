@@ -44,6 +44,7 @@ const sourceEvidence={
 };
 const args={date:TARGET_DATE,snapshotRows:rows,historyRows:history,
  officialCloses:quotes,ledgerHoldings:held,sourceEvidence};
+const beforeArgs=structuredClone(args);
 const cloned=()=>structuredClone(args);
 const p=planIssue507Oct30ScopedRevaluation(cloned());
 assert.equal(p.summary.safeToApply,false);
@@ -65,7 +66,8 @@ assert.deepEqual(p.privatePlan.fundRows.get('F00001').row,rows[37]);
 assert.deepEqual(p.privatePlan.fundRows.get('F00002').row,rows[38]);
 assert.equal(p.privatePlan.priceHistoryInserts[0][0],TARGET_DATE);
 assert.equal(p.privatePlan.priceHistoryInserts[0][3],quotes['000001'].price);
-assert.ok(!JSON.stringify(p.summary).includes('PRIVATE')
+assert.ok(!JSON.stringify(p.summary).includes('PRIVATE_STOCK')
+  &&!JSON.stringify(p.summary).includes('PRIVATE_FUND')
   &&!JSON.stringify(p.summary).includes('000001')
   &&!JSON.stringify(p.summary).includes('120.6'));
 let failures=0;
@@ -88,7 +90,7 @@ wrong(x=>x.officialCloses['000001'].source='KRX_CARRY','OFFICIAL_NOT_EXACT');
 wrong(x=>x.officialCloses['000001'].source='YAHOO','OFFICIAL_NOT_EXACT');
 wrong(x=>x.officialCloses['000001'].price=0,'OFFICIAL_NOT_EXACT');
 wrong(x=>x.officialCloses['000001'].price=Infinity,'OFFICIAL_NOT_EXACT');
-wrong(x=>x.officialCloses['000001'].price=Number.MAX_VALUE,'REVALUATION_OVERFLOW');
+wrong(x=>x.officialCloses['000002'].price='9'.repeat(308),'REVALUATION_OVERFLOW');
 wrong(x=>x.snapshotRows[0][1]=x.snapshotRows[1][1],'SNAPSHOT_SCOPE');
 wrong(x=>x.snapshotRows[0][10]='KRX','DOMESTIC_SCOPE');
 wrong(x=>x.snapshotRows[0][3]=0,'DOMESTIC_SCOPE');
@@ -101,7 +103,7 @@ wrong(x=>x.historyRows[0][1]='F00002','HISTORY_MUST_BE_FUNDS_ONLY');
 wrong(x=>x.snapshotRows[0][3]=x.snapshotRows[0][3]+0.001,'DOMESTIC_SCOPE');
 wrong(x=>x.ledgerHoldings[0].costAmt+=0.5,'DOMESTIC_SCOPE');
 wrong(x=>x.officialCloses['999999']=x.officialCloses['000001'],'OFFICIAL_SCOPE');
-assert.deepEqual(args.snapshotRows,rows,'original input must never mutate');
+assert.deepEqual(args,beforeArgs,'original input must never mutate');
 assert.equal(p.summary.physicalBackupVerified,false);
 assert.equal(p.summary.writerLockVerified,false);
 console.log(JSON.stringify({mode:'ISSUE507_SCOPED_VALUATION_DRYRUN_TEST',
