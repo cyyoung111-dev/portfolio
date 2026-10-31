@@ -1,7 +1,64 @@
 import assert from 'node:assert/strict';
 import {MORNING_SERIES,collectMorningSeries,formatFullMorningBriefing,expectedMorningDate} from './telegram-morning-report.mjs';
-import {formatMorningBriefing} from './telegram-morning-briefing.mjs';
+import {formatMorningBriefing,fetchDatedDaily} from './telegram-morning-briefing.mjs';
 const date='2026-10-30',ref={value:900.05,tradingDate:date};
+
+// BTC UTC calendar-day close is 09:00 KST. On Monday 2026-11-02 07:45 KST,
+// the 2026-11-01 Yahoo candle has begun but has NOT finished.
+const utcOpenMorning=new Date('2026-11-02T07:45:00+09:00');
+const utcClosedMorning=new Date('2026-11-02T09:10:00+09:00');
+assert.equal(expectedMorningDate('BTC','2026-11-02',utcOpenMorning),'2026-10-31');
+assert.equal(expectedMorningDate('BTC','2026-11-02',utcClosedMorning),'2026-11-01');
+assert.equal(expectedMorningDate('BTC','2026-11-02'),'2026-11-01',
+  'legacy lookups without a known observation time are not silently altered');
+const btcItem=MORNING_SERIES.find(x=>x.id==='BTC');
+const btcRow=(date,value)=>({label:btcItem.label,symbol:btcItem.symbol,
+  date,value,changePercent:1,source:'Yahoo Finance 일봉'});
+const btcOld=btcRow('2026-10-31',70000),btcOngoing=btcRow('2026-11-01',71000);
+const btcEarly=await collectMorningSeries('2026-11-02',{now:utcOpenMorning,
+  skipSymbols:new Set(MORNING_SERIES.filter(x=>x.id!=='BTC').map(x=>x.symbol)),
+  fetchDaily:async()=>btcOld});
+assert.deepEqual(btcEarly,[btcOld]);
+const btcUnfinished=await collectMorningSeries('2026-11-02',{now:utcOpenMorning,
+  skipSymbols:new Set(MORNING_SERIES.filter(x=>x.id!=='BTC').map(x=>x.symbol)),
+  fetchDaily:async()=>btcOngoing});
+assert.deepEqual(btcUnfinished,[],
+  'ongoing Nov 1 UTC candle must not enter Monday pre-market report');
+const reportEarly=formatMorningBriefing('2026-11-02',null,[btcOld,btcOngoing],
+  {now:utcOpenMorning});
+assert.match(reportEarly,/BTC: 70,000.*2026-10-31/);
+assert.doesNotMatch(reportEarly,/BTC: 71,000/);
+const reportAfterUtcClose=formatMorningBriefing('2026-11-02',null,[btcOld,btcOngoing],
+  {now:utcClosedMorning});
+assert.match(reportAfterUtcClose,/BTC: 71,000.*2026-11-01/);
+// Real fetchDatedDaily path with fully synthetic Yahoo candles; no network.
+const syntheticBtcChart={chart:{result:[{
+  meta:{symbol:'BTC-USD',exchangeTimezoneName:'Etc/UTC'},
+  timestamp:['2026-10-30T00:00:00Z','2026-10-31T00:00:00Z',
+    '2026-11-01T00:00:00Z'].map(x=>Date.parse(x)/1000),
+  indicators:{quote:[{close:[69000,70000,71000]}]}
+}]}};
+let btcCalls=0;
+const fakeBtcFetch=async url=>{
+  btcCalls++;
+  assert.match(String(url),/query1[.]finance[.]yahoo[.]com/);
+  return {ok:true,json:async()=>syntheticBtcChart};
+};
+const btcEarlyQuote=await fetchDatedDaily('BTC','BTC-USD','2026-11-02',
+  {now:utcOpenMorning,fetchImpl:fakeBtcFetch});
+assert.equal(btcEarlyQuote?.date,'2026-10-31');
+assert.equal(btcEarlyQuote?.value,70000);
+const btcClosedQuote=await fetchDatedDaily('BTC','BTC-USD','2026-11-02',
+  {now:utcClosedMorning,fetchImpl:fakeBtcFetch});
+assert.equal(btcClosedQuote?.date,'2026-11-01');
+assert.equal(btcClosedQuote?.value,71000);
+assert.equal(btcCalls,2);
+const sundayCloseClock=new Date('2026-11-01T16:45:00+09:00');
+assert.equal(expectedMorningDate('BTC','2026-11-01',sundayCloseClock),'2026-10-31',
+  'the Sunday close test retains the completed Saturday UTC candle');
+assert.match(formatMorningBriefing('2026-11-01',null,[btcOld],
+  {now:sundayCloseClock}),/BTC: 70,000.*2026-10-31/);
+
 assert.equal(MORNING_SERIES.length,21);
 assert.ok(MORNING_SERIES.some(x=>x.id==='DOW'&&x.symbol==='^DJI'));
 assert.equal(expectedMorningDate('NVDA','2026-10-30'),'2026-10-29');
