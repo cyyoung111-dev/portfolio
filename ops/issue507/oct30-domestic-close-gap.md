@@ -27,3 +27,21 @@
 수동 실행은 [issue507-oct30-domestic-close-readonly](https://github.com/cyyoung111-dev/portfolio/actions/workflows/issue507-oct30-domestic-close-readonly.yml)에서 `main` 선택 → `Run workflow`, 보호 환경 `portfolio-production-gas` 승인 조건 그대로. PR/CI에서는 합성 검증만 수행하고 live job은 skipped.
 
 **다음 실제 수정 단계:** NH 당일 종가 실패 사유를 비민감 reason code로 남기는 계측/알림 설계, 37개 실보유 대상별 거래일·가격·출처 검산, KRX 다음날 원천 교차검증, 변경 범위·백업·승인 확정 후에만 과거 `가격이력` 및 해당 날짜 `Snapshot` 원본 보정을 검토. **수집 장치 승인·영속 쓰기·GAS 운영 배포는 별도 절차**입니다.
+
+
+## 2026-10-31 실제 운영 진단 결과와 후속 공식 원천 조회
+
+- 보호 환경에서 수동 실행한 [Actions #41179512869](https://github.com/cyyoung111-dev/portfolio/actions/runs/41179512869): contract SUCCESS / operational-readonly **실패(exit 2)**. 실패는 `DOMESTIC_CLOSE_INCOMPLETE`를 감지한 fail-closed 결과입니다.
+- 실제 GAS `9.281`, 동일 실행 중 원천 변경 없음; 스냅샷 39개, 국내 보유 37개 전일 carry, 당일 `가격이력` 0/37, 펀드 2/2는 정확일 NAV 일치.
+- NH 현재 `enabled=true`이나 `tokenCached=false`, 이번 진단의 NH 토큰 신규 발급/금융 쓰기 **0**. 캐시 상태는 10/30 과거 NH 실패 원인의 직접 증거가 아닙니다.
+
+### 다음 조사 단계 (별도 PR: 이 문서와 동일 변경)
+
+기존 `issue507-oct30-domestic-close-readonly.yml`의 **같은 수동 보호 작업**에서 기존 37개 누락 진단이 실패해도 `if: always()`로 이어서
+`node scripts/diagnose-krx-held-coverage.mjs --dates "2026-10-30"`을 실행하도록 제안합니다.
+
+- 기존 생산 GAS 읽기 전용 API `getKrxHeldCloseCoverage`만 사용하고, 보호된 `main` 수동 실행·`portfolio-production-gas`·`contents: read` 조건과 비밀키 범위를 그대로 유지합니다.
+- KRX에서 대상 날짜의 보유 종목별 공식 출처 일봉 존재 여부를 집계해 **STOCK/ETF 그룹별 기대·확정·결측·이월·마스터 중복·원장 고아 건수만 출력**합니다. NH 발급·시트 쓰기·텔레그램 전송·원본 가격/종목코드 출력은 하지 않습니다.
+- 이 조회는 NH 과거 실패 원인을 확정하거나 공식 종가 가격 자체를 원본 가격이력에 저장하는 동작이 아닙니다. 보유종목의 공식 원천 접근 가능성 1단계 증빙일 뿐이며, `ready=true`여도 날짜/코드/가격별 금융 복구를 승인하지 않습니다.
+- KRX API 결측 또는 403 등의 문제가 있어도 임의로 Yahoo/전일 종가를 공식 KRX 종가로 승격하지 않습니다. 새 워크플로 변경은 PR 병합 후 **별도 수동 실행 필요**이며, 기존 #41179512869의 실행에는 소급 적용되지 않습니다.
+- 실제 GAS 릴리스·555 writer gate·원본 금융 데이터 복구는 **별도 검증 및 별도 승인** 조건을 유지합니다.
