@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {summarizeCloseStatus} from './diagnose-backfill-status.mjs';
 import YAML from 'yaml';
-import {assessKrxOvernightHealth} from './assess-krx-overnight-health.mjs';
+import {assessKrxOvernightHealth,describeWorkerCheckpointEvidence} from './assess-krx-overnight-health.mjs';
 
 const now=new Date('2026-10-19T02:40:00+09:00');
 const slot=(date,state='SUCCEEDED')=>({runDate:date,state});
@@ -20,6 +20,54 @@ const good={
   historical2310:slot('2026-10-18'),historical0030:slot('2026-10-19'),
 };
 assert.equal(assess(good).status,'HEALTHY');
+
+const time=new Date('2026-10-19T02:40:00+09:00');
+const workerLog={status:'RUNNING',at:'2026-10-18T17:35:00.000Z',
+  processed:0,deferred:0,sourceCheck:'UNCHANGED',phase:'ENTRY'};
+const syntheticWorker={...good,tradeSnapshotWorkerLastResult:workerLog,
+  tradeSnapshotWorkerRuntimeAssessment:'RUNNING_RECENT_UNCONFIRMED',
+  tradeSnapshotWorkerTriggerAudit:{scope:'CURRENT_USER',clockReady:true,
+    visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0}};
+const workerEvidence=describeWorkerCheckpointEvidence(syntheticWorker,{now:time});
+assert.deepEqual(workerEvidence,{
+  level:'GAS_SAVED_CHECKPOINT_ONLY',processApiExecutionVerified:false,
+  snapshotIntegrityVerified:false,checkpointStatus:'RUNNING',
+  checkpointAge:'WITHIN_3H',runtimeAssessment:'RUNNING_RECENT_UNCONFIRMED',
+  triggerVisibility:'ONE_VISIBLE_CLOCK_TRIGGER'
+});
+const assessedWorker=assessKrxOvernightHealth(syntheticWorker,{now:time});
+assert.deepEqual(assessedWorker.workerCheckpointEvidence,workerEvidence);
+assert.equal(assessedWorker.status,'HEALTHY',
+  'do not silently reinterpret existing KRX health gate from checkpoint-only evidence');
+const staleWorker=describeWorkerCheckpointEvidence({...syntheticWorker,
+  tradeSnapshotWorkerRuntimeAssessment:'STALE_RUNNING_TIMEOUT_SUSPECTED',
+  tradeSnapshotWorkerLastResult:{...workerLog,at:'2026-10-18T11:35:00.000Z'},
+  tradeSnapshotWorkerTriggerAudit:{scope:'CURRENT_USER',clockReady:false}}, {now:time});
+assert.equal(staleWorker.checkpointAge,'OLDER_THAN_3H');
+assert.equal(staleWorker.runtimeAssessment,'STALE_RUNNING_TIMEOUT_SUSPECTED');
+assert.equal(staleWorker.triggerVisibility,'NOT_READY');
+assert.equal(staleWorker.processApiExecutionVerified,false);
+assert.equal(describeWorkerCheckpointEvidence(good,{now:time}).checkpointAge,'NOT_OBSERVED');
+assert.equal(describeWorkerCheckpointEvidence(good,{now:time}).triggerVisibility,'NOT_OBSERVED');
+assert.equal(describeWorkerCheckpointEvidence({...syntheticWorker,
+  tradeSnapshotWorkerLastResult:{...workerLog,at:'2026-10-19T00:00:00.000Z'}},{now:time}).checkpointAge,
+  'FUTURE_UNVERIFIED');
+const privateMarker='DONT_LEAK_WORKER_SECRET_42';
+const privacy=describeWorkerCheckpointEvidence({...syntheticWorker,
+  tradeSnapshotWorkerLastResult:{status:privateMarker,at:'untrusted-value'},
+  tradeSnapshotWorkerRuntimeAssessment:privateMarker,
+  tradeSnapshotWorkerTriggerAudit:{scope:privateMarker,clockReady:true}},{now:time});
+assert.equal(privacy.checkpointStatus,'UNVERIFIED');
+assert.equal(privacy.runtimeAssessment,'UNVERIFIED');
+assert.equal(privacy.triggerVisibility,'UNVERIFIED');
+assert.equal(privacy.checkpointAge,'NOT_OBSERVED');
+assert.doesNotMatch(JSON.stringify(privacy),/DONT_LEAK_WORKER_SECRET_42/);
+// The same number of credentialed GAS calls is retained (single read-only
+// getAutomationStatus workflow step); proof is a projection of its result.
+const workerAssessorSource=fs.readFileSync('scripts/assess-krx-overnight-health.mjs','utf8');
+assert.match(workerAssessorSource,/Worker 실제 프로세스 실행 증명 \| 미확인/);
+assert.match(workerAssessorSource,/GAS_SAVED_CHECKPOINT_ONLY/);
+
 assert.deepEqual(assess(good).pendingSessionCounts,{open:0,closed:0,unknown:0});
 assert.equal(assess(good).historicalSlotReasons['2310'],'NOT_REPORTED');
 assert.equal(assess(good).historicalSlotRunDates['0030'],'2026-10-19');

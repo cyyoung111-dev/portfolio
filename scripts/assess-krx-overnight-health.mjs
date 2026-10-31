@@ -45,6 +45,38 @@ function previousOpenKrxDate(date) {
   }
   return null;
 }
+// Independent Apps Script process visibility requires script.processes OAuth
+// scope. Existing authenticated GAS checkpoint status is useful, but cannot
+// establish an actual time-driven invocation or successful Snapshot write.
+// Bucket and whitelist every value: do not expose GAS worker raw detail.
+const WORKER_CHECKPOINT_STATES=new Set(['RUNNING','IDLE','LEDGER_WRITE_UNVERIFIED',
+  'SOURCE_UNSTABLE','DEFERRED_RETRY','DEFERRED_RESOLVED','BLOCKED',
+  'NO_EXISTING_SNAPSHOT','DEFERRED_OUTSTANDING','COMPLETED','PENDING','ERROR']);
+const WORKER_RUNTIME_CLASSES=new Set(['NO_CHECKPOINT','NOT_RUNNING',
+  'RUNNING_START_UNAVAILABLE','FUTURE_START_UNVERIFIED',
+  'STALE_RUNNING_TIMEOUT_SUSPECTED','RUNNING_RECENT_UNCONFIRMED']);
+export function describeWorkerCheckpointEvidence(data,{now=new Date()}={}) {
+  const last=data?.tradeSnapshotWorkerLastResult;
+  const at=typeof last?.at==='string'?Date.parse(last.at):NaN;
+  const delta=now.getTime()-at;
+  const checkpointAge=!Number.isFinite(at)?'NOT_OBSERVED'
+    :delta<0?'FUTURE_UNVERIFIED'
+    :delta<=3*60*60*1000?'WITHIN_3H':'OLDER_THAN_3H';
+  const rawStatus=last?.status;
+  const checkpointStatus=rawStatus==null?'NOT_OBSERVED'
+    :WORKER_CHECKPOINT_STATES.has(rawStatus)?rawStatus:'UNVERIFIED';
+  const runtime=data?.tradeSnapshotWorkerRuntimeAssessment;
+  const runtimeAssessment=runtime==null?'NOT_OBSERVED'
+    :WORKER_RUNTIME_CLASSES.has(runtime)?runtime:'UNVERIFIED';
+  const trigger=data?.tradeSnapshotWorkerTriggerAudit;
+  const triggerVisibility=trigger==null?'NOT_OBSERVED'
+    :trigger.scope!=='CURRENT_USER'?'UNVERIFIED'
+    :trigger.clockReady===true?'ONE_VISIBLE_CLOCK_TRIGGER':'NOT_READY';
+  return {level:'GAS_SAVED_CHECKPOINT_ONLY',
+    processApiExecutionVerified:false,snapshotIntegrityVerified:false,
+    checkpointStatus,checkpointAge,runtimeAssessment,triggerVisibility};
+}
+
 function isExpectedPublicationWait(data,{now,today,issues,slots}) {
   if(krxSessionStatus(today)!=='OPEN')return false;
   const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
@@ -175,6 +207,7 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
     // Supplemental provenance of a checkpoint, not Apps Script Executions.
     historicalSlotReasons,
     historicalSlotRunDates,
+    workerCheckpointEvidence:describeWorkerCheckpointEvidence(data,{now}),
     lastBackfillFailureClass:safeBucket(
       data.latestBackfill?.failureClass,BACKFILL_FAILURE_CLASSES),
     lastHistoricalFailureClass:safeBucket(
@@ -221,10 +254,16 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| 00:30 결과 | '+result.historicalSlotStates['0030']+' |',
         '| 00:30 기록일·사유 | '+result.historicalSlotRunDates['0030']+
           ' / '+result.historicalSlotReasons['0030']+' |',
+        '| Worker GAS 저장 체크포인트 | '+result.workerCheckpointEvidence.checkpointStatus+' |',
+        '| Worker 체크포인트 최신성 | '+result.workerCheckpointEvidence.checkpointAge+' |',
+        '| Worker RUNNING 평가 | '+result.workerCheckpointEvidence.runtimeAssessment+' |',
+        '| Worker 트리거 현재 사용자 관측 | '+result.workerCheckpointEvidence.triggerVisibility+' |',
+        '| Worker 실제 프로세스 실행 증명 | 미확인 (별도 script.processes 권한 필요) |',
         '| KRX 백필 장애 분류 | '+result.lastBackfillFailureClass+' |',
         '| 과거 재처리 장애 분류 | '+result.lastHistoricalFailureClass+' |',
         '',
         '기록일·사유는 비식별 저장 체크포인트 기준이며 실제 GAS 실행 로그나 원인 확정이 아닙니다.',
+        'Worker 저장 체크포인트는 독립 GAS 프로세스 조회·가격이력/스냅샷 저장 검증을 대체하지 않습니다.',
         '가격이력·Snapshot·ScriptProperties를 변경하지 않는 점검입니다.'
       ];
       fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join('\n')+'\n');
