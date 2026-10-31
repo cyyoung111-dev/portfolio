@@ -97,11 +97,11 @@ export function auditBudgetSources(){
    /TIMEZONE:\s*'Asia\/Seoul'/,"TIMEZONE: 'Etc/UTC'")),
    /production CONFIG.TIMEZONE must be Asia\/Seoul/);
   const nearBoundary=new Date('2026-10-30T15:10:00Z');
-  const inSourceZone=new Intl.DateTimeFormat('en-CA',{
+  const inSourceZone=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
    timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'
-  }).format(nearBoundary);
-  assert.equal(inSourceZone,'10/31/2026'===inSourceZone?'10/31/2026':'2026-10-31',
-   'cross-UTC-midnight source timezone must be next KST day');
+  }).formatToParts(nearBoundary).map(x=>[x.type,x.value]));
+  assert.deepEqual([inSourceZone.year,inSourceZone.month,inSourceZone.day],
+   ['2026','10','31'],'cross-UTC-midnight must be next KST day');
   const fast=emulate(fn,timezone,{requestLatencyMs:400});
   assert.deepEqual([fast.results,fast.requests,fast.sleeps],[37,37,37],
    '400ms latency must permit all 37 requests');
