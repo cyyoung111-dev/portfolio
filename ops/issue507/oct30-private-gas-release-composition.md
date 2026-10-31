@@ -2,7 +2,7 @@
 
 ## Scope
 
-This branch is **stacked on PR #801**, not on a merged main. It adds only a private in-memory composer and a production-code-backed integration test. Do not merge it independently of #801 or retarget it without re-verifying the full CI and Codex review.
+PR #801 was squash-merged to `main` as `559e8247885ba651a20a1d3175a07e5dd6a2e036`. PR #802 was then restacked onto that main as a single follow-up commit, preserving only its four intended source/test/documentation changes. The new HEAD requires fresh CI and Codex review before merge.
 
 - Frozen production GAS Git blob: `9c1a5f31d1abc4b44f7da9af7a50fe3f15967134`.
 - Source-only candidate functions: `_issue507Oct30PrivateQuoteProof_`, `_issue507Oct30PrivateLiveReadOnlyProof_`, `_issue507Oct30GuardedPrivateReadOnlyRun_`.
