@@ -1,0 +1,32 @@
+name: issue507-postmerge-actions-readonly
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/audit-issue507-postmerge-actions.mjs'
+      - 'scripts/check-issue507-postmerge-actions.mjs'
+      - '.github/workflows/issue507-postmerge-actions-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Synthetic negative-case tests (no network)
+        run: node scripts/check-issue507-postmerge-actions.mjs
+      - name: Verify actual merge and deploy Action runs (read-only)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/audit-issue507-postmerge-actions.mjs
