@@ -262,6 +262,13 @@ assert.equal(deliveryTrigger('morning',env,morningCompletion,false),false);
 assert.throws(()=>deliveryTrigger('morning',env,completion,true),/TRIGGER_INVALID/);
 assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
  {ref:'refs/heads/main',repository:{full_name:env.GITHUB_REPOSITORY}},true),true);
+assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
+ {ref:'refs/heads/main',repository:{full_name:env.GITHUB_REPOSITORY}},false),false,
+ 'off-hours main workflow push must not enter close preparation or fail TELEGRAM_CLOSE_LATE');
+// A scheduled close still gets its own strong date/market/claim gates;
+// do not relax the observed evening cutoff or permit an off-hour send.
+assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'schedule'},
+ {},false),true,'schedule reaches guarded prepare; no unconditional send');
 assert.throws(()=>deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
  {ref:'refs/heads/feature'},true),/TRIGGER_INVALID/);
 const triggerSource=fs.readFileSync('scripts/telegram-delivery-trigger.mjs','utf8');
