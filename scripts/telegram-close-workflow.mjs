@@ -10,6 +10,7 @@ import {fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 import {fetchShinhanIndexEod} from './shinhan-korean-index-eod.mjs';
 import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
+import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -213,7 +214,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       console.log(JSON.stringify({status:result.status,date:result.date,
         nhConfirmed:result.nhConfirmed||0,domesticConfirmed:result.domesticConfirmed||0}));
     }else if(process.argv[2]==='send'){
-      console.log(JSON.stringify(await deliverClose(JSON.parse(fs.readFileSync('.telegram-close-runtime/payload.json','utf8')),{token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,attempt:process.env.GITHUB_RUN_ATTEMPT})));
+      const payload=JSON.parse(fs.readFileSync('.telegram-close-runtime/payload.json','utf8'));
+      const sent=await deliverAndRecordWeekday(payload,{
+        kind:'close',deliver:deliverClose,
+        token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,
+        attempt:process.env.GITHUB_RUN_ATTEMPT,
+        path:'.telegram-close-runtime/sent.json',runId:process.env.GITHUB_RUN_ID||''
+      });
+      console.log(JSON.stringify(sent));
     }else throw Error('TELEGRAM_CLOSE_MODE_INVALID');
   }catch(e){console.error(/^TELEGRAM_CLOSE_[A-Z_]+$/.test(e?.message||'')?e.message:'TELEGRAM_CLOSE_FAILED');process.exitCode=1;}
 }
