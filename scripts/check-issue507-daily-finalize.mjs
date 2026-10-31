@@ -30,11 +30,17 @@ assert.match(workflow,/if: github\.event_name == 'workflow_dispatch' \|\| steps\
 console.log('Daily exact-date finalize: dry-run, verified apply, source blocked, queue readback PASS');
 
 // Explicitly verified 10/27, 10/28 and 10/29 marker cleanup must never recover or rewrite source data.
-for(const date of ['2026-10-27','2026-10-28','2026-10-29'])for(const blocked of [false,true]){
+for(const date of ['2026-10-27','2026-10-28','2026-10-29','2026-10-30'])for(const blocked of [false,true]){
  const s=server({blocked,dates:[date]});
  await assert.rejects(()=>runDaily({url,token,apply:true,dates:[date],clearOnly:true,fetchImpl:s.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);
  assert.deepEqual(s.writes,blocked?[]:[date]);
  assert.ok(!s.calls.includes('recoverPendingKrxClose')&&!s.calls.includes('getKrxHeldCloseCoverage'));
 }
-await assert.rejects(()=>runDaily({url,token,dates:['2026-10-30'],clearOnly:true}),/DAILY_DATES/);
-assert.match(workflow,/2026-10-22,23,26,27,28,29/,'manual allowed dates must identify newly verified 10\/29');
+// 10/30 is clear-only after persisted price + full Snapshot proof; no
+// source repair through this entry point and no implicit apply.
+await assert.rejects(()=>runDaily({url,token,dates:['2026-10-30'],clearOnly:false}),/DAILY_DATES/);
+const oct30Preview=server({dates:['2026-10-30']});
+await assert.rejects(()=>runDaily({url,token,dates:['2026-10-30'],clearOnly:true,
+ apply:false,fetchImpl:oct30Preview.fetchImpl}),/AUTOMATION_DIAG_NETWORK_FAILED/);
+assert.deepEqual(oct30Preview.writes,[]);
+assert.match(workflow,/2026-10-22,23,26,27,28,29,30/,'manual clear-only dates must include 10/30');
