@@ -71,3 +71,12 @@ jobs:
           # The separate send process must receive the same rescue mode.
           TELEGRAM_DISPATCH_MODE: ${{ inputs.mode || '' }}
         run: node scripts/telegram-morning-workflow.mjs send
+      - name: Archive Telegram API-confirmed SENT proof
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}-sent
+          path: .telegram-runtime/sent.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
