@@ -11,7 +11,7 @@
 - 목록 조회 전/후 버전이 다르면 같은 데이터 원천의 연속 관측이 아니므로 `QUEUE_CHANGED`로 실패합니다. 보고서의 gasVersion은 실제 응답을 반영하며, 임의의 v9.244로 고정하지 않습니다.
 - 9.283 이상 새 버전, 누락 및 엇갈린 gasVersion은 별도 검증 없이는 거부합니다.
 - synthetic end-to-end에서 9.281/9.282 각각 인증/5개 요청/읽기 전용 및 0건 금융 변경과 중간 버전 변경 차단을 검증합니다.
-- 같은 `validateInventory`를 공유하는 `issue507-backup-registry-readonly.mjs`와 `issue507-three-day-code-lineage-readonly.mjs`의 **보고 버전도 실제 응답에 맞춰 수정**합니다. 각 리포트는 진단 시작/끝 버전이 같아야 하고, 모의 운영 9.281/9.282에서 리포트 버전과 복구·삭제 허용값=false 및 쓰기 0건을 테스트합니다. 버전을 독립 검증하지 않은 순수 합성 집계에는 9.244를 단정하지 않습니다.
+- 같은 `validateInventory`를 공유하는 `issue507-backup-registry-readonly.mjs`, `issue507-three-day-code-lineage-readonly.mjs`, `issue507-complete-backup-candidates-readonly.mjs`의 **보고 버전도 실제 응답에 맞춰 수정**합니다. 각 리포트는 진단 시작/끝 버전이 같아야 하고, 모의 운영 9.281/9.282에서 리포트 버전과 복구·삭제 허용값=false 및 쓰기 0건을 테스트합니다. 버전을 독립 검증하지 않은 순수 합성 집계에는 9.244를 단정하지 않습니다.
 
 **운영 실행은 수행하지 않습니다.** `workflow_dispatch`의 운영 읽기 전용 job은 계속 `main`+manual 및 `portfolio-production-gas` 환경으로 제한됩니다. GAS 생산소스, Apps Script 속성/트리거, 금융 Snapshot 39행 및 F00002 경고, NH·Telegram 전송/토큰 처리 변경 없음.
 
