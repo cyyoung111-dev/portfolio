@@ -691,6 +691,11 @@ async function pollCurrentPrices() {
       && (!_gsBootRestored || _gsPortfolioRestoreRequired)) return false;
   try {
     const requestDate = getDateStr(0);
+    // A trades-tab reload can begin and finish while the quote request waits.
+    // Snapshot its epoch so even a completed intermediate restore invalidates
+    // the stale response before touching displayed portfolio prices.
+    const settingsLoadEpoch = typeof _gsSettingsLoadEpoch !== 'undefined'
+      ? _gsSettingsLoadEpoch : null;
     const dateInput = typeof $el === 'function' ? $el('quickDateInput') : null;
     if (dateInput?.value && dateInput.value !== requestDate) return false;
     const targetUrl = String(GSHEET_API_URL || '').trim();
@@ -699,6 +704,9 @@ async function pollCurrentPrices() {
     const results = await fetchFromGsheet(requestDate, { persist: false, polling: true });
     // Never apply an in-flight request to a different workbook or hidden tab.
     if (document.hidden || _fullPortfolioUpdateInProgress
+        || (typeof _gsBootRestored !== 'undefined'
+            && (!_gsBootRestored || _gsPortfolioRestoreRequired))
+        || (settingsLoadEpoch !== null && _gsSettingsLoadEpoch !== settingsLoadEpoch)
         || getDateStr(0) !== requestDate
         || (dateInput?.value && dateInput.value !== requestDate)
         || String(GSHEET_API_URL || '').trim() !== targetUrl
