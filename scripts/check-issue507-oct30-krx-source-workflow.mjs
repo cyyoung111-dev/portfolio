@@ -44,8 +44,9 @@ assert.equal(missing.ready,false);
 assert.equal(missing.missing,1);
 const wrong=payload();wrong.coverage.requestedDate='2026-10-29';
 assert.throws(()=>summarizeHeldCoverage(wrong,DATE),/BAD_RESPONSE/);
-const stale=payload();stale.coverage.staleCodes=1;
-assert.equal(summarizeHeldCoverage(stale,DATE).ready,false);
+const stale=payload(36);stale.coverage.staleCodes=1;
+assert.equal(summarizeHeldCoverage(stale,DATE).ready,false,
+ 'stale count must be a subset of missing dates');
 const secret='SENSITIVE_TOKEN';
 const calls=[];
 const mock=async(_url,request)=>{
