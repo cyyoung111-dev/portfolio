@@ -314,3 +314,40 @@ assert.equal(manualMissing.ok,false);
 assert.equal(manualMissing.calls.length,1);
 assert.match(manualMissing.status.at(-1).message,/마지막 정상 평가가격 유지/);
 console.log('PRICE_ONLY_MANUAL_REFRESH PASS readonly=true fullRestore=false pastDateGuard=true');
+
+// Verify non-persistent quotes never join a persistent writer's in-flight
+// request for the same workbook, generation, and date.
+const fetchOuter = source.match(/async function fetchFromGsheet\(dateStr, options\)\s*\{([\s\S]*?)\n\}/);
+assert.ok(fetchOuter, 'must test actual fetchFromGsheet wrapper');
+assert.match(fetchOuter[1], /'\|p='\s*\+\s*\(options\?\.persist/);
+{
+  const calls=[], pending=[];
+  const context=vm.createContext({
+    GSHEET_API_URL:'https://script.google.com/macros/s/test/exec',
+    getGsheetConnectionGeneration:()=>1,
+    isGsheetPortfolioWriteReady:()=>true,
+    _fetchFromGsheetInner:async (date,opts)=>{
+      const mode=opts.persist?'write':'read';
+      calls.push({date,mode});
+      return await new Promise(resolve=>pending.push({mode,resolve}));
+    }
+  });
+  vm.runInContext('const _inFlightFetches = {};\nasync function fetchFromGsheet(dateStr, options) {'
+    + fetchOuter[1] + '\n}',context);
+  const quote1=vm.runInContext("fetchFromGsheet('2026-11-01',{persist:false})",context);
+  const quote2=vm.runInContext("fetchFromGsheet('2026-11-01',{persist:false})",context);
+  const writer=vm.runInContext("fetchFromGsheet('2026-11-01',{persist:true})",context);
+  assert.equal(calls.length,2,'same mode deduplicated, read/write mode isolated');
+  assert.deepEqual(calls.map(x=>x.mode),['read','write']);
+  pending.find(x=>x.mode==='read').resolve({kind:'quote-only'});
+  assert.equal((await quote1).kind,'quote-only');
+  assert.equal((await quote2).kind,'quote-only');
+  pending.find(x=>x.mode==='write').resolve({kind:'price-writer'});
+  assert.equal((await writer).kind,'price-writer');
+
+  const next=vm.runInContext("fetchFromGsheet('2026-11-01',{persist:false})",context);
+  assert.equal(calls.length,3,'completed in-flight key must be released');
+  pending.at(-1).resolve({kind:'fresh-quote'});
+  assert.equal((await next).kind,'fresh-quote');
+}
+console.log('PASS: read-only price lookup isolated from same-date persist=true writer');
