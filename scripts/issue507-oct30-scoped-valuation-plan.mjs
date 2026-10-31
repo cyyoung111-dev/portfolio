@@ -5,7 +5,7 @@ export const TARGET_DATE = '2026-10-30';
 const OLD_SOURCE = 'KRX_CARRY@2026-10-29';
 const FUNDS = new Set(['F00001','F00002']);
 const EXCHANGES = new Set(['KRX','KRX_OTP']);
-const NUMERIC = /^[0-9]+(?:\.[0-9]+)?$/;
+const NUMERIC = /^-?[0-9]+(?:\.[0-9]+)?$/;
 
 function stop(reason){throw Error('ISSUE507_SCOPE_PLAN_'+reason);}
 function str(x){return String(x??'').trim();}
