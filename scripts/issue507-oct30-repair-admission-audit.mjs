@@ -43,6 +43,7 @@ export function inspectOct30RepairAdmission({
     &&gate.barrierAt>=gate.rolloutVerifiedAt
     &&gate.observedAt>=gate.barrierAt+420000
     &&gate?.legacyTerminalRunsIndependentlyVerified===true
+    &&typeof gate?.releaseId==='string'&&gate.releaseId.length>0
     &&gate?.releaseId===operator?.expectedGateReleaseId,
     'GLOBAL_WRITER_DRAIN_NOT_PROVEN');
   add(lock?.scriptLockHeld===true&&lock?.ownerOperationId===op
@@ -73,8 +74,8 @@ export function inspectOct30RepairAdmission({
     date:DAY,
     status:blockers.length?'BLOCKED':'CHECKLIST_COMPLETE_NOT_EXECUTABLE',
     blockers:Object.freeze(blockers),
-    checksPassed:8-blockers.length,
-    requiredChecks:8,
+    checksPassed:7-blockers.length,
+    requiredChecks:7,
     existingProductionGateAllowsDrainedRepair:false,
     sourceOnlyEvidenceCanAuthorizeFinancialWrite:false,
     writeAuthorized:false,
