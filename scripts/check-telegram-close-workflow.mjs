@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import YAML from 'yaml';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
@@ -330,6 +333,39 @@ assert.deepEqual(morningWorkflow.on.workflow_dispatch.inputs.mode.options,['resc
 assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare').if,/inputs.mode == 'rescue'/);
 assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Manual connection test only').if,/inputs.mode == 'connection_test'/);
 assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.TELEGRAM_BOT_TOKEN,'${{ secrets.TELEGRAM_BOT_TOKEN }}');
+
+const morningPrepareStep=morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare');
+const morningSendStep=morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once');
+assert.equal(morningPrepareStep.env.TELEGRAM_DISPATCH_MODE,"${{ inputs.mode || '' }}");
+assert.equal(morningSendStep.env.TELEGRAM_DISPATCH_MODE,morningPrepareStep.env.TELEGRAM_DISPATCH_MODE,
+ 'workflow_dispatch rescue must be present on BOTH prepare and send process environments');
+assert.equal(morningSendStep.env.GAS_ACCESS_TOKEN,undefined,
+ 'never pass operational GAS access token to Telegram send');
+// Validate the real CLI guard for both prepare and send modes with a synthetic
+// GitHub event and intentionally absent payload. No Telegram API is contacted.
+const sandbox=fs.mkdtempSync(join(tmpdir(),'telegram-dispatch-guard-'));
+try{
+ const eventPath=join(sandbox,'event.json');
+ fs.writeFileSync(eventPath,JSON.stringify({inputs:{mode:'rescue'}}));
+ const baseEnv={...process.env,GITHUB_EVENT_NAME:'workflow_dispatch',
+   GITHUB_EVENT_PATH:eventPath,GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',
+   GITHUB_REF:'refs/heads/main',GITHUB_RUN_ATTEMPT:'1',
+   TELEGRAM_BOT_TOKEN:'INTENTIONALLY_INVALID',TELEGRAM_CHAT_ID:'0'};
+ const cli=(mode,dispatch)=>spawnSync(process.execPath,
+   ['scripts/telegram-morning-workflow.mjs',mode],
+   {encoding:'utf8',env:{...baseEnv,TELEGRAM_DISPATCH_MODE:dispatch}});
+ const denied=cli('send','');
+ assert.equal(denied.status,1);
+ assert.match(denied.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/);
+ const deniedTest=cli('send','connection_test');
+ assert.equal(deniedTest.status,1);
+ assert.match(deniedTest.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/);
+ const acceptedMode=cli('send','rescue');
+ assert.equal(acceptedMode.status,1,'missing payload must fail closed');
+ assert.doesNotMatch(acceptedMode.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/,
+   'rescue send mode must pass process guard to dated payload verification');
+}finally{fs.rmSync(sandbox,{recursive:true,force:true});}
+
 assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
 
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
