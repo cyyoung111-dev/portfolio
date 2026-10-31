@@ -435,7 +435,11 @@ function _resolvePriceDateLabel(baseLabel, key, responseMeta) {
   return baseLabel;
 }
 
+let _fullPortfolioUpdateInProgress = false;
+
 async function quickFetchByDate() {
+  // A price-only request must finish before an authoritative GAS restore starts.
+  if (_fullPortfolioUpdateInProgress || _manualPriceRefreshInFlight) return;
   const dateInput = $el('quickDateInput');
   const btn = $el('quickFetchBtn');
   const priceBtn = $el('quickPriceBtn');
@@ -443,6 +447,7 @@ async function quickFetchByDate() {
   if (!dateInput.value) dateInput.value = getDateStr(0);
   const targetDate = dateInput.value;
 
+  _fullPortfolioUpdateInProgress = true;
   btn.disabled = true;
   if (priceBtn) priceBtn.disabled = true;
   btn.setAttribute('aria-busy', 'true');
@@ -456,6 +461,7 @@ async function quickFetchByDate() {
     if (priceBtn) priceBtn.disabled = false;
     btn.removeAttribute('aria-busy');
     btn.querySelector('span').textContent = '업데이트';
+    _fullPortfolioUpdateInProgress = false;
     return;
   }
 
@@ -552,6 +558,7 @@ async function quickFetchByDate() {
   } catch(e) {
     setStatusLabel('❌ 조회 실패: ' + e.message, 'error');
   } finally {
+    _fullPortfolioUpdateInProgress = false;
     btn.disabled = false;
     if (priceBtn) priceBtn.disabled = false;
     btn.removeAttribute('aria-busy');
@@ -679,15 +686,22 @@ let _pricePollingTimer = null;
 let _pricePollingVisibilityBound = false;
 
 async function pollCurrentPrices() {
-  if (document.hidden || !GSHEET_API_URL) return false;
+  if (document.hidden || !GSHEET_API_URL || _fullPortfolioUpdateInProgress) return false;
+  if (typeof _gsBootRestored !== 'undefined'
+      && (!_gsBootRestored || _gsPortfolioRestoreRequired)) return false;
   try {
     const requestDate = getDateStr(0);
+    const dateInput = typeof $el === 'function' ? $el('quickDateInput') : null;
+    if (dateInput?.value && dateInput.value !== requestDate) return false;
     const targetUrl = String(GSHEET_API_URL || '').trim();
     const generation = typeof getGsheetConnectionGeneration === 'function'
       ? getGsheetConnectionGeneration() : 0;
     const results = await fetchFromGsheet(requestDate, { persist: false, polling: true });
     // Never apply an in-flight request to a different workbook or hidden tab.
-    if (document.hidden || String(GSHEET_API_URL || '').trim() !== targetUrl
+    if (document.hidden || _fullPortfolioUpdateInProgress
+        || getDateStr(0) !== requestDate
+        || (dateInput?.value && dateInput.value !== requestDate)
+        || String(GSHEET_API_URL || '').trim() !== targetUrl
         || (typeof isGsheetConnectionCurrent === 'function'
           && !isGsheetConnectionCurrent(targetUrl, generation))) return false;
     if (!results || Object.keys(results).length === 0) return false;
