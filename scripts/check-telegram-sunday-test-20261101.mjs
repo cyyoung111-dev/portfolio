@@ -140,6 +140,77 @@ for (const [period,clock] of [['morning',morning],['close',closing]]) {
   'read-only composer must not request Telegram, Google OAuth or Script APIs');
 }
 
+// The same real composer must accept only correctly dated past observations.
+// All "providers" below are local synthetic responses. A stale Friday-US
+// series and an NH-only index are deliberately denied; neither may be
+// silently substituted or elevated to a verified Sunday close.
+for (const [period,clock,expectedCount] of [
+  ['morning',morning,4],['close',closing,5]
+]) {
+  const queried=[],forbidden=[];
+  const chart=(symbol,isoDates,prices,zone='America/New_York')=>({
+    chart:{result:[{meta:{symbol,exchangeTimezoneName:zone},
+      timestamp:isoDates.map(x=>Date.parse(x)/1000),
+      indicators:{quote:[{close:prices}]}}]}
+  });
+  const dated={
+    '^DJI':chart('^DJI',['2026-10-29T20:00:00Z','2026-10-30T20:00:00Z'],[51000,51200]),
+    'NVDA':chart('NVDA',['2026-10-29T20:00:00Z','2026-10-30T20:00:00Z'],[195,201]),
+    'MU':chart('MU',['2026-10-28T20:00:00Z','2026-10-29T20:00:00Z'],[112,113]),
+    '^TNX':chart('^TNX',['2026-10-29T20:00:00Z','2026-10-30T20:00:00Z'],[40.8,41.2]),
+    'BTC-USD':chart('BTC-USD',['2026-10-30T18:00:00Z','2026-10-31T18:00:00Z'],[69000,70000],'Etc/UTC')
+  };
+  const syntheticFetch=async (endpoint,init={})=>{
+    const url=String(endpoint);
+    queried.push(url);
+    if(url==='https://script.google.com/macros/s/TEST_SUNDAY_COMPOSE/exec'){
+      const form=new URLSearchParams(init.body);
+      assert.equal(form.get('action'),'getMarketBriefingMaster');
+      assert.equal(form.get('accessToken'),'SYNTHETIC_ONLY');
+      return {ok:true,status:200,json:async()=>({status:'ok',observations:[{
+        seriesId:'KOSPI',status:'FINAL',value:4100,sourceDate:'2026-10-30',
+        receivedAt:'2026-10-30T16:00:00+09:00',
+        source:'KRX_OFFICIAL',finality:'REGULAR_CLOSE',session:'REGULAR'
+      },{
+        seriesId:'KOSDAQ',status:'FINAL',value:999,sourceDate:'2026-10-29',
+        receivedAt:'2026-10-30T16:00:00+09:00',
+        source:'KRX_OFFICIAL',finality:'REGULAR_CLOSE',session:'REGULAR'
+      }]})};
+    }
+    if(url.includes('/v8/finance/chart/')){
+      const symbol=decodeURIComponent(new URL(url).pathname.split('/').at(-1));
+      if(['^GSPC','^IXIC','^NDX'].includes(symbol))
+        forbidden.push(symbol);
+      return dated[symbol]
+        ?{ok:true,status:200,json:async()=>dated[symbol]}
+        :{ok:false,status:503};
+    }
+    return {ok:false,status:503};
+  };
+  const full=await composeSunday(period,{now:clock,
+    gasUrl:'https://script.google.com/macros/s/TEST_SUNDAY_COMPOSE/exec',
+    gasToken:'SYNTHETIC_ONLY',fetchImpl:syntheticFetch});
+  assert.equal(full.sourceCount,expectedCount);
+  assert.ok(full.text.length<4000 && full.text.length>100);
+  assert.match(full.text,/KOSPI: 4,100.*2026-10-30/);
+  assert.match(full.text,/다우존스: 51,200.*2026-10-30/);
+  assert.match(full.text,/엔비디아: 201.*2026-10-30/);
+  assert.match(full.text,/미 10년물: 4.12%.*2026-10-30/);
+  assert.match(full.text,/마이크론: (미확보|확정 출처 미확보)/);
+  assert.doesNotMatch(full.text,/마이크론: 113/,'stale Thursday close cannot masquerade as Friday');
+  assert.match(full.text,/S&P 500: (미확보|확정 출처 미확보)/);
+  assert.match(full.text,/NASDAQ100: (미확보|확정 출처 미확보)/);
+  if(period==='morning'){
+    assert.match(full.text,/BTC: 미확보/,'Sunday 07:35 KST BTC must be skipped');
+  }else{
+    assert.match(full.text,/BTC: 70,000.*2026-10-31/);
+  }
+  assert.deepEqual(forbidden,[],'NH-only indices may not call Yahoo');
+  assert.ok(queried.every(u=>!u.includes('api.telegram.org')
+    && !u.includes('oauth2.googleapis.com') && !u.includes('script.googleapis.com')
+    && !u.includes('getBenchmarks')),'synthetic data path must never trigger secrets, NH tokens or Telegram');
+}
+
 const rows=[{label:'KOSPI',symbol:'^KS11',date:'2026-10-30',value:4100,
  changePercent:1,source:'FDR_KRX_CACHE'},
  {label:'S&P 500',symbol:'^GSPC',date:'2026-10-30',value:7000,
