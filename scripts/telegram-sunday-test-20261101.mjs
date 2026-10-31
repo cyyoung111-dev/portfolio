@@ -3,7 +3,6 @@ import {pathToFileURL} from 'node:url';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {MORNING_SERIES,collectMorningSeries,hasExpectedMorningDate,formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import {fetchDatedDaily,loadMorningDomesticDailyIndexes,sendTelegram} from './telegram-morning-briefing.mjs';
-import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {NH_ONLY_INDEX_SYMBOLS,loadMorningMaster,mergeMorningSourceRows} from './telegram-morning-master.mjs';
 
 export const DATE='2026-11-01';
@@ -49,7 +48,9 @@ export function formatClosingTest(rows=[]){
     const config=MORNING_SERIES.find(x=>x.id===id);
     const row=map.get(id);
     if(!row)return config.label+': 확정 출처 미확보';
-    const value=row.value.toLocaleString('en-US',{maximumFractionDigits:2});
+    // Yahoo ^TNX quotations are 10x percentage yield; keep morning/close units identical.
+    const isYield=id==='UST10Y';
+    const value=(isYield?row.value/10:row.value).toLocaleString('en-US',{maximumFractionDigits:isYield?3:2})+(isYield?'%':'');
     const pct=Number.isFinite(row.changePercent)
       ?' ('+(row.changePercent>=0?'+':'')+row.changePercent.toFixed(2)+'%)':'';
     return config.label+': '+value+pct+' ['+row.date+' · '+row.source+']';
@@ -72,14 +73,14 @@ export async function composeSunday(period,{now=()=>new Date(),fetchImpl=fetch,
     gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
   const date=DATE;
   // Existing GAS read-only endpoints only; never issue NH credentials/tokens or write sheets.
-  const [master,nh,domestic,external]=await Promise.all([
+  // Never call GAS getBenchmarks here: a cache miss can refresh the NH OAuth token.
+  const [master,domestic,external]=await Promise.all([
     loadMorningMaster(date,{url:gasUrl,token:gasToken,fetchImpl,now:now()}).catch(()=>[]),
-    readNhMorningIndexes(date,{url:gasUrl,token:gasToken,fetchImpl}).catch(()=>[]),
     loadMorningDomesticDailyIndexes(date,{fetchImpl,now}).catch(()=>[]),
     collectMorningSeries(date,{fetchDaily:fetchDatedDaily,now:now(),fetchImpl,
       skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200'])}).catch(()=>[])
   ]);
-  const rows=mergeMorningSourceRows(external,master,nh,domestic);
+  const rows=mergeMorningSourceRows(external,master,[],domestic);
   let text=period==='morning'
     ?'[일요일 장전 브리핑 전송 테스트 | '+DATE+']\nTEST ONLY · 일요일 휴장, 당일 거래/장전 신호 아님. 마지막 완료 거래일과 원천만 참고합니다.\n\n'
       +formatFullMorningBriefing(date,null,rows)
