@@ -21,7 +21,7 @@ export async function auditIssue507PostmergeActions({
    throw Error('ISSUE507_AUDIT_PARAMETERS_UNVERIFIED');
  let calls=0;
  async function get(path){
-   if(!/^\/repos\/cyyoung111-dev\/portfolio\/(?:commits\/[a-f0-9]{40}|actions\/(?:workflows\/(?:gas-deploy|quality-check)\.yml\/runs\?[a-z0-9&=]+|runs\/[0-9]+\/jobs\?[a-z0-9&=]+))$/.test(path))
+   if(!/^\/repos\/cyyoung111-dev\/portfolio\/(?:commits\/[a-f0-9]{40}|actions\/(?:workflows\/(?:gas-deploy|quality-check)\.yml\/runs\?[a-z0-9_&=]+|runs\/[0-9]+\/jobs\?[a-z0-9_&=]+))$/.test(path))
      throw Error('ISSUE507_AUDIT_UNSAFE_PATH');
    calls++;
    let response;
