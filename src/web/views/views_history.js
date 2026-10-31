@@ -883,7 +883,7 @@ function renderStocksView(area) {
             : '서버 종목코드 ' + count + '개 읽기 전용 복원 · 전체 설정 복원 미완료'
                 + (typeof getGsheetSettingsLoadFailure === 'function' && getGsheetSettingsLoadFailure()
                     ? ' (' + getGsheetSettingsLoadFailure() + ')' : '')
-                + ' · 종목 목록 자체의 오류가 아닙니다 · 변경·저장 금지';
+                + ' · 종목 목록 자체의 오류가 아닙니다 · 전체 설정 복원 미완료: 변경·저장하지 말고 연결 상태를 확인하세요.';
           currentMsg.style.color = fullRestoreDone ? 'var(--green-lt)' : 'var(--amber)';
         }
       } else if (currentMsg) {
