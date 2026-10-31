@@ -13,6 +13,13 @@
 - synthetic end-to-end에서 9.281/9.282 각각 인증/5개 요청/읽기 전용 및 0건 금융 변경과 중간 버전 변경 차단을 검증합니다.
 - 같은 `validateInventory`를 공유하는 `issue507-backup-registry-readonly.mjs`, `issue507-three-day-code-lineage-readonly.mjs`, `issue507-complete-backup-candidates-readonly.mjs`의 **보고 버전도 실제 응답에 맞춰 수정**합니다. 각 리포트는 진단 시작/끝 버전이 같아야 하고, 모의 운영 9.281/9.282에서 리포트 버전과 복구·삭제 허용값=false 및 쓰기 0건을 테스트합니다. 버전을 독립 검증하지 않은 순수 합성 집계에는 9.244를 단정하지 않습니다.
 
+## 가격이력 읽기 전용 진단의 추가 차단 해소
+
+- `issue507-price-history-row-audit-readonly.mjs` 역시 v9.244만 허용하고 결과 보고에도 9.244를 고정 출력하던 버그가 있었습니다.
+- `reference/gas-v9.281.gs`와 후보 `src/gas/apps_script.gs`의 `_priceIntegrityRows`, `diagnosePriceHistoryIntegrity`, `handleDiagnosePriceHistoryIntegrity` 전체 함수 본문이 9.282 writer gate 진입문을 제외하고 동일함을 검산했습니다.
+- 이 감사를 v9.244/9.281/9.282로 정확히 제한하고 `getAutomationStatus` 최상위/내부 버전을 대조하며, 진단 전후의 버전·원천 digest·revision이 변하면 실패합니다. 보고 버전은 실제 관측 버전만 사용합니다.
+- 9.281/9.282 synthetic end-to-end와 미승인 신규 버전, 상·하위 버전 충돌, 결과의 금융 원본 변경 0건을 회귀 검증합니다. 기존 운영 job의 `main` 수동 실행 제한을 유지합니다.
+
 **운영 실행은 수행하지 않습니다.** `workflow_dispatch`의 운영 읽기 전용 job은 계속 `main`+manual 및 `portfolio-production-gas` 환경으로 제한됩니다. GAS 생산소스, Apps Script 속성/트리거, 금융 Snapshot 39행 및 F00002 경고, NH·Telegram 전송/토큰 처리 변경 없음.
 
 이 PR 병합은 GAS v9.282 운영 배포나 F00001 금융 원본 쓰기를 허용하지 않습니다. #507
