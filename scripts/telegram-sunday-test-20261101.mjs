@@ -143,6 +143,15 @@ export function persistConfirmedSundaySent(sent,payload,{
   writeFile(path,JSON.stringify(proof),{flag:'wx'});
   return proof;
 }
+// This is the actual production send + proof path. On send failure, the
+// receipt writer must never be reached.
+export async function deliverAndRecordSunday(payload,{
+  now=()=>new Date(),token,chatId,send=sendTelegram,
+  path='.sunday-test-runtime/sent.json',runId=''}={}){
+  const sent=await deliverSunday(payload,{now,token,chatId,send});
+  persistConfirmedSundaySent(sent,payload,{path,runId});
+  return sent;
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try {
     const eventName=process.env.GITHUB_EVENT_NAME;
@@ -169,9 +178,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       if(payload.period!==period)throw Error('SUNDAY_TEST_PERIOD_MISMATCH');
       // A dated claim proves that sending was attempted, not that Telegram accepted it.
       // Write the non-sensitive receipt only AFTER sendTelegram verifies API ok:true.
-      const sent=await deliverSunday(payload,{
-        token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID});
-      persistConfirmedSundaySent(sent,payload,{runId:process.env.GITHUB_RUN_ID||''});
+      const sent=await deliverAndRecordSunday(payload,{
+        token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,
+        runId:process.env.GITHUB_RUN_ID||''});
       console.log(JSON.stringify(sent));
     }else throw Error('SUNDAY_TEST_MODE_INVALID');
   }catch(e){console.error(/^SUNDAY_TEST_[A-Z_]+$/.test(e?.message||'')?e.message:'SUNDAY_TEST_FAILED');process.exitCode=1;}
