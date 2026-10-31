@@ -6,6 +6,8 @@ import {
   deploymentIdFromWebAppUrl,
   extractExpectedGasVersion,
   assertGasReleaseReady,
+  assertIssue507ManualReleasePermission,
+  rollbackGasCode,
   assertGasProjectFileSet,
   assertGasCreatedVersionReady,
   gasSourceBlobSha,
@@ -14,6 +16,31 @@ import {
   selectServerFile,
   verifyDeploymentVersionWithRetry,
 } from './deploy-gas.mjs';
+
+// Explicit approval gate: a main push/quality success can never publish the
+// first stateful gate release; diagnostic and dry-run remain read-only.
+for(const mode of [
+ {version:'9.282',eventName:'workflow_run',approved:false},
+ {version:'9.282',eventName:'workflow_run',approved:true},
+ {version:'9.282',eventName:'workflow_dispatch',approved:false},
+ {version:'9.282',eventName:undefined,approved:true},
+])assert.throws(()=>assertIssue507ManualReleasePermission(mode),/GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_dispatch',approved:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_run',dryRun:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_run',diagnosticOnly:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.281',eventName:'workflow_run'}));
+let unsafeRollbackReads=0,unsafeRollbackWrites=0;
+await assert.rejects(()=>rollbackGasCode({
+ beforeFiles:[{name:'Code',type:'SERVER_JS',source:'// Google Apps Script v9.281'}],
+ candidateFiles:[{name:'Code',type:'SERVER_JS',source:"var ISSUE507_GATE_RELEASE_ID='example';"}],
+ readFiles:async()=>{unsafeRollbackReads++;return [];},
+ writeFiles:async()=>{unsafeRollbackWrites++;},
+ readDeployment:async()=>({deploymentConfig:{versionNumber:1}}),
+ writeDeployment:async()=>{unsafeRollbackWrites++;},
+ beforeDeployment:{deploymentConfig:{versionNumber:1}},newVersion:2
+}),/GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.equal(unsafeRollbackReads,0);
+assert.equal(unsafeRollbackWrites,0);
 
 assert.equal(deploymentIdFromWebAppUrl('https://script.google.com/macros/s/AKfycb-example/exec'), 'AKfycb-example');
 assert.throws(() => deploymentIdFromWebAppUrl('https://example.com/not-gas'), /deployment ID/);
@@ -630,7 +657,12 @@ if (hasStackedKrxRecovery) {
     'partial stacked source should not pass the production readiness gate');
 }
 
+const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+assert.match(workflow,/approve_9282:\s*\n(?:.|\n)*?default:\s*false/);
+assert.match(workflow,/GAS_9282_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9282/);
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
+assert.match(deployScript,/assertIssue507ManualReleasePermission\(\{/);
+assert.ok(deployScript.indexOf('assertIssue507ManualReleasePermission({') < deployScript.indexOf('const accessToken = await getAccessToken()'),'manual release gate must run before OAuth');
 assert.ok(deployScript.includes("'9.278': Object.freeze(['e383b7c3809ce6426aa3d502bb6c22a6bb175dbf','c77c539568f2dc3b2af4bcb729e8e38bbf6cee82','dca53650aae621c3d9efb97d677dfb763f48b84d','85e5a73565344b24007e81acd80db2b3a1067e46','df680956105a1184a9fdacfc41725626f7b74d72'])"),
   'only exact reviewed GAS full-source blobs may be accepted for 9.278');
 assert.ok(deployScript.includes('Array.isArray(reviewed) ? reviewed : [reviewed]'),
