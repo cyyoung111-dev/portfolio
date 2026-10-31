@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {createHash} from 'node:crypto';
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const runtime=source.slice(source.indexOf('// NH native GAS price provider'));
 assert.ok(runtime.includes('function fetchPricesNh('));
 const extract=name=>{const match=source.match(new RegExp('function '+name+'\\([^]*?\\n\\}'));assert.ok(match,name);return match[0];};
@@ -278,11 +279,11 @@ const liveMock=async(url,options)=>{
   const p=new URLSearchParams(options.body);actions.push(p.get('action'));
   let body;
   if(p.get('accessToken').endsWith('-DENY-PROBE'))body={status:'error'};
-  else if(p.get('action')==='getSettings')body={status:'ok',gasVersion:'9.281',settings:{apiKeyStatus:{nh:{enabled:false}}}};
+  else if(p.get('action')==='getSettings')body={status:'ok',gasVersion:'9.282',settings:{apiKeyStatus:{nh:{enabled:false}}}};
   else if(p.get('action')==='saveNhConfig')body={status:'ok',nh:{enabled:true}};
   else if(p.get('action')==='diagnoseNhMarketData')body={status:'ok',readOnly:true,quotesConnected:true,closes:{},closeSampleComplete:false};
   else if(p.get('action')==='retireLegacyMarketData')body={status:'ok',retired:true};
-  else if(p.get('action')==='getCodeListReadOnly')body={status:'ok',readOnly:true,gasVersion:'9.281',codes:registered};
+  else if(p.get('action')==='getCodeListReadOnly')body={status:'ok',readOnly:true,gasVersion:'9.282',codes:registered};
   else {assert.equal(p.get('persist'),'0');assert.equal(p.get('codes'),'005930,NVDA');body={status:'ok',prices:{'005930':232000,NVDA:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}};}
   return {ok:true,json:async()=>body};
 };
@@ -300,7 +301,7 @@ const skipReadback=await activateNhRuntime({url:'https://script.google.com/macro
     autoCalls.push(action);
     if(params.get('accessToken').endsWith('-DENY-PROBE'))return {ok:true,json:async()=>({status:'error'})};
     if(action==='getSettings')return {ok:true,json:async()=>({
-      status:'ok',gasVersion:'9.281',settings:{apiKeyStatus:{nh:{enabled:true}}}})};
+      status:'ok',gasVersion:'9.282',settings:{apiKeyStatus:{nh:{enabled:true}}}})};
     if(action==='retireLegacyMarketData')return {ok:true,json:async()=>({status:'ok',retired:true})};
     throw Error('AUTO_DEPLOY_MUST_NOT_CALL_NH_QUOTES_OR_CODE_MASTER');
   }});
@@ -312,7 +313,7 @@ assert.match(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'),
   /NH_RUNTIME_SKIP_READBACK_IF_ACTIVE:.*github\.event_name == 'workflow_run'/);
 const fallback=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',key:'nh-key',secret:'nh-secret',request:async(url,options)=>{
   const p=new URLSearchParams(options.body);
-  if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.281',codes:[registered[0]]})};
+  if(p.get('action')==='getCodeListReadOnly')return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:'9.282',codes:[registered[0]]})};
   if(p.get('action')==='getPrices'){assert.equal(p.get('codes'),'005930,AAPL');assert.equal(p.get('persist'),'0');return {ok:true,json:async()=>({status:'ok',prices:{'005930':232000,AAPL:349.6718},priceLookup:{currentProvider:'NH',tossResultCount:2}})};}
   return liveMock(url,options);
 }});
@@ -324,9 +325,9 @@ assert.ok(workflow.indexOf('run: node scripts/deploy-gas.mjs')<workflow.indexOf(
 assert.match(workflow,/name: Activate NH current prices after real GAS deployment\n\s+if: env.GAS_DEPLOY_DRY_RUN != 'true'/);
 
 // Future GAS releases must not fail the activation step solely due to a
-// pinned 9.281 string; old, malformed and cross-version replies fail closed.
-for(const [version,allowed] of [['9.281',true],['9.282',true],['9.300',true],
-  ['9.280',false],['9.0280',false],['10.0',false],['9.281-rc1',false],['',false],[null,false]])
+// pinned 9.282 string; old, malformed and cross-version replies fail closed.
+for(const [version,allowed] of [['9.282',true],['9.282',true],['9.300',true],
+  ['9.280',false],['9.0280',false],['10.0',false],['9.282-rc1',false],['',false],[null,false]])
   assert.equal(isCompatibleNhGasVersion(version),allowed,String(version));
 const versionRequest=(settingsVersion,masterVersion=settingsVersion,active=true)=>async(_url,options)=>{
   const p=new URLSearchParams(options.body),action=p.get('action');
@@ -341,7 +342,7 @@ const versionRequest=(settingsVersion,masterVersion=settingsVersion,active=true)
   if(action==='diagnoseNhMarketData')return {ok:true,json:async()=>({status:'ok',readOnly:true})};
   throw Error('UNEXPECTED_VERSION_TEST_ACTION');
 };
-for(const version of ['9.281','9.282']){
+for(const version of ['9.282','9.282']){
   const skipped=await activateNhRuntime({url:'https://script.google.com/macros/s/TEST/exec',token:'admin',
     skipReadbackIfActive:true,request:versionRequest(version)});
   assert.equal(skipped.status,'NH_ALREADY_ACTIVE_NO_TOKEN_REQUEST');

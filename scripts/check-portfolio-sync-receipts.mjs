@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-const gasSource=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gasSource=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const webSource=fs.readFileSync('src/web/features/settings/settings_sync.js','utf8');
 function server(){
  const store=new Map();let locked=false,busy=false,writes=0,pending=false,rows=[];

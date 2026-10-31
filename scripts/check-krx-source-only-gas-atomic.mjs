@@ -1,9 +1,10 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 // Run the PRODUCTION GAS proof and mutation functions, not a reimplementation.
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function extract(name){
   const i=gas.indexOf('function '+name+'('), j=i>=0?gas.indexOf('\n}\n',i)+3:-1;
   assert.ok(i>=0&&j>i,name+' production GAS function required');

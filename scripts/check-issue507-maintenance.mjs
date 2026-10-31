@@ -1,10 +1,11 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {selfTest,run} from './run-issue507-maintenance.mjs';
 import {selfTest as ledgerProofSelfTest} from './issue507-ledger-worker-readonly.mjs';
 import {execFileSync} from 'node:child_process';
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function setup(options={}) {
   const dates=['2025-12-31','2026-01-01','2026-01-02'];
   const props=new Map([['access_token','TEST'],['trade_snapshot_rebuild_deferred_v1',JSON.stringify({dates,cursor:''})],['trade_snapshot_rebuild_pending_v1','UNCHANGED']]);

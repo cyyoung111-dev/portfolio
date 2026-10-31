@@ -1,9 +1,10 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { performance } from 'node:perf_hooks';
 
-const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const gas = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const pipeline = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const net = fs.readFileSync('src/web/features/settings/settings_net.js', 'utf8');
 const rangeSource = gas.slice(gas.indexOf('function _buildSnapshotRangeReadContext'), gas.indexOf('function handleRewriteSnapshotDate'));

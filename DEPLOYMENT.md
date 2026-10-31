@@ -1,3 +1,17 @@
+## GAS v9.282 — writer gate 및 승인 단건 복구 (2026-10-31 KST)
+
+- 배포 상태: **릴리스 PR, 미병합·운영 미배포·금융 원본 쓰기 미실행**.
+- 운영 예약 22:10, 23:10, 00:30, 08:45 KST를 유지합니다. NH 토큰·Telegram 전송·트리거 설치는 실행하지 않습니다.
+- 555 기존 함수에 진입 guard, 종료 receipt, 기본 OPEN metadata bootstrap. bootstrap은 복구 승인/기존 실행 종료 증빙이 아님.
+- F00001 2026-10-30 기존 행 G:K만 승인 후 수정, 최신 39행/타 38행/F00002 경고와 NH·Telegram 생산 로직 보존.
+- 웹/API/운영 소비자 및 허용목록 9.282 동기화. v9.281 원문은 reference/gas-v9.281.gs로 보존.
+- 배포 후 gasVersion=9.282, OPEN gate, 기존 NH/텔레그램·가격·Snapshot 읽기 검증. 금전 데이터 복구는 별도 승인·drain·백업 후만 가능.
+- 배포 별도 승인: 자동 `workflow_run`은 v9.282를 배포하지 못합니다. 실제 배포는 사용자 별도 승인 후 수동 `gas-deploy`에서 `dry_run=false`, `approve_9282=true`를 모두 설정해야 하며 기본값은 안전한 false/true(승인/진단)입니다. 승인 검사는 OAuth/GAS 쓰기 전에 실행합니다.
+- rollback: 실패 시 이전 HEAD와 이전 deployment versionNumber의 읽어온 소스 모두에서 동일 writer gate releaseId가 입증돼야만 gate 보존형 자동 복원을 허용합니다. 구 deployment가 v9.281 무계측이거나 소스·releaseId 미확인이면 자동 롤백 PUT 전에 중단하고 별도 운영 점검·forward-recovery가 필요합니다.
+- rollback: gate를 제거하는 구버전 배포는 거부. 장애는 승인된 후속 버전에서 gate를 유지한 forward rollback으로 수정한다. DRAINING/active/승인 capability를 임의 삭제하지 않는다.
+
+---
+
 ## GAS v9.281 — 독립 검증된 NH 미국 3대 지수 일봉 우선 (2026-10-30)
 
 배포 상태: 후보. Snapshot 및 거래원장 무변경. 배포 후 NH SPX(7720.39), COMP(26184.72), NDX(29402.51) 2026-10-29 일봉이 공식/독립 시세와 일치하는지 조회합니다. 운영 예약시간 22:10, 23:10, 00:30, 08:45 KST를 유지합니다.

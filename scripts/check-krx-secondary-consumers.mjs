@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -7,7 +8,7 @@ const gas = process.argv.includes('--baseline-cache')
   ? execFileSync('git',['show','a1148f4:src/gas/apps_script.gs'],{encoding:'utf8'})
   : process.argv.includes('--baseline')
   ? execFileSync('git',['show','5dab55f:src/gas/apps_script.gs'],{encoding:'utf8'})
-  : fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+  : isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const ctx = vm.createContext({ console, Date, JSON, Number, String, Math, isFinite, encodeURIComponent });
 new vm.Script(gas, {filename:'apps_script.gs'}).runInContext(ctx);
 ctx.CONFIG = {TIMEZONE:'UTC'};

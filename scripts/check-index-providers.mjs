@@ -1,7 +1,8 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const source = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 if (!source.includes("KOSDAQ: ['KOSDAQ']")
     || !source.includes("SP500: '^GSPC'")
     || !source.includes("NASDAQ: '^IXIC'")

@@ -34,6 +34,7 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.282': '9c1a5f31d1abc4b44f7da9af7a50fe3f15967134',
   '9.281': 'ebe697563e94cf49e514037353260fce70ae1d57',
   '9.280': 'abea936330401d5418817367f9f046d9db90e800',
   '9.279': '0eef172226b95bf32c05036955c9a1fa432b636f',
@@ -397,10 +398,30 @@ export async function verifyDeploymentVersionWithRetry({
 
 // Roll back only our exact candidate. A third-party edit/version must never
 // be overwritten by automatic recovery. Financial data is never restored here.
-export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployment,newVersion,
+export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployment,beforePublishedFiles,newVersion,
   readFiles,writeFiles,readDeployment,writeDeployment}){
   const canonical=files=>JSON.stringify(sanitizeFiles(files).map(f=>({...f,
     source:f.source.replace(/\r\n/g,'\n')})).sort((a,b)=>(a.name+a.type).localeCompare(b.name+b.type)));
+  // Two different rollback surfaces exist: HEAD and the immutable deployed
+  // version. A previous failed attempt can leave HEAD already instrumented
+  // while its web-app deployment still points at uninstrumented v9.281.
+  // Never roll the deployment back to that old version (or a gate with a
+  // different releaseId): stateful execution receipts could be bypassed.
+  // The previous published files are read by versionNumber before mutation.
+  const gateReleaseIds=files=>{
+    if(!Array.isArray(files))return [];
+    return sanitizeFiles(files).filter(f=>f.type==='SERVER_JS')
+      .flatMap(f=>[...f.source.matchAll(/\bvar\s+ISSUE507_GATE_RELEASE_ID\s*=\s*['"]([^'"]+)['"]\s*;/g)]
+        .map(m=>m[1]));
+  };
+  const candidateIds=gateReleaseIds(candidateFiles);
+  if(candidateIds.length){
+    const headIds=gateReleaseIds(beforeFiles);
+    const publishedIds=gateReleaseIds(beforePublishedFiles);
+    if(candidateIds.length!==1 || headIds.length!==1 || publishedIds.length!==1 ||
+      headIds[0]!==candidateIds[0] || publishedIds[0]!==candidateIds[0])
+      throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
+  }
   const current=await readFiles(),deployment=await readDeployment();
   const version=deployment?.deploymentConfig?.versionNumber;
   const oldVersion=beforeDeployment?.deploymentConfig?.versionNumber;
@@ -450,6 +471,17 @@ export function summarizeGasReleaseFailure(error,stage) {
     syntaxLine:Number.isInteger(error?.syntaxLine)&&error.syntaxLine>0&&error.syntaxLine<100000?error.syntaxLine:null};
 }
 
+// Deployment approval for first stateful gate release is separate from merge.
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,dryRun=false,diagnosticOnly=false}={}) {
+  if(version!=='9.282'||dryRun||diagnosticOnly)return;
+  if(eventName!=='workflow_dispatch'||approved!==true)
+    throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+}
+export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
+  if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
+     !candidateSource.includes('var ISSUE507_GATE_RELEASE_ID='))throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
+}
+
 export async function deploy() {
   const dryRun = String(process.env.GAS_DEPLOY_DRY_RUN || '').toLowerCase() === 'true';
   const scriptId = env('GAS_SCRIPT_ID');
@@ -460,6 +492,11 @@ export async function deploy() {
   // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
+  assertIssue507ManualReleasePermission({
+    version:expectedVersion,eventName:process.env.GITHUB_EVENT_NAME,
+    approved:process.env.GAS_9282_RELEASE_APPROVAL==='true',dryRun,
+    diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
+  });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
   const checkCurrentMain=async()=>{
     const expected=process.env.GAS_EXPECTED_MAIN_SHA;
@@ -487,6 +524,12 @@ export async function deploy() {
   // Validate *all* files before checking alreadyDeployed or starting any write.
   // A malicious extra SERVER_JS cannot ride along with a pinned apps_script.gs.
   if (!dryRun) assertGasProjectFileSet(currentContent.files, target.name, deployedContent.files);
+  if(!dryRun){
+    // A partially failed release can leave gated project HEAD with an
+    // uninstrumented web-app deployment. Verify BOTH, not just /exec.
+    assertWriterGateReleaseTransition(deployedTarget.source,source);
+    assertWriterGateReleaseTransition(target.source,source);
+  }
   const releaseState=inspectGasReleaseState({headSource:target.source,publishedSource:deployedTarget.source});
   console.log(JSON.stringify(releaseState));
   if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');
@@ -576,7 +619,7 @@ export async function deploy() {
     if(!mutationStarted)throw error;
     try{
       await rollbackGasCode({beforeFiles:currentContent.files,candidateFiles,beforeDeployment:deployment,
-        newVersion:newVersionNumber,
+        beforePublishedFiles:deployedContent.files,newVersion:newVersionNumber,
         readFiles:async()=> (await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`,{token:accessToken})).files,
         writeFiles:files=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`,{method:'PUT',token:accessToken,body:{files}}),
         readDeployment:()=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,{token:accessToken}),

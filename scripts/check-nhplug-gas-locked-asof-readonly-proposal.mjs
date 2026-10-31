@@ -1,11 +1,12 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 // Execute the exact proposed GAS handler and the actual, currently reviewed
-// production v9.281 helpers together — no duplicated position reducer.
+// production v9.282 helpers together — no duplicated position reducer.
 const proposal=fs.readFileSync('scripts/nhplug-gas-locked-asof-readonly-proposal.gs','utf8');
-const production=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const production=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const configDeclaration=production.match(/var CONFIG\s*=\s*\{[\s\S]*?\n\};/);
 assert.ok(configDeclaration,'production CONFIG exists');
 const productionConfig=vm.runInNewContext(configDeclaration[0]+'\nCONFIG');

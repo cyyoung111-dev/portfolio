@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas = fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function prod(name) {
   const match = gas.match(new RegExp('function ' + name + '\\([\\s\\S]*?\\n}', 'm'));
   assert.ok(match,'missing real GAS worker implementation: '+name);
@@ -353,7 +354,7 @@ const reads=[],logs=[];
 const ctx=vm.createContext({console,Logger:{log:x=>logs.push(x)},
   Utilities:{formatDate:(d,tz,format)=>new Date(d).toISOString().slice(0,10)},
   PropertiesService:{getScriptProperties:()=>({getProperty:()=>null})}});
-vm.runInContext(fs.readFileSync('src/gas/apps_script.gs','utf8'),ctx);
+vm.runInContext(isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8')),ctx);
 const codes=Array.from({length:30},(_,i)=>[String(i+1).padStart(6,'0'),'S'+i,'주식','','KRW','KRX']);
 codes.push(...Array.from({length:3},(_,i)=>['F0000'+(i+1),'F'+i,'펀드','','KRW','']));
 const target='2026-03-02', data={};

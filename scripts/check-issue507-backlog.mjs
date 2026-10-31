@@ -1,6 +1,7 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import crypto from 'node:crypto';
 import {runBacklog,selfTest} from './run-issue507-backlog.mjs';
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function setup(options={}){
   const props=new Map([['access_token','TEST']]),calls=[];let financialWrites=0,held=false,reads=0;
   const dates=['2026-02-23','2026-02-24','2026-02-25'];

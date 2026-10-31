@@ -50,12 +50,15 @@ HTTP·메뉴·트리거·실제 Properties·금융 원본을 변경하지 않는
 8. 승인 capability를 모두 소비/폐기한 후 `issue507ResumeWriters_()`로 OPEN 복귀한다.
    실패 때에도 gate를 자동 OPEN으로 바꾸지 않는다. 복구/재개 승인은 결과를 보고 결정한다.
 
+종료 증빙의 UNACKED/ACKED 소유권·삭제 순서는 [completion-protocol.md](completion-protocol.md)를 따른다.
+
 ## Process API 403 대안과 실패 처리
 
 - 기존 Process API audit의 `PROCESS_API_ACCESS_DENIED`/`workerExecutionVerified=false`를 바꾸지 않는다.
 - 신규 계측 실행은 공유 receipt와 finally 종료 증거로 판정하므로 `script.processes` 권한이 없어도
   정상 drain을 증명할 수 있다. 증빙 범위는 계측 소스만이며 기존 worker 성공 여부와 별개다.
-- 종료 receipt는 30초 ScriptLock 획득을 최대 3회 시도한다. 재시도는 잠금 획득에만 적용하고 생산 본문이나 metadata mutation은 반복하지 않는다. 일시 경합 해소 시 정상 종료 기록을 남기며, 소진 시 해당 active 기록을 보존하고 GATE_COMPLETION_LOCK_TIMEOUT으로 경보한다.
+- 종료 receipt는 실행별 단일 소유 key에 ScriptLock 없이 먼저 저장하고 readback한다. 장시간 금융 잠금과 분리되며 cleanup이 1초 내 잠금을 얻지 못해도 이미 검증된 종료 증빙과 생산 반환값을 보존한다. 다음 admission/begin/drain이 잠금 안에서 token/release/name/start/end 일치를 확인해 active를 정리한 뒤 capacity/drain을 판정한다. 증빙 없는 실행은 정리하지 않는다.
+- 일반 진입·제어는 30초 잠금 대기다. cleanup write 실패는 종료 증빙을 보존하고 재조정하며, 완료 본문은 재실행하지 않는다. invalid proof/실제 종료 증빙 저장 실패는 차단한다.
 - 강제종료/쓰기실패/receipt readback 오류는 active 기록을 남겨 적용을 차단한다. 만료만으로 지우지 않는다.
   Process API 오류를 근거로 성공/종료 처리하지 않는다. 누락된 finally의 종료 증거를 별도로 확보하지
   못하면 적용 불가/운영 재개 보류로 보고한다. 별도 승인·증빙을 갖춘 복구 전에는 활성 기록을 삭제하지 않는다.

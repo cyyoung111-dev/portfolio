@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507 — production date-scoped Snapshot writer safety contract.
 // Executes actual GAS production functions against synthetic in-memory sheets.
 // This must fail if an unrelated date is overwritten by a stale full rewrite.
@@ -7,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const names=[
   '_normalizeDate','_cleanCode','_dedupeSnapshotRows','_snapshotComparableSignature',
   '_snapshotIntegrityKey','_snapshotRowsSignature','_mergeSnapshotRowsSafely',

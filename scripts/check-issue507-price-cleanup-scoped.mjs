@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // #507: production _cleanupPriceHistoryDuplicatesLocked, synthetic VM only.
 // Verifies physical-row scoped cleanup and explicit source-evidence gates.
 // PASS is not an external Sheets API CAS or real-world restoration approval.
@@ -6,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const name='_cleanupPriceHistoryDuplicatesLocked';
 const begin=gas.indexOf('function '+name+'('),end=gas.indexOf('\n}',begin);
 assert.ok(begin>=0&&end>begin,'production cleanup function unavailable');

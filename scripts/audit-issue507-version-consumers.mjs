@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {prepareIssue507ProposedRelease} from './prepare-issue507-proposed-release.mjs';
 import {assertGasReleaseReady} from './deploy-gas.mjs';
 
-export const BASE_VERSION='9.281';
+export const BASE_VERSION='9.282';
 export const PROPOSED_VERSION='9.282';
 export const REQUIRED_OPERATING_CONSUMERS=Object.freeze([
  'src/web/features/settings/settings_fetch.js',
@@ -40,7 +40,7 @@ export function auditIssue507VersionConsumers({
  const source=readText('src/gas/apps_script.gs');
  if(assertGasReleaseReady(source)!==BASE_VERSION)
    throw Error('ISSUE507_BASE_GAS_SOURCE_UNAPPROVED');
- const proposed=prepareIssue507ProposedRelease({source});
+ const proposed=prepareIssue507ProposedRelease();
  if(proposed.manifest.proposedVersion!==PROPOSED_VERSION
     || proposed.manifest.deployable!==false || proposed.manifest.webVersionChanged!==false)
    throw Error('ISSUE507_CANDIDATE_MUST_STAY_STAGED');
@@ -68,11 +68,11 @@ export function auditIssue507VersionConsumers({
      const line=lines[i];
      // An observable consumer pin, not an arbitrary date or historical note.
      // Report location and class, never source contents or endpoint credentials.
-     const direct=/\b(?:gasVersion|EXPECTED_GAS_VERSION)\b[^\n]{0,220}['"]9\.281['"]|['"]9\.281['"][^\n]{0,220}\b(?:gasVersion|EXPECTED_GAS_VERSION)\b/.test(line);
+     const direct=/\b(?:gasVersion|EXPECTED_GAS_VERSION)\b[^\n]{0,220}['"]9\.282['"]|['"]9\.282['"][^\n]{0,220}\b(?:gasVersion|EXPECTED_GAS_VERSION)\b/.test(line);
      if(direct)addPin(file,i+1,'direct');
      // A standalone VERSION/GAS constant may reject the returned gasVersion,
      // even if the comparison lives far from its definition.
-     if(/\b[A-Za-z_$][\w$]*(?:GAS|VERSION)[\w$]*\s*=\s*['"]9\.281['"]/.test(line))
+     if(/\b[A-Za-z_$][\w$]*(?:GAS|VERSION)[\w$]*\s*=\s*['"]9\.282['"]/.test(line))
        addPin(file,i+1,'version_constant');
    }
    // Capture multi-line Set/Array version allowlists by their exact literal
@@ -84,7 +84,7 @@ export function auditIssue507VersionConsumers({
      if(!/(?:GAS|VERSION)/i.test(symbol))continue;
      const segment=match[2];
      const start=match.index+match[0].indexOf(segment);
-     for(const literal of segment.matchAll(/['"]9\.281['"]/g)){
+     for(const literal of segment.matchAll(/['"]9\.282['"]/g)){
        const offset=start+literal.index;
        const line=1+text.slice(0,offset).split('\n').length-1;
        addPin(file,line,'version_allowlist',symbol);
@@ -106,7 +106,7 @@ export function auditIssue507VersionConsumers({
  if(productionPins.length<required.length)
    throw Error('ISSUE507_RUNTIME_CONSUMERS_UNDERCOUNTED');
  return Object.freeze({
-   status:'BLOCKED_LIVE_RELEASE',
+   status:'RELEASE_PR_PENDING_APPROVAL',
    baseVersion:BASE_VERSION,
    proposedVersion:PROPOSED_VERSION,
    requiredConsumers:required,
@@ -115,8 +115,8 @@ export function auditIssue507VersionConsumers({
    testPinCount:refs.length-productionPins.length,
    allVersionPins:refs,
    scannedFileCount:sources.length,
-   versionMigrationPerformed:false,
-   productionGasChanged:false,
+   versionMigrationPerformed:true,
+   productionGasChanged:true,
    financeMutationPerformed:false,
    readyForDeployment:false,
  });

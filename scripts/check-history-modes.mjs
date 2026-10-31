@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -9,7 +10,7 @@ const stateSource = fs.readFileSync('src/web/views/views_history_state.js', 'utf
 const renderSource = fs.readFileSync('src/web/views/views_history_render.js', 'utf8');
 const systemSource = fs.readFileSync('src/web/views/views_system.js', 'utf8');
 const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
-const gasSource = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const gasSource = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const layoutSource = fs.readFileSync('src/web/styles/layout.css', 'utf8');
 const context = {
   fmtDateDot: value => String(value || ''),

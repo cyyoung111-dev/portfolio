@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507 — execute REAL production _repairKnownCodeColumns against synthetic
 // sheets. Never touches live spreadsheet, external services or credentials.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const start=source.indexOf('function _repairKnownCodeColumns('),end=source.indexOf('\n}',start);
 assert.ok(start>=0&&end>start,'GAS production repair function missing');
 const fn=source.slice(start,end+2);

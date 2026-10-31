@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import {
   parseDates, validateWebAppUrl, summarizeKrxSource,
@@ -523,7 +524,7 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
 // End-to-end client orchestration uses real auth/status parser and bounded POSTs.
 {
  const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
- const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.281';
+ const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.282';
  fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
  fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
  let scheduled=0,continued=0;const emitted=[];
@@ -559,7 +560,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   const params=Object.fromEntries(o.body);calls.push(params.action);
   if(params.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
   let result={status:'ok'};
-  if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.281',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
+  if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.282',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
   if(params.action==='previewFundNavImport')result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{}]:[]};
   if(params.action==='getFundValuationStatus'){assert.equal(params.to,'2026-10-24','do not repair unclosed current day');}
   if(params.action==='getFundValuationStatus')result={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}};
@@ -584,7 +585,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   if(!o.body)return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};
   const p=Object.fromEntries(o.body);let r={status:'ok'};
   if(p.accessToken==='NAV_AUTH_PROBE')r={status:'error',message:'인증 실패'};
-  else if(p.action==='getAutomationStatus')r={status:'ok',gasVersion:'9.281',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
+  else if(p.action==='getAutomationStatus')r={status:'ok',gasVersion:'9.282',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
   else if(p.action==='previewFundNavImport')r={...r,candidates:[],identical:[{}],updates:[],warnings:[],errors:[]};
   else if(p.action==='getFundValuationStatus')r={...r,fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
   else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){repairs++;repaired=true;}
@@ -604,7 +605,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  }
  const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
  for(const kind of ['HTTP_ERROR','JSON_UNCERTAIN','NETWORK_UNCERTAIN']){
-  const events=[];const fixture=structuredClone(workerLive);fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};fixture.gasVersion=fixture.automation.gasVersion='9.281';fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
+  const events=[];const fixture=structuredClone(workerLive);fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};fixture.gasVersion=fixture.automation.gasVersion='9.282';fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
   await assert.rejects(()=>resumeClose({url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',emit:x=>events.push(x),fetchImpl:async(_u,o)=>{
    if(o.body.get('accessToken')==='AUTOMATION_READONLY_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
    if(o.body.get('action')==='getAutomationStatus')return {ok:true,json:async()=>fixture};
@@ -619,7 +620,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
 {
  const {run}=await import('./collect-kb-fund-nav.mjs');let calls=0;
  const result=await run({url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-26T12:00:00Z'),apply:true,
-  fetchImpl:async(_url,opts)=>{calls++;assert.equal(opts.body.get('action'),'getAutomationStatus');return {ok:true,json:async()=>opts.body.get('accessToken')==='NAV_AUTH_PROBE'?{status:'error',message:'인증 실패'}:{status:'ok',gasVersion:'9.281',automation:{closeRun:{state:'ERROR',runDate:'2026-10-26'},fundAttempt:{state:'IN_PROGRESS'}}}};}});
+  fetchImpl:async(_url,opts)=>{calls++;assert.equal(opts.body.get('action'),'getAutomationStatus');return {ok:true,json:async()=>opts.body.get('accessToken')==='NAV_AUTH_PROBE'?{status:'error',message:'인증 실패'}:{status:'ok',gasVersion:'9.282',automation:{closeRun:{state:'ERROR',runDate:'2026-10-26'},fundAttempt:{state:'IN_PROGRESS'}}}};}});
  assert.equal(result.mode,'DEFERRED');assert.equal(result.complete,false);assert.equal(calls,2,'auth probe plus status only');
 }
 // A failed GAS transport must identify only the phase/type, never private error text.
@@ -653,7 +654,7 @@ console.log('Collector active NAV owner: explicit deferred result, no external r
 
 {
  const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
- const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.281';
+ const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.282';
  fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0,clockReady:true};
  fixture.automation.closeRun={state:'ERROR',stage:'ERROR',runDate:'2026-10-26'};
  fixture.automation.portfolioClose={runDate:'2026-10-26',priceOk:false,fundOk:true,errors:['SOURCE_PENDING']};
@@ -671,7 +672,7 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
  for(const blocked of [false,true]){
   const events=[],calls=[];const fixture=structuredClone(workerLive);
   fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
-  fixture.gasVersion=fixture.automation.gasVersion='9.281';
+  fixture.gasVersion=fixture.automation.gasVersion='9.282';
   fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
   const result=await resumeClose({url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',readOnly:true,emit:x=>events.push(x),fetchImpl:async(_u,o)=>{
    const p=Object.fromEntries(o.body);calls.push(p);
@@ -691,7 +692,7 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
 // Run actual server diagnostic hooks; fixed metadata only, bounded writes, failure isolation.
 {
  const fs=await import('node:fs');const vm=await import('node:vm');
- const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
  const block=source.slice(source.indexOf('function _resumeFundCheckpoint_'),source.indexOf('function _refreshFundValuations'));
  let writes=0,last,fail=false;
  const cx={Date,PropertiesService:{getScriptProperties:()=>({setProperty:(key,value)=>{if(fail)throw Error('PRIVATE');writes++;last=JSON.parse(value);}})},Logger:{log:()=>{throw Error('raw diagnostic log forbidden');}}};
@@ -716,7 +717,7 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
 {
  const {resumeClose}=await import('./run-incomplete-close-resume.mjs');
  for(const code of ['CLOSE_RESUME_PRICE_VERIFY_FAILED','PRIVATE_ACCOUNT']){
-  const events=[];const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.281';
+  const events=[];const fixture=structuredClone(workerLive);fixture.gasVersion=fixture.automation.gasVersion='9.282';
   fixture.automation.tradeSnapshotWorkerTriggerAudit={scope:'CURRENT_USER',visibleCount:1,clockCount:1,nonClockCount:0,unknownCount:0};
   fixture.automation.closeRun={state:'INCOMPLETE',stage:'FUND',runDate:'2026-10-24'};
   let applied=0;

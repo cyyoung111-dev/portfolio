@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 // Execute the production GAS saveSettings handler, not a reimplementation.
 // Only Settings may be written; a prior cross-browser code-only partial
 // commit must not drop any stored targetWeight, notes, or unconnected keys.
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const start=source.indexOf('function handleSaveSettings(');
 const end=source.indexOf('function handleGetSettings(',start);
 assert.ok(start>=0&&end>start);

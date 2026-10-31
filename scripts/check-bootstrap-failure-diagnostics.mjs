@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -959,7 +960,7 @@ assert.equal(h.ctx.isPinnedRestoreTradeMasterComplete([sampleTrade],[
 // Execute the ACTUAL GAS CAS handler under a mock script lock, not only a
 // browser stub. Another browser's conflicting update must be detected before
 // any append or existing-row mutation.
-const gasSrc=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gasSrc=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const normStart=gasSrc.indexOf('function _portfolioNormalizeCodeMasterSnapshot_(');
 const appendStart=gasSrc.indexOf('function handleSyncCodesAppendOnly(');
 const appendEnd=gasSrc.indexOf('function handleSyncCodes(',appendStart);
@@ -1500,7 +1501,7 @@ for (const configured of [true, false]) {
 {
   const f=setup();
   f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}:
-    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.281'};
+    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.282'};
   assert.equal(await f.ctx.loadSettings(),true);
   assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
 }

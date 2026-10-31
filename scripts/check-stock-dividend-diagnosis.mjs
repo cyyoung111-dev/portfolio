@@ -1,10 +1,11 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import YAML from 'yaml';
 import {runStockDividendDiagnosis} from './run-stock-dividend-diagnosis.mjs';
 const ctx=vm.createContext({console,Logger:{log(){throw Error('raw provider logging forbidden');}}});
-vm.runInContext(fs.readFileSync('src/gas/apps_script.gs','utf8'),ctx);
+vm.runInContext(isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8')),ctx);
 const response=(http,body)=>({getResponseCode:()=>http,getContentText:()=>typeof body==='string'?body:JSON.stringify(body)});
 const envelope=(items=[],totalCount=items.length,code='00')=>({response:{header:{resultCode:code,resultMsg:'PRIVATE_KEY_OR_RAW_TEXT'},body:{totalCount,items:{item:items}}}});
 for(const [http,body,status] of [
@@ -58,7 +59,7 @@ async function run(mode='ok') {
     assert.ok(['getCodeListReadOnly','dividendPublic'].includes(action),'read-only allowlist');
     let r={status:'ok'};
     if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')r.status=mode==='auth'?'ok':'error';
-    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.281';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
+    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.282';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
     else if(action==='dividendPublic') {r=structuredClone(base);if(mode==='coverage')delete r.diagnostics.dividend['111111'];if(mode==='status')r.diagnostics.dividend['111111'].status='PRIVATE_KEY';}
     return {ok:true,json:async()=>r};
   };
@@ -87,7 +88,7 @@ for(const mode of ['pending','corrupt','ok','busy','read-failed']) {
   if(mode==='ok') {assert.equal(r.status,'ok');assert.equal(r.readOnly,true);assert.equal(r.codes.length,1);}
   else {assert.equal(r.status,'error');if(mode!=='read-failed')assert.equal(reads,0);}
 }
-assert.match(fs.readFileSync('src/gas/apps_script.gs','utf8'),/params\.action === 'getCodeListReadOnly'\)\s+return handleGetCodeListReadOnly\(\)/);
+assert.match(isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8')),/params\.action === 'getCodeListReadOnly'\)\s+return handleGetCodeListReadOnly\(\)/);
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/stock-dividend-diagnosis.yml','utf8'));
 assert.equal(workflow.on.schedule,undefined);assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.equal(workflow.jobs.diagnose.environment,'portfolio-production-gas');
@@ -100,7 +101,7 @@ console.log('PASS: actual public provider HTTP/JSON/API/zero/pagination/network 
 
 // Exercise actual production pagination, not a duplicated implementation.
 {
- const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
  function execute(mode='ok',single=false){
   const calls=[];const c=vm.createContext({console,Logger:{log(){throw Error('private log');}}});vm.runInContext(gas,c);
   c.UrlFetchApp={fetchAll:rs=>rs.map(r=>{

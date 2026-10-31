@@ -567,7 +567,8 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.281';
+const EXPECTED_GAS_VERSION = '9.282';
+const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', EXPECTED_GAS_VERSION]);
 
 
 async function autoLoadPrices() {

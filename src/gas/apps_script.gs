@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.281
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.282
+//
+//  v9.282 변경사항 (2026.10.31):
+//  • 전체 writer 진입/종료 gate, 무금융 OPEN bootstrap, 승인된 F00001 단건 복구
+//  • metadata 상태 조회 및 gate 제거 rollback 차단
 //
 //  v9.281 변경사항 (2026.10.30):
 //  • 한국·미국 정규장 종가 NH 우선, KRX/Yahoo 누락 보완
@@ -1205,10 +1209,12 @@ var CONFIG = {
 // 형식: <prefix><base36 timestamp>_<uuid>
 var TEMP_SHEET_MAX_AGE_MS = 10 * 60 * 1000;
 function _tempSheetName(prefix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_tempSheetName', _tempSheetName, this, arguments);
   return prefix + Date.now().toString(36) + '_' + Utilities.getUuid().slice(0, 8);
 }
 
 function _isExpiredTempSheet(name, nowMs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isExpiredTempSheet', _isExpiredTempSheet, this, arguments);
   var match = (name || '').match(/^_(?:bm|div_tmp|gf_tmp|fx_tmp|name_tmp|bffx_tmp)_([0-9a-z]+)_[0-9a-f-]+$/i);
   if (!match) return false;
   var createdAt = parseInt(match[1], 36);
@@ -1219,6 +1225,7 @@ function _isExpiredTempSheet(name, nowMs) {
 //  스프레드시트 핸들러 — 웹앱 배포 시 null 방지
 // ════════════════════════════════════════════════════════════════════
 function getss() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('getss', getss, this, arguments);
   try {
     var active = SpreadsheetApp.getActiveSpreadsheet();
     if (active) return active;
@@ -1235,6 +1242,7 @@ function getss() {
 
 // ════════════════════════════════════════════════════════════════════
 function _isAuthorizedRequest(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isAuthorizedRequest', _isAuthorizedRequest, this, arguments);
   var expected = (PropertiesService.getScriptProperties().getProperty('access_token') || '').trim();
   if (!expected) return true; // 기존 배포 호환: 관리자가 토큰을 설정한 뒤부터 보호 활성화
   var provided = String(params && params.accessToken || '');
@@ -1245,11 +1253,13 @@ function _isAuthorizedRequest(params) {
 }
 
 function _removeSecretsFromSettings(settings) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_removeSecretsFromSettings', _removeSecretsFromSettings, this, arguments);
   ['public_data_api_key', 'public_listed_api_key', 'public_dividend_api_key', 'krx_auth_key', 'krx_api_key', 'access_token'].forEach(function(key) { delete settings[key]; });
   return settings;
 }
 
 function _getApiKeyStatus() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getApiKeyStatus', _getApiKeyStatus, this, arguments);
   return {
     publicDataApiKeyConfigured: !!_getPublicDataApiKey(),
     krxAuthKeyConfigured: !!_getKrxAuthKey(),
@@ -1259,6 +1269,7 @@ function _getApiKeyStatus() {
 }
 
 function configureAccessTokenPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('configureAccessTokenPrompt', configureAccessTokenPrompt, this, arguments);
   var ui = SpreadsheetApp.getUi();
   var enabled = !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim();
   var response = ui.prompt(
@@ -1288,6 +1299,7 @@ function configureAccessTokenPrompt() {
 //  doGet
 // ════════════════════════════════════════════════════════════════════
 function doGet(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('doGet', doGet, this, arguments);
   var params = (e && e.parameter) ? e.parameter : {};
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'getAutomationStatus') return handleGetAutomationStatus();
@@ -1362,6 +1374,7 @@ function doGet(e) {
 //  doPost
 // ════════════════════════════════════════════════════════════════════
 function doPost(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('doPost', doPost, this, arguments);
   var params = {};
   try {
     if (e && e.postData && e.postData.contents) {
@@ -1441,6 +1454,7 @@ var MARKET_BRIEFING_MASTER_HEADERS = ['series_id','trading_date','value','market
 var MARKET_BRIEFING_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function _marketBriefingIsoTimestamp_(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_marketBriefingIsoTimestamp_', _marketBriefingIsoTimestamp_, this, arguments);
   if (value instanceof Date) {
     var dateMs = value.getTime();
     return isFinite(dateMs) ? new Date(dateMs).toISOString() : '';
@@ -1452,6 +1466,7 @@ function _marketBriefingIsoTimestamp_(value) {
 }
 
 function _marketBriefingMasterSheet_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_marketBriefingMasterSheet_', _marketBriefingMasterSheet_, this, arguments);
   var sh = ss.getSheetByName(MARKET_BRIEFING_MASTER_SHEET);
   if (!sh) {
     sh = ss.insertSheet(MARKET_BRIEFING_MASTER_SHEET);
@@ -1466,6 +1481,7 @@ function _marketBriefingMasterSheet_(ss) {
 }
 
 function handleAppendMarketBriefingObservations(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleAppendMarketBriefingObservations', handleAppendMarketBriefingObservations, this, arguments);
   try {
     var rows = JSON.parse(dataJson || '[]');
     if (!Array.isArray(rows)) return jsonError('MARKET_MASTER 배열 형식 필요');
@@ -1505,6 +1521,7 @@ function handleAppendMarketBriefingObservations(dataJson) {
 }
 
 function handleGetMarketBriefingMaster(fromStr, toStr, seriesIdsInput) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetMarketBriefingMaster', handleGetMarketBriefingMaster, this, arguments);
   try {
     var ss=getss(), sh=ss.getSheetByName(MARKET_BRIEFING_MASTER_SHEET);
     if (!sh || sh.getLastRow()<2) return jsonOk({ observations: [], invalid: 0, source: MARKET_BRIEFING_MASTER_SHEET });
@@ -1527,21 +1544,25 @@ var MARKET_BRIEFING_SNAPSHOT_SHEET = 'MARKET_SNAPSHOTS';
 var MARKET_BRIEFING_CHECKPOINT_TIMES = { NIGHT_FINAL:'06:00:00', MORNING:'07:30:00', KRX_FINAL:'15:30:00', AFTER_FINAL:'20:00:00', EVENING:'20:15:00' };
 
 function _marketBriefingSnapshotSheet_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_marketBriefingSnapshotSheet_', _marketBriefingSnapshotSheet_, this, arguments);
   var sh=ss.getSheetByName(MARKET_BRIEFING_SNAPSHOT_SHEET);
   if(!sh){sh=ss.insertSheet(MARKET_BRIEFING_SNAPSHOT_SHEET);sh.getRange(1,1,1,5).setValues([['trading_date','checkpoint','as_of','values_json','scenario_json']]);}
   return sh;
 }
 
 function _marketBriefingSnapshotAsOf_(tradingDate, checkpoint) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_marketBriefingSnapshotAsOf_', _marketBriefingSnapshotAsOf_, this, arguments);
   var time=MARKET_BRIEFING_CHECKPOINT_TIMES[checkpoint];
   return time ? _marketBriefingIsoTimestamp_(tradingDate+'T'+time+'+09:00') : '';
 }
 
 function _marketBriefingPlainObject_(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_marketBriefingPlainObject_', _marketBriefingPlainObject_, this, arguments);
   return value!==null && typeof value==='object' && !Array.isArray(value);
 }
 
 function handleAppendMarketBriefingSnapshot(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleAppendMarketBriefingSnapshot', handleAppendMarketBriefingSnapshot, this, arguments);
   var lock;
   try {
     var item=JSON.parse(dataJson||'{}'), d=_normalizeDate(item.tradingDate||''), cp=String(item.checkpoint||'');
@@ -1557,6 +1578,7 @@ function handleAppendMarketBriefingSnapshot(dataJson) {
 }
 
 function handleGetMarketBriefingSnapshots(fromStr,toStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetMarketBriefingSnapshots', handleGetMarketBriefingSnapshots, this, arguments);
   try {
     var sh=getss().getSheetByName(MARKET_BRIEFING_SNAPSHOT_SHEET);
     if(!sh||sh.getLastRow()<2)return jsonOk({snapshots:[],invalid:0,source:MARKET_BRIEFING_SNAPSHOT_SHEET});
@@ -1575,6 +1597,7 @@ function handleGetMarketBriefingSnapshots(fromStr,toStr) {
 }
 
 function handleSaveSyncIssues(source, dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveSyncIssues', handleSaveSyncIssues, this, arguments);
   try {
     var rows;
     try { rows = _parseArrayParam(dataJson, 'syncIssues'); } catch(e) { return jsonError(e.message); }
@@ -1608,11 +1631,13 @@ function handleSaveSyncIssues(source, dataJson) {
 }
 
 function _priceTimingAdd_(timings, key, startedMs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_priceTimingAdd_', _priceTimingAdd_, this, arguments);
   if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
   timings[key] = Math.max(0, Number(timings[key] || 0) + Math.max(0, Date.now() - startedMs));
 }
 
 function _newPriceLookupTimings_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_newPriceLookupTimings_', _newPriceLookupTimings_, this, arguments);
   return {
     setup: 0, codeItems: 0, initialPriceHistory: 0, tossToken: 0,
     tossPricesHttp: 0, krx: 0, recentHistory: 0, snapshot: 0,
@@ -1621,9 +1646,11 @@ function _newPriceLookupTimings_() {
 }
 
 // Legacy internal names retained for existing price callers, with no Toss API.
-function fetchPricesToss(items,timings,meta) { return fetchPricesNh(items,timings,meta); }
+function fetchPricesToss(items,timings,meta) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchPricesToss', fetchPricesToss, this, arguments); return fetchPricesNh(items,timings,meta); }
 
 function handlePriceFetch(dateParam, allCodesParam) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handlePriceFetch', handlePriceFetch, this, arguments);
   try {
     var ss = getss();
     var todayStr = today();
@@ -1708,6 +1735,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
 // session; foreign dates must be exchange-local completed regular sessions.
 // This path returns read-only prices and never writes history/Snapshot.
 function handleCurrentConfirmedPriceFetch(dateStr, allCodesParam, ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleCurrentConfirmedPriceFetch', handleCurrentConfirmedPriceFetch, this, arguments);
   var items = getCodeItems(ss);
   if (!items.length) return jsonError('종목코드 없음. initSheet() 먼저 실행하세요.');
   var now = new Date();
@@ -1745,6 +1773,7 @@ function handleCurrentConfirmedPriceFetch(dateStr, allCodesParam, ss) {
 //  특정일 종가 — GOOGLEFINANCE close
 // ════════════════════════════════════════════════════════════════════
 function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleHistoricalPriceFetch', handleHistoricalPriceFetch, this, arguments);
   try {
     var items = getCodeItems(ss);
     if (items.length === 0) return jsonError('종목코드 없음. initSheet() 먼저 실행하세요.');
@@ -1762,6 +1791,7 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
 //  GOOGLEFINANCE 가격 조회 핵심
 // ════════════════════════════════════════════════════════════════════
 function _yahooEquitySymbol_(item) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_yahooEquitySymbol_', _yahooEquitySymbol_, this, arguments);
   var code = _cleanCode(item && item.code);
   if (!code) return '';
   var market = String(item.market || '').toUpperCase();
@@ -1792,6 +1822,7 @@ function _yahooEquitySymbol_(item) {
 }
 
 function _foreignMarketTimeZone_(item) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_foreignMarketTimeZone_', _foreignMarketTimeZone_, this, arguments);
   var market = String(item && item.market || '').toUpperCase();
   var currency = String(item && item.currency || '').toUpperCase();
   if (['US','USA','NYSE','NASDAQ','AMEX','OTC'].indexOf(market) >= 0 ||
@@ -1816,6 +1847,7 @@ var FOREIGN_US_EQUITY_CLOSED_DATES_ = {
   '2028': ['01-17','02-21','04-14','05-29','06-19','07-04','09-04','11-23','12-25']
 };
 function _foreignConfirmedExchangeHoliday_(item, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_foreignConfirmedExchangeHoliday_', _foreignConfirmedExchangeHoliday_, this, arguments);
   var tz = _foreignMarketTimeZone_(item);
   if (tz !== 'America/New_York') return false;
   var year = String(dateStr || '').slice(0,4);
@@ -1826,6 +1858,7 @@ function _foreignConfirmedExchangeHoliday_(item, dateStr) {
 }
 
 function _foreignMarketRegularCloseCutoff_(item, instant) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_foreignMarketRegularCloseCutoff_', _foreignMarketRegularCloseCutoff_, this, arguments);
   var now = instant || new Date();
   var tz = _foreignMarketTimeZone_(item);
   var closeHour = tz === 'Asia/Tokyo' ? 16 : (tz === 'Europe/Berlin' ? 18 : 17);
@@ -1842,6 +1875,7 @@ function _foreignMarketRegularCloseCutoff_(item, instant) {
   throw new Error('해외시장 최근 완료 거래일을 계산하지 못했습니다.');
 }
 function fetchPricesYahooRegularClose(items, dateStr, latestBefore) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchPricesYahooRegularClose', fetchPricesYahooRegularClose, this, arguments);
   var output = {};
   (items || []).forEach(function(item) {
     var symbol = _yahooEquitySymbol_(item);
@@ -1866,11 +1900,13 @@ function fetchPricesYahooRegularClose(items, dateStr, latestBefore) {
 }
 
 function _isConfirmedHistoryPrice_(value, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isConfirmedHistoryPrice_', _isConfirmedHistoryPrice_, this, arguments);
   return !!value && Number(value.price) > 0 && value.status === 'CONFIRMED' && value.priceType === 'REGULAR_CLOSE'
     && _normalizeDate(value.marketDate || value.usedDate) === _normalizeDate(dateStr);
 }
 
 function _latestCompletedUsRegularSessionDate_(instant) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_latestCompletedUsRegularSessionDate_', _latestCompletedUsRegularSessionDate_, this, arguments);
   var now = instant || new Date();
   var marketDate = Utilities.formatDate(now, 'America/New_York', 'yyyy-MM-dd');
   var marketHour = Number(Utilities.formatDate(now, 'America/New_York', 'H'));
@@ -1885,6 +1921,7 @@ function _latestCompletedUsRegularSessionDate_(instant) {
 }
 
 function fetchPricesGoogleFinance(items, dateStr, ss, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchPricesGoogleFinance', fetchPricesGoogleFinance, this, arguments);
   // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다. 함수명은 하위 호출 호환용입니다.
   var prices = {};
   try { prices = fetchNhRegularCloses(items, dateStr, options) || {}; } catch (nhError) { Logger.log('NH 종가 조회 실패: 기존 공급원으로 보완'); }
@@ -1954,6 +1991,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
 }
 
 function fetchPricesKrx(items, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchPricesKrx', fetchPricesKrx, this, arguments);
   if (!items || items.length === 0) return {};
   var cfg = _getKrxApiConfig();
   var ymd = (dateStr || '').replace(/-/g, '');
@@ -2075,6 +2113,7 @@ function fetchPricesKrx(items, dateStr) {
 }
 
 function handleGetKrxOfficialStockCloses(dateStr, codesInput) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetKrxOfficialStockCloses', handleGetKrxOfficialStockCloses, this, arguments);
   try {
     var requestedDate = _normalizeDate(dateStr || '');
     if (!requestedDate) return jsonError('유효한 거래일이 필요합니다.');
@@ -2097,6 +2136,7 @@ function handleGetKrxOfficialStockCloses(dateStr, codesInput) {
 }
 
 function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchKrxMarketsParallelWithFallback', _fetchKrxMarketsParallelWithFallback, this, arguments);
   var result = {}, blockedMarkets = {};
   var fetchPairs = function(pairs) {
     if (pairs.length === 0) return;
@@ -2149,6 +2189,7 @@ function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback
 }
 
 function fetchPricesKrxViaOtp(items, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchPricesKrxViaOtp', fetchPricesKrxViaOtp, this, arguments);
   var actualDate = _normalizeDate(dateStr || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(actualDate)) return {};
   // 인증키 없는 OTP 경로도 KRX 공식 휴장일/주말에는 직전 거래일의 CSV를 요청합니다.
@@ -2249,12 +2290,14 @@ function fetchPricesKrxViaOtp(items, dateStr) {
 // 종목코드 시트의 통화가 USD인 항목이 있을 때만 미국주식 조회 필요가 있다고 판정합니다.
 // 통화 정보가 없던 구버전 행은 getCodeItems()에서 KRW로 정규화됩니다.
 function _hasUsdPriceItems(items) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_hasUsdPriceItems', _hasUsdPriceItems, this, arguments);
   return (items || []).some(function(item) {
     return String(item && item.currency || 'KRW').toUpperCase() === 'USD';
   });
 }
 
 function _parseKrxNumber(v) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_parseKrxNumber', _parseKrxNumber, this, arguments);
   var s = (v || '').toString().replace(/[,\s]/g, '').trim();
   if (!s || s === '-' || s === '0') return 0;
   var n = parseFloat(s);
@@ -2262,6 +2305,7 @@ function _parseKrxNumber(v) {
 }
 
 function _findCsvIndex(header, candidates) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_findCsvIndex', _findCsvIndex, this, arguments);
   if (!Array.isArray(header)) return -1;
   for (var i = 0; i < candidates.length; i++) {
     var target = candidates[i];
@@ -2273,6 +2317,7 @@ function _findCsvIndex(header, candidates) {
 }
 
 function _getKrxApiConfig() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getKrxApiConfig', _getKrxApiConfig, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var endpoint = (props.getProperty('krx_api_endpoint') || '').trim();
   var bld = (props.getProperty('krx_api_bld') || 'dbms/MDC/STAT/standard/MDCSTAT01501').trim();
@@ -2281,6 +2326,7 @@ function _getKrxApiConfig() {
 }
 
 function _getKrxAuthKeySlots_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getKrxAuthKeySlots_', _getKrxAuthKeySlots_, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var primary = String(props.getProperty('krx_auth_key') || '').trim();
   var legacy = String(props.getProperty('krx_api_key') || '').trim();
@@ -2289,10 +2335,12 @@ function _getKrxAuthKeySlots_() {
     alternativeConfigured:!!(primary && legacy && primary !== legacy) };
 }
 function _getKrxAuthKey() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getKrxAuthKey', _getKrxAuthKey, this, arguments);
   return _getKrxAuthKeySlots_().key;
 }
 
 function configureKrxAuthKeyPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('configureKrxAuthKeyPrompt', configureKrxAuthKeyPrompt, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
@@ -2324,6 +2372,7 @@ function configureKrxAuthKeyPrompt() {
 
 
 function _getPublicDataApiKey() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getPublicDataApiKey', _getPublicDataApiKey, this, arguments);
   var props = PropertiesService.getScriptProperties();
   return (props.getProperty('public_data_api_key') ||
           props.getProperty('public_listed_api_key') ||
@@ -2331,6 +2380,7 @@ function _getPublicDataApiKey() {
 }
 
 function handleSaveKrxAuthKey(rawKey) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveKrxAuthKey', handleSaveKrxAuthKey, this, arguments);
   try {
     var key = (rawKey || '').toString().trim();
     var props = PropertiesService.getScriptProperties();
@@ -2347,6 +2397,7 @@ function handleSaveKrxAuthKey(rawKey) {
 }
 
 function configurePublicDataApiKeyPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('configurePublicDataApiKeyPrompt', configurePublicDataApiKeyPrompt, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
@@ -2378,6 +2429,7 @@ function configurePublicDataApiKeyPrompt() {
 }
 
 function handleSavePublicDataApiKey(rawKey) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSavePublicDataApiKey', handleSavePublicDataApiKey, this, arguments);
   try {
     var key = (rawKey || '').toString().trim();
     var props = PropertiesService.getScriptProperties();
@@ -2395,6 +2447,7 @@ function handleSavePublicDataApiKey(rawKey) {
 }
 
 function showPublicDataApiKeyStatus() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showPublicDataApiKeyStatus', showPublicDataApiKeyStatus, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
@@ -2405,6 +2458,7 @@ function showPublicDataApiKeyStatus() {
 }
 
 function showApiKeyStatus() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showApiKeyStatus', showApiKeyStatus, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
@@ -2420,6 +2474,7 @@ function showApiKeyStatus() {
 }
 
 function configureSpreadsheetIdPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('configureSpreadsheetIdPrompt', configureSpreadsheetIdPrompt, this, arguments);
   var ui = SpreadsheetApp.getUi();
   var current = '';
   try { current = PropertiesService.getScriptProperties().getProperty('SS_ID') || ''; } catch(e) {}
@@ -2448,6 +2503,7 @@ function configureSpreadsheetIdPrompt() {
 }
 
 function importKrxClosesPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('importKrxClosesPrompt', importKrxClosesPrompt, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
@@ -2479,6 +2535,7 @@ function importKrxClosesPrompt() {
 }
 
 function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_runKrxImport', _runKrxImport, this, arguments);
   var ss = getss();
   var authKey = _getKrxAuthKey();
   if (!authKey) throw new Error('krx_auth_key가 비어 있습니다. 메뉴에서 AUTH_KEY를 먼저 설정하세요.');
@@ -2523,6 +2580,7 @@ function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
 }
 
 function _overwritePriceHistoryFromKrxRows(ss, rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_overwritePriceHistoryFromKrxRows', _overwritePriceHistoryFromKrxRows, this, arguments);
   if (!rows || rows.length === 0) return;
   var byDate = {};
   rows.forEach(function(r) {
@@ -2538,6 +2596,7 @@ function _overwritePriceHistoryFromKrxRows(ss, rows) {
 }
 
 function _buildWantedByMarketFromCodeSheet(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildWantedByMarketFromCodeSheet', _buildWantedByMarketFromCodeSheet, this, arguments);
   var items = getCodeItems(ss);
   if (!items || items.length === 0) throw new Error('종목코드 시트에 유효 종목이 없습니다.');
   var wantedByMarket = { KOSPI: {}, KOSDAQ: {}, ETF: {} };
@@ -2554,6 +2613,7 @@ function _buildWantedByMarketFromCodeSheet(ss) {
 }
 
 function _normalizeMarketType(v) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_normalizeMarketType', _normalizeMarketType, this, arguments);
   var raw = (v || '').toString().trim().toUpperCase();
   if (!raw) return '';
   if (raw === 'KOSPI' || raw === '코스피' || raw === '유가증권') return 'KOSPI';
@@ -2563,6 +2623,7 @@ function _normalizeMarketType(v) {
 }
 
 function _buildDateRangeYmd(startYmd, endYmd) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildDateRangeYmd', _buildDateRangeYmd, this, arguments);
   var out = [];
   var d = _ymdToDate(startYmd);
   var e = _ymdToDate(endYmd);
@@ -2574,6 +2635,7 @@ function _buildDateRangeYmd(startYmd, endYmd) {
 }
 
 function _ymdToDate(ymd) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ymdToDate', _ymdToDate, this, arguments);
   var y = parseInt(ymd.slice(0, 4), 10);
   var m = parseInt(ymd.slice(4, 6), 10) - 1;
   var d = parseInt(ymd.slice(6, 8), 10);
@@ -2581,12 +2643,14 @@ function _ymdToDate(ymd) {
 }
 
 function _normalizeYmd(v) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_normalizeYmd', _normalizeYmd, this, arguments);
   var s = (v || '').toString().replace(/[^0-9]/g, '');
   if (!/^\d{8}$/.test(s)) return '';
   return s;
 }
 
 function _getKrxEndpointByMarket(market) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getKrxEndpointByMarket', _getKrxEndpointByMarket, this, arguments);
   if (market === 'KOSPI') return 'https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd';
   if (market === 'KOSDAQ') return 'https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd';
   if (market === 'ETF') return 'https://data-dbg.krx.co.kr/svc/apis/etp/etf_bydd_trd';
@@ -2594,6 +2658,7 @@ function _getKrxEndpointByMarket(market) {
 }
 
 function _fetchKrxDailyOutBlock(market, ymd, authKey) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchKrxDailyOutBlock', _fetchKrxDailyOutBlock, this, arguments);
   var endpoint = _getKrxEndpointByMarket(market);
   var url = endpoint + '?basDd=' + encodeURIComponent(ymd);
   var resp = UrlFetchApp.fetch(url, {
@@ -2611,6 +2676,7 @@ function _fetchKrxDailyOutBlock(market, ymd, authKey) {
 }
 
 function _fetchKrxDailyOutBlockWithFallback(market, ymd, authKey, maxLookback) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchKrxDailyOutBlockWithFallback', _fetchKrxDailyOutBlockWithFallback, this, arguments);
   var days = maxLookback || 7;
   var cur = ymd;
   for (var i = 0; i <= days; i++) {
@@ -2622,12 +2688,14 @@ function _fetchKrxDailyOutBlockWithFallback(market, ymd, authKey, maxLookback) {
 }
 
 function _prevYmd(ymd) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_prevYmd', _prevYmd, this, arguments);
   var d = _ymdToDate(ymd);
   d.setDate(d.getDate() - 1);
   return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyyMMdd');
 }
 
 function _collectFilteredKrxRows(accRows, apiRows, wantedMap, ymd, market) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_collectFilteredKrxRows', _collectFilteredKrxRows, this, arguments);
   var added = 0;
   apiRows.forEach(function(r) {
     var code = _cleanCode(r.ISU_CD || r.ISU_SRT_CD || '');
@@ -2641,6 +2709,7 @@ function _collectFilteredKrxRows(accRows, apiRows, wantedMap, ymd, market) {
 }
 
 function _clearKrxCloseOutputSheet(sh) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_clearKrxCloseOutputSheet', _clearKrxCloseOutputSheet, this, arguments);
   sh.clearContents();
   sh.getRange(1, 1, 1, 5).setValues([['날짜', '종목코드', '종목명', '시장구분', '종가']]);
   sh.getRange(1, 1, 1, 5).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
@@ -2650,6 +2719,7 @@ function _clearKrxCloseOutputSheet(sh) {
 //  종가 갱신 (수동 실행 / 트리거)
 // ════════════════════════════════════════════════════════════════════
 function updatePrices() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('updatePrices', updatePrices, this, arguments);
   var ss = getss();
   if (!ss) { Logger.log('ERROR: 구글 시트에서 실행하세요'); return; }
 
@@ -2694,6 +2764,7 @@ function updatePrices() {
 //  종목명 조회
 // ════════════════════════════════════════════════════════════════════
 function handleNameLookup(code, serviceKey) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleNameLookup', handleNameLookup, this, arguments);
   var cleanCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
   var key = (serviceKey || _getPublicDataApiKey()).toString().trim();
   if (key) {
@@ -2737,6 +2808,7 @@ function handleNameLookup(code, serviceKey) {
 // identity, quantity and cost here; the user's MANUAL evaluation stays editable.
 // Caller holds ScriptLock through validation, rewrite plan and the actual write.
 function _validateClientSnapshotAgainstLedger_(ss, dateStr, rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_validateClientSnapshotAgainstLedger_', _validateClientSnapshotAgainstLedger_, this, arguments);
   var normDate = _normalizeDate(dateStr || '');
   var parsed = /^\d{4}-\d{2}-\d{2}$/.test(normDate)
     ? new Date(normDate + 'T00:00:00Z') : null;
@@ -2795,6 +2867,7 @@ function _validateClientSnapshotAgainstLedger_(ss, dateStr, rows) {
 }
 
 function handleSaveSnapshot(dateStr, dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveSnapshot', handleSaveSnapshot, this, arguments);
   var writeLock = null, ownsWriteLock = false;
   try {
     if (!dateStr || !dataJson) return jsonError('date, data 필요');
@@ -2846,6 +2919,7 @@ function handleSaveSnapshot(dateStr, dataJson) {
 // 손익 그래프는 Snapshot 시트의 중복/충돌에서 독립적으로 평가일 원자료를 재구성합니다.
 // 거래원장+확정 가격이력+펀드 NAV/좌수+환율만 읽으며 어떠한 시트에도 쓰지 않습니다.
 function _historySourceRows(index, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_historySourceRows', _historySourceRows, this, arguments);
   var stored = index.holdingsByRequestedDate[date] || {}, holdings = {}, out = [];
   Object.keys(stored).forEach(function(name) { holdings[name] = Object.assign({}, stored[name]); });
   _applyFundUnitLifecycleToSnapshotHoldings(holdings, index.fundConfigs || [], date);
@@ -2910,6 +2984,7 @@ function _historySourceRows(index, date) {
 }
 
 function _historySourceSummary(rows, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_historySourceSummary', _historySourceSummary, this, arguments);
   var evalAmt = Math.round(rows.reduce(function(sum, row) { return sum + Number(row[7] || 0); }, 0));
   var costAmt = Math.round(rows.reduce(function(sum, row) { return sum + Number(row[5] || 0); }, 0));
   var qty = rows.reduce(function(sum, row) { return sum + Number(row[3] || 0); }, 0);
@@ -2926,6 +3001,7 @@ function _historySourceSummary(rows, date) {
 }
 
 function _historyNonTradeHoldings(values) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_historyNonTradeHoldings', _historyNonTradeHoldings, this, arguments);
   var byName = {};
   (values[CONFIG.SHEET_HOLD] || []).slice(1).forEach(function(row) {
     var code = _cleanCode(row[0]) || String(row[0] || '').trim();
@@ -2939,6 +3015,7 @@ function _historyNonTradeHoldings(values) {
 }
 
 function _historySourceDates(values, fromStr, toStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_historySourceDates', _historySourceDates, this, arguments);
   var end = _normalizeDate(toStr || '') || _dateOffset(today(), -1);
   if (end >= today()) end = _dateOffset(today(), -1);
   var start = _normalizeDate(fromStr || '');
@@ -2968,6 +3045,7 @@ function _historySourceDates(values, fromStr, toStr) {
 }
 
 function _historySourceBuild(fromStr, toStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_historySourceBuild', _historySourceBuild, this, arguments);
   var started = Date.now(), read = _buildSnapshotRangeReadContext(getss(), { historyOnly: true });
   var excludedNonTradeHoldingNames = _historyNonTradeHoldings(read.valuesByName);
   var dates = _historySourceDates(read.valuesByName, fromStr, toStr);
@@ -3012,6 +3090,7 @@ function _historySourceBuild(fromStr, toStr) {
 }
 
 function handleGetHistorySource(fromStr, toStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetHistorySource', handleGetHistorySource, this, arguments);
   try {
     var revision = String(_getSnapshotIntegritySourceRevision() || '');
     var key = 'history_src_9177_' + String(fromStr || 'all') + '_' + String(toStr || 'prev') + '_' + revision;
@@ -3030,6 +3109,7 @@ function handleGetHistorySource(fromStr, toStr) {
 }
 
 function handleGetHistorySourceDetail(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetHistorySourceDetail', handleGetHistorySourceDetail, this, arguments);
   try {
     var date = _normalizeDate(dateStr || '');
     if (!date || date >= today()) throw new Error('전일 이전 날짜를 선택해 주세요.');
@@ -3048,6 +3128,7 @@ function handleGetHistorySourceDetail(dateStr) {
 }
 
 function handleGetHistory(fromStr, toStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetHistory', handleGetHistory, this, arguments);
   try {
     var ss = getss();
     var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
@@ -3132,6 +3213,7 @@ function handleGetHistory(fromStr, toStr) {
 // 특정일 스냅샷의 종목별 원본 행을 반환합니다. 합계 조회와 분리해 장기간 조회 응답이
 // 불필요하게 커지지 않도록 하고, 같은 종목의 중복 행은 합계 조회와 동일한 기준으로 제거합니다.
 function handleGetHistoryDetail(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetHistoryDetail', handleGetHistoryDetail, this, arguments);
   try {
     var date = _normalizeDate(dateStr);
     if (!date) return jsonError('조회 날짜가 필요합니다.');
@@ -3181,6 +3263,7 @@ function handleGetHistoryDetail(dateStr) {
 //  ★ v9.34: 법인번호(crno)가 일치하는 배당 행은 종목명 표기가 달라도 포함.
 // ════════════════════════════════════════════════════════════════════
 function handleDividendPublicFetch(codes, names, serviceKey) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDividendPublicFetch', handleDividendPublicFetch, this, arguments);
   try {
     var key = (serviceKey || _getPublicDataApiKey()).toString().trim();
     if (!key) return jsonError('공공데이터포털 API 키가 없습니다.');
@@ -3240,6 +3323,7 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
 // ★ [v9.33 신규] 여러 종목코드의 상장종목정보를 UrlFetchApp.fetchAll()로 한 번에 병렬 조회
 // Only bounded status codes/counts are returned: never URLs, keys, provider text or company identifiers.
 function _inspectPublicDividendResponse(res) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_inspectPublicDividendResponse', _inspectPublicDividendResponse, this, arguments);
   var httpStatus = res.getResponseCode();
   var failedHttp = httpStatus < 200 || httpStatus >= 300;
   var result = { status: 'HTTP_ERROR', httpStatus: httpStatus, rows: [], totalCount: null, providerCode: '', providerError: '' };
@@ -3277,11 +3361,13 @@ function _inspectPublicDividendResponse(res) {
 }
 
 function _publicDividendDiagnostic(result) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_publicDividendDiagnostic', _publicDividendDiagnostic, this, arguments);
   return { status: result.status, httpStatus: result.httpStatus, providerCode: result.providerCode, providerError: result.providerError,
     returnedRows: result.rows.length, totalCount: result.totalCount };
 }
 
 function _fetchPublicListedInfoBatch(codes, serviceKey, diagnostics) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchPublicListedInfoBatch', _fetchPublicListedInfoBatch, this, arguments);
   var base = 'https://apis.data.go.kr/1160100/GetKrxListedInfoService_V2/getItemInfo_V2';
   var out = {};
   var validCodes = [];
@@ -3338,6 +3424,7 @@ function _fetchPublicListedInfoBatch(codes, serviceKey, diagnostics) {
 // ★ [v9.33 신규] 여러 종목의 배당정보를 UrlFetchApp.fetchAll()로 한 번에 병렬 조회
 //   queries: [{ code, crno, name }, ...] — crno가 있으면 crno 우선, 없으면 회사명으로 조회
 function _fetchPublicDividendRowsBatch(queries, serviceKey, diagnostics) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchPublicDividendRowsBatch', _fetchPublicDividendRowsBatch, this, arguments);
   var base = 'https://apis.data.go.kr/1160100/GetStocDiviInfoService_V2/getDiviInfo_V2';
   var out = {};
   if (!queries || queries.length === 0) return out;
@@ -3354,6 +3441,7 @@ function _fetchPublicDividendRowsBatch(queries, serviceKey, diagnostics) {
 
 // Complete dividend history only. Bound requests/time; incomplete or failed pages stay unverified.
 function _fetchPublicDividendPages(requests, codes, diagnostics) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchPublicDividendPages', _fetchPublicDividendPages, this, arguments);
   var out = {}, states = [], started = Date.now();
   var pending = requests.map(function(request, i) { return { request: request, index: i }; });
   codes.forEach(function(code) { out[code] = []; });
@@ -3409,6 +3497,7 @@ function _fetchPublicDividendPages(requests, codes, diagnostics) {
 
 
 function _publicServiceKeyParam(serviceKey) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_publicServiceKeyParam', _publicServiceKeyParam, this, arguments);
   var key = (serviceKey || '').toString().trim();
   if (!key) return '';
   // data.go.kr에서 제공하는 Encoding 키는 %2B/%2F처럼 이미 인코딩돼 있습니다.
@@ -3417,6 +3506,7 @@ function _publicServiceKeyParam(serviceKey) {
 }
 
 function _fetchPublicListedInfoByCode(code, serviceKey) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchPublicListedInfoByCode', _fetchPublicListedInfoByCode, this, arguments);
   var normCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
   if (!/^\d{6}$/.test(normCode)) return null;
   var base = 'https://apis.data.go.kr/1160100/GetKrxListedInfoService_V2/getItemInfo_V2';
@@ -3452,6 +3542,7 @@ function _fetchPublicListedInfoByCode(code, serviceKey) {
 }
 
 function _fetchPublicDividendRows(companyName, serviceKey, crno) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchPublicDividendRows', _fetchPublicDividendRows, this, arguments);
   // ★ [v9.32 버그수정] 구버전 경로(/service/GetStocDiviInfoService/getDiviInfo, 404)를
   //   실제 서비스 주소(GetStocDiviInfoService_V2/getDiviInfo_V2)로 교체. 실 응답으로 검증완료.
   var base = 'https://apis.data.go.kr/1160100/GetStocDiviInfoService_V2/getDiviInfo_V2';
@@ -3466,6 +3557,7 @@ function _fetchPublicDividendRows(companyName, serviceKey, crno) {
 }
 
 function _normalizePublicDividendRows(rows, code, companyName, listedInfo, diagnostics) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_normalizePublicDividendRows', _normalizePublicDividendRows, this, arguments);
   var events = [];
   var rejected = { identity: 0, amount: 0, date: 0, beforeRange: 0, duplicate: 0 };
   (rows || []).forEach(function(row) {
@@ -3517,6 +3609,7 @@ function _normalizePublicDividendRows(rows, code, companyName, listedInfo, diagn
 }
 
 function _publicDividendAmount(row) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_publicDividendAmount', _publicDividendAmount, this, arguments);
   var candidates = [
     row.stckGenrDvdnAmt, row.stckGrdnDvdnAmt, row.cashDvdnAmt, row.dvdnAmt,
     row.dividend, row.perShare, row.amount
@@ -3529,6 +3622,7 @@ function _publicDividendAmount(row) {
 }
 
 function _publicDividendDate(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_publicDividendDate', _publicDividendDate, this, arguments);
   var s = (value || '').toString().trim();
   if (!s) return '';
   var m = s.match(/^(\d{4})[-.]?(\d{2})[-.]?(\d{2})/);
@@ -3539,6 +3633,7 @@ function _publicDividendDate(value) {
 //  배당 조회
 // ════════════════════════════════════════════════════════════════════
 function handleDividendFetch(codes) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDividendFetch', handleDividendFetch, this, arguments);
   var ss = null;
   var tmp = null;
   try {
@@ -3615,20 +3710,24 @@ function handleDividendFetch(codes) {
 var SEIBRO_ETF_ENDPOINT = 'https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp';
 
 function _seibroXmlEscape(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroXmlEscape', _seibroXmlEscape, this, arguments);
   return String(value || '').replace(/&/g, '&amp;').replace(/\x22/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function _seibroXmlValue(xml, tag) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroXmlValue', _seibroXmlValue, this, arguments);
   var match = String(xml || '').match(new RegExp('<' + tag + '\\s+value="([^"]*)"\\s*\\/>'));
   return match ? match[1] : '';
 }
 
 function _seibroVectorCount(xml) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroVectorCount', _seibroVectorCount, this, arguments);
   var match = String(xml || '').match(new RegExp('<vector\\b[^>]*\\bresult="(\\d+)"'));
   return match ? parseInt(match[1], 10) : null;
 }
 
 function _seibroPaymentEvents(xml) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroPaymentEvents', _seibroPaymentEvents, this, arguments);
   var events = [];
   var resultPattern = /<result>([\s\S]*?)<\/result>/g;
   var match;
@@ -3648,12 +3747,14 @@ function _seibroPaymentEvents(xml) {
 }
 
 function _seibroDateParam(value, fallbackDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroDateParam', _seibroDateParam, this, arguments);
   var normalized = _normalizeDate(value || fallbackDate);
   if (!normalized) return '';
   return normalized.replace(/-/g, '');
 }
 
 function _seibroTtmStartDate(toDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroTtmStartDate', _seibroTtmStartDate, this, arguments);
   var parts = String(toDate || '').split('-').map(function(v) { return parseInt(v, 10); });
   if (parts.length !== 3 || parts.some(function(v) { return !isFinite(v); })) return '';
   var date = new Date(Date.UTC(parts[0] - 1, parts[1] - 1, parts[2]));
@@ -3661,6 +3762,7 @@ function _seibroTtmStartDate(toDate) {
 }
 
 function _getEtfDividendDiagnosticTargets(ss, fromDate, toDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getEtfDividendDiagnosticTargets', _getEtfDividendDiagnosticTargets, this, arguments);
   var targets = {};
   var add = function(rawCode, name, reason) {
     var code = _cleanCode(rawCode);
@@ -3704,6 +3806,7 @@ function _getEtfDividendDiagnosticTargets(ss, fromDate, toDate) {
 }
 
 function _seibroSearchRequest(target) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroSearchRequest', _seibroSearchRequest, this, arguments);
   return {
     url: SEIBRO_ETF_ENDPOINT,
     method: 'post',
@@ -3719,6 +3822,7 @@ function _seibroSearchRequest(target) {
 }
 
 function _seibroPaymentRequest(isin, fromParam, toParam) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroPaymentRequest', _seibroPaymentRequest, this, arguments);
   var body = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">' +
     '<MENU_NO value="179"/><CMM_BTN_ABBR_NM value="total_search,openall,print,hwp,word,pdf,searchIcon,searchIcon,seach,searchIcon,seach,"/>' +
     '<W2XPATH value="/IPORTAL/user/etf/BIP_CNTS06030V.xml"/><etf_sort_level_cd value="0"/><etf_big_sort_cd value=""/>' +
@@ -3739,6 +3843,7 @@ function _seibroPaymentRequest(isin, fromParam, toParam) {
 }
 
 function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDiagnoseEtfDividends', handleDiagnoseEtfDividends, this, arguments);
   try {
     var toDate = _normalizeDate(toInput) || today();
     var fromDate = _normalizeDate(fromInput) || _seibroTtmStartDate(toDate);
@@ -3835,10 +3940,12 @@ function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
 }
 
 function _seibroEventKey(event) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seibroEventKey', _seibroEventKey, this, arguments);
   return String(event.date || '').slice(0, 10) + '|' + String(event.payDate || '').slice(0, 10);
 }
 
 function _buildEtfDividendDryRun(diagnostic, divData) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildEtfDividendDryRun', _buildEtfDividendDryRun, this, arguments);
   var summary = { targets: diagnostic.targetCount || 0, events: 0, newEvents: 0, correctedEvents: 0, unchangedEvents: 0, changedDivData: 0 };
   var comparisons = [];
   (diagnostic.results || []).forEach(function(row) {
@@ -3885,6 +3992,7 @@ function _buildEtfDividendDryRun(diagnostic, divData) {
 }
 
 function handleDryRunEtfDividends(fromInput, toInput) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDryRunEtfDividends', handleDryRunEtfDividends, this, arguments);
   try {
     var output = handleDiagnoseEtfDividends(fromInput || '', toInput || '', '');
     var diagnostic = JSON.parse(output.getContent());
@@ -3900,6 +4008,7 @@ function handleDryRunEtfDividends(fromInput, toInput) {
 }
 
 function runEtfDividendDryRun() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runEtfDividendDryRun', runEtfDividendDryRun, this, arguments);
   var ui = SpreadsheetApp.getUi();
   try {
     ui.alert('SEIBro ETF 2단계 드라이런', '분배금 전체 행과 TTM 계산안을 기존 DIVDATA와 비교합니다.\n시트와 배당 데이터는 수정하지 않습니다.', ui.ButtonSet.OK);
@@ -3942,10 +4051,12 @@ function runEtfDividendDryRun() {
 }
 
 function _etfDividendHistoryKey(row) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_etfDividendHistoryKey', _etfDividendHistoryKey, this, arguments);
   return _cleanCode(row.code) + '|' + String(row.isin || '') + '|' + String(row.date || '').slice(0, 10) + '|' + String(row.payDate || '').slice(0, 10);
 }
 
 function _readEtfDividendHistory(sheet) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readEtfDividendHistory', _readEtfDividendHistory, this, arguments);
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues().map(function(row) {
     return {
@@ -3957,6 +4068,7 @@ function _readEtfDividendHistory(sheet) {
 }
 
 function _mergeEtfDividendHistory(existing, comparisons, collectedAt) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_mergeEtfDividendHistory', _mergeEtfDividendHistory, this, arguments);
   var byKey = {};
   (existing || []).forEach(function(row) { byKey[_etfDividendHistoryKey(row)] = row; });
   var summary = { added: 0, corrected: 0, unchanged: 0 };
@@ -3982,6 +4094,7 @@ function _mergeEtfDividendHistory(existing, comparisons, collectedAt) {
 }
 
 function _mergeSeibroDivData(existingDivData, comparisons, updatedAt) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_mergeSeibroDivData', _mergeSeibroDivData, this, arguments);
   var merged = JSON.parse(JSON.stringify(existingDivData || {}));
   (comparisons || []).forEach(function(comparison) {
     var previous = merged[comparison.code] || {};
@@ -4011,6 +4124,7 @@ function _mergeSeibroDivData(existingDivData, comparisons, updatedAt) {
 }
 
 function _writeEtfDividendHistory(sheet, rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeEtfDividendHistory', _writeEtfDividendHistory, this, arguments);
   var header = ['종목코드','ISIN','종목명','기준일','지급일','주당분배금','수집일시','원본소스'];
   sheet.clearContents();
   sheet.getRange(1, 1, 1, header.length).setValues([header])
@@ -4026,6 +4140,7 @@ function _writeEtfDividendHistory(sheet, rows) {
 }
 
 function handleApplyEtfDividends() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleApplyEtfDividends', handleApplyEtfDividends, this, arguments);
   var diagnosticOutput = handleDiagnoseEtfDividends('', '', '');
   var diagnostic = JSON.parse(diagnosticOutput.getContent());
   if (diagnostic.status !== 'ok') return jsonError(diagnostic.message || 'SEIBro 진단 실패');
@@ -4105,6 +4220,7 @@ function handleApplyEtfDividends() {
 }
 
 function _isEtfDividendRefreshCurrent(settings, targets, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isEtfDividendRefreshCurrent', _isEtfDividendRefreshCurrent, this, arguments);
   var divData = (settings && settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {};
   return targets.length > 0 && targets.every(function(target) {
     var row = divData[target.code];
@@ -4118,6 +4234,7 @@ function _isEtfDividendRefreshCurrent(settings, targets, dateStr) {
 }
 
 function handleRefreshEtfDividends(forceInput) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleRefreshEtfDividends', handleRefreshEtfDividends, this, arguments);
   try {
     var toDate = today();
     var fromDate = _seibroTtmStartDate(toDate);
@@ -4145,6 +4262,7 @@ function handleRefreshEtfDividends(forceInput) {
 }
 
 function runEtfDividendApply() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runEtfDividendApply', runEtfDividendApply, this, arguments);
   var ui = SpreadsheetApp.getUi();
   var answer = ui.alert(
     'SEIBro ETF 3단계 운영 반영',
@@ -4169,6 +4287,7 @@ function runEtfDividendApply() {
 }
 
 function runEtfDividendDiagnosis() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runEtfDividendDiagnosis', runEtfDividendDiagnosis, this, arguments);
   var ui = SpreadsheetApp.getUi();
   try {
     ui.alert('SEIBro ETF 읽기 전용 진단', '현재 보유현황과 최근 1년 거래이력의 ETF를 조회합니다.\n시트와 배당 데이터는 수정하지 않습니다.\n\n조회에 잠시 시간이 걸릴 수 있습니다.', ui.ButtonSet.OK);
@@ -4209,6 +4328,7 @@ function runEtfDividendDiagnosis() {
 //  getPrices — Toss → KRX → 기존 확정 가격이력
 // ════════════════════════════════════════════════════════════════════
 function handleGetPricesCompat(codesParam, persist) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetPricesCompat', handleGetPricesCompat, this, arguments);
   try {
     var requestStartedMs = Date.now();
     var timings = _newPriceLookupTimings_();
@@ -4425,6 +4545,7 @@ function handleGetPricesCompat(codesParam, persist) {
 }
 
 function _latestDateFromPriceDates(priceDates) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_latestDateFromPriceDates', _latestDateFromPriceDates, this, arguments);
   var latest = '';
   Object.keys(priceDates || {}).forEach(function(code) {
     var date = _normalizeDate(priceDates[code]);
@@ -4436,6 +4557,7 @@ function _latestDateFromPriceDates(priceDates) {
 // 캐시 응답은 가격 재조회는 생략하되 스냅샷 누락 여부는 확인합니다.
 // 이미 해당 날짜 행이 있으면 재계산하지 않아 캐시 응답의 장점을 유지합니다.
 function _ensureSnapshotExistsForDate(ss, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensureSnapshotExistsForDate', _ensureSnapshotExistsForDate, this, arguments);
   if (!dateStr) return false;
   var configs = _readFundUnits(ss);
   var existing = _filterSnapshotRowsByFundLifecycle(_readSnapshotRowsByDate(ss, dateStr), configs, dateStr);
@@ -4452,6 +4574,7 @@ var _fxRatesCache = null;
 var _fxRatesCacheDate = '';
 
 function fetchExchangeRates(ss, requestedCurrencies) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchExchangeRates', fetchExchangeRates, this, arguments);
   var supported = ['USD', 'JPY', 'EUR', 'CNY', 'HKD'];
   var CURRENCIES = Array.isArray(requestedCurrencies) && requestedCurrencies.length > 0
     ? requestedCurrencies.filter(function(cur, index, arr) { return supported.indexOf(cur) >= 0 && arr.indexOf(cur) === index; })
@@ -4494,6 +4617,7 @@ function fetchExchangeRates(ss, requestedCurrencies) {
 //  getPriceHistory — 날짜 범위별 가격이력 조회
 // ════════════════════════════════════════════════════════════════════
 function handleGetPriceHistory(fromStr, toStr, codesParam) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetPriceHistory', handleGetPriceHistory, this, arguments);
   try {
     var ss = getss();
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -4553,6 +4677,7 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
 }
 
 function _benchmarkSymbolMap() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_benchmarkSymbolMap', _benchmarkSymbolMap, this, arguments);
   return {
     KOSPI: ['KOSPI'],
     KOSDAQ: ['KOSDAQ'],
@@ -4579,6 +4704,7 @@ var KRX_OFFICIAL_INDEX_CONFIG = {
 };
 
 function _isKrxOfficialCloseAvailableTime_(now, closeDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isKrxOfficialCloseAvailableTime_', _isKrxOfficialCloseAvailableTime_, this, arguments);
   var instant = now || new Date();
   var requested = _normalizeDate(closeDate || '');
   // 과거 확정 거래일은 장전에도 조회. 당일은 16시 이후에만 공식 확정으로 처리.
@@ -4591,6 +4717,7 @@ function _isKrxOfficialCloseAvailableTime_(now, closeDate) {
 }
 
 function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchKrxOfficialIndexCloses', fetchKrxOfficialIndexCloses, this, arguments);
   var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
   var requested = (symbols || []).filter(function(symbol) { return !!KRX_OFFICIAL_INDEX_CONFIG[symbol]; });
   var output = {}, errors = {}, slots = _getKrxAuthKeySlots_();
@@ -4642,17 +4769,20 @@ function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
 }
 
 function _fetchKrxOfficialIndexClosesSafe_(symbols, tradingDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchKrxOfficialIndexClosesSafe_', _fetchKrxOfficialIndexClosesSafe_, this, arguments);
   try { return { data: fetchKrxOfficialIndexCloses(symbols, tradingDate), error: '' }; }
   catch(error) { return { data: {}, error: error.message || 'KRX_OFFICIAL_ERROR' }; }
 }
 
 function _parseKrxK200NightExpiry_(isuName) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_parseKrxK200NightExpiry_', _parseKrxK200NightExpiry_, this, arguments);
   var name = String(isuName || '').replace(/\s/g, '');
   var match = name.match(/^코스피200F(20\d{2})(0[1-9]|1[0-2])\(야간\)$/);
   return match ? match[1] + match[2] : '';
 }
 
 function _selectKrxK200NightClose_(rows, tradingDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_selectKrxK200NightClose_', _selectKrxK200NightClose_, this, arguments);
   var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, ''), month = ymd.slice(0, 6);
   if (!/^\d{8}$/.test(ymd)) return null;
   var candidates = (Array.isArray(rows) ? rows : []).map(function(row) {
@@ -4672,6 +4802,7 @@ function _selectKrxK200NightClose_(rows, tradingDate) {
 }
 
 function fetchKrxK200NightClose(tradingDate, now) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchKrxK200NightClose', fetchKrxK200NightClose, this, arguments);
   var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
   var slots = _getKrxAuthKeySlots_(), authKey = slots.key;
   if (!authKey || !/^\d{8}$/.test(ymd)) return null;
@@ -4704,6 +4835,7 @@ function fetchKrxK200NightClose(tradingDate, now) {
 // Read-only and credential-free diagnostic output for the official K200 night
 // future. Never return raw rows, quotes, contract identifiers or credentials.
 function _summarizeKrxK200NightRows_(rows, tradingDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_summarizeKrxK200NightRows_', _summarizeKrxK200NightRows_, this, arguments);
   var date=_normalizeDate(tradingDate || ''), ymd=date.replace(/-/g,''), month=ymd.slice(0,6);
   var stat={totalRows:0,nightMarketRows:0,exactDateRows:0,
     exactDateNightRows:0,exactNightProductRows:0,
@@ -4744,6 +4876,7 @@ function _summarizeKrxK200NightRows_(rows, tradingDate) {
   return stat;
 }
 function handleGetKrxK200NightDiagnostics(tradingDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetKrxK200NightDiagnostics', handleGetKrxK200NightDiagnostics, this, arguments);
   var date=_normalizeDate(tradingDate||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)
       || date.replace(/-/g,'').length!==8) return jsonError('INVALID_DATE');
@@ -4788,6 +4921,7 @@ function handleGetKrxK200NightDiagnostics(tradingDate) {
 }
 
 function handleGetKrxK200NightClose(tradingDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetKrxK200NightClose', handleGetKrxK200NightClose, this, arguments);
   try {
     var observation = fetchKrxK200NightClose(tradingDate, new Date());
     return jsonOk({ observation: observation, error: observation ? '' : 'KRX_K200_NIGHT_NOT_READY' });
@@ -4802,6 +4936,7 @@ function handleGetKrxK200NightClose(tradingDate) {
 
 // Yahoo Finance chart is an unofficial endpoint and may change without notice; it is only for US index series.
 function _parseYahooChart_(payload, timezone) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_parseYahooChart_', _parseYahooChart_, this, arguments);
   var chart = payload && payload.chart;
   var result = chart && Array.isArray(chart.result) ? chart.result[0] : null;
   if (!result) return null;
@@ -4824,6 +4959,7 @@ function _parseYahooChart_(payload, timezone) {
 }
 
 function _yahooRequest_(symbol, params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_yahooRequest_', _yahooRequest_, this, arguments);
   var query = Object.keys(params || {}).map(function(key) { return encodeURIComponent(key) + '=' + encodeURIComponent(params[key]); }).join('&');
   var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + (query ? '?' + query : '');
   var lastStatus = 0;
@@ -4847,6 +4983,7 @@ function _yahooRequest_(symbol, params) {
 }
 
 function fetchYahooIndexSeries(benchmark, fromDate, toDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchYahooIndexSeries', fetchYahooIndexSeries, this, arguments);
   var symbol = YAHOO_INDEX_SYMBOLS[benchmark];
   if (!symbol) return { points: [], symbol: '', error: 'UNSUPPORTED_INDEX' };
   var response = _yahooRequest_(symbol, { period1: Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000), period2: Math.floor(new Date(toDate + 'T00:00:00Z').getTime() / 1000) + 86400, interval: '1d', events: 'history', includeAdjustedClose: 'false' });
@@ -4857,6 +4994,7 @@ function fetchYahooIndexSeries(benchmark, fromDate, toDate) {
 }
 
 function fetchYahooIndexCurrent(benchmark) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchYahooIndexCurrent', fetchYahooIndexCurrent, this, arguments);
   var symbol = YAHOO_INDEX_SYMBOLS[benchmark];
   if (!symbol) return null;
   var cache = CacheService.getScriptCache();
@@ -4873,6 +5011,7 @@ function fetchYahooIndexCurrent(benchmark) {
 }
 
 function handleGetBenchmark(benchmark, fromStr, toStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetBenchmark', handleGetBenchmark, this, arguments);
   try {
     var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
     var toDate = _normalizeDate(toStr || '') || today();
@@ -4929,6 +5068,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 }
 
 function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetBenchmarks', handleGetBenchmarks, this, arguments);
   try {
     var map = _benchmarkSymbolMap();
     var requested = String(benchmarksInput || '').split(',').map(function(value) {
@@ -5046,6 +5186,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
 }
 
 function _readVkospiPointsFromKrx(fromDate, toDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readVkospiPointsFromKrx', _readVkospiPointsFromKrx, this, arguments);
   var slots = _getKrxAuthKeySlots_();
   var authKey = slots.key;
   if (!authKey) throw new Error('VKOSPI 조회에는 KRX AUTH_KEY가 필요합니다. 설정에서 KRX 인증키를 등록하세요.');
@@ -5178,6 +5319,7 @@ var SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY = 'snapshot_integrity_source_revision
 var SNAPSHOT_INTEGRITY_STATE_MAX_CHARS = 7000;
 
 function _getSnapshotIntegritySourceRevision() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getSnapshotIntegritySourceRevision', _getSnapshotIntegritySourceRevision, this, arguments);
   var state = _getSnapshotIntegrityRevisionState();
   return String(state.revision || 0);
 }
@@ -5185,6 +5327,7 @@ function _getSnapshotIntegritySourceRevision() {
 // The ordinary revision reader intentionally migrates damaged/legacy state,
 // which writes ScriptProperties. A diagnostic must never trigger that path.
 function _peekSnapshotIntegritySourceRevisionReadonly_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_peekSnapshotIntegritySourceRevisionReadonly_', _peekSnapshotIntegritySourceRevisionReadonly_, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var raw = props.getProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY) || '';
   if (!raw || raw.length > SNAPSHOT_INTEGRITY_STATE_MAX_CHARS)
@@ -5208,6 +5351,7 @@ function _peekSnapshotIntegritySourceRevisionReadonly_() {
 }
 
 function _isSnapshotIntegrityRevision(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isSnapshotIntegrityRevision', _isSnapshotIntegrityRevision, this, arguments);
   var revision = Number(value);
   return isFinite(revision) && revision >= 0 && Math.floor(revision) === revision && revision <= Number.MAX_SAFE_INTEGER;
 }
@@ -5217,6 +5361,7 @@ function _isSnapshotIntegrityRevision(value) {
 // even if two recovery reads happen in the same millisecond.
 var _snapshotIntegrityLastMigrationRevision_ = 0;
 function _getSnapshotIntegrityRevisionState() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getSnapshotIntegrityRevisionState', _getSnapshotIntegrityRevisionState, this, arguments);
   var props = PropertiesService.getScriptProperties(), raw = props.getProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY);
   try {
     var parsed = JSON.parse(raw || '{}');
@@ -5244,6 +5389,7 @@ function _getSnapshotIntegrityRevisionState() {
 }
 
 function _compactSnapshotIntegrityRevisionState(state) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_compactSnapshotIntegrityRevisionState', _compactSnapshotIntegrityRevisionState, this, arguments);
   var redundantDates = Object.keys(state.dates).filter(function(date) { return Number(state.dates[date] || 0) <= Number(state.all || 0); });
   redundantDates.forEach(function(date) { delete state.dates[date]; });
   state.ranges = state.ranges.filter(function(item) { return item && _normalizeDate(item.from) && Number(item.revision || 0) > Number(state.all || 0); });
@@ -5266,6 +5412,7 @@ function _compactSnapshotIntegrityRevisionState(state) {
 }
 
 function _saveSnapshotIntegrityRevisionState(state) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_saveSnapshotIntegrityRevisionState', _saveSnapshotIntegrityRevisionState, this, arguments);
   state = _compactSnapshotIntegrityRevisionState(state);
   if (!_isSnapshotIntegrityRevision(state.revision) || !_isSnapshotIntegrityRevision(state.all)
       || !Object.keys(state.dates || {}).every(function(date) { return _isSnapshotIntegrityRevision(state.dates[date]); })
@@ -5284,6 +5431,7 @@ function _saveSnapshotIntegrityRevisionState(state) {
 }
 
 function _touchSnapshotIntegritySourceRevision(impact) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_touchSnapshotIntegritySourceRevision', _touchSnapshotIntegritySourceRevision, this, arguments);
   var lock = LockService.getScriptLock(), ownsLock = false;
   try {
     if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; }
@@ -5302,6 +5450,7 @@ function _touchSnapshotIntegritySourceRevision(impact) {
 }
 
 function _snapshotIntegrityDateRevisions(dates) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotIntegrityDateRevisions', _snapshotIntegrityDateRevisions, this, arguments);
   var state = _getSnapshotIntegrityRevisionState(), out = {};
   (dates || []).forEach(function(date) {
     var revision = Math.max(Number(state.all || 0), Number(state.dates[date] || 0));
@@ -5312,10 +5461,12 @@ function _snapshotIntegrityDateRevisions(dates) {
 }
 
 function _isSnapshotIntegritySourceSheet(name) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isSnapshotIntegritySourceSheet', _isSnapshotIntegritySourceSheet, this, arguments);
   return [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'].indexOf(String(name || '')) !== -1;
 }
 
 function _snapshotIntegrityImpactForRows(sheetName, rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotIntegrityImpactForRows', _snapshotIntegrityImpactForRows, this, arguments);
   rows = rows || [];
   if (sheetName === CONFIG.SHEET_CODES) return { all: true };
   var dateIndex = sheetName === FUND_UNITS_SHEET ? 3 : 0;
@@ -5327,6 +5478,7 @@ function _snapshotIntegrityImpactForRows(sheetName, rows) {
 }
 
 function _snapshotIntegrityImpactForEdit(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotIntegrityImpactForEdit', _snapshotIntegrityImpactForEdit, this, arguments);
   var sheet = e && e.range && e.range.getSheet ? e.range.getSheet() : null;
   if (!sheet || !_isSnapshotIntegritySourceSheet(sheet.getName())) return null;
   var name = sheet.getName();
@@ -5353,6 +5505,7 @@ function _snapshotIntegrityImpactForEdit(e) {
 // 날짜 이동/대량 붙여넣기/행 삭제처럼 이전 거래일을 확정할 수 없으면 기존 Snapshot의
 // 최초 날짜부터 보수적으로 검증합니다. onEdit에서는 Snapshot 원본을 쓰지 않습니다.
 function _tradeSnapshotRebuildFromSheetEdit(ss, impact) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_tradeSnapshotRebuildFromSheetEdit', _tradeSnapshotRebuildFromSheetEdit, this, arguments);
   if (impact && impact.from) return _normalizeDate(impact.from);
   var earliest = '';
   var snapshot = ss && typeof ss.getSheetByName === 'function' ? ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) : null;
@@ -5367,6 +5520,7 @@ function _tradeSnapshotRebuildFromSheetEdit(ss, impact) {
 
 // Standalone GAS에도 설치형 onEdit 트리거를 연결합니다(simple onEdit 단독에 의존하지 않음).
 function handleSnapshotIntegritySheetEdit(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSnapshotIntegritySheetEdit', handleSnapshotIntegritySheetEdit, this, arguments);
   var impact = _snapshotIntegrityImpactForEdit(e);
   if (!impact) return;
   _touchSnapshotIntegritySourceRevision(impact);
@@ -5382,9 +5536,11 @@ function handleSnapshotIntegritySheetEdit(e) {
   } finally { if (acquired) lock.releaseLock(); }
 }
 
-function onEdit(e) { handleSnapshotIntegritySheetEdit(e); }
+function onEdit(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('onEdit', onEdit, this, arguments); handleSnapshotIntegritySheetEdit(e); }
 
 function handleSnapshotIntegritySheetChange(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSnapshotIntegritySheetChange', handleSnapshotIntegritySheetChange, this, arguments);
   var changeType = String(e && e.changeType || '').toUpperCase();
   if (changeType === 'EDIT' || changeType === 'FORMAT') return;
   if (changeType === 'REMOVE_GRID' || changeType === 'OTHER') {
@@ -5410,6 +5566,7 @@ function handleSnapshotIntegritySheetChange(e) {
 }
 
 function _ensureSnapshotIntegrityEditTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensureSnapshotIntegrityEditTrigger', _ensureSnapshotIntegrityEditTrigger, this, arguments);
   var ss = getss(), sourceId = typeof ss.getId === 'function' ? ss.getId() : '';
   var matches = function() {
     return ScriptApp.getProjectTriggers().filter(function(trigger) {
@@ -5428,6 +5585,7 @@ function _ensureSnapshotIntegrityEditTrigger(autoFix) {
 }
 
 function _ensureSnapshotIntegrityChangeTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensureSnapshotIntegrityChangeTrigger', _ensureSnapshotIntegrityChangeTrigger, this, arguments);
   var ss = getss(), sourceId = typeof ss.getId === 'function' ? ss.getId() : '';
   function matchingTriggers() {
     return ScriptApp.getProjectTriggers().filter(function(trigger) {
@@ -5456,6 +5614,7 @@ var FUND_NAV_IMPORT_SPECS = {
 };
 
 function _fundDate(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundDate', _fundDate, this, arguments);
   var date = String(value || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('날짜는 YYYY-MM-DD 형식이어야 합니다.');
   var parsed = new Date(date + 'T00:00:00Z');
@@ -5464,12 +5623,14 @@ function _fundDate(value) {
 }
 
 function _fundDateOffset(date, days) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundDateOffset', _fundDateOffset, this, arguments);
   var parsed = new Date(_fundDate(date) + 'T00:00:00Z');
   parsed.setUTCDate(parsed.getUTCDate() + days);
   return parsed.toISOString().slice(0, 10);
 }
 
 function _readFundUnits(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readFundUnits', _readFundUnits, this, arguments);
   var sh = ss.getSheetByName(FUND_UNITS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
   return sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().map(function(row) {
@@ -5481,6 +5642,7 @@ function _readFundUnits(ss) {
 }
 
 function _fundUnitsAtDate(configs, code, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundUnitsAtDate', _fundUnitsAtDate, this, arguments);
   var found = null;
   configs.forEach(function(config) {
     if (config.code === code && config.startDate <= date && (!found || config.startDate > found.startDate)) found = config;
@@ -5489,6 +5651,7 @@ function _fundUnitsAtDate(configs, code, date) {
 }
 
 function _fundHasActiveUnitsInRange(configs, code, from, to) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundHasActiveUnitsInRange', _fundHasActiveUnitsInRange, this, arguments);
   for (var date = from; date <= to; date = _fundDateOffset(date, 1)) {
     var config = _fundUnitsAtDate(configs, code, date);
     if (config && config.units > 0) return true;
@@ -5499,6 +5662,7 @@ function _fundHasActiveUnitsInRange(configs, code, from, to) {
 // F코드의 가격이력은 NAV 단가가 아니라 전체 평가금액이므로 Snapshot 수량은 1로 표현합니다.
 // 단, 펀드좌수 이력에서 해당 날짜가 0좌로 확정되면 거래원장에 과거 보유가 남아 있어도 제외합니다.
 function _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_applyFundUnitLifecycleToSnapshotHoldings', _applyFundUnitLifecycleToSnapshotHoldings, this, arguments);
   Object.keys(holdings || {}).forEach(function(key) {
     var holding = holdings[key];
     var code = _cleanCode(holding && holding.code) || String(holding && holding.code || '').trim().toUpperCase();
@@ -5511,6 +5675,7 @@ function _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, date) {
 }
 
 function _filterSnapshotRowsByFundLifecycle(rows, configs, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_filterSnapshotRowsByFundLifecycle', _filterSnapshotRowsByFundLifecycle, this, arguments);
   return (rows || []).filter(function(row) {
     var code = _cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase();
     // 구형 Snapshot은 코드가 비고 종목명만 남은 경우가 있어 좌수 설정의 유일한 이름 매핑을 사용합니다.
@@ -5522,12 +5687,14 @@ function _filterSnapshotRowsByFundLifecycle(rows, configs, date) {
 }
 
 function _isFundCode(code) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isFundCode', _isFundCode, this, arguments);
   return /^F\d{5}$/.test(String(code || '').trim().toUpperCase());
 }
 
 // 기초정보·거래이력·기존 좌수 설정 중 하나라도 근거가 있는 F코드만 관리 대상에 포함합니다.
 // 현재 보유 여부는 거래이력으로 계산해 UI가 과거 전량매도 종목을 별도 표시할 수 있게 합니다.
 function _getFundCodeCatalog(ss, configs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getFundCodeCatalog', _getFundCodeCatalog, this, arguments);
   var byCode = {};
   function add(code, name, source) {
     code = String(code || '').trim().toUpperCase();
@@ -5573,6 +5740,7 @@ function _getFundCodeCatalog(ss, configs) {
 }
 
 function handleGetFundUnits() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetFundUnits', handleGetFundUnits, this, arguments);
   try {
     var totalStarted = Date.now(), readStarted = Date.now();
     var ss = getss();
@@ -5582,12 +5750,13 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.281' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.282' } });
   }
   catch (err) { return jsonError(err.message); }
 }
 
 function _ensurePortfolioCloseDailyTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensurePortfolioCloseDailyTrigger', _ensurePortfolioCloseDailyTrigger, this, arguments);
   var triggers = ScriptApp.getProjectTriggers();
   var closeTriggers = triggers.filter(function(t) { return t.getHandlerFunction() === 'runDailyPortfolioClose1900'; });
   var hasClose = closeTriggers.length > 0;
@@ -5607,6 +5776,7 @@ function _ensurePortfolioCloseDailyTrigger(autoFix) {
 }
 
 function _ensurePortfolioCloseBackfillTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensurePortfolioCloseBackfillTrigger', _ensurePortfolioCloseBackfillTrigger, this, arguments);
   var handler = 'runPortfolioCloseBackfill2210';
   var triggers = ScriptApp.getProjectTriggers().filter(function(t) {
     return t.getHandlerFunction() === handler;
@@ -5623,6 +5793,7 @@ function _ensurePortfolioCloseBackfillTrigger(autoFix) {
   return triggers.length > 0;
 }
 function _ensurePortfolioHistoricalBackfillTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensurePortfolioHistoricalBackfillTrigger', _ensurePortfolioHistoricalBackfillTrigger, this, arguments);
   var handler = 'runPortfolioHistoricalBackfill2240';
   var triggers = ScriptApp.getProjectTriggers().filter(function(t) {
     return t.getHandlerFunction() === handler;
@@ -5639,6 +5810,7 @@ function _ensurePortfolioHistoricalBackfillTrigger(autoFix) {
   return triggers.length > 0;
 }
 function _ensurePortfolioHistoricalBackfill0010Trigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensurePortfolioHistoricalBackfill0010Trigger', _ensurePortfolioHistoricalBackfill0010Trigger, this, arguments);
   var handler = 'runPortfolioHistoricalBackfill0010';
   var triggers = ScriptApp.getProjectTriggers().filter(function(t) {
     return t.getHandlerFunction() === handler;
@@ -5655,6 +5827,7 @@ function _ensurePortfolioHistoricalBackfill0010Trigger(autoFix) {
   return triggers.length > 0;
 }
 function _ensurePortfolioMorningKrxBackfillTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensurePortfolioMorningKrxBackfillTrigger', _ensurePortfolioMorningKrxBackfillTrigger, this, arguments);
   var handler='runPortfolioMorningKrxBackfill0845';
   var triggers=ScriptApp.getProjectTriggers().filter(function(t) {
     return t.getHandlerFunction()===handler;
@@ -5671,6 +5844,7 @@ function _ensurePortfolioMorningKrxBackfillTrigger(autoFix) {
   return triggers.length>0;
 }
 function _ensurePortfolioCloseWatchdogTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensurePortfolioCloseWatchdogTrigger', _ensurePortfolioCloseWatchdogTrigger, this, arguments);
   var watchdogTriggers = ScriptApp.getProjectTriggers().filter(function(t) {
     return t.getHandlerFunction() === 'runPortfolioCloseWatchdog2030';
   });
@@ -5689,6 +5863,7 @@ function _ensurePortfolioCloseWatchdogTrigger(autoFix) {
 }
 
 function _fundUnitsImpactEnd(ss, configs, code, startDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundUnitsImpactEnd', _fundUnitsImpactEnd, this, arguments);
   var next = (configs || []).filter(function(c) { return c.code === code && c.startDate > startDate; })
     .map(function(c) { return c.startDate; }).sort()[0] || '';
   var limit = next ? _fundDateOffset(next, -1) : today();
@@ -5723,6 +5898,7 @@ function _fundUnitsImpactEnd(ss, configs, code, startDate) {
  * read-to-write TOCTOU still requires a shared external writer contract.
  */
 function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeFundDerivedChangedCells_', _writeFundDerivedChangedCells_, this, arguments);
   if (before.length !== after.length)
     throw new Error('펀드 파생행 물리 위치 변경 차단');
   var originalLastRow = before.length + 1;
@@ -5845,6 +6021,7 @@ function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) 
 }
 
 function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_reconcileFundUnitDerivedRows', _reconcileFundUnitDerivedRows, this, arguments);
   var result = { from:fromDate, to:toDate || '', navRows:0, priceRows:0, snapshotRows:0, manualPreserved:0, missingNav:0 };
   var navBackup = null, priceBackup = null, snapshotBackup = null;
   if (!toDate || toDate < fromDate) return result;
@@ -6033,6 +6210,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
 }
 
 function handleSaveFundUnits(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveFundUnits', handleSaveFundUnits, this, arguments);
   var lock = LockService.getScriptLock();
   var locked = false, unitBackup = null;
   var sourcePersisted = false, affectedFrom = '', affectedTo = '', reconciliation = null;
@@ -6104,6 +6282,7 @@ function handleSaveFundUnits(dataJson) {
 }
 
 function _fundNavFetchOptions(provider, spec) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundNavFetchOptions', _fundNavFetchOptions, this, arguments);
   var headers = {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'ko-KR,ko;q=0.9'
@@ -6116,6 +6295,7 @@ function _fundNavFetchOptions(provider, spec) {
 }
 
 function _fundNavHttpError(provider, status) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundNavHttpError', _fundNavHttpError, this, arguments);
   var spec = FUND_PROVIDERS[provider] || {};
   var providerName = spec.source === 'HANWHA' ? '한화자산운용' : (spec.source === 'FUNETF' ? 'FunETF' : '확인된 공식 제공처');
   if (status === 401 || status === 403) {
@@ -6125,6 +6305,7 @@ function _fundNavHttpError(provider, status) {
 }
 
 function _parseHanwhaNavDate(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_parseHanwhaNavDate', _parseHanwhaNavDate, this, arguments);
   var raw = String(value == null ? '' : value).trim();
   var match = raw.match(/^(\d{4})[-./]?(\d{2})[-./]?(\d{2})$/);
   if (!match) throw new Error('한화 NAV 공시일 형식 오류: "' + raw + '"');
@@ -6132,6 +6313,7 @@ function _parseHanwhaNavDate(value) {
 }
 
 function _fetchFundNav(provider, from, to) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchFundNav', _fetchFundNav, this, arguments);
   var spec = FUND_PROVIDERS[provider];
   if (!Object.prototype.hasOwnProperty.call(FUND_PROVIDERS, provider)) throw new Error('지원하지 않는 펀드 클래스');
   var start = _fundDate(from);
@@ -6186,6 +6368,7 @@ var FUND_NAV_FETCH_BATCH_DAYS = 14;
 var FUND_NAV_FETCH_RETRIES = 1;
 
 function _fetchMissingFundNavBatches(provider, missingDates, activeTo, diagnostic, fundCode) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fetchMissingFundNavBatches', _fetchMissingFundNavBatches, this, arguments);
   var pending = missingDates.slice().sort(), rows = [], batches = [], errors = [];
   while (pending.length) {
     var from = pending[0];
@@ -6240,6 +6423,7 @@ var FUND_KB_CONFIRMED_NON_PUBLICATION_DATES = {
   '2026-09-24':1, '2026-09-25':1, '2026-10-05':1, '2026-10-09':1
 };
 function _fundNavExpectedPublicationDate(date, code) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundNavExpectedPublicationDate', _fundNavExpectedPublicationDate, this, arguments);
   if (code === 'F00002' && FUND_KB_CONFIRMED_NON_PUBLICATION_DATES[date]) return false;
   var day = new Date(_fundDate(date) + 'T00:00:00Z').getUTCDay();
   if (code === 'F00001') return day !== 0 && day !== 1 && day !== 4 && day !== 6;
@@ -6247,6 +6431,7 @@ function _fundNavExpectedPublicationDate(date, code) {
 }
 
 function _fundDailyValues(configs, code, navRows, from, to) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundDailyValues', _fundDailyValues, this, arguments);
   var result = [];
   var latest = null;
   var index = 0;
@@ -6263,6 +6448,7 @@ function _fundDailyValues(configs, code, navRows, from, to) {
 }
 
 function _storedFundNavRows(storedNav, code, provider, from, to) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_storedFundNavRows', _storedFundNavRows, this, arguments);
   var seen = {};
   storedNav.forEach(function(row) {
     var date = _normalizeDate(row[0]);
@@ -6277,11 +6463,13 @@ function _storedFundNavRows(storedNav, code, provider, from, to) {
 }
 
 function _fundPriceSourceRank(source) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundPriceSourceRank', _fundPriceSourceRank, this, arguments);
   source = String(source || '').toUpperCase();
   return source === 'MANUAL' ? 3 : (source === 'FUND_NAV' ? 2 : (source === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? 0 : 1));
 }
 
 function _preferFundRepresentativeValues(currentSource, candidateSource, currentQty, candidateQty, currentValue, candidateValue) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_preferFundRepresentativeValues', _preferFundRepresentativeValues, this, arguments);
   var currentRank = _fundPriceSourceRank(currentSource), candidateRank = _fundPriceSourceRank(candidateSource);
   if (candidateRank !== currentRank) return candidateRank > currentRank;
   currentQty = Number(currentQty || 0); candidateQty = Number(candidateQty || 0);
@@ -6289,12 +6477,14 @@ function _preferFundRepresentativeValues(currentSource, candidateSource, current
 }
 
 function _preferFundRepresentativeRow(current, candidate, sourceIndex, valueIndex, qtyIndex) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_preferFundRepresentativeRow', _preferFundRepresentativeRow, this, arguments);
   if (!current) return true;
   return _preferFundRepresentativeValues(current[sourceIndex], candidate[sourceIndex],
     qtyIndex == null ? 0 : current[qtyIndex], qtyIndex == null ? 0 : candidate[qtyIndex], current[valueIndex], candidate[valueIndex]);
 }
 
 function _fundConfiguredCodeForPriceRow(row, configs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundConfiguredCodeForPriceRow', _fundConfiguredCodeForPriceRow, this, arguments);
   var configuredCodes = {}, nameCandidates = {};
   (configs || []).forEach(function(config) {
     configuredCodes[config.code] = true;
@@ -6308,6 +6498,7 @@ function _fundConfiguredCodeForPriceRow(row, configs) {
 }
 
 function _fundDerivedState(ss, configs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundDerivedState', _fundDerivedState, this, arguments);
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
   var priceKeys = {};
@@ -6331,6 +6522,7 @@ function _fundDerivedState(ss, configs) {
 // A carry Snapshot may retain its exact NAV publication date in the source.
 // Accept only that same date, never an arbitrary suffix or confirmed NAV.
 function _fundSnapshotSourceMatches(snapshotSource, priceSource, sourceDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundSnapshotSourceMatches', _fundSnapshotSourceMatches, this, arguments);
   if (snapshotSource === priceSource) return true;
   return /^(FUND_NAV_CARRY|FUND_NAV_CARRY_INPUT_REQUIRED)$/.test(priceSource)
     && /^\d{4}-\d{2}-\d{2}$/.test(String(sourceDate || ''))
@@ -6339,6 +6531,7 @@ function _fundSnapshotSourceMatches(snapshotSource, priceSource, sourceDate) {
         && snapshotSource === 'FUND_NAV_CARRY@' + sourceDate));
 }
 function _fundValueNeedsProcessing(value, storedRow, priceRow, snapshotRow) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundValueNeedsProcessing', _fundValueNeedsProcessing, this, arguments);
   var confirmed = value.date === value.sourceDate;
   var navComplete = !confirmed || (storedRow
     && _normalizeDate(storedRow[4]) === value.sourceDate
@@ -6358,6 +6551,7 @@ function _fundValueNeedsProcessing(value, storedRow, priceRow, snapshotRow) {
 
 // 외부 NAV 조회나 쓰기 없이 현재 저장 자료만으로 날짜별 완료 상태를 판정합니다.
 function _getFundValuationStatus(ss, from, to, code) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getFundValuationStatus', _getFundValuationStatus, this, arguments);
   _fundDate(from); _fundDate(to);
   code = String(code || '').trim().toUpperCase();
   if (from > to || to > today() || to > _fundDateOffset(from, 31)) throw new Error('한 번에 과거 32일 이내를 조회하세요.');
@@ -6404,6 +6598,7 @@ function _getFundValuationStatus(ss, from, to, code) {
 }
 
 function handleGetFundValuationStatus(from, to, code) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetFundValuationStatus', handleGetFundValuationStatus, this, arguments);
   try {
     var status = _getFundValuationStatus(getss(), from, to, code);
     var fundResults = {}; fundResults[status.code] = status;
@@ -6412,6 +6607,7 @@ function handleGetFundValuationStatus(from, to, code) {
 }
 
 function _getFundNavStatus(ss, configs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getFundNavStatus', _getFundNavStatus, this, arguments);
   var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -6454,6 +6650,7 @@ function _getFundNavStatus(ss, configs) {
 
 // Best-effort diagnostic metadata only; never participates in financial success/ownership.
 function _resumeFundCheckpoint_(diagnostic, stage) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_resumeFundCheckpoint_', _resumeFundCheckpoint_, this, arguments);
   if (!diagnostic || !diagnostic.checkpointOnly) return;
   var allowed = ['REQUEST','OWNER_CHECK','OWNER_READY','PRICE_VERIFY','SCHEDULE','RESERVATION','LEASE','VALUATION','RECONCILE','DONE','FAILED',
     'fundUnitsRead','storedNavRead','priceHistoryRead','fundUnitsResolve','storedNavResolve',
@@ -6473,10 +6670,12 @@ function _resumeFundCheckpoint_(diagnostic, stage) {
 }
 
 function _createFundRecoveryDiagnostic(enabled, from, to, code) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_createFundRecoveryDiagnostic', _createFundRecoveryDiagnostic, this, arguments);
   return enabled ? { fundCode: code || '', from: from, to: to, startedAt: Date.now(), current: null, events: [] } : null;
 }
 
 function _fundRecoveryDiagnosticStart(diagnostic, fundCode, stage, functionName) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundRecoveryDiagnosticStart', _fundRecoveryDiagnosticStart, this, arguments);
   if (!diagnostic) return 0;
   var startedAt = Date.now();
   diagnostic.current = { fundCode: fundCode || diagnostic.fundCode || '', stage: stage, functionName: functionName, startedAt: startedAt };
@@ -6485,6 +6684,7 @@ function _fundRecoveryDiagnosticStart(diagnostic, fundCode, stage, functionName)
 }
 
 function _fundRecoveryDiagnosticFinish(diagnostic, status, error, detail, keepCurrent) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundRecoveryDiagnosticFinish', _fundRecoveryDiagnosticFinish, this, arguments);
   if (!diagnostic || !diagnostic.current) return;
   if (diagnostic.checkpointOnly) {
     if (status === 'start') _resumeFundCheckpoint_(diagnostic, diagnostic.current.stage);
@@ -6502,6 +6702,7 @@ function _fundRecoveryDiagnosticFinish(diagnostic, status, error, detail, keepCu
 }
 
 function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic, maxSnapshotWrites, storedOnlyProviders) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_refreshFundValuations', _refreshFundValuations, this, arguments);
   _fundDate(from); _fundDate(to);
   if (from > to || to > today() || to > _fundDateOffset(from, 31)) throw new Error('한 번에 과거 32일 이내를 조회하세요.');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'fundUnitsRead', '_readFundUnits');
@@ -6843,6 +7044,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
 }
 
 function handleRefreshFundValuations(from, to, code, diagnosticFlag, storedOnly) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleRefreshFundValuations', handleRefreshFundValuations, this, arguments);
   code = String(code || '').trim().toUpperCase();
   var diagnostic = _createFundRecoveryDiagnostic(String(diagnosticFlag || '').toLowerCase() === 'true', from, to, code);
   try {
@@ -6864,6 +7066,7 @@ function handleRefreshFundValuations(from, to, code, diagnosticFlag, storedOnly)
 }
 
 function _inspectFundNavImport(ss, dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_inspectFundNavImport', _inspectFundNavImport, this, arguments);
   var input;
   try { input = JSON.parse(dataJson); } catch (err) { throw new Error('NAV import JSON 형식을 확인하세요.'); }
   var code = String(input.code || '').trim().toUpperCase();
@@ -6937,6 +7140,7 @@ function _inspectFundNavImport(ss, dataJson) {
 }
 
 function handlePreviewFundNavImport(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handlePreviewFundNavImport', handlePreviewFundNavImport, this, arguments);
   try { return jsonOk(_inspectFundNavImport(getss(), dataJson)); }
   catch (err) { return jsonError('NAV import 검증 실패: ' + err.message); }
 }
@@ -6944,6 +7148,7 @@ function handlePreviewFundNavImport(dataJson) {
 var GOOGLE_SHEETS_CELL_LIMIT = 10000000;
 
 function _fundSheetCapacity(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundSheetCapacity', _fundSheetCapacity, this, arguments);
   if (!ss || typeof ss.getSheets !== 'function') return null;
   var targetNames = {};
   targetNames[FUND_NAV_SHEET] = true;
@@ -6975,6 +7180,7 @@ function _fundSheetCapacity(ss) {
 }
 
 function _sheetRole(name) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_sheetRole', _sheetRole, this, arguments);
   if (/_백업_/.test(name)) return 'BACKUP';
   if (/LEGACY/i.test(name)) return 'LEGACY';
   if (name === CONFIG.SHEET_SNAPSHOT) return 'SNAPSHOT';
@@ -6989,6 +7195,7 @@ var SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2';
 var SYSTEM_BACKUP_KEEP_BY_SOURCE = { '스냅샷': 0, '거래이력': 0, '가격이력': 0, '펀드기준가격': 0, '펀드좌수': 0, '종목코드': 0 };
 
 function _readSystemBackupRegistry() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readSystemBackupRegistry', _readSystemBackupRegistry, this, arguments);
   try {
     var parsed = JSON.parse(PropertiesService.getScriptProperties().getProperty(SYSTEM_BACKUP_REGISTRY_KEY) || '[]');
     return Array.isArray(parsed) ? parsed : [];
@@ -6996,12 +7203,14 @@ function _readSystemBackupRegistry() {
 }
 
 function _writeSystemBackupRegistry(items) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeSystemBackupRegistry', _writeSystemBackupRegistry, this, arguments);
   PropertiesService.getScriptProperties().setProperty(SYSTEM_BACKUP_REGISTRY_KEY, JSON.stringify(items || []));
 }
 
 // 최신 성공 증거가 사라지기 전에 같은 source의 안전한 stale rollback을 먼저 지웁니다.
 // registry에 stale candidate가 없으면 기존 fast path대로 workbook/formula scan을 하지 않습니다.
 function _cleanupCurrentSystemBackup(ss, record) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanupCurrentSystemBackup', _cleanupCurrentSystemBackup, this, arguments);
   if (!record) return null;
   var items = _readSystemBackupRegistry();
   var registered = items.filter(function(item) {
@@ -7088,12 +7297,14 @@ function _cleanupCurrentSystemBackup(ss, record) {
   } catch (error) { return { deleted: false, name: registered.name, reason: '삭제 실패: ' + error.message, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords, legacyMigratedDeleted: legacyMigratedDeleted }; }
 }
 function _cleanupCompletedOperationBackups(ss, sourceName, operationId) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanupCompletedOperationBackups', _cleanupCompletedOperationBackups, this, arguments);
   return _readSystemBackupRegistry().filter(function(item) {
     return item.source === sourceName && item.operationId === operationId && item.systemGenerated === true && item.status === 'COMPLETED';
   }).map(function(item) { return _cleanupCurrentSystemBackup(ss, item); });
 }
 
 function _settleSnapshotBackupOperation(ss, operationId, succeeded, message) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_settleSnapshotBackupOperation', _settleSnapshotBackupOperation, this, arguments);
   if (!operationId) return [];
   var records = _readSystemBackupRegistry().filter(function(item) {
     return item.source === CONFIG.SHEET_SNAPSHOT && item.operationId === operationId && item.systemGenerated === true;
@@ -7103,6 +7314,7 @@ function _settleSnapshotBackupOperation(ss, operationId, succeeded, message) {
 }
 
 function _verifyWrittenRange(sheet, row, column, values, message) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_verifyWrittenRange', _verifyWrittenRange, this, arguments);
   SpreadsheetApp.flush();
   if (!values || !values.length) return;
   var actual = sheet.getRange(row, column, values.length, values[0].length).getValues();
@@ -7112,6 +7324,7 @@ function _verifyWrittenRange(sheet, row, column, values, message) {
 // 거래이력 A열의 DATE 서식은 정상 저장된 문자열도 Date 객체로 읽힙니다.
 // 해당 열만 시트 시간대의 달력 날짜로 비교하며, 코드·수량·메모 등은 원시 비교를 유지합니다.
 function _verifyTradeWrittenRange(sheet, row, values) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_verifyTradeWrittenRange', _verifyTradeWrittenRange, this, arguments);
   SpreadsheetApp.flush();
   if (!values || !values.length) return;
   var actual = sheet.getRange(row, 1, values.length, values[0].length).getValues();
@@ -7134,6 +7347,7 @@ function _verifyTradeWrittenRange(sheet, row, values) {
 // getValues()는 Date 객체를 반환하므로 원시 JSON 비교는 정상 쓰기를 실패로 오판합니다.
 // 다른 열은 기존의 엄격한 read-back 규칙을 유지합니다.
 function _verifyFundNavWrittenRange(sheet, row, values) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_verifyFundNavWrittenRange', _verifyFundNavWrittenRange, this, arguments);
   SpreadsheetApp.flush();
   if (!values || !values.length) return;
   var actual = sheet.getRange(row, 1, values.length, 9).getValues();
@@ -7154,17 +7368,20 @@ function _verifyFundNavWrittenRange(sheet, row, values) {
 }
 
 function _registerSystemBackup(record) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_registerSystemBackup', _registerSystemBackup, this, arguments);
   var items = _readSystemBackupRegistry().filter(function(item) { return item.name !== record.name; });
   items.push(record);
   _writeSystemBackupRegistry(items);
 }
 
 function _backupSourceFromSystemName(name) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_backupSourceFromSystemName', _backupSourceFromSystemName, this, arguments);
   var match = String(name || '').match(/^(.+)_백업_(\d{8})_(\d{6})_[A-Za-z0-9-]{6}$/);
   return match && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, match[1]) ? match[1] : '';
 }
 
 function _systemBackupTimestampFromName(name) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_systemBackupTimestampFromName', _systemBackupTimestampFromName, this, arguments);
   var match = String(name || '').match(/_백업_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/);
   if (!match) return '';
   var localText = match[1] + '-' + match[2] + '-' + match[3] + ' ' + match[4] + ':' + match[5] + ':' + match[6];
@@ -7172,15 +7389,18 @@ function _systemBackupTimestampFromName(name) {
   catch (ignore) { return localText; }
 }
 
-function _backupTimeMillis(value) { var parsed = Date.parse(String(value || '')); return isNaN(parsed) ? 0 : parsed; }
+function _backupTimeMillis(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_backupTimeMillis', _backupTimeMillis, this, arguments); var parsed = Date.parse(String(value || '')); return isNaN(parsed) ? 0 : parsed; }
 
 function _sheetHeaderSignature(sheet) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_sheetHeaderSignature', _sheetHeaderSignature, this, arguments);
   if (!sheet || !sheet.getLastRow() || !sheet.getLastColumn()) return '';
   return JSON.stringify(sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]);
 }
 
 // 이름만으로는 채택하지 않고 naming·원본 schema·formula·signature를 모두 확인합니다.
 function _reconcileSystemBackups(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_reconcileSystemBackups', _reconcileSystemBackups, this, arguments);
   var items = _readSystemBackupRegistry(), byName = {}, reconciled = [], unresolved = [];
   items.forEach(function(item) { byName[item.name] = item; });
   ss.getSheets().forEach(function(sheet) {
@@ -7204,6 +7424,7 @@ function _reconcileSystemBackups(ss) {
 
 // 레지스트리에 생성 기록이 있고 최신 검증본이 따로 남는 시스템 백업만 삭제합니다.
 function _cleanupSystemBackups(ss, sourceName, reconcileOrphans) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanupSystemBackups', _cleanupSystemBackups, this, arguments);
   var reconciliation = reconcileOrphans === false ? { reconciled: [], unresolved: [] } : _reconcileSystemBackups(ss);
   var items = _readSystemBackupRegistry(), keep = Number(SYSTEM_BACKUP_KEEP_BY_SOURCE[sourceName] || 0);
   var sourceItems = items.filter(function(item) { return item.source === sourceName && item.systemGenerated === true; });
@@ -7241,12 +7462,14 @@ function _cleanupSystemBackups(ss, sourceName, reconcileOrphans) {
 }
 
 function _isGasReferencedSheet(name) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isGasReferencedSheet', _isGasReferencedSheet, this, arguments);
   var known = [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_PH, FUND_NAV_SHEET,
     CONFIG.SHEET_TRADES, CONFIG.SHEET_HOLD, CONFIG.SHEET_CODES];
   return known.indexOf(name) !== -1;
 }
 
 function _sheetFormulaReferenceCount(ss, targetName) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_sheetFormulaReferenceCount', _sheetFormulaReferenceCount, this, arguments);
   var escaped = String(targetName).replace(/'/g, "''");
   var patterns = ["'" + escaped + "'!", targetName + '!'];
   var count = 0;
@@ -7261,6 +7484,7 @@ function _sheetFormulaReferenceCount(ss, targetName) {
 }
 
 function _sheetFormulaReferenceCounts(ss, targetNames) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_sheetFormulaReferenceCounts', _sheetFormulaReferenceCounts, this, arguments);
   var counts = {}, patterns = (targetNames || []).map(function(name) {
     counts[name] = 0;
     return { name: name, quoted: "'" + String(name).replace(/'/g, "''") + "'!", plain: String(name) + '!' };
@@ -7279,6 +7503,7 @@ function _sheetFormulaReferenceCounts(ss, targetNames) {
 }
 
 function _diagnoseWorkbookCells(ss, includeFormulaReferences, backupReferencesOnly) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_diagnoseWorkbookCells', _diagnoseWorkbookCells, this, arguments);
   var allSheets = ss.getSheets();
   var registered = {};
   _readSystemBackupRegistry().forEach(function(item) { registered[item.name] = item; });
@@ -7344,12 +7569,14 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences, backupReferencesOn
 }
 
 function handleDiagnoseWorkbookCells() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDiagnoseWorkbookCells', handleDiagnoseWorkbookCells, this, arguments);
   try { return jsonOk({ workbook: _diagnoseWorkbookCells(getss(), true) }); }
   catch (err) { return jsonError('통합문서 셀 진단 실패: ' + err.message); }
 }
 
 // 전체 백업을 한 번에 분류합니다. apply=false 경로는 registry 기록도 바꾸지 않습니다.
 function _systemBackupProtectionReason_(item, context) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_systemBackupProtectionReason_', _systemBackupProtectionReason_, this, arguments);
   context = context || {};
   if (item.orphanAdopted) return '과거 adopted orphan · 원본 당시 서명 확인 불가 · 보호';
   if (item.classification === 'ORPHAN_LIKELY_SYSTEM') return '미등록 backup · 생성 당시 서명 미확인 · 보호';
@@ -7369,6 +7596,7 @@ function _systemBackupProtectionReason_(item, context) {
 }
 
 function _planSystemBackupMaintenance(ss, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_planSystemBackupMaintenance', _planSystemBackupMaintenance, this, arguments);
   var validatedOperationIds = {}, requestedValidatedIds = options && options.validatedOperationIds;
   (Array.isArray(requestedValidatedIds) ? requestedValidatedIds : []).forEach(function(operationId) { if (operationId) validatedOperationIds[String(operationId)] = true; });
   var before = _diagnoseWorkbookCells(ss, true, true), registry = _readSystemBackupRegistry(), records = {}, sourceHeaders = {};
@@ -7451,6 +7679,7 @@ function _planSystemBackupMaintenance(ss, options) {
 }
 
 function maintainSystemBackups(options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('maintainSystemBackups', maintainSystemBackups, this, arguments);
   var apply = !!(options && options.apply), ss = getss();
   if (!apply) return _planSystemBackupMaintenance(ss, options);
   var lock = LockService.getScriptLock(), ownsLock = false;
@@ -7482,11 +7711,13 @@ function maintainSystemBackups(options) {
 }
 
 function handleMaintainSystemBackups(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleMaintainSystemBackups', handleMaintainSystemBackups, this, arguments);
   try { return jsonOk({ maintenance: maintainSystemBackups(JSON.parse(dataJson || '{}')) }); }
   catch (error) { return jsonError('시스템 백업 유지보수 실패: ' + error.message); }
 }
 
 function _systemBackupProtectionSummaryLines(source, item) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_systemBackupProtectionSummaryLines', _systemBackupProtectionSummaryLines, this, arguments);
   var protectedItems = Array.isArray(item && item.protected) ? item.protected : [];
   if (!protectedItems.length) return [];
   var grouped = {};
@@ -7507,6 +7738,7 @@ function _systemBackupProtectionSummaryLines(source, item) {
 }
 
 function showSystemBackupDiagnosis() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showSystemBackupDiagnosis', showSystemBackupDiagnosis, this, arguments);
   var result = maintainSystemBackups({ apply: false }), lines = [];
   Object.keys(result.bySource).sort().forEach(function(source) {
     var item = result.bySource[source];
@@ -7521,6 +7753,7 @@ function showSystemBackupDiagnosis() {
 }
 
 function applySystemBackupMaintenancePrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('applySystemBackupMaintenancePrompt', applySystemBackupMaintenancePrompt, this, arguments);
   var ui = SpreadsheetApp.getUi(), dryRun = maintainSystemBackups({ apply: false });
   var candidates = dryRun.backupSheets.filter(function(item) { return item.autoCleanupEligible; });
   if (!candidates.length) { ui.alert('안전하게 정리할 시스템 백업이 없습니다.'); return; }
@@ -7530,6 +7763,7 @@ function applySystemBackupMaintenancePrompt() {
 }
 
 function _sheetContentSignature(sheet) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_sheetContentSignature', _sheetContentSignature, this, arguments);
   var rows = Number(sheet.getLastRow()) || 0, columns = Number(sheet.getLastColumn()) || 0;
   if (!rows || !columns) return '0x0';
   var range = sheet.getRange(1, 1, rows, columns);
@@ -7542,6 +7776,7 @@ function _sheetContentSignature(sheet) {
 
 // 백업을 외부 통합문서에 복사하고 검증 결과만 반환합니다. 운영 시트 삭제는 의도적으로 제공하지 않습니다.
 function handlePrepareBackupCleanup(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handlePrepareBackupCleanup', handlePrepareBackupCleanup, this, arguments);
   try {
     var request = JSON.parse(dataJson), names = Array.isArray(request.sheetNames) ? request.sheetNames : [];
     var archiveIds = Array.isArray(request.archiveSpreadsheetIds) ? request.archiveSpreadsheetIds.filter(String) : [];
@@ -7580,6 +7815,7 @@ function handlePrepareBackupCleanup(dataJson) {
 }
 
 function _ensureFundImportRowCapacity(ss, sheet, appendCount) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensureFundImportRowCapacity', _ensureFundImportRowCapacity, this, arguments);
   if (!sheet || appendCount <= 0 || typeof sheet.getMaxRows !== 'function') return;
   var requiredRows = sheet.getLastRow() + appendCount;
   var maxRows = Number(sheet.getMaxRows()) || 0;
@@ -7607,6 +7843,7 @@ function _ensureFundImportRowCapacity(ss, sheet, appendCount) {
 }
 
 function _compactFundImportTargetColumns(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_compactFundImportTargetColumns', _compactFundImportTargetColumns, this, arguments);
   if (!ss || typeof ss.getSheetByName !== 'function') return 0;
   var specs = [
     { name: FUND_NAV_SHEET, columns: 9 },
@@ -7628,6 +7865,7 @@ function _compactFundImportTargetColumns(ss) {
 }
 
 function _writeFundImportRows(ss, sheet, updates, appends, colCount) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeFundImportRows', _writeFundImportRows, this, arguments);
   var written = { updatedRows: 0, appendedRows: 0 };
   updates = (updates || []).slice().sort(function(a, b) { return a.index - b.index; });
   try {
@@ -7656,6 +7894,7 @@ function _writeFundImportRows(ss, sheet, updates, appends, colCount) {
 }
 
 function _appendFundImportSnapshotRows(ss, sheet, rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_appendFundImportSnapshotRows', _appendFundImportSnapshotRows, this, arguments);
   rows = _dedupeSnapshotRows(rows || []);
   if (!rows.length) return 0;
   _ensureFundImportRowCapacity(ss, sheet, rows.length);
@@ -7665,6 +7904,7 @@ function _appendFundImportSnapshotRows(ss, sheet, rows) {
 }
 
 function _upsertFundImportSnapshotRow(ss, sheet, value, fundRow) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_upsertFundImportSnapshotRow', _upsertFundImportSnapshotRow, this, arguments);
   if (!sheet || sheet.getLastRow() < 2) return _appendFundImportSnapshotRows(ss, sheet, [fundRow]);
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(12, sheet.getLastColumn())).getValues();
   var matchIndexes = [];
@@ -7692,6 +7932,7 @@ function _upsertFundImportSnapshotRow(ss, sheet, value, fundRow) {
 }
 
 function _runFundImportStage(diagnostic, code, stage, functionName, callback) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_runFundImportStage', _runFundImportStage, this, arguments);
   _fundRecoveryDiagnosticStart(diagnostic, code, stage, functionName);
   try {
     var result = callback();
@@ -7706,6 +7947,7 @@ function _runFundImportStage(diagnostic, code, stage, functionName, callback) {
 }
 
 function _applyFundNavImport(ss, inspected, diagnostic) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_applyFundNavImport', _applyFundNavImport, this, arguments);
   diagnostic.persisted = { navWrite: { updatedRows: 0, appendedRows: 0 }, priceHistoryWrite: { updatedRows: 0, appendedRows: 0 }, snapshotWrite: { updatedRows: 0, appendedRows: 0 } };
   var capacityBefore = _fundSheetCapacity(ss);
   var configs = _readFundUnits(ss);
@@ -7905,6 +8147,7 @@ function _applyFundNavImport(ss, inspected, diagnostic) {
 // All external collector writes enter through one shared writer owner before
 // any source read. Ordinary manual import/refresh contracts remain unchanged.
 function handleCollectKbFundNav(mode, dataJson, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleCollectKbFundNav', handleCollectKbFundNav, this, arguments);
   var token = Utilities.getUuid(), owned = false;
   try {
     if (mode !== 'import' && mode !== 'refresh') throw new Error('request');
@@ -7945,6 +8188,7 @@ function handleCollectKbFundNav(mode, dataJson, date) {
 }
 
 function handleImportFundNav(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleImportFundNav', handleImportFundNav, this, arguments);
   var lock = LockService.getScriptLock();
   var diagnostic = null, inspected = null;
   try {
@@ -7984,6 +8228,7 @@ function handleImportFundNav(dataJson) {
 }
 
 function _compactFundDailyResultForProperty(result, fallbackDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_compactFundDailyResultForProperty', _compactFundDailyResultForProperty, this, arguments);
   result = result || {};
   var compactFunds = {};
   Object.keys(result.fundResults || {}).sort().forEach(function(code) {
@@ -8016,12 +8261,14 @@ function _compactFundDailyResultForProperty(result, fallbackDate) {
 }
 
 function _fundPropertyText(value, maxChars) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundPropertyText', _fundPropertyText, this, arguments);
   var text = String(value == null ? '' : value);
   maxChars = Math.max(100, Number(maxChars || 1000));
   return text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text;
 }
 
 function runDailyFundValuations(targetDate, recoveryDiagnostic) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runDailyFundValuations', runDailyFundValuations, this, arguments);
   var props = PropertiesService.getScriptProperties();
   // The last accepted attempt owns status writes, even when two same-day
   // executions overlap. Date alone cannot distinguish their completion order.
@@ -8112,6 +8359,7 @@ function runDailyFundValuations(targetDate, recoveryDiagnostic) {
 }
 
 function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveManualPrice', handleSaveManualPrice, this, arguments);
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(30000);
@@ -8180,6 +8428,7 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
 //  효과: 종목 N개 → GAS 왕복 1회 + 스냅샷 재작성 1회
 // ════════════════════════════════════════════════════════════════════
 function handleBatchSaveManualPrices(dateStr, dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleBatchSaveManualPrices', handleBatchSaveManualPrices, this, arguments);
   var lock = LockService.getScriptLock();
   var snapshotWarning = '';
   try {
@@ -8246,6 +8495,7 @@ function handleBatchSaveManualPrices(dateStr, dataJson) {
 }
 
 function _rebuildSnapshotForDateFromHistory(ss, dateStr, targetCode, targetName) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_rebuildSnapshotForDateFromHistory', _rebuildSnapshotForDateFromHistory, this, arguments);
   try {
     var normDate = _normalizeDate(dateStr);
     if (!normDate) return;
@@ -8263,12 +8513,14 @@ function _rebuildSnapshotForDateFromHistory(ss, dateStr, targetCode, targetName)
 
 // 원자료만 읽어 대상 날짜의 Snapshot을 재생성합니다. 기존 Snapshot은 비교용으로만 읽습니다.
 function rebuildDailySnapshots(fromStr, toStr, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('rebuildDailySnapshots', rebuildDailySnapshots, this, arguments);
   var lock = LockService.getScriptLock(), ownsLock = false;
   try { if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; } return _rebuildDailySnapshotsLocked(fromStr, toStr, options || {}); }
   finally { if (ownsLock) lock.releaseLock(); }
 }
 
 function _currentNonTradeSnapshotHoldingNames(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_currentNonTradeSnapshotHoldingNames', _currentNonTradeSnapshotHoldingNames, this, arguments);
   var out = {};
   var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
   if (holdSh && holdSh.getLastRow() >= 2) {
@@ -8303,6 +8555,7 @@ function _currentNonTradeSnapshotHoldingNames(ss) {
 }
 
 function _preserveCurrentNonTradeSnapshotRows(existingRows, expectedRows, nonTradeNames) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_preserveCurrentNonTradeSnapshotRows', _preserveCurrentNonTradeSnapshotRows, this, arguments);
   var out = (expectedRows || []).slice();
   if (!nonTradeNames || !Object.keys(nonTradeNames).length) return out;
   var expectedNames = {};
@@ -8322,6 +8575,7 @@ function _preserveCurrentNonTradeSnapshotRows(existingRows, expectedRows, nonTra
 }
 
 function _hasSnapshotHoldingsAtDate(ss, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_hasSnapshotHoldingsAtDate', _hasSnapshotHoldingsAtDate, this, arguments);
   var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
   if (!tradeSh) return null;
   // 거래 시트가 존재하지만 헤더만 남았다면 이는 원장 부재가 아니라 '보유 0'으로 확정된 상태입니다.
@@ -8342,6 +8596,7 @@ function _hasSnapshotHoldingsAtDate(ss, dateStr) {
 }
 
 function _rebuildDailySnapshotsLocked(fromStr, toStr, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_rebuildDailySnapshotsLocked', _rebuildDailySnapshotsLocked, this, arguments);
   options = options || {};
   var ss = getss();
   var fromDate = _normalizeDate(fromStr || '') || '1900-01-01';
@@ -8406,6 +8661,7 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr, options) {
 }
 
 function _collectDailySnapshotDates(ss, fromDate, toDate, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_collectDailySnapshotDates', _collectDailySnapshotDates, this, arguments);
   options = options || {};
   var currentDay = today();
   var includeToday = options.includeToday === true;
@@ -8456,12 +8712,14 @@ function _collectDailySnapshotDates(ss, fromDate, toDate, options) {
 }
 
 function _dateOffset(dateStr, days) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_dateOffset', _dateOffset, this, arguments);
   var date = new Date(_normalizeDate(dateStr) + 'T00:00:00Z');
   date.setUTCDate(date.getUTCDate() + Number(days || 0));
   return date.toISOString().slice(0, 10);
 }
 
 function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildSnapshotRowsFromTradeAndPriceHistory', _buildSnapshotRowsFromTradeAndPriceHistory, this, arguments);
   throwOnError = throwOnError !== false;
   var out = [];
   try {
@@ -8594,6 +8852,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
 }
 
 function _fundNavEvaluationFromRows(rows, configs, code, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundNavEvaluationFromRows', _fundNavEvaluationFromRows, this, arguments);
   var active = _fundUnitsAtDate(configs || [], code, dateStr);
   if (!active || !(Number(active.units) > 0)) return null;
   var best = null, seenBySourceDate = {};
@@ -8620,6 +8879,7 @@ function _fundNavEvaluationFromRows(rows, configs, code, dateStr) {
 }
 
 function _getFundEvaluationAtDate(ss, code, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getFundEvaluationAtDate', _getFundEvaluationAtDate, this, arguments);
   var sh = ss.getSheetByName(FUND_NAV_SHEET);
   if (!sh || sh.getLastRow() < 2 || !_isFundCode(code)) return null;
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(9, sh.getLastColumn())).getValues();
@@ -8630,6 +8890,7 @@ var PRICE_HISTORY_UNVERIFIED_SOURCES = /REALTIME|INDICATIVE|DAILY_CANDLE|UNVERIF
 var PRICE_HISTORY_TRUSTED_REPAIR_SOURCES = /^(KRX_CONFIRMED_CLOSE|TOSS_CONFIRMED_DAILY_CLOSE|STORED_CONFIRMED_CLOSE|FUND_NAV)$/;
 
 function _readPriceIntegrityContext(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readPriceIntegrityContext', _readPriceIntegrityContext, this, arguments);
   function rows(name, columns) {
     var sheet = ss.getSheetByName(name);
     return sheet && sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(columns, sheet.getLastColumn())).getValues() : [];
@@ -8641,6 +8902,7 @@ function _readPriceIntegrityContext(ss) {
 }
 
 function _priceIntegrityRows(context, dates, codes) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_priceIntegrityRows', _priceIntegrityRows, this, arguments);
   var wantedDates = {}, wantedCodes = {}, series = {}, trades = {}, fxSeries = {};
   (dates || []).forEach(function(value) { wantedDates[value] = true; });
   (codes || []).forEach(function(value) { wantedCodes[_cleanCode(value) || String(value)] = true; });
@@ -8700,6 +8962,7 @@ function _priceIntegrityRows(context, dates, codes) {
 }
 
 function diagnosePriceHistoryIntegrity(ss, dates, codes, context) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('diagnosePriceHistoryIntegrity', diagnosePriceHistoryIntegrity, this, arguments);
   context = context || _readPriceIntegrityContext(ss);
   var rows = _priceIntegrityRows(context, dates || [], codes || []), counts = {};
   rows.forEach(function(row) { counts[row.status] = (counts[row.status] || 0) + 1; });
@@ -8707,6 +8970,7 @@ function diagnosePriceHistoryIntegrity(ss, dates, codes, context) {
 }
 
 function handleDiagnosePriceHistoryIntegrity(dateStr, datesStr, codesStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDiagnosePriceHistoryIntegrity', handleDiagnosePriceHistoryIntegrity, this, arguments);
   try {
     var dates = String(datesStr || dateStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
     if (!dates.length) throw new Error('date 또는 dates가 필요합니다.');
@@ -8716,6 +8980,7 @@ function handleDiagnosePriceHistoryIntegrity(dateStr, datesStr, codesStr) {
 }
 
 function _inspectPriceHistoryRepair(ss, dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_inspectPriceHistoryRepair', _inspectPriceHistoryRepair, this, arguments);
   var request = JSON.parse(dataJson || '{}'), date = _normalizeDate(request.date), code = _cleanCode(request.code) || String(request.code || '').trim();
   var referencePrice = Number(request.referencePrice), referenceSource = String(request.referenceSource || '').trim().toUpperCase();
   if (!date || !code || !(referencePrice > 0)) throw new Error('date/code/referencePrice가 필요합니다.');
@@ -8738,11 +9003,13 @@ function _inspectPriceHistoryRepair(ss, dataJson) {
 }
 
 function handlePreviewPriceHistoryRepair(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handlePreviewPriceHistoryRepair', handlePreviewPriceHistoryRepair, this, arguments);
   try { return jsonOk({ preview: _inspectPriceHistoryRepair(getss(), dataJson), applied: false }); }
   catch (error) { return jsonError('가격이력 교정 preview 실패: ' + error.message); }
 }
 
 function handleApplyPriceHistoryRepair(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleApplyPriceHistoryRepair', handleApplyPriceHistoryRepair, this, arguments);
   var lock = LockService.getScriptLock(), backup = null;
   try {
     lock.waitLock(30000);
@@ -8764,6 +9031,7 @@ function handleApplyPriceHistoryRepair(dataJson) {
 // Snapshot은 materialized view이므로 원자료 계산값을 정답으로 비교합니다.
 // 이 경로는 시트를 수정하지 않으며, 중복 충돌을 dedupe 전 원본 행에서 판정합니다.
 function _readRawSnapshotRowsByDate(ss, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readRawSnapshotRowsByDate', _readRawSnapshotRowsByDate, this, arguments);
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT), out = [];
   if (!sh || sh.getLastRow() < 2) return out;
   sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(12, sh.getLastColumn())).getValues().forEach(function(row) {
@@ -8776,13 +9044,16 @@ function _readRawSnapshotRowsByDate(ss, dateStr) {
   return out;
 }
 
-function _snapshotIntegrityKey(row) { return _cleanCode(row && row[1]) || String(row && row[2] || '').trim(); }
+function _snapshotIntegrityKey(row) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotIntegrityKey', _snapshotIntegrityKey, this, arguments); return _cleanCode(row && row[1]) || String(row && row[2] || '').trim(); }
 function _snapshotStoredNumber(value, decimals) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotStoredNumber', _snapshotStoredNumber, this, arguments);
   var factor = Math.pow(10, Number(decimals) || 0);
   return Math.round((Number(value) || 0) * factor) / factor;
 }
 
 function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('diagnoseSnapshotIntegrity', diagnoseSnapshotIntegrity, this, arguments);
   var date = _normalizeDate(dateStr || ''), raw = rangeContext ? (rangeContext.snapshotRowsByDate[date] || []) : _readRawSnapshotRowsByDate(ss, date);
   if (!date) throw new Error('유효한 date가 필요합니다.');
   var grouped = {}, duplicateKeys = [], conflictKeys = [];
@@ -8890,6 +9161,7 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
 }
 
 function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDiagnoseSnapshotIntegrity', handleDiagnoseSnapshotIntegrity, this, arguments);
   try {
     var dates = String(datesStr || dateStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
     if (!dates.length) return jsonError('date 또는 dates가 필요합니다.');
@@ -8901,6 +9173,7 @@ function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
 // 기간 진단 전용 read-through context입니다. 필요한 원장을 각각 한 번만 읽고 기존
 // 단일일 계산기에 Sheet 호환 read-only view를 전달하여 계산 계약을 공유합니다.
 function _buildSnapshotRangeReadContext(ss, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildSnapshotRangeReadContext', _buildSnapshotRangeReadContext, this, arguments);
   var historyOnly = !!(options && options.historyOnly);
   var started = Date.now(), names = historyOnly
     ? [CONFIG.SHEET_TRADES, CONFIG.SHEET_HOLD, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력']
@@ -8928,6 +9201,7 @@ function _buildSnapshotRangeReadContext(ss, options) {
 }
 
 function _indexedLatest(series, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_indexedLatest', _indexedLatest, this, arguments);
   var low = 0, high = series.length - 1, found = null;
   while (low <= high) {
     var mid = (low + high) >> 1;
@@ -8937,6 +9211,7 @@ function _indexedLatest(series, date) {
 }
 
 function _indexedFundEvaluation(context, code, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_indexedFundEvaluation', _indexedFundEvaluation, this, arguments);
   context.metrics.fundNavLookupCount++;
   var active = _fundUnitsAtDate(context.fundConfigs || [], code, date);
   if (!active || !(Number(active.units) > 0)) return null;
@@ -8967,6 +9242,7 @@ function _indexedFundEvaluation(context, code, date) {
 }
 
 function _buildSnapshotRangeIndexes(readContext, dates, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildSnapshotRangeIndexes', _buildSnapshotRangeIndexes, this, arguments);
   var started = Date.now(), values = readContext.valuesByName, metrics = readContext.metrics;
   var context = { snapshotRowsByDate: {}, priceSeriesByCode: {}, positivePriceSeriesByCode: {}, priceExactByDateCode: {}, manualPriceSeriesByCode: {}, fundNavSeriesByCode: {}, fxSeriesByCurrency: {},
     priceIntegrityByDate: {}, codeItems: getCodeItems(readContext.ss, true), fundConfigs: _readFundUnits(readContext.ss), metrics: metrics };
@@ -9103,6 +9379,7 @@ function _buildSnapshotRangeIndexes(readContext, dates, options) {
 }
 
 function _buildIndexedSnapshotRows(context, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildIndexedSnapshotRows', _buildIndexedSnapshotRows, this, arguments);
   var sourceHoldings = context.holdingsByRequestedDate[date] || {}, holdings = {}, out = [];
   Object.keys(sourceHoldings).forEach(function(name) { holdings[name] = Object.assign({}, sourceHoldings[name]); });
   _applyFundUnitLifecycleToSnapshotHoldings(holdings, context.fundConfigs || [], date);
@@ -9140,6 +9417,7 @@ function _buildIndexedSnapshotRows(context, date) {
 // Independent second source scan also detects uncoordinated direct edits and
 // writers that update revision AFTER writing their source rows.
 function _issue507StrictReadSourceDigest_(readContext) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_issue507StrictReadSourceDigest_', _issue507StrictReadSourceDigest_, this, arguments);
   if (!Utilities || typeof Utilities.computeDigest !== 'function')
     throw new Error('ISSUE507_SOURCE_DIGEST_UNAVAILABLE');
   var payload = JSON.stringify(readContext.valuesByName);
@@ -9148,6 +9426,7 @@ function _issue507StrictReadSourceDigest_(readContext) {
   }).join('');
 }
 function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, datesStr, strictReadonly) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDiagnoseSnapshotIntegrityRange', handleDiagnoseSnapshotIntegrityRange, this, arguments);
   var totalStarted = Date.now(), dates = [], processedDates = 0, lastCompletedDate = '', failedDate = '', phase = 'request_validation';
   var strict = strictReadonly === '1', readLock = null, readLockOwned = false;
   try {
@@ -9232,6 +9511,7 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
 
 
 function _oct08FundSourceOnlyProof_(diagnostic) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_oct08FundSourceOnlyProof_', _oct08FundSourceOnlyProof_, this, arguments);
   var date = '2026-10-08', codes = ['F00001','F00002'];
   if (!diagnostic || diagnostic.date !== date || diagnostic.status !== 'MISMATCH'
       || diagnostic.expectedRowCount !== 39 || diagnostic.storedRowCount !== 39
@@ -9287,6 +9567,7 @@ function _oct08FundSourceOnlyProof_(diagnostic) {
 // Source-only metadata repair. Precondition and writes share ONE ScriptLock.
 // Unlike generic rewriteSnapshotDate, does not rewrite entire Snapshot rows.
 function handleRepairOct08FundSourceOnly() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleRepairOct08FundSourceOnly', handleRepairOct08FundSourceOnly, this, arguments);
   var lock=LockService.getScriptLock(), locked=false, ss=null, sheet=null;
   var operationId='', previousOperationId=_snapshotBackupOperationId, touched=[];
   try {
@@ -9351,6 +9632,7 @@ function handleRepairOct08FundSourceOnly() {
 }
 
 function handleRewriteSnapshotDate(dateStr, operationId, finalize) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleRewriteSnapshotDate', handleRewriteSnapshotDate, this, arguments);
   var lock = LockService.getScriptLock(), ownsLock = false;
   var rewriteOperationId = '';
   try {
@@ -9381,6 +9663,7 @@ function handleRewriteSnapshotDate(dateStr, operationId, finalize) {
 }
 
 function _readSnapshotRowsByDate(ss, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readSnapshotRowsByDate', _readSnapshotRowsByDate, this, arguments);
   var out = [];
   try {
     var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
@@ -9412,6 +9695,7 @@ function _readSnapshotRowsByDate(ss, dateStr) {
 }
 
 function _snapshotRowsSignature(rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotRowsSignature', _snapshotRowsSignature, this, arguments);
   var norm = _dedupeSnapshotRows(rows || []).slice();
   norm.sort(function(a, b) {
     var ak = (_normalizeDate(a[0]) || '') + '|' + (_cleanCode(a[1]) || (a[2] || '').toString().trim());
@@ -9425,6 +9709,7 @@ function _snapshotRowsSignature(rows) {
 // 현재 환율로 다시 계산하지 않습니다. 전체 강제 재작성에서는 국내 행만 새로 만들고
 // 기존 외화 행은 그대로 합칩니다.
 function _preserveExistingForeignSnapshotRows(ss, existingRows, expectedRows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_preserveExistingForeignSnapshotRows', _preserveExistingForeignSnapshotRows, this, arguments);
   var foreignCodes = {};
   getCodeItems(ss, true).forEach(function(item) {
     if (item.code && item.currency && item.currency !== 'KRW') foreignCodes[_cleanCode(item.code) || item.code] = true;
@@ -9440,6 +9725,7 @@ function _preserveExistingForeignSnapshotRows(ss, existingRows, expectedRows) {
 }
 
 function _getPriceSourceByDate(ss, dateStr, throwOnError) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getPriceSourceByDate', _getPriceSourceByDate, this, arguments);
   var out = {};
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -9499,6 +9785,7 @@ function _getPriceSourceByDate(ss, dateStr, throwOnError) {
 }
 
 function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_updateTodaySnapshotSource', _updateTodaySnapshotSource, this, arguments);
   if (!sourceByCode || Object.keys(sourceByCode).length === 0) return 0;
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) return 0;
@@ -9585,19 +9872,23 @@ function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
 }
 
 function _isManualKeepLatestEnabled() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isManualKeepLatestEnabled', _isManualKeepLatestEnabled, this, arguments);
   return false;
 }
 
 function _getPriceSourceMode() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getPriceSourceMode', _getPriceSourceMode, this, arguments);
   // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다.
   return 'nh_first';
 }
 
 function _priceSourceModeLabel() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_priceSourceModeLabel', _priceSourceModeLabel, this, arguments);
   return '📡 가격소스: NH 우선 → KRX/공공데이터 → 저장이력';
 }
 
 function togglePriceSourceMode() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('togglePriceSourceMode', togglePriceSourceMode, this, arguments);
   var msg = '⚙️ 주식·ETF 가격소스는 NH 우선 → KRX/공공데이터 → 저장이력으로 고정됩니다.';
   Logger.log(msg);
   try {
@@ -9609,6 +9900,7 @@ function togglePriceSourceMode() {
 }
 
 function toggleManualKeepLatestOption() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('toggleManualKeepLatestOption', toggleManualKeepLatestOption, this, arguments);
   var props = PropertiesService.getScriptProperties();
   props.setProperty('manual_keep_latest', 'false');
   var msg = '⚙️ 수동가격 날짜별 이력 보존: ON\n과거 스냅샷 재현을 위해 최신값만 유지 옵션은 사용하지 않습니다.';
@@ -9617,6 +9909,7 @@ function toggleManualKeepLatestOption() {
 }
 
 function _pruneManualPriceHistoryKeepLatest(ss, code, name) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_pruneManualPriceHistoryKeepLatest', _pruneManualPriceHistoryKeepLatest, this, arguments);
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   if (!ph || ph.getLastRow() < 2) return 0;
 
@@ -9662,6 +9955,7 @@ function _pruneManualPriceHistoryKeepLatest(ss, code, name) {
 //  내부 — 가격이력 시트 특정 날짜 행 읽기
 // ════════════════════════════════════════════════════════════════════
 function getPriceHistoryRow(ss, dateStr, throwOnError) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('getPriceHistoryRow', getPriceHistoryRow, this, arguments);
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
@@ -9703,6 +9997,7 @@ function getPriceHistoryRow(ss, dateStr, throwOnError) {
 //  내부 — 가격이력 시트에서 지정 코드들의 가장 최근 날짜 가격 조회
 // ════════════════════════════════════════════════════════════════════
 function getLatestPriceHistory(ss, codes, maxDate, throwOnError) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('getLatestPriceHistory', getLatestPriceHistory, this, arguments);
   var entries = getLatestPriceHistoryEntries(ss, codes, maxDate, throwOnError);
   var result = {};
   Object.keys(entries).forEach(function(key) { result[key] = entries[key].price; });
@@ -9712,6 +10007,7 @@ function getLatestPriceHistory(ss, codes, maxDate, throwOnError) {
 // 최신 가격뿐 아니라 실제 가격이력 날짜도 함께 반환합니다.
 // KRX fallback 날짜보다 저장 이력이 최신인지 비교할 때 사용합니다.
 function getLatestPriceHistoryEntries(ss, codes, maxDate, throwOnError) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('getLatestPriceHistoryEntries', getLatestPriceHistoryEntries, this, arguments);
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
@@ -9750,6 +10046,7 @@ function getLatestPriceHistoryEntries(ss, codes, maxDate, throwOnError) {
 // 기준일 이전 가격이 전혀 없는 최초 구간에서만 사용할 가장 가까운 이후 가격입니다.
 // 일반적인 누락일은 getLatestPriceHistory()의 직전값을 우선하므로 미래 가격이 덮어쓰지 않습니다.
 function getEarliestPriceHistory(ss, codes, minDate, throwOnError) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('getEarliestPriceHistory', getEarliestPriceHistory, this, arguments);
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
@@ -9779,6 +10076,7 @@ function getEarliestPriceHistory(ss, codes, minDate, throwOnError) {
 // 일반적인 누락일은 getLatestPriceHistory()의 직전값을 우선하므로 미래 가격이 덮어쓰지 않습니다.
 
 function _getLatestPriceHistoryDate(ss, maxDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getLatestPriceHistoryDate', _getLatestPriceHistoryDate, this, arguments);
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return '';
@@ -9798,6 +10096,7 @@ function _getLatestPriceHistoryDate(ss, maxDate) {
 
 
 function batchUpsertPriceHistory(ss, dateStr, items) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('batchUpsertPriceHistory', batchUpsertPriceHistory, this, arguments);
   if (!items || items.length === 0) return;
   // Preflight ALL incoming keys before even touching sheet formatting,
   // creation, or old price rows. A rejected batch is completely read/write free.
@@ -9992,6 +10291,7 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
 //  내부 — 가격이력 시트 upsert (단건)
 // ════════════════════════════════════════════════════════════════════
 function upsertPriceHistory(ss, dateStr, code, name, price, savedAt, source) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('upsertPriceHistory', upsertPriceHistory, this, arguments);
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph) {
@@ -10042,6 +10342,7 @@ function upsertPriceHistory(ss, dateStr, code, name, price, savedAt, source) {
 // A missing code on a stock row is acceptable only if the name still resolves
 // unambiguously in the current server master; only direct funds may lack both.
 function _portfolioLedgerMasterConflict_(items, currentCodes, requireStockCode) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioLedgerMasterConflict_', _portfolioLedgerMasterConflict_, this, arguments);
   if (!Array.isArray(items) || !Array.isArray(currentCodes)) return 'INVALID_PAYLOAD';
   var byCode = {}, byName = {};
   for (var i=0; i<currentCodes.length; i++) {
@@ -10074,11 +10375,13 @@ function _portfolioLedgerMasterConflict_(items, currentCodes, requireStockCode) 
 var PORTFOLIO_SYNC_RECEIPT_PREFIX = 'portfolio_sync_receipt_v1_';
 var PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY = 'portfolio_sync_snapshot_completion_v1';
 function _portfolioSyncDigest_(text) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioSyncDigest_', _portfolioSyncDigest_, this, arguments);
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text).map(function(b) {
     return ('0' + ((b + 256) % 256).toString(16)).slice(-2);
   }).join('');
 }
 function _portfolioSyncCanonical_(kind, rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioSyncCanonical_', _portfolioSyncCanonical_, this, arguments);
   if (!Array.isArray(rows)) throw new Error('INVALID_SYNC_PAYLOAD');
   var normalized = rows.map(function(r) {
     if (kind === 'syncHoldings') return [String(r.code || ''),String(r.name || ''),parseFloat(r.qty)||0,
@@ -10094,6 +10397,7 @@ function _portfolioSyncCanonical_(kind, rows) {
   return JSON.stringify(normalized);
 }
 function _portfolioSyncReceiptInput_(kind, id, data, rebuildFrom, explicitEmpty) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioSyncReceiptInput_', _portfolioSyncReceiptInput_, this, arguments);
   if (['syncHoldings','syncTrades'].indexOf(kind) === -1 || !/^[A-Za-z0-9_-]{16,100}$/.test(String(id||'')))
     throw new Error('INVALID_SYNC_RECEIPT');
   var canonical = _portfolioSyncCanonical_(kind, JSON.parse(data));
@@ -10105,6 +10409,7 @@ function _portfolioSyncReceiptInput_(kind, id, data, rebuildFrom, explicitEmpty)
 // 마지막 실행 LAST와 분리한 원장 fingerprint 귀속 완료 근거.
 // IDLE/RUNNING/BUSY는 이 기록을 덮어쓰지 않는다.
 function _recordPortfolioSyncSnapshotCompletion_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_recordPortfolioSyncSnapshotCompletion_', _recordPortfolioSyncSnapshotCompletion_, this, arguments);
   try {
     var props=PropertiesService.getScriptProperties(),all=props.getProperties();
     var pendingReceipt=Object.keys(all).some(function(key) {
@@ -10122,6 +10427,7 @@ function _recordPortfolioSyncSnapshotCompletion_(ss) {
   } catch(ignore) {Logger.log('복구 저장 재계산 완료 근거 기록 실패');return false;}
 }
 function _portfolioSyncFollowupRecovered_(record) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioSyncFollowupRecovered_', _portfolioSyncFollowupRecovered_, this, arguments);
   try {
     var props=PropertiesService.getScriptProperties();
     var raw=props.getProperty(PORTFOLIO_SYNC_SNAPSHOT_COMPLETION_KEY),proof=raw?JSON.parse(raw):null;
@@ -10137,6 +10443,7 @@ function _portfolioSyncFollowupRecovered_(record) {
 }
 
 function _portfolioSyncReceiptState_(input, record) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioSyncReceiptState_', _portfolioSyncReceiptState_, this, arguments);
   if (!record) return 'NOT_FOUND';
   if (record.requestHash !== input.requestHash || record.kind !== input.kind || record.id !== input.id
       || record.sourceId !== getss().getId()) return 'CONFLICT';
@@ -10150,6 +10457,7 @@ function _portfolioSyncReceiptState_(input, record) {
   return 'COMPLETE';
 }
 function handleGetPortfolioSyncReceipt(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetPortfolioSyncReceipt', handleGetPortfolioSyncReceipt, this, arguments);
   var lock=LockService.getScriptLock(), locked=false;
   try {
     if (!lock.tryLock(1000)) return jsonOk({receiptState:'BUSY'});
@@ -10161,6 +10469,7 @@ function handleGetPortfolioSyncReceipt(params) {
   finally { if(locked)lock.releaseLock(); }
 }
 function handlePortfolioSyncWithReceipt(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handlePortfolioSyncWithReceipt', handlePortfolioSyncWithReceipt, this, arguments);
   var lock=LockService.getScriptLock(),locked=false,props=null,input=null,record=null;
   try {
     lock.waitLock(30000);locked=true;
@@ -10192,6 +10501,7 @@ function handlePortfolioSyncWithReceipt(params) {
 }
 
 function handleSyncHoldings(dataJson, receiptLockHeld, receiptRows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSyncHoldings', handleSyncHoldings, this, arguments);
   var lock = LockService.getScriptLock(), locked = false;
   try {
     // Serialize the entire read/validation/write with stock-code deletion
@@ -10238,6 +10548,7 @@ function handleSyncHoldings(dataJson, receiptLockHeld, receiptRows) {
 //  거래이력 동기화
 // ════════════════════════════════════════════════════════════════════
 function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSyncTrades', handleSyncTrades, this, arguments);
   var lock = LockService.getScriptLock();
   var locked = false, sourcePersisted = false, sourceTouched = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
   try {
@@ -10347,13 +10658,16 @@ var TRADE_LEDGER_WRITE_JOURNAL_KEY = 'trade_ledger_write_unverified_v1';
 // If GAS hard-times-out between clearContents and verified setValues, worker
 // remains blocked; never infer a new valid ledger from partial cell content.
 function _tradeLedgerWriteUnverified_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_tradeLedgerWriteUnverified_', _tradeLedgerWriteUnverified_, this, arguments);
   return !!PropertiesService.getScriptProperties().getProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY);
 }
 function _markTradeLedgerWriteUnverified_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_markTradeLedgerWriteUnverified_', _markTradeLedgerWriteUnverified_, this, arguments);
   PropertiesService.getScriptProperties().setProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY,
     JSON.stringify({state:'WRITING',startedAt:new Date().toISOString()}));
 }
 function _clearTradeLedgerWriteJournal_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_clearTradeLedgerWriteJournal_', _clearTradeLedgerWriteJournal_, this, arguments);
   PropertiesService.getScriptProperties().deleteProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY);
 }
 
@@ -10363,6 +10677,7 @@ var TRADE_LEDGER_FINGERPRINT_KEY = 'trade_ledger_snapshot_source_sha256_v1';
 // edits. Keep only a SHA-256 fingerprint in Script Properties (no positions,
 // accounts or individual trade values); compare on the hourly pending worker.
 function _tradeLedgerContentFingerprint_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_tradeLedgerContentFingerprint_', _tradeLedgerContentFingerprint_, this, arguments);
   var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
   if (!sh) throw new Error('거래원장 시트 없음: fingerprint 기준 미확정');
   var rows = sh.getLastRow() > 1
@@ -10384,12 +10699,14 @@ function _tradeLedgerContentFingerprint_(ss) {
 }
 
 function _recordTradeLedgerFingerprint_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_recordTradeLedgerFingerprint_', _recordTradeLedgerFingerprint_, this, arguments);
   var signature = _tradeLedgerContentFingerprint_(ss);
   PropertiesService.getScriptProperties().setProperty(TRADE_LEDGER_FINGERPRINT_KEY, signature);
   return signature;
 }
 
 function _detectExternalTradeLedgerChanges_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_detectExternalTradeLedgerChanges_', _detectExternalTradeLedgerChanges_, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var before = _tradeLedgerContentFingerprint_(ss);
   var after = _tradeLedgerContentFingerprint_(ss);
@@ -10422,6 +10739,7 @@ function _detectExternalTradeLedgerChanges_(ss) {
 var TRADE_SNAPSHOT_REBUILD_PENDING_KEY = 'trade_snapshot_rebuild_pending_v1';
 
 function _readPendingTradeSnapshotRebuild() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readPendingTradeSnapshotRebuild', _readPendingTradeSnapshotRebuild, this, arguments);
   try {
     var raw = PropertiesService.getScriptProperties().getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
     if (!raw) return null;
@@ -10431,6 +10749,7 @@ function _readPendingTradeSnapshotRebuild() {
 }
 
 function _setPendingTradeSnapshotRebuild(from) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_setPendingTradeSnapshotRebuild', _setPendingTradeSnapshotRebuild, this, arguments);
   var date = _normalizeDate(from || '');
   var props = PropertiesService.getScriptProperties();
   if (!date) { props.deleteProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY); return null; }
@@ -10442,6 +10761,7 @@ function _setPendingTradeSnapshotRebuild(from) {
 }
 
 function _clearPendingTradeSnapshotRebuild() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_clearPendingTradeSnapshotRebuild', _clearPendingTradeSnapshotRebuild, this, arguments);
   PropertiesService.getScriptProperties().deleteProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
 }
 
@@ -10453,6 +10773,7 @@ var TRADE_SNAPSHOT_DEFERRED_DATES_KEY = 'trade_snapshot_rebuild_deferred_v1';
 var TRADE_SNAPSHOT_WORKER_LAST_KEY = 'trade_snapshot_worker_last_v1';
 var TRADE_SNAPSHOT_WORKER_BUSY_KEY = 'trade_snapshot_worker_busy_v1';
 function _readTradeSnapshotDeferredState_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readTradeSnapshotDeferredState_', _readTradeSnapshotDeferredState_, this, arguments);
   var raw = PropertiesService.getScriptProperties().getProperty(TRADE_SNAPSHOT_DEFERRED_DATES_KEY);
   if (!raw) return { dates:[], cursor:'' };
   var state = JSON.parse(raw);
@@ -10468,6 +10789,7 @@ function _readTradeSnapshotDeferredState_() {
   return { dates:dates, cursor:cursor };
 }
 function _writeTradeSnapshotDeferredState_(state) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeTradeSnapshotDeferredState_', _writeTradeSnapshotDeferredState_, this, arguments);
   var dates = state.dates.slice().sort().filter(function(date,index,array) { return !index || date !== array[index - 1]; });
   var props = PropertiesService.getScriptProperties();
   if (!dates.length) { props.deleteProperty(TRADE_SNAPSHOT_DEFERRED_DATES_KEY); return; }
@@ -10477,17 +10799,20 @@ function _writeTradeSnapshotDeferredState_(state) {
   props.setProperty(TRADE_SNAPSHOT_DEFERRED_DATES_KEY,value);
 }
 function _deferTradeSnapshotDate_(date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_deferTradeSnapshotDate_', _deferTradeSnapshotDate_, this, arguments);
   var state = _readTradeSnapshotDeferredState_();
   if (state.dates.indexOf(date) === -1) state.dates.push(date);
   _writeTradeSnapshotDeferredState_(state);
 }
 function _clearTradeSnapshotDeferredDate_(date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_clearTradeSnapshotDeferredDate_', _clearTradeSnapshotDeferredDate_, this, arguments);
   var state = _readTradeSnapshotDeferredState_();
   if (state.dates.indexOf(date) === -1) return;
   state.dates = state.dates.filter(function(value) { return value !== date; });
   _writeTradeSnapshotDeferredState_(state);
 }
 function _markTradeSnapshotWorkerResult_(result) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_markTradeSnapshotWorkerResult_', _markTradeSnapshotWorkerResult_, this, arguments);
   // Only an aggregate enum/date/time is retained; no code, account, price,
   // cost basis, provider credential or individual ledger record is logged.
   PropertiesService.getScriptProperties().setProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY,
@@ -10499,12 +10824,14 @@ function _markTradeSnapshotWorkerResult_(result) {
   return result;
 }
 function _diagnoseTradeSnapshotWorkerDate_(ss, target) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_diagnoseTradeSnapshotWorkerDate_', _diagnoseTradeSnapshotWorkerDate_, this, arguments);
   // One fresh read-only Sheet view per diagnostic. Reuse the single-date
   // calculator unchanged; never retain this view across a Snapshot write.
   var readContext = _buildSnapshotRangeReadContext(ss, {});
   return diagnoseSnapshotIntegrity(readContext.ss, target);
 }
 function _assessTradeSnapshotWorkerDate_(ss, target, markPhase) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_assessTradeSnapshotWorkerDate_', _assessTradeSnapshotWorkerDate_, this, arguments);
   // Optional phase-only observer. No values, quantities or prices are passed.
   var phase = function(name) {
     if (typeof markPhase === 'function') markPhase(name,target);
@@ -10573,6 +10900,7 @@ function _assessTradeSnapshotWorkerDate_(ss, target, markPhase) {
 // Persist only dates, row offsets and hashes (never ledger/price payloads).
 // A second bounded pass verifies the exact scanned content before use.
 function _collectTradeSnapshotWorkerDates_(ss, from, to, deadline) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_collectTradeSnapshotWorkerDates_', _collectTradeSnapshotWorkerDates_, this, arguments);
   var key = 'trade_snapshot_date_scan_v1', props = PropertiesService.getScriptProperties();
   var day = today(), revision = _getSnapshotIntegritySourceRevision();
   var specs = [[CONFIG.SHEET_PH,[0]], [CONFIG.SHEET_SNAPSHOT,[0]],
@@ -10673,6 +11001,7 @@ function _collectTradeSnapshotWorkerDates_(ss, from, to, deadline) {
 // 전진할 날짜가 없을 때 오래된 미해결 날짜를 round-robin 1개씩 재검증해,
 // 가격/NAV 원천이 나중에 추가되면 과거 항목도 자동으로 해소됩니다.
 function runPendingTradeSnapshotRebuild() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPendingTradeSnapshotRebuild', runPendingTradeSnapshotRebuild, this, arguments);
   var startedMs = Date.now(), deadline = startedMs + 240000;
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
@@ -10775,6 +11104,7 @@ function runPendingTradeSnapshotRebuild() {
 }
 
 function _ensurePendingTradeSnapshotRebuildTrigger(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensurePendingTradeSnapshotRebuildTrigger', _ensurePendingTradeSnapshotRebuildTrigger, this, arguments);
   var found = ScriptApp.getProjectTriggers().filter(function(trigger) {
     return trigger.getHandlerFunction() === 'runPendingTradeSnapshotRebuild';
   });
@@ -10790,6 +11120,7 @@ function _ensurePendingTradeSnapshotRebuildTrigger(autoFix) {
 }
 
 function _earliestChangedTradeDate(beforeRows, afterRows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_earliestChangedTradeDate', _earliestChangedTradeDate, this, arguments);
   var counts = {}, dates = {};
   var add = function(row, delta) {
     var normalized = (row || []).slice(0, 11);
@@ -10820,6 +11151,7 @@ function _earliestChangedTradeDate(beforeRows, afterRows) {
 }
 
 function _latestConfirmedSnapshotDate(ss, includeToday) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_latestConfirmedSnapshotDate', _latestConfirmedSnapshotDate, this, arguments);
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) return '';
   var latest = '', currentDay = today();
@@ -10832,6 +11164,7 @@ function _latestConfirmedSnapshotDate(ss, includeToday) {
 }
 
 function _getPrevTradingDay(fromDateStr, maxDaysBack) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getPrevTradingDay', _getPrevTradingDay, this, arguments);
   var max = maxDaysBack || 7;
   var dt  = new Date(fromDateStr + 'T00:00:00');
   for (var i = 1; i <= max; i++) {
@@ -10875,6 +11208,7 @@ var KRX_CONFIRMED_CLOSED_DATES_2027 = {
   '2027-10-04':1, '2027-10-11':1, '2027-12-27':1, '2027-12-31':1
 };
 function _krxCalendarStatus_(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_krxCalendarStatus_', _krxCalendarStatus_, this, arguments);
   var date = _normalizeDate(dateStr || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'UNKNOWN';
   var day = new Date(date + 'T00:00:00Z').getUTCDay();
@@ -10885,8 +11219,10 @@ function _krxCalendarStatus_(dateStr) {
   if (!map) return 'UNKNOWN'; // 미지원 연도를 OPEN으로 단정하지 않음
   return map[date] ? 'CLOSED' : 'OPEN';
 }
-function _isExpectedKrxTradingDate(dateStr) { return _krxCalendarStatus_(dateStr) === 'OPEN'; }
+function _isExpectedKrxTradingDate(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isExpectedKrxTradingDate', _isExpectedKrxTradingDate, this, arguments); return _krxCalendarStatus_(dateStr) === 'OPEN'; }
 function _countBusinessWeekdaysBetween(from, to) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_countBusinessWeekdaysBetween', _countBusinessWeekdaysBetween, this, arguments);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return Infinity;
   var count = 0;
   for (var date = _fundDateOffset(from, 1); date <= to; date = _fundDateOffset(date, 1)) {
@@ -10899,6 +11235,7 @@ function _countBusinessWeekdaysBetween(from, to) {
 // KRX 종가 조회·마감 검증·누락 큐·읽기 진단은 반드시 같은 대상 범위를 씁니다.
 // 마스터의 빈 통화가 KRW로 보정되더라도 명시적 해외 거래소를 KRX로 오인하지 않습니다.
 function _isKrxDailyCloseTarget_(item) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isKrxDailyCloseTarget_', _isKrxDailyCloseTarget_, this, arguments);
   var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
   if (!code || _isFundCode(code)) return false;
   var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
@@ -10912,6 +11249,7 @@ function _isKrxDailyCloseTarget_(item) {
 // This portfolio's automatic close supports Korean and US-listed equities only.
 // Other exchanges must never silently carry stale Yahoo prices through Snapshot.
 function _assertSupportedDailyCloseMarkets_(items) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_assertSupportedDailyCloseMarkets_', _assertSupportedDailyCloseMarkets_, this, arguments);
   (items || []).forEach(function(item) {
     var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
     if (!code || _isFundCode(code) || _isKrxDailyCloseTarget_(item)) return;
@@ -10931,6 +11269,7 @@ function _assertSupportedDailyCloseMarkets_(items) {
 }
 
 function _assessDailyKrxStockClose(items, prices, requestedDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_assessDailyKrxStockClose', _assessDailyKrxStockClose, this, arguments);
   var listed = (items || []).filter(_isKrxDailyCloseTarget_);
   if (!listed.length) return { required:false, date:'', confirmed:0, expected:0 };
   var evidence = prices && prices._krxMarketEvidence;
@@ -11021,6 +11360,7 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
 // Snapshot과 일일 KRX 보유판정에 같은 코드 기반 거래원장 계산을 사용합니다.
 // 회사명/상품명 변경은 표시명만 바꾸며 보유수량·원가를 분리하지 않습니다.
 function _calcCodeHoldingsAtDate(tradeRows, dateStr, nameToCode, displayByCode) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_calcCodeHoldingsAtDate', _calcCodeHoldingsAtDate, this, arguments);
   var recentNames = {};
   var canonicalTrades = (tradeRows || []).map(function(row) {
     var name = String(row[3] || '').trim();
@@ -11048,6 +11388,7 @@ function _calcCodeHoldingsAtDate(tradeRows, dateStr, nameToCode, displayByCode) 
 }
 
 function _getDailyHeldCodeItems(ss, dateStr, catalog) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getDailyHeldCodeItems', _getDailyHeldCodeItems, this, arguments);
   if (!dateStr) return [];
   var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
   if (!tradeSheet || tradeSheet.getLastRow() < 2) return [];
@@ -11077,6 +11418,7 @@ function _getDailyHeldCodeItems(ss, dateStr, catalog) {
 // KRX 원천 장애로 저장하지 못한 실제 거래일을 날짜별로 영속 보관합니다.
 var PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY = 'portfolio_close_pending_krx_dates';
 function _readPendingKrxCloseDates_(props) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readPendingKrxCloseDates_', _readPendingKrxCloseDates_, this, arguments);
   var raw = props.getProperty(PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY) || '[]';
   var parsed = [];
   try { parsed = JSON.parse(raw); } catch(ignore) {}
@@ -11085,6 +11427,7 @@ function _readPendingKrxCloseDates_(props) {
   }).filter(function(date,index,all) { return all.indexOf(date) === index; }).sort();
 }
 function _enqueuePendingKrxCloseDate_(props, date, allowClosed, urgent) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_enqueuePendingKrxCloseDate_', _enqueuePendingKrxCloseDate_, this, arguments);
   // 20:30 watchdog failures must be recorded even if the older-date backlog
   // has reached its ordinary 300-date cap. A 600-entry YYYY-MM-DD JSON array
   // remains under Apps Script's 9 KB per-property value limit.
@@ -11103,15 +11446,18 @@ function _enqueuePendingKrxCloseDate_(props, date, allowClosed, urgent) {
   return true;
 }
 function _completePendingKrxCloseDate_(props, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_completePendingKrxCloseDate_', _completePendingKrxCloseDate_, this, arguments);
   var before = _readPendingKrxCloseDates_(props);
   var after = before.filter(function(d) { return d !== date; });
   if (after.length !== before.length) props.setProperty(PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY, JSON.stringify(after));
 }
 function _hasKrxHoldingsForCloseDate_(ss, date, catalog) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_hasKrxHoldingsForCloseDate_', _hasKrxHoldingsForCloseDate_, this, arguments);
   var holdings = _getDailyHeldCodeItems(ss, date, catalog || getCodeItems(ss));
   return holdings.some(_isKrxDailyCloseTarget_);
 }
 function _seedMissingKrxCloseDates_(ss, props, runDate, catalog) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_seedMissingKrxCloseDates_', _seedMissingKrxCloseDates_, this, arguments);
   var allItems = catalog || getCodeItems(ss);
   // 미국/일본/홍콩 종가가 전 세션 날짜에 저장됐다는 이유로 KRX 누락 큐를 만들지 않습니다.
   if (!_hasKrxHoldingsForCloseDate_(ss, runDate, allItems)) return;
@@ -11135,6 +11481,7 @@ var PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY = 'portfolio_close_backfill_prune_
 // This never writes price history, snapshots, fund state or CLOSE ownership.
 // Fail closed: one stale/broken date cannot hide a later legitimate retry.
 function _pruneVerifiedHistoricalKrxPending_(leaseToken, runDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_pruneVerifiedHistoricalKrxPending_', _pruneVerifiedHistoricalKrxPending_, this, arguments);
   return _portfolioFundAtomic_(function(sharedProps) {
     var lease=_portfolioFundState_(sharedProps,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
     if (!lease || lease.token!==leaseToken || !(Number(lease.until)>Date.now()))
@@ -11180,6 +11527,7 @@ function _pruneVerifiedHistoricalKrxPending_(leaseToken, runDate) {
   });
 }
 function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalOnly, targetDate, morningPreferredDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_runPendingKrxBackfillWithLease_', _runPendingKrxBackfillWithLease_, this, arguments);
   var token = Utilities.getUuid();
   var acquired = _portfolioFundAtomic_(function(sharedProps) {
     // Check both resources under one ScriptLock. Checking fund outside the lock
@@ -11253,6 +11601,7 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalO
 // Dedicated 22:10 same-day retry; 22:40 worker advances historical backlog.
 // Each invocation replays at most one exact date.
 function runPortfolioCloseBackfill2210() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPortfolioCloseBackfill2210', runPortfolioCloseBackfill2210, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
   // Even with no queued PRICE dates, repair the 20:30 CLOSE NAV success
@@ -11286,6 +11635,7 @@ function runPortfolioCloseBackfill2210() {
 // last meaningful historical result remains untouched. If GAS hard-times-out,
 // the RUNNING state survives rather than inventing a completed execution.
 function _runHistoricalBackfillWithCheckpoint_(props,date,slot) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_runHistoricalBackfillWithCheckpoint_', _runHistoricalBackfillWithCheckpoint_, this, arguments);
   var key=slot==='2310' ? 'portfolio_close_historical_2310_checkpoint_v1'
     : slot==='0030' ? 'portfolio_close_historical_0030_checkpoint_v1' : '';
   if(!key)throw new Error('BACKFILL_INVALID_SLOT');
@@ -11318,17 +11668,20 @@ function _runHistoricalBackfillWithCheckpoint_(props,date,slot) {
 }
 // Independent 23:10 historical worker, same writer lease and exact-date checks.
 function runPortfolioHistoricalBackfill2240() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPortfolioHistoricalBackfill2240', runPortfolioHistoricalBackfill2240, this, arguments);
   return _runHistoricalBackfillWithCheckpoint_(
     PropertiesService.getScriptProperties(),today(),'2310');
 }
 // At 00:30 (nearMinute ±15m), replay only dates before new calendar day.
 function runPortfolioHistoricalBackfill0010() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPortfolioHistoricalBackfill0010', runPortfolioHistoricalBackfill0010, this, arguments);
   return _runHistoricalBackfillWithCheckpoint_(
     PropertiesService.getScriptProperties(),today(),'0030');
 }
 // First session after T: KRX OpenAPI daily data may publish from 08:00 KST.
 // Skip without any write until held KRX codes all have exact T-date prices.
 function runPortfolioMorningKrxBackfill0845() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPortfolioMorningKrxBackfill0845', runPortfolioMorningKrxBackfill0845, this, arguments);
   var runDate=today();
   if(_krxCalendarStatus_(runDate)!=='OPEN')
     return {attempted:false,reason:'KRX_MORNING_CLOSED_OR_UNKNOWN'};
@@ -11366,6 +11719,7 @@ function runPortfolioMorningKrxBackfill0845() {
 // hold _portfolioFundAtomic_ and delete the queued date only after success.
 // policy: CREATE (watchdog day), CLEAN (historical replay), HOLD (manual).
 function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_reconcileRecoveredPortfolioPrice_', _reconcileRecoveredPortfolioPrice_, this, arguments);
   var last = _portfolioFundState_(props, 'portfolio_close_last_result');
   if (last && last.runDate && last.runDate > target) return true;
   // A 20:30 retry B can own the current CLOSE even while the persisted
@@ -11448,6 +11802,7 @@ function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
   return true;
 }
 function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate, morningPreferredDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_retryOnePendingKrxClose_', _retryOnePendingKrxClose_, this, arguments);
   var queue = _readPendingKrxCloseDates_(props);
   if (targetDate && (targetDate >= currentDate || queue.indexOf(targetDate) < 0))
     throw new Error('TARGET_NOT_HISTORICAL_PENDING');
@@ -11548,6 +11903,7 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate,
 // KRX OpenAPI는 _krxMarketEvidence 속성을 non-configurable로 생성합니다.
 // 재정의 시 TypeError가 발생하므로 기존 참조 객체 내부에 출처만 추가합니다.
 function _markHolidayKrxStoredCodes_(prices, storedCodes) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_markHolidayKrxStoredCodes_', _markHolidayKrxStoredCodes_, this, arguments);
   var evidence = prices._krxMarketEvidence;
   if (!evidence) {
     evidence = { codeMarkets:{} };
@@ -11562,6 +11918,7 @@ function _markHolidayKrxStoredCodes_(prices, storedCodes) {
 }
 
 function _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readStoredOfficialKrxClosesForHoliday_', _readStoredOfficialKrxClosesForHoliday_, this, arguments);
   if (_krxCalendarStatus_(requestedDate) !== 'CLOSED') return {};
   var wanted = {};
   (items || []).forEach(function(item) {
@@ -11591,6 +11948,7 @@ function _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedDate) {
 // provider response is missing. Exact completed-session evidence is required
 // for every held overseas code before any price history/Snapshot write.
 function _verifyForeignDailyCloseCoverage_(items, foreignPrices, asOf) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_verifyForeignDailyCloseCoverage_', _verifyForeignDailyCloseCoverage_, this, arguments);
   var overseas = (items || []).filter(function(item) {
     var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
     return code && !_isFundCode(code) && !_isKrxDailyCloseTarget_(item);
@@ -11618,6 +11976,7 @@ function _verifyForeignDailyCloseCoverage_(items, foreignPrices, asOf) {
 }
 
 function _latestConfirmedForeignCloseDate_(items, foreignPrices, requestedDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_latestConfirmedForeignCloseDate_', _latestConfirmedForeignCloseDate_, this, arguments);
   var latest = '';
   (items || []).forEach(function(item) {
     var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
@@ -11630,6 +11989,7 @@ function _latestConfirmedForeignCloseDate_(items, foreignPrices, requestedDate) 
   return latest;
 }
 function _selectPortfolioCloseSnapshotDate_(requestedDate, krxDate, krxRequired, lastHistoryDate, latestForeignClose) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_selectPortfolioCloseSnapshotDate_', _selectPortfolioCloseSnapshotDate_, this, arguments);
   var date = krxRequired ? krxDate : lastHistoryDate;
   // KRX 정상 거래일은 당일 exact-date 검증을 이미 거쳤으므로 날짜를 바꾸지 않습니다.
   if (_krxCalendarStatus_(requestedDate) === 'CLOSED' && latestForeignClose
@@ -11640,6 +12000,7 @@ function _selectPortfolioCloseSnapshotDate_(requestedDate, krxDate, krxRequired,
 }
 
 function saveDailyPriceHistory(targetDate, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('saveDailyPriceHistory', saveDailyPriceHistory, this, arguments);
   // Nightly replay and the 19:00 close must not clear recovery work until
   // their own durable summary has been committed. Direct/manual callers
   // retain the traditional completion behavior by default.
@@ -11829,6 +12190,7 @@ var SNAPSHOT_REPAIR_STATE_KEY = 'snapshot_consistency_repair_state';
 var SNAPSHOT_REPAIR_BATCH_SIZE = 3;
 
 function _getAllPriceHistoryDates(ss, maxDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getAllPriceHistoryDates', _getAllPriceHistoryDates, this, arguments);
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   if (!ph || ph.getLastRow() < 2) return [];
   var found = {};
@@ -11840,23 +12202,27 @@ function _getAllPriceHistoryDates(ss, maxDate) {
 }
 
 function _clearSnapshotRepairContinuationTriggers() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_clearSnapshotRepairContinuationTriggers', _clearSnapshotRepairContinuationTriggers, this, arguments);
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
     if (trigger.getHandlerFunction() === 'continueSnapshotConsistencyRepair') ScriptApp.deleteTrigger(trigger);
   });
 }
 
 function _hasSnapshotRepairContinuationTrigger() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_hasSnapshotRepairContinuationTrigger', _hasSnapshotRepairContinuationTrigger, this, arguments);
   return ScriptApp.getProjectTriggers().some(function(trigger) {
     return trigger.getHandlerFunction() === 'continueSnapshotConsistencyRepair';
   });
 }
 
 function _scheduleSnapshotRepairContinuation() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_scheduleSnapshotRepairContinuation', _scheduleSnapshotRepairContinuation, this, arguments);
   _clearSnapshotRepairContinuationTriggers();
   ScriptApp.newTrigger('continueSnapshotConsistencyRepair').timeBased().after(60 * 1000).create();
 }
 
 function _snapshotRepairStatusMessage(state) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotRepairStatusMessage', _snapshotRepairStatusMessage, this, arguments);
   if (!state) return '전체 가격이력·스냅샷 정합성 복구 기록이 없습니다.';
   return '📸 전체 가격이력·스냅샷 정합성 복구\n\n' +
     '상태: ' + (state.done ? '완료' : '진행 중') + '\n' +
@@ -11872,6 +12238,7 @@ function _snapshotRepairStatusMessage(state) {
 }
 
 function _startSnapshotConsistencyRepair(forceRewrite) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_startSnapshotConsistencyRepair', _startSnapshotConsistencyRepair, this, arguments);
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
@@ -11900,6 +12267,7 @@ function _startSnapshotConsistencyRepair(forceRewrite) {
 }
 
 function runSnapshotConsistencyRepair() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runSnapshotConsistencyRepair', runSnapshotConsistencyRepair, this, arguments);
   if (!_confirmPortfolioMenuAction('전체 스냅샷 정합성 복구', '저장된 전체 가격이력 날짜의 스냅샷을 검사하고 불일치·누락 자료를 재작성합니다. 후속 트리거로 계속 실행됩니다. 가격이력을 새로 조회하지 않습니다. 과거 평가 결과가 바뀔 수 있습니다. 버전업의 필수 절차가 아닙니다.')) return;
   try {
     var result = _startSnapshotConsistencyRepair(false);
@@ -11913,6 +12281,7 @@ function runSnapshotConsistencyRepair() {
 }
 
 function handleStartSnapshotRepair() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleStartSnapshotRepair', handleStartSnapshotRepair, this, arguments);
   try {
     var props = PropertiesService.getScriptProperties();
     var currentRaw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
@@ -11931,6 +12300,7 @@ function handleStartSnapshotRepair() {
 }
 
 function handleGetSnapshotRepairStatus() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetSnapshotRepairStatus', handleGetSnapshotRepairStatus, this, arguments);
   try {
     var props = PropertiesService.getScriptProperties();
     var raw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
@@ -11947,6 +12317,7 @@ function handleGetSnapshotRepairStatus() {
 }
 
 function handleContinueSnapshotRepair() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleContinueSnapshotRepair', handleContinueSnapshotRepair, this, arguments);
   try {
     return jsonOk({ repairState: continueSnapshotConsistencyRepair() });
   } catch (err) {
@@ -11958,6 +12329,7 @@ function handleContinueSnapshotRepair() {
 }
 
 function continueSnapshotConsistencyRepair() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('continueSnapshotConsistencyRepair', continueSnapshotConsistencyRepair, this, arguments);
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
@@ -12064,6 +12436,7 @@ function continueSnapshotConsistencyRepair() {
 }
 
 function showSnapshotConsistencyRepairStatus() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showSnapshotConsistencyRepairStatus', showSnapshotConsistencyRepairStatus, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var raw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
   var state = raw ? JSON.parse(raw) : null;
@@ -12088,6 +12461,7 @@ function showSnapshotConsistencyRepairStatus() {
 //  예: repairPriceAndSnapshotForDate('2026-04-08')
 // ════════════════════════════════════════════════════════════════════
 function repairPriceAndSnapshotForDate(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('repairPriceAndSnapshotForDate', repairPriceAndSnapshotForDate, this, arguments);
   var snapshotOperationId = '', previousSnapshotOperationId = _snapshotBackupOperationId, ss = null;
   try {
     var normDate = _normalizeDate(dateStr);
@@ -12167,6 +12541,7 @@ function repairPriceAndSnapshotForDate(dateStr) {
 }
 
 function handleRepairSnapshots(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleRepairSnapshots', handleRepairSnapshots, this, arguments);
   try {
     var payload = JSON.parse(dataJson || '{}');
     var dates = Array.isArray(payload.dates) ? payload.dates : [];
@@ -12217,6 +12592,7 @@ function handleRepairSnapshots(dataJson) {
 //  예: detectPriceAnomalyDates(7, 8) // 최근 7일, 8% 이상 차이
 // ════════════════════════════════════════════════════════════════════
 function detectPriceAnomalyDates(days, thresholdPct) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('detectPriceAnomalyDates', detectPriceAnomalyDates, this, arguments);
   var maxDays = Math.max(1, parseInt(days || 7, 10));
   var threshold = Math.max(1, parseFloat(thresholdPct || 8));
   var ss = getss();
@@ -12287,6 +12663,7 @@ function detectPriceAnomalyDates(days, thresholdPct) {
 //  예: detectPriceAnomalyForDate('2026-04-08', 8)
 // ════════════════════════════════════════════════════════════════════
 function detectPriceAnomalyForDate(dateStr, thresholdPct) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('detectPriceAnomalyForDate', detectPriceAnomalyForDate, this, arguments);
   var targetDate = _normalizeDate(dateStr || '');
   if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
     throw new Error('유효한 일자를 입력하세요. 예) 2026-04-08');
@@ -12352,6 +12729,7 @@ function detectPriceAnomalyForDate(dateStr, thresholdPct) {
 }
 
 function detectPriceAnomalyPromptAndMaybeRepair(readOnly) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('detectPriceAnomalyPromptAndMaybeRepair', detectPriceAnomalyPromptAndMaybeRepair, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
@@ -12453,6 +12831,7 @@ function detectPriceAnomalyPromptAndMaybeRepair(readOnly) {
 }
 
 function _listPriceHistoryDatesInRange(ss, fromDate, toDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_listPriceHistoryDatesInRange', _listPriceHistoryDatesInRange, this, arguments);
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   if (!ph || ph.getLastRow() < 2) return [];
   var rows = ph.getRange(2, 1, ph.getLastRow() - 1, 1).getValues();
@@ -12469,6 +12848,7 @@ function _listPriceHistoryDatesInRange(ss, fromDate, toDate) {
 //  트리거 등록
 // ════════════════════════════════════════════════════════════════════
 function setupTrigger() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('setupTrigger', setupTrigger, this, arguments);
   // 구버전 고정 이름 및 만료된 요청별 임시 시트를 안전하게 정리합니다.
   try { _cleanupBenchmarkTempSheets(); } catch(cleanupErr) { Logger.log('기존 임시 시트 정리 실패: ' + cleanupErr.message); }
   ScriptApp.getProjectTriggers().forEach(function(t) {
@@ -12499,6 +12879,7 @@ function setupTrigger() {
 }
 
 function _ensureDailyTriggers(autoFix) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensureDailyTriggers', _ensureDailyTriggers, this, arguments);
   var hasClean = false;
   var hasMortgage = false;
   var hasClose = false;
@@ -12631,6 +13012,7 @@ function _ensureDailyTriggers(autoFix) {
   };
 }
 function _ensureDailyTriggersOncePerDay(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_ensureDailyTriggersOncePerDay', _ensureDailyTriggersOncePerDay, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
   var checkToken = dateStr + '|integrity-change-v9-close-watchdog-midnight-backfill-morning-tplus1|ledger-authority-v1';
@@ -12658,6 +13040,7 @@ function _ensureDailyTriggersOncePerDay(dateStr) {
 }
 
 function _getLatestDateInColumn(sheet, column) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getLatestDateInColumn', _getLatestDateInColumn, this, arguments);
   if (!sheet || sheet.getLastRow() < 2) return '-';
   var values = sheet.getRange(2, column || 1, sheet.getLastRow() - 1, 1).getValues();
   var latest = '';
@@ -12668,6 +13051,7 @@ function _getLatestDateInColumn(sheet, column) {
   return latest || '-';
 }
 function _getLatestLifecycleValidSnapshotDate(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getLatestLifecycleValidSnapshotDate', _getLatestLifecycleValidSnapshotDate, this, arguments);
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) return '-';
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(12, sh.getLastColumn())).getValues();
@@ -12683,6 +13067,7 @@ function _getLatestLifecycleValidSnapshotDate(ss) {
 }
 
 function _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_expectedConfirmedSnapshotDate', _expectedConfirmedSnapshotDate, this, arguments);
   var closeDate = portfolioClose && _normalizeDate(portfolioClose.priceDate);
   var historyDate = _normalizeDate(priceHistoryLastDate);
   if (closeDate && historyDate) return closeDate > historyDate ? closeDate : historyDate;
@@ -12692,6 +13077,7 @@ function _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose) {
 }
 
 function _expectedPortfolioCloseRunDate() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_expectedPortfolioCloseRunDate', _expectedPortfolioCloseRunDate, this, arguments);
   var now = new Date();
   var todayStr = Utilities.formatDate(now, CONFIG.TIMEZONE, 'yyyy-MM-dd');
   var hour = Number(Utilities.formatDate(now, CONFIG.TIMEZONE, 'HH'));
@@ -12700,6 +13086,7 @@ function _expectedPortfolioCloseRunDate() {
 }
 
 function _isPortfolioCloseRunStale(portfolioClose) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_isPortfolioCloseRunStale', _isPortfolioCloseRunStale, this, arguments);
   if (!portfolioClose) return false;
   var runDate = _normalizeDate(portfolioClose.runDate)
     || _normalizeDate(String(portfolioClose.finishedAt || portfolioClose.startedAt || '').slice(0, 10));
@@ -12712,6 +13099,7 @@ function _isPortfolioCloseRunStale(portfolioClose) {
 // A hard-killed GAS process has no catch/finally; distinguish its orphaned
 // start from a completed result without guessing that the provider failed.
 function _fundAttemptDiagnosticState_(owner, completion, nowMs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_fundAttemptDiagnosticState_', _fundAttemptDiagnosticState_, this, arguments);
   if (!owner || !owner.date || !owner.token) return null;
   var completed = completion && completion.date === owner.date && completion.token === owner.token
     && (completion.state === 'DONE' || completion.state === 'ERROR');
@@ -12729,6 +13117,7 @@ function _fundAttemptDiagnosticState_(owner, completion, nowMs) {
 // Function-name registration is not proof of a CLOCK event or an execution.
 // Never expose trigger IDs, user identities, spreadsheet IDs, or raw metadata.
 function _getTradeSnapshotWorkerTriggerAudit_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getTradeSnapshotWorkerTriggerAudit_', _getTradeSnapshotWorkerTriggerAudit_, this, arguments);
   var matching = ScriptApp.getProjectTriggers().filter(function(t) {
     return t.getHandlerFunction() === 'runPendingTradeSnapshotRebuild';
   });
@@ -12755,6 +13144,7 @@ function _getTradeSnapshotWorkerTriggerAudit_() {
 // KRX Open API publishes on the next business day at 08:00 KST.
 // Recognize only this exact, queued source-date mismatch; never forgive other failures.
 function _krxClosePublicationState_(close, pendingDates, nowMs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_krxClosePublicationState_', _krxClosePublicationState_, this, arguments);
   var result = { waiting:false, state:'NOT_APPLICABLE', tradeDate:'', availableAfter:'' };
   if (!close || close.priceOk !== false || !Array.isArray(close.errors) || !close.errors.length) return result;
   var date = String(close.runDate || '');
@@ -12788,6 +13178,7 @@ function _krxClosePublicationState_(close, pendingDates, nowMs) {
 }
 
 function _getAutomationStatusData() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getAutomationStatusData', _getAutomationStatusData, this, arguments);
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
   var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
@@ -12853,7 +13244,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.281',
+    gasVersion: '9.282',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12920,11 +13311,13 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.281' }); }
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetAutomationStatus', handleGetAutomationStatus, this, arguments);
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.282' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
 function checkDailyAutomationStatus() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('checkDailyAutomationStatus', checkDailyAutomationStatus, this, arguments);
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
   var snapLast = '-';
@@ -12988,15 +13381,18 @@ function checkDailyAutomationStatus() {
 }
 
 function runCodeNormalize1550() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runCodeNormalize1550', runCodeNormalize1550, this, arguments);
   cleanDeadCodes();
 }
 
 function runEvalPriceUpdate1620() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runEvalPriceUpdate1620', runEvalPriceUpdate1620, this, arguments);
   // Legacy manual entrypoint: no longer bypass the active writer lease.
   return _runManualPriceSnapshotGuarded_();
 }
 
 function _appendPortfolioCloseSyncLog(stage, runDate, runId, message) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_appendPortfolioCloseSyncLog', _appendPortfolioCloseSyncLog, this, arguments);
   try {
     var ss = getss();
     var sh = ss.getSheetByName(CONFIG.SHEET_SYNC_LOG);
@@ -13021,6 +13417,7 @@ function _appendPortfolioCloseSyncLog(stage, runDate, runId, message) {
 
 // 하나의 통합 트리거가 제한시간에 중단되어도 마지막으로 진입한 단계는 남깁니다.
 function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, summary, startedMs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_recordPortfolioCloseStage', _recordPortfolioCloseStage, this, arguments);
   // 실행 시작 시각은 표시용 초 단위 문자열과 별도로 millisecond를 저장합니다.
   // 같은 초에 겹친 실행도 더 오래된 실행이 최신 run-id를 뒤늦게 덮지 못하게 합니다.
   var lock = LockService.getScriptLock(), ownsLock = false;
@@ -13103,6 +13500,7 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
   } finally { if (ownsLock) lock.releaseLock(); }
 }
 function _portfolioCloseRunState(portfolioClose, props) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioCloseRunState', _portfolioCloseRunState, this, arguments);
   var startedAt = props.getProperty('portfolio_close_run_started_at') || '';
   var runDate = props.getProperty('portfolio_close_run_date') || '';
   var stage = props.getProperty('portfolio_close_stage') || '';
@@ -13127,6 +13525,7 @@ function _portfolioCloseRunState(portfolioClose, props) {
   return { state:state, startedAt:startedAt, runDate:runDate, stage:stage, stageAt:stageAt };
 }
 function _getOfficialKrxPriceHistoryLastDate(phSh, catalog) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getOfficialKrxPriceHistoryLastDate', _getOfficialKrxPriceHistoryLastDate, this, arguments);
   if (!phSh || phSh.getLastRow() < 2) return '-';
   var domestic={};
   (catalog||[]).forEach(function(item){if(_isKrxDailyCloseTarget_(item))domestic[String(item.code).trim()]=true;});
@@ -13146,6 +13545,7 @@ function _getOfficialKrxPriceHistoryLastDate(phSh, catalog) {
 // Explicit on-demand diagnostic only. Never create sheets, repair history,
 // update Script Properties or use live current prices as a KRX official close.
 function _krxReadOnlyStoredCoverage_(date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_krxReadOnlyStoredCoverage_', _krxReadOnlyStoredCoverage_, this, arguments);
   try {
     var ss = getss();
     var priceSheet = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -13208,6 +13608,7 @@ function _krxReadOnlyStoredCoverage_(date) {
 // Completed dates may be dequeued only after exact KRX source and Snapshot
 // consistency checks. This routine never modifies prices or valuation rows.
 function _verifyCompletedKrxPendingDate_(ss, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_verifyCompletedKrxPendingDate_', _verifyCompletedKrxPendingDate_, this, arguments);
   var items = getCodeItems(ss,true);
   if (!items || !items.length) return {ok:false,reason:'MASTER_MISSING'};
   var held = {};
@@ -13299,6 +13700,7 @@ function _verifyCompletedKrxPendingDate_(ss, date) {
 // Authenticated POST only. Dry-run by default; apply=1 clears *only* the
 // listed prior dates, under ScriptLock, after all-or-none verification.
 function handleReconcileCompletedKrxPending(rawDates, applyFlag) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleReconcileCompletedKrxPending', handleReconcileCompletedKrxPending, this, arguments);
   try {
     var dates=String(rawDates||'').split(',').map(function(x){return x.trim();});
     if (!dates.length || dates.length>3 || dates.some(function(x){
@@ -13336,6 +13738,7 @@ function handleReconcileCompletedKrxPending(rawDates, applyFlag) {
 }
 
 function _krxReadOnlyResponseMeta_(response, ymd) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_krxReadOnlyResponseMeta_', _krxReadOnlyResponseMeta_, this, arguments);
   var status = response.getResponseCode();
   var meta = {httpStatus:status,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'};
   if (status !== 200) return meta;
@@ -13362,6 +13765,7 @@ function _krxReadOnlyResponseMeta_(response, ymd) {
 // Exact-date KRX source proof only, and only when the requested code was
 // in the actual held domestic catalog subset used by the existing aggregate.
 function _krxHeldTargetCloseEvidence_(rawCode, expected, fetched, date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_krxHeldTargetCloseEvidence_', _krxHeldTargetCloseEvidence_, this, arguments);
   var target = _cleanCode(rawCode || '');
   if (!target) return null;
   var eligible = (expected || []).some(function(item) {
@@ -13378,6 +13782,7 @@ function _krxHeldTargetCloseEvidence_(rawCode, expected, fetched, date) {
     providerClass:confirmed ? (source === 'KRX_OTP' ? 'KRX_OTP' : 'KRX_OPENAPI') : 'NOT_CONFIRMED' };
 }
 function handleGetKrxHeldCloseCoverage(dateInput, targetCodeInput) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetKrxHeldCloseCoverage', handleGetKrxHeldCloseCoverage, this, arguments);
   try {
     var date=_normalizeDate(dateInput||'');
     var iso=/^\d{4}-\d{2}-\d{2}$/.test(date)
@@ -13450,6 +13855,7 @@ function handleGetKrxHeldCloseCoverage(dateInput, targetCodeInput) {
 
 // Explicit single-date recovery. No implicit apply and no general rewrite.
 function _targetedKrxRecoveryPreflight_(date, runDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_targetedKrxRecoveryPreflight_', _targetedKrxRecoveryPreflight_, this, arguments);
   var parsed = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
     ? new Date(date + 'T00:00:00Z') : null;
   if (!parsed || !isFinite(parsed.getTime()) || parsed.toISOString().slice(0,10) !== date || date >= runDate)
@@ -13488,6 +13894,7 @@ function _targetedKrxRecoveryPreflight_(date, runDate) {
   return {ready:true,reason:'',expected:stored.expectedHeldCodes};
 }
 function handleRecoverPendingKrxClose(date, apply) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleRecoverPendingKrxClose', handleRecoverPendingKrxClose, this, arguments);
   try {
     // Never permit compatibility-mode unauthenticated writes.
     var props = PropertiesService.getScriptProperties();
@@ -13504,6 +13911,7 @@ function handleRecoverPendingKrxClose(date, apply) {
 }
 
 function handleGetKrxSourceDiagnostics(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetKrxSourceDiagnostics', handleGetKrxSourceDiagnostics, this, arguments);
   try {
     var date = _normalizeDate(dateStr || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return jsonError('진단할 거래일 YYYY-MM-DD를 입력하세요.');
@@ -13571,6 +13979,7 @@ var PORTFOLIO_FUND_LEASE_KEY = 'portfolio_fund_run_lease_v1';
 var PORTFOLIO_FUND_SUCCESS_KEY = 'portfolio_fund_deferred_success_v1';
 var PORTFOLIO_FUND_CLOSE_SUCCESS_KEY = 'portfolio_fund_close_success_v1';
 function _portfolioFundAtomic_(callback) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioFundAtomic_', _portfolioFundAtomic_, this, arguments);
   var lock = LockService.getScriptLock(), acquired = false;
   try {
     lock.waitLock(30000); acquired = true;
@@ -13578,9 +13987,11 @@ function _portfolioFundAtomic_(callback) {
   } finally { if (acquired) lock.releaseLock(); }
 }
 function _portfolioFundState_(props, key) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioFundState_', _portfolioFundState_, this, arguments);
   try { return JSON.parse(props.getProperty(key) || 'null'); } catch(ignore) { return null; }
 }
 function _scheduleFundAfterFailedPortfolioPrice_(owner) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_scheduleFundAfterFailedPortfolioPrice_', _scheduleFundAfterFailedPortfolioPrice_, this, arguments);
   var handler = 'runDeferredFundAfterPortfolioCloseFailure';
   // The PRICE failure owner and its NAV trigger must become durable together.
   // A hard kill before the caller's final _recordPortfolioCloseStage() must
@@ -13723,6 +14134,7 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
   });
 }
 function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, reservedOwner, recoveryDiagnostic) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_runPortfolioFundWithLease_', _runPortfolioFundWithLease_, this, arguments);
   var token = Utilities.getUuid();
   // Recurring Apps Script triggers can fire after KST midnight. Use the
   // reservation's immutable business date, not this execution's wall date.
@@ -13871,6 +14283,7 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
 // failed. Only the exact latest run id + business date + start time can
 // authorize this update; a different run's NAV success must not promote it.
 function _reconcilePortfolioCloseFundSuccess_(date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_reconcilePortfolioCloseFundSuccess_', _reconcilePortfolioCloseFundSuccess_, this, arguments);
   return _portfolioFundAtomic_(function(props) {
     var last = _portfolioFundState_(props, 'portfolio_close_last_result');
     var marker = _portfolioFundState_(props, PORTFOLIO_FUND_CLOSE_SUCCESS_KEY);
@@ -13921,6 +14334,7 @@ function _reconcilePortfolioCloseFundSuccess_(date) {
   });
 }
 function _reconcilePortfolioFundBusy_(date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_reconcilePortfolioFundBusy_', _reconcilePortfolioFundBusy_, this, arguments);
   _portfolioFundAtomic_(function(props) {
     var last = _portfolioFundState_(props, 'portfolio_close_last_result');
     var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
@@ -14027,6 +14441,7 @@ function _reconcilePortfolioFundBusy_(date) {
   });
 }
 function runDeferredFundAfterPortfolioCloseFailure(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runDeferredFundAfterPortfolioCloseFailure', runDeferredFundAfterPortfolioCloseFailure, this, arguments);
   var runDate = today();
   var triggerId = e && e.triggerUid ? String(e.triggerUid) : '';
   var shouldCleanup = false, shouldRun = false, blockedBeforeRun = false;
@@ -14188,6 +14603,7 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
 }
 
 function runDailyPortfolioClose1900() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runDailyPortfolioClose1900', runDailyPortfolioClose1900, this, arguments);
   // 배포 후 setupTrigger를 수동 실행하지 않아도 기존 19시 트리거가 watchdog을 자가 설치합니다.
   try { _ensurePortfolioCloseWatchdogTrigger(true); }
   catch (watchdogTriggerError) { Logger.log('⚠️ 20:30 watchdog 트리거 자가복구 실패: ' + watchdogTriggerError.message); }
@@ -14336,6 +14752,7 @@ function runDailyPortfolioClose1900() {
 }
 
 function _hasForeignHeldItemsForCloseWatchdog_(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_hasForeignHeldItemsForCloseWatchdog_', _hasForeignHeldItemsForCloseWatchdog_, this, arguments);
   var ss = getss();
   return _getDailyHeldCodeItems(ss, dateStr, getCodeItems(ss)).some(function(item) {
     var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
@@ -14343,6 +14760,7 @@ function _hasForeignHeldItemsForCloseWatchdog_(dateStr) {
   });
 }
 function runPortfolioCloseWatchdog2030() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPortfolioCloseWatchdog2030', runPortfolioCloseWatchdog2030, this, arguments);
   var todayStr = today();
   var calendarClosed = _krxCalendarStatus_(todayStr) === 'CLOSED';
   var props = PropertiesService.getScriptProperties();
@@ -14424,6 +14842,7 @@ function runPortfolioCloseWatchdog2030() {
 // deferred fund and historical replay. Reuse the backfill writer lease rather
 // than introducing a separate uncoordinated lock that other paths cannot see.
 function _runManualPriceSnapshotGuarded_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_runManualPriceSnapshotGuarded_', _runManualPriceSnapshotGuarded_, this, arguments);
   var token = Utilities.getUuid();
   var acquired = _portfolioFundAtomic_(function(props) {
     var nav = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
@@ -14461,6 +14880,7 @@ function _runManualPriceSnapshotGuarded_() {
 }
 
 function runDailyPriceSnapshotNow() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runDailyPriceSnapshotNow', runDailyPriceSnapshotNow, this, arguments);
   if (!_confirmPortfolioMenuAction('확정 평가단가·스냅샷 수동 갱신', '19시 통합 마감의 일반 종목 단계와 같은 경로로 확정 거래일 가격이력과 스냅샷을 저장합니다. 자동 실행 실패 또는 즉시 갱신이 필요할 때만 실행하세요.')) return;
   var ui = SpreadsheetApp.getUi();
   try {
@@ -14482,6 +14902,7 @@ function runDailyPriceSnapshotNow() {
 //  소급채우기 — 팝업 입력창
 // ════════════════════════════════════════════════════════════════════
 function backfillRangePrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('backfillRangePrompt', backfillRangePrompt, this, arguments);
   var ui = SpreadsheetApp.getUi();
 
   var r1 = ui.prompt('소급채우기 — 시작 연월', '시작 연월을 입력하세요\n예) 2024-01', ui.ButtonSet.OK_CANCEL);
@@ -14510,6 +14931,7 @@ function backfillRangePrompt() {
 }
 
 function backfillRange() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('backfillRange', backfillRange, this, arguments);
   var from = BACKFILL_CONFIG.fromYear * 100 + BACKFILL_CONFIG.fromMonth;
   var to   = BACKFILL_CONFIG.toYear   * 100 + BACKFILL_CONFIG.toMonth;
   if (BACKFILL_CONFIG.fromMonth < 1 || BACKFILL_CONFIG.fromMonth > 12 ||
@@ -14538,6 +14960,7 @@ function backfillRange() {
 }
 
 function backfillResume() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('backfillResume', backfillResume, this, arguments);
   var props = PropertiesService.getScriptProperties();
   var done  = props.getProperty('bf_done');
   if (done === 'true') {
@@ -14553,6 +14976,7 @@ function backfillResume() {
 }
 
 function backfillStatus() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('backfillStatus', backfillStatus, this, arguments);
   var props    = PropertiesService.getScriptProperties();
   var curYear  = props.getProperty('bf_curYear');
   var curMonth = props.getProperty('bf_curMonth');
@@ -14575,6 +14999,7 @@ function backfillStatus() {
 }
 
 function _backfillExecute() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_backfillExecute', _backfillExecute, this, arguments);
   var props     = PropertiesService.getScriptProperties();
   var fromYear  = parseInt(props.getProperty('bf_fromYear'));
   var fromMonth = parseInt(props.getProperty('bf_fromMonth'));
@@ -14841,11 +15266,13 @@ function _backfillExecute() {
 }
 
 function _snapshotIntegritySatisfied(integrity) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotIntegritySatisfied', _snapshotIntegritySatisfied, this, arguments);
   return !!(integrity && (integrity.status === 'VALID' ||
     (integrity.status === 'NO_SNAPSHOT' && Number(integrity.expectedRowCount || 0) === 0 && Number(integrity.storedRowCount || 0) === 0)));
 }
 
 function _finalizeBackfillSnapshotOperation(ss, dateStr, operationId) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_finalizeBackfillSnapshotOperation', _finalizeBackfillSnapshotOperation, this, arguments);
   SpreadsheetApp.flush();
   var integrity = diagnoseSnapshotIntegrity(ss, dateStr);
   if (!_snapshotIntegritySatisfied(integrity)) throw new Error('backfill Snapshot 재진단 실패: ' + (integrity ? integrity.status : 'NO_RESULT'));
@@ -14856,6 +15283,7 @@ function _finalizeBackfillSnapshotOperation(ss, dateStr, operationId) {
 // 환율 과거 원천은 현재 운영 코드에서 생성하지 않습니다. 운영자가 이미 만든
 // '환율이력' 시트가 있고 헤더가 확인된 경우에만 읽으며, 없으면 현재 환율로 대체하지 않습니다.
 function handleGetExchangeRateHistory(fromStr, toStr, currenciesInput) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetExchangeRateHistory', handleGetExchangeRateHistory, this, arguments);
   try {
     var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
     var toDate = _normalizeDate(toStr || '') || today();
@@ -14884,6 +15312,7 @@ function handleGetExchangeRateHistory(fromStr, toStr, currenciesInput) {
 }
 
 function _getHistoricalExchangeRates(ss, currencies, dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_getHistoricalExchangeRates', _getHistoricalExchangeRates, this, arguments);
   var requested = (currencies || []).map(function(value) { return String(value || '').trim().toUpperCase(); }).filter(Boolean);
   var sh = ss.getSheetByName('환율이력');
   if (!sh || sh.getLastRow() < 2 || !requested.length) return {};
@@ -14906,6 +15335,7 @@ function _getHistoricalExchangeRates(ss, currencies, dateStr) {
 //  거래이력 누적 계산 — dateStr 시점의 보유현황 반환
 // ════════════════════════════════════════════════════════════════════
 function _applyHoldingTrade(map, row, nameToCode, maxDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_applyHoldingTrade', _applyHoldingTrade, this, arguments);
   var rawDate = row[0];
   var date = (rawDate instanceof Date)
     ? Utilities.formatDate(rawDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')
@@ -14949,6 +15379,7 @@ function _applyHoldingTrade(map, row, nameToCode, maxDate) {
 }
 
 function _snapshotHoldingState(map) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotHoldingState', _snapshotHoldingState, this, arguments);
   var result = {};
   Object.keys(map).forEach(function(name) {
     var h = map[name];
@@ -14962,6 +15393,7 @@ function _snapshotHoldingState(map) {
 }
 
 function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('calcHoldingsAtDate', calcHoldingsAtDate, this, arguments);
   var map = {};
   tradeData.forEach(function(row) { _applyHoldingTrade(map, row, nameToCode || {}, dateStr); });
   return _snapshotHoldingState(map);
@@ -14969,6 +15401,7 @@ function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
 
 // 기간 진단은 같은 거래를 날짜마다 처음부터 재생하지 않고 날짜순으로 한 번만 적용합니다.
 function _buildHoldingsByRequestedDate(tradeData, dates, nameToCode) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildHoldingsByRequestedDate', _buildHoldingsByRequestedDate, this, arguments);
   var sortedTrades = (tradeData || []).map(function(row, index) {
     return { row: row, index: index, date: _normalizeDate(row[0]) };
   }).filter(function(item) { return !!item.date; }).sort(function(a, b) {
@@ -14989,6 +15422,7 @@ function _buildHoldingsByRequestedDate(tradeData, dates, nameToCode) {
 //  영업일 목록 (토·일 제외)
 // ════════════════════════════════════════════════════════════════════
 function getTradingDays(year, month) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('getTradingDays', getTradingDays, this, arguments);
   var days     = [];
   var last     = new Date(year, month, 0).getDate();
   var todayStr = today();
@@ -15010,6 +15444,7 @@ function getTradingDays(year, month) {
 // 절대 재기록하지 않습니다. 외부 Sheets API의 '같은 날짜' 동시 쓰기는
 // ScriptLock으로 막을 수 없으므로 검출된 변경은 원본 쓰기 전 실패시킵니다.
 function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeSnapshotDateScoped_', _writeSnapshotDateScoped_, this, arguments);
   var originalLastRow = existing.length + 1;
   if (sheet.getLastRow() !== originalLastRow)
     throw new Error('Snapshot 행 구조 외부 변경: 날짜별 저장 보류');
@@ -15138,6 +15573,7 @@ function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
 }
 
 function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('writeSnapshotRows', writeSnapshotRows, this, arguments);
   var writeLock = LockService.getScriptLock();
   var ownsWriteLock = false;
   var snapshotBackupRecord = null;
@@ -15288,6 +15724,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
 }
 
 function _mergeSnapshotRowsSafely(existing, incoming, overwrite, manualKeys) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_mergeSnapshotRowsSafely', _mergeSnapshotRowsSafely, this, arguments);
   var result = existing.slice();
   var indexes = {};
   var nameIndexes = {};
@@ -15317,6 +15754,7 @@ function _mergeSnapshotRowsSafely(existing, incoming, overwrite, manualKeys) {
 
 var _snapshotBackupOperationId = '';
 function _backupSheetBeforeWrite(ss, sheet, sourceName) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_backupSheetBeforeWrite', _backupSheetBeforeWrite, this, arguments);
   sourceName = String(sourceName || sheet.getName());
   var props = PropertiesService.getScriptProperties();
   var signatureKey = 'sheet_backup_signature|' + sourceName;
@@ -15412,10 +15850,12 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
 }
 
 function _backupSnapshotBeforeWrite(ss, sheet) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_backupSnapshotBeforeWrite', _backupSnapshotBeforeWrite, this, arguments);
   return _backupSheetBeforeWrite(ss, sheet, CONFIG.SHEET_SNAPSHOT);
 }
 
 function _markSnapshotBackupStatus(record, status, message) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_markSnapshotBackupStatus', _markSnapshotBackupStatus, this, arguments);
   if (!record) return;
   var existing = _readSystemBackupRegistry().filter(function(item) { return item.name === record.name; })[0] || {};
   var complete = Object.assign({}, existing, record);
@@ -15433,6 +15873,7 @@ function _markSnapshotBackupStatus(record, status, message) {
 }
 
 function _snapshotComparableSignature(row) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotComparableSignature', _snapshotComparableSignature, this, arguments);
   row = row || [];
   var code = _cleanCode(row[1]) || String(row[2] || '').trim();
   return JSON.stringify([_normalizeDate(row[0]), code, String(row[2] || '').trim(),
@@ -15441,10 +15882,12 @@ function _snapshotComparableSignature(row) {
 }
 
 function _snapshotDateNeedsRewrite(ss, date, expectedRows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotDateNeedsRewrite', _snapshotDateNeedsRewrite, this, arguments);
   return _snapshotRewritePlan(ss, date, expectedRows).needsRewrite;
 }
 
 function _snapshotRewritePlan(ss, date, expectedRows, lifecycleConfigs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_snapshotRewritePlan', _snapshotRewritePlan, this, arguments);
   var raw = _readRawSnapshotRowsByDate(ss, date);
   var originalRawCount = raw.length;
   expectedRows = (expectedRows || []).slice();
@@ -15467,6 +15910,7 @@ function _snapshotRewritePlan(ss, date, expectedRows, lifecycleConfigs) {
 
 // raw 원장의 동일 date+canonical code/name 그룹을 cleanup과 full repair가 함께 판정합니다.
 function _classifyRawSnapshotDuplicateGroups(dateStr, rawRows, expectedRows, sourceIncompleteReason) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_classifyRawSnapshotDuplicateGroups', _classifyRawSnapshotDuplicateGroups, this, arguments);
   var date = _normalizeDate(dateStr || ''), groups = {}, expectedByKey = {};
   (expectedRows || []).forEach(function(row) { expectedByKey[_snapshotIntegrityKey(row)] = row; });
   (rawRows || []).forEach(function(row) {
@@ -15496,6 +15940,7 @@ function _classifyRawSnapshotDuplicateGroups(dateStr, rawRows, expectedRows, sou
 }
 
 function _dedupeSnapshotRows(rows) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_dedupeSnapshotRows', _dedupeSnapshotRows, this, arguments);
   var seen = {};
   var out = [];
   (rows || []).forEach(function(r) {
@@ -15519,12 +15964,14 @@ function _dedupeSnapshotRows(rows) {
 
 
 function cleanupPriceHistoryDuplicates() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('cleanupPriceHistoryDuplicates', cleanupPriceHistoryDuplicates, this, arguments);
   var lock = LockService.getScriptLock(), ownsLock = false;
   try { if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; } return _cleanupPriceHistoryDuplicatesLocked(); }
   finally { if (ownsLock) lock.releaseLock(); }
 }
 
 function _cleanupPriceHistoryDuplicatesLocked() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanupPriceHistoryDuplicatesLocked', _cleanupPriceHistoryDuplicatesLocked, this, arguments);
   var ss = getss();
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   if (!ph || ph.getLastRow() < 2) {
@@ -15640,12 +16087,14 @@ function _cleanupPriceHistoryDuplicatesLocked() {
 }
 
 function cleanupSnapshotDuplicates() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('cleanupSnapshotDuplicates', cleanupSnapshotDuplicates, this, arguments);
   var lock = LockService.getScriptLock(), ownsLock = false;
   try { if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; } return _cleanupSnapshotDuplicatesLocked(); }
   finally { if (ownsLock) lock.releaseLock(); }
 }
 
 function _cleanupSnapshotDuplicatesLocked() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanupSnapshotDuplicatesLocked', _cleanupSnapshotDuplicatesLocked, this, arguments);
   var ss = getss(), sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var alertResult = function(message) { try { SpreadsheetApp.getUi().alert(message); } catch (ignore) { Logger.log(message); } };
   if (!sh || sh.getLastRow() < 2) {
@@ -15885,6 +16334,7 @@ function _cleanupSnapshotDuplicatesLocked() {
 //  종목코드 정제
 // ════════════════════════════════════════════════════════════════════
 function _codeColumnForSheet(sheetName) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_codeColumnForSheet', _codeColumnForSheet, this, arguments);
   if ([CONFIG.SHEET_CODES, CONFIG.SHEET_HOLD].indexOf(sheetName) !== -1) return 1;
   if ([CONFIG.SHEET_TRADES].indexOf(sheetName) !== -1) return 5;
   if ([CONFIG.SHEET_PH, CONFIG.SHEET_SNAPSHOT, FUND_NAV_SHEET, FUND_UNITS_SHEET].indexOf(sheetName) !== -1) return 2;
@@ -15892,12 +16342,14 @@ function _codeColumnForSheet(sheetName) {
 }
 
 function _setCodeColumnText(sheet, column) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_setCodeColumnText', _setCodeColumnText, this, arguments);
   if (!sheet || !column || typeof sheet.getRange !== 'function') return;
   var range = sheet.getRange(1, column, Math.max(1, sheet.getMaxRows()), 1);
   if (range && typeof range.setNumberFormat === 'function') range.setNumberFormat('@');
 }
 
 function _normalizeCodeRows(rows, codeIndex) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_normalizeCodeRows', _normalizeCodeRows, this, arguments);
   return (rows || []).map(function(row) {
     var output = row.slice();
     if (output[codeIndex] !== '' && output[codeIndex] != null) output[codeIndex] = _cleanCode(output[codeIndex]);
@@ -15906,6 +16358,7 @@ function _normalizeCodeRows(rows, codeIndex) {
 }
 
 function _cleanCode(raw) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanCode', _cleanCode, this, arguments);
   var s = (raw || '').toString().trim().toUpperCase();
   if (!s) return '';
 
@@ -15923,6 +16376,7 @@ function _cleanCode(raw) {
 
 // 과거 버전 호환: 영문 제거 후 숫자만 6자리로 저장되던 키 복원용
 function _legacyDigitsCode(raw) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_legacyDigitsCode', _legacyDigitsCode, this, arguments);
   var s = (raw || '').toString().trim();
   if (!s) return '';
 
@@ -15942,6 +16396,7 @@ function _legacyDigitsCode(raw) {
 }
 
 function _buildCodeAliasMap(codes) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildCodeAliasMap', _buildCodeAliasMap, this, arguments);
   var map = {};
   (codes || []).forEach(function(rawCode) {
     var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
@@ -15953,12 +16408,14 @@ function _buildCodeAliasMap(codes) {
   return map;
 }
 
-function _pad(n) { return n < 10 ? '0' + n : '' + n; }
+function _pad(n) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_pad', _pad, this, arguments); return n < 10 ? '0' + n : '' + n; }
 
 // ════════════════════════════════════════════════════════════════════
 //  종목코드 목록 로드
 // ════════════════════════════════════════════════════════════════════
 function getCodeItems(ss, throwOnError) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('getCodeItems', getCodeItems, this, arguments);
   try {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs || cs.getLastRow() < 2) return [];
@@ -15987,6 +16444,7 @@ function getCodeItems(ss, throwOnError) {
 //  종목코드 목록 반환
 // ════════════════════════════════════════════════════════════════════
 function handleGetCodeListReadOnly() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetCodeListReadOnly', handleGetCodeListReadOnly, this, arguments);
   var lock = LockService.getScriptLock(), locked = false;
   try {
     if (!lock.tryLock(1000)) return jsonError('CODE_LIST_READ_ONLY_BUSY');
@@ -15994,7 +16452,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.281' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.282' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -16003,6 +16461,7 @@ function handleGetCodeListReadOnly() {
 }
 
 function handleGetCodeList() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetCodeList', handleGetCodeList, this, arguments);
   try {
     var ss = getss();
     _settlePendingCodeDeleteForRead_(ss);
@@ -16016,6 +16475,7 @@ function handleGetCodeList() {
 //  거래이력 / 보유현황 읽기
 // ════════════════════════════════════════════════════════════════════
 function handleGetTrades(existingSs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetTrades', handleGetTrades, this, arguments);
   try {
     var ss = existingSs || getss();
     var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
@@ -16053,6 +16513,7 @@ function handleGetTrades(existingSs) {
 }
 
 function handleGetHoldings(existingSs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetHoldings', handleGetHoldings, this, arguments);
   try {
     var ss      = existingSs || getss();
     var sh      = ss.getSheetByName(CONFIG.SHEET_HOLD);
@@ -16083,6 +16544,7 @@ function handleGetHoldings(existingSs) {
 // ════════════════════════════════════════════════════════════════════
 // ★ _parseArrayParam: JSON 파싱 후 배열인지 검증
 function _parseJsonParam(dataJson, label) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_parseJsonParam', _parseJsonParam, this, arguments);
   var parsed;
   try { parsed = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
     try { parsed = JSON.parse(dataJson); } catch(e2) { throw new Error(label + ' 파싱 실패'); }
@@ -16092,6 +16554,7 @@ function _parseJsonParam(dataJson, label) {
 }
 
 function _parseArrayParam(dataJson, label) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_parseArrayParam', _parseArrayParam, this, arguments);
   var parsed;
   try { parsed = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
     try { parsed = JSON.parse(dataJson); } catch(e2) { throw new Error(label + ' 파싱 실패'); }
@@ -16101,6 +16564,7 @@ function _parseArrayParam(dataJson, label) {
 }
 
 function _readSettingsMap(existingSs) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_readSettingsMap', _readSettingsMap, this, arguments);
   var ss = existingSs || getss();
   var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
   if (!sh || sh.getLastRow() < 2) return {};
@@ -16117,6 +16581,7 @@ function _readSettingsMap(existingSs) {
 }
 
 function _writeSettingsMap(settings) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeSettingsMap', _writeSettingsMap, this, arguments);
   if (typeof settings !== 'object' || settings === null) throw new Error('객체 형식 필요');
 
   var ss = getss();
@@ -16167,6 +16632,7 @@ function _writeSettingsMap(settings) {
 // Existing keys use the same strictly compared single-cell CAS as deletion.
 // Do not ever clear unrelated Settings rows, even during a Settings-only rebase.
 function _writeCodeSyncEditablesOnly_(ss, expected, desired) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeCodeSyncEditablesOnly_', _writeCodeSyncEditablesOnly_, this, arguments);
   if (!Array.isArray(expected) || !Array.isArray(desired))
     throw new Error('CODE_SYNC_SETTINGS_ARRAY_REQUIRED');
   var sh=ss.getSheetByName(CONFIG.SHEET_SETTINGS);
@@ -16207,6 +16673,7 @@ function _writeCodeSyncEditablesOnly_(ss, expected, desired) {
 // Under the shared ScriptLock, compare old JSON exactly and read back the
 // whole array. Sheets setValue is a single-cell update, not clear+rewrite.
 function _writeCodeDeleteEditablesOnly_(ss, expected, desired) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_writeCodeDeleteEditablesOnly_', _writeCodeDeleteEditablesOnly_, this, arguments);
   if (!Array.isArray(expected) || !Array.isArray(desired))
     throw new Error('CODE_DELETE_SETTINGS_ARRAY_REQUIRED');
   var sh=ss.getSheetByName(CONFIG.SHEET_SETTINGS);
@@ -16249,14 +16716,17 @@ function _writeCodeDeleteEditablesOnly_(ss, expected, desired) {
 var CODE_DELETE_TXN_KEY_ = 'PF_PENDING_CODE_DELETE_TXN_V1';
 var CODE_DELETE_TXN_PART_PREFIX_ = CODE_DELETE_TXN_KEY_ + '_PART_';
 function _codeDeleteTxnPartKey_(id, index) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_codeDeleteTxnPartKey_', _codeDeleteTxnPartKey_, this, arguments);
   return CODE_DELETE_TXN_PART_PREFIX_ + id + '_' + index;
 }
 // A ScriptProperty VALUE is limited to 9 KB. Use a conservative byte
 // threshold so long Korean notes and other custom Settings fields fit.
 function _codeDeleteTxnBytes_(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_codeDeleteTxnBytes_', _codeDeleteTxnBytes_, this, arguments);
   return encodeURIComponent(String(value)).replace(/%[0-9a-f]{2}/gi, '.').length;
 }
 function _codeDeleteTxnHash_(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_codeDeleteTxnHash_', _codeDeleteTxnHash_, this, arguments);
   // Stable UTF-16 checksum for accidental same-length fragment corruption.
   var h=2166136261, text=String(value);
   for (var j=0;j<text.length;j++)
@@ -16264,6 +16734,7 @@ function _codeDeleteTxnHash_(value) {
   return h.toString(16);
 }
 function _codeDeleteTxnChunks_(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_codeDeleteTxnChunks_', _codeDeleteTxnChunks_, this, arguments);
   var chunks=[], part='';
   // Split by Unicode code point, never between emoji surrogate halves.
   for (var ch of String(value)) {
@@ -16277,6 +16748,7 @@ function _codeDeleteTxnChunks_(value) {
 // exists. A crash before committing the pointer may leave orphan fragments;
 // those can be reclaimed without touching any active recovery evidence.
 function _cleanOrphanCodeDeleteTxnParts_(props) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanOrphanCodeDeleteTxnParts_', _cleanOrphanCodeDeleteTxnParts_, this, arguments);
   if (props.getProperty(CODE_DELETE_TXN_KEY_)) return;
   if (typeof props.getProperties !== 'function') return;
   var all=props.getProperties();
@@ -16285,6 +16757,7 @@ function _cleanOrphanCodeDeleteTxnParts_(props) {
   });
 }
 function _storeCodeDeleteTxn_(props, tx) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_storeCodeDeleteTxn_', _storeCodeDeleteTxn_, this, arguments);
   var stored=JSON.parse(JSON.stringify(tx));
   var parts=[], id='';
   if (_codeDeleteTxnBytes_(JSON.stringify(stored)) > 7800) {
@@ -16329,6 +16802,7 @@ function _storeCodeDeleteTxn_(props, tx) {
   return _pendingCodeDeleteTxn_();
 }
 function _pendingCodeDeleteTxn_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_pendingCodeDeleteTxn_', _pendingCodeDeleteTxn_, this, arguments);
   var raw=PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_);
   if (!raw) return null;
   var tx;
@@ -16364,6 +16838,7 @@ function _pendingCodeDeleteTxn_() {
   return tx;
 }
 function _finishCodeDeleteTxn_(tx) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_finishCodeDeleteTxn_', _finishCodeDeleteTxn_, this, arguments);
   var props=PropertiesService.getScriptProperties();
   var now=_pendingCodeDeleteTxn_();
   if (!now || JSON.stringify(now)!==JSON.stringify(tx))
@@ -16381,6 +16856,7 @@ function _finishCodeDeleteTxn_(tx) {
   }
 }
 function _settlePendingCodeDeleteLocked_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_settlePendingCodeDeleteLocked_', _settlePendingCodeDeleteLocked_, this, arguments);
   var tx=_pendingCodeDeleteTxn_();
   if (!tx) return {pending:false};
   if (tx.sourceId!==_portfolioCodeMasterSourceIdentity_(ss))
@@ -16508,6 +16984,7 @@ function _settlePendingCodeDeleteLocked_(ss) {
   return {pending:true,resolution:'completed'};
 }
 function _settlePendingCodeDeleteForRead_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_settlePendingCodeDeleteForRead_', _settlePendingCodeDeleteForRead_, this, arguments);
   if (!_pendingCodeDeleteTxn_()) return;
   var lock=LockService.getScriptLock(), locked=false;
   try {
@@ -16521,6 +16998,7 @@ function _settlePendingCodeDeleteForRead_(ss) {
 // 스프레드시트 소유자가 Apps Script 편집기에서 명시적으로 한 번 실행합니다.
 // 설정 시트의 레거시 키를 Script Properties로 옮긴 뒤 설정 시트 원문을 제거합니다.
 function migrateLegacyApiKeysToScriptProperties() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('migrateLegacyApiKeysToScriptProperties', migrateLegacyApiKeysToScriptProperties, this, arguments);
   var settings = _readSettingsMap();
   var props = PropertiesService.getScriptProperties();
   var publicKey = String(settings.public_data_api_key || settings.public_listed_api_key || settings.public_dividend_api_key || '').trim();
@@ -16533,6 +17011,7 @@ function migrateLegacyApiKeysToScriptProperties() {
 }
 
 function migrateLegacyApiKeysPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('migrateLegacyApiKeysPrompt', migrateLegacyApiKeysPrompt, this, arguments);
   var ui = SpreadsheetApp.getUi();
   if (!_confirmPortfolioMenuAction('레거시 API 키 안전 이전', '설정 시트의 기존 API 키를 Script Properties로 이전하고 설정 시트의 키 원문을 제거합니다. 레거시 키가 남아 있는 경우에만 실행하세요.')) return;
   var result = migrateLegacyApiKeysToScriptProperties();
@@ -16547,6 +17026,7 @@ function migrateLegacyApiKeysPrompt() {
 // 상환스케줄의 현재월 행을 기준으로 주담대 상태를 자동 갱신합니다.
 // 매일 실행하지만 값이 달라질 때만 설정 시트를 다시 씁니다.
 function syncMortgageFromSchedule() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('syncMortgageFromSchedule', syncMortgageFromSchedule, this, arguments);
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -16595,6 +17075,7 @@ function syncMortgageFromSchedule() {
   }
 }
 function handleSaveSettings(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveSettings', handleSaveSettings, this, arguments);
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
@@ -16812,13 +17293,14 @@ function handleSaveSettings(dataJson) {
 }
 
 function handleGetSettings() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetSettings', handleGetSettings, this, arguments);
   try {
     var ss=getss();
     _settlePendingCodeDeleteForRead_(ss);
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.281' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.282' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16827,6 +17309,7 @@ function handleGetSettings() {
 // 앱 시작에 필요한 읽기 전용 데이터를 한 번에 반환합니다. 각 데이터를 별도 웹앱
 // 실행으로 요청할 때 발생하는 왕복 지연과 설정 시트의 반복 읽기를 줄입니다.
 function handleGetBootstrap() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetBootstrap', handleGetBootstrap, this, arguments);
   try {
     var ss = getss();
     _settlePendingCodeDeleteForRead_(ss);
@@ -16849,7 +17332,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.281'
+      gasVersion: '9.282'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -16857,6 +17340,7 @@ function handleGetBootstrap() {
 }
 
 function _preserveSeibroDivData(existingDivData, incomingDivData) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_preserveSeibroDivData', _preserveSeibroDivData, this, arguments);
   var merged = Object.assign({}, existingDivData || {}, incomingDivData || {});
   Object.keys(existingDivData || {}).forEach(function(key) {
     var existing = existingDivData[key];
@@ -16874,6 +17358,7 @@ function _preserveSeibroDivData(existingDivData, incomingDivData) {
 }
 
 function handleSaveDividendSettings(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveDividendSettings', handleSaveDividendSettings, this, arguments);
   var lock = LockService.getScriptLock();
   var locked = false, backup = null, before = null, touched = false;
   try {
@@ -16904,6 +17389,7 @@ function handleSaveDividendSettings(dataJson) {
 }
 
 function handleGetDividendSettings() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetDividendSettings', handleGetDividendSettings, this, arguments);
   try {
     var settings = _readSettingsMap();
     return jsonOk({ divData: (settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {} });
@@ -16913,6 +17399,7 @@ function handleGetDividendSettings() {
 }
 
 function handleSaveRealEstateSettings(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveRealEstateSettings', handleSaveRealEstateSettings, this, arguments);
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
@@ -16933,6 +17420,7 @@ function handleSaveRealEstateSettings(dataJson) {
 }
 
 function handleGetRealEstateSettings() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetRealEstateSettings', handleGetRealEstateSettings, this, arguments);
   try {
     var settings = _readSettingsMap();
     return jsonOk({
@@ -16954,12 +17442,14 @@ function handleGetRealEstateSettings() {
 
 /** Workbook identity fingerprint; never disclose its raw spreadsheet ID. */
 function _portfolioCodeMasterSourceIdentity_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioCodeMasterSourceIdentity_', _portfolioCodeMasterSourceIdentity_, this, arguments);
   if (!ss || typeof ss.getId !== 'function') return '';
   var id = ss.getId();
   var hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, id, Utilities.Charset.UTF_8);
   return hash.map(function(b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('').slice(0, 40);
 }
 function _portfolioNormalizeCodeMasterSnapshot_(items) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioNormalizeCodeMasterSnapshot_', _portfolioNormalizeCodeMasterSnapshot_, this, arguments);
   if (!Array.isArray(items)) return null;
   var codeSeen = {}, nameSeen = {}, normalized = [];
   for (var i = 0; i < items.length; i++) {
@@ -16985,6 +17475,7 @@ function _portfolioNormalizeCodeMasterSnapshot_(items) {
  * the same script lock shared with the normal syncCodes writer.
  */
 function handleSyncCodesAppendOnly(codesParam, expectedCodesParam, expectedSourceId) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSyncCodesAppendOnly', handleSyncCodesAppendOnly, this, arguments);
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -17058,6 +17549,7 @@ function handleSyncCodesAppendOnly(codesParam, expectedCodesParam, expectedSourc
  *  and ordinary syncCodes using the SAME ScriptLock.
  */
 function handleDeleteUnreferencedCode(dataJson) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDeleteUnreferencedCode', handleDeleteUnreferencedCode, this, arguments);
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -17259,6 +17751,7 @@ function handleDeleteUnreferencedCode(dataJson) {
 }
 
 function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam, forceSettingsRebase, settingsReplacementsParam) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSyncCodes', handleSyncCodes, this, arguments);
   // Strictly scoped, JSON-safe user fields for first-time code-row append or
   // an independently proven same-source incomplete append Settings recovery.
   // Existing coded rows and explicit identity replacements never read these.
@@ -17817,6 +18310,7 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
 }
 
 function _repairKnownCodeColumns(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_repairKnownCodeColumns', _repairKnownCodeColumns, this, arguments);
   var canonical = {};
   getCodeItems(ss, true).forEach(function(item) { canonical[item.code] = true; });
   var targets = [CONFIG.SHEET_CODES, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_SNAPSHOT, FUND_NAV_SHEET, FUND_UNITS_SHEET];
@@ -17916,6 +18410,7 @@ function _repairKnownCodeColumns(ss) {
 //  ✅ v9.2: new Set() → 객체 방식으로 변경 (GAS ES5 호환)
 // ════════════════════════════════════════════════════════════════════
 function cleanDeadCodes() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('cleanDeadCodes', cleanDeadCodes, this, arguments);
   var ss = getss();
   var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
   var hs = ss.getSheetByName(CONFIG.SHEET_HOLD);
@@ -17970,6 +18465,7 @@ function cleanDeadCodes() {
 //  가격이력 종목명 오류 수정
 // ════════════════════════════════════════════════════════════════════
 function fixPriceHistoryNames() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fixPriceHistoryNames', fixPriceHistoryNames, this, arguments);
   var ss = getss();
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   if (!ph || ph.getLastRow() < 2) { Logger.log('가격이력 시트 데이터 없음'); return; }
@@ -18030,6 +18526,7 @@ function fixPriceHistoryNames() {
 //  가격이력 시트 마이그레이션 (구버전 → 신버전, 1회 실행)
 // ════════════════════════════════════════════════════════════════════
 function initSheet() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('initSheet', initSheet, this, arguments);
   var ss;
   try {
     ss = getss();
@@ -18078,6 +18575,7 @@ function initSheet() {
 }
 
 function clearPriceAndSnapshotRows() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('clearPriceAndSnapshotRows', clearPriceAndSnapshotRows, this, arguments);
   var ss = getss();
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
@@ -18118,21 +18616,25 @@ function clearPriceAndSnapshotRows() {
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
 function _confirmPortfolioMenuAction(title, message) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_confirmPortfolioMenuAction', _confirmPortfolioMenuAction, this, arguments);
   var ui = SpreadsheetApp.getUi();
   return ui.alert(title, message + '\n\n실행하시겠습니까?', ui.ButtonSet.YES_NO) === ui.Button.YES;
 }
 
 function showPortfolioMenuGuide() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showPortfolioMenuGuide', showPortfolioMenuGuide, this, arguments);
   SpreadsheetApp.getUi().alert('포트폴리오 메뉴 사용 안내\n\n버전업마다 메뉴를 실행할 필요는 없습니다. 해당 릴리스에 별도 안내가 있을 때만 필요한 작업을 실행하세요.\n설정: 최초 연결·인증 변경 시\n진단·조회: 문제 확인용. 운영자료 저장·삭제 없음 (외부 진단의 임시 계산/인증 캐시는 사용할 수 있음)\n종가 갱신: 자동 실행 실패·즉시 갱신 시\n소급채우기: 실제 누락 기간만\n복구·정리: 진단 후 필요할 때만\n위험 작업: 별도 백업 확보 후 실행');
 }
 
 function showManualPriceHistoryPolicy() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showManualPriceHistoryPolicy', showManualPriceHistoryPolicy, this, arguments);
   SpreadsheetApp.getUi().alert('수동가격은 날짜별 이력을 보존합니다. 고정 정책이며 변경 옵션이 아닙니다.');
 }
 
 // Run explicitly from the standalone Apps Script editor. No spreadsheet UI,
 // data/Properties writes, existing-trigger deletion, or immediate backfill.
 function installMissingHistoricalBackfillTriggers() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('installMissingHistoricalBackfillTriggers', installMissingHistoricalBackfillTriggers, this, arguments);
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -18159,22 +18661,26 @@ function installMissingHistoricalBackfillTriggers() {
 }
 
 function repairMissingDailyTriggersPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('repairMissingDailyTriggersPrompt', repairMissingDailyTriggersPrompt, this, arguments);
   if (!_confirmPortfolioMenuAction('자동 트리거 복구·정리', '누락된 일일 자동화·구조 변경 트리거를 추가하고, 레거시 분리 트리거와 중복 통합 마감 트리거가 있으면 정상 집합으로 정리합니다. 현재 정상인 필수 트리거는 유지합니다.')) return;
   _ensureDailyTriggers(true);
   checkDailyAutomationStatus();
 }
 
 function resetDailyTriggersPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('resetDailyTriggersPrompt', resetDailyTriggersPrompt, this, arguments);
   if (!_confirmPortfolioMenuAction('자동 트리거 전체 재등록', '기존 일일/레거시 자동화 트리거를 삭제하고 기본 일정으로 다시 등록하며 만료 임시 시트를 정리합니다. 사용자 지정 실행 시간이 바뀔 수 있습니다. 일반 누락·레거시·중복 정리는 자동 트리거 복구·정리를 사용하세요.')) return;
   setupTrigger();
 }
 
 function repairSheetStructurePrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('repairSheetStructurePrompt', repairSheetStructurePrompt, this, arguments);
   if (!_confirmPortfolioMenuAction('시트 구성 생성·헤더 복구', '누락 시트를 만들고 기존 시트의 제목행·표시 형식을 다시 설정합니다. 사용자 지정 제목행이 바뀔 수 있습니다. 데이터 행은 삭제하지 않습니다. 버전업 필수 작업이 아닙니다.')) return;
   initSheet();
 }
 
 function showSnapshotRepairProgress() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showSnapshotRepairProgress', showSnapshotRepairProgress, this, arguments);
   var raw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
   var state = raw ? JSON.parse(raw) : null;
   var missing = state && !state.done && !_hasSnapshotRepairContinuationTrigger();
@@ -18183,20 +18689,24 @@ function showSnapshotRepairProgress() {
 }
 
 function resumeSnapshotRepairPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('resumeSnapshotRepairPrompt', resumeSnapshotRepairPrompt, this, arguments);
   if (!_confirmPortfolioMenuAction('스냅샷 복구 후속 트리거 재예약', '진행 중인 전체 스냅샷 복구의 후속 트리거가 누락되었으면 다시 예약합니다. 남은 날짜의 스냅샷 저장이 재개됩니다.')) return;
   return showSnapshotConsistencyRepairStatus();
 }
 
 function resumeBackfillPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('resumeBackfillPrompt', resumeBackfillPrompt, this, arguments);
   if (!_confirmPortfolioMenuAction('소급채우기 재개', '저장된 진행 위치와 덮어쓰기 설정으로 가격이력·스냅샷 저장을 이어갑니다. 진행상황을 먼저 확인하세요.')) return;
   backfillResume();
 }
 
 function runPriceAnomalyDiagnosis() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPriceAnomalyDiagnosis', runPriceAnomalyDiagnosis, this, arguments);
   return detectPriceAnomalyPromptAndMaybeRepair(true);
 }
 
 function showPortfolioIntegrityDiagnosisPrompt() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showPortfolioIntegrityDiagnosisPrompt', showPortfolioIntegrityDiagnosisPrompt, this, arguments);
   var ui = SpreadsheetApp.getUi();
   var response = ui.prompt('기간 정합성 진단 (저장 없음)', '기간을 YYYY-MM-DD~YYYY-MM-DD 형식으로 입력하세요. 최대 400 평일. 가격이력과 스냅샷을 함께 점검합니다.', ui.ButtonSet.OK_CANCEL);
   if (response.getSelectedButton() !== ui.Button.OK) return;
@@ -18212,10 +18722,12 @@ function showPortfolioIntegrityDiagnosisPrompt() {
 }
 
 function onInstall(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('onInstall', onInstall, this, arguments);
   onOpen(e);
 }
 
 function _addFallbackMenu(ui) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_addFallbackMenu', _addFallbackMenu, this, arguments);
   ui.createMenu('📊 포트폴리오')
     .addItem('사용 안내 (버전업 필수 작업 아님)', 'showPortfolioMenuGuide')
     .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
@@ -18227,6 +18739,7 @@ function _addFallbackMenu(ui) {
 }
 
 function onOpen(e) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('onOpen', onOpen, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) return;
@@ -18298,6 +18811,7 @@ function onOpen(e) {
 }
 
 function showMenuBuildError() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('showMenuBuildError', showMenuBuildError, this, arguments);
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   var msg = '';
@@ -18313,6 +18827,7 @@ function showMenuBuildError() {
 //  데이터 정리 통합 실행 — 죽은 코드 + 종목명 보정 + 스냅샷 중복 한 번에
 // ════════════════════════════════════════════════════════════════════
 function runDataCleanup() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runDataCleanup', runDataCleanup, this, arguments);
   if (!_confirmPortfolioMenuAction('데이터 정리 실행', '죽은 종목코드 삭제·가격이력 종목명 보정·가격이력 중복 정리와 함께 Snapshot의 날짜 유실 행·0좌 펀드 잔존 행·안전 판정된 중복을 정리하고 만료 임시 시트를 삭제합니다. Snapshot 변경 전 시스템 백업과 read-back 검증을 수행하지만, 정리된 행은 자동 복원되지 않습니다. 실제 문제가 있을 때만 실행하세요.')) return;
   try {
     var ui;
@@ -18350,6 +18865,7 @@ function runDataCleanup() {
 
 // ★ 구버전 고정 이름과 만료된 요청별 임시 시트 정리
 function _cleanupBenchmarkTempSheets() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_cleanupBenchmarkTempSheets', _cleanupBenchmarkTempSheets, this, arguments);
   var ss = getss();
   var sheets = ss.getSheets();
   var removed = 0;
@@ -18373,16 +18889,19 @@ function _cleanupBenchmarkTempSheets() {
 //  유틸
 // ════════════════════════════════════════════════════════════════════
 function calcMissing(allCodesParam, returnedCodes) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('calcMissing', calcMissing, this, arguments);
   if (!allCodesParam) return [];
   return allCodesParam.split(',').map(function(c){ return c.trim(); })
     .filter(function(c){ return c && returnedCodes.indexOf(c) === -1; });
 }
 function today() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('today', today, this, arguments);
   return Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
 }
 // ── 날짜 정규화: 어떤 형식이든 YYYY-MM-DD 문자열로 변환
 // 'Fri Dec 26 2025', Date 객체, '2025-12-26' 모두 처리
 function _normalizeDate(raw) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_normalizeDate', _normalizeDate, this, arguments);
   if (!raw) return '';
   if (raw instanceof Date) return Utilities.formatDate(raw, CONFIG.TIMEZONE, 'yyyy-MM-dd');
   var s = raw.toString().trim();
@@ -18398,6 +18917,7 @@ function _normalizeDate(raw) {
 
 // ★ savedAt(날짜+시간) 정규화 — Date 객체 또는 임의 문자열 → 'yyyy-MM-dd HH:mm:ss'
 function _normalizeDatetime(raw) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_normalizeDatetime', _normalizeDatetime, this, arguments);
   if (!raw) return '';
   if (raw instanceof Date) return Utilities.formatDate(raw, CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
   var s = raw.toString().trim();
@@ -18411,10 +18931,12 @@ function _normalizeDatetime(raw) {
   return s; // 최후 fallback — 원본 반환
 }
 function jsonOk(extra) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('jsonOk', jsonOk, this, arguments);
   return ContentService.createTextOutput(JSON.stringify(Object.assign({ status: 'ok' }, extra || {})))
     .setMimeType(ContentService.MimeType.JSON);
 }
 function jsonError(msg, extra) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('jsonError', jsonError, this, arguments);
   return ContentService.createTextOutput(JSON.stringify(Object.assign({ status: 'error', message: msg }, extra || {})))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -18423,6 +18945,7 @@ function jsonError(msg, extra) {
 //         =GET_KR_DIVIDEND("005930", 1) → 1년 전 배당금
 
 function GET_KR_DIVIDEND(code, yearOffset) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('GET_KR_DIVIDEND', GET_KR_DIVIDEND, this, arguments);
   try {
     var url = 'https://finance.naver.com/item/main.naver?code=' + code;
     var options = {
@@ -18476,6 +18999,7 @@ function GET_KR_DIVIDEND(code, yearOffset) {
 // Explicit Issue #507 maintenance. Only KRX whole-market loaders access the
 // network; no portfolio identifiers or financial values are returned.
 function handleIssue507Maintenance(mode, apply) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleIssue507Maintenance', handleIssue507Maintenance, this, arguments);
   var lock = LockService.getScriptLock(), owned = false;
   try {
     var props = PropertiesService.getScriptProperties();
@@ -18560,6 +19084,7 @@ function handleIssue507Maintenance(mode, apply) {
 // Read-only arithmetic context stays unchanged. Discovery-only tables are
 // frozen separately so settings cannot change the existing calculator view.
 function _buildTradeBacklogReadContext_(ss) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_buildTradeBacklogReadContext_', _buildTradeBacklogReadContext_, this, arguments);
   var base=_buildSnapshotRangeReadContext(ss,{}), extra={};
   [[CONFIG.SHEET_ETF_DIVIDENDS,5],[CONFIG.SHEET_SETTINGS,2]].forEach(function(spec) {
     var sh=ss.getSheetByName(spec[0]);
@@ -18580,6 +19105,7 @@ function _buildTradeBacklogReadContext_(ss) {
 // Queue metadata only. VALID dates are removed, unresolved dates are durably
 // deferred BEFORE the forward cursor is cleared. No financial writer is used.
 function handleReconcileTradeSnapshotBacklog(apply) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleReconcileTradeSnapshotBacklog', handleReconcileTradeSnapshotBacklog, this, arguments);
   var lock=LockService.getScriptLock(),owned=false,phase='VALIDATE';
   try {
     var props=PropertiesService.getScriptProperties();
@@ -18652,6 +19178,7 @@ function handleReconcileTradeSnapshotBacklog(apply) {
 // Metadata only. A killed process cannot finalize its RUNNING checkpoint.
 // Never manufacture success, clear source queues, or modify close/NAV errors.
 function handleReconcileHistoricalCheckpoints(apply) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleReconcileHistoricalCheckpoints', handleReconcileHistoricalCheckpoints, this, arguments);
   try {
     if (apply !== '0' && apply !== '1') return jsonError('CHECKPOINT_BAD_APPLY');
     if (!String(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim())
@@ -18702,6 +19229,7 @@ function handleReconcileHistoricalCheckpoints(apply) {
 // Resume only the latest recorded CLOSE. Price proof is recomputed by the
 // existing producer; no old summary or TIMEOUT marker is treated as success.
 function handleResumeIncompletePortfolioClose(apply, phase) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleResumeIncompletePortfolioClose', handleResumeIncompletePortfolioClose, this, arguments);
   phase = phase || 'schedule';
   var token = Utilities.getUuid(), leaseOwned = false, owner;
   var recoveryDiagnostic = apply === '1' && ['schedule','continue'].indexOf(phase) >= 0
@@ -18791,17 +19319,21 @@ function handleResumeIncompletePortfolioClose(apply, phase) {
 // NH native GAS price provider
 // NH runtime is appended to apps_script.gs by the reviewed release change.
 function _nhEnabled_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhEnabled_', _nhEnabled_, this, arguments);
   return PropertiesService.getScriptProperties().getProperty('MARKET_DATA_PROVIDER') === 'NH';
 }
 function _nhCredentials_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhCredentials_', _nhCredentials_, this, arguments);
   var p=PropertiesService.getScriptProperties();
   return {key:String(p.getProperty('NHPLUG_APP_KEY')||''),secret:String(p.getProperty('NHPLUG_APP_SECRET')||'')};
 }
 function _nhConfigStatus_() {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhConfigStatus_', _nhConfigStatus_, this, arguments);
   var c=_nhCredentials_();
   return {enabled:_nhEnabled_(),keyConfigured:!!c.key,secretConfigured:!!c.secret};
 }
 function _nhJson_(url,options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhJson_', _nhJson_, this, arguments);
   var response;
   try {response=UrlFetchApp.fetch(url,options);} catch(ignore) {throw new Error('NH_NETWORK_ERROR');}
   var status=response.getResponseCode();
@@ -18813,12 +19345,14 @@ function _nhJson_(url,options) {
 // in ScriptProperties, where this same script already stores NH credentials.
 // Never expose the token via Settings, logs, artifacts, or client responses.
 function _nhTokenScope_(credentials) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhTokenScope_', _nhTokenScope_, this, arguments);
   return Utilities.base64EncodeWebSafe(Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
     JSON.stringify(['NH_PLUG','api.nhplug.com:8443',credentials.key,credentials.secret])
   )).replace(/=+$/g,'');
 }
 function _nhValidTokenRecord_(raw,scope) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhValidTokenRecord_', _nhValidTokenRecord_, this, arguments);
   if(!raw)return null;
   try {
     var record=JSON.parse(raw),expiry=Number(record.expiresAt);
@@ -18828,12 +19362,14 @@ function _nhValidTokenRecord_(raw,scope) {
   return null;
 }
 function _nhSaveTokenRecord_(record,props,cache) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhSaveTokenRecord_', _nhSaveTokenRecord_, this, arguments);
   // Store no more than 24h, leaving a full minute for clocks and requests.
   props.setProperties({NHPLUG_AUTH_RECORD_V1:JSON.stringify(record)});
   var ttl=Math.max(1,Math.min(21600,Math.floor((record.expiresAt-Date.now()-60000)/1000)));
   cache.put('nh_oauth_v1',JSON.stringify(record),ttl);
 }
 function _nhAccessToken_(credentials) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhAccessToken_', _nhAccessToken_, this, arguments);
   if(!credentials||!credentials.key||!credentials.secret)throw new Error('NH_CREDENTIALS_MISSING');
   var scope=_nhTokenScope_(credentials),cache=CacheService.getScriptCache();
   var cached=_nhValidTokenRecord_(cache.get('nh_oauth_v1'),scope);
@@ -18868,6 +19404,7 @@ function _nhAccessToken_(credentials) {
   } finally {if(!owned)lock.releaseLock();}
 }
 function _nhForgetToken_(token) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhForgetToken_', _nhForgetToken_, this, arguments);
   // 401 means invalid bearer. Do not revoke a newer bearer created by a
   // concurrent request. Never invalidate on 429 / network or parser errors.
   var lock=LockService.getScriptLock(),owned=lock.hasLock&&lock.hasLock();
@@ -18882,12 +19419,14 @@ function _nhForgetToken_(token) {
   } finally {if(!owned)lock.releaseLock();}
 }
 function _nhPost_(path,input,credentials) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhPost_', _nhPost_, this, arguments);
   var token=_nhAccessToken_(credentials);
   try {return _nhJson_('https://api.nhplug.com:8443'+path,{method:'post',contentType:'application/json; charset=UTF-8',followRedirects:false,muteHttpExceptions:true,
     headers:{Authorization:'Bearer '+token,'x-client-id':credentials.key,'x-client-secret':credentials.secret},payload:JSON.stringify({Input_0:input})});}
   catch(error){if(error.message==='NH_HTTP_401')_nhForgetToken_(token);throw error;}
 }
 function _nhUsMaster_(symbols) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhUsMaster_', _nhUsMaster_, this, arguments);
   if(!symbols.length)return {};
   var hash=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,symbols.slice().sort().join(','))).replace(/=+$/g,'');
   var cache=CacheService.getScriptCache(),key='nh_master_'+hash,cached=cache.get(key);
@@ -18914,6 +19453,7 @@ function _nhUsMaster_(symbols) {
   cache.put(key,JSON.stringify(found),symbols.every(function(symbol){return !!found[symbol];})?21600:60);return found;
 }
 function _nhUsCandidate_(item) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhUsCandidate_', _nhUsCandidate_, this, arguments);
   var symbol=String(item&&item.code||'').toUpperCase(),currency=String(item&&item.currency||'KRW'),market=String(item&&item.market||'').toUpperCase();
   if(!_isFundCode(symbol)&&currency==='USD')return true;
   if(_isFundCode(symbol)||currency!=='KRW'||!/^[A-Z][A-Z0-9.\-]{0,11}$/.test(symbol))return false;
@@ -18921,6 +19461,7 @@ function _nhUsCandidate_(item) {
   return !!item.nhMetadataMissing||symbol.length!==6||['US','USA','NYSE','NASDAQ','AMEX','OTC','미국'].indexOf(market)>=0;
 }
 function fetchPricesNh(items,timings,meta) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchPricesNh', fetchPricesNh, this, arguments);
   var result={},credentials=_nhCredentials_(),started=Date.now(),cache=CacheService.getScriptCache();
   if(meta){meta.attempted=false;meta.status='NOT_RUN';meta.reason='NH_CREDENTIALS_MISSING';meta.provider='NH';}
   if(!credentials.key||!credentials.secret)return result;
@@ -18957,6 +19498,7 @@ function fetchPricesNh(items,timings,meta) {
   return result;
 }
 function handleSaveNhConfig(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleSaveNhConfig', handleSaveNhConfig, this, arguments);
   var props=PropertiesService.getScriptProperties(),expected=String(props.getProperty('access_token')||'').trim();
   if(!expected||!params||params.accessToken!==expected)return jsonError('NH_STRICT_AUTH_REQUIRED');
   try {
@@ -18986,6 +19528,7 @@ function handleSaveNhConfig(params) {
 }
 
 function handleRetireLegacyMarketData(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleRetireLegacyMarketData', handleRetireLegacyMarketData, this, arguments);
   var props=PropertiesService.getScriptProperties(),expected=String(props.getProperty('access_token')||'').trim();
   if(!expected||!params||params.accessToken!==expected)return jsonError('NH_STRICT_AUTH_REQUIRED');
   ['TOSS_CLIENT_ID','TOSS_CLIENT_SECRET','TOSS_RELAY_URL','TOSS_RELAY_SHARED_KEY','TOSS_RELAY_MODE','TOSS_LAST_DIAGNOSTIC_AT','TOSS_LAST_DIAGNOSTIC_OK','TOSS_LAST_DIAGNOSTIC_CODE'].forEach(function(key){props.deleteProperty(key);});
@@ -18996,6 +19539,7 @@ function handleRetireLegacyMarketData(params) {
 // NH completed regular-session daily bars. Missing/invalid rows stay absent so
 // callers retain KRX (KR) / Yahoo (US) fallback and stored-price protection.
 function _nhCloseDate_(raw) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhCloseDate_', _nhCloseDate_, this, arguments);
   var value=String(raw||'').trim(),day='';
   if (/^\d{8}$/.test(value)) day=value.slice(0,4)+'-'+value.slice(4,6)+'-'+value.slice(6);
   else if (/^\d{2}\/\d{2}\/\d{2}$/.test(value)) day='20'+value.slice(0,2)+'-'+value.slice(3,5)+'-'+value.slice(6);
@@ -19004,6 +19548,7 @@ function _nhCloseDate_(raw) {
   return day&&isFinite(parsed.getTime())&&parsed.toISOString().slice(0,10)===day?day:'';
 }
 function fetchNhRegularCloses(items, requestedDate, options) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchNhRegularCloses', fetchNhRegularCloses, this, arguments);
   var result={},credentials=_nhCredentials_(),now=options&&options.asOf||new Date(),started=Date.now();
   if(!credentials.key||!credentials.secret||!_nhCloseDate_(requestedDate))return result;
   var cache=CacheService.getScriptCache(),stop=false;
@@ -19063,6 +19608,7 @@ function fetchNhRegularCloses(items, requestedDate, options) {
 }
 
 function fetchDomesticRegularCloses(items,date) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchDomesticRegularCloses', fetchDomesticRegularCloses, this, arguments);
   var nh={};
   try {nh=fetchNhRegularCloses(items,date)||{};} catch(ignoreNh) {}
   var missing=(items||[]).filter(function(item){return !nh[item.code];});
@@ -19074,13 +19620,14 @@ function fetchDomesticRegularCloses(items,date) {
 }
 
 function handleDiagnoseNhMarketData(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleDiagnoseNhMarketData', handleDiagnoseNhMarketData, this, arguments);
   var expected=String(PropertiesService.getScriptProperties().getProperty('access_token')||'').trim();
   if(!expected||!params||params.accessToken!==expected)return jsonError('NH_STRICT_AUTH_REQUIRED');
   try {
     var items=[{code:'005930',currency:'KRW',market:'KRX'},{code:'AAPL',currency:'USD',market:'NASDAQ'}];
     var meta={},quotes=fetchPricesNh(items,{},meta),date=today();
     var closes=fetchNhRegularCloses(items,date,{useMarketCloseCutoffs:true});
-    return jsonOk({gasVersion: '9.281',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
+    return jsonOk({gasVersion: '9.282',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
   }catch(error){return jsonError('NH_DIAGNOSTIC_FAILED');}
 }
 
@@ -19089,6 +19636,7 @@ function handleDiagnoseNhMarketData(params) {
 // This endpoint is POST-only and rejects a missing GAS access token even if
 // legacy web-app compatibility currently allows unauthenticated requests.
 function _nhProxyAuthenticated_(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyAuthenticated_', _nhProxyAuthenticated_, this, arguments);
   var expected=String(PropertiesService.getScriptProperties().getProperty('access_token')||'').trim();
   var got=String(params&&params.accessToken||'');
   if(!expected||!got||got.length!==expected.length)return false;
@@ -19097,21 +19645,24 @@ function _nhProxyAuthenticated_(params) {
   return mismatch===0;
 }
 function _nhProxyKst_(instant) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyKst_', _nhProxyKst_, this, arguments);
   var day=Utilities.formatDate(instant,'Asia/Seoul','yyyy-MM-dd');
   var hour=Number(Utilities.formatDate(instant,'Asia/Seoul','HH'));
   var minute=Number(Utilities.formatDate(instant,'Asia/Seoul','mm'));
   return {date:day,minutes:hour*60+minute};
 }
 function handleGetNhAuthStatusProxy(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetNhAuthStatusProxy', handleGetNhAuthStatusProxy, this, arguments);
   if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
   var creds=_nhCredentials_(),enabled=_nhEnabled_()&&!!creds.key&&!!creds.secret;
   var existing=enabled?_nhValidTokenRecord_(
     PropertiesService.getScriptProperties().getProperty('NHPLUG_AUTH_RECORD_V1'),_nhTokenScope_(creds)):null;
   // Never issue a token or return its value for a status check.
   return jsonOk({provider:'NH',enabled:enabled,tokenCached:!!existing,tokenIssued:false,
-    gasVersion: '9.281',readOnly:true});
+    gasVersion: '9.282',readOnly:true});
 }
 function _nhProxyFutureCandidate_(today) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyFutureCandidate_', _nhProxyFutureCandidate_, this, arguments);
   var prefix='https://www.nhplug.com/instruments/m_future';
   var header=UrlFetchApp.fetch(prefix+'.h',{followRedirects:false,muteHttpExceptions:true});
   if(header.getResponseCode()!==200)throw new Error('NH_PROXY_MASTER_HEADER_UNAVAILABLE');
@@ -19145,6 +19696,7 @@ function _nhProxyFutureCandidate_(today) {
   return front[0];
 }
 function _nhProxyNightReference_(today,now,diagnosticOnly) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyNightReference_', _nhProxyNightReference_, this, arguments);
   var kst=_nhProxyKst_(now);
   if(kst.date!==today
     ||(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<450||kst.minutes>=480)))
@@ -19202,6 +19754,7 @@ function _nhProxyNightReference_(today,now,diagnosticOnly) {
   }finally {if(!owned)lock.releaseLock();}
 }
 function handleGetNhNightProxy(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetNhNightProxy', handleGetNhNightProxy, this, arguments);
   if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
   var now=new Date(),kst=_nhProxyKst_(now);
   if(params.date!==kst.date||!/^\d{4}-\d{2}-\d{2}$/.test(params.date||'')
@@ -19217,6 +19770,7 @@ function handleGetNhNightProxy(params) {
 }
 
 function handleGetNhNightProbe(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetNhNightProbe', handleGetNhNightProbe, this, arguments);
   // Narrow daytime verification after the 06:00 capture. This diagnostic
   // NEVER authorizes a new NH OAuth token, writes snapshots or creates the
   // scheduled GitHub artifact. The 07:30 capture window is untouched.
@@ -19239,6 +19793,7 @@ function handleGetNhNightProbe(params) {
 // receive the NH bearer. The persistent attempt marker is written BEFORE
 // contacting NH, so retries and concurrent jobs cannot mint extra tokens.
 function handleBootstrapNhTokenOnce20261030(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleBootstrapNhTokenOnce20261030', handleBootstrapNhTokenOnce20261030, this, arguments);
   if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
   var clock=_nhProxyKst_(new Date());
   if(clock.date!=='2026-10-30'||params.date!==clock.date
@@ -19275,6 +19830,7 @@ var NH_INDEX_PROBE_CODES_V1=[
  {type:'VIX',code:'VIX',name:'VIX|VOLATILITY|변동성'}
 ];
 function _nhIndexProbeOne_(item,date,credentials,existingBearer){
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhIndexProbeOne_', _nhIndexProbeOne_, this, arguments);
  var p={iem_cd:item.code,end_dt:date.replace(/-/g,''),array_cnt:'0002',maxavg:'000',gubun:'1',xtick:'001',today_cls:'0'};
  if(!existingBearer)throw new Error('NH_INDEX_NO_CACHED_BEARER');
  // Do not route through _nhPost_: it can acquire a fresh bearer after
@@ -19297,6 +19853,7 @@ function _nhIndexProbeOne_(item,date,credentials,existingBearer){
  return {type:item.type,code:item.code,status:'CANDIDATE_ONLY',name:label,date:date,value:Number(points[0].ovrs_prpr)};
 }
 function handleGetNhIndexProbe(params){
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetNhIndexProbe', handleGetNhIndexProbe, this, arguments);
  if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
  if(String(params.date||'')!=='2026-10-29')return jsonError('NH_INDEX_DATE_NOT_ALLOWED');
  var c=_nhCredentials_(),p=PropertiesService.getScriptProperties();
@@ -19318,7 +19875,7 @@ function handleGetNhIndexProbe(params){
      if(stop){stopped=true;break;}
    }
  }
- return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.281',date:'2026-10-29',
+ return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.282',date:'2026-10-29',
    candidateOnly:true,mappingVerified:false,results:records,stopped:stopped});
 }
 
@@ -19332,6 +19889,7 @@ var NH_VERIFIED_GLOBAL_INDEX_CODES_V1={
  NASDAQ100:{code:'NDX',name:'나스닥\\s*100|NASDAQ\\s*100'}
 };
 function _nhGlobalIndexDailySeries_(type,fromDate,toDate){
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhGlobalIndexDailySeries_', _nhGlobalIndexDailySeries_, this, arguments);
  var config=NH_VERIFIED_GLOBAL_INDEX_CODES_V1[type];
  if(!config)return null;
  var earliest=Date.parse(fromDate+'T00:00:00Z'),latest=Date.parse(toDate+'T00:00:00Z');
@@ -19382,6 +19940,7 @@ function _nhGlobalIndexDailySeries_(type,fromDate,toDate){
  return result;
 }
 function fetchIndexPrimarySeries(type,fromDate,toDate){
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchIndexPrimarySeries', fetchIndexPrimarySeries, this, arguments);
  if(NH_VERIFIED_GLOBAL_INDEX_CODES_V1[type]){
   try{var nh=_nhGlobalIndexDailySeries_(type,fromDate,toDate);if(nh&&nh.points.length)return nh;}
   catch(error){Logger.log('[NH_INDEX] '+type+' source unavailable (no stale promotion)');}
@@ -19390,4 +19949,328 @@ function fetchIndexPrimarySeries(type,fromDate,toDate){
  return {points:(legacy.points||[]).map(function(row){return {date:row.date,value:row.value,
    source:'YAHOO_UNVERIFIED_DAILY',sourceDate:row.date};}),
    symbol:legacy.symbol,error:legacy.error,source:'YAHOO_FINANCE',current:null};
+}
+
+var ISSUE507_GATE_RELEASE_ID='257c26d1ad789d8f036e74d56418644385e8860dab8c5551fb8c2f493e9626b5';
+// GAS v9.282: inline admission guards cover the 555 original functions.
+// Original alias functions are private implementation details; direct editor
+// calls and other deployments must be disabled by the rollout operator.
+var _issue507GateInside_=false;
+var ISSUE507_GATE_API_VERSION='9.282';
+function _issue507GateAtomic_(fn,quickCleanup) {
+  var lock=LockService.getScriptLock(),owned=lock.hasLock();
+  if(!owned){
+    try{lock.waitLock(quickCleanup?1000:30000);}
+    catch(error){throw new Error('GATE_LOCK_BUSY');}
+  }
+  try{return fn(PropertiesService.getScriptProperties());}
+  finally{if(!owned)lock.releaseLock();}
+}
+function _issue507GateRead_(props) {
+  var raw=props.getProperty('issue507_writer_gate_v1');
+  if(!raw)throw new Error('GATE_UNINITIALIZED');
+  var s=JSON.parse(raw);
+  if(s.releaseId!==ISSUE507_GATE_RELEASE_ID || !['OPEN','DRAINING'].includes(s.mode) ||
+     !s.active || typeof s.active!=='object' || Array.isArray(s.active) ||
+     !Array.isArray(s.completed) || s.completed.length>8 ||
+     !Number.isFinite(s.barrierAt) || !Number.isInteger(s.finished) || s.finished<0)
+    throw new Error('GATE_STATE_INVALID');
+  if(Object.keys(s.active).length>24 || s.finished<s.completed.length ||
+     Object.keys(s.active).some(function(token){var e=s.active[token];
+       return !/^[A-Za-z0-9-]{1,80}$/.test(token) || !e || typeof e.name!=='string' ||
+         !Number.isFinite(e.startedAt) || e.startedAt>Date.now();
+     }) || s.completed.some(function(e){return !e || e.state!=='ENDED' || typeof e.token!=='string' ||
+       typeof e.name!=='string' || !Number.isFinite(e.startedAt) || !Number.isFinite(e.endedAt) ||
+       e.endedAt<e.startedAt || e.endedAt>Date.now();}))throw new Error('GATE_STATE_INVALID');
+  return s;
+}
+function _issue507GateSave_(props,s) {
+  var raw=JSON.stringify(s);
+  if(raw.length>7000)throw new Error('GATE_CAPACITY');
+  props.setProperty('issue507_writer_gate_v1',raw);
+  if(props.getProperty('issue507_writer_gate_v1')!==raw)throw new Error('GATE_WRITE_UNVERIFIED');
+}
+function _issue507GateRollout_(props) {
+  var q=JSON.parse(props.getProperty('issue507_writer_gate_rollout_v1')||'null');
+  if(!q || q.releaseId!==ISSUE507_GATE_RELEASE_ID || q.oldDeploymentsDisabled!==true ||
+     q.externalWritersBlocked!==true || q.editorsBlocked!==true ||
+     !q.legacyDrainEvidence || q.legacyDrainEvidence.kind!=='EXECUTIONS_UI' ||
+     q.legacyDrainEvidence.scope!=='ALL_PROJECT_ACTORS_AND_VERSIONS' ||
+     q.legacyDrainEvidence.terminalOnly!==true ||
+     typeof q.legacyDrainEvidence.reference!=='string' || !q.legacyDrainEvidence.reference.trim() ||
+     !Number.isFinite(q.verifiedAt) || q.verifiedAt>Date.now())throw new Error('GATE_ROLLOUT_REQUIRED');
+  return q;
+}
+function _issue507GateEnter_(name) {
+  return _issue507GateAtomic_(function(props){
+    // Bootstrap preserves normal service availability. It proves NO drain,
+    // grants NO repair approval and touches NO financial sheet.
+    if(!props.getProperty('issue507_writer_gate_v1')){
+      _issue507GateSave_(props,{releaseId:ISSUE507_GATE_RELEASE_ID,mode:'OPEN',
+        active:{},completed:[],finished:0,barrierAt:Date.now(),bootstrapped:true});
+    }
+    var s=_issue507GateReconcile_(props,_issue507GateRead_(props));
+    if(s.mode!=='OPEN')throw new Error('GATE_MAINTENANCE');
+    if(Object.keys(s.active).length>=24)throw new Error('GATE_CAPACITY');
+    var token=Utilities.getUuid();
+    if(s.active[token])throw new Error('GATE_TOKEN_COLLISION');
+    s.active[token]={name:name,startedAt:Date.now()};
+    _issue507GateSave_(props,s);return token;
+  });
+}
+function _issue507GateEndKey_(token) {
+  if(!/^[A-Za-z0-9-]{1,80}$/.test(token))throw new Error('GATE_TOKEN_INVALID');
+  return 'issue507_writer_end_v1_'+token;
+}
+function _issue507GateReconcile_(props,s) {
+  var ended=[];
+  Object.keys(s.active).forEach(function(token){
+    var key=_issue507GateEndKey_(token),raw=props.getProperty(key);
+    if(!raw)return; // no terminal proof: NEVER expire/clear a killed run
+    var e=JSON.parse(raw),owner=s.active[token];
+    if(e.releaseId!==s.releaseId || e.token!==token || e.name!==owner.name ||
+       e.startedAt!==owner.startedAt || !Number.isFinite(e.endedAt) ||
+       e.endedAt<e.startedAt || e.endedAt>Date.now() || e.state!=='ENDED' ||
+       typeof e.acknowledged!=='boolean')throw new Error('GATE_END_PROOF_INVALID');
+    s.completed.push({token:token,name:e.name,startedAt:e.startedAt,endedAt:e.endedAt,state:'ENDED'});
+    s.completed=s.completed.slice(-8);delete s.active[token];s.finished++;ended.push(key);
+  });
+  if(ended.length)_issue507GateSave_(props,s);
+  // Never delete UNACKED proof: its producer may still be between set/readback.
+  // GC can collect ACKED orphans even after the eight-entry history rolls over.
+  var values=props.getProperties();
+  Object.keys(values).forEach(function(key){
+    if(key.indexOf('issue507_writer_end_v1_')!==0)return;
+    var e;try{e=JSON.parse(values[key]);}catch(ignore){return;}
+    if(!e || e.acknowledged!==true || e.releaseId!==s.releaseId || e.state!=='ENDED' ||
+       typeof e.token!=='string' || !/^[A-Za-z0-9-]{1,80}$/.test(e.token) ||
+       key!==_issue507GateEndKey_(e.token) || s.active[e.token] ||
+       typeof e.name!=='string' || !Number.isFinite(e.startedAt) || !Number.isFinite(e.endedAt) ||
+       e.endedAt<e.startedAt || e.endedAt>Date.now())return;
+    props.deleteProperty(key);
+  });
+  return s;
+}
+function _issue507GateExit_(token) {
+  var props=PropertiesService.getScriptProperties(),s=_issue507GateRead_(props),owner=s.active[token];
+  if(!owner){
+    if(s.completed.some(function(e){return e.token===token;}))return;
+    throw new Error('GATE_OWNER_LOST');
+  }
+  // Each execution exclusively owns this key. Record ENDED without ScriptLock
+  // so a 240-second financial writer cannot strand normal completions.
+  var key=_issue507GateEndKey_(token),raw=JSON.stringify({releaseId:s.releaseId,token:token,
+    name:owner.name,startedAt:owner.startedAt,endedAt:Date.now(),state:'ENDED',acknowledged:false});
+  try{props.setProperty(key,raw);if(props.getProperty(key)!==raw)throw new Error('readback');}
+  catch(error){throw new Error('GATE_COMPLETION_RECEIPT_UNVERIFIED');}
+  // Only the producer sets ACK after its own exact readback. No ACK readback:
+  // a collector may legitimately delete ACKED evidence immediately.
+  try{var acknowledged=JSON.parse(raw);acknowledged.acknowledged=true;props.setProperty(key,JSON.stringify(acknowledged));}
+  catch(error){if(typeof Logger!=='undefined')Logger.log('GATE_COMPLETION_ACK_DEFERRED');}
+  try{_issue507GateAtomic_(function(p){_issue507GateReconcile_(p,_issue507GateRead_(p));},true);}
+  catch(error){
+    // Durable terminal proof survives; next admission/begin/drain reconciles
+    // it atomically BEFORE capacity checks. Do not lose the producer result.
+    if(typeof Logger!=='undefined')Logger.log('GATE_COMPLETION_CLEANUP_DEFERRED');
+  }
+}
+function _issue507GateInvoke_(name,fn,self,args) {
+  // Authenticated metadata-only health read remains reachable during drain.
+  if(name==='doGet' && args[0] && args[0].parameter &&
+     args[0].parameter.action==='getWriterGateStatus')return _issue507GateStatusRequest_(args[0].parameter);
+  if(_issue507GateInside_)return fn.apply(self,args);
+  var token=_issue507GateEnter_(name);
+  _issue507GateInside_=true;
+  try{return fn.apply(self,args);}
+  finally{_issue507GateInside_=false;_issue507GateExit_(token);}
+}
+function issue507BeginWriterDrain_() {
+  return _issue507GateAtomic_(function(props){
+    var rollout=_issue507GateRollout_(props),raw=props.getProperty('issue507_writer_gate_v1');
+    var s=raw?_issue507GateReconcile_(props,_issue507GateRead_(props)):{releaseId:ISSUE507_GATE_RELEASE_ID,mode:'DRAINING',active:{},completed:[],finished:0,barrierAt:Date.now()};
+    // Each NEW drain cycle requires a fresh independent rollout attestation.
+    // A previous OPEN->DRAINING->OPEN cycle cannot reuse its old proof.
+    if((!raw || s.mode==='OPEN') && Date.now()-rollout.verifiedAt>300000)throw new Error('GATE_ROLLOUT_STALE');
+    if(s.mode==='OPEN'){s.mode='DRAINING';s.barrierAt=Date.now();}
+    // Repeated begin NEVER resets barrier or removes active execution records.
+    if(rollout.verifiedAt>s.barrierAt)throw new Error('GATE_ROLLOUT_AFTER_BARRIER');
+    _issue507GateSave_(props,s);return {mode:s.mode,activeCount:Object.keys(s.active).length,writeAuthorized:false};
+  });
+}
+function _issue507AssertDrain_() {
+  return _issue507GateAtomic_(function(props){
+    var s=_issue507GateReconcile_(props,_issue507GateRead_(props)),q=_issue507GateRollout_(props);
+    // Continuous seven-minute barrier is an additional observation window only.
+    // It NEVER substitutes for the rollout's independent legacy terminal-run
+    // evidence (delayed/paused legacy runs cannot be inferred from elapsed time).
+    // Active receipts NEVER expire, including hard-killed executions.
+    if(s.mode!=='DRAINING' || q.verifiedAt>s.barrierAt || Date.now()-s.barrierAt<420000 ||
+       Object.keys(s.active).length)throw new Error('GATE_NOT_DRAINED');
+    return {releaseId:s.releaseId,barrierAt:s.barrierAt,activeCount:0,finished:s.finished,
+      proof:'ADMISSION_BARRIER_AND_COMPLETION_RECEIPTS',legacyEvidence:'OPERATOR_VERIFIED_EXECUTIONS_UI',processApiRequired:false,writeAuthorized:false};
+  });
+}
+function issue507WriterDrainStatus_(){return _issue507AssertDrain_();}
+function issue507ResumeWriters_() {
+  return _issue507GateAtomic_(function(props){
+    _issue507AssertDrain_();var s=_issue507GateRead_(props);
+    // Never reopen while approval capabilities remain live.
+    if(props.getProperty('issue507_f00001_approval_v1') ||
+       props.getProperty('issue507_f00001_external_writers_excluded_v1'))throw new Error('GATE_APPROVAL_STILL_LIVE');
+    s.mode='OPEN';_issue507GateSave_(props,s);return {mode:'OPEN',writeAuthorized:false};
+  });
+}
+
+function _issue507GateStatusRequest_(params) {
+  var previous=_issue507GateInside_;_issue507GateInside_=true;
+  try {
+    if(!_isAuthorizedRequest(params))return jsonError('인증 실패');
+    return _issue507GateAtomic_(function(props){
+      var raw=props.getProperty('issue507_writer_gate_v1');
+      if(!raw)return jsonOk({gasVersion:ISSUE507_GATE_API_VERSION,writerGate:{mode:'UNINITIALIZED',repairAuthorized:false}});
+      var s=_issue507GateRead_(props);
+      return jsonOk({gasVersion:ISSUE507_GATE_API_VERSION,writerGate:{mode:s.mode,
+        activeCount:Object.keys(s.active).length,finished:s.finished,
+        repairAuthorized:false,approvalPresent:!!props.getProperty('issue507_f00001_approval_v1')}});
+    });
+  } catch(error){return jsonError('GATE_STATUS_UNVERIFIED');}
+  finally{_issue507GateInside_=previous;}
+}
+
+// Staged maintenance module: NOT loaded by deploy-gas, no HTTP/menu/trigger route.
+// Install/execute only after separate approval. Uses the reviewed production
+// calculator; never accepts client financial values or broad rewrite requests.
+function issue507F00001SnapshotRepair_(apply) {
+  if (apply !== false && apply !== true) throw new Error('EXPLICIT_MODE_REQUIRED');
+  var lock=LockService.getScriptLock(), owned=false;
+  var previousInside=typeof _issue507GateInside_!=='undefined' && _issue507GateInside_;
+  try {
+    if (!lock.tryLock(1000)) throw new Error('WRITER_BUSY');
+    owned=true;
+    var props=PropertiesService.getScriptProperties();
+    _issue507F00001Quiescence_(props);
+    _issue507GateInside_=true; // exclusive repair owns ScriptLock + verified drain
+    _issue507F00001ExcludeWriters_(props);
+    var ss=getss(), sheet=ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+    var read=function(){return sheet.getRange(1,1,sheet.getLastRow(),sheet.getLastColumn()).getValues();};
+    var formulas=sheet.getRange(1,1,sheet.getLastRow(),sheet.getLastColumn()).getFormulas();
+    if(formulas.some(function(row){return row.some(function(cell){return !!cell;});})) throw new Error('FORMULA_SNAPSHOT_UNSUPPORTED');
+    var before=read(), sources=_issue507F00001Sources_(ss);
+    var proof=_issue507F00001Proof_(ss), matches=[];
+    before.forEach(function(row,i){if (_normalizeDate(row[0])==='2026-10-30' && row[1]==='F00001') matches.push(i);});
+    if (matches.length!==1 || before[matches[0]].length<12) throw new Error('PHYSICAL_ROW_SCOPE');
+    var index=matches[0], original=before[index];
+    // Compare the physical row to the diagnostic, without hiding extra columns.
+    if (JSON.stringify(original.slice(1,12))!==JSON.stringify(proof.stored.slice(1,12))) throw new Error('PHYSICAL_ROW_CHANGED');
+    var intended=before.map(function(row){return row.slice();});
+    [6,7,8,9,10].forEach(function(col){intended[index][col]=proof.expected[col];});
+    var binding=_issue507F00001Hash_({before:before,sources:sources,intended:intended});
+    if (!apply) return {mode:'DRY_RUN',rows:39,changed:0,writeAuthorized:false,approvalBinding:binding};
+    // Exact one-use approval binding must be set separately by an authorized
+    // operator after review; this module never creates its own approval.
+    if (props.getProperty('issue507_f00001_approval_v1')!==binding) throw new Error('APPROVAL_REQUIRED');
+    if (props.getProperty('issue507_f00001_external_writers_excluded_v1')!==binding) throw new Error('EXTERNAL_WRITER_EXCLUSION_REQUIRED');
+    // Snapshot plus all calculator sources are re-read immediately before backup.
+    if (JSON.stringify(read())!==JSON.stringify(before) || _issue507F00001Sources_(ss)!==sources) throw new Error('SOURCE_CHANGED');
+    _issue507F00001ExcludeWriters_(props);
+    // Dedicated native backup is retained on success AND failure. Do not use
+    // settle helpers which may delete completed backups under the keep=0 policy.
+    var backup=sheet.copyTo(ss);
+    backup.setName('ISSUE507_F00001_'+Utilities.getUuid());
+    SpreadsheetApp.flush();
+    if (backup.getLastRow()!==before.length || backup.getLastColumn()!==before[0].length ||
+        JSON.stringify(backup.getRange(1,1,before.length,before[0].length).getValues())!==JSON.stringify(before)) throw new Error('BACKUP_READBACK_FAILED');
+    if (JSON.stringify(read())!==JSON.stringify(before) || _issue507F00001Sources_(ss)!==sources) throw new Error('SOURCE_CHANGED');
+    _issue507F00001Quiescence_(props);
+    _issue507F00001ExcludeWriters_(props);
+    // Consume before writing: response loss/partial failure cannot retry blindly.
+    props.deleteProperty('issue507_f00001_approval_v1');
+    props.deleteProperty('issue507_f00001_external_writers_excluded_v1');
+    if (props.getProperty('issue507_f00001_approval_v1')) throw new Error('APPROVAL_CONSUME_FAILED');
+    // Exactly G:K of ONE EXISTING row. No append/delete/whole-date writer.
+    sheet.getRange(index+1,7,1,5).setValues([intended[index].slice(6,11)]);
+    SpreadsheetApp.flush();
+    if (JSON.stringify(read())!==JSON.stringify(intended) || _issue507F00001Sources_(ss)!==sources) throw new Error('WRITE_READBACK_FAILED_BACKUP_RETAINED');
+    var after=diagnoseSnapshotIntegrity(ss,'2026-10-30');
+    // F00002 warning is intentionally still a source-only MISMATCH, never VALID.
+    _issue507F00001RowsProof_(after,true);
+    _touchSnapshotIntegritySourceRevision({date:'2026-10-30'});
+    return {mode:'APPLIED',rows:39,changed:1,otherRowsPreserved:true,f00002WarningPreserved:true,backupRetained:true};
+  } finally {_issue507GateInside_=previousInside;if(owned)lock.releaseLock();}
+}
+function _issue507F00001Hash_(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,JSON.stringify(value)).map(function(b){return ('0'+((b+256)%256).toString(16)).slice(-2);}).join('');
+}
+function _issue507F00001Sources_(ss) {
+  var context=_buildSnapshotRangeReadContext(ss,{});
+  delete context.valuesByName[CONFIG.SHEET_SNAPSHOT];
+  return _issue507StrictReadSourceDigest_(context);
+}
+function _issue507F00001ExcludeWriters_(props) {
+  // ScriptLock is held for the entire transaction. In-flight network producers
+  // may have released it: reject their leases/stages rather than stealing them.
+  [PORTFOLIO_FUND_LEASE_KEY,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY].forEach(function(key){
+    var raw=props.getProperty(key);
+    if(raw) throw new Error('WRITER_BUSY'); // even expired owners require separate reconciliation
+  });
+  // Fail closed even for stale stages; reconcile them separately, never here.
+  if (['PRICE','FUND'].indexOf(props.getProperty('portfolio_close_stage'))>=0 ||
+      _tradeLedgerWriteUnverified_() || props.getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY)) throw new Error('WRITER_BUSY');
+}
+function _issue507F00001Proof_(ss) {
+  var d=diagnoseSnapshotIntegrity(ss,'2026-10-30');
+  var proof=_issue507F00001RowsProof_(d,false);
+  ['F00001','F00002'].forEach(function(code){
+    var status=_getFundValuationStatus(ss,'2026-10-30','2026-10-30',code);
+    if(status.code!==code || status.dates.length!==1) throw new Error('FUND_DAY_STATE');
+    var day=status.dates[0];
+    if(day.code!==code || day.date!=='2026-10-30' || !day.unitsApplied || !day.publicationExpected ||
+       day.evaluationState!=='EXISTING_VALID' ||
+       day.navState!==(code==='F00001'?'EXISTING_CONFIRMED':'NAV_MISSING') ||
+       day.snapshotState!==(code==='F00001'?'WRITE_REQUIRED':'EXISTING_VALID')) throw new Error('FUND_DAY_STATE');
+  });
+  return proof;
+}
+function _issue507F00001RowsProof_(d,after) {
+  if(!d || d.date!=='2026-10-30' || d.status!=='MISMATCH' || d.expectedRowCount!==39 || d.storedRowCount!==39 ||
+      !Array.isArray(d.expectedRows) || d.expectedRows.length!==39 || !Array.isArray(d.storedRows) || d.storedRows.length!==39) throw new Error('FULL_RECHECK_REQUIRED');
+  ['missingCodes','unexpectedCodes','qtyMismatches','costAmtMismatches','duplicateKeys','conflictKeys','sourceDataErrors'].forEach(function(key){
+    if(!Array.isArray(d[key]) || d[key].length) throw new Error('OTHER_MISMATCH');
+  });
+  if(!Array.isArray(d.priceIntegrity) || !d.priceIntegrity.some(function(p){return p.code==='F00001' && p.status==='VALID';}) ||
+     d.priceIntegrity.some(function(p){return p.status!=='VALID';})) throw new Error('PRICE_INTEGRITY');
+  var expected={},stored={},target;
+  [d.expectedRows,d.storedRows].forEach(function(rows,which){var map=which?stored:expected;
+    rows.forEach(function(row){if(row.length!==12 || row[0]!=='2026-10-30' || !row[1] || map[row[1]]) throw new Error('ROW_KEY_SCOPE');map[row[1]]=row;});});
+  if(Object.keys(expected).sort().join('|')!==Object.keys(stored).sort().join('|') || !expected.F00001 || !expected.F00002) throw new Error('ROW_KEY_SCOPE');
+  Object.keys(expected).forEach(function(code){var e=expected[code],s=stored[code];
+    for(var col=0;col<12;col++) {
+      if(code==='F00001' && !after && [6,7,8,9,10].indexOf(col)>=0) continue;
+      if(code==='F00002' && col===10) continue;
+      if(e[col]!==s[col]) throw new Error('OTHER_ROW_OR_COLUMN_CHANGED');
+    }
+  });
+  var e=expected.F00001,s=stored.F00001;
+  if(e[10]!=='FUND_NAV' || (!after && (!/^FUND_NAV_CARRY(?:@2026-10-29)?$/.test(s[10]) || e[6]===s[6] || e[7]===s[7]))) throw new Error('TARGET_SOURCE');
+  [6,7,8,9].forEach(function(col){if(typeof e[col]!=='number' || !Number.isFinite(e[col])) throw new Error('TARGET_NUMBER');});
+  if(e[6]<=0 || e[7]<=0) throw new Error('TARGET_NUMBER');
+  var kb=d.fundNavStates.filter(function(row){return row.code==='F00002';});
+  if(kb.length!==1 || kb[0].sourceDate!=='2026-10-29' || expected.F00002[10]!=='FUND_NAV_CARRY@2026-10-29' ||
+     !/^FUND_NAV_CARRY_INPUT_REQUIRED(?:@2026-10-29)?$/.test(stored.F00002[10])) throw new Error('KB_WARNING_REQUIRED');
+  return {expected:e,stored:s};
+}
+
+function _issue507F00001Quiescence_(props) {
+  // Mandatory runtime gate; a manual boolean receipt alone is insufficient.
+  _issue507AssertDrain_();
+  // Manual refresh can fetch outside ScriptLock WITHOUT a shared lease.
+  // Never infer quiescence from empty leases. Rollout must first block ALL app
+  // HTTP/menu/trigger entry points and independently observe execution drain.
+  // This receipt is an operator attestation, not an automatic execution audit.
+  var raw=props.getProperty('issue507_f00001_quiescence_v1');
+  if(!raw) throw new Error('APP_QUIESCENCE_REQUIRED');
+  var q=JSON.parse(raw),age=Date.now()-Number(q.observedAt);
+  if(q.httpIngressBlocked!==true || q.menuAndTriggersBlocked!==true ||
+     q.inFlightExecutionsDrained!==true || q.externalWritersBlocked!==true ||
+     !Number.isFinite(age) || age<0 || age>300000) throw new Error('APP_QUIESCENCE_REQUIRED');
 }

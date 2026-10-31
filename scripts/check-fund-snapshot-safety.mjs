@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const source = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const editorSource = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
 assert.doesNotMatch(source.match(/function _getFundNavStatus[\s\S]*?\n}/)?.[0] || '', /_fundDerivedState/, '좌수 화면 초기 현황에서 Snapshot 전체 파생 상태를 계산하면 안 됩니다.');
 assert.doesNotMatch(editorSource.match(/function _renderFundNavStatus[\s\S]*?\n}/)?.[0] || '', /completedDates/, '좌수 화면 초기 DOM에 전체 완료 날짜를 생성하면 안 됩니다.');

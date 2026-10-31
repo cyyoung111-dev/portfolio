@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
-const production=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const production=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const moduleSource=fs.readFileSync('ops/issue507/f00001-snapshot-repair.gs','utf8');
 const clone=x=>JSON.parse(JSON.stringify(x));
 export function setup(options={}) {
@@ -26,7 +27,7 @@ export function setup(options={}) {
  const sheet=sheetFor(()=>data,x=>data=x);
  const ss={getSheetByName:()=>sheet};
  const ctx=vm.createContext({console,Date,Number,Logger:{log(){}},LockService:{getScriptLock:()=>({tryLock:()=>{if(options.lockBusy)return false;held=true;return true;},releaseLock:()=>{held=false;}})},
-  PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k)})},
+  PropertiesService:{getScriptProperties:()=>({getProperties:()=>Object.fromEntries(props),getProperty:k=>props.get(k)||null,deleteProperty:k=>props.delete(k)})},
   SpreadsheetApp:{flush(){}},Utilities:{getUuid:()=> 'synthetic',DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,x)=>Array.from(crypto.createHash('sha256').update(x).digest())}});
  vm.runInContext(production,ctx);vm.runInContext(moduleSource,ctx);
  ctx._issue507AssertDrain_=()=>({activeCount:0}); // real gate is exercised by runtime integration tests

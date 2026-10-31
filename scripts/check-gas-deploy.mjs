@@ -6,6 +6,9 @@ import {
   deploymentIdFromWebAppUrl,
   extractExpectedGasVersion,
   assertGasReleaseReady,
+  assertIssue507ManualReleasePermission,
+  assertWriterGateReleaseTransition,
+  rollbackGasCode,
   assertGasProjectFileSet,
   assertGasCreatedVersionReady,
   gasSourceBlobSha,
@@ -14,6 +17,90 @@ import {
   selectServerFile,
   verifyDeploymentVersionWithRetry,
 } from './deploy-gas.mjs';
+
+// Explicit approval gate: a main push/quality success can never publish the
+// first stateful gate release; diagnostic and dry-run remain read-only.
+for(const mode of [
+ {version:'9.282',eventName:'workflow_run',approved:false},
+ {version:'9.282',eventName:'workflow_run',approved:true},
+ {version:'9.282',eventName:'workflow_dispatch',approved:false},
+ {version:'9.282',eventName:undefined,approved:true},
+])assert.throws(()=>assertIssue507ManualReleasePermission(mode),/GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_dispatch',approved:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_run',dryRun:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_run',diagnosticOnly:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.281',eventName:'workflow_run'}));
+let unsafeRollbackReads=0,unsafeRollbackWrites=0;
+await assert.rejects(()=>rollbackGasCode({
+ beforeFiles:[{name:'Code',type:'SERVER_JS',source:'// Google Apps Script v9.281'}],
+ candidateFiles:[{name:'Code',type:'SERVER_JS',source:"var ISSUE507_GATE_RELEASE_ID='example';"}],
+ readFiles:async()=>{unsafeRollbackReads++;return [];},
+ writeFiles:async()=>{unsafeRollbackWrites++;},
+ readDeployment:async()=>({deploymentConfig:{versionNumber:1}}),
+ writeDeployment:async()=>{unsafeRollbackWrites++;},
+ beforeDeployment:{deploymentConfig:{versionNumber:1}},newVersion:2
+}),/GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.equal(unsafeRollbackReads,0);
+assert.equal(unsafeRollbackWrites,0);
+
+// P1 regression: a failed first v9.282 release may leave HEAD gated but
+// deployment v9.281 ungated. The second attempt must NOT restore that old
+// deployment even though both HEAD sources contain the gate.
+const gated=tag=>[{name:'Code',type:'SERVER_JS',
+ source:"var ISSUE507_GATE_RELEASE_ID='stable-issue507';\\n// "+tag}];
+const ungated=[{name:'Code',type:'SERVER_JS',source:'// v9.281 uninstrumented'}];
+const rollbackOptions=overrides=>({
+ beforeFiles:gated('first-attempt-HEAD'),
+ candidateFiles:gated('latest-HEAD'),
+ beforePublishedFiles:ungated,
+ beforeDeployment:{deploymentConfig:{versionNumber:11}},
+ newVersion:12,
+ readFiles:async()=>{unsafeRollbackReads++;return gated('latest-HEAD');},
+ writeFiles:async()=>{unsafeRollbackWrites++;},
+ readDeployment:async()=>({deploymentConfig:{versionNumber:12}}),
+ writeDeployment:async()=>{unsafeRollbackWrites++;},
+ ...overrides
+});
+let preCheckReads=unsafeRollbackReads,preCheckWrites=unsafeRollbackWrites;
+await assert.rejects(()=>rollbackGasCode(rollbackOptions()),/GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.equal(unsafeRollbackReads,preCheckReads,'ungated historical deployment must fail before read side effects');
+assert.equal(unsafeRollbackWrites,preCheckWrites,'ungated historical deployment must fail before writes');
+await assert.rejects(()=>rollbackGasCode(rollbackOptions({beforePublishedFiles:undefined})),
+ /GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/,'unavailable historical version fails closed');
+await assert.rejects(()=>rollbackGasCode(rollbackOptions({beforePublishedFiles:gated('gate-only').map(f=>({...f,
+ source:f.source.replace('stable-issue507','different-release')}))})),
+ /GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/,'different release owner cannot be restored');
+assert.equal(unsafeRollbackWrites,preCheckWrites);
+// Even same-gate HEAD is insufficient if it points at a previous release.
+await assert.rejects(()=>rollbackGasCode(rollbackOptions({
+ beforeFiles:gated('gate-only').map(f=>({...f,source:f.source.replace('stable-issue507','different-release')})),
+ beforePublishedFiles:gated('historical'),
+})),/GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.equal(unsafeRollbackWrites,preCheckWrites);
+
+// Positive control: true gate-preserving rollback can restore both HEAD and
+// deployment when the version-numbered historical source uses the SAME
+// execution owner. No financial sheet touched.
+let safeHead=gated('new'),safeVersion=12,safeHeadWrites=0,safeDeploymentWrites=0;
+const safeRollback=await rollbackGasCode(rollbackOptions({
+ beforeFiles:gated('original'),candidateFiles:gated('new'),
+ beforePublishedFiles:gated('published-original'),
+ readFiles:async()=>safeHead,
+ writeFiles:async v=>{safeHead=v;safeHeadWrites++;},
+ readDeployment:async()=>({deploymentConfig:{versionNumber:safeVersion}}),
+ writeDeployment:async cfg=>{safeVersion=cfg.versionNumber;safeDeploymentWrites++;},
+}));
+assert.deepEqual(safeRollback,{headRestored:true,deploymentRestored:true,dataWrites:0});
+assert.equal(safeHeadWrites,1);
+assert.equal(safeDeploymentWrites,1);
+assert.equal(safeHead[0].source,gated('original')[0].source);
+assert.equal(safeVersion,11);
+assert.throws(()=>assertWriterGateReleaseTransition(
+ "var ISSUE507_GATE_RELEASE_ID='stable-issue507';","// v9.281 uninstrumented"),
+ /GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
+assert.doesNotThrow(()=>assertWriterGateReleaseTransition(
+ "var ISSUE507_GATE_RELEASE_ID='stable-issue507';",
+ "var ISSUE507_GATE_RELEASE_ID='stable-issue507';"));
 
 assert.equal(deploymentIdFromWebAppUrl('https://script.google.com/macros/s/AKfycb-example/exec'), 'AKfycb-example');
 assert.throws(() => deploymentIdFromWebAppUrl('https://example.com/not-gas'), /deployment ID/);
@@ -96,7 +183,7 @@ assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a se
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
   'newest GAS release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.281') && latestReleaseNotes.includes('Snapshot'),
+assert.ok(latestReleaseNotes.includes('gasVersion=9.282') && latestReleaseNotes.includes('Snapshot'),
   'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -576,7 +663,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='ebe697563e94cf49e514037353260fce70ae1d57';
+const approvedFullSourceBlob='9c1a5f31d1abc4b44f7da9af7a50fe3f15967134';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -620,7 +707,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.281',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.282',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
@@ -630,7 +717,14 @@ if (hasStackedKrxRecovery) {
     'partial stacked source should not pass the production readiness gate');
 }
 
+const issue507ReleaseWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+assert.match(issue507ReleaseWorkflow,/approve_9282:\s*\n(?:.|\n)*?default:\s*false/);
+assert.match(issue507ReleaseWorkflow,/GAS_9282_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9282/);
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
+assert.match(deployScript,/assertIssue507ManualReleasePermission\(\{/);
+assert.match(deployScript,/assertWriterGateReleaseTransition\(deployedTarget\.source,source\)/);
+assert.match(deployScript,/assertWriterGateReleaseTransition\(target\.source,source\)/);
+assert.ok(deployScript.indexOf('assertIssue507ManualReleasePermission({') < deployScript.indexOf('const accessToken = await getAccessToken()'),'manual release gate must run before OAuth');
 assert.ok(deployScript.includes("'9.278': Object.freeze(['e383b7c3809ce6426aa3d502bb6c22a6bb175dbf','c77c539568f2dc3b2af4bcb729e8e38bbf6cee82','dca53650aae621c3d9efb97d677dfb763f48b84d','85e5a73565344b24007e81acd80db2b3a1067e46','df680956105a1184a9fdacfc41725626f7b74d72'])"),
   'only exact reviewed GAS full-source blobs may be accepted for 9.278');
 assert.ok(deployScript.includes('Array.isArray(reviewed) ? reviewed : [reviewed]'),

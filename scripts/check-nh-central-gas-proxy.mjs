@@ -24,7 +24,7 @@ const request=async(target,options)=>{
  assert.equal(data.get('accessToken'),token);
  assert.ok(!data.has('appkey')&&!data.has('appsecretkey'));
  return {ok:true,json:async()=>data.get('action')==='getNhAuthStatusProxy'
-  ?{status:'ok',provider:'NH',readOnly:true,enabled:true,tokenCached:true,tokenIssued:false,gasVersion:'9.281'}
+  ?{status:'ok',provider:'NH',readOnly:true,enabled:true,tokenCached:true,tokenIssued:false,gasVersion:'9.282'}
   :data.get('action')==='getNhNightProbe'
    ?{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,diagnosticOnly:true,tokenIssued:false,reference:ref}
    :{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,reference:ref}};
@@ -44,7 +44,7 @@ assert.equal(leak,null,'unexpected auth fields must never be stored in GH artifa
 const cap=await captureMorning({now,fetchNight:async()=>result});
 assert.equal(cap.status,'CAPTURED');
 const accepted={status:'ok',provider:'NH',readOnly:true,enabled:true,
- tokenCached:true,tokenIssued:false,gasVersion:'9.281'};
+ tokenCached:true,tokenIssued:false,gasVersion:'9.282'};
 assert.equal(isSupportedNhCentralStatus(accepted),true,'current live GAS is accepted');
 assert.equal(isSupportedNhCentralStatus({...accepted,gasVersion:'9.282'}),true,'compatible minor release is accepted');
 for(const bad of [{...accepted,gasVersion:'9.280'},{...accepted,gasVersion:'10.281'},
