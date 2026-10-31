@@ -37,7 +37,11 @@ export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,a
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
-  if(!['schedule','workflow_run'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
+  if(!['schedule','workflow_run','workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
+  // Manual workflow_dispatch must be a specifically selected guarded rescue.
+  // Never let the connection-test mode (or an omitted mode) send market data.
+  if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'
+     &&process.env.TELEGRAM_DISPATCH_MODE!=='rescue')throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
   if(!deliveryTrigger('morning',process.env,JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),scheduledWindow(new Date()).allowed)){
    if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
    console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW'}));
