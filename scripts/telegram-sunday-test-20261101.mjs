@@ -78,7 +78,9 @@ export async function composeSunday(period,{now=()=>new Date(),fetchImpl=fetch,
     loadMorningMaster(date,{url:gasUrl,token:gasToken,fetchImpl,now:now()}).catch(()=>[]),
     loadMorningDomesticDailyIndexes(date,{fetchImpl,now}).catch(()=>[]),
     collectMorningSeries(date,{fetchDaily:fetchDatedDaily,now:now(),fetchImpl,
-      skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200'])}).catch(()=>[])
+      // Saturday UTC BTC daily candle is still incomplete at Sunday 07:35 KST.
+      skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200',
+        ...(period==='morning'?['BTC-USD']:[])])}).catch(()=>[])
   ]);
   const rows=mergeMorningSourceRows(external,master,[],domestic);
   let text=period==='morning'
