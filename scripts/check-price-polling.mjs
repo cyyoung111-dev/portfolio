@@ -32,14 +32,21 @@ const recomputeSource = 'function recomputeRows() {' + recompute[1] + '\n}';
 const resolverSource = 'function _resolvePriceDateLabel(baseLabel, key, responseMeta) {' + resolver[1] + '\n}';
 const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930': 12345 }, fail = false,
   meta = { '005930':{ sourceDate:'2026-10-13', isFallback:false } }, resolvedDate = '2026-10-13', disconnect = false, hideAfterFetch = false,
-  embeddedMeta = null, embeddedDate = null } = {}) => {
+  embeddedMeta = null, embeddedDate = null,
+  selectedDate = '2026-10-13', selectHistoryAfterFetch = false,
+  fullRestore = false, beginRestoreAfterFetch = false, rollDateAfterFetch = false } = {}) => {
   let networkCount = 0, repaintCount = 0, summaryCount = 0, cacheInvalidations = 0;
   let persistedCount = 0, badge = null, status = null, connected = true;
   const cache = { '005930': 1000 };
   const rows = [], savedPriceDates = {};
   const rawHoldings = [{ code:'005930', qty:2, costAmt:12000 }];
+  const dateInput = {value:selectedDate};
+  let nowDate='2026-10-13';
   const context = vm.createContext({
     document:{ hidden }, GSHEET_API_URL:'https://script.google.com/macros/s/test/exec',
+    _fullPortfolioUpdateInProgress:fullRestore,
+    _gsBootRestored:true, _gsPortfolioRestoreRequired:false,
+    $el:id=>id==='quickDateInput'?dateInput:null,
     window:{ _gsheetPriceMeta:meta, _gsheetResolvedPriceDate:resolvedDate },
     getGsheetConnectionGeneration:()=>1, isGsheetConnectionCurrent:()=>connected,
     savedPriceDates, lastUpdated:'2026.10.08',
@@ -51,11 +58,14 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
       if (fail) throw Error('network failure');
       if (disconnect) connected = false;
       if (hideAfterFetch) context.document.hidden = true;
+      if (selectHistoryAfterFetch) dateInput.value='2026-10-09';
+      if (beginRestoreAfterFetch) context._fullPortfolioUpdateInProgress=true;
+      if (rollDateAfterFetch) nowDate='2026-10-14';
       if (response && embeddedMeta) Object.defineProperty(response, '__gsheetPriceMeta', {value:embeddedMeta});
       if (response && embeddedDate !== null) Object.defineProperty(response, '__gsheetResolvedPriceDate', {value:embeddedDate});
       return response;
     },
-    getDateStr:()=> '2026-10-13', updateDateBadge:(...args)=>{badge=args;},
+    getDateStr:()=> nowDate, updateDateBadge:(...args)=>{badge=args;},
     _priceLookupSummary:()=> 'test', _priceStatusLayout:(head,detail,note)=>head+' '+note,
     setStatusLabel:(...args)=>{status=args;},
     computeRows:holdings => holdings.map(h => ({
@@ -147,6 +157,23 @@ for (const options of [{view:'gsheet',disconnect:true},{view:'gsheet',hideAfterF
   const stale = await testPoll(options);
   assert.equal(stale.cache['005930'],1000,'응답 전 연결 변경/숨김 시 가격 적용 금지');
   assert.equal(stale.summaryCount,0);
+}
+// Historical display and a concurrent full restore must not receive today's
+// periodic quotes, including when the date/restore changes during an await.
+for (const opts of [
+  {selectedDate:'2026-10-09'},
+  {fullRestore:true},
+  {selectHistoryAfterFetch:true},
+  {beginRestoreAfterFetch:true},
+  {rollDateAfterFetch:true}
+]) {
+  const blocked=await testPoll(opts);
+  assert.equal(blocked.cache['005930'],1000,'out-of-date price must not overwrite historical/restore display');
+  assert.equal(blocked.rows.length,0);
+  assert.equal(blocked.summaryCount,0);
+  assert.equal(blocked.persistedCount,0);
+  if(opts.selectedDate || opts.fullRestore) assert.equal(blocked.networkCount,0,'blocked state must not call provider');
+  else assert.equal(blocked.networkCount,1,'late state change discards completed response');
 }
 console.log('✅ 현재가 polling 설정 탭 rows·손익·캐시 갱신, DOM 보존, 비영속성, 실패/hidden 회귀 통과');
 
