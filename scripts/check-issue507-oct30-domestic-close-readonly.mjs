@@ -17,7 +17,7 @@ assert.equal(report.domesticMissingExactHistory,37);
 assert.equal(report.domesticExactClosePrices,0);
 assert.equal(report.fundExactHistory,2);
 assert.equal(report.financialWrites,0);
-assert.equal(report.confirmedFinalForAllHeld,false);
+assert.equal(report.allHeldSameDayStoredSourcesPresent,false);
 for(const raw of ['PRIVATE_NAME','99999999','F00001','KRX_CARRY@2026-10-29'])
  assert.ok(!JSON.stringify(report).includes(raw));
 const complete={...history,items:history.items.map(x=>({...x,source:x.code.startsWith('F')?'FUND_NAV':'NH_REGULAR_CLOSE'}))};
@@ -25,8 +25,9 @@ const fullPrices={status:'ok',prices:{...prices.prices,...Object.fromEntries(dom
  code,[{date:DATE,price:99999999,source:'NH_REGULAR_CLOSE'}]]))}};
 const completeReport=auditCloseGap(complete,fullPrices,nh);
 assert.equal(completeReport.status,'EXACT_DAY_DOMESTIC_HISTORY_PRESENT');
-assert.equal(completeReport.confirmedFinalForAllHeld,true);
+assert.equal(completeReport.allHeldSameDayStoredSourcesPresent,true);
 assert.equal(completeReport.domesticExactClosePrices,37);
+assert.equal(completeReport.officialFinalityIndependentlyVerified,false);
 const copy=x=>structuredClone(x);
 for(const bad of [
  {...history,items:[...history.items,history.items[0]]},
