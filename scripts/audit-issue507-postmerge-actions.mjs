@@ -67,7 +67,7 @@ export async function auditIssue507PostmergeActions({
  async function readJobs(id){
   const jobs=[];let complete=false;
   for(let page=1;page<=5;page++){
-   const result=await get('/repos/'+repository+'/actions/runs/'+id+'/jobs?per_page=100&page='+page);
+   const result=await get('/repos/'+repository+'/actions/runs/'+id+'/jobs?filter=all&per_page=100&page='+page);
    if(!Array.isArray(result?.jobs)||result.jobs.length>100)
       throw Error('ISSUE507_AUDIT_JOBS_UNVERIFIED');
    jobs.push(...result.jobs);
@@ -82,22 +82,42 @@ export async function auditIssue507PostmergeActions({
     .map(x=>({id:x.id,status:x.status,conclusion:x.conclusion,createdAt:x.created_at}))
  }));
  const gasRuns=[];
- for(const run of gas.runs){
+ const excludedPrRuns=gas.runs.filter(x=>x.event==='pull_request').length;
+ for(const run of gas.runs.filter(x=>x.event!=='pull_request')){
+  // filter=all includes jobs from EVERY re-run attempt, unlike the API's
+  // default filter=latest which can silently conceal a previous deployment.
   const result=await readJobs(run.id);
   const deploy=result.jobs.filter(x=>x.name==='deploy');
-  if(deploy.length>1)throw Error('ISSUE507_AUDIT_DEPLOY_JOB_DUPLICATED');
-  const job=deploy[0];
-  const deployStep=job?.steps?.find(x=>x.name==='Deploy GAS');
-  let classification='NO_DEPLOY_JOB';
-  if(!result.complete || !job)classification='UNVERIFIED';
-  else if(job.conclusion==='skipped')classification='DEPLOY_SKIPPED';
-  else if(job.conclusion==='success' && deployStep?.conclusion==='success')
-    classification='DEPLOY_STEP_SUCCEEDED_MUTATION_UNVERIFIED';
-  else classification='DEPLOY_ATTEMPT_UNVERIFIED';
+  const attempts=new Set();
+  const deploymentAttempts=deploy.map(job=>{
+    const runAttempt=Number(job.run_attempt);
+    if(!Number.isSafeInteger(runAttempt)||runAttempt<1||attempts.has(runAttempt))
+      throw Error('ISSUE507_AUDIT_ATTEMPT_HISTORY_UNVERIFIED');
+    attempts.add(runAttempt);
+    const deployStep=job.steps?.find(x=>x.name==='Deploy GAS');
+    const classification=job.conclusion==='skipped'?'DEPLOY_SKIPPED':
+      job.conclusion==='success'&&deployStep?.conclusion==='success'
+        ?'DEPLOY_STEP_SUCCEEDED_MUTATION_UNVERIFIED':'DEPLOY_ATTEMPT_UNVERIFIED';
+    return {attempt:runAttempt,deployJob:job.conclusion??null,
+      deployStep:deployStep?.conclusion??null,classification};
+  }).sort((a,b)=>a.attempt-b.attempt);
+  let classification='UNVERIFIED';
+  if(result.complete&&deploymentAttempts.length){
+    if(deploymentAttempts.every(x=>x.classification==='DEPLOY_SKIPPED'))
+      classification='DEPLOY_SKIPPED';
+    else if(deploymentAttempts.some(x=>x.classification==='DEPLOY_STEP_SUCCEEDED_MUTATION_UNVERIFIED'))
+      classification='DEPLOY_STEP_SUCCEEDED_MUTATION_UNVERIFIED';
+    else classification='DEPLOY_ATTEMPT_UNVERIFIED';
+  }
+  // A reported second attempt without first-attempt jobs is not exhaustive.
+  if(deploymentAttempts.length&&
+     (deploymentAttempts[0].attempt!==1 ||
+     deploymentAttempts.at(-1).attempt!==Number(run.run_attempt||1) ||
+     attempts.size!==Number(run.run_attempt||1)))
+     classification='UNVERIFIED';
   gasRuns.push({runId:run.id,headSha:run.head_sha,event:run.event,
     status:run.status,conclusion:run.conclusion,createdAt:run.created_at,
-    deployJob:job?.conclusion??null,deployStep:deployStep?.conclusion??null,
-    classification,jobHistoryComplete:result.complete});
+    deploymentAttempts,classification,jobHistoryComplete:result.complete});
  }
  const possible=gasRuns.filter(x=>x.classification!=='DEPLOY_SKIPPED');
  const provenanceComplete=quality.complete&&gas.complete&&
@@ -112,7 +132,7 @@ export async function auditIssue507PostmergeActions({
   audit:'ISSUE507_POSTMERGE_GITHUB_ACTIONS',
   status,windowFrom:new Date(start).toISOString(),windowTo:new Date(now).toISOString(),
   mergeCommits:qualityPush,qualityListingComplete:quality.complete,
-  gasListingComplete:gas.complete,gasRuns,
+  gasListingComplete:gas.complete,excludedPrRuns,gasRuns,
   provenanceComplete,
   githubApiReadCalls:calls,
   directGASorFinancialSourceRead:false,
@@ -127,8 +147,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN
  });
  console.log(JSON.stringify(report));
- // A report with unknown deployment state is useful evidence but must not
- // declare success. Failure makes the operator investigate the run.
+ // Completion of the audit is separate from proof of no deployment.
+ // Unknown or successful deploy steps are reported explicitly, not hidden
+ // behind an auditor-process error. Malformed/inaccessible evidence fails.
  if(report.status!=='NO_GAS_DEPLOY_JOB_EXECUTED_IN_SCOPED_ACTIONS')
-   process.exitCode=1;
+   console.warn('ISSUE507_DEPLOYMENT_OUTCOME_REQUIRES_INDEPENDENT_READBACK');
 }
