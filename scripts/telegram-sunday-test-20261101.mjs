@@ -128,6 +128,30 @@ export async function deliverSunday(payload,{now=()=>new Date(),token,chatId,sen
   await send(token,chatId,payload.message);
   return {status:'SENT',testDate:DATE,period:payload.period,sourceCount:payload.sourceCount};
 }
+
+export function persistConfirmedSundaySent(sent,payload,{
+  path='.sunday-test-runtime/sent.json',runId='',writeFile=fs.writeFileSync}={}){
+  if(sent?.status!=='SENT'||sent.testDate!==DATE
+    ||!['morning','close'].includes(sent.period)
+    ||payload?.date!==DATE||payload.period!==sent.period
+    ||payload.claim!==claimFor(sent.period)
+    ||typeof path!=='string'||!path.length)
+    throw Error('SUNDAY_TEST_SEND_PROOF_INVALID');
+  // No message text, chat ID, access tokens or GAS data in the artifact.
+  const proof={status:'SENT',testDate:DATE,period:sent.period,
+    claim:payload.claim,workflowRunId:String(runId)};
+  writeFile(path,JSON.stringify(proof),{flag:'wx'});
+  return proof;
+}
+// This is the actual production send + proof path. On send failure, the
+// receipt writer must never be reached.
+export async function deliverAndRecordSunday(payload,{
+  now=()=>new Date(),token,chatId,send=sendTelegram,
+  path='.sunday-test-runtime/sent.json',runId=''}={}){
+  const sent=await deliverSunday(payload,{now,token,chatId,send});
+  persistConfirmedSundaySent(sent,payload,{path,runId});
+  return sent;
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try {
     const eventName=process.env.GITHUB_EVENT_NAME;
@@ -152,8 +176,12 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     }else if(process.argv[2]==='send'){
       const payload=JSON.parse(fs.readFileSync('.sunday-test-runtime/payload.json','utf8'));
       if(payload.period!==period)throw Error('SUNDAY_TEST_PERIOD_MISMATCH');
-      console.log(JSON.stringify(await deliverSunday(payload,{
-        token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID})));
+      // A dated claim proves that sending was attempted, not that Telegram accepted it.
+      // Write the non-sensitive receipt only AFTER sendTelegram verifies API ok:true.
+      const sent=await deliverAndRecordSunday(payload,{
+        token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,
+        runId:process.env.GITHUB_RUN_ID||''});
+      console.log(JSON.stringify(sent));
     }else throw Error('SUNDAY_TEST_MODE_INVALID');
   }catch(e){console.error(/^SUNDAY_TEST_[A-Z_]+$/.test(e?.message||'')?e.message:'SUNDAY_TEST_FAILED');process.exitCode=1;}
 }
