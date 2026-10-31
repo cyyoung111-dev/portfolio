@@ -609,6 +609,25 @@ async function autoLoadPrices() {
     return;
   }
 
+  // A failed bootstrap is a Settings/connection failure, not evidence of
+  // missing stock codes or missing close prices. Never issue additional
+  // getPrices/getPriceHistory requests against an unverified portfolio.
+  if (typeof _gsBootRestored !== 'undefined'
+      && (!_gsBootRestored || _gsPortfolioRestoreRequired)) {
+    const reason = typeof getGsheetSettingsLoadFailure === 'function'
+      ? getGsheetSettingsLoadFailure() : '';
+    const safeReason = String(reason || '전체 거래·보유 복원 완료 확인 필요')
+      .replace(/[&<>"']/g, ch => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      })[ch]);
+    updateDateBadge(cachedDate || todayLabel, false);
+    setStatusLabel('⚠️ GAS 전체 복원 미완료 · ' + safeReason
+      + ' · 가격조회 중단 · 원본 보존 · <button type="button" data-status-action="gsheet" class="btn-link-blue">외부연동 진단 확인 →</button>', 'warn');
+    // Local cached valuation may still be displayed, but never marked live.
+    if (cacheCount > 0) refreshAll();
+    return;
+  }
+
   if (badge) {
     badge.textContent = '⏳ 종가 조회 중...';
     badge.style.display = 'inline-block';

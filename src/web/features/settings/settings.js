@@ -598,7 +598,7 @@ async function loadSettings(onProgress, options) {
       if (!isLoadConnectionCurrent()) return false;
     }
     if (!data || data.status !== 'ok' || !data.settings) {
-      const code = ['CLIENT_TIMEOUT', 'INVALID_RESPONSE', 'SERVER_ERROR'].includes(data?.errorCode)
+      const code = ['CLIENT_TIMEOUT', 'INVALID_RESPONSE', 'SERVER_ERROR', 'HTTP_401', 'HTTP_403', 'HTTP_429'].includes(data?.errorCode)
         ? data.errorCode : 'SETTINGS_RESPONSE_INVALID';
       return failLoad(code);
     }

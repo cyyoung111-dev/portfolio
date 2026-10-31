@@ -840,9 +840,29 @@ function renderStocksView(area) {
       && typeof recoverMissingStockMasterReadOnly === 'function') {
     const msg = $el('smMgmtMsg');
     if (msg) msg.textContent = '서버 종목코드 읽기 전용 복원 확인 중...';
-    void recoverMissingStockMasterReadOnly().then(count => {
+    // Opening this view during the initial remote bootstrap must not create
+    // a second, competing code-list restore or leave a stale "temporary"
+    // warning after the full Settings restore later succeeds.
+    const pendingBootstrap = typeof _gsBootPromise !== 'undefined' ? _gsBootPromise : null;
+    void (async () => {
+      if (pendingBootstrap) {
+        try { await pendingBootstrap; } catch (_) {}
+      }
+      if (!$el('stockMgmtBody') || !$el('sectorMgmtBody')) return null;
+      if (EDITABLE_PRICES.length > 0) {
+        buildStockMgmt();
+        buildSectorMgmt();
+        const currentMsg = $el('smMgmtMsg');
+        if (currentMsg && _gsBootRestored && !_gsPortfolioRestoreRequired) {
+          currentMsg.textContent = '전체 설정 복원 완료 · 종목코드 ' + EDITABLE_PRICES.length + '개 확인';
+          currentMsg.style.color = 'var(--green-lt)';
+        }
+        return null;
+      }
+      return recoverMissingStockMasterReadOnly();
+    })().then(count => {
       // The user may have left this view while the asynchronous fetch ran.
-      if (!$el('stockMgmtBody') || !$el('sectorMgmtBody')) return;
+      if (count === null || !$el('stockMgmtBody') || !$el('sectorMgmtBody')) return;
       const currentMsg = $el('smMgmtMsg');
       if (count > 0 && EDITABLE_PRICES.length > 0) {
         // Sector, asset-type and currency derived rows were calculated from
@@ -860,7 +880,10 @@ function renderStocksView(area) {
             && _gsBootRestored && !_gsPortfolioRestoreRequired;
           currentMsg.textContent = fullRestoreDone
             ? '서버 종목코드 ' + count + '개 복원 완료 · 거래/보유 원장은 변경하지 않았습니다.'
-            : '서버 종목코드 ' + count + '개 읽기 전용 임시 복원 · 전체 설정 복원 미완료: 변경·저장하지 말고 연결 복원 상태를 확인하세요.';
+            : '서버 종목코드 ' + count + '개 읽기 전용 복원 · 전체 설정 복원 미완료'
+                + (typeof getGsheetSettingsLoadFailure === 'function' && getGsheetSettingsLoadFailure()
+                    ? ' (' + getGsheetSettingsLoadFailure() + ')' : '')
+                + ' · 종목 목록 자체의 오류가 아닙니다 · 전체 설정 복원 미완료: 변경·저장하지 말고 연결 상태를 확인하세요.';
           currentMsg.style.color = fullRestoreDone ? 'var(--green-lt)' : 'var(--amber)';
         }
       } else if (currentMsg) {

@@ -1524,6 +1524,47 @@ console.log('✅ 실제 Settings/Bootstrap API 키 상태 복원·부동산 부�
   assert.equal(timeout.errorCode,'CLIENT_TIMEOUT');
 }
 
+// Mobile 401/403/429 must remain distinguishable without logging URL or tokens.
+for (const [http,code] of [[401,'HTTP_401'],[403,'HTTP_403'],[429,'HTTP_429']]) {
+  const x=setup();
+  x.ctx.fetch=async()=>({ok:false,status:http});
+  const result=await x.ctx.requestJsonWithPolicy('https://example.invalid/?secret=hidden',{
+    preserveError:true,retry:0,action:'getBootstrap'
+  });
+  assert.equal(result.errorCode,code);
+  assert.ok(!JSON.stringify(result).includes('hidden'));
+  x.ctx.requestGsheetActionJson=async()=>({status:'error',errorCode:code});
+  assert.equal(await x.ctx.loadSettings(),false);
+  assert.match(x.ctx.getGsheetSettingsLoadFailure(),new RegExp(code));
+  assert.equal(x.writes,0);
+}
+
+// A failed bootstrap must not produce a false "missing codes/close" failure.
+// It must not send any getPrices/getPriceHistory request before restoration.
+{
+  const x=setup(),statuses=[];
+  let priceRequests=0;
+  x.ctx.setStatusLabel=(html,type)=>statuses.push({html,type});
+  x.ctx.updateDateBadge=()=>{};
+  x.ctx.refreshAll=()=>{};
+  x.ctx.fetchFromGsheet=async()=>{priceRequests++;return null;};
+  x.ctx.getGsheetSettingsLoadFailure=()=>'<private-token> · HTTP_401';
+  vm.runInContext('_gsBootRestored=false; _gsPortfolioRestoreRequired=true',x.ctx);
+  await x.ctx.autoLoadPrices();
+  assert.equal(priceRequests,0,'unverified portfolio must not query prices/history');
+  assert.equal(statuses.at(-1).type,'warn');
+  assert.match(statuses.at(-1).html,/GAS 전체 복원 미완료/);
+  assert.match(statuses.at(-1).html,/HTTP_401/);
+  assert.ok(!statuses.at(-1).html.includes('<private-token>'),
+    'restore status must escape untrusted diagnostic markup');
+}
+
+const historySource=fs.readFileSync('src/web/views/views_history.js','utf8');
+assert.match(historySource,/pendingBootstrap[\s\S]*await pendingBootstrap[\s\S]*recoverMissingStockMasterReadOnly\(\)/,
+  'stock master fallback must wait for pending full bootstrap before read-only fetch');
+assert.match(historySource,/getGsheetSettingsLoadFailure/,
+  'read-only master recovery must show restore failure instead of blaming codes');
+
 // 복원 중 보유 저장 확인 전 거래 저장을 시작하지 않고, 실패 시 로컬 journal을 보존한다.
 for (const outcome of ['ok','error']) {
   const x=setup();
