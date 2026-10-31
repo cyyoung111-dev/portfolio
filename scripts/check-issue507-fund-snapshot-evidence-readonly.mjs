@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,summarizeSourceMismatchKinds,summarizeKnownFundSourcePairs,classifyF00001ScopedReview,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
+import {summarizeEvidence,summarizeFullIntegrity,classifySingleFundRepairReview,summarizeExactFundDay,summarizeMismatchScope,summarizeSourceMismatchKinds,summarizeKnownFundSourcePairs,classifyF00001ScopedReview,runtimeProof,compareRuntimeProofs,diagnoseSnapshot,TARGET_CODE,TARGET_DATE} from './diagnose-fund-snapshot-evidence-readonly.mjs';
 const history={status:'ok',date:TARGET_DATE,items:[{code:TARGET_CODE,evalAmt:150,source:'FUND_NAV'}]};
 const prices={status:'ok',prices:{[TARGET_CODE]:[{date:TARGET_DATE,price:150,source:'FUND_NAV'}]}};
 const run=(h,p)=>summarizeEvidence(h,p);
@@ -235,24 +235,57 @@ for(const [mutation,secondStatus] of [
  assert.ok(!JSON.stringify(result).includes('PRIVATE'));
 }
 
+const statusV281={status:'ok',gasVersion:'9.281',automation:{gasVersion:'9.281'}};
+const strictRange={status:'ok',checkedDates:[TARGET_DATE],
+ diagnostics:[{date:TARGET_DATE}],strictSourceDigest:'a'.repeat(64),
+ integritySourceRevision:'101'};
+assert.equal(runtimeProof(statusV281,strictRange).version,'9.281');
+assert.deepEqual(compareRuntimeProofs(runtimeProof(statusV281,strictRange),
+ runtimeProof(statusV281,strictRange)),{
+ gasVersionVerified:'9.281',sourceStableWithinRun:true,liveWriteAuthorized:false});
+assert.throws(()=>runtimeProof({...statusV281,gasVersion:'9.283'},strictRange),/VERSION_UNVERIFIED/);
+assert.throws(()=>runtimeProof({...statusV281,automation:{gasVersion:'9.282'}},strictRange),
+ /VERSION_UNVERIFIED/);
+assert.throws(()=>runtimeProof(statusV281,{...strictRange,strictSourceDigest:'PRIVATE'}),
+ /SOURCE_PROOF_UNVERIFIED/);
+assert.throws(()=>compareRuntimeProofs(runtimeProof(statusV281,strictRange),
+ {...runtimeProof(statusV281,strictRange),version:'9.282'}),/RUNTIME_VERSION_CHANGED/);
+assert.throws(()=>compareRuntimeProofs(runtimeProof(statusV281,strictRange),
+ {...runtimeProof(statusV281,strictRange),sourceDigest:'b'.repeat(64)}),/SOURCE_CHANGED/);
+assert.throws(()=>compareRuntimeProofs(runtimeProof(statusV281,strictRange),
+ {...runtimeProof(statusV281,strictRange),sourceRevision:'102'}),/SOURCE_CHANGED/);
 const actions=[],emitted=[];
 await diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
  token:'PRIVATE_TOKEN',emit:x=>emitted.push(x),
  fetchImpl:async (_url,{body})=>{
   actions.push(Object.fromEntries(body.entries()));
   const action=body.get('action');
-  return {ok:true,json:async()=>action==='getHistoryDetail'?history:action==='getPriceHistory'?prices:action==='diagnoseSnapshotIntegrity'?integrity:body.get('code')==='F00001'?hanwhaStatus:kbStatus};
+  return {ok:true,json:async()=>action==='getAutomationStatus'?statusV281
+    :action==='diagnoseSnapshotIntegrityRange'?strictRange
+    :action==='getHistoryDetail'?history:action==='getPriceHistory'?prices
+    :action==='diagnoseSnapshotIntegrity'?integrity
+    :body.get('code')==='F00001'?hanwhaStatus:kbStatus};
  }});
-assert.deepEqual(actions.map(x=>x.action),['getHistoryDetail','getPriceHistory','diagnoseSnapshotIntegrity','getFundValuationStatus','getFundValuationStatus']);
-assert.ok(actions.slice(3).every(x=>x.from===TARGET_DATE&&x.to===TARGET_DATE));
-assert.deepEqual(actions.slice(3).map(x=>x.code),['F00001','F00002']);
+assert.deepEqual(actions.map(x=>x.action),[
+ 'getAutomationStatus','diagnoseSnapshotIntegrityRange',
+ 'getHistoryDetail','getPriceHistory','diagnoseSnapshotIntegrity',
+ 'getFundValuationStatus','getFundValuationStatus',
+ 'getAutomationStatus','diagnoseSnapshotIntegrityRange']);
+assert.ok(actions.slice(5,7).every(x=>x.from===TARGET_DATE&&x.to===TARGET_DATE));
+assert.ok([1,8].every(i=>actions[i].dates===TARGET_DATE&&actions[i].strictReadonly==='1'));
+assert.deepEqual(actions.slice(5,7).map(x=>x.code),['F00001','F00002']);
+assert.equal(actions[4].date,TARGET_DATE);
 assert.equal(actions[2].date,TARGET_DATE);
-assert.equal(actions[0].date,TARGET_DATE);
-assert.equal(actions[1].from,TARGET_DATE);
-assert.equal(actions[1].to,TARGET_DATE);
-assert.equal(actions[1].codes,TARGET_CODE);
+assert.equal(actions[3].from,TARGET_DATE);
+assert.equal(actions[3].to,TARGET_DATE);
+assert.equal(actions[3].codes,TARGET_CODE);
 assert.ok(actions.every(x=>x.accessToken==='PRIVATE_TOKEN'));
 assert.equal(emitted.length,1);
+assert.equal(emitted[0].gasVersionVerified,'9.281');
+assert.equal(emitted[0].sourceStableWithinRun,true);
+assert.equal(emitted[0].liveWriteAuthorized,false);
+assert.ok(!JSON.stringify(emitted).includes(strictRange.strictSourceDigest));
+assert.ok(!JSON.stringify(emitted).includes(strictRange.integritySourceRevision));
 assert.equal(emitted[0].fundAmountMismatch,true);
 assert.equal(emitted[0].fundSourceMismatch,true);
 assert.equal(emitted[0].fundDayStates[0].navState,'EXISTING_CONFIRMED');
@@ -268,6 +301,37 @@ assert.equal(emitted[0].candidate,true);
 assert.deepEqual(emitted[0].blockers,[]);
 assert.equal(emitted[0].writeAuthorized,false);
 assert.ok(!JSON.stringify(emitted).includes('PRIVATE_TOKEN'));
+// A stale or changing run must fail without producing an approved-looking
+// read-only assessment or exposing source digests / private financial rows.
+for(const scenario of ['VERSION_DRIFT','SOURCE_DRIFT','MISSING_DIGEST']){
+ let statusReads=0,sourceReads=0;
+ const failedEmissions=[];
+ const fake=async(_url,{body})=>{
+  const action=body.get('action');
+  let result;
+  if(action==='getAutomationStatus'){
+   statusReads++;
+   const version=scenario==='VERSION_DRIFT'&&statusReads===2?'9.282':'9.281';
+   result={status:'ok',gasVersion:version,automation:{gasVersion:version}};
+  }else if(action==='diagnoseSnapshotIntegrityRange'){
+   sourceReads++;
+   result=scenario==='MISSING_DIGEST'
+     ?{...strictRange,strictSourceDigest:null}
+     :scenario==='SOURCE_DRIFT'&&sourceReads===2
+       ?{...strictRange,strictSourceDigest:'b'.repeat(64)}:strictRange;
+  }else if(action==='getHistoryDetail')result=history;
+  else if(action==='getPriceHistory')result=prices;
+  else if(action==='diagnoseSnapshotIntegrity')result=integrity;
+  else if(action==='getFundValuationStatus')
+   result=body.get('code')==='F00001'?hanwhaStatus:kbStatus;
+  else throw Error('WRITE_ACTION_FORBIDDEN');
+  return {ok:true,json:async()=>result};
+ };
+ await assert.rejects(()=>diagnoseSnapshot({url:'https://script.google.com/macros/s/TEST/exec',
+    token:'PRIVATE_TOKEN',fetchImpl:fake,emit:x=>failedEmissions.push(x)}),
+   /FUND_SNAPSHOT_(?:RUNTIME_VERSION_CHANGED|SOURCE_CHANGED|SOURCE_PROOF_UNVERIFIED)/);
+ assert.equal(failedEmissions.length,0);
+}
 for(const mock of [
  async()=>{throw Error('PRIVATE_ACCOUNT')},
  async()=>({ok:false,status:500}),

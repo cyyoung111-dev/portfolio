@@ -326,6 +326,34 @@ export function classifyF00001ScopedReview(integrity,hanwhaStatus,kbStatus){
   writeAuthorized:false,mutationPerformed:false};
 }
 
+// Verify the same GAS version and the same strict source revision on both
+// sides of the five live F00001/F00002 observations. No financial values,
+// raw digest, or source revision are ever emitted.
+export function runtimeProof(status,range){
+ const version=status?.gasVersion;
+ if(status?.status!=='ok'||!['9.281','9.282'].includes(version)||
+   status.automation?.gasVersion!==version)
+   throw Error('FUND_SNAPSHOT_GAS_VERSION_UNVERIFIED');
+ if(range?.status!=='ok'||!Array.isArray(range.checkedDates)||
+   range.checkedDates.length!==1||range.checkedDates[0]!==TARGET_DATE||
+   !Array.isArray(range.diagnostics)||range.diagnostics.length!==1||
+   range.diagnostics[0]?.date!==TARGET_DATE||
+   !/^[a-f0-9]{64}$/.test(range.strictSourceDigest||'')||
+   typeof range.integritySourceRevision!=='string'||
+   !range.integritySourceRevision.trim())
+   throw Error('FUND_SNAPSHOT_SOURCE_PROOF_UNVERIFIED');
+ return {version,sourceDigest:range.strictSourceDigest,
+   sourceRevision:range.integritySourceRevision};
+}
+export function compareRuntimeProofs(before,after){
+ if(before?.version!==after?.version)
+   throw Error('FUND_SNAPSHOT_RUNTIME_VERSION_CHANGED');
+ if(before?.sourceDigest!==after?.sourceDigest||
+   before?.sourceRevision!==after?.sourceRevision)
+   throw Error('FUND_SNAPSHOT_SOURCE_CHANGED');
+ return {gasVersionVerified:before.version,sourceStableWithinRun:true,
+   liveWriteAuthorized:false};
+}
 export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_SNAPSHOT_TOKEN_MISSING');
@@ -341,14 +369,23 @@ export async function diagnoseSnapshot({url,token,fetchImpl=fetch,emit=()=>{}}){
   try{payload=await r.json();}catch{throw Error('FUND_SNAPSHOT_JSON_UNVERIFIED');}
   return payload;
  }
+ // Bracket all payload reads with independent strict source observations.
+ const statusBefore=await read('getAutomationStatus',{});
+ const strictArgs={dates:TARGET_DATE,strictReadonly:'1'};
+ const strictBefore=await read('diagnoseSnapshotIntegrityRange',strictArgs);
+ const before=runtimeProof(statusBefore,strictBefore);
  const history=await read('getHistoryDetail',{date:TARGET_DATE});
  const prices=await read('getPriceHistory',{from:TARGET_DATE,to:TARGET_DATE,codes:TARGET_CODE});
  const result=summarizeEvidence(history,prices);
  const integrity=await read('diagnoseSnapshotIntegrity',{date:TARGET_DATE});
  const hanwha=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00001'});
  const kb=await read('getFundValuationStatus',{from:TARGET_DATE,to:TARGET_DATE,code:'F00002'});
+ const statusAfter=await read('getAutomationStatus',{});
+ const strictAfter=await read('diagnoseSnapshotIntegrityRange',strictArgs);
+ const coherence=compareRuntimeProofs(before,runtimeProof(statusAfter,strictAfter));
  const complete={...result,...summarizeFullIntegrity(integrity),...classifySingleFundRepairReview(integrity),
   ...summarizeMismatchScope(integrity),...summarizeSourceMismatchKinds(integrity),...summarizeKnownFundSourcePairs(integrity),
+  ...coherence,
   scopedRepairReview:classifyF00001ScopedReview(integrity,hanwha,kb),fundDayStates:[
     summarizeExactFundDay(hanwha,'F00001'),summarizeExactFundDay(kb,'F00002')]};
  emit(complete);
