@@ -11,10 +11,14 @@ const bytes=fs.readFileSync('src/gas/apps_script.gs');
 const sha=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 assert.equal(sha,APPROVED_GAS_BLOB);
 const gas=bytes.toString('utf8');
-const anchor='function handleGetKrxHeldCloseCoverage(';
-const begin=gas.indexOf(anchor),end=gas.indexOf('\n}',begin);
-assert.ok(begin>=0&&end>begin);
-const realHandler=gas.slice(begin,end+2);
+function extractProductionFunction(name){
+ const anchor='function '+name+'(';
+ const begin=gas.indexOf(anchor),end=gas.indexOf('\n}',begin);
+ assert.ok(begin>=0&&end>begin,'missing production function: '+name);
+ return gas.slice(begin,end+2);
+}
+const realHandler=extractProductionFunction('handleGetKrxHeldCloseCoverage');
+const realTargetHelper=extractProductionFunction('_krxHeldTargetCloseEvidence_');
 assert.match(realHandler,/fetchPricesKrx\(expected,date\)/);
 assert.match(realHandler,/source==='KRX'\|\|source==='KRX_OTP'/);
 assert.match(realHandler,/used===date/);
@@ -96,7 +100,7 @@ const realCtx={
  jsonOk:x=>({status:'ok',...x}),
  jsonError:message=>({status:'error',message})
 };
-const real=vm.runInNewContext(realHandler+'\nhandleGetKrxHeldCloseCoverage("2026-10-30","")',
+const real=vm.runInNewContext(realTargetHelper+'\n'+realHandler+'\nhandleGetKrxHeldCloseCoverage("2026-10-30","")',
  realCtx,{timeout:3000});
 assert.equal(real.status,'ok');
 assert.equal(real.coverage.expectedHeldCodes,37);
