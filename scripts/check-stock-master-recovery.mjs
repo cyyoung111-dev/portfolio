@@ -102,7 +102,7 @@ for(const [source,names] of [
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/sw\.js\?v=20261028-6/);
-assert.match(sw,/portfolio-cache-20261028-6/);
+assert.match(sw,/portfolio-cache-20261101-1/);
 
 assert.match(html,/views_history\.js\?v=20261028-2/);
 assert.match(sw,/settings_sync\.js\?v=20261028-6/);
