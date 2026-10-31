@@ -152,8 +152,15 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     }else if(process.argv[2]==='send'){
       const payload=JSON.parse(fs.readFileSync('.sunday-test-runtime/payload.json','utf8'));
       if(payload.period!==period)throw Error('SUNDAY_TEST_PERIOD_MISMATCH');
-      console.log(JSON.stringify(await deliverSunday(payload,{
-        token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID})));
+      // A dated claim proves that sending was attempted, not that Telegram accepted it.
+      // Write the non-sensitive receipt only AFTER sendTelegram verifies API ok:true.
+      const sent=await deliverSunday(payload,{
+        token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID});
+      fs.writeFileSync('.sunday-test-runtime/sent.json',JSON.stringify({
+        status:sent.status,testDate:sent.testDate,period:sent.period,
+        claim:payload.claim,workflowRunId:String(process.env.GITHUB_RUN_ID||'')
+      }));
+      console.log(JSON.stringify(sent));
     }else throw Error('SUNDAY_TEST_MODE_INVALID');
   }catch(e){console.error(/^SUNDAY_TEST_[A-Z_]+$/.test(e?.message||'')?e.message:'SUNDAY_TEST_FAILED');process.exitCode=1;}
 }
