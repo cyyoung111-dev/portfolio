@@ -59,6 +59,9 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
       const date=dateInZone(new Date(epoch*1000),chart.meta.exchangeTimezoneName);
       // Daily candles from the briefing date may be incomplete; never call them a close.
       if(date>=tradingDate || date<new Date(end-8*DAY).toISOString().slice(0,10))continue;
+      // BTC-USD is 24/7: Yahoo's current UTC daily candle is incomplete
+      // until 00:00 UTC (09:00 KST), even if its timestamp is already past.
+      if(symbol==='BTC-USD'&&date>=now.toISOString().slice(0,10))continue;
       rows.set(date,value);
     }
     const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
@@ -67,8 +70,8 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
     return {label,symbol,date,value,changePercent:prior>0?(value/prior-1)*100:null,source:'Yahoo Finance 일봉'};
   } catch { return null; }
 }
-export function formatMorningBriefing(tradingDate, reference, rows) {
-  return formatFullMorningBriefing(tradingDate, reference, rows);
+export function formatMorningBriefing(tradingDate, reference, rows,options={}) {
+  return formatFullMorningBriefing(tradingDate, reference, rows,options);
 }
 
 export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
@@ -110,7 +113,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && Number.isFinite(candidate.value) && candidate.value>0
     && Number.isFinite(Date.parse(candidate.receivedAt)) && Date.parse(candidate.receivedAt)<=now().getTime()
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
-  const message=formatMorningBriefing(first.date,reference,values);
+  const message=formatMorningBriefing(first.date,reference,values,{now:now()});
   await send(token,chatId,message,{fetchImpl});
   return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,
     referenceSource:reference?.source||'NONE',referenceDate:reference?.tradingDate||null,
