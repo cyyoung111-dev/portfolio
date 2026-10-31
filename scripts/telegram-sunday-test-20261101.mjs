@@ -128,6 +128,21 @@ export async function deliverSunday(payload,{now=()=>new Date(),token,chatId,sen
   await send(token,chatId,payload.message);
   return {status:'SENT',testDate:DATE,period:payload.period,sourceCount:payload.sourceCount};
 }
+
+export function persistConfirmedSundaySent(sent,payload,{
+  path='.sunday-test-runtime/sent.json',runId='',writeFile=fs.writeFileSync}={}){
+  if(sent?.status!=='SENT'||sent.testDate!==DATE
+    ||!['morning','close'].includes(sent.period)
+    ||payload?.date!==DATE||payload.period!==sent.period
+    ||payload.claim!==claimFor(sent.period)
+    ||typeof path!=='string'||!path.length)
+    throw Error('SUNDAY_TEST_SEND_PROOF_INVALID');
+  // No message text, chat ID, access tokens or GAS data in the artifact.
+  const proof={status:'SENT',testDate:DATE,period:sent.period,
+    claim:payload.claim,workflowRunId:String(runId)};
+  writeFile(path,JSON.stringify(proof),{flag:'wx'});
+  return proof;
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try {
     const eventName=process.env.GITHUB_EVENT_NAME;
@@ -156,10 +171,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       // Write the non-sensitive receipt only AFTER sendTelegram verifies API ok:true.
       const sent=await deliverSunday(payload,{
         token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID});
-      fs.writeFileSync('.sunday-test-runtime/sent.json',JSON.stringify({
-        status:sent.status,testDate:sent.testDate,period:sent.period,
-        claim:payload.claim,workflowRunId:String(process.env.GITHUB_RUN_ID||'')
-      }));
+      persistConfirmedSundaySent(sent,payload,{runId:process.env.GITHUB_RUN_ID||''});
       console.log(JSON.stringify(sent));
     }else throw Error('SUNDAY_TEST_MODE_INVALID');
   }catch(e){console.error(/^SUNDAY_TEST_[A-Z_]+$/.test(e?.message||'')?e.message:'SUNDAY_TEST_FAILED');process.exitCode=1;}
