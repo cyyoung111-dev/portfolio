@@ -77,7 +77,7 @@ expectBad(a=>a.snapshot[37][10]='FUND_NAV_CARRY','FUND_SNAPSHOT_CHANGED');
 expectBad(a=>a.history[0][0]='2026-10-29','HISTORY_DATE');
 expectBad(a=>a.history[0][3]=0,'HISTORY_NOT_FUND_ONLY');
 expectBad(a=>a.history[0][3]=1251,'FUND_NAV_MISMATCH');
-expectBad(a=>a.history[0][1]='F00002','HISTORY_NOT_FUND_ONLY');
+expectBad(a=>{a.history[0][1]='F00002';a.history[0][3]=1450},'HISTORY_NOT_FUND_ONLY');
 expectBad(a=>a.snapshot.push([...a.snapshot[0]]),'INVALID_SCOPE');
 expectBad(a=>a.held.pop(),'INVALID_SCOPE');
 expectBad(a=>{a.held[0].type='ETF';a.held[0].market='ETF'},'MARKET_SCOPE_DRIFT');
