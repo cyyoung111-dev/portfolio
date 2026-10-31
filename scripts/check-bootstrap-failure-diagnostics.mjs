@@ -54,6 +54,30 @@ assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'');
 assert.equal(h.writes,0);
 assert.equal(vm.runInContext("STOCK_CODE['테스트']",h.ctx),'005930','leading zeros preserved');
 
+// The first mobile bootstrap (without an explicit force flag) must not silently
+// accept a partial getBootstrap ledger as an authoritative empty portfolio.
+for (const failed of ['tradesOk','holdingsOk']) {
+  const x=setup();
+  x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  x.response.portfolioReadStatus[failed]=false;
+  const before=[...x.storage];
+  assert.equal(await x.ctx.loadSettings(),false,
+    'initial bootstrap must fail closed on '+failed);
+  assert.match(x.ctx.getGsheetSettingsLoadFailure(),
+    new RegExp(failed==='tradesOk'?'TRADES_READ_FAILED':'HOLDINGS_READ_FAILED'));
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
+  assert.equal(x.writes,0,'partial read cannot create financial writes');
+  assert.deepEqual([...x.storage],before,'partial read preserves local original');
+}
+// Apps Script denies a bad token with JSON HTTP 200; do not misreport it as
+// missing stock codes or a generic invalid Settings payload.
+{
+  const x=setup();
+  x.ctx.requestGsheetActionJson=async()=>({status:'error',message:'인증 실패'});
+  assert.equal(await x.ctx.loadSettings(),false);
+  assert.match(x.ctx.getGsheetSettingsLoadFailure(),/GAS_AUTH_REJECTED/);
+  assert.equal(x.writes,0);
+}
 for(const failed of ['tradesOk','holdingsOk']) {
   h=setup();h.response.portfolioReadStatus[failed]=false;
   const before=[...h.storage];
