@@ -1,10 +1,11 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 const source=process.argv.includes('--baseline')
  ? execFileSync('git',['show','origin/main:src/gas/apps_script.gs'],{encoding:'utf8',maxBuffer:4000000})
- : fs.readFileSync('src/gas/apps_script.gs','utf8');
+ : isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function fixture(start='2026-10-25T10:00:00Z') {
  let now=Date.parse(start),seq=0,held=false,navCalls=0,priceCalls=0;
  const bag=new Map(),triggers=[];

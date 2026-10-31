@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {verifyNhIndexResponse} from './nh-index-primary-readback.mjs';
-const s=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const s=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const code=s.slice(s.indexOf('// Proven NH index codes from GAS probe'));
 assert.ok(code.length>1000);
 const calls=[],cache=new Map(),fallbacks=[];

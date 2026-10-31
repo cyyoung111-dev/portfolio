@@ -1,7 +1,8 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const gas = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const web = fs.readFileSync('src/web/features/settings/settings_fetch.js', 'utf8');
 const trade = fs.readFileSync('src/web/features/trade/editor/mgmt_trade.js', 'utf8');
 

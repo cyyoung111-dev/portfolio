@@ -1,7 +1,8 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const start=source.indexOf('function handleReconcileHistoricalCheckpoints('),end=source.indexOf('\n}',start)+2;
 let now=2000000, values=new Map(),writes=0;
 const props={getProperty:k=>values.get(k)||null,setProperty:(k,v)=>{writes++;values.set(k,v);}};

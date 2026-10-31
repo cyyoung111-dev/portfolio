@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // #507. Execute real production batchUpsertPriceHistory in synthetic VM.
 // No live GAS/Sheets API, source credentials or user financial records.
 // Preserves same-cell external writer TOCTOU and cross-row atomicity caveats.
@@ -6,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const name='batchUpsertPriceHistory';
 const start=gas.indexOf('function '+name+'('),end=gas.indexOf('\n}',start);
 assert.ok(start>=0 && end>start);

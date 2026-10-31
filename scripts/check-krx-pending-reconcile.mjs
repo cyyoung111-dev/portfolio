@@ -1,9 +1,10 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 // Run actual GAS production functions in an isolated, mutation-recording VM.
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function extract(name) {
   const start=source.indexOf('function '+name+'(');
   assert.ok(start>=0,name+' exists');

@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const gas = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const web = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const indexHtml = fs.readFileSync('src/web/index.html', 'utf8');
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');

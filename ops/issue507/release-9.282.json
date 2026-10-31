@@ -1,0 +1,173 @@
+{
+  "baseMain": "e72a2859fc4f28c1c3d1733480c7b2c6f3d903c2",
+  "proposedVersion": "9.282",
+  "originalVersionPinsReviewed": 23,
+  "versionPins": [
+    {
+      "file": "scripts/audit-issue507-version-consumers.mjs",
+      "line": 9,
+      "kind": "operational_or_support",
+      "pinType": "version_constant",
+      "decision": "SYNC_AUDIT_EXPECTATION_9_282"
+    },
+    {
+      "file": "scripts/collect-kb-fund-nav.mjs",
+      "line": 52,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/issue507-deferred-source-audit-readonly.mjs",
+      "line": 14,
+      "kind": "operational_or_support",
+      "pinType": "version_allowlist",
+      "symbol": "SUPPORTED_GAS_VERSION",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/issue507-deferred-source-audit-readonly.mjs",
+      "line": 386,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/issue507-ledger-worker-readonly.mjs",
+      "line": 92,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/issue507-ledger-worker-readonly.mjs",
+      "line": 227,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/nh-index-probe.mjs",
+      "line": 5,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/nh-index-probe.mjs",
+      "line": 33,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/nhplug-gas-held-universe-readonly-bridge.mjs",
+      "line": 152,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/prepare-issue507-proposed-release.mjs",
+      "line": 6,
+      "kind": "operational_or_support",
+      "pinType": "version_constant",
+      "decision": "RETAIN_IMMUTABLE_9_281_BASELINE"
+    },
+    {
+      "file": "scripts/run-dividend-source-refresh.mjs",
+      "line": 16,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-dividend-source-refresh.mjs",
+      "line": 24,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-historical-checkpoint-reconcile.mjs",
+      "line": 12,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-incomplete-close-resume.mjs",
+      "line": 11,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-issue507-backlog.mjs",
+      "line": 16,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-issue507-backlog.mjs",
+      "line": 31,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-issue507-maintenance.mjs",
+      "line": 18,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-issue507-maintenance.mjs",
+      "line": 37,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-issue507-maintenance.mjs",
+      "line": 48,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-issue507-maintenance.mjs",
+      "line": 60,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "scripts/run-stock-dividend-diagnosis.mjs",
+      "line": 23,
+      "kind": "operational_or_support",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "src/web/features/settings/settings_fetch.js",
+      "line": 570,
+      "kind": "web",
+      "pinType": "direct",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    },
+    {
+      "file": "src/web/features/settings/settings_fetch.js",
+      "line": 570,
+      "kind": "web",
+      "pinType": "version_constant",
+      "decision": "SYNC_9_282_WITH_9_281_TRANSITION"
+    }
+  ],
+  "sourceBlob": "490e22d5562703c987aba3d4b5579e43ddc6e421",
+  "sourceSha256": "250e9dcd076bdcf4e7f03c44eb15cca0d77c0e98076481e9604dfec2adeaaef1",
+  "approval": "PR_REVIEW_ONLY_NOT_DEPLOYMENT_AUTHORIZATION",
+  "financeWriteAuthorized": false
+}

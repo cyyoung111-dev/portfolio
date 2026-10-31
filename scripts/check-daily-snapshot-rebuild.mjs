@@ -1,9 +1,10 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 
-const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const gas = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const web = fs.readFileSync('src/web/views/views_history_state.js', 'utf8');
 const ui = fs.readFileSync('src/web/core/core_ui.js', 'utf8');
 const history = fs.readFileSync('src/web/views/views_history.js', 'utf8');

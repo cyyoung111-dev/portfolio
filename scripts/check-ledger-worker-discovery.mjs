@@ -1,10 +1,11 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import {fixture} from './issue507-date-discovery-read-profile.mjs';
 
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 assert.match(gas,/TIMEZONE:\s*['"]Asia\/Seoul['"]/);
 const start=gas.indexOf('function _collectTradeSnapshotWorkerDates_(');
 assert.ok(start>=0,'resumable production helper missing');

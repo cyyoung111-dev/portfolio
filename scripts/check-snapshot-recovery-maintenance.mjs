@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 const view = fs.readFileSync('src/web/views/views_history.js', 'utf8');
 const pipeline = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const event = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
-const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const gas = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs', 'utf8'));
 const context = { window: {}, rawTrades: [], _normalizeHistDate: String, _fmtKrw: String };
 vm.runInNewContext(`${view}\nglobalThis.buildDiagnostics=_buildHistoryDiagnostics;`, context);
 const v = context.buildDiagnostics([

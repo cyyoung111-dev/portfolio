@@ -1327,7 +1327,8 @@ async function bootstrapGsheetSettings() {
       // ★ [개선] GAS 버전 불일치 감지 — 재배포 필요 여부를 사용자에게 알림
       if (ok && typeof EXPECTED_GAS_VERSION !== 'undefined') {
         const serverVer = window._lastGasVersion;
-        if (serverVer && serverVer !== EXPECTED_GAS_VERSION) {
+        const compatibleVersions = typeof COMPATIBLE_GAS_VERSIONS !== 'undefined' ? COMPATIBLE_GAS_VERSIONS : [EXPECTED_GAS_VERSION];
+        if (serverVer && !compatibleVersions.includes(serverVer)) {
           showToast(`⚠️ GAS 버전 불일치 (서버: ${serverVer} / 기대: ${EXPECTED_GAS_VERSION}) — 재배포가 필요할 수 있어요`, 'warn', 6000);
           console.warn('[GAS 버전 불일치]', { serverVer, expected: EXPECTED_GAS_VERSION });
         }

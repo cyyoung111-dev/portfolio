@@ -2,7 +2,7 @@ import {pathToFileURL} from 'node:url';
 export function summarize(status,probe){
  if(status?.status!=='ok'||status.provider!=='NH'||status.tokenCached!==true||status.tokenIssued!==false)
    throw Error('NH_INDEX_CACHE_REQUIRED');
- if(probe?.status!=='ok'||probe.provider!=='NH'||probe.gasVersion!=='9.281'
+ if(probe?.status!=='ok'||probe.provider!=='NH'||!['9.281','9.282'].includes(probe.gasVersion)
    ||probe.readOnly!==true||probe.date!=='2026-10-29'||!Array.isArray(probe.results)||probe.results.length>6)
    throw Error('NH_INDEX_RESULT_INVALID');
  return {status:'NH_INDEX_EXPLORATORY_READBACK',date:probe.date,
@@ -30,7 +30,7 @@ async function main(){
    try{return await rsp.json();}catch{throw Error('NH_INDEX_GAS_PARSE');}
  };
  const status=await post('getNhAuthStatusProxy');
- if(status?.gasVersion!=='9.281'||status.tokenCached!==true||status.tokenIssued!==false){
+ if(!['9.281','9.282'].includes(status?.gasVersion)||status.tokenCached!==true||status.tokenIssued!==false){
    console.log('NH_INDEX_PROBE_SKIPPED_NOT_READY');return;
  }
  const out=await post('getNhIndexProbe');

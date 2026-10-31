@@ -5,7 +5,7 @@ import {supportedNhGasVersion} from './nh-gas-version.mjs';
 const p={status:'ok',provider:'NH',enabled:true,tokenCached:true,tokenIssued:false};
 const closes={'005930':{price:232000,usedDate:'2026-10-29',marketDate:'2026-10-29',currency:'KRW',source:'NH_REGULAR_CLOSE',status:'CONFIRMED',priceType:'REGULAR_CLOSE'},
   AAPL:{price:250.25,usedDate:'2026-10-29',marketDate:'2026-10-29',currency:'USD',source:'NH_REGULAR_CLOSE',status:'CONFIRMED',priceType:'REGULAR_CLOSE'}};
-const d={status:'ok',provider:'NH',gasVersion:'9.281',readOnly:true,quotesConnected:true,closes};
+const d={status:'ok',provider:'NH',gasVersion:'9.282',readOnly:true,quotesConnected:true,closes};
 const emitted=[];
 const result=inspectNhCloses(p,d,x=>emitted.push(x));
 assert.equal(result.confirmed,2);assert.equal(result.fullHoldingsVerified,false);
@@ -18,7 +18,7 @@ for(const patch of [{source:'YAHOO_REGULAR_CLOSE'},{priceType:'INDICATIVE'},{sta
 assert.throws(()=>inspectNhCloses({...p,tokenCached:false},d),/CACHED_TOKEN/);
 assert.throws(()=>inspectNhCloses(p,{...d,readOnly:false}),/DIAGNOSTIC_INVALID/);
 assert.throws(()=>inspectNhCloses(p,{...d,gasVersion:'9.280'}),/DIAGNOSTIC_INVALID/);
-assert.equal(supportedNhGasVersion('9.281'),true);
+assert.equal(supportedNhGasVersion('9.282'),true);
 const workflow=fs.readFileSync('.github/workflows/nh-live-close-20261030.yml','utf8');
 assert.match(workflow,/environment: portfolio-production-gas/);
 assert.match(workflow,/github\.run_attempt == 1/);

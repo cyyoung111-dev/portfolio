@@ -1,7 +1,8 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const src=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const src=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function fn(n){let a=src.indexOf('function '+n+'('),b=src.indexOf('\n}',a);assert.ok(a>=0&&b>a);return src.slice(a,b+2);}
 const values=new Map(),props={getProperty:k=>values.get(k)||null,setProperty:(k,v)=>values.set(k,v)};
 let date='2026-10-19',result={attempted:false,deferred:true,reason:'BACKFILL_BUSY'};

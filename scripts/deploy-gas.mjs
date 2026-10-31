@@ -34,6 +34,7 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.282': '490e22d5562703c987aba3d4b5579e43ddc6e421',
   '9.281': 'ebe697563e94cf49e514037353260fce70ae1d57',
   '9.280': 'abea936330401d5418817367f9f046d9db90e800',
   '9.279': '0eef172226b95bf32c05036955c9a1fa432b636f',
@@ -450,6 +451,11 @@ export function summarizeGasReleaseFailure(error,stage) {
     syntaxLine:Number.isInteger(error?.syntaxLine)&&error.syntaxLine>0&&error.syntaxLine<100000?error.syntaxLine:null};
 }
 
+export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
+  if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
+     !candidateSource.includes('var ISSUE507_GATE_RELEASE_ID='))throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
+}
+
 export async function deploy() {
   const dryRun = String(process.env.GAS_DEPLOY_DRY_RUN || '').toLowerCase() === 'true';
   const scriptId = env('GAS_SCRIPT_ID');
@@ -487,6 +493,7 @@ export async function deploy() {
   // Validate *all* files before checking alreadyDeployed or starting any write.
   // A malicious extra SERVER_JS cannot ride along with a pinned apps_script.gs.
   if (!dryRun) assertGasProjectFileSet(currentContent.files, target.name, deployedContent.files);
+  if(!dryRun)assertWriterGateReleaseTransition(deployedTarget.source,source);
   const releaseState=inspectGasReleaseState({headSource:target.source,publishedSource:deployedTarget.source});
   console.log(JSON.stringify(releaseState));
   if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');

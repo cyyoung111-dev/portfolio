@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -79,7 +80,7 @@ assert.equal(waiting.lastBackfillOk,false);
 // KRX official open-session close, and all evidence attributes it to KRX.
 // Obtain a reachable waiting state from the production GAS source and the
 // production read-only sanitizer, not an impossible synthetic close shape.
-const gasSource=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gasSource=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const begin=gasSource.indexOf('function _krxClosePublicationState_(');
 const finish=gasSource.indexOf('\nfunction _getAutomationStatusData()',begin);
 assert.ok(begin>0&&finish>begin,'production publication detector must exist');

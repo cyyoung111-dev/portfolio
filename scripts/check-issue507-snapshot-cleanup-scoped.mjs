@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507 — actual production cleanup scopes deletion to the exact physical
 // row and fails closed on custom/formula/identity ambiguity. Synthetic only.
 // Real external same-cell TOCTOU still requires shared writer serialization.
@@ -6,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const getFunc=name=>{
   const start=gas.indexOf('function '+name+'('),end=gas.indexOf('\n}',start);
   assert.ok(start>=0 && end>start,'Missing production function: '+name);

@@ -21,6 +21,7 @@ export function prepareIssue507ProposedRelease(options={}) {
   const previousVersionRefs=[...staged.matchAll(versionPattern)].length;
   if(previousVersionRefs<1) throw Error('ISSUE507_GAS_RESPONSE_VERSION_MISSING');
   const updated=staged
+    .replace("ISSUE507_GATE_API_VERSION='9.281'","ISSUE507_GATE_API_VERSION='9.282'")
     .replace(header,(_match,prefix)=>prefix+TO_VERSION)
     .replace(versionPattern,(_match,prefix)=>prefix+TO_VERSION);
   if(extractExpectedGasVersion(updated)!==TO_VERSION)throw Error('ISSUE507_GAS_VERSION_INCONSISTENT');

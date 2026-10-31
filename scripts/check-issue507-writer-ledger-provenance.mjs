@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507: production ledger replay and fingerprint contract.
 // Synthetic data only; no GAS calls, no credential reads and no data writes.
 // This proves date-bounded reducer behavior, NOT the cause of historic writes
@@ -8,7 +9,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const names=[
   '_normalizeDate','_cleanCode','_applyHoldingTrade','_snapshotHoldingState',
   'calcHoldingsAtDate','_calcCodeHoldingsAtDate',
@@ -92,8 +93,8 @@ const future=[
   trade('2026-02-02','sell','SECOND','000002',2,0)
 ];
 const c=context(),p=c.env;
-// Synthetic replay runs against candidate GAS v9.281, not a deployed live instance.
-const assertPinnedGasVersion=value=>assert.equal(value,'9.281',
+// Synthetic replay runs against candidate GAS v9.282, not a deployed live instance.
+const assertPinnedGasVersion=value=>assert.equal(value,'9.282',
   'GAS version drift: review test/production before relying on policy');
 assertPinnedGasVersion(c.version());
 // Negative control ensures the version gate actually rejects a wrong version.

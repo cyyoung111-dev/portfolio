@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507: execute the real GAS read-only CLOCK trigger audit under VM,
 // and validate the production status sanitizer. Never access live Sheets.
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import vm from 'node:vm';
 import {selfTest as testProcessAudit} from './issue507-worker-execution-audit.mjs';
 import {summarizeBackfillStatus,assessWorkerRunCheckpoint} from './diagnose-backfill-status.mjs';
 
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const name='_getTradeSnapshotWorkerTriggerAudit_';
 const start=source.indexOf('function '+name+'('),end=source.indexOf('\n}',start);
 assert.ok(start>=0&&end>start,'real GAS audit function missing');

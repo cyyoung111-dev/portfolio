@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 // Real production helpers, with Sheet-range fakes that forbid whole-Sheet
 // clearContent(). A GAS stop at the EDITABLE_PRICES cell cannot wipe sibling
 // LOAN, REAL_ESTATE, DIVDATA, snapshot settings, or code-less funds.
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const start=gas.indexOf('function _writeCodeSyncEditablesOnly_(');
 const end=gas.indexOf('// Crash-safe transaction marker.',start);
 assert.ok(start>=0 && end>start,'production Settings single-key helpers found');

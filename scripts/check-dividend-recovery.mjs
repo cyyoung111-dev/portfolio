@@ -1,7 +1,8 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import {execFileSync} from 'node:child_process';
 const baseline=process.argv.includes('--baseline');
 const read=p=>baseline?execFileSync('git',['show',`origin/main:${p}`],{encoding:'utf8',maxBuffer:4000000}):fs.readFileSync(p,'utf8');
-const gas=read('src/gas/apps_script.gs'),web=read('src/web/features/dividend/mgmt_div.js');
+const gas=isolateGasBusinessLogic(read('src/gas/apps_script.gs')),web=read('src/web/features/dividend/mgmt_div.js');
 function fixture(mode='normal') {
  let settings={DIVDATA:{'111111':{source:'SEIBRO',perShare:7,events:[]},'222222':{source:'MANUAL',perShare:99,events:[]},'333333':{source:'MANUAL',perShare:88}}},writes=0,backupCount=0,corruptOnce=true;
  let data=[['종목코드','ISIN','종목명','기준일','지급일','주당분배금','수집일시','원본소스'],['222222','KR2222222222','B','2025-01-01','2025-01-02',99,'old','MANUAL']];
@@ -62,10 +63,10 @@ async function collectorFixture(mode='ok') {
   const p=new URLSearchParams(options.body),action=p.get('action');calls.push(action);
   if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')return{ok:true,json:async()=>({status:mode==='auth-bad'?'ok':'error'})};
   let out={status:'ok'};
-  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':'9.281';
+  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':'9.282';
   if(action==='refreshEtfDividends')Object.assign(out,mode==='no-targets'?{skipped:true,reason:'NO_TARGETS',targetCount:0,targetCodes:[]}:{saved:true,refreshed:true,targetCount:1,targetCodes:['111111'],noEventCount:0,historyRows:1});
   if(action==='getDividendSettings')out.divData=mode==='readback-bad'&&saved?{}:structuredClone(cache);
-  if(action==='getCodeListReadOnly'){out.status=mode.startsWith('catalog-')?'error':'ok';out.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');out.readOnly=true;out.gasVersion='9.281';out.publicDataApiKeyConfigured=true;out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];}
+  if(action==='getCodeListReadOnly'){out.status=mode.startsWith('catalog-')?'error':'ok';out.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');out.readOnly=true;out.gasVersion='9.282';out.publicDataApiKeyConfigured=true;out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];}
   assert.ok(!['getCodeList','getSettings'].includes(action),'source refresh must not enter unrelated settlement writers');
   if(action==='dividendPublic') {assert.equal(p.get('names'),'B|C');out.dividends={'333333':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}};out.diagnostics={dividend:{'333333':{status:mode==='partial-page'?'PARTIAL_PAGE':mode==='no-events'?'NO_ROWS':'OK'}},retry:{}};}
   if(action==='dividendPublic'&&mode==='no-events'){out.dividends={};out.diagnostics.dividend['333333'].returnedRows=0;out.diagnostics.normalized={'333333':{inputRows:0,acceptedEvents:0,rejected:{identity:0,date:0}}};}

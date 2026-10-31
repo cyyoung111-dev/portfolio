@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 const path = 'src/gas/apps_script.gs';
-const source = fs.readFileSync(path, 'utf8');
+const source = isolateGasBusinessLogic(fs.readFileSync(path, 'utf8'));
 
 // Apps Script 전역 객체는 실행하지 않고 JavaScript 구문만 컴파일합니다.
 new vm.Script(source, { filename: path });
@@ -106,8 +107,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];")
-    || !source.includes("gasVersion: '9.281'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.281 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.282'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.282 계약이 누락됐습니다.');
   process.exit(1);
 }
 

@@ -1,7 +1,8 @@
-// STAGED ONLY. Generated wrappers admit every original top-level function.
+// GAS v9.282: inline admission guards cover the 555 original functions.
 // Original alias functions are private implementation details; direct editor
 // calls and other deployments must be disabled by the rollout operator.
 var _issue507GateInside_=false;
+var ISSUE507_GATE_API_VERSION='9.282';
 function _issue507GateAtomic_(fn,completion) {
   var lock=LockService.getScriptLock(),owned=lock.hasLock();
   if(!owned){
@@ -45,6 +46,12 @@ function _issue507GateRollout_(props) {
 }
 function _issue507GateEnter_(name) {
   return _issue507GateAtomic_(function(props){
+    // Bootstrap preserves normal service availability. It proves NO drain,
+    // grants NO repair approval and touches NO financial sheet.
+    if(!props.getProperty('issue507_writer_gate_v1')){
+      _issue507GateSave_(props,{releaseId:ISSUE507_GATE_RELEASE_ID,mode:'OPEN',
+        active:{},completed:[],finished:0,barrierAt:Date.now(),bootstrapped:true});
+    }
     var s=_issue507GateRead_(props);
     if(s.mode!=='OPEN')throw new Error('GATE_MAINTENANCE');
     if(Object.keys(s.active).length>=24)throw new Error('GATE_CAPACITY');
@@ -64,6 +71,9 @@ function _issue507GateExit_(token) {
   },true);
 }
 function _issue507GateInvoke_(name,fn,self,args) {
+  // Authenticated metadata-only health read remains reachable during drain.
+  if(name==='doGet' && args[0] && args[0].parameter &&
+     args[0].parameter.action==='getWriterGateStatus')return _issue507GateStatusRequest_(args[0].parameter);
   if(_issue507GateInside_)return fn.apply(self,args);
   var token=_issue507GateEnter_(name);
   _issue507GateInside_=true;
@@ -105,4 +115,20 @@ function issue507ResumeWriters_() {
        props.getProperty('issue507_f00001_external_writers_excluded_v1'))throw new Error('GATE_APPROVAL_STILL_LIVE');
     s.mode='OPEN';_issue507GateSave_(props,s);return {mode:'OPEN',writeAuthorized:false};
   });
+}
+
+function _issue507GateStatusRequest_(params) {
+  var previous=_issue507GateInside_;_issue507GateInside_=true;
+  try {
+    if(!_isAuthorizedRequest(params))return jsonError('인증 실패');
+    return _issue507GateAtomic_(function(props){
+      var raw=props.getProperty('issue507_writer_gate_v1');
+      if(!raw)return jsonOk({gasVersion:ISSUE507_GATE_API_VERSION,writerGate:{mode:'UNINITIALIZED',repairAuthorized:false}});
+      var s=_issue507GateRead_(props);
+      return jsonOk({gasVersion:ISSUE507_GATE_API_VERSION,writerGate:{mode:s.mode,
+        activeCount:Object.keys(s.active).length,finished:s.finished,
+        repairAuthorized:false,approvalPresent:!!props.getProperty('issue507_f00001_approval_v1')}});
+    });
+  } catch(error){return jsonError('GATE_STATUS_UNVERIFIED');}
+  finally{_issue507GateInside_=previous;}
 }

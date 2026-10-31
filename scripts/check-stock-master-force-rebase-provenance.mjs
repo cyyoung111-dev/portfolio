@@ -1,10 +1,11 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 // Execute the real production GAS handler with in-memory code/Settings sheets.
 // Rebase must not lose another browser's partially-committed A->B metadata.
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const start=gas.indexOf('function handleSyncCodes(codesParam,');
 const end=gas.indexOf('function _repairKnownCodeColumns(ss)',start);
 assert.ok(start>=0&&end>start);

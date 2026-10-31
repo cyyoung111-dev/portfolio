@@ -6,7 +6,7 @@ import {assertGasReleaseReady,assertGasProjectFileSet} from './deploy-gas.mjs';
 import {setup} from './check-issue507-f00001-scoped-repair.mjs';
 const {candidate,manifest}=prepareIssue507Runtime();
 assert.equal(manifest.deployable,false);assert.equal(manifest.financeWriteAuthorized,false);
-assert.throws(()=>prepareIssue507Runtime({source:fs.readFileSync('src/gas/apps_script.gs','utf8')+'\n'}),/BASE_SOURCE_CHANGED/);
+assert.throws(()=>prepareIssue507Runtime({source:fs.readFileSync('reference/gas-v9.281.gs','utf8')+'\n'}),/BASE_SOURCE_CHANGED/);
 assert.throws(()=>assertGasReleaseReady(candidate),/SOURCE_NOT_APPROVED/);
 assert.throws(()=>assertGasProjectFileSet([{name:'appsscript',type:'JSON',source:'{}'},
  {name:'Code',type:'SERVER_JS',source:candidate},{name:'repair',type:'SERVER_JS',source:'function x(){}'}],'Code',[]),/UNREVIEWED_FILES/);
@@ -21,7 +21,7 @@ function context(){let held=false,failures=0;const waits=[];const lock={hasLock:
 const gate=context();
 const receipt={releaseId:manifest.releaseId,oldDeploymentsDisabled:true,externalWritersBlocked:true,editorsBlocked:true,legacyDrainEvidence:{kind:'EXECUTIONS_UI',scope:'ALL_PROJECT_ACTORS_AND_VERSIONS',terminalOnly:true,reference:'SYNTHETIC_EVIDENCE'},verifiedAt:now};
 props.set('issue507_writer_gate_rollout_v1',JSON.stringify(receipt));
-assert.throws(()=>gate._issue507GateEnter_('manual'),/UNINITIALIZED/);
+const cold=gate._issue507GateEnter_('manual');gate._issue507GateExit_(cold);assert.equal(JSON.parse(props.get('issue507_writer_gate_v1')).mode,'OPEN');
 assert.equal(gate.issue507BeginWriterDrain_().mode,'DRAINING');
 const initial=props.get('issue507_writer_gate_v1');
 assert.throws(()=>gate._issue507AssertDrain_(),/NOT_DRAINED/);

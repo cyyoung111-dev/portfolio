@@ -1,3 +1,4 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 // Exercise the real GAS handler, single-cell writer and persisted recovery
 // function. A successful Codes deletion must NEVER destroy the converted
 // fund's original targetWeight/notes on a crash or lost HTTP response.
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const helperStart=gas.indexOf('function _writeCodeDeleteEditablesOnly_(');
 const helperEnd=gas.indexOf('// 스프레드시트 소유자가',helperStart);
 const handlerStart=gas.indexOf('function handleDeleteUnreferencedCode(');

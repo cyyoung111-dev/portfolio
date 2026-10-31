@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507: execute REAL GAS _updateTodaySnapshotSource in a synthetic VM.
 // No live Sheets API, credentials, personal financial or production data.
 // Success proves scoped row/cell preservation, NOT cross-client same-cell CAS.
@@ -6,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas = fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas = isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const functionName='_updateTodaySnapshotSource';
 const begin=gas.indexOf('function '+functionName+'(');
 const finish=gas.indexOf('\n}',begin);

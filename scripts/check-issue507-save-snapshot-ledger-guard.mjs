@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507: execute actual GAS saveSnapshot handler against synthetic ledger.
 // No network, production Sheets, historical user data or GAS deployment.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const names=[
   '_normalizeDate','_cleanCode','_applyHoldingTrade','_snapshotHoldingState',
   'calcHoldingsAtDate','_calcCodeHoldingsAtDate','_fundUnitsAtDate',

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 // Issue #507 — production FUND_UNITS reconciliation Snapshot lost-update reproducer.
 // Executes the actual GAS _reconcileFundUnitDerivedRows in an isolated Node VM.
 // No live GAS / Google Sheets / credentials / financial accounts / network.
@@ -7,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const name='_reconcileFundUnitDerivedRows';
 const start=gas.indexOf('function '+name+'(');
 assert.ok(start>=0,'actual production FUND_UNITS reconciler missing');

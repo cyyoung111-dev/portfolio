@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {prepareIssue507Runtime} from './prepare-issue507-runtime-integration.mjs';
 import {assertGasReleaseReady,extractExpectedGasVersion,assertGasProjectFileSet} from './deploy-gas.mjs';
 
-const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const source=fs.readFileSync('reference/gas-v9.281.gs','utf8');
 const {candidate,manifest}=prepareIssue507Runtime({source});
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
@@ -34,7 +34,7 @@ new vm.Script(candidate,{filename:'issue507-staged-gas.gs'});
 const lock={hasLock:()=>false,waitLock:()=>{},releaseLock:()=>{}};
 const ctx=vm.createContext({
  LockService:{getScriptLock:()=>lock},
- PropertiesService:{getScriptProperties:()=>({getProperty:()=>null})},
+ PropertiesService:{getScriptProperties:()=>({getProperty:()=>null,setProperty:()=>{throw Error('BOOTSTRAP_METADATA_DENIED');}})},
  Utilities:{getUuid:()=>{throw new Error('UNEXPECTED_UUID');}},
 });
 vm.runInContext(candidate,ctx);
@@ -44,7 +44,7 @@ for(const [name,args] of [
  ['rebuildDailySnapshots',[]],
 ]){
  assert.equal(typeof ctx[name],'function');
- assert.throws(()=>ctx[name](...args),/GATE_UNINITIALIZED/,name);
+ assert.throws(()=>ctx[name](...args),/BOOTSTRAP_METADATA_DENIED/,name);
 }
 
 // This is deliberately NOT a release-readiness success signal. Operator

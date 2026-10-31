@@ -1,9 +1,10 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 // Execute the actual production functions; never test a reimplementation.
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 function extract(name){
   const start=gas.indexOf('function '+name+'(');
   assert.ok(start>=0,'missing production function '+name);

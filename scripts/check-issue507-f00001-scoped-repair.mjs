@@ -1,8 +1,9 @@
+import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
-const production=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const production=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const moduleSource=fs.readFileSync('ops/issue507/f00001-snapshot-repair.gs','utf8');
 const clone=x=>JSON.parse(JSON.stringify(x));
 export function setup(options={}) {
