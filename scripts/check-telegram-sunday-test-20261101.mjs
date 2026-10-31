@@ -56,12 +56,18 @@ const rows=[{label:'KOSPI',symbol:'^KS11',date:'2026-10-30',value:4100,
  {label:'S&P 500',symbol:'^GSPC',date:'2026-10-30',value:7000,
  changePercent:0.5,source:'NH_INDEX_DAILY'},
  {label:'NASDAQ',symbol:'^IXIC',date:'2026-10-29',value:24000,
- changePercent:1,source:'NH_INDEX_DAILY'}];
+ changePercent:1,source:'NH_INDEX_DAILY'},
+ {label:'미 10년물',symbol:'^TNX',date:'2026-10-30',value:41.2,
+ changePercent:0.1,source:'Yahoo Finance 일봉'}];
 const message=formatClosingTest(rows);
 assert.match(message,/일요일 휴장/);
 assert.match(message,/KOSPI: 4,100.*2026-10-30/);
 assert.match(message,/S&P 500: 7,000.*NH_INDEX_DAILY/);
 assert.match(message,/NASDAQ: 확정 출처 미확보/);
+assert.match(message,/미 10년물: 4.12%.*2026-10-30/);
+const scriptSource=fs.readFileSync('scripts/telegram-sunday-test-20261101.mjs','utf8');
+assert.doesNotMatch(scriptSource,/readNhMorningIndexes|action:'getBenchmarks'/,
+ 'Sunday test must never request NH OAuth refresh indirectly');
 assert.doesNotMatch(message,/일요일.*확정 종가/);
 const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-sunday-test-20261101.yml','utf8'));
 assert.ok(Object.hasOwn(wf.on,'schedule'));
