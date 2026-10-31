@@ -54,8 +54,9 @@ export function auditCloseGap(history,historyPrices,authStatus=null){
     {enabled:authStatus.enabled===true,tokenCached:authStatus.tokenCached===true,
      tokenIssuedByStatusCall:authStatus.tokenIssued===true}:
     {status:'UNVERIFIED'},
-  confirmedFinalForAllHeld:status==='EXACT_DAY_DOMESTIC_HISTORY_PRESENT'&&
+  allHeldSameDayStoredSourcesPresent:status==='EXACT_DAY_DOMESTIC_HISTORY_PRESENT'&&
     funds===fundExact&&others===0,
+  officialFinalityIndependentlyVerified:false,
   readOnly:true,writeAuthorized:false,financialWrites:0,
  };
 }
@@ -96,7 +97,9 @@ export async function diagnoseCloseGap({url,token,fetchImpl=fetch,emit=()=>{}}={
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  diagnoseCloseGap({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
-  emit:v=>console.log(JSON.stringify(v))})
+  emit:v=>{console.log(JSON.stringify(v));
+   if(v.status!=='EXACT_DAY_DOMESTIC_HISTORY_PRESENT'||!v.allHeldSameDayStoredSourcesPresent)
+     process.exitCode=2;}})
  .catch(e=>{const code=String(e?.message||'');
   console.error(/^ISSUE507_CLOSE_[A-Z_]+$/.test(code)?code:
     /^FUND_SNAPSHOT_[A-Z_]+$/.test(code)?code:'ISSUE507_CLOSE_UNVERIFIED');
