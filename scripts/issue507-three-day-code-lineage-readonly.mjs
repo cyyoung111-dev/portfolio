@@ -47,7 +47,7 @@ function sourceCounts(rows){
   }
   return counts;
 }
-export function summarizeThreeDays(payload){
+export function summarizeThreeDays(payload,verifiedGasVersion=null){
   guard(payload?.status==='ok'&&Array.isArray(payload.checkedDates)
     &&payload.checkedDates.join('|')===TARGET_DATES.join('|')
     &&Array.isArray(payload.diagnostics)
@@ -94,7 +94,7 @@ export function summarizeThreeDays(payload){
       storedSourceClaims:sourceCounts(day.storedRows),
       writeAllowed:false});
   });
-  return {mode:'ISSUE507_THREE_DAY_CODE_LINEAGE_READ_ONLY',gasVersionChecked:'9.244',
+  return {mode:'ISSUE507_THREE_DAY_CODE_LINEAGE_READ_ONLY',gasVersionChecked:verifiedGasVersion,
     targetDates:TARGET_DATES,days:out,
     sameMissingCodeAllThree:intersectCount(missingSets),
     sameDuplicateCodeAllThree:intersectCount(duplicateSets),
@@ -551,7 +551,7 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   guard(TARGET_DATES.every(d=>before.dates.includes(d)),'NOT_DEFERRED');
   const args={dates:TARGET_DATES.join(','),strictReadonly:'1'};
   const first=await request(endpoint,token,'diagnoseSnapshotIntegrityRange',args,fetchImpl);
-  const summary=summarizeThreeDays(first);
+  const summary=summarizeThreeDays(first,before.gasVersion);
   // Trade-history read is private to the runner and never logged.
   const trades=await request(endpoint,token,'getTrades',{},fetchImpl);
   const persistent=analyzePersistentQtyCost(first,trades);
@@ -570,7 +570,8 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
     &&first.integritySourceRevision===second.integritySourceRevision,'SOURCE_CHANGED');
   const after=validateInventory(await request(endpoint,token,'getAutomationStatus',{},fetchImpl));
   guard(before.dates.join('|')===after.dates.join('|')
-    &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom,'QUEUE_CHANGED');
+    &&before.cursor===after.cursor&&before.pendingFrom===after.pendingFrom
+    &&before.gasVersion===after.gasVersion,'QUEUE_CHANGED');
   return {...summary,recurringQtyCostTriage:{...persistent,
       sourceDigestStableWithinCall:true},
     jan06Jan07Baseline:{...priorSummary,strictSourceDigestStableWithinCall:true},
@@ -845,6 +846,34 @@ export async function selfTest(){
     token:'TEST_TOKEN',fetchImpl:stub});
   assert.equal(live.sourceStableWithinThisRead,true);
   assert.equal(live.queueStableWithinThisRead,true);
+  assert.equal(live.gasVersionChecked,'9.244');
+  for(const version of ['9.281','9.282']){
+    const versioned={...status,gasVersion:version,
+      automation:{...status.automation,gasVersion:version}};
+    const upgraded=await runReadonly({
+      url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_TOKEN',
+      fetchImpl:async(_url,options)=>({ok:true,json:async()=>options.body.get('accessToken')!=='TEST_TOKEN'
+       ?{status:'error',message:'인증 실패'}
+       :options.body.get('action')==='getAutomationStatus'?versioned
+         :options.body.get('action')==='getTrades'?tradeFixture
+           :options.body.get('dates')===BASELINE_DATES.join(',')?baseline:data})
+    });
+    assert.equal(upgraded.gasVersionChecked,version);
+    assert.equal(upgraded.allowedToRestore,false);
+    assert.equal(upgraded.allowedToDelete,false);
+    assert.equal(upgraded.writesPerformed,0);
+  }
+  let statusReads=0;
+  await assert.rejects(()=>runReadonly({
+    url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_TOKEN',
+    fetchImpl:async(_url,options)=>({ok:true,json:async()=>options.body.get('accessToken')!=='TEST_TOKEN'
+      ?{status:'error',message:'인증 실패'}
+      :options.body.get('action')==='getAutomationStatus'
+        ?{...status,gasVersion:++statusReads===1?'9.281':'9.282',
+            automation:{...status.automation,gasVersion:statusReads===1?'9.281':'9.282'}}
+        :options.body.get('action')==='getTrades'?tradeFixture
+          :options.body.get('dates')===BASELINE_DATES.join(',')?baseline:data})
+  }),/QUEUE_CHANGED/,'mid-audit GAS release changed: invalidate source certificate');
   assert.deepEqual(calls,['getAutomationStatus','getAutomationStatus',
     'diagnoseSnapshotIntegrityRange','getTrades','diagnoseSnapshotIntegrityRange',
     'diagnoseSnapshotIntegrityRange','getAutomationStatus']);
