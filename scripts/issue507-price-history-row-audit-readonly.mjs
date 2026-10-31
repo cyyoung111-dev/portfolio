@@ -13,6 +13,7 @@ export const TARGET_DATES=Object.freeze(['2025-12-30','2026-01-02','2026-01-05']
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const CODE=/^[A-Z0-9][A-Z0-9.-]{0,29}$/;
 const DIGEST=/^[a-f0-9]{64}$/;
+const SUPPORTED_GAS_VERSIONS=new Set(['9.244','9.281','9.282']);
 const STATUSES=new Set(['VALID','MANUAL_PROTECTED','SOURCE_INVALID','FX_MISSING',
   'CORPORATE_ACTION_REVIEW','SUSPICIOUS_DROP','SUSPICIOUS_SPIKE','UNVERIFIED']);
 function count(n){
@@ -25,8 +26,8 @@ function validDate(s){
   return Number.isFinite(n)&&new Date(n).toISOString().slice(0,10)===s;
 }
 export function evidenceGate(diag,status){
-  if(status?.status!=='ok'||status.gasVersion!=='9.244'||
-    status.automation?.gasVersion!=='9.244')
+  if(status?.status!=='ok'||!SUPPORTED_GAS_VERSIONS.has(status.gasVersion)||
+    status.automation?.gasVersion!==status.gasVersion)
     throw Error('ISSUE507_RAW_AUDIT_VERSION');
   if(diag?.status!=='ok'||!DIGEST.test(diag.strictSourceDigest||'')||
     typeof diag.integritySourceRevision!=='string'||
@@ -35,7 +36,8 @@ export function evidenceGate(diag,status){
   const codes=[...new Set(firstMissingCodes(diag).map(x=>x.code).filter(Boolean))];
   if(codes.length!==1||!CODE.test(codes[0]))
     throw Error('ISSUE507_RAW_AUDIT_TARGET_SCOPE');
-  return {code:codes[0],revision:diag.integritySourceRevision,digest:diag.strictSourceDigest};
+  return {code:codes[0],revision:diag.integritySourceRevision,
+    digest:diag.strictSourceDigest,gasVersion:status.gasVersion};
 }
 export function summarizeRows(payload,targetCode){
   const p=payload?.priceIntegrity;
@@ -80,11 +82,12 @@ export function summarizeRows(payload,targetCode){
 }
 export function buildReport(before,after,rows){
   if(before.revision!==after.revision||before.digest!==after.digest||
-    before.code!==after.code)throw Error('ISSUE507_RAW_AUDIT_SOURCE_CHANGED');
+    before.code!==after.code||before.gasVersion!==after.gasVersion)
+    throw Error('ISSUE507_RAW_AUDIT_SOURCE_CHANGED');
   if(!Array.isArray(rows)||rows.length!==TARGET_DATES.length||
     rows.some((r,i)=>r.date!==TARGET_DATES[i]))
     throw Error('ISSUE507_RAW_AUDIT_SUMMARY_SCHEMA');
-  return {mode:'READ_ONLY',gasVersion:'9.244',targetCount:1,
+  return {mode:'READ_ONLY',gasVersion:before.gasVersion,targetCount:1,
     sourceRevisionStable:true,sourceContentStable:true,inspectedDateCount:rows.length,
     days:rows,allOriginalRowsChecked:false,
     unparseableDateOrEmptyCodeRowsChecked:false,historicalCodeAliasRowsChecked:false,
@@ -138,6 +141,16 @@ function checkProductionPriceIntegrityContract(){
     assert.ok(start>=0&&end>start,'GAS price diagnostic production boundary: '+name);
     return gas.slice(start,end+2);
   }).join('\n');
+  const baseline=fs.readFileSync(new URL('../reference/gas-v9.281.gs',import.meta.url),'utf8');
+  const historical=names.map(name=>{
+    const start=baseline.indexOf('function '+name+'(');
+    const end=start<0?-1:baseline.indexOf('\n}',start);
+    assert.ok(start>=0&&end>start,'GAS 9.281 price diagnostic boundary: '+name);
+    return baseline.slice(start,end+2);
+  }).join('\n');
+  // Gates are new in 9.282, but the reader/handler contracts are identical.
+  const removeGate=source=>source.replace(/^  if \(typeof _issue507GateInside_[^\n]*\n/gm,'');
+  assert.equal(removeGate(production),historical);
   const code='0046Y0';
   const context={
     codeItems:[{code,currency:'KRW'}],byCode:{[code]:{code,currency:'KRW'}},
@@ -198,6 +211,26 @@ export async function selfTest(){
   for(const value of [code,'SECRET_NAME','99','100','541'])
     assert.ok(!JSON.stringify(report).includes('"'+value+'"'));
   assert.equal(report.fullRawWriteGuardSatisfied,false);
+  assert.equal(report.gasVersion,'9.244');
+  for(const version of ['9.281','9.282']){
+    const statusForVersion={...status,gasVersion:version,
+      automation:{...status.automation,gasVersion:version}};
+    const scoped=evidenceGate(diag,statusForVersion);
+    assert.equal(buildReport(scoped,scoped,rows).gasVersion,version);
+    assert.throws(()=>buildReport(a,scoped,rows),/SOURCE_CHANGED/);
+    const updated=await runReadonly({
+      url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_TOKEN',
+      fetchImpl:async(_url,opts)=>({ok:true,json:async()=>opts.body.get('accessToken')!=='TEST_TOKEN'
+        ?{status:'error',message:'인증 실패'}
+        :opts.body.get('action')==='getAutomationStatus'?statusForVersion
+          :opts.body.get('action')==='diagnoseSnapshotIntegrityRange'?diag:prices})
+    });
+    assert.equal(updated.gasVersion,version);
+    assert.equal(updated.originalSheetsWritten,false);
+    assert.equal(updated.ledgerOrSnapshotWritten,false);
+  }
+  assert.throws(()=>evidenceGate(diag,{...status,gasVersion:'9.283'}),/VERSION/);
+  assert.throws(()=>evidenceGate(diag,{...status,gasVersion:'9.282'}),/VERSION/);
   const drift={...diag,strictSourceDigest:'b'.repeat(64)};
   assert.throws(()=>buildReport(a,evidenceGate(drift,status),rows),/SOURCE_CHANGED/);
   const wrong=structuredClone(prices);wrong.priceIntegrity.rows[0].code='SECRET_OTHER';
