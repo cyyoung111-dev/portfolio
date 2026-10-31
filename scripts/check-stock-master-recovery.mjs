@@ -101,8 +101,8 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261101-3/);
-assert.match(sw,/portfolio-cache-20261101-3/);
+assert.match(html,/sw\.js\?v=20261101-4/);
+assert.match(sw,/portfolio-cache-20261101-4/);
 assert.match(html,/styles\/responsive\.css\?v=20261101-3/);
 assert.match(sw,/styles\/responsive\.css\?v=20261101-3/);
 assert.match(html,/id="quickFetchBtn"/);
@@ -118,17 +118,17 @@ assert.match(responsive,/\.action-update-card>\.action-refresh-btn span\{[^}]*ov
 assert.match(responsive,/@media\(max-width:300px\)/,
   'accessibility zoom must stack controls instead of clipping buttons');
 
-assert.match(html,/views_history\.js\?v=20261028-2/);
+assert.match(html,/views_history\.js\?v=20261101-4/);
 assert.match(sw,/settings_sync\.js\?v=20261028-6/);
-assert.match(sw,/views_history\.js\?v=20261028-2/);
+assert.match(sw,/views_history\.js\?v=20261101-4/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,
  'successful bootstrap must re-render disabled controls');
 assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/settings\.js\?v=20261028-6/);
-assert.match(sw,/settings\.js\?v=20261028-6/);
+assert.match(html,/settings\.js\?v=20261101-4/);
+assert.match(sw,/settings\.js\?v=20261101-4/);
 const stockSource=fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8');
 const sectorSource=fs.readFileSync('src/web/features/master/sector/mgmt_sector.js','utf8');
 assert.ok(stockSource.includes('captureStockMasterEditSession()'));
