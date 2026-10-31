@@ -72,6 +72,7 @@ export function planIssue507Oct30ScopedRevaluation({
    // Match actual frozen GAS _buildSnapshotRowsFromTradeAndPriceHistory:
    // priceKrw=Math.round(price*1), evalAmt=Math.round(priceKrw*qty).
    const priceKrw=Math.round(price);
+   if(!(priceKrw>0))stop('SOURCE_ROUNDS_TO_ZERO');
    const newAmount=Math.round(priceKrw*qty);
    const newUnit=round2(newAmount/qty),newPnl=newAmount-costAmt;
    const newPct=costAmt>0?round2(newPnl/costAmt*100):0;
