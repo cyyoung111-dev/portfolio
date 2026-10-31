@@ -176,6 +176,16 @@ for(const problem of ['FAILED','TIMEOUT','UNKNOWN']){
  assert.equal(h.operatorRollbackOrReconciliationRequired,true);
  assert.equal(h.autoRetryAuthorized,false);
 }
+for(const failure of ['FAILED','TIMEOUT','UNKNOWN']){
+ const first=simulateOct30PlannedRecovery([
+  {step:'BACKUPS',outcome:'OK'},
+  {step:'PRICE_HISTORY',outcome:failure}
+ ]);
+ assert.equal(first.status,'INCIDENT_PARTIAL_UNKNOWN');
+ assert.equal(first.operatorRollbackOrReconciliationRequired,true);
+ assert.equal(first.autoRetryAuthorized,false);
+ assert.equal(first.completionMarkerAuthorized,false);
+}
 const readbackFailure=simulateOct30PlannedRecovery([
  {step:'BACKUPS',outcome:'OK'},
  {step:'PRICE_HISTORY',outcome:'OK'},
