@@ -24,7 +24,7 @@
 - `main` 병합과 Quality Check 성공은 **GAS v9.282 운영 배포 승인으로 취급하지 않습니다.** `workflow_run` 자동배포는 v9.282의 프로젝트/버전 변경 전에 `GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED`로 중단합니다.
 - 실제 배포는 별도 승인 후 GitHub Actions `gas-deploy`의 **수동 workflow_dispatch**, `dry_run=false`, `approve_9282=true` 선택이 모두 필요합니다. 기본값은 `dry_run=true`, `approve_9282=false`입니다. 운영 환경 승인과 최신 `main`·전체 소스 해시 검증도 그대로 적용합니다.
 - 명시적 승인 없는 실행, 자동 트리거 및 수동 `approve_9282=false` 요청은 OAuth 토큰 획득·GAS 프로젝트 호출·원본 시트 변경 전에 차단합니다. 진단 및 dry-run은 무배포입니다.
-- 9.282 배포 중 일부가 이미 게시된 후 실패했다면 gate가 없는 9.281로 **자동 복원하지 않습니다**. `rollbackGasCode`도 old/source 중 gate 제거를 감지해 중단하며, 독립 운영 증빙과 gate 보존형 forward-recovery를 별도 검토합니다.
+- 9.282 배포 중 일부가 이미 게시된 후 실패했다면 gate가 없는 9.281로 **자동 복원하지 않습니다**. 이전 HEAD뿐 아니라 **이전 웹앱 deployment versionNumber의 실제 소스**를 별도 검사합니다. 둘 중 하나라도 gate 누락·상이한 releaseId·소스 조회 미확인이면 `GAS_GATE_REMOVAL_ROLLBACK_BLOCKED`로 **어떠한 롤백 PUT 전에 중단**하고, 독립 운영 증빙과 gate 보존형 forward-recovery를 별도 검토합니다. HEAD만 gate가 있고 게시본이 무계측인 첫 실패 후 재시도도 명시적 차단 사례입니다.
 
 ## Rollback
 
