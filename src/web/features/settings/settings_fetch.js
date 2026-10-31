@@ -53,7 +53,11 @@ async function fetchFromGsheet(dateStr, options) {
   if (!targetUrl) return null;
   if (typeof isGsheetPortfolioWriteReady === 'function'
       && !isGsheetPortfolioWriteReady({ targetUrl, generation })) return null;
-  const requestKey = targetUrl + '|' + generation + '|' + dateStr;
+  // Read-only quotes must never reuse a writer's getPrices(persist=1) request.
+  // Requests with the same date/connection but different persistence contracts
+  // are independent, while same-mode requests still share one in-flight call.
+  const requestKey = targetUrl + '|' + generation + '|' + dateStr
+    + '|p=' + (options?.persist === true ? '1' : '0');
   const forceFresh = !!options?.forceFresh;
   // 다른 연결의 in-flight 요청은 재사용하거나 기다리지 않습니다.
   if (forceFresh && _inFlightFetches[requestKey]) {
