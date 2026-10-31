@@ -80,6 +80,21 @@ const steps=wf.jobs.test.steps;
 const ci=steps.findIndex(x=>x.uses==='actions/upload-artifact@v4');
 const send=steps.findIndex(x=>String(x.run||'').endsWith('telegram-sunday-test-20261101.mjs send'));
 assert.ok(ci>=0&&send>ci,'claim artifact must succeed before sending');
+const sentProof=steps.findIndex(x=>x.name==='Archive confirmed Telegram acceptance evidence');
+assert.ok(sentProof>send,'SENT artifact must be created ONLY after Telegram API confirms acceptance');
+assert.equal(steps[sentProof].uses,'actions/upload-artifact@v4');
+assert.equal(steps[sentProof].with.name,'${{ steps.prepare.outputs.claim }}-sent');
+assert.equal(steps[sentProof].with.path,'.sunday-test-runtime/sent.json');
+assert.equal(steps[sentProof].with['if-no-files-found'],'error');
+assert.equal(steps[sentProof].env,undefined,'proof upload must not receive operational tokens');
+assert.match(scriptSource,/const sent=await deliverSunday\(payload,/,
+ 'SENT proof must follow actual deliverSunday await');
+assert.match(scriptSource,/fs\.writeFileSync\('\.sunday-test-runtime\/sent\.json'/);
+assert.match(scriptSource,/status:sent\.status,testDate:sent\.testDate,period:sent\.period/,
+ 'proof must be based on send result, not PREPARED');
+assert.doesNotMatch(scriptSource,/chatId:String\(process\.env\.TELEGRAM_CHAT_ID\)/,
+ 'SENT artifact must never contain Telegram credentials or recipient');
+
 assert.equal(steps[send].env.GAS_ACCESS_TOKEN,undefined,'send must not receive GAS token');
 assert.equal(steps.find(x=>x.id==='prepare').env.TELEGRAM_BOT_TOKEN,undefined,'prepare must not receive Telegram token');
 console.log('SUNDAY_20261101_TELEGRAM_SIMULATION PASS slots=2 uniqueClaims=true pastOnly=true sends=1');
