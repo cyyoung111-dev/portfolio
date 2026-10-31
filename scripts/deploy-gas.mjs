@@ -402,6 +402,12 @@ export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployme
   readFiles,writeFiles,readDeployment,writeDeployment}){
   const canonical=files=>JSON.stringify(sanitizeFiles(files).map(f=>({...f,
     source:f.source.replace(/\r\n/g,'\n')})).sort((a,b)=>(a.name+a.type).localeCompare(b.name+b.type)));
+  // Once the gate may have owned active receipts, never revert to a
+  // non-instrumented source automatically after a partial deployment.
+  const hasGate=files=>sanitizeFiles(files).some(f=>f.type==='SERVER_JS'&&
+    f.source.includes('var ISSUE507_GATE_RELEASE_ID='));
+  if(hasGate(candidateFiles)&&!hasGate(beforeFiles))
+    throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
   const current=await readFiles(),deployment=await readDeployment();
   const version=deployment?.deploymentConfig?.versionNumber;
   const oldVersion=beforeDeployment?.deploymentConfig?.versionNumber;
@@ -451,6 +457,12 @@ export function summarizeGasReleaseFailure(error,stage) {
     syntaxLine:Number.isInteger(error?.syntaxLine)&&error.syntaxLine>0&&error.syntaxLine<100000?error.syntaxLine:null};
 }
 
+// Deployment approval for first stateful gate release is separate from merge.
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,dryRun=false,diagnosticOnly=false}={}) {
+  if(version!=='9.282'||dryRun||diagnosticOnly)return;
+  if(eventName!=='workflow_dispatch'||approved!==true)
+    throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+}
 export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
      !candidateSource.includes('var ISSUE507_GATE_RELEASE_ID='))throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
@@ -466,6 +478,11 @@ export async function deploy() {
   // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
+  assertIssue507ManualReleasePermission({
+    version:expectedVersion,eventName:process.env.GITHUB_EVENT_NAME,
+    approved:process.env.GAS_9282_RELEASE_APPROVAL==='true',dryRun,
+    diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
+  });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
   const checkCurrentMain=async()=>{
     const expected=process.env.GAS_EXPECTED_MAIN_SHA;
