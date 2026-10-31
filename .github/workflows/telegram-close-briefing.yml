@@ -62,3 +62,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node scripts/telegram-close-workflow.mjs send
+      - name: Archive Telegram API-confirmed SENT proof
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}-sent
+          path: .telegram-close-runtime/sent.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
