@@ -24,7 +24,16 @@ function extractCollector(source){
  assert.match(fn,/source:'NH_REGULAR_CLOSE'/);
  return fn;
 }
-function emulate(fn,{requestLatencyMs=0,provider='OK',cacheHits=0,credentials=true}={}){
+function extractProductionTimezone(source){
+ // Read each production source's CONFIG, not an independent test-only zone.
+ const blocks=[...source.matchAll(/(?:^|\n)var CONFIG\s*=\s*\{([\s\S]*?)\n\};/g)];
+ assert.equal(blocks.length,1,'exactly one production CONFIG block');
+ const matches=[...blocks[0][1].matchAll(/(?:^|\n)\s*TIMEZONE\s*:\s*['"]([^'"]+)['"]/g)];
+ assert.equal(matches.length,1,'exactly one production CONFIG.TIMEZONE');
+ assert.equal(matches[0][1],'Asia/Seoul','production CONFIG.TIMEZONE must be Asia/Seoul');
+ return matches[0][1];
+}
+function emulate(fn,timezone,{requestLatencyMs=0,provider='OK',cacheHits=0,credentials=true}={}){
  let clock=0,requests=0,sleeps=0,cacheCalls=0;
  const Clock=class extends Date{
   constructor(...args){super(...(args.length?args:['2026-10-31T04:00:00.000Z']));}
@@ -38,10 +47,19 @@ function emulate(fn,{requestLatencyMs=0,provider='OK',cacheHits=0,credentials=tr
   _isKrxDailyCloseTarget_:()=>true,
   _krxCalendarStatus_:()=> 'OPEN',
   Utilities:{
-   formatDate:(_d,_tz,pattern)=>pattern==='yyyy-MM-dd'?'2026-10-31':'12:00',
+   formatDate:(date,tz,pattern)=>{
+    assert.equal(tz,timezone,'collector must use production CONFIG.TIMEZONE');
+    const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+     timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',
+     hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+    }).formatToParts(date).map(x=>[x.type,x.value]));
+    if(pattern==='yyyy-MM-dd')return p.year+'-'+p.month+'-'+p.day;
+    if(pattern==='HHmm')return p.hour+p.minute;
+    throw Error('unexpected GAS date pattern');
+   },
    sleep:ms=>{assert.equal(ms,WAIT_MS);sleeps++;clock+=ms;}
   },
-  CONFIG:{TIMEZONE:'Asia/Seoul'},
+  CONFIG:{TIMEZONE:timezone},
   CacheService:{getScriptCache:()=>({
    get:()=>++cacheCalls<=cacheHits?
     JSON.stringify({price:12345,usedDate:DATE,source:'NH_REGULAR_CLOSE',
@@ -73,29 +91,40 @@ export function auditBudgetSources(){
  for(const relative of sources){
   const source=fs.readFileSync(fileURLToPath(new URL(relative,import.meta.url)),'utf8');
   const fn=extractCollector(source);
-  const fast=emulate(fn,{requestLatencyMs:400});
+  const timezone=extractProductionTimezone(source);
+  // Mutation must fail: a silently changed source timezone is not allowed.
+  assert.throws(()=>extractProductionTimezone(source.replace(
+   /TIMEZONE:\s*'Asia\/Seoul'/,"TIMEZONE: 'Etc/UTC'")),
+   /production CONFIG.TIMEZONE must be Asia\/Seoul/);
+  const nearBoundary=new Date('2026-10-30T15:10:00Z');
+  const inSourceZone=new Intl.DateTimeFormat('en-CA',{
+   timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'
+  }).format(nearBoundary);
+  assert.equal(inSourceZone,'10/31/2026'===inSourceZone?'10/31/2026':'2026-10-31',
+   'cross-UTC-midnight source timezone must be next KST day');
+  const fast=emulate(fn,timezone,{requestLatencyMs:400});
   assert.deepEqual([fast.results,fast.requests,fast.sleeps],[37,37,37],
    '400ms latency must permit all 37 requests');
-  const slow=emulate(fn,{requestLatencyMs:700});
+  const slow=emulate(fn,timezone,{requestLatencyMs:700});
   assert.equal(slow.requests,33,'700ms latency silently skips last four positions');
   assert.equal(slow.results,33);
-  const auth=emulate(fn,{provider:'AUTH_FAIL'});
+  const auth=emulate(fn,timezone,{provider:'AUTH_FAIL'});
   assert.deepEqual([auth.requests,auth.results],[1,0],
    'first 401 silently blocks remaining 36 positions');
-  const limited=emulate(fn,{provider:'RATE_LIMIT'});
+  const limited=emulate(fn,timezone,{provider:'RATE_LIMIT'});
   assert.deepEqual([limited.requests,limited.results],[1,0],
    'first 429 silently blocks remaining 36 positions');
-  const empty=emulate(fn,{provider:'EMPTY'});
+  const empty=emulate(fn,timezone,{provider:'EMPTY'});
   assert.deepEqual([empty.requests,empty.results],[37,0]);
-  const wrongDate=emulate(fn,{provider:'BAD_DATE'});
+  const wrongDate=emulate(fn,timezone,{provider:'BAD_DATE'});
   assert.deepEqual([wrongDate.requests,wrongDate.results],[37,0]);
-  const noCredentials=emulate(fn,{credentials:false});
+  const noCredentials=emulate(fn,timezone,{credentials:false});
   assert.deepEqual([noCredentials.requests,noCredentials.results],[0,0]);
-  const hit=emulate(fn,{requestLatencyMs:400,cacheHits:37});
+  const hit=emulate(fn,timezone,{requestLatencyMs:400,cacheHits:37});
   assert.deepEqual([hit.requests,hit.results,hit.sleeps],[0,37,0],
    'cached bars need no extra NH calls or pacing');
   output.push({version:relative.includes('v9.281')?'9.281':'9.282',
-   expectedHeldCodes:CODE_COUNT,waitPerUncachedMs:WAIT_MS,budgetMs:BUDGET_MS,
+   expectedHeldCodes:CODE_COUNT,sourceTimezone:timezone,waitPerUncachedMs:WAIT_MS,budgetMs:BUDGET_MS,
    fast400msResults:fast.results,slow700msRequests:slow.requests,
    slow700msSkipped:CODE_COUNT-slow.results,first401Requests:auth.requests,
    first401Results:auth.results,first429Results:limited.results,
