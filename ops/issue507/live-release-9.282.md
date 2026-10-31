@@ -19,6 +19,13 @@
 현재 GAS/API/웹 기대 버전은 9.282다. 운영 클라이언트와 허용목록에는 9.282를 반영하고 기존 9.281 호환을 보존해 main 병합~GAS/Pages 전환 사이 실패를 막는다.
 그 밖의 허용 버전은 기존 계약 그대로다. 신규 미검증 버전을 포괄 허용하지 않는다. 순차 배포 창이 닫힌 뒤 이전 버전 호환 제거는 별도 PR로 다룬다.
 
+## 배포 별도 승인 차단
+
+- `main` 병합과 Quality Check 성공은 **GAS v9.282 운영 배포 승인으로 취급하지 않습니다.** `workflow_run` 자동배포는 v9.282의 프로젝트/버전 변경 전에 `GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED`로 중단합니다.
+- 실제 배포는 별도 승인 후 GitHub Actions `gas-deploy`의 **수동 workflow_dispatch**, `dry_run=false`, `approve_9282=true` 선택이 모두 필요합니다. 기본값은 `dry_run=true`, `approve_9282=false`입니다. 운영 환경 승인과 최신 `main`·전체 소스 해시 검증도 그대로 적용합니다.
+- 명시적 승인 없는 실행, 자동 트리거 및 수동 `approve_9282=false` 요청은 OAuth 토큰 획득·GAS 프로젝트 호출·원본 시트 변경 전에 차단합니다. 진단 및 dry-run은 무배포입니다.
+- 9.282 배포 중 일부가 이미 게시된 후 실패했다면 gate가 없는 9.281로 **자동 복원하지 않습니다**. `rollbackGasCode`도 old/source 중 gate 제거를 감지해 중단하며, 독립 운영 증빙과 gate 보존형 forward-recovery를 별도 검토합니다.
+
 ## Rollback
 
 gate를 없애는 v9.281 이하 배포는 deploy-gas의 생산 mutation 이전 검사로 거부한다. dry-run은 진단만 가능하다.
