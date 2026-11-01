@@ -1527,6 +1527,53 @@ assert.ok(fs.readFileSync('src/web/features/settings/settings_sync.js','utf8').i
   'replacements:JSON.stringify(replacements)'));
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
+
+// Legacy mobile journal is an unknown-outcome write, not an auth failure.
+// Recovery must never resend trades/holdings; only a complete, second
+// read-only match plus durable on-device backup permits explicit archiving.
+for (const mode of ['match','server-diff','partial-read','source-changed','backup-failed']) {
+  const x=setup();
+  const trade={date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',
+    code:'005930',qty:2,price:100,assetType:'주식',memo:''};
+  x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  x.response.trades=[{...trade}];
+  x.response.holdings=[{code:'005930',name:'테스트',qty:2,costAmt:200,
+    assetType:'주식',acct:'계좌'}];
+  vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:2,price:100,assetType:'주식',memo:''}); rawHoldings.push({name:'테스트',code:'005930',qty:2,cost:100,acct:'계좌',assetType:'주식'});_markPortfolioRemoteDirty();const j=_getPortfolioRemoteDirty();j.receiptProtocol=0;j.legacyUntracked=true;_persistPortfolioRemoteDirtyMap();",x.ctx);
+  const before=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
+  x.ctx.confirm=()=>true;
+  let calls=0;
+  x.ctx.requestGsheetActionJson=async action=>{
+    assert.equal(action,'getBootstrap');
+    calls++;
+    if(mode==='source-changed' && calls===2) return {...x.response,codeMasterSourceId:'NEW_SOURCE'};
+    return x.response;
+  };
+  if(mode==='server-diff') x.response.trades=[{...trade,qty:3}];
+  if(mode==='partial-read') x.response.portfolioReadStatus.holdingsOk=false;
+  const matched=await x.ctx.diagnoseLegacyJournal();
+  assert.equal(matched,!['server-diff','partial-read'].includes(mode));
+  assert.equal(x.writes,0);
+  if(mode==='backup-failed') {
+    const previous=x.ctx.lsSave;
+    x.ctx.lsSave=(key,value)=>{if(key==='portfolio_verified_legacy_journal_archive_v1')throw Error('quota');return previous(key,value);};
+  }
+  assert.equal(await x.ctx.archiveMatchedLegacyJournal(),mode==='match');
+  assert.equal(x.writes,0,'legacy comparison must never POST financial data');
+  if(mode==='match') {
+    assert.equal(x.ctx._getPortfolioRemoteDirty(),null);
+    const target=JSON.parse(before).target;
+    const archive=JSON.parse(x.storage.get('portfolio_verified_legacy_journal_archive_v1'))[target];
+    assert.equal(archive.journal.epoch,JSON.parse(before).epoch);
+    assert.equal(vm.runInContext('_gsPortfolioRestoreRequired',x.ctx),true);
+    assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
+  } else {
+    assert.equal(JSON.stringify(x.ctx._getPortfolioRemoteDirty()),before,
+      'unconfirmed ledger must survive mismatch, source change and backup failure');
+  }
+}
+console.log('✅ 모바일 구형 원장: 읽기 전용 비교·서버 불일치/부분읽기/출처변경 차단·로컬 백업 readback·원격 쓰기 0 통과');
+
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
 
 // The actual Update button must reach the journal-aware restore, not strand
