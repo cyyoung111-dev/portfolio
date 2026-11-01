@@ -1555,8 +1555,8 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
   assert.equal(matched,!['server-diff','partial-read'].includes(mode));
   assert.equal(x.writes,0);
   if(mode==='backup-failed') {
-    const previous=x.ctx.lsSave;
-    x.ctx.lsSave=(key,value)=>{if(key==='portfolio_verified_legacy_journal_archive_v1')throw Error('quota');return previous(key,value);};
+    const previous=x.ctx.localStorage.setItem;
+    x.ctx.localStorage.setItem=(key,value)=>{if(key==='portfolio_verified_legacy_journal_archive_v1')throw Error('quota');return previous(key,value);};
   }
   assert.equal(await x.ctx.archiveMatchedLegacyJournal(),mode==='match');
   assert.equal(x.writes,0,'legacy comparison must never POST financial data');
