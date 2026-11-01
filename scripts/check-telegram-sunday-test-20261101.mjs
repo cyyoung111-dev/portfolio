@@ -239,6 +239,9 @@ assert.doesNotMatch(message,/일요일.*확정 종가/);
 const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-sunday-test-20261101.yml','utf8'));
 assert.ok(Object.hasOwn(wf.on,'schedule'));
 assert.ok(Object.hasOwn(wf.on,'workflow_dispatch'));
+assert.deepEqual(wf.on.workflow_dispatch.inputs.period.options,['morning','close'],
+  'Sunday manual test must retain the explicit period input');
+assert.equal(wf.on.workflow_dispatch.inputs.period.required,true);
 assert.ok(Object.hasOwn(wf.on,'push'),'workflow main push fallback is needed if Sunday cron slots never trigger');
 assert.deepEqual(wf.on.push.branches,['main']);
 assert.deepEqual(wf.on.push.paths,['.github/workflows/telegram-sunday-test-20261101.yml']);
