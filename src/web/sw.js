@@ -52,7 +52,7 @@ const PRECACHE_URLS = [
   './views/views_history_pipeline.js?v=20261012-1',
   './views/views_history_render.js?v=20261007-4',
   './views/views_history.js?v=20261101-9',
-  './app/event_delegation.js?v=20261006-1',
+  './app/event_delegation.js?v=20261101-9',
 ];
 
 // 설치 시: 기본 파일 미리 캐싱
