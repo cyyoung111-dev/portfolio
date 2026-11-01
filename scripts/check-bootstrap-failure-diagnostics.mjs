@@ -1612,6 +1612,19 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
   const before=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
   const matched=await x.ctx.diagnoseLegacyJournal();
   assert.equal(matched,!['server-diff','partial-read','account-mismatch','code-mismatch','fx-unverifiable'].includes(mode));
+  const expectedBlock={
+    'server-diff':'TRADE_ROWS_DIFFER',
+    'partial-read':'SERVER_BOOTSTRAP_INCOMPLETE',
+    'account-mismatch':'TRADE_ROWS_INVALID',
+    'code-mismatch':'HOLDING_TRADE_CODE_MISMATCH',
+    'fx-unverifiable':'TRADE_ROWS_INVALID'
+  }[mode];
+  const statusText=vm.runInContext('_legacyReviewStatus',x.ctx);
+  if(expectedBlock) {
+    assert.ok(statusText.includes('대조 실패: '+expectedBlock),mode);
+    assert.ok(!statusText.includes('테스트') && !statusText.includes('account-001'),
+      'mismatch report must not disclose stock/account identifiers');
+  }
   assert.equal(x.writes,0);
   if(mode==='backup-failed') {
     const previous=x.ctx.localStorage.setItem;
@@ -1676,6 +1689,17 @@ for (const scenario of ['match','late-entered','same-day-swapped','account-order
   const initial=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
   const matched=await x.ctx.diagnoseLegacyJournal();
   assert.equal(matched,scenario==='match'||scenario==='late-entered',scenario);
+  const category={
+    'same-day-swapped':'TRADE_ROWS_DIFFER',
+    'account-order':'HOLDING_ROWS_DIFFER',
+    'cost-diff':'HOLDING_ROWS_DIFFER',
+    'master-code':'HOLDING_TRADE_CODE_MISMATCH',
+    'account-id':'TRADE_ROWS_INVALID',
+    'asset-type':'HOLDING_ASSET_TYPE_MISMATCH',
+    'partial-read':'SERVER_BOOTSTRAP_INCOMPLETE'
+  }[scenario];
+  const currentText=vm.runInContext('_legacyReviewStatus',x.ctx);
+  if(category) assert.ok(currentText.includes('대조 실패: '+category),scenario+': '+currentText);
   assert.equal(await x.ctx.archiveMatchedLegacyJournal(),scenario==='match'||scenario==='late-entered',scenario);
   if(scenario==='match'||scenario==='late-entered'){
     assert.equal(x.ctx._getPortfolioRemoteDirty(),null,
