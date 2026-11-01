@@ -11,17 +11,27 @@ function _legacyStatus(text) {
   const el = typeof $el === 'function' ? $el('legacyJournalStatus') : null;
   if (el) el.textContent = _legacyReviewStatus;
 }
-function _legacyTradeTuple(t) {
+function _legacyTradeTuple(t, accountsById) {
   if (!t || typeof t !== 'object') return null;
   // GAS handleGetTrades always emits ratio, fractionalCash, and fund.
   // Compare their meaning instead of rejecting real server rows, or ignoring
   // split/cash settlement amounts when present in the local pending ledger.
   const allowed = new Set(['id','date','tradeType','acct','name','code','qty','price',
-    'assetType','type','memo','ratio','fractionalCash','fund']);
+    'assetType','type','memo','ratio','fractionalCash','fund','accountId','priceRaw','fxRateAtBuy']);
   if (Object.keys(t).some(k => !allowed.has(k))) return null;
   const s = k => String(t[k] ?? '').trim();
   const number = k => t[k] == null || t[k] === '' ? 0
     : (typeof t[k] === 'number' || typeof t[k] === 'string' ? Number(t[k]) : NaN);
+  // accountId is browser-only, but the authoritative server Accounts master
+  // must prove it refers to exactly the same account name persisted by GAS.
+  if (t.accountId != null && t.accountId !== '') {
+    const mapped=accountsById instanceof Map ? accountsById.get(String(t.accountId)) : '';
+    if (!mapped || mapped!==s('acct')) return null;
+  }
+  // GAS persists the KRW price, not foreign-currency entry metadata. If the
+  // original pending trade has separate FX input, equality is unprovable.
+  if ((t.priceRaw != null && t.priceRaw !== '' && Number(t.priceRaw)!==0)
+      || (t.fxRateAtBuy != null && t.fxRateAtBuy !== '' && Number(t.fxRateAtBuy)!==0)) return null;
   const qty=number('qty'), price=number('price'),
     ratio=number('ratio'), fractionalCash=number('fractionalCash');
   const assetType=s('assetType')||s('type')||'주식';
@@ -49,17 +59,45 @@ function _legacyExactLedgerMatch(dirty,server) {
       || server.portfolioReadStatus?.holdingsOk!==true
       || !Array.isArray(server.trades) || !Array.isArray(server.holdings)) return false;
   if (_getPendingExplicitEmptyTradeSync(dirty.target)) return false;
-  const a=(dirty.trades||[]).map(_legacyTradeTuple);
-  const b=server.trades.map(_legacyTradeTuple);
+  const accountsById=new Map();
+  for (const acct of (Array.isArray(server.settings.ACCOUNTS_MASTER)
+      ? server.settings.ACCOUNTS_MASTER : [])) {
+    const id=String(acct?.id||'').trim(),name=String(acct?.displayName||'').trim();
+    if (!id || !name || accountsById.has(id)) return false;
+    accountsById.set(id,name);
+  }
+  const a=(dirty.trades||[]).map(t=>_legacyTradeTuple(t,accountsById));
+  const b=server.trades.map(t=>_legacyTradeTuple(t,accountsById));
   if (!a.length || a.some(x=>!x) || b.some(x=>!x) || JSON.stringify(a)!==JSON.stringify(b)) return false;
   // GAS groups holdings by stock name. Auto-reconciliation is only permitted
   // for a lossless one-row-per-name local ledger; other cases remain blocked.
+  // A calculated holding has no code. Only the exact same Bootstrap's
+  // authoritative code/name pair may fill it; never use local STOCK_CODE.
+  const serverCodeByName=new Map(),duplicateNames=new Set();
+  for (const item of server.codes) {
+    const name=String(item?.name||'').trim(),code=String(item?.code||'').trim();
+    if (!name || !code) continue;
+    if (serverCodeByName.has(name)) duplicateNames.add(name);
+    else serverCodeByName.set(name,code);
+  }
   const expected=[],seen=new Set();
   for (const h of dirty.holdings||[]) {
     if (!h?.name || !(Number(h.qty)>0) || !Number.isFinite(Number(h.cost))
         || seen.has(h.name)) return false;
+    if (duplicateNames.has(h.name)) return false;
+    const remoteCode=serverCodeByName.get(h.name)||'';
+    const explicitCode=String(h.code||'').trim();
+    if (explicitCode && remoteCode && explicitCode!==remoteCode) return false;
+    // A stock with no local code requires an unambiguous matching server
+    // code AND trade lineage. Codeless TDF/funds remain codeless.
+    const assetType=String(h.assetType||h.type||'주식');
+    const isCodelessFund=!explicitCode && !remoteCode && (assetType==='펀드'||assetType==='TDF');
+    if (!explicitCode && !remoteCode && !isCodelessFund) return false;
+    if (!isCodelessFund && remoteCode
+        && !(dirty.trades||[]).some(t=>t?.name===h.name
+          && String(t.code||'').trim()===remoteCode)) return false;
     seen.add(h.name);
-    expected.push({code:h.code||'',name:h.name,qty:Number(h.qty),
+    expected.push({code:explicitCode||remoteCode,name:h.name,qty:Number(h.qty),
       costAmt:Number(h.qty)*Number(h.cost),assetType:h.assetType||h.type||'주식',acct:h.acct||''});
   }
   const funds=dirty.fundDirect||{};
