@@ -24,7 +24,13 @@ export function windowFor(period,instant){
     period==='close'?p.minute>=990&&p.minute<1200:false;
   return {date:p.date,period,allowed:p.date===DATE&&valid};
 }
-export function selectPeriod(eventName,event){
+export function selectPeriod(eventName,event,instant=new Date()){
+  // A workflow-file-only push is a controlled rescue for missed GitHub
+  // cron triggers. The same single-day KST clock and claim gates apply.
+  if(eventName==='push'){
+    if(event?.repository?.full_name!==REPO||event?.ref!=='refs/heads/main') return null;
+    return ['morning','close'].find(period=>windowFor(period,instant).allowed)||null;
+  }
   if(eventName==='schedule'){
     const cron=event?.schedule;
     return Object.keys(CRONS).find(name=>CRONS[name].has(cron))||null;
