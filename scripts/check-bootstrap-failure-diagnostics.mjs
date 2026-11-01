@@ -1583,16 +1583,19 @@ assert.deepEqual(gasRead.trades.map(t=>[t.ratio,t.fractionalCash,t.fund]),
 // Legacy mobile journal is an unknown-outcome write, not an auth failure.
 // Recovery must never resend trades/holdings; only a complete, second
 // read-only match plus durable on-device backup permits explicit archiving.
-for (const mode of ['match','server-diff','partial-read','source-changed','backup-failed']) {
+for (const mode of ['match','server-diff','partial-read','source-changed','backup-failed',
+  'account-mismatch','code-mismatch','fx-unverifiable']) {
   const x=setup();
   const trade={date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',
     code:'005930',qty:2,price:100,assetType:'주식',memo:''};
   x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  x.response.settings.ACCOUNTS_MASTER=[{id:'account-001',displayName:'계좌'}];
   x.response.trades=[{...trade,ratio:0,fractionalCash:0,fund:false}];
   x.response.holdings=[{code:'005930',name:'테스트',qty:2,costAmt:200,
     assetType:'주식',acct:'계좌'}];
-  vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:2,price:100,assetType:'주식',memo:''}); rawHoldings.push({name:'테스트',code:'005930',qty:2,cost:100,acct:'계좌',assetType:'주식'});_markPortfolioRemoteDirty();const j=_getPortfolioRemoteDirty();j.receiptProtocol=0;j.legacyUntracked=true;_persistPortfolioRemoteDirtyMap();",x.ctx);
-  const before=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
+  vm.runInContext("ACCOUNTS_MASTER.push({id:'account-001',displayName:'계좌'});rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',accountId:'account-001',name:'테스트',code:'005930',qty:2,price:100,assetType:'주식',memo:''});syncHoldingsFromTrades();_markPortfolioRemoteDirty();const j=_getPortfolioRemoteDirty();j.receiptProtocol=0;j.legacyUntracked=true;_persistPortfolioRemoteDirtyMap();",x.ctx);
+  assert.equal(vm.runInContext('rawHoldings[0].code',x.ctx),undefined,
+    'production holdings reducer does not store codes');
   x.ctx.confirm=()=>true;
   let calls=0;
   x.ctx.requestGsheetActionJson=async action=>{
@@ -1603,8 +1606,12 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
   };
   if(mode==='server-diff') x.response.trades=[{...trade,qty:3}];
   if(mode==='partial-read') x.response.portfolioReadStatus.holdingsOk=false;
+  if(mode==='account-mismatch') x.response.settings.ACCOUNTS_MASTER=[{id:'account-001',displayName:'다른계좌'}];
+  if(mode==='code-mismatch') x.response.codes=[{name:'테스트',code:'000660',type:'주식'}];
+  if(mode==='fx-unverifiable') vm.runInContext("const j=_getPortfolioRemoteDirty();j.trades[0].priceRaw=15;_persistPortfolioRemoteDirtyMap();",x.ctx);
+  const before=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
   const matched=await x.ctx.diagnoseLegacyJournal();
-  assert.equal(matched,!['server-diff','partial-read'].includes(mode));
+  assert.equal(matched,!['server-diff','partial-read','account-mismatch','code-mismatch','fx-unverifiable'].includes(mode));
   assert.equal(x.writes,0);
   if(mode==='backup-failed') {
     const previous=x.ctx.localStorage.setItem;
