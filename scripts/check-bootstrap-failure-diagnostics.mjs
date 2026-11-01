@@ -170,6 +170,9 @@ assert.equal(h.writes,0);
 {
   const x=setup();
   x.ctx.setTimeout=()=>0;
+  // The default harness blocks all form calls; explicitly restore the
+  // production read-only transport to exercise a candidate token probe.
+  vm.runInContext(net,x.ctx);
   const oldToken='existing-private-token';
   x.ctx.saveGsheetAccessToken(oldToken);
   x.ctx.fetch=async(_url,opts)=>{
