@@ -1351,14 +1351,10 @@ async function bootstrapGsheetSettings() {
         // 기존 연결의 일시적인 Settings 실패에서만 별도 읽기 fallback을 허용합니다.
         try { await loadDividendSettings({ targetUrl: bootTarget, generation: bootGeneration }); } catch(e) {}
         try { await loadRealEstateSettings({ targetUrl: bootTarget, generation: bootGeneration }); } catch(e) {}
-        const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
-        if (loanChanged) {
-          await persistRealEstateSettings(true, {
-            targetUrl: bootTarget,
-            generation: bootGeneration,
-            allowDuringRestore: true
-          });
-        }
+        // Fallback read is not an authoritative Settings/ledger restore.
+        // Recalculate local loan display only. Never bypass the restore guard
+        // to POST loan/real-estate values from an unverified device.
+        if (typeof syncLoanFromSchedule === 'function') syncLoanFromSchedule();
         return false;
       }
       _gsBootRestored = true;
