@@ -1564,11 +1564,11 @@ assert.deepEqual(gasRead.trades.map(t=>[t.ratio,t.fractionalCash,t.fund]),
     'default GAS-only trade fields compare as zero/derived boolean');
   assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],fund:undefined})), 'null',
     'explicit nonboolean fund is not silently accepted');
-  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],ratio:3})),
-    JSON.stringify(x.ctx._legacyTradeTuple(t[1])),false,
+  assert.notEqual(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],ratio:3})),
+    JSON.stringify(x.ctx._legacyTradeTuple(t[1])),
     'split-ratio mismatch must be rejected');
-  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],fractionalCash:3})),
-    JSON.stringify(x.ctx._legacyTradeTuple(t[1])),false,
+  assert.notEqual(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],fractionalCash:3})),
+    JSON.stringify(x.ctx._legacyTradeTuple(t[1])),
     'fractional cash mismatch must be rejected');
   assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[2],fund:false})), 'null',
     'fund-identity contradiction is not auto-archived');
