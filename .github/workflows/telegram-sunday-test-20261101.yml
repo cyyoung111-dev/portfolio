@@ -19,6 +19,7 @@ on:
     paths: ['.github/workflows/telegram-sunday-test-20261101.yml']
   workflow_dispatch:
     inputs:
+      period:
         description: 'Sunday November 1 test slot'
         required: true
         type: choice
