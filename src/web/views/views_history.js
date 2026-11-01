@@ -643,7 +643,7 @@ function renderGsheetView(area) {
           <button id="btn-export-legacy-journal" class="btn-purple-sm">원본 기록 백업</button>
           <button id="btn-diagnose-legacy-journal" class="btn-purple-sm">서버 원장 대조</button>
           <button id="btn-archive-legacy-journal" class="btn-ghost-sm">완전 일치 시 보류 해제</button>
-        </div><p id="legacyJournalStatus" role="status" style="font-size:.68rem;white-space:pre-line;color:var(--amber);margin:10px 0 0">${typeof _legacyReviewStatus === 'string' ? _legacyReviewStatus.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])) : ''}</p>
+        </div><p id="legacyJournalStatus" role="status" style="font-size:.68rem;white-space:pre-line;color:var(--amber);margin:10px 0 0">${typeof _legacyReviewStatus === 'string' && typeof _escapeHtml === 'function' ? _escapeHtml(_legacyReviewStatus) : ''}</p>
       </div>` : ''}
 
       <!-- 공공데이터포털 API 키 입력 -->
