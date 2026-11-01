@@ -52,7 +52,7 @@ assert.match(web, /const isCurrentConnection = \(\) =>[\s\S]*isGsheetConnectionC
   '현재가 응답 적용 전 연결 generation 검증');
 assert.match(web, /requestGsheetActionJson\([\s\S]*'getPrices'[\s\S]*targetUrl[\s\S]*if \(!isCurrentConnection\(\)\) return null/,
   '이전 연결 getPrices 응답을 새 연결 전역 상태에 적용하지 않음');
-assert.match(index, /event_delegation\.js\?v=20261006-1/);
+assert.match(index, /event_delegation\.js\?v=20261101-9/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
 assert.match(sw, /portfolio-cache-\d{8}-\d+/);
 assert.match(sw, /components\.css\?v=20260921-2/);

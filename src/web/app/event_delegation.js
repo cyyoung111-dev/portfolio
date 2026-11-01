@@ -49,6 +49,9 @@ function registerGlobalEventDelegation() {
     'btn-save-nh-config': () => typeof saveNhConfigFromUI === 'function' && saveNhConfigFromUI(),
     'btn-save-gsheet-access-token': () => typeof saveGsheetAccessTokenFromUI === 'function' && saveGsheetAccessTokenFromUI(),
     'btn-clear-gsheet-access-token': () => typeof clearGsheetAccessTokenFromUI === 'function' && clearGsheetAccessTokenFromUI(),
+    'btn-export-legacy-journal': () => typeof exportLegacyJournalBackup === 'function' && exportLegacyJournalBackup(),
+    'btn-diagnose-legacy-journal': () => typeof diagnoseLegacyJournal === 'function' && diagnoseLegacyJournal(),
+    'btn-archive-legacy-journal': () => typeof archiveMatchedLegacyJournal === 'function' && archiveMatchedLegacyJournal(),
 
     // management
     'btn-acct-add':        () => typeof acctMgmtAddNew === 'function' && acctMgmtAddNew(),

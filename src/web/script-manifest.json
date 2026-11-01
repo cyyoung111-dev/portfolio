@@ -43,6 +43,7 @@
     "features/settings/settings_net.js",
     "features/settings/settings_persistence_utils.js",
     "features/settings/settings.js",
+    "features/settings/settings_legacy_recovery.js",
     "features/settings/settings_sync.js",
     "features/settings/settings_tabsync.js",
     "features/settings/settings_fetch.js",
