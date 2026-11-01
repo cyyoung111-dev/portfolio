@@ -13,12 +13,25 @@ function _legacyStatus(text) {
 }
 function _legacyTradeTuple(t) {
   if (!t || typeof t !== 'object') return null;
-  const allowed = new Set(['id','date','tradeType','acct','name','code','qty','price','assetType','type','memo']);
+  // GAS handleGetTrades always emits ratio, fractionalCash, and fund.
+  // Compare their meaning instead of rejecting real server rows, or ignoring
+  // split/cash settlement amounts when present in the local pending ledger.
+  const allowed = new Set(['id','date','tradeType','acct','name','code','qty','price',
+    'assetType','type','memo','ratio','fractionalCash','fund']);
   if (Object.keys(t).some(k => !allowed.has(k))) return null;
-  const s = k => String(t[k] || '').trim();
-  const qty=Number(t.qty), price=Number(t.price);
-  if (!s('date') || !s('tradeType') || !s('name') || !Number.isFinite(qty) || !Number.isFinite(price)) return null;
-  return [s('date'),s('tradeType'),s('acct'),s('name'),s('code'),qty,price,s('assetType')||s('type')||'주식',s('memo')];
+  const s = k => String(t[k] ?? '').trim();
+  const number = k => t[k] == null || t[k] === '' ? 0
+    : (typeof t[k] === 'number' || typeof t[k] === 'string' ? Number(t[k]) : NaN);
+  const qty=number('qty'), price=number('price'),
+    ratio=number('ratio'), fractionalCash=number('fractionalCash');
+  const assetType=s('assetType')||s('type')||'주식';
+  const isFund=assetType==='펀드'||assetType==='TDF';
+  if (!s('date') || !s('tradeType') || !s('name')
+      || !Number.isFinite(qty) || !Number.isFinite(price)
+      || !Number.isFinite(ratio) || !Number.isFinite(fractionalCash)
+      || ('fund' in t && (typeof t.fund !== 'boolean' || t.fund!==isFund))) return null;
+  return [s('date'),s('tradeType'),s('acct'),s('name'),s('code'),
+    qty,price,assetType,s('memo'),ratio,fractionalCash,isFund];
 }
 function _legacyHoldingTuple(h) {
   if (!h || typeof h!=='object') return null;
