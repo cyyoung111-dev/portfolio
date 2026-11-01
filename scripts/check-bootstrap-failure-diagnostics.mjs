@@ -173,6 +173,9 @@ assert.equal(h.writes,0);
   // The default harness blocks all form calls; explicitly restore the
   // production read-only transport to exercise a candidate token probe.
   vm.runInContext(net,x.ctx);
+  // Probe uses the real form transport. Bootstrap uses a complete synthetic
+  // server response; no production calls or mutation are permitted in CI.
+  x.ctx.requestGsheetActionJson=async()=>x.response;
   const oldToken='existing-private-token';
   x.ctx.saveGsheetAccessToken(oldToken);
   x.ctx.fetch=async(_url,opts)=>{
