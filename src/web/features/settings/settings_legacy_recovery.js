@@ -68,7 +68,14 @@ function _legacyExactLedgerMatch(dirty,server) {
   }
   const a=(dirty.trades||[]).map(t=>_legacyTradeTuple(t,accountsById));
   const b=server.trades.map(t=>_legacyTradeTuple(t,accountsById));
-  if (!a.length || a.some(x=>!x) || b.some(x=>!x) || JSON.stringify(a)!==JSON.stringify(b)) return false;
+  if (!a.length || a.some(x=>!x) || b.some(x=>!x)) return false;
+  // Production GAS handleSyncTrades stable-sorts by date before writing.
+  // The local pending journal can legitimately hold transactions entered
+  // out of date order. Keep same-day insertion order to detect true changes.
+  const byGasDateOrder = items => items.map((tuple,index)=>({tuple,index}))
+    .sort((left,right)=>String(left.tuple[0]).localeCompare(String(right.tuple[0]))
+      || left.index-right.index).map(x=>x.tuple);
+  if (JSON.stringify(byGasDateOrder(a))!==JSON.stringify(byGasDateOrder(b))) return false;
   // GAS groups holdings by stock name. Auto-reconciliation is only permitted
   // for a lossless one-row-per-name local ledger; other cases remain blocked.
   // A calculated holding has no code. Only the exact same Bootstrap's
