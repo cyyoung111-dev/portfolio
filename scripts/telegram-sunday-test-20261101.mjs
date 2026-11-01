@@ -163,7 +163,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     const eventName=process.env.GITHUB_EVENT_NAME;
     if(process.env.GITHUB_REPOSITORY!==REPO||process.env.GITHUB_REF!=='refs/heads/main'
       ||process.env.GITHUB_RUN_ATTEMPT!=='1'
-      ||!['schedule','workflow_dispatch'].includes(eventName))
+      ||!['schedule','workflow_dispatch','push'].includes(eventName))
       throw Error('SUNDAY_TEST_EVENT_DENIED');
     const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
     const period=selectPeriod(eventName,event);
