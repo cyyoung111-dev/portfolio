@@ -1633,7 +1633,7 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
 }
 // Two-account holdings from the real trade reducer are grouped by NAME by
 // production GAS syncHoldings; exact server match must not be rejected.
-for (const scenario of ['match','account-order','cost-diff','master-code','account-id','asset-type','partial-read']) {
+for (const scenario of ['match','late-entered','same-day-swapped','account-order','cost-diff','master-code','account-id','asset-type','partial-read']) {
   const x=setup();
   const trades=[
     {date:'2026-10-07',tradeType:'buy',acct:'일반',accountId:'acct-A',
@@ -1645,15 +1645,17 @@ for (const scenario of ['match','account-order','cost-diff','master-code','accou
   x.response.settings.ACCOUNTS_MASTER=[
     {id:'acct-A',displayName:'일반'},{id:'acct-B',displayName:'ISA'}
   ];
+  if(scenario==='same-day-swapped') trades[1].date='2026-10-07';
   x.response.trades=trades.map(({accountId,...t})=>({
     ...t,ratio:0,fractionalCash:0,fund:false
   }));
+  if(scenario==='same-day-swapped') x.response.trades.reverse();
   x.response.holdings=[{code:'005930',name:'테스트',qty:5,costAmt:560,
     assetType:'주식',acct:'일반,ISA'}];
   vm.runInContext(
     "ACCOUNTS_MASTER.push({id:'acct-A',displayName:'일반'},"
     +" {id:'acct-B',displayName:'ISA'});"
-    +"rawTrades.push(..."+JSON.stringify(trades)+");"
+    +"rawTrades.push(..."+JSON.stringify(scenario==='late-entered'?[...trades].reverse():trades)+");"
     +"syncHoldingsFromTrades();_markPortfolioRemoteDirty();"
     +"const multiJournal=_getPortfolioRemoteDirty();"
     +"multiJournal.receiptProtocol=0;multiJournal.legacyUntracked=true;"
@@ -1673,9 +1675,9 @@ for (const scenario of ['match','account-order','cost-diff','master-code','accou
   x.ctx.confirm=()=>true;
   const initial=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
   const matched=await x.ctx.diagnoseLegacyJournal();
-  assert.equal(matched,scenario==='match',scenario);
-  assert.equal(await x.ctx.archiveMatchedLegacyJournal(),scenario==='match',scenario);
-  if(scenario==='match'){
+  assert.equal(matched,scenario==='match'||scenario==='late-entered',scenario);
+  assert.equal(await x.ctx.archiveMatchedLegacyJournal(),scenario==='match'||scenario==='late-entered',scenario);
+  if(scenario==='match'||scenario==='late-entered'){
     assert.equal(x.ctx._getPortfolioRemoteDirty(),null,
       'verified multi-account journal archived without remote write');
     assert.equal(vm.runInContext('_gsPortfolioRestoreRequired',x.ctx),true);
