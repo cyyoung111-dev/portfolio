@@ -54,6 +54,24 @@ assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'');
 assert.equal(h.writes,0);
 assert.equal(vm.runInContext("STOCK_CODE['테스트']",h.ctx),'005930','leading zeros preserved');
 
+// The failed initial Settings bootstrap may offer a read-only real-estate
+// fallback. Recomputing a local monthly loan must not bypass the normal GAS
+// restore gate and POST that unverified cache back to the financial workbook.
+{
+  const x=setup();
+  const actions=[];
+  x.ctx.loadSettings=async()=>false;
+  x.ctx.loadDividendSettings=async()=>{actions.push('readDiv');return true;};
+  x.ctx.loadRealEstateSettings=async()=>{actions.push('readRealEstate');return true;};
+  x.ctx.syncLoanFromSchedule=()=>{actions.push('recalculateLocalLoan');return true;};
+  x.ctx.persistRealEstateSettings=async()=>{actions.push('POST_UNVERIFIED_LOAN');return true;};
+  x.ctx.refreshAll=()=>{};
+  assert.equal(await x.ctx.bootstrapGsheetSettings(),false);
+  assert.deepEqual(actions,['readDiv','readRealEstate','recalculateLocalLoan']);
+  assert.equal(x.writes,0);
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
+  assert.equal(vm.runInContext('_gsBootPromise',x.ctx),null);
+}
 // The first mobile bootstrap (without an explicit force flag) must not silently
 // accept a partial getBootstrap ledger as an authoritative empty portfolio.
 for (const failed of ['tradesOk','holdingsOk']) {
