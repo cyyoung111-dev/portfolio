@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="styles/tokens.css?v=20260903-1">
 <link rel="stylesheet" href="styles/base.css?v=20260903-1">
-<link rel="stylesheet" href="styles/components.css?v=20260921-2">
+<link rel="stylesheet" href="styles/components.css?v=20261102-1">
 <link rel="stylesheet" href="styles/layout.css?v=20261101-1">
 <link rel="stylesheet" href="styles/responsive.css?v=20261101-3">
 <link rel="stylesheet" href="styles/pages/plan.css?v=20260903-1">
@@ -408,7 +408,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261101-11', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261102-1', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>
