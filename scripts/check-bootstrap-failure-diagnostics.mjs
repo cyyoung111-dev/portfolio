@@ -1631,6 +1631,64 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
       'unconfirmed ledger must survive mismatch, source change and backup failure');
   }
 }
+// Two-account holdings from the real trade reducer are grouped by NAME by
+// production GAS syncHoldings; exact server match must not be rejected.
+for (const scenario of ['match','late-entered','same-day-swapped','account-order','cost-diff','master-code','account-id','asset-type','partial-read']) {
+  const x=setup();
+  const trades=[
+    {date:'2026-10-07',tradeType:'buy',acct:'일반',accountId:'acct-A',
+      name:'테스트',code:'005930',qty:2,price:100,assetType:'주식',memo:''},
+    {date:'2026-10-08',tradeType:'buy',acct:'ISA',accountId:'acct-B',
+      name:'테스트',code:'005930',qty:3,price:120,assetType:'주식',memo:''}
+  ];
+  x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  x.response.settings.ACCOUNTS_MASTER=[
+    {id:'acct-A',displayName:'일반'},{id:'acct-B',displayName:'ISA'}
+  ];
+  if(scenario==='same-day-swapped') trades[1].date='2026-10-07';
+  x.response.trades=trades.map(({accountId,...t})=>({
+    ...t,ratio:0,fractionalCash:0,fund:false
+  }));
+  if(scenario==='same-day-swapped') x.response.trades.reverse();
+  x.response.holdings=[{code:'005930',name:'테스트',qty:5,costAmt:560,
+    assetType:'주식',acct:'일반,ISA'}];
+  vm.runInContext(
+    "ACCOUNTS_MASTER.push({id:'acct-A',displayName:'일반'},"
+    +" {id:'acct-B',displayName:'ISA'});"
+    +"rawTrades.push(..."+JSON.stringify(scenario==='late-entered'?[...trades].reverse():trades)+");"
+    +"syncHoldingsFromTrades();_markPortfolioRemoteDirty();"
+    +"const multiJournal=_getPortfolioRemoteDirty();"
+    +"multiJournal.receiptProtocol=0;multiJournal.legacyUntracked=true;"
+    +"_persistPortfolioRemoteDirtyMap();",x.ctx);
+  assert.equal(vm.runInContext('rawHoldings.length',x.ctx),2);
+  assert.equal(vm.runInContext('rawHoldings.every(h=>!h.code)',x.ctx),true);
+  if(scenario==='account-order')x.response.holdings[0].acct='ISA,일반';
+  if(scenario==='cost-diff')x.response.holdings[0].costAmt=561;
+  if(scenario==='master-code')x.response.codes[0].code='000660';
+  if(scenario==='account-id')x.response.settings.ACCOUNTS_MASTER[1].displayName='기타';
+  if(scenario==='asset-type')x.response.codes[0].type='ETF';
+  if(scenario==='partial-read')x.response.portfolioReadStatus.tradesOk=false;
+  x.ctx.requestGsheetActionJson=async action=>{
+    assert.equal(action,'getBootstrap','comparison must remain read-only');
+    return x.response;
+  };
+  x.ctx.confirm=()=>true;
+  const initial=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
+  const matched=await x.ctx.diagnoseLegacyJournal();
+  assert.equal(matched,scenario==='match'||scenario==='late-entered',scenario);
+  assert.equal(await x.ctx.archiveMatchedLegacyJournal(),scenario==='match'||scenario==='late-entered',scenario);
+  if(scenario==='match'||scenario==='late-entered'){
+    assert.equal(x.ctx._getPortfolioRemoteDirty(),null,
+      'verified multi-account journal archived without remote write');
+    assert.equal(vm.runInContext('_gsPortfolioRestoreRequired',x.ctx),true);
+  }else{
+    assert.equal(JSON.stringify(x.ctx._getPortfolioRemoteDirty()),initial,
+      'nonmatching account/cost/code/type/partial read must preserve journal');
+  }
+  assert.equal(x.writes,0,'all recovery paths forbid remote financial writes');
+}
+console.log('✅ 다계좌 동일종목 합산·원가·계좌순서 GAS 동등성, 불일치 차단·쓰기 0 통과');
+
 console.log('✅ 모바일 구형 원장: 읽기 전용 비교·서버 불일치/부분읽기/출처변경 차단·로컬 백업 readback·원격 쓰기 0 통과');
 
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
