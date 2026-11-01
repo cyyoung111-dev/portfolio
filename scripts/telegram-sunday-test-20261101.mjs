@@ -24,7 +24,13 @@ export function windowFor(period,instant){
     period==='close'?p.minute>=990&&p.minute<1200:false;
   return {date:p.date,period,allowed:p.date===DATE&&valid};
 }
-export function selectPeriod(eventName,event){
+export function selectPeriod(eventName,event,instant=new Date()){
+  // A workflow-file-only push is a controlled rescue for missed GitHub
+  // cron triggers. The same single-day KST clock and claim gates apply.
+  if(eventName==='push'){
+    if(event?.repository?.full_name!==REPO||event?.ref!=='refs/heads/main') return null;
+    return ['morning','close'].find(period=>windowFor(period,instant).allowed)||null;
+  }
   if(eventName==='schedule'){
     const cron=event?.schedule;
     return Object.keys(CRONS).find(name=>CRONS[name].has(cron))||null;
@@ -157,7 +163,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     const eventName=process.env.GITHUB_EVENT_NAME;
     if(process.env.GITHUB_REPOSITORY!==REPO||process.env.GITHUB_REF!=='refs/heads/main'
       ||process.env.GITHUB_RUN_ATTEMPT!=='1'
-      ||!['schedule','workflow_dispatch'].includes(eventName))
+      ||!['schedule','workflow_dispatch','push'].includes(eventName))
       throw Error('SUNDAY_TEST_EVENT_DENIED');
     const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
     const period=selectPeriod(eventName,event);
