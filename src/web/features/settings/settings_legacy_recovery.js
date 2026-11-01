@@ -52,30 +52,36 @@ function _legacyHoldingTuple(h) {
   return [String(h.code||''),String(h.name||''),qty,costAmt,
     String(h.assetType||''),String(h.acct||'')];
 }
-function _legacyExactLedgerMatch(dirty,server) {
+function _legacyExactLedgerMatch(dirty,server,onBlock) {
+  // On-device diagnosis reports ONLY fixed error categories: no financial
+  // values, account names, tokens, GAS URLs, trade rows or response messages.
+  const blocked = code => {
+    if (typeof onBlock === 'function') onBlock(code);
+    return false;
+  };
   if (!dirty || !server || server.status!=='ok' || !server.settings
       || !Array.isArray(server.codes) || !String(server.codeMasterSourceId||'')
       || server.portfolioReadStatus?.tradesOk!==true
       || server.portfolioReadStatus?.holdingsOk!==true
-      || !Array.isArray(server.trades) || !Array.isArray(server.holdings)) return false;
-  if (_getPendingExplicitEmptyTradeSync(dirty.target)) return false;
+      || !Array.isArray(server.trades) || !Array.isArray(server.holdings)) return blocked('SERVER_BOOTSTRAP_INCOMPLETE');
+  if (_getPendingExplicitEmptyTradeSync(dirty.target)) return blocked('PENDING_EXPLICIT_EMPTY_SYNC');
   const accountsById=new Map();
   for (const acct of (Array.isArray(server.settings.ACCOUNTS_MASTER)
       ? server.settings.ACCOUNTS_MASTER : [])) {
     const id=String(acct?.id||'').trim(),name=String(acct?.displayName||'').trim();
-    if (!id || !name || accountsById.has(id)) return false;
+    if (!id || !name || accountsById.has(id)) return blocked('ACCOUNT_MASTER_INVALID');
     accountsById.set(id,name);
   }
   const a=(dirty.trades||[]).map(t=>_legacyTradeTuple(t,accountsById));
   const b=server.trades.map(t=>_legacyTradeTuple(t,accountsById));
-  if (!a.length || a.some(x=>!x) || b.some(x=>!x)) return false;
+  if (!a.length || a.some(x=>!x) || b.some(x=>!x)) return blocked('TRADE_ROWS_INVALID');
   // Production GAS handleSyncTrades stable-sorts by date before writing.
   // The local pending journal can legitimately hold transactions entered
   // out of date order. Keep same-day insertion order to detect true changes.
   const byGasDateOrder = items => items.map((tuple,index)=>({tuple,index}))
     .sort((left,right)=>String(left.tuple[0]).localeCompare(String(right.tuple[0]))
       || left.index-right.index).map(x=>x.tuple);
-  if (JSON.stringify(byGasDateOrder(a))!==JSON.stringify(byGasDateOrder(b))) return false;
+  if (JSON.stringify(byGasDateOrder(a))!==JSON.stringify(byGasDateOrder(b))) return blocked('TRADE_ROWS_DIFFER');
   // GAS groups holdings by stock name. Auto-reconciliation is only permitted
   // for a lossless one-row-per-name local ledger; other cases remain blocked.
   // A calculated holding has no code. Only the exact same Bootstrap's
@@ -97,26 +103,26 @@ function _legacyExactLedgerMatch(dirty,server) {
     const qty=Number(h?.qty),cost=Number(h?.cost);
     if (!name || !acct || !(qty>0) || !Number.isFinite(qty)
         || !Number.isFinite(cost) || !Number.isFinite(qty*cost)
-        || duplicateNames.has(name)) return false;
+        || duplicateNames.has(name)) return blocked('HOLDING_LOCAL_INVALID');
     const remoteCode=serverCodeByName.get(name)||'';
     const explicitCode=String(h.code||'').trim();
     // Coded assets MUST be identified by the same authenticated master.
-    if (explicitCode && (!remoteCode || explicitCode!==remoteCode)) return false;
+    if (explicitCode && (!remoteCode || explicitCode!==remoteCode)) return blocked('HOLDING_CODE_CONFLICT');
     const assetType=String(h.assetType||h.type||'주식');
     const isCodelessFund=!explicitCode && !remoteCode
       && (assetType==='펀드'||assetType==='TDF');
-    if (!remoteCode && !isCodelessFund) return false;
+    if (!remoteCode && !isCodelessFund) return blocked('HOLDING_MASTER_MISSING');
     if (remoteCode && !(dirty.trades||[]).some(t=>t?.name===name
-        && String(t.code||'').trim()===remoteCode)) return false;
+        && String(t.code||'').trim()===remoteCode)) return blocked('HOLDING_TRADE_CODE_MISMATCH');
     const sourceRow=server.codes.find(item=>item?.name===name && String(item?.code||'').trim()===remoteCode);
-    if (remoteCode && String(sourceRow?.type||sourceRow?.assetType||'주식')!==assetType) return false;
+    if (remoteCode && String(sourceRow?.type||sourceRow?.assetType||'주식')!==assetType) return blocked('HOLDING_ASSET_TYPE_MISMATCH');
     let entry=grouped.get(name);
     if (!entry) {
       entry={code:remoteCode,name,qty:0,costAmt:0,assetType,accts:[]};
       grouped.set(name,entry);
     } else if (entry.code!==remoteCode || entry.assetType!==assetType) {
       // Conflicting local asset identities must not be merged.
-      return false;
+      return blocked('HOLDING_GROUP_CONFLICT');
     }
     if (!entry.accts.includes(acct)) entry.accts.push(acct);
     entry.qty+=qty;
@@ -124,7 +130,7 @@ function _legacyExactLedgerMatch(dirty,server) {
   }
   const funds=dirty.fundDirect||{};
   for (const [name,fd] of Object.entries(funds)) {
-    if (!fd || !Number.isFinite(Number(fd.cost))) return false;
+    if (!fd || !Number.isFinite(Number(fd.cost))) return blocked('FUND_COST_INVALID');
     if (Number(fd.cost)<=0 || grouped.has(name)) continue;
     grouped.set(name,{code:'',name,qty:1,costAmt:Number(fd.cost),
       assetType:fd.type||'TDF',accts:[]});
@@ -133,13 +139,14 @@ function _legacyExactLedgerMatch(dirty,server) {
     code:h.code,name:h.name,qty:h.qty,costAmt:h.costAmt,
     assetType:h.assetType,acct:h.accts.join(',')
   }));
-  if (expected.length!==server.holdings.length) return false;
+  if (expected.length!==server.holdings.length) return blocked('HOLDING_COUNT_MISMATCH');
   const sorted=rows=>rows.map(_legacyHoldingTuple).sort((x,y)=>
     JSON.stringify(x).localeCompare(JSON.stringify(y)));
   const lh=sorted(expected),rh=sorted(server.holdings);
-  if (lh.some(x=>!x)||rh.some(x=>!x)||JSON.stringify(lh)!==JSON.stringify(rh)) return false;
+  if (lh.some(x=>!x)||rh.some(x=>!x)||JSON.stringify(lh)!==JSON.stringify(rh)) return blocked('HOLDING_ROWS_DIFFER');
   const canon=obj=>JSON.stringify(Object.fromEntries(Object.entries(obj||{}).sort(([a],[b])=>a.localeCompare(b))));
-  return canon(funds)===canon(server.settings.fundDirect||{});
+  if (canon(funds)!==canon(server.settings.fundDirect||{})) return blocked('FUND_SETTINGS_DIFFER');
+  return true;
 }
 function exportLegacyJournalBackup() {
   const dirty=_pendingLegacyJournal();
@@ -164,11 +171,15 @@ async function diagnoseLegacyJournal() {
   if (!isGsheetConnectionCurrent(target,generation) || _pendingLegacyJournal()?.epoch!==dirty.epoch) {
     _legacyStatus('연결 또는 기록이 변경됐습니다. 다시 진단하세요.');return false;
   }
-  const local='로컬 거래 '+dirty.trades.length+'건, 보유 '+dirty.holdings.length+'건';
+  const local='로컬 거래 '+(Array.isArray(dirty.trades)?dirty.trades.length:0)
+    +'건, 보유 '+(Array.isArray(dirty.holdings)?dirty.holdings.length:0)+'건';
   const remote=Array.isArray(response?.trades)&&Array.isArray(response?.holdings)
-    ? '서버 거래 '+response.trades.length+'건, 보유 '+response.holdings.length+'건' : '서버 원장 확인 불가';
-  if (!_legacyExactLedgerMatch(dirty,response)) {
-    _legacyStatus(local+' / '+remote+' · 완전 일치 미확인: 자동 재전송·보류 해제 금지. 백업 후 원장 대조 필요.');
+    ? '서버 거래 '+response.trades.length+'건, 보유 '+response.holdings.length+'건'
+    : '서버 원장 확인 불가';
+  let failureCode='UNCLASSIFIED_MISMATCH';
+  if (!_legacyExactLedgerMatch(dirty,response,code => { failureCode=code; })) {
+    _legacyStatus(local+' / '+remote+' · 대조 실패: '+failureCode
+      +' · 자동 재전송·보류 해제 금지. 원본 백업 후 별도 대조 필요.');
     return false;
   }
   _legacyReviewProof={target,generation,epoch:dirty.epoch,
