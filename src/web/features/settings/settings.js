@@ -557,6 +557,8 @@ async function loadSettings(onProgress, options) {
     if (isLoadConnectionCurrent()) {
       _gsSettingsLoadFailure = { epoch: loadEpoch, target: loadTarget,
         generation: loadGeneration, stage: loadStage, code };
+      // Diagnose read failures without exposing GAS URL, credentials or financial rows.
+      console.warn('[GAS 설정 복원 중단]', { stage: loadStage, code });
     }
     return false;
   };
