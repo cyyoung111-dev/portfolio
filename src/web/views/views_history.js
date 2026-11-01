@@ -569,6 +569,8 @@ function renderGsheetView(area) {
   const krxAuthKey = window.GAS_API_KEY_STATUS?.krxAuthKeyConfigured ? 'configured' : '';
   const accessTokenConfigured = typeof getGsheetAccessToken === 'function' && !!getGsheetAccessToken();
   const serverAuthEnabled = !!window.GAS_API_KEY_STATUS?.requestAuthenticationEnabled;
+  const legacyPending = typeof _pendingLegacyJournal === 'function' && !!_pendingLegacyJournal();
+  const restored = typeof _gsBootRestored !== 'undefined' && _gsBootRestored === true && !_gsPortfolioRestoreRequired;
 
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -580,7 +582,7 @@ function renderGsheetView(area) {
                   border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
         <div style="font-size:1.3rem">${isLinked ? '✅' : '⭕'}</div>
         <div>
-          <div style="font-size:.78rem;font-weight:700;color:${isLinked ? 'var(--green)' : 'var(--muted)'}">${isLinked ? '연동됨' : '연동 안됨'}</div>
+          <div style="font-size:.78rem;font-weight:700;color:${isLinked ? 'var(--green)' : 'var(--muted)'}">${isLinked ? (restored ? '연동·복원 완료' : 'URL 저장됨 · 전체 복원 미완료') : '연동 안됨'}</div>
           <div style="font-size:.65rem;color:var(--muted);margin-top:2px;word-break:break-all">${isLinked ? currentUrl.slice(0, 60) + (currentUrl.length > 60 ? '…' : '') : '구글 Apps Script 웹앱 URL을 입력하세요'}</div>
         </div>
         ${isLinked ? `<button id="btn-clear-gsheet-url" class="btn-del-sm" style="margin-left:auto;flex-shrink:0">해제</button>` : ''}
@@ -633,6 +635,16 @@ function renderGsheetView(area) {
         <div id="gsheetAccessTokenStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${serverAuthEnabled ? 'GAS 요청 인증이 활성화되어 있습니다.' : 'GAS에서 access_token을 설정하기 전에는 기존 호환 모드입니다.'} 토큰 원문은 화면에 다시 표시하지 않습니다.</div>
       </div>
 
+
+      ${legacyPending ? `<div style="background:var(--s2);border:1px solid var(--c-amber-30,var(--border));border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="font-size:.75rem;font-weight:700;color:var(--amber)">미확인 모바일 거래·보유 기록</div>
+        <p style="font-size:.68rem;color:var(--muted);margin:8px 0">이전 버전에서 저장 완료가 확인되지 않은 로컬 자료입니다. 자동 재전송·삭제하지 않습니다. 반드시 백업 후 서버와 읽기 전용 대조하세요.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">
+          <button id="btn-export-legacy-journal" class="btn-purple-sm">원본 기록 백업</button>
+          <button id="btn-diagnose-legacy-journal" class="btn-purple-sm">서버 원장 대조</button>
+          <button id="btn-archive-legacy-journal" class="btn-ghost-sm">완전 일치 시 보류 해제</button>
+        </div><p id="legacyJournalStatus" role="status" style="font-size:.68rem;white-space:pre-line;color:var(--amber);margin:10px 0 0">${typeof _legacyReviewStatus === 'string' ? _legacyReviewStatus.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])) : ''}</p>
+      </div>` : ''}
 
       <!-- 공공데이터포털 API 키 입력 -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
