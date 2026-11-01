@@ -239,7 +239,7 @@
 <script defer src="features/trade/editor/mgmt_trade.js?v=20261027-2"></script>
 <script defer src="features/import/mgmt_bulk.js?v=20260903-1"></script>
 <script defer src="domain/migration/mgmt_migration.js?v=20260903-1"></script>
-<script defer src="app/event_delegation.js?v=20261006-1"></script>
+<script defer src="app/event_delegation.js?v=20261101-9"></script>
 <script defer src="app/bootstrap.js?v=20261027-3"></script>
 <!-- HOLDING EDITOR MODAL -->
 
@@ -408,7 +408,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261101-8', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261101-9', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>
