@@ -11,9 +11,14 @@ on:
     - cron: '50 7 * * 0'  # Sunday 16:50 KST
     - cron: '15 8 * * 0'  # Sunday 17:15 KST
     - cron: '15 9 * * 0'  # Sunday 18:15 KST
+  # One-off recovery if GitHub's scheduled morning slots never materialize.
+  # This trigger fires only when THIS workflow file is changed on main; it
+  # does not turn every unrelated commit into a Telegram delivery attempt.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/telegram-sunday-test-20261101.yml']
   workflow_dispatch:
     inputs:
-      period:
         description: 'Sunday November 1 test slot'
         required: true
         type: choice
