@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   test:
-    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.run_attempt == 1
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: portfolio-production-gas
     timeout-minutes: 8
