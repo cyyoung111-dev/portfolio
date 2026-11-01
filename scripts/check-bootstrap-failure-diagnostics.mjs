@@ -1528,6 +1528,58 @@ assert.ok(fs.readFileSync('src/web/features/settings/settings_sync.js','utf8').i
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 
+// Produce actual browser-facing trade rows using the production GAS reader:
+// it adds ratio, fractionalCash, and fund even for an ordinary buy.
+const tradesStart=gasSrc.indexOf('function handleGetTrades(');
+const tradesEnd=gasSrc.indexOf('function handleGetHoldings(',tradesStart);
+assert.ok(tradesStart>=0 && tradesEnd>tradesStart,'production trade reader found');
+const tradeRows=[
+  ['2026-10-07','buy','계좌','테스트','005930',2,100,'주식','','',''],
+  ['2026-10-08','split','계좌','테스트','005930',2,0,'주식','분할',2,0.5],
+  ['2026-10-09','buy','연금','연금펀드','',1,1000,'펀드','','','']
+];
+const actualTradeCtx=vm.createContext({
+  CONFIG:{SHEET_TRADES:'Trades',TIMEZONE:'Asia/Seoul'},
+  getss:()=>({getSheetByName:name=>name==='Trades'?{
+    getLastRow:()=>tradeRows.length+1,getLastColumn:()=>11,
+    getRange:()=>({getValues:()=>tradeRows})
+  }:null}),
+  jsonOk:body=>({getContent:()=>JSON.stringify({status:'ok',...body})}),
+  jsonError:message=>({getContent:()=>JSON.stringify({status:'error',message})})
+});
+vm.runInContext(gasSrc.slice(tradesStart,tradesEnd),actualTradeCtx);
+const gasRead=JSON.parse(actualTradeCtx.handleGetTrades().getContent());
+assert.equal(gasRead.status,'ok');
+assert.equal(gasRead.trades.length,3);
+assert.deepEqual(gasRead.trades.map(t=>[t.ratio,t.fractionalCash,t.fund]),
+  [[0,0,false],[2,0.5,false],[0,0,true]],
+  'production GAS reader emits default ratio/cash and derived fund');
+// A local journal omitting the derived GAS-only fields is still comparable,
+// while stock splits and fractional cash must match exactly.
+{
+  const x=setup(),t=gasRead.trades;
+  const ordinary={...t[0]};delete ordinary.ratio;delete ordinary.fractionalCash;delete ordinary.fund;
+  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple(ordinary)),
+    JSON.stringify(x.ctx._legacyTradeTuple(t[0])),
+    'default GAS-only trade fields compare as zero/derived boolean');
+  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],fund:undefined})), 'null',
+    'explicit nonboolean fund is not silently accepted');
+  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],ratio:3})),
+    JSON.stringify(x.ctx._legacyTradeTuple(t[1])),false,
+    'split-ratio mismatch must be rejected');
+  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[1],fractionalCash:3})),
+    JSON.stringify(x.ctx._legacyTradeTuple(t[1])),false,
+    'fractional cash mismatch must be rejected');
+  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[2],fund:false})), 'null',
+    'fund-identity contradiction is not auto-archived');
+  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple({...t[2],fund:undefined})), 'null');
+  const fundLocal={...t[2]};delete fundLocal.fund;
+  assert.equal(JSON.stringify(x.ctx._legacyTradeTuple(fundLocal)),
+    JSON.stringify(x.ctx._legacyTradeTuple(t[2])),
+    'GAS derived fund=true is recognized for local fund trades');
+  assert.equal(x.writes,0);
+}
+
 // Legacy mobile journal is an unknown-outcome write, not an auth failure.
 // Recovery must never resend trades/holdings; only a complete, second
 // read-only match plus durable on-device backup permits explicit archiving.
@@ -1536,7 +1588,7 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
   const trade={date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',
     code:'005930',qty:2,price:100,assetType:'주식',memo:''};
   x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
-  x.response.trades=[{...trade}];
+  x.response.trades=[{...trade,ratio:0,fractionalCash:0,fund:false}];
   x.response.holdings=[{code:'005930',name:'테스트',qty:2,costAmt:200,
     assetType:'주식',acct:'계좌'}];
   vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:2,price:100,assetType:'주식',memo:''}); rawHoldings.push({name:'테스트',code:'005930',qty:2,cost:100,acct:'계좌',assetType:'주식'});_markPortfolioRemoteDirty();const j=_getPortfolioRemoteDirty();j.receiptProtocol=0;j.legacyUntracked=true;_persistPortfolioRemoteDirtyMap();",x.ctx);
