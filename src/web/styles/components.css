@@ -553,10 +553,19 @@ input[type="number"]{
 .price-status-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:var(--muted);font-size:.65rem;font-weight:500}
 .price-status-meta>.c-muted,.price-status-meta>span[style]{display:inline-flex;align-items:center}
 .price-status-chips{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
-.price-status-chip{display:inline-flex;align-items:center;min-height:20px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:.62rem;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.price-status-chip{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:20px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:.62rem;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .price-status-chip.is-skip{border-color:var(--c-cyan-30);background:var(--c-cyan-08);color:var(--cyan)}
 .price-status-chip.is-missing{border-color:var(--c-amber-30);background:var(--c-amber-08);color:var(--gold);cursor:pointer;font-family:inherit}
-.price-status-chip.is-action{cursor:pointer;font-family:inherit}
+.price-status-chip.is-action{cursor:pointer;font-family:inherit;border-color:var(--c-blue2-30);background:rgba(59,130,246,.09);color:var(--blue2,var(--cyan));gap:3px}
+.price-status-chip.is-action::after{content:'›';font-size:.78rem;line-height:1;font-weight:700}
+.price-status-chip.is-action:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.price-status-chip.is-missing:not(.is-action){border-color:var(--c-blue2-30);background:rgba(59,130,246,.09);color:var(--blue2,var(--cyan))}
+.price-status-chip.is-missing:not(.is-action)::after{content:'›';font-size:.78rem;line-height:1;font-weight:700}
+.price-status-chip.is-missing[data-missing-count='0']{border-color:var(--c-blue2-30);background:rgba(59,130,246,.09);color:var(--blue2,var(--cyan))}
+.price-status-chip.is-missing[data-missing-count='0']::after{content:'›'}
+.price-status-chip.is-missing[data-missing-count='0']{cursor:pointer}
+.price-status-chip.is-missing[data-missing-count='0']:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.price-status-chip.is-action:hover,.price-status-chip.is-action:focus-visible{border-color:var(--cyan);color:var(--text)}
 .price-status-chip.is-action:hover,.price-status-chip.is-action:focus{border-color:var(--c-blue2-30);color:var(--text);outline:none}
 .price-lookup-detail{margin-top:5px;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--s2);color:var(--muted);font-size:.63rem}
 .price-lookup-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--text);margin-bottom:4px}

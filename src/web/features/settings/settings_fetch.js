@@ -414,7 +414,7 @@ function _pricePortfolioSummary() {
     + ((fundDirect && typeof fundDirect === 'object') ? Object.keys(fundDirect).length : 0);
   const missing = Array.isArray(window._gsheetMissingCodes) ? window._gsheetMissingCodes : [];
   const missingStr = missing.map(item => `${item.code || ''} ${item.name || ''}`.trim()).filter(Boolean).join(', ');
-  const missingChip = `<button type="button" data-status-action="gsheet" class="price-status-chip${missing.length ? ' is-missing' : ''}" title="${_escapeHtml(missingStr ? '미조회 종목: ' + missingStr : '미조회 종목 없음')}">미조회 ${missing.length}개</button>`;
+  const missingChip = `<button type="button" data-status-action="gsheet" class="price-status-chip is-action${missing.length ? ' is-missing' : ''}" title="${_escapeHtml(missingStr ? '미조회 종목: ' + missingStr : '미조회 종목 없음')}">미조회 ${missing.length}개</button>`;
   return `<span class="price-status-chips"><span class="price-status-chip">거래 ${tradeCount}건</span><span class="price-status-chip">보유 ${holdingCount}건</span>${missingChip}</span>`;
 }
 
