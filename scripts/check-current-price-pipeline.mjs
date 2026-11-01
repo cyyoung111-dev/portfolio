@@ -43,7 +43,7 @@ assert.match(web, /price-lookup-detail/);
 const delegation = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 assert.match(delegation, /closest\('\[data-price-detail\]'\)/);
 const index = fs.readFileSync('src/web/index.html', 'utf8');
-assert.match(index, /components\.css\?v=20260921-2/);
+assert.match(index, /components\.css\?v=20261102-1/);
 assert.match(index, /settings_sync\.js\?v=20261028-6/);
 assert.match(index, /settings_fetch\.js\?v=20261101-4/);
 assert.match(web, /const requestKey = targetUrl \+ '\\|' \+ generation \+ '\\|' \+ dateStr/,
@@ -55,7 +55,7 @@ assert.match(web, /requestGsheetActionJson\([\s\S]*'getPrices'[\s\S]*targetUrl[\
 assert.match(index, /event_delegation\.js\?v=20261101-9/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
 assert.match(sw, /portfolio-cache-\d{8}-\d+/);
-assert.match(sw, /components\.css\?v=20260921-2/);
+assert.match(sw, /components\.css\?v=20261102-1/);
 
 // 새 관측성은 추가 호출을 만들지 않고 기존 단일 batch/read 경계를 계측한다.
 const getPricesBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
