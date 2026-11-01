@@ -211,7 +211,8 @@ for (const outcome of ['denied','accepted','changed-connection']) {
   const x=setup();
   const input={value:'new-private-token-1234567890'};
   const status={textContent:'',style:{}};
-  x.ctx.$el=id=>id==='gsheetAccessTokenInput'?input:
+  // $el is a lexical const in core_storage.js; mock its DOM dependency.
+  x.ctx.document.getElementById=id=>id==='gsheetAccessTokenInput'?input:
     id==='gsheetAccessTokenStatus'?status:null;
   x.ctx.showToast=()=>{};
   x.ctx.renderView=()=>{};
