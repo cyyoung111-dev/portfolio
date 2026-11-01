@@ -228,7 +228,7 @@
 <script defer src="features/settings/settings_persistence_utils.js?v=20261025-2"></script>
 <script defer src="features/settings/settings.js?v=20261101-5"></script>
 <script defer src="features/settings/settings_sync.js?v=20261028-6"></script>
-<script defer src="features/settings/settings_tabsync.js?v=20261007-1"></script>
+<script defer src="features/settings/settings_tabsync.js?v=20261101-6"></script>
 <script defer src="features/settings/settings_fetch.js?v=20261101-4"></script>
 <script defer src="features/management/mgmt_editor.js?v=20261013-2"></script>
 <script defer src="features/master/account/mgmt_acct.js?v=20260903-1"></script>
@@ -407,7 +407,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261101-5', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261101-6', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>
