@@ -860,21 +860,43 @@ async function saveGsheetAccessTokenFromUI() {
   const token = String(input?.value || '').trim();
   if (!token) { showToast('GAS에서 설정한 접근 토큰을 입력해주세요', 'warn'); return; }
   if (token.length < 24) { showToast('접근 토큰은 24자 이상을 권장합니다', 'warn', 5000); return; }
-  const previous = getGsheetAccessToken();
-  saveGsheetAccessToken(token);
+  const targetUrl = String(GSHEET_API_URL || '').trim();
+  const generation = getGsheetConnectionGeneration();
   const status = $el('gsheetAccessTokenStatus');
-  if (status) { status.style.color = 'var(--amber)'; status.textContent = '접근 토큰 검증 중...'; }
-  const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 0 });
-  if (!data || data.status !== 'ok') {
-    saveGsheetAccessToken(previous);
-    if (status) { status.style.color = 'var(--red-lt)'; status.textContent = '검증 실패 · 이전 토큰을 복원했습니다. GAS 토큰과 입력값을 확인하세요.'; }
-    showToast('접근 토큰 검증 실패', 'error', 5000);
+  if (status) { status.style.color = 'var(--amber)'; status.textContent = '접근 토큰 읽기 전용 검증 중...'; }
+  let data = null;
+  try {
+    // Never temporarily replace a working token to test an untrusted value.
+    data = await requestGsheetFormJson('getSettings', {}, {
+      targetUrl, accessTokenOverride: token, timeoutMs: 10000, retry: 0, preserveError: true
+    });
+  } catch (_) {}
+  if (!isGsheetConnectionCurrent(targetUrl, generation)) {
+    showToast('연결이 변경되어 이전 토큰 검증 결과를 폐기했습니다', 'warn');
     return;
   }
+  if (!data || data.status !== 'ok' || !data.settings) {
+    if (status) { status.style.color = 'var(--red-lt)'; status.textContent = '검증 실패 · 기존 토큰을 변경하지 않았습니다. GAS 설정을 확인하세요.'; }
+    showToast('접근 토큰 검증 실패 · 기존 연결 유지', 'error', 5000);
+    return;
+  }
+  saveGsheetAccessToken(token);
   if (input) input.value = '';
   window.GAS_API_KEY_STATUS = data.settings?.apiKeyStatus || window.GAS_API_KEY_STATUS || {};
-  if (status) { status.style.color = 'var(--green-lt)'; status.textContent = '접근 토큰 검증 완료 · 이 브라우저에만 저장됨'; }
-  showToast('GAS 접근 토큰 저장 및 검증 완료', 'ok');
+  if (status) { status.style.color = 'var(--amber)'; status.textContent = '토큰 검증 완료 · 전체 거래·보유 복원 중...'; }
+  // A valid getSettings token is not evidence of complete financial restore.
+  // Re-fetch authoritative ledgers before enabling refresh/persistence.
+  const restored = await bootstrapGsheetSettings();
+  if (!restored) {
+    const reason = typeof getGsheetSettingsLoadFailure === 'function'
+      ? getGsheetSettingsLoadFailure() : '';
+    showToast('토큰 확인 완료 · 전체 복원 미완료. 외부연동 진단을 확인하세요.', 'warn', 6000);
+    if (status) { status.style.color = 'var(--amber)'; status.textContent = '토큰 확인 · 전체 복원 미완료' + (reason ? ' · ' + reason : ''); }
+    renderView(true);
+    return;
+  }
+  if (status) { status.style.color = 'var(--green-lt)'; status.textContent = '접근 토큰 및 전체 거래·보유 복원 완료'; }
+  showToast('GAS 접근 토큰 검증 및 전체 복원 완료', 'ok');
   renderView(true);
 }
 

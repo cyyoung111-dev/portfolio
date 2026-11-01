@@ -76,7 +76,11 @@ async function requestGsheetFormJson(action, params, opts) {
   if (!targetUrl || !action) return null;
   const form = new URLSearchParams();
   form.set('action', action);
-  const accessToken = String(lsGet('gsheet_access_token', '') || '').trim();
+  // A candidate token must be verified with a read-only GAS action BEFORE
+  // replacing the browser's current credential. Never log or persist probes.
+  const accessToken = Object.prototype.hasOwnProperty.call(o, 'accessTokenOverride')
+    ? String(o.accessTokenOverride || '').trim()
+    : getGsheetAccessToken();
   if (accessToken) form.set('accessToken', accessToken);
   Object.entries(params || {}).forEach(([k, v]) => {
     if (v === null || v === undefined || v === '') return;
@@ -110,7 +114,18 @@ function getGsheetAccessToken() {
 
 function saveGsheetAccessToken(token) {
   const normalized = String(token || '').trim();
+  const previous = getGsheetAccessToken();
+  if (normalized === previous) return normalized;
   if (normalized) lsSave('gsheet_access_token', normalized);
   else lsRemove('gsheet_access_token');
+  // Credentials are part of connection identity. Invalidate in-flight reads
+  // and require authoritative Settings + trades + holdings revalidation before
+  // price polling or any financial write is permitted on this device.
+  GSHEET_CONNECTION_GENERATION += 1;
+  _gsPortfolioRestoreRequired = !!String(GSHEET_API_URL || '').trim();
+  _gsBootRestored = false;
+  _gsCodeMasterSourceIdentity = '';
+  _gsBootPromise = null;
+  _gsSettingsLoadFailure = null;
   return normalized;
 }

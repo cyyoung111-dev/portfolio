@@ -164,6 +164,86 @@ assert.equal((await h.ctx.requestGsheetActionJson('getSettings',{},{})).status,'
 assert.equal(h.writes,0);
 
 
+
+// Candidate credentials must be probed without replacing a working token,
+// then re-validated against the full authoritative ledger before price writes.
+{
+  const x=setup();
+  x.ctx.setTimeout=()=>0;
+  // The default harness blocks all form calls; explicitly restore the
+  // production read-only transport to exercise a candidate token probe.
+  vm.runInContext(net,x.ctx);
+  // Probe uses the real form transport. Bootstrap uses a complete synthetic
+  // server response; no production calls or mutation are permitted in CI.
+  x.ctx.requestGsheetActionJson=async()=>x.response;
+  const oldToken='existing-private-token';
+  x.ctx.saveGsheetAccessToken(oldToken);
+  x.ctx.fetch=async(_url,opts)=>{
+    const body=new URLSearchParams(opts.body);
+    assert.equal(body.get('action'),'getSettings');
+    assert.equal(body.get('accessToken'),'candidate-private-token');
+    assert.equal(x.ctx.getGsheetAccessToken(),oldToken,'candidate must not be persisted by the probe');
+    return {ok:true,json:async()=>x.response};
+  };
+  assert.equal((await x.ctx.requestGsheetFormJson('getSettings',{},{
+    accessTokenOverride:'candidate-private-token'
+  })).status,'ok');
+  assert.equal(x.ctx.getGsheetAccessToken(),oldToken);
+  assert.equal(await x.ctx.loadSettings(),true);
+  const before=x.ctx.getGsheetConnectionGeneration();
+  x.ctx.saveGsheetAccessToken('candidate-private-token');
+  assert.equal(x.ctx.getGsheetConnectionGeneration(),before+1);
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
+  assert.equal(vm.runInContext('_gsPortfolioRestoreRequired',x.ctx),true);
+  assert.equal(x.writes,0);
+  assert.equal(await x.ctx.bootstrapGsheetSettings(),true);
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),true);
+  x.ctx.saveGsheetAccessToken('candidate-private-token');
+  assert.equal(x.ctx.getGsheetConnectionGeneration(),before+1,'unchanged credential is a no-op');
+  x.ctx.saveGsheetAccessToken('');
+  assert.equal(x.ctx.getGsheetConnectionGeneration(),before+2,'clearing auth invalidates prior restore');
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
+  assert.equal(x.writes,0);
+}
+// Failed or stale browser token verification must preserve the old credential
+// and must not treat getSettings success alone as financial-ledger recovery.
+for (const outcome of ['denied','accepted','changed-connection']) {
+  const x=setup();
+  const input={value:'new-private-token-1234567890'};
+  const status={textContent:'',style:{}};
+  // $el is a lexical const in core_storage.js; mock its DOM dependency.
+  x.ctx.document.getElementById=id=>id==='gsheetAccessTokenInput'?input:
+    id==='gsheetAccessTokenStatus'?status:null;
+  x.ctx.showToast=()=>{};
+  x.ctx.renderView=()=>{};
+  x.ctx.saveGsheetAccessToken('old-private-token-123456789');
+  const before=x.ctx.getGsheetConnectionGeneration();
+  let called=0;
+  x.ctx.requestGsheetFormJson=async(action,params,opts)=>{
+    assert.equal(action,'getSettings');
+    assert.equal(opts.accessTokenOverride,input.value);
+    assert.equal(x.ctx.getGsheetAccessToken(),'old-private-token-123456789');
+    called++;
+    if (outcome==='changed-connection') x.ctx.saveGsheetUrl('https://script.google.com/macros/s/new-target/exec');
+    return outcome==='denied'?{status:'error',message:'인증 실패'}:
+      {status:'ok',settings:x.response.settings};
+  };
+  await x.ctx.saveGsheetAccessTokenFromUI();
+  assert.equal(called,1);
+  if (outcome!=='accepted') {
+    assert.equal(x.ctx.getGsheetAccessToken(),'old-private-token-123456789');
+    assert.ok(!x.ctx.getGsheetAccessToken().includes('new-private'));
+    assert.equal(x.ctx.getGsheetConnectionGeneration(),before+(outcome==='changed-connection'?1:0));
+    assert.equal(x.writes,0);
+  } else {
+    assert.equal(x.ctx.getGsheetAccessToken(),'new-private-token-1234567890');
+    assert.equal(vm.runInContext('_gsBootRestored',x.ctx),true,
+      'successful probe must be followed by full authoritative bootstrap');
+    assert.equal(vm.runInContext('_gsPortfolioRestoreRequired',x.ctx),false);
+    assert.equal(x.writes,0);
+  }
+}
+
 // Production bootstrap: remote code master is available before local master
 // application, so a pinned dirty payload should not create false unmatched logs.
 h=setup();
