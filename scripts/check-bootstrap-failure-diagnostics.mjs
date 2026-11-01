@@ -1608,7 +1608,7 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
   if(mode==='partial-read') x.response.portfolioReadStatus.holdingsOk=false;
   if(mode==='account-mismatch') x.response.settings.ACCOUNTS_MASTER=[{id:'account-001',displayName:'다른계좌'}];
   if(mode==='code-mismatch') x.response.codes=[{name:'테스트',code:'000660',type:'주식'}];
-  if(mode==='fx-unverifiable') vm.runInContext("const j=_getPortfolioRemoteDirty();j.trades[0].priceRaw=15;_persistPortfolioRemoteDirtyMap();",x.ctx);
+  if(mode==='fx-unverifiable') vm.runInContext("j.trades[0].priceRaw=15;_persistPortfolioRemoteDirtyMap();",x.ctx);
   const before=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
   const matched=await x.ctx.diagnoseLegacyJournal();
   assert.equal(matched,!['server-diff','partial-read','account-mismatch','code-mismatch','fx-unverifiable'].includes(mode));
