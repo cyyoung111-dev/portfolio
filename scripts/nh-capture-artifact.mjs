@@ -16,7 +16,7 @@ export async function loadCapturedNight(date,{token,repository,fetchImpl=fetch,n
     const response=await fetchImpl(`${api}/runs/${a.workflow_run.id}`,{headers,signal:AbortSignal.timeout(15000)});
     if(!response.ok)return null;
     const run=await response.json();
-    const start=Date.parse(`${date}T07:30:00+09:00`), end=Date.parse(`${date}T08:00:00+09:00`), created=Date.parse(run.created_at);
+    const start=Date.parse(`${date}T06:45:00+09:00`), end=Date.parse(`${date}T07:35:00+09:00`), created=Date.parse(run.created_at);
     if(run.id!==a.workflow_run.id||run.name!=='NH night reference capture'||run.path!=='.github/workflows/nh-night-capture.yml'||run.event!=='schedule'||run.head_branch!=='main'||run.head_repository?.full_name!==repo||run.status!=='completed'||run.conclusion!=='success'||run.run_attempt!==1||!(created>=start&&created<end))return null;
     const download=await fetchImpl(`${api}/artifacts/${a.id}/zip`,{headers,redirect:'follow',signal:AbortSignal.timeout(15000)});
     if(!download.ok)return null;
