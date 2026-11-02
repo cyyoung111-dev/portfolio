@@ -15,7 +15,9 @@ assert.equal(closeWindow(new Date(day+'T16:45:00+09:00')).allowed,false,'prepara
 assert.equal(closeWindow(now()).allowed,true);
 assert.equal(closeWindow(new Date(day+'T17:10:00+09:00')).allowed,true);
 assert.equal(closeWindow(new Date(day+'T17:29:59+09:00')).allowed,true);
-assert.equal(closeWindow(new Date(day+'T17:30:00+09:00')).allowed,false);
+assert.equal(closeWindow(new Date(day+'T17:30:00+09:00')).allowed,true);
+assert.equal(closeWindow(new Date(day+'T17:59:59+09:00')).allowed,true);
+assert.equal(closeWindow(new Date(day+'T18:00:00+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T18:14:00+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T19:17:00+09:00')).allowed,false);
 const rows=[
@@ -192,7 +194,7 @@ assert.equal(sent,1);
 await assert.rejects(deliverClose(prepared,{now,attempt:2,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 await assert.rejects(deliverClose({...prepared,date:'2026-10-29'},{now,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 await assert.rejects(deliverClose({...prepared,nhConfirmed:0},{now,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
-await assert.rejects(deliverClose(prepared,{now:()=>new Date(day+'T17:30:00+09:00'),
+await assert.rejects(deliverClose(prepared,{now:()=>new Date(day+'T18:00:00+09:00'),
  send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 assert.equal(sent,1);
 const domesticOnly=await prepareClose({...options,
@@ -297,8 +299,8 @@ for(const patch of [{head_branch:'feature'},
  assert.throws(()=>deliveryTrigger('close',env,{...precomputeCompletion,
    workflow_run:{...precomputeCompletion.workflow_run,...patch}},true),/TRIGGER_INVALID/);
 }
-assert.equal(closeWindow(new Date(day+'T17:29:59+09:00')).allowed,true);
-assert.equal(closeWindow(new Date(day+'T17:30:00+09:00')).allowed,false);
+assert.equal(closeWindow(new Date(day+'T17:59:59+09:00')).allowed,true);
+assert.equal(closeWindow(new Date(day+'T18:00:00+09:00')).allowed,false);
 assert.deepEqual(workflow.on.workflow_run.branches,['main']);
 assert.equal(workflow.concurrency.group,'telegram-close-briefing');
 assert.equal(workflow.concurrency['cancel-in-progress'],false);
