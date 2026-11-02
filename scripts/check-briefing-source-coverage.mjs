@@ -36,7 +36,9 @@ assert.equal(new Set(summary.statuses.map(x=>x.id)).size,summary.statuses.length
 assert.equal(summary.statuses.some(x=>x.id==='VKOSPI'&&x.status==='NOT_CONNECTED'),true);
 for(const id of ['SAMSUNG','SKHYNIX','NVDA','MU','USDKRW','DXY','UST10Y'])
  assert.equal(summary.statuses.find(x=>x.id===id)?.status,'NO_VERIFIED_ROW',id);
-assert.equal(summary.statuses.find(x=>x.id==='BTC')?.status,'NOT_CONNECTED');
+for(const id of ['WTI','BRENT','GOLD','COPPER','BTC'])
+ assert.equal(summary.statuses.find(x=>x.id===id)?.status,'NO_VERIFIED_ROW',id);
+assert.deepEqual(summary.markets,{verified:0,total:5});
 assert.deepEqual(summary.stocks,{verified:0,total:4});
 assert.deepEqual(summary.macros,{verified:0,total:3});
 const qc=formatCloseCoverageSummary(summary);

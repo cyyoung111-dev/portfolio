@@ -7,6 +7,7 @@ import {fetchDomesticCloseIndexes,verifiedDomesticCloseRows,verifiedNhCloseRows}
 import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import {readNhClosingStocks,readClosingMacros,validateClosingMacro,closingStockSessions} from './closing-extra-daily-sources.mjs';
 import {expectedMorningDate,MORNING_SERIES} from './telegram-morning-report.mjs';
+import {readClosingMarketReferences,validateClosingMarketReference} from './closing-market-references.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const STOCK_IDS=new Set(['SAMSUNG','SKHYNIX','NVDA','MU']);
@@ -44,32 +45,37 @@ export function sanitizePreclose(date,source){
   const validated=validateClosingMacro(date,x.id,{...x,source:'Yahoo Finance 일봉'});
   return validated?[validated]:[];
  });
+ const markets=(Array.isArray(source.markets)?source.markets:[]).flatMap(x=>{
+  const v=validateClosingMarketReference(date,x?.id,x);
+  return v?[v]:[];
+ });
  const unique=(rows,key,limit)=>rows.length<=limit
   &&new Set(rows.map(key)).size===rows.length?rows:[];
  return {nh:unique(nh,x=>x.symbol,3),domestic:unique(domestic,x=>x.label,3),
   secondary:unique(secondary,x=>x.label,3),stocks:unique(stocks,x=>x.id,4),
-  macros:unique(macros,x=>x.id,3)};
+  macros:unique(macros,x=>x.id,3),markets:unique(markets,x=>x.id,5)};
 }
 export async function precomputeClose({now=()=>new Date(),
  fetchNh=readNhMorningIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchSecondary=fetchSecondaryIndexes,fetchStocks=readNhClosingStocks,
- fetchMacros=readClosingMacros,fetchImpl=fetch,
+ fetchMacros=readClosingMacros,fetchMarkets=readClosingMarketReferences,fetchImpl=fetch,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
  const first=precloseWindow(now());
  if(!first.allowed)return {ready:false,status:'OUTSIDE_PREPARE_WINDOW',date:first.date};
  if(krxSessionStatus(first.date)!=='OPEN')
   return {ready:false,status:'MARKET_NOT_OPEN',date:first.date};
- let nh=[],domestic=[],secondary=[],stocks=[],macros=[];
+ let nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[];
  await Promise.all([
   (async()=>{try{nh=await fetchNh(first.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{}})(),
   (async()=>{try{domestic=await fetchDomestic(first.date,{fetchImpl,now,gasUrl,gasToken});}catch{}})(),
   (async()=>{try{secondary=await fetchSecondary(first.date,{fetchImpl});}catch{}})(),
   (async()=>{try{stocks=await fetchStocks(first.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{}})(),
-  (async()=>{try{macros=await fetchMacros(first.date,{fetchImpl,now});}catch{}})()
+  (async()=>{try{macros=await fetchMacros(first.date,{fetchImpl,now});}catch{}})(),
+  (async()=>{try{markets=await fetchMarkets(first.date,{fetchImpl,now});}catch{}})()
  ]);
  const last=precloseWindow(now());
  if(!last.allowed||last.date!==first.date)return {ready:false,status:'PREPARE_TOO_LATE',date:first.date};
- const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros});
+ const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros,markets});
  if(!rows)return {ready:false,status:'PREPARE_INVALID',date:first.date};
  const capturedAt=now().toISOString();
  return {ready:true,status:'PRECOMPUTED',artifactName:'telegram-close-prepared-'+first.date,
