@@ -36,12 +36,12 @@ assert.match(duplicates,/주요 4종목 종가 3\/4/);
 
 const missing=formatAiIndustryCloseLens({date,usDate,nh:nh.slice(0,1),
  secondary:secondary.slice(1),stocks:[]}).join('\n');
-assert.match(missing,/방향 판단 유보/);
+assert.match(missing,/동일 거래일 지수 수익률 부족 → 판단 보류/);
 assert.match(missing,/상대강도 판단 유보/);
 assert.match(missing,/0\/4/);
 const wrongDates=formatAiIndustryCloseLens({date,usDate,nh:nh.map(x=>({...x,date:'2026-10-29'})),
  secondary:secondary.map(x=>({...x,date:'2026-10-29'})),stocks:stocks.map(x=>({...x,source:'YAHOO'}))}).join('\n');
-assert.match(wrongDates,/방향 판단 유보/);
+assert.match(wrongDates,/동일 거래일 지수 수익률 부족 → 판단 보류/);
 assert.match(wrongDates,/상대강도 판단 유보/);
 assert.match(wrongDates,/0\/4/);
 
