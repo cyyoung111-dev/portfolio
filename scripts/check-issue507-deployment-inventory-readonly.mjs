@@ -12,20 +12,21 @@ const item=(id,types=['WEB_APP'])=>({
   webApp:{url:'https://example.invalid/PRIVATE_WEBAPP_URL'}})),
  description:'PRIVATE_DEPLOYMENT_DESCRIPTION'
 });
-function setup(pages){
+function setup(pages,details={}){
  const calls=[];
  const fetchImpl=async(url,options)=>{
   calls.push({url,options});
   assert.equal(options.method,'GET');
   assert.equal(options.headers.Authorization,'Bearer '+secret);
   assert.equal(options.redirect,'error');
-  const p=new URL(url).searchParams.get('pageToken')||'';
-  const value=pages[p];
+  const parsed=new URL(url),p=parsed.searchParams.get('pageToken')||'';
+  const match=parsed.pathname.match(/\/deployments\/([^/]+)$/);
+  const value=match?details[decodeURIComponent(match[1])]:pages[p];
   if(!value)throw Error('PRIVATE_UNEXPECTED_FETCH_URL');
   return {ok:true,status:200,text:async()=>JSON.stringify(value)};
  };
- return {calls,run:()=>inspectGasDeploymentsReadOnly({
-  scriptId,expectedDeploymentId,googleAccessToken:secret,fetchImpl})};
+ return {calls,run:(opts={})=>inspectGasDeploymentsReadOnly({
+  scriptId,expectedDeploymentId,googleAccessToken:secret,fetchImpl,...opts})};
 }
 const single=setup({'':{deployments:[item(expectedDeploymentId)]}});
 let result=await single.run();
@@ -117,6 +118,73 @@ assert.equal(result.executionApiEntryCount,1);
 assert.equal(second.calls.length,2);
 assert.equal(new URL(second.calls[1].url).searchParams.get('pageToken'),'SECOND');
 assert.ok(!JSON.stringify(result).includes('OLD_DEPLOYMENT_ID_123'));
+// Four real WEB_APP entries (one LIST-version absent) require independent
+// GET-only detail confirmation; recovering a GET version CANNOT clear blockers.
+const legacyA='EXTRA_DEPLOYMENT_A_001',legacyB='EXTRA_DEPLOYMENT_B_001',
+ legacyC='EXTRA_DEPLOYMENT_C_001';
+const listed=[
+ item(expectedDeploymentId),item(legacyA),item(legacyB),item(legacyC)
+];
+delete listed[2].deploymentConfig.versionNumber;
+const detailRows=Object.fromEntries([
+ [expectedDeploymentId,item(expectedDeploymentId)],
+ [legacyA,item(legacyA)],
+ [legacyB,item(legacyB)],
+ [legacyC,item(legacyC)]
+]);
+const deep=setup({'':{deployments:listed}},detailRows);
+const details=await deep.run({verifyDetails:true});
+assert.equal(details.status,'BLOCKED');
+assert.equal(details.reason,'VERSION_METADATA_UNVERIFIED');
+assert.equal(details.deploymentCount,4);
+assert.equal(details.webAppEntryCount,4);
+assert.equal(details.unverifiedVersionedDeploymentCount,1);
+assert.equal(details.additionalRoutableDeploymentCount,3);
+assert.equal(details.detailVerificationAttempted,true);
+assert.equal(details.detailGetRequestedCount,4);
+assert.equal(details.detailGetCheckedCount,4);
+assert.equal(details.detailVersionRecoveredCount,1);
+assert.equal(details.detailGetUnverifiedCount,0);
+assert.equal(details.detailVersionConflictCount,0);
+assert.equal(details.detailEntryPointMismatchCount,0);
+assert.equal(details.releaseAuthorized,false);
+assert.equal(details.allActorsAndVersionsTerminatedVerified,false);
+assert.equal(deep.calls.length,5);
+for(const x of [expectedDeploymentId,legacyA,legacyB,legacyC,secret,
+ 'PRIVATE_WEBAPP_URL','PRIVATE_DEPLOYMENT_DESCRIPTION']){
+ assert.ok(!JSON.stringify(details).includes(x),'private metadata not in audit');
+}
+const detailFail=setup({'':{deployments:[item(expectedDeploymentId)]}});
+const dFail=await detailFail.run({verifyDetails:true});
+assert.equal(dFail.status,'BLOCKED');
+assert.equal(dFail.reason,'DETAIL_METADATA_UNVERIFIED');
+assert.equal(dFail.detailGetRequestedCount,1);
+assert.equal(dFail.detailGetUnverifiedCount,1);
+assert.equal(dFail.releaseAuthorized,false);
+const mismatch=setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:item(expectedDeploymentId,['EXECUTION_API'])});
+const dMismatch=await mismatch.run({verifyDetails:true});
+assert.equal(dMismatch.status,'BLOCKED');
+assert.equal(dMismatch.detailEntryPointMismatchCount,1);
+const verMismatch=setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:{...item(expectedDeploymentId),
+  deploymentConfig:{versionNumber:337}}});
+const dVersion=await verMismatch.run({verifyDetails:true});
+assert.equal(dVersion.status,'BLOCKED');
+assert.equal(dVersion.detailVersionConflictCount,1);
+const detailMissingVersion=item(expectedDeploymentId);
+delete detailMissingVersion.deploymentConfig.versionNumber;
+const vFail=setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:detailMissingVersion});
+const dNoVersion=await vFail.run({verifyDetails:true});
+assert.equal(dNoVersion.status,'BLOCKED');
+assert.equal(dNoVersion.detailVersionStillUnverifiedCount,1);
+const idMismatch=setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:item(legacyA)});
+const dId=await idMismatch.run({verifyDetails:true});
+assert.equal(dId.status,'BLOCKED');
+assert.equal(dId.detailGetUnverifiedCount,1);
+assert.equal(dId.releaseAuthorized,false);
 for(const payload of [
  {deployments:[]},
  {deployments:[item(expectedDeploymentId),item('OLD_EXTRA_WEB_APP_ID')]},
@@ -189,4 +257,8 @@ const runner=fs.readFileSync('scripts/issue507-deployment-inventory-readonly.mjs
 assert.match(runner,/method:'GET'/);
 assert.doesNotMatch(runner,/method:\s*'PUT'|method:\s*'DELETE'/);
 assert.ok(!runner.includes('releaseAuthorized:true'));
+assert.match(runner,/googleAccessToken:token,verifyDetails:true/,
+ 'manual main audit must conduct detail GET-only verification');
+assert.match(runner,/detailGetUnverifiedCount/);
+assert.doesNotMatch(runner,/method:'POST'|method:'PUT'|method:'DELETE'/);
 console.log('Issue507 GAS deployment inventory GET-only, pagination, redaction, fail-closed: PASS');
