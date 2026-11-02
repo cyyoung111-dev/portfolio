@@ -23,7 +23,7 @@ const result=formatAiIndustryCloseLens({date,usDate,nh,secondary,stocks}).join('
 assert.match(result,/AI 산업 전체/);
 assert.match(result,/기술주 상대약세 \(-1\.64%p\)/);
 assert.match(result,/SOX -7\.20% \/ NASDAQ100 대비 -3\.74%p/);
-assert.match(result,/주요 4종목 NH 확정 종가 4\/4/);
+assert.match(result,/주요 4종목 종가 4\/4/);
 assert.match(result,/CAPEX.*클라우드 매출.*미연결/);
 assert.match(result,/네트워크·광통신.*전력·냉각.*AI 소프트웨어/);
 assert.match(result,/AI 설비투자 → HBM\/GPU 수요/);
@@ -31,7 +31,7 @@ assert.doesNotMatch(result,/AI 수요 급증|실제 주문 증가|AI 버블 확�
 const duplicates=formatAiIndustryCloseLens({date,usDate,nh,
  secondary:[...secondary,secondary[0]],stocks:[...stocks,stocks[0]]}).join('\n');
 assert.match(duplicates,/SOX·NASDAQ100 동시 검증값 부족 → 상대강도 판단 유보/);
-assert.match(duplicates,/주요 4종목 NH 확정 종가 3\/4/);
+assert.match(duplicates,/주요 4종목 종가 3\/4/);
 
 
 const missing=formatAiIndustryCloseLens({date,usDate,nh:nh.slice(0,1),
@@ -64,6 +64,6 @@ const macros=[
 const msg=formatClose(date,nh,secondary,domestic,stocks,macros,[]);
 assert.ok(msg.startsWith('['+date+' 장후 시장 브리핑]'));
 assert.ok(msg.indexOf('■ 먼저 보는 시장 해석')<msg.indexOf('■ 국내 시장'));
-assert.match(msg,/■ 데이터 QC/);
+assert.match(msg,/■ 데이터 확인/);
 assert.ok(msg.length<4000, 'AI commentary must not exceed Telegram 4000-char payload gate');
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
