@@ -1,0 +1,37 @@
+name: Telegram 2026-11-02 07:40 data audit (read-only)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/telegram-morning-audit-20261102.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: telegram-morning-audit-20261102-readonly
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read today's 07:40-completed market inputs without Telegram send
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/telegram-morning-audit-20261102.mjs
+      - name: Archive read-only morning coverage evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-morning-audit-20261102-readonly
+          path: .morning-audit-20261102/coverage.json
+          if-no-files-found: error
+          retention-days: 2
