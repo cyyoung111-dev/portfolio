@@ -150,6 +150,60 @@ assert.equal(details.detailEntryPointMismatchCount,0);
 assert.equal(details.releaseAuthorized,false);
 assert.equal(details.allActorsAndVersionsTerminatedVerified,false);
 assert.equal(deep.calls.length,5);
+assert.equal(details.webAppSecurityInspectedCount,4);
+assert.equal(details.webAppUnknownAccessCount,4);
+assert.equal(details.webAppUnknownExecuteAsCount,4);
+assert.equal(details.additionalWebAppUnknownSecurityCount,3);
+// Access mode and execution principal are independent and must both be
+// counted from authenticated GET metadata, not guessed from URL or LIST.
+function configuredWebApp(id,access,executeAs){
+ const d=item(id);
+ d.entryPoints[0].webApp.entryPointConfig={access,executeAs};
+ return d;
+}
+const secureDetails={
+ [expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING'),
+ [legacyA]:configuredWebApp(legacyA,'ANYONE_ANONYMOUS','USER_DEPLOYING'),
+ [legacyB]:configuredWebApp(legacyB,'DOMAIN','USER_ACCESSING'),
+ [legacyC]:configuredWebApp(legacyC,'ANYONE','USER_ACCESSING')
+};
+const secureAudit=await setup({'':{deployments:listed}},secureDetails)
+ .run({verifyDetails:true});
+assert.equal(secureAudit.status,'BLOCKED');
+assert.equal(secureAudit.reason,'VERSION_METADATA_UNVERIFIED');
+assert.equal(secureAudit.webAppSecurityInspectedCount,4);
+assert.equal(secureAudit.webAppAccessMyselfCount,1);
+assert.equal(secureAudit.webAppAccessDomainCount,1);
+assert.equal(secureAudit.webAppAccessSignedInCount,1);
+assert.equal(secureAudit.webAppAccessAnonymousCount,1);
+assert.equal(secureAudit.webAppExecuteAsDeployerCount,2);
+assert.equal(secureAudit.webAppExecuteAsAccessingCount,2);
+assert.equal(secureAudit.webAppUnknownAccessCount,0);
+assert.equal(secureAudit.webAppUnknownExecuteAsCount,0);
+assert.equal(secureAudit.additionalWebAppAnonymousCount,1);
+assert.equal(secureAudit.additionalWebAppSignedInCount,1);
+assert.equal(secureAudit.additionalWebAppExecuteAsDeployerCount,1);
+assert.equal(secureAudit.additionalWebAppAnonymousDeployerCount,1);
+assert.equal(secureAudit.additionalWebAppUnknownSecurityCount,0);
+assert.equal(secureAudit.releaseAuthorized,false);
+for(const id of [expectedDeploymentId,legacyA,legacyB,legacyC])
+ assert.ok(!JSON.stringify(secureAudit).includes(id));
+// The expected deployment itself needs a verified security config.
+// A missing or unknown access/authority field can never imply isolation.
+const unknownSec=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:item(expectedDeploymentId)})
+ .run({verifyDetails:true});
+assert.equal(unknownSec.status,'BLOCKED');
+assert.equal(unknownSec.reason,'DETAIL_METADATA_UNVERIFIED');
+assert.equal(unknownSec.webAppUnknownAccessCount,1);
+assert.equal(unknownSec.webAppUnknownExecuteAsCount,1);
+const invalidSec=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:configuredWebApp(expectedDeploymentId,
+  'UNKNOWN_ACCESS','UNKNOWN_EXECUTE_AS')})
+ .run({verifyDetails:true});
+assert.equal(invalidSec.status,'BLOCKED');
+assert.equal(invalidSec.webAppUnknownAccessCount,1);
+assert.equal(invalidSec.releaseAuthorized,false);
 for(const x of [expectedDeploymentId,legacyA,legacyB,legacyC,secret,
  'PRIVATE_WEBAPP_URL','PRIVATE_DEPLOYMENT_DESCRIPTION']){
  assert.ok(!JSON.stringify(details).includes(x),'private metadata not in audit');
@@ -260,5 +314,8 @@ assert.ok(!runner.includes('releaseAuthorized:true'));
 assert.match(runner,/googleAccessToken:token,verifyDetails:true/,
  'manual main audit must conduct detail GET-only verification');
 assert.match(runner,/detailGetUnverifiedCount/);
+assert.match(runner,/additionalWebAppAnonymousDeployerCount/);
+assert.match(runner,/WEB_ACCESS.has\(config\?\.access\)/);
+assert.match(runner,/WEB_EXECUTE_AS.has\(config\?\.executeAs\)/);
 assert.doesNotMatch(runner,/method:'POST'|method:'PUT'|method:'DELETE'/);
 console.log('Issue507 GAS deployment inventory GET-only, pagination, redaction, fail-closed: PASS');
