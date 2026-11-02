@@ -8,7 +8,7 @@ const valid=(row,date,source)=>row&&row.date===date&&row.source===source
 const pct=x=>(x>=0?'+':'')+x.toFixed(2)+'%';
 const point=x=>(x>=0?'+':'')+x.toFixed(2)+'%p';
 
-export function formatAiIndustryCloseLens({date,usDate,nh=[],secondary=[],stocks=[],futures=[],now=new Date(date+'T17:00:00+09:00')}={}){
+export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],secondary=[],stocks=[],futures=[],now=new Date(date+'T17:00:00+09:00')}={}){
  const spx=nh.find(x=>x?.symbol==='^GSPC'&&valid(x,usDate,'NH_INDEX_DAILY'));
  const ndx=nh.find(x=>x?.symbol==='^NDX'&&valid(x,usDate,'NH_INDEX_DAILY'));
  const soxMatches=secondary.filter(x=>x?.label==='SOX'&&x.role==='NON_NH_REFERENCE_ONLY'
@@ -28,7 +28,22 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],secondary=[],stocks
    &&Number.isFinite(rows[0].value)&&rows[0].value>0;
  });
  const fresh=selectCurrentFuturesRows(date,futures,now);
+ const kospi=domestic.filter(x=>x?.label==='KOSPI'&&x.date===date
+    &&['KRX_OFFICIAL','FDR_KRX_CACHE','YAHOO_SHINHAN_CROSSCHECKED_EOD'].includes(x.source)
+    &&Number.isFinite(x.changePercent)&&Number.isFinite(x.value)&&x.value>0);
+ const kosdaq=domestic.filter(x=>x?.label==='KOSDAQ'&&x.date===date
+    &&['KRX_OFFICIAL','FDR_KRX_CACHE','YAHOO_SHINHAN_CROSSCHECKED_EOD'].includes(x.source)
+    &&Number.isFinite(x.changePercent)&&Number.isFinite(x.value)&&x.value>0);
+ const kr=kospi.length===1&&kosdaq.length===1?{kospi:kospi[0],kosdaq:kosdaq[0]}:null;
  const lines=['■ 먼저 보는 시장 해석 — AI 산업 전체'];
+ if(kr)lines.push('• 한국장: KOSPI '+pct(kr.kospi.changePercent)
+  +' / KOSDAQ '+pct(kr.kosdaq.changePercent)
+  +(kr.kospi.changePercent>0&&kr.kosdaq.changePercent>0
+    ?' → 양 시장 상승. 다만 상승 종목 수·수급 확인 전에는 확산 여부를 단정하지 않습니다.'
+    :kr.kospi.changePercent<0&&kr.kosdaq.changePercent<0
+      ?' → 양 시장 하락. 반도체 실적 악화로 단정하지 않습니다.'
+      :' → 대형주·중소형주 신호가 혼재합니다.'));
+ else lines.push('• 한국장: 당일 양 시장 지수 검증이 불완전하여 상승 확산 여부는 유보.');
  const markets=fresh.map(x=>x.id);
  if(markets.includes('NQ')&&markets.includes('ES')){
   lines.push('• 17시 시장: 미국 NASDAQ100·S&P500 선물의 최근 거래값 확인.'
@@ -48,13 +63,22 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],secondary=[],stocks
  }else lines.push('• 반도체 사이클: SOX·NASDAQ100 동시 검증값 부족 → 상대강도 판단 유보.');
  lines.push('• GPU·HBM·메모리: 주요 4종목 종가 '+confirmed.length+'/4.'
    +(confirmed.length<4?' 개별주 반응을 업황 확정 근거로 사용하지 않습니다.':' 기업별 실적·수주 확인은 별도 필요합니다.'));
- lines.push('• AI 투자 수요: 빅테크 CAPEX·클라우드 매출·GPU 주문 데이터 미연결.'
-   +' 수요 증가나 투자 축소를 지수만으로 단정하지 않습니다.');
- lines.push('• 파급 산업: 네트워크·광통신, 데이터센터 전력·냉각, AI 소프트웨어'
-   +' 수주·수익화는 별도 검증 대상입니다.');
- lines.push('• 포트폴리오 관점: 반도체 주가뿐 아니라 AI 설비투자 → HBM/GPU 수요'
-   +' → 전력 인프라 → 서비스 수익화의 연결과 현금흐름을 함께 점검.');
- lines.push('• 조건부: CAPEX·실적 개선과 반도체 상대강도 회복은 긍정,'
-   +' 투자 지연·수익화 둔화·밸류에이션 부담은 경계. (확률 판단 아님)');
+ lines.push('• AI 수요 검증: 빅테크 CAPEX·클라우드 매출·GPU 주문 데이터 미연결.'
+   +' AI 설비투자 → HBM/GPU 수요 → 네트워크·광통신·전력·냉각 → AI 소프트웨어 수익화의 연결이 핵심.');
+ lines.push('■ 투자 판단 — 4가지 원칙 적용 (인물의 당일 의견이 아님)');
+ lines.push('• 버핏: GPU/HBM의 점유율보다 경쟁우위·투하자본수익률(ROIC)·유지 CAPEX 차감 후 소유주 현금흐름을 확인.');
+ lines.push('• 다모다란: AI 매출 성장률과 재투자·영업마진을 현금흐름으로 환산해 할인율로 평가.'
+   +' 시장가격이 요구하는 성장 가정과 비교.');
+ lines.push('• 애크먼: 해자·반복 FCF·재무안정성이 확인된 기업만 높은 집중 위험을 감수할 근거가 됩니다.'
+   +' 실제 계좌별 중복 노출은 별도 검산.');
+ lines.push('• 피터 린치: 수요·이익 성장과 지불하는 PER을 함께 비교.'
+   +' 메모리 업황 최고점의 일시적 EPS로 PEG·저평가를 단정하지 않음.');
+ lines.push('■ 조건부 시나리오 · 다음 확인');
+ lines.push('• 긍정: 빅테크 CAPEX 대비 AI 매출·FCF가 개선되고 HBM 수주·마진이 유지되면'
+   +' 반도체 이익 지속성에 우호적.');
+ lines.push('• 경계: 투자 회수 지연, 가격경쟁, 재고·증설 부담이 커지면'
+   +' 높은 반도체 비중의 영구손실 위험을 재평가.');
+ lines.push('• 실행 기준: 기업별 실적/가이던스·FCF·밸류에이션·반도체 비중이 확인되기 전에는'
+   +' 단일 거래일 지수만으로 매수·매도 결론을 내리지 않습니다.');
  return lines;
 }
