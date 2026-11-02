@@ -82,8 +82,8 @@ const macros=await readClosingMacros(date,{
 });
 assert.equal(macros.length,3);assert.equal(attempts.length,4);
 assert.ok(attempts.some(x=>x.host==='query2.finance.yahoo.com'));
-assert.match(formatClosingExtra(date,stocks,macros),/삼성전자: 73,500 원.*2026-11-02.*NH 저장/);
-assert.match(formatClosingExtra(date,stocks,macros),/엔비디아: 215 USD.*2026-10-30.*NH 저장/);
+assert.match(formatClosingExtra(date,stocks,macros),/삼성전자: 73,500 원.*\[2026-11-02\]/);
+assert.match(formatClosingExtra(date,stocks,macros),/엔비디아: 215 USD.*\[2026-10-30\]/);
 assert.match(formatClosingExtra(date,stocks,macros),/미 10년물: 4.929%.*2026-10-30/);
 assert.doesNotMatch(formatClosingExtra(date,[],[]),/73,500|1445.12/);
 const coverage=summarizeCloseCoverage(date,{stocks,macros,expectedUsDate:us});
@@ -113,7 +113,7 @@ const prepared=await prepareClose({
 assert.equal(prepared.ready,true);
 assert.equal(prepared.coverage.stocks.verified,4);
 assert.equal(prepared.coverage.macros.verified,3);
-assert.match(prepared.message,/■ 주요 종목 NH 저장 종가/);
+assert.match(prepared.message,/■ 주요 종목/);
 assert.match(prepared.message,/■ 환율·금리/);
 assert.ok(prepared.message.length<4000);
 const noCore=await prepareClose({
