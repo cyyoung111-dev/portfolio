@@ -536,6 +536,7 @@ function validateBriefingWorkflow(source){
  const doc=YAML.parseDocument(source,{uniqueKeys:true,version:'1.2'});
  assert.equal(doc.errors.length,0,'Briefing YAML parses without duplicate keys');
  const wf=doc.toJS({maxAliasCount:0});
+ assert.deepEqual(wf.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test','late_test']);
  assert.deepEqual(wf.on.schedule.map(x=>x.cron),schedules,'NH-only night: KRX headless night cron removed');
  assert.ok(Object.hasOwn(wf.on,'workflow_dispatch'),'manual route preserved');
  assert.deepEqual(wf.on.workflow_dispatch.inputs.checkpoint.options,
@@ -645,6 +646,28 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  await assert.rejects(()=>deliverPrepared(prepared,{now,attempt:2,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  await assert.rejects(()=>deliverPrepared(prepared,{now:()=>new Date('2026-10-28T08:10:00+09:00'),send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  assert.equal(sends,1,'late or stale payload cannot send');
+ // Full-message late test is explicitly selected and cannot relax the regular schedule.
+ const {lateTestWindow}=await import('./telegram-morning-briefing.mjs');
+ const lateNow=()=>new Date('2026-10-28T09:40:00+09:00');
+ assert.equal(lateTestWindow(lateNow()).allowed,true);
+ assert.equal(lateTestWindow(new Date('2026-10-28T08:09:59+09:00')).allowed,false);
+ assert.equal(lateTestWindow(new Date('2026-10-28T12:00:00+09:00')).allowed,false);
+ assert.equal(lateTestWindow(new Date('2026-11-01T09:40:00+09:00')).allowed,false);
+ const lateOpts={...options,now:lateNow,mode:'late_test',loadReference:async()=>null,
+   run:async({allowLateTest,send})=>{assert.equal(allowLateTest,true);await send(null,null,'검증용 시장 요약');return {status:'SENT_SOURCE_MISSING'};}};
+ const late=await prepareMorning({...lateOpts,fetchImpl:mock(0)});
+ assert.equal(late.ready,true);assert.equal(late.mode,'late_test');
+ assert.equal(late.artifactName,prepared.artifactName,'late test shares the dated production claim');
+ assert.match(late.message,/^\\[수동 지연 발송 테스트/);
+ assert.equal((await prepareMorning({...lateOpts,fetchImpl:mock(1,[{name:late.artifactName}])})).status,'ALREADY_CLAIMED');
+ await assert.rejects(()=>prepareMorning({...options,now:lateNow,fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
+ await assert.rejects(()=>prepareMorning({...lateOpts,now:()=>new Date('2026-10-28T12:00:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
+ await assert.rejects(()=>deliverPrepared(late,{now:lateNow,send:async()=>assert.fail('missing mode must not send')}),/TELEGRAM_PREPARED_INVALID/);
+ await assert.rejects(()=>deliverPrepared(prepared,{now:lateNow,mode:'late_test',send:async()=>assert.fail('normal payload must not be retagged')}),/TELEGRAM_PREPARED_INVALID/);
+ let lateSends=0;
+ assert.equal((await deliverPrepared(late,{now:lateNow,mode:'late_test',send:async()=>{lateSends++;}})).status,'SENT');
+ await assert.rejects(()=>deliverPrepared(late,{now:()=>new Date('2026-10-28T12:00:00+09:00'),mode:'late_test',send:async()=>{lateSends++;}}),/TELEGRAM_PREPARED_INVALID/);
+ assert.equal(lateSends,1);
  const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
  assert.deepEqual(wf.on.schedule.map(x=>x.cron),['40 22 * * 0-4','49 22 * * 0-4','57 22 * * 0-4','0 23 * * 0-4','5 23 * * 0-4']);
  const captureWf=YAML.parse(fs.readFileSync('.github/workflows/nh-night-capture.yml','utf8'));
