@@ -42,14 +42,14 @@ for (const [kind,clock,status] of [
  ['CLOSE','19:59:59','READY_TO_CLAIM'],
  ['CLOSE','20:00:00','TOO_LATE']
 ])assert.equal(plan(kind,clock),status,kind+' '+clock);
-assert.equal(plan('MORNING','07:30:00',{attempt:2}),'ACTION_RERUN_BLOCKED');
-assert.equal(plan('MORNING','07:30:00',{claimState:'CLAIMED'}),'ALREADY_CLAIMED');
-assert.equal(plan('MORNING','07:30:00',{claimState:'UNKNOWN'}),'CLAIM_STATUS_UNVERIFIED');
-assert.equal(plan('MORNING','07:30:00',{claimState:'ABSENT',lockHeld:false}),'NO_EXCLUSIVE_DELIVERY_OWNER');
-assert.equal(plan('MORNING','07:30:00',{payloadState:'UNKNOWN'}),'PAYLOAD_NOT_READY');
-assert.equal(plan('CLOSE','16:00:00',{payloadState:'INVALID'}),'PAYLOAD_NOT_READY');
+assert.equal(plan('MORNING','07:40:00',{attempt:2}),'ACTION_RERUN_BLOCKED');
+assert.equal(plan('MORNING','07:40:00',{claimState:'CLAIMED'}),'ALREADY_CLAIMED');
+assert.equal(plan('MORNING','07:40:00',{claimState:'UNKNOWN'}),'CLAIM_STATUS_UNVERIFIED');
+assert.equal(plan('MORNING','07:40:00',{claimState:'ABSENT',lockHeld:false}),'NO_EXCLUSIVE_DELIVERY_OWNER');
+assert.equal(plan('MORNING','07:40:00',{payloadState:'UNKNOWN'}),'PAYLOAD_NOT_READY');
+assert.equal(plan('CLOSE','17:00:00',{payloadState:'INVALID'}),'PAYLOAD_NOT_READY');
 assert.equal(planBriefingAttempt(opts('MORNING','07:40:00')).date,date);
-assert.equal(planBriefingAttempt({...opts('MORNING','07:40:00'),now:new Date('2026-10-28T22:30:00.000Z')}).status,'READY_TO_CLAIM');
+assert.equal(planBriefingAttempt({...opts('MORNING','07:40:00'),now:new Date('2026-10-28T22:40:00.000Z')}).status,'READY_TO_CLAIM');
 
 assert.equal(planBriefingAttempt({...opts('MORNING','07:40:00'),now:new Date('2026-10-09T07:30:00+09:00')}).status,'MARKET_CLOSED');
 assert.equal(planBriefingAttempt({...opts('CLOSE','17:00:00'),now:new Date('2026-10-31T16:00:00+09:00')}).status,'MARKET_CLOSED');
