@@ -63,7 +63,7 @@
     "check:snapshot-recovery-maintenance": "node scripts/check-snapshot-recovery-maintenance.mjs",
     "check:price-history-integrity": "node scripts/check-price-history-integrity.mjs",
     "check:range-diagnosis-indexed": "node scripts/check-range-diagnosis-indexed.mjs",
-    "check:market-briefing-headless": "node scripts/check-nh-night-reference.mjs && node scripts/check-market-briefing-headless.mjs && node scripts/check-telegram-close-workflow.mjs && node scripts/check-telegram-oneoff-20261030.mjs && node scripts/check-telegram-morning-report.mjs && node scripts/check-telegram-morning-master.mjs && node scripts/check-nh-central-gas-proxy.mjs && node scripts/check-nh-morning-index-source.mjs && node scripts/check-telegram-sunday-test-20261101.mjs && node scripts/check-telegram-weekday-sent-proof.mjs",
+    "check:market-briefing-headless": "node scripts/check-nh-night-reference.mjs && node scripts/check-market-briefing-headless.mjs && node scripts/check-telegram-close-workflow.mjs && node scripts/check-telegram-oneoff-20261030.mjs && node scripts/check-telegram-morning-report.mjs && node scripts/check-telegram-morning-master.mjs && node scripts/check-nh-central-gas-proxy.mjs && node scripts/check-nh-night-capture-audit.mjs && node scripts/check-nh-morning-index-source.mjs && node scripts/check-telegram-sunday-test-20261101.mjs && node scripts/check-telegram-weekday-sent-proof.mjs",
     "check:gas-deploy": "node scripts/check-gas-deploy.mjs && node scripts/check-gas-autorelease.mjs",
     "check:gas-menu": "node scripts/check-gas-menu.mjs",
     "check:ci-coverage": "node scripts/check-ci-coverage.mjs",
