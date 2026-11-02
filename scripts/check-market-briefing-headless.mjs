@@ -6,7 +6,7 @@ import { parsePrekospiNight, fetchPrekospiNight } from './prekospi-night-referen
 import { scheduledWindow, fetchDatedDaily, sendTelegram, runTelegramMorning } from './telegram-morning-briefing.mjs';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import { createRequest, diagnosticFor, headlessSucceeded, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
+import { createRequest, diagnosticFor, headlessSucceeded, maskSecrets, parseArgs, runHeadless, scheduledTradingDate, scheduleDelayGuard } from './run-market-briefing-headless.mjs';
 
 globalThis.localStorage.clear();
 const prekospiHtml = '<div>장 마감 · 마지막 세션</div><section><h1>코스피200 야간선물 · <!-- -->마지막 야간 기록</h1><span class="tabular-nums text-[44px]">872.35</span><div>2026-10-26 18:00 ~ 익일 06:00 · 1분봉 (KST) · 2026. 10. 27. 06:00:00 KST 업데이트</div></section>';
@@ -82,6 +82,35 @@ assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','15 0 * * 1-5
   /schedule과 checkpoint/,'NIGHT_FINAL catch-up은 MORNING과 혼동 금지');
 assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
 assert.equal(scheduledTradingDate('30 7 * * 1-5',new Date('2026-09-21T20:00:00Z')),'2026-09-21','장마감 slot은 실행시각이 아니라 cron slot 거래일 사용');
+const lateEvening=scheduleDelayGuard('15 11 * * 1-5','2026-11-02T20:44:04Z');
+assert.equal(lateEvening.allowed,false,'20:15 KST run starting next morning must not write to GAS');
+assert.equal(lateEvening.reason,'STALE_SCHEDULE_BLOCKED');
+assert.ok(lateEvening.lagMinutes>500);
+assert.equal(scheduleDelayGuard('15 11 * * 1-5','2026-11-02T11:35:00Z').allowed,true,
+ 'valid 20-minute delayed EVENING slot stays operational');
+assert.equal(scheduleDelayGuard('15 11 * * 1-5','2026-11-02T12:45:00Z').allowed,true,
+ 'exact 90-minute delay boundary stays valid');
+assert.equal(scheduleDelayGuard('15 11 * * 1-5','2026-11-02T12:46:00Z').allowed,false,
+ 'over 90 minutes late blocks stale write before GAS calls');
+assert.equal(scheduleDelayGuard('30 7 * * 1-5','2026-11-02T07:45:00Z').allowed,true);
+assert.equal(scheduleDelayGuard('30 7 * * 1-5','2026-11-02T10:00:00Z').allowed,false);
+assert.equal(scheduleDelayGuard('15 11 * * 1-5','').allowed,false,
+ 'missing protected scheduled_at must not be accepted');
+assert.equal(scheduleDelayGuard('UNKNOWN','2026-11-02T11:20:00Z').allowed,false);
+const cliBlocked=spawnSync(process.execPath,[
+ 'scripts/run-market-briefing-headless.mjs','--checkpoint','EVENING',
+ '--schedule','15 11 * * 1-5','--scheduled-at','2026-11-02T20:44:04Z'
+],{encoding:'utf8',timeout:20000,env:{...process.env,
+ GAS_WEB_APP_URL:'',GAS_ACCESS_TOKEN:''}});
+assert.equal(cliBlocked.status,1,
+ 'stale CI schedule must fail before API calls even if GAS credentials absent');
+const cliDiagnostic=JSON.parse(cliBlocked.stdout.trim().split('\\n').at(-1));
+assert.equal(cliDiagnostic.status,'STALE_SCHEDULE_BLOCKED');
+assert.equal(cliDiagnostic.gasCalls,0);
+assert.equal(cliDiagnostic.financeWrites,0);
+assert.equal(cliDiagnostic.published,false);
+assert.equal(cliDiagnostic.masterPersistence,null);
+assert.equal(cliDiagnostic.snapshotPersistence,null);
 assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedule','30 22 * * 0-4']).tradingDate,'2026-09-18','수동 --date가 schedule보다 우선');
 const anchoredArgs=['--checkpoint','MORNING','--schedule','30 22 * * 0-4','--scheduled-at','2026-09-21T22:31:00Z'];
 assert.equal(parseArgs(anchoredArgs).tradingDate,'2026-09-22','workflow 최초 created_at으로 화요일 거래일 고정');
