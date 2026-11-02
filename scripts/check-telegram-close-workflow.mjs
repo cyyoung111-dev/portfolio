@@ -30,13 +30,13 @@ assert.equal(verifiedNhCloseRows(day,[rows[0],rows[0]]).length,0);
 assert.equal(verifiedNhCloseRows(day,[{...rows[0],value:0}]).length,0);
 assert.equal(verifiedNhCloseRows(day,[{...rows[0],label:'S&P 100'}]).length,0);
 const msg=formatClose(day,rows);
-assert.match(msg,/NH PLUG\(지원 지수\)/);
+assert.match(msg,/기준: 국내 당일 마감/);
 assert.match(msg,/S&P 500: 7,720.39.*2026-10-29.*NH/);
 assert.match(msg,/NASDAQ: 26,184.72.*NH/);
-assert.match(msg,/NASDAQ100: 29,402.51.*NH/);
+assert.match(msg,/NASDAQ100: 29,402.51.*\[2026-10-29\]/);
 assert.match(msg,/KOSPI: 검증된 당일 종가 미확보/);
-assert.match(msg,/SOX: NH 지수 코드 미검증/);
-assert.match(msg,/NH 지수 확인 3\/3/);
+assert.match(msg,/SOX: 검증값 미확보/);
+assert.match(msg,/핵심지수 3\/6/);
 const dowCsv='observation_date,DJIA\n2026-10-28,51000\n2026-10-29,51500\n';
 const vixCsv='DATE,OPEN,HIGH,LOW,CLOSE\n10/28/2026,17.8,18.1,17.1,17.5\n10/29/2026,18,19,17,18.25\n';
 const soxCsv='observation_date,NASDAQSOX\n2026-10-28,11684.00\n2026-10-29,11518.20\n';
@@ -48,10 +48,10 @@ assert.equal(dow.value,51500);assert.equal(vix.value,18.25);
 assert.equal(parseReferenceCsv('DOW','2026-10-30',dowCsv),null);
 assert.equal(parseReferenceCsv('VIX','2026-10-29',vixCsv+'10/29/2026,18,19,17,18.4\n'),null);
 const supplemental=formatClose(day,rows,[dow,vix,sox]);
-assert.match(supplemental,/다우존스: 51,500.*FRED_DJIA 참고 \(NH 아님\)/);
-assert.match(supplemental,/VIX: 18.25.*CBOE_VIX_DAILY 참고 \(NH 아님\)/);
-assert.match(supplemental,/SOX: 11,518.2.*FRED_NASDAQSOX 참고 \(NH 아님\)/);
-assert.match(supplemental,/NH 지수 확인 3\/3/);
+assert.match(supplemental,/다우존스: 51,500.*FRED 참고/);
+assert.match(supplemental,/VIX: 18.25.*CBOE 참고/);
+assert.match(supplemental,/SOX: 11,518.2.*FRED 참고/);
+assert.match(supplemental,/핵심지수 3\/6/);
 let refCalls=0;
 const refs=await fetchSecondaryIndexes(day,{fetchImpl:async url=>{
  refCalls++;
@@ -68,7 +68,7 @@ const domestic=[
  {type:'KOSPI200',label:'KOSPI 200',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',priceType:'PUBLISHED_EOD_REFERENCE',value:890.07,changePercent:-4.89}
 ];
 const dailyMsg=formatClose(day,rows,[],domestic);
-assert.match(dailyMsg,/KOSPI: 5,668.26.*FDR\/KRX 공개 참고 \(NH 아님\)/);
+assert.match(dailyMsg,/KOSPI: 5,668.26.*FDR 참고/);
 assert.match(dailyMsg,/KOSDAQ: 723.15.*2026-10-30/);
 assert.match(dailyMsg,/KOSPI 200: 890.07/);
 assert.equal(verifiedDomesticCloseRows(day,domestic).length,3);
@@ -159,9 +159,9 @@ const priority=await fetchDomesticCloseIndexes(day,{
 });
 assert.deepEqual(priority.map(x=>x.source),['KRX_OFFICIAL','KRX_OFFICIAL','FDR_KRX_CACHE']);
 const officialText=formatClose(day,rows,[],priority);
-assert.match(officialText,/KOSPI: 5,668.26.*KRX 공식 종가 \(NH 아님\)/);
+assert.match(officialText,/KOSPI: 5,668.26.*KRX/);
 assert.match(officialText,/KOSDAQ: 723.15.*KRX 공식 종가 \(NH 아님\)/);
-assert.match(officialText,/KOSPI 200: 5,668.26.*FDR\/KRX 공개 참고 \(NH 아님\)/);
+assert.match(officialText,/KOSPI 200: 5,668.26.*FDR 참고/);
 
 assert.doesNotMatch(msg,/Yahoo Finance 일봉 기준/);
 let fetched=0,sent=0;
@@ -182,11 +182,11 @@ const prepared=await prepareClose(options);
 assert.equal(prepared.ready,true);assert.equal(fetched,1);assert.equal(prepared.nhConfirmed,3);
 assert.equal(prepared.domesticConfirmed,0);
 assert.match(prepared.message,/NH PLUG/);
-assert.match(prepared.message,/CBOE_VIX_DAILY 참고/);
+assert.match(prepared.message,/CBOE 참고/);
 const providerDown=await prepareClose({...options,fetchSecondary:async()=>{throw Error('PROVIDER_DOWN');}});
 assert.equal(providerDown.ready,true,'non-NH feed failure must never prevent NH message');
 assert.match(providerDown.message,/S&P 500: 7,720.39/);
-assert.match(providerDown.message,/VIX: NH 지수 코드 미검증 · 별도 참고값 미확보/);
+assert.match(providerDown.message,/VIX: 검증값 미확보/);
 assert.equal((await deliverClose(prepared,{now,send:async()=>{sent++;}})).status,'SENT');
 assert.equal(sent,1);
 await assert.rejects(deliverClose(prepared,{now,attempt:2,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
@@ -203,7 +203,7 @@ assert.equal(domesticOnly.ready,true,'published domestic EOD must independently 
 assert.equal(domesticOnly.nhConfirmed,0);
 assert.equal(domesticOnly.domesticConfirmed,3);
 assert.match(domesticOnly.message,/KOSPI: 5,668.26/);
-assert.match(domesticOnly.message,/S&P 500: NH 완료 일봉 미확보/);
+assert.match(domesticOnly.message,/S&P 500: 완료 종가 미확보/);
 assert.equal((await deliverClose(domesticOnly,{now,send:async()=>{sent++;}})).status,'SENT');
 assert.equal(sent,2);
 const officialOnly=await prepareClose({...options,fetchNh:async()=>[],
@@ -211,7 +211,7 @@ const officialOnly=await prepareClose({...options,fetchNh:async()=>[],
 assert.equal(officialOnly.ready,true);
 assert.equal(officialOnly.domesticConfirmed,1);
 assert.equal(officialOnly.nhConfirmed,0);
-assert.match(officialOnly.message,/KOSPI: 5,668.26.*KRX 공식 종가/);
+assert.match(officialOnly.message,/KOSPI: 5,668.26.*KRX/);
 const empty=await prepareClose({...options,fetchNh:async()=>[{...rows[0],source:'KRX_OFFICIAL'}]});
 assert.equal(empty.ready,false);assert.equal(empty.status,'NO_VERIFIED_INDEX_CLOSE');
 const refOnly=await prepareClose({...options,fetchNh:async()=>[],fetchSecondary:async()=>[dow,vix]});
