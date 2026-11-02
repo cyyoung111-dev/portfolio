@@ -83,6 +83,52 @@ assert.match(sentMessage,/S&P 500: 미확보/);
 assert.match(sentMessage,/NASDAQ: 미확보/);
 assert.match(sentMessage,/NASDAQ100: 미확보/);
 
+// End-to-end morning path: stored NH closes must bypass Yahoo stock queries,
+// while their source is visibly labeled (no live NH OAuth or financial writes).
+const priorUrl=process.env.GAS_WEB_APP_URL,priorToken=process.env.GAS_ACCESS_TOKEN;
+process.env.GAS_WEB_APP_URL=url;
+process.env.GAS_ACCESS_TOKEN='TEST-GAS-ACCESS';
+let actualText='',yahooTargets=[],historyCalls=0;
+try{
+ const result=await runTelegramMorning({
+  now:()=>new Date('2026-10-30T07:45:00+09:00'),event:'schedule',attempt:1,
+  referenceFetch:async()=>null,token:'test',chatId:'test',
+  fetchImpl:async(target,options={})=>{
+   const targetUrl=String(target);
+   if(targetUrl===url){
+     const action=new URLSearchParams(options.body).get('action');
+     if(action==='getBenchmarks')return {ok:true,json:async()=>validPayload()};
+     if(action==='getMarketBriefingMaster')return {ok:true,json:async()=>({status:'ok',observations:[]})};
+     if(action==='getPriceHistory'){
+       historyCalls++;
+       return {ok:true,json:async()=>({status:'ok',prices:{
+        '005930':[{date:'2026-10-29',price:120,source:'NH_REGULAR_CLOSE'}],
+        '000660':[{date:'2026-10-29',price:220,source:'NH_REGULAR_CLOSE'}],
+        NVDA:[{date:'2026-10-29',price:210,source:'NH_REGULAR_CLOSE'}],
+        MU:[{date:'2026-10-29',price:180,source:'NH_REGULAR_CLOSE'}]}})};
+     }
+     throw Error('unexpected GAS action');
+   }
+   if(targetUrl.includes('/v8/finance/chart/'))
+     yahooTargets.push(decodeURIComponent(new URL(targetUrl).pathname.split('/').at(-1)));
+   return {ok:false};
+  },
+  send:async(_token,_chat,message)=>{actualText=message;}
+ });
+ assert.equal(result.status,'SENT_SOURCE_MISSING');
+ assert.equal(historyCalls,1,'one stored NH history batch');
+ for(const s of ['005930.KS','000660.KS','NVDA','MU'])
+   assert.ok(!yahooTargets.includes(s),'valid NH close skips duplicate Yahoo '+s);
+ assert.match(actualText,/삼성전자: 120 .*NH PLUG 확정 종가/);
+ assert.match(actualText,/SK하이닉스: 220 .*NH PLUG 확정 종가/);
+ assert.match(actualText,/엔비디아: 210 .*NH PLUG 확정 종가/);
+ assert.match(actualText,/마이크론: 180 .*NH PLUG 확정 종가/);
+}finally{
+ if(priorUrl===undefined)delete process.env.GAS_WEB_APP_URL;
+ else process.env.GAS_WEB_APP_URL=priorUrl;
+ if(priorToken===undefined)delete process.env.GAS_ACCESS_TOKEN;
+ else process.env.GAS_ACCESS_TOKEN=priorToken;
+}
 async function altered(change){
  return readNhMorningIndexes(day,{url,token:'TEST-GAS-ACCESS',
   fetchImpl:async()=>{const obj=validPayload();change(obj);return {ok:true,json:async()=>obj};}});
