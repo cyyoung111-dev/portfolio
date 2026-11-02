@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {proposeNhCloseReasonSource,APPROVED_GAS_BLOB} from './issue507-nh-close-reason-source-proposal.mjs';
+import {buildIssue507LiveRelease} from './build-issue507-live-release.mjs';
 
 // Test production 9.282 code verbatim, compare against pinned 9.281 behavior.
 // Only synthetic dates and 37 synthetic codes. No production GAS/NH/Sheets.
@@ -102,8 +103,11 @@ function oneReason(state,reason,expected){
 const pinnedSource=fs.readFileSync(fileURLToPath(
  new URL('../reference/gas-v9.281.gs',import.meta.url)),'utf8');
 const pinned=extract(pinnedSource),pinnedZone=extractProductionTimezone(pinnedSource);
-const frozenGas=fs.readFileSync(fileURLToPath(
+const runningGas=fs.readFileSync(fileURLToPath(
  new URL('../src/gas/apps_script.gs',import.meta.url)),'utf8');
+const frozenGas=buildIssue507LiveRelease().source;
+assert.equal(extract(runningGas),extract(frozenGas),
+ '06:45 proxy-only source must preserve the original regular-close collector');
 const candidateZone=extractProductionTimezone(frozenGas);
 assert.equal(candidateZone,pinnedZone,'baseline and candidate production zones agree');
 for(const source of [pinnedSource,frozenGas]){
