@@ -96,7 +96,13 @@ function entry(map,id){
   if(!r || r.date==null || !Number.isFinite(Number(r.value)) || Number(r.value)<=0)return info?.label+': 미확보';
   let amount=Number(r.value);
   let unit='';
-  if(id==='UST10Y'){amount/=10;unit='% (Yahoo ^TNX 환산)';}
+  // Yahoo chart ^TNX now delivers percent yields directly (e.g. 4.929).
+  // Do not divide by ten. A 10x-scaled index-level observation is ambiguous
+  // and must fail closed rather than silently printing an incorrect yield.
+  if(id==='UST10Y'){
+    if(!(amount>0&&amount<20))return info.label+': 미확보 (금리 단위 검증 필요)';
+    unit='% (Yahoo ^TNX 직접 표기)';
+  }
   else if(id==='WTI'||id==='BRENT'||id==='GOLD')unit=' USD';
   else if(id==='COPPER')unit=' USD/lb';
   else if(id==='BTC')unit=' USD';
