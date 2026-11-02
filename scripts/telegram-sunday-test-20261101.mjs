@@ -54,9 +54,10 @@ export function formatClosingTest(rows=[]){
     const config=MORNING_SERIES.find(x=>x.id===id);
     const row=map.get(id);
     if(!row)return config.label+': 확정 출처 미확보';
-    // Yahoo ^TNX quotations are 10x percentage yield; keep morning/close units identical.
+    // Yahoo ^TNX now expresses yields in percent directly.
     const isYield=id==='UST10Y';
-    const value=(isYield?row.value/10:row.value).toLocaleString('en-US',{maximumFractionDigits:isYield?3:2})+(isYield?'%':'');
+    if(isYield&&!(row.value>0&&row.value<20))return config.label+': 금리 단위 미확보';
+    const value=Number(row.value).toLocaleString('en-US',{maximumFractionDigits:isYield?3:2})+(isYield?'%':'');
     const pct=Number.isFinite(row.changePercent)
       ?' ('+(row.changePercent>=0?'+':'')+row.changePercent.toFixed(2)+'%)':'';
     return config.label+': '+value+pct+' ['+row.date+' · '+row.source+']';
