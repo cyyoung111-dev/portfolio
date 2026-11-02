@@ -4,7 +4,7 @@ name: Telegram November 3 17:00 one-off punctual fallback
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/telegram-close-arm-20261102.yml']
+    paths: ['.github/workflows/telegram-close-arm-20261103.yml']
 permissions:
   contents: read
   actions: read
