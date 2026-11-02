@@ -79,7 +79,7 @@ try{
  const lateDate='2026-11-02';
  const latePayload={date:lateDate,artifactName:'telegram-morning-claim-'+lateDate,
    mode:'late_test',
-   message:'[수동 지연 발송 테스트 · 2026-11-02 · 정규 장전 발송 아님]\\n[한국장 장전 종합 브리핑 | 2026-11-02]'};
+   message:'[수동 지연 발송 테스트 · 2026-11-02 · 정규 장전 발송 아님]\n[한국장 장전 종합 브리핑 | 2026-11-02]'};
  const latePath=join(dir,'morning-late-test-sent.json');
  let lateCalls=0;
  const lateSent=await deliverAndRecordWeekday(latePayload,{
