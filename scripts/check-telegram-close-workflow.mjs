@@ -14,8 +14,10 @@ assert.equal(closeWindow(new Date(day+'T16:59:59+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T16:45:00+09:00')).allowed,false,'preparation can run early but delivery may not');
 assert.equal(closeWindow(now()).allowed,true);
 assert.equal(closeWindow(new Date(day+'T17:10:00+09:00')).allowed,true);
-assert.equal(closeWindow(new Date(day+'T19:59:59+09:00')).allowed,true);
-assert.equal(closeWindow(new Date(day+'T20:00:00+09:00')).allowed,false);
+assert.equal(closeWindow(new Date(day+'T17:29:59+09:00')).allowed,true);
+assert.equal(closeWindow(new Date(day+'T17:30:00+09:00')).allowed,false);
+assert.equal(closeWindow(new Date(day+'T18:14:00+09:00')).allowed,false);
+assert.equal(closeWindow(new Date(day+'T19:17:00+09:00')).allowed,false);
 const rows=[
  {label:'S&P 500',symbol:'^GSPC',date:'2026-10-29',value:7720.39,changePercent:0.5,source:'NH_INDEX_DAILY'},
  {label:'NASDAQ',symbol:'^IXIC',date:'2026-10-29',value:26184.72,changePercent:1.2,source:'NH_INDEX_DAILY'},
@@ -190,7 +192,7 @@ assert.equal(sent,1);
 await assert.rejects(deliverClose(prepared,{now,attempt:2,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 await assert.rejects(deliverClose({...prepared,date:'2026-10-29'},{now,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 await assert.rejects(deliverClose({...prepared,nhConfirmed:0},{now,send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
-await assert.rejects(deliverClose(prepared,{now:()=>new Date(day+'T20:00:00+09:00'),
+await assert.rejects(deliverClose(prepared,{now:()=>new Date(day+'T17:30:00+09:00'),
  send:async()=>{sent++;}}),/PAYLOAD_INVALID/);
 assert.equal(sent,1);
 const domesticOnly=await prepareClose({...options,
@@ -233,8 +235,8 @@ assert.match(step.env.GAS_WEB_APP_URL,/vars[.]GAS_WEB_APP_URL/);
 const send=workflow.jobs.briefing.steps.find(s=>s.name==='Send claimed closing briefing once');
 assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
 assert.deepEqual(workflow.on.schedule.map(x=>x.cron),[
- '0 8 * * 1-5','8 8 * * 1-5','17 8 * * 1-5',
- '31 8 * * 1-5','14 9 * * 1-5','17 10 * * 1-5'
+ '0 8 * * 1-5','5 8 * * 1-5',
+ '10 8 * * 1-5','20 8 * * 1-5'
 ]);
 assert.ok(Object.hasOwn(workflow.on,'workflow_dispatch'),
  'guarded manual rescue must be enabled');
@@ -268,7 +270,7 @@ assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
  {ref:'refs/heads/main',repository:{full_name:env.GITHUB_REPOSITORY}},false),false,
  'off-hours main workflow push must not enter close preparation or fail TELEGRAM_CLOSE_LATE');
 // A scheduled close still gets its own strong date/market/claim gates;
-// do not relax the observed evening cutoff or permit an off-hour send.
+// do not relax the 17:30 cutoff or permit an off-hour send.
 assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'schedule'},
  {},false),true,'schedule reaches guarded prepare; no unconditional send');
 assert.throws(()=>deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
@@ -283,14 +285,14 @@ assert.deepEqual(workflow.on.workflow_run.workflows,['market-briefing-headless',
 assert.deepEqual(workflow.on.workflow_run.branches,['main']);
 assert.equal(workflow.concurrency.group,'telegram-close-briefing');
 assert.equal(workflow.concurrency['cancel-in-progress'],false);
-const recoveryNow=()=>new Date(day+'T18:30:00+09:00');
+const recoveryNow=()=>new Date(day+'T17:20:00+09:00');
 const recovered=await prepareClose({...options,now:recoveryNow});
 assert.equal(recovered.ready,true,'delayed same-day scheduler can still prepare');
 assert.equal((await deliverClose(recovered,{now:recoveryNow,send:async()=>{}})).status,'SENT');
 assert.equal((await prepareClose({...options,now:recoveryNow,fetchImpl:async()=>({ok:true,
  json:async()=>({total_count:1,artifacts:[{name:'telegram-close-claim-'+day}]})})})).status,
  'ALREADY_CLAIMED','fallback and schedule must use the same date claim');
-await assert.rejects(deliverClose(recovered,{now:()=>new Date('2026-10-31T18:30:00+09:00'),
+await assert.rejects(deliverClose(recovered,{now:()=>new Date('2026-10-31T17:20:00+09:00'),
  send:async()=>assert.fail('cross-date send')}),/PAYLOAD_INVALID/);
 // Manual morning rescue is never a bypass for 07:40-08:10 KST, trade date,
  // first-attempt restriction, artifact claim, or genuine SENT confirmation.
