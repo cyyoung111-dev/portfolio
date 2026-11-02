@@ -87,7 +87,8 @@ for(const status of [401,403,500]){
 }
 const wf=fs.readFileSync('.github/workflows/issue507-deployment-inventory-readonly.yml','utf8');
 const doc=YAML.parse(wf);
-assert.ok(doc.on?.workflow_dispatch);
+assert.ok(Object.hasOwn(doc.on||{},'workflow_dispatch'),
+ 'YAML workflow_dispatch without inputs is intentionally null');
 assert.equal(Object.keys(doc.on).length,1,'no schedule, push or PR authenticated triggers');
 assert.equal(doc.permissions.contents,'read');
 assert.equal(doc.jobs.audit.environment,'portfolio-production-gas');
