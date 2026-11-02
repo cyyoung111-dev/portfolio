@@ -65,7 +65,7 @@ export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[],dome
   const targetStocks=new Set(['005930.KS','000660.KS','NVDA','MU']);
   for(const row of nhStockRows){
     if(!targetStocks.has(row?.symbol)||row?.source!=='NH_REGULAR_CLOSE'
-      ||!/^\\d{4}-\\d{2}-\\d{2}$/.test(row?.date||'')
+      ||!/^\d{4}-\d{2}-\d{2}$/.test(row?.date||'')
       ||!Number.isFinite(row?.value)||row.value<=0)continue;
     const prior=output.get(row.symbol);
     if(!prior||row.date>=prior.date)output.set(row.symbol,row);
