@@ -7,7 +7,16 @@ import {prepareGasNh9283WithKrxTurnoverPreview} from './compose-gas9283-turnover
 
 const {candidate}=prepareGasNh9283WithKrxTurnoverPreview();
 const baseline=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const pinned=JSON.parse(fs.readFileSync('ops/issue507/nh-krx-9283-release-preflight.json','utf8'));
 const result=inspectCombinedGasReleasePreflight();
+assert.equal(pinned.status,'PREVIEW_NOT_APPROVED_FOR_PRODUCTION');
+assert.equal(pinned.candidateVersion,'9.283');
+assert.equal(pinned.candidateSourceBlob,result.sourceBlob,'full reviewed candidate blob must match pinned manifest');
+assert.equal(pinned.predecessorSourceBlob,result.predecessorBlob);
+assert.equal(pinned.reviewedNhPreviewBlob,result.nhPreviewBlob);
+for(const field of ['releaseAllowlistApproved','writePermissionGranted','productionDeploymentApproved','publishedProductionVersionVerified','writerGateLiveStatusVerified','mergedMainChainVerified','liveKrxTurnoverReadbackVerified','scheduledTelegramReadbackVerified'])
+ assert.equal(pinned[field],false,'pinned manifest must not claim '+field);
+
 assert.equal(result.status,'NOT_AUTHORIZED_FOR_DEPLOYMENT');
 assert.equal(result.deploymentAllowed,false);
 assert.equal(result.sourceContractVerified,true);
