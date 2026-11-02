@@ -51,23 +51,56 @@ export function normalizeClosingNhStocks(date,data){
  }
  return result;
 }
-export async function readNhClosingStocks(date,{url=process.env.GAS_WEB_APP_URL,
- token=process.env.GAS_ACCESS_TOKEN,fetchImpl=fetch}={}){
+// Read-only, fixed-enum diagnosis for missing NH regular closes. Never return
+// raw GAS responses, prices, account details, credentials or endpoint URLs.
+export function describeClosingNhStockRead(date,data){
  const session=closingStockSessions(date);
- if(!session||!url||typeof token!=='string'||token.length<12)return [];
+ if(!session)return {status:'SESSION_UNVERIFIED'};
+ if(data?.status!=='ok')return {status:data?.status==='error'&&data?.message==='인증 실패'
+   ?'GAS_AUTH_REJECTED':'GAS_RESPONSE_NOT_OK'};
+ if(!data.prices||typeof data.prices!=='object'||Array.isArray(data.prices))
+   return {status:'PRICE_RESPONSE_SCHEMA'};
+ return {status:'GAS_RESPONSE_OK',stocks:STOCKS.map(item=>{
+   const expected=item.market==='KR'?session.day:session.us;
+   const rows=data.prices[item.code];
+   if(!Array.isArray(rows))return {id:item.id,status:'CODE_NOT_RETURNED'};
+   if(rows.length>30)return {id:item.id,status:'ROW_LIMIT_EXCEEDED'};
+   const matching=rows.filter(x=>x?.date===expected);
+   if(matching.length===0)return {id:item.id,status:'EXPECTED_DATE_MISSING'};
+   if(matching.length!==1)return {id:item.id,status:'DUPLICATE_DATE'};
+   const row=matching[0];
+   if(row.source!=='NH_REGULAR_CLOSE')return {id:item.id,status:'SOURCE_NOT_NH'};
+   if(!Number.isFinite(row.price)||row.price<=0)return {id:item.id,status:'INVALID_PRICE'};
+   return {id:item.id,status:'VERIFIED'};
+ })};
+}
+
+export async function readNhClosingStocks(date,{url=process.env.GAS_WEB_APP_URL,
+ token=process.env.GAS_ACCESS_TOKEN,fetchImpl=fetch,onDiagnostic=()=>{}}={}){
+ const emit=result=>{try{onDiagnostic(result);}catch{}};
+ const session=closingStockSessions(date);
+ if(!session||!url||typeof token!=='string'||token.length<12){
+   emit({status:'CONFIG_OR_SESSION_UNVERIFIED'});return [];
+ }
  let endpoint;
- try{endpoint=validateGasEndpoint(url);}catch{return [];}
+ try{endpoint=validateGasEndpoint(url);}catch{
+   emit({status:'GAS_ENDPOINT_INVALID'});return [];
+ }
  const oldest=Math.min(...[session.priorKr,session.priorUs].map(s=>Date.parse(s+'T00:00:00Z')));
  const from=new Date(oldest-2*86400000).toISOString().slice(0,10);
  const payload=new URLSearchParams({action:'getPriceHistory',accessToken:token,
    codes:STOCKS.map(x=>x.code).join(','),from,to:date});
+ let response,data;
  try{
-   const response=await fetchImpl(endpoint,{method:'POST',
+   response=await fetchImpl(endpoint,{method:'POST',
      headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
      body:payload,redirect:'follow',signal:AbortSignal.timeout(17000)});
-   if(!response.ok)return [];
-   return normalizeClosingNhStocks(date,await response.json());
- }catch{return [];}
+ }catch{emit({status:'GAS_FETCH_FAILED'});return [];}
+ if(!response?.ok){emit({status:'GAS_HTTP_UNAVAILABLE'});return [];}
+ try{data=await response.json();}
+ catch{emit({status:'GAS_JSON_INVALID'});return [];}
+ emit(describeClosingNhStockRead(date,data));
+ return normalizeClosingNhStocks(date,data);
 }
 // Yahoo daily macro snapshots are annotated as prior completed US/FX sessions,
 // never as current 17:00 spot/interest-rate quotes. Fail closed on stale dates.
