@@ -8,6 +8,7 @@ import {
   assertGasReleaseReady,
   assertIssue507ManualReleasePermission,
   assertWriterGateReleaseTransition,
+  assertFirstWriterGateCutoverSafe,
   rollbackGasCode,
   assertGasProjectFileSet,
   assertGasCreatedVersionReady,
@@ -17,6 +18,40 @@ import {
   selectServerFile,
   verifyDeploymentVersionWithRetry,
 } from './deploy-gas.mjs';
+
+// A *manual approval checkbox* is not independent evidence that older writer
+// executions, legacy deployments, external Sheets clients or editor sessions
+// were isolated. No initial v9.281->v9.282 write may cross this boundary.
+const legacyPublished=fs.readFileSync('reference/gas-v9.281.gs','utf8');
+const statefulCandidate=fs.readFileSync('src/gas/apps_script.gs','utf8');
+assert.equal(gasSourceBlobSha(legacyPublished),
+ 'ebe697563e94cf49e514037353260fce70ae1d57');
+assert.equal(gasSourceBlobSha(statefulCandidate),
+ '9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
+assert.doesNotMatch(legacyPublished,/var ISSUE507_GATE_RELEASE_ID=/);
+assert.match(statefulCandidate,/var ISSUE507_GATE_RELEASE_ID=/);
+assert.throws(
+ ()=>assertFirstWriterGateCutoverSafe(legacyPublished,statefulCandidate),
+ /GAS_FIRST_GATE_CUTOVER_UNVERIFIED/,
+ 'manual release approval must not upgrade an ungated deployment');
+assert.doesNotThrow(
+ ()=>assertFirstWriterGateCutoverSafe(statefulCandidate,statefulCandidate),
+ 'already gated same-release deployment must remain allowed');
+assert.doesNotThrow(
+ ()=>assertFirstWriterGateCutoverSafe(legacyPublished,legacyPublished),
+ 'diagnostics for the unchanged legacy deployment remain allowed');
+assert.throws(()=>assertFirstWriterGateCutoverSafe(null,statefulCandidate),
+ /GAS_FIRST_GATE_SOURCE_UNVERIFIED/);
+assert.throws(()=>assertFirstWriterGateCutoverSafe(legacyPublished,null),
+ /GAS_FIRST_GATE_SOURCE_UNVERIFIED/);
+const actualDeploySource=fs.readFileSync('scripts/deploy-gas.mjs','utf8');
+const gateCall=actualDeploySource.indexOf(
+ 'assertFirstWriterGateCutoverSafe(deployedTarget.source,source);');
+const writeStart=actualDeploySource.indexOf("  stage='VERSION_CREATE';");
+assert.ok(gateCall>0&&writeStart>gateCall,
+ 'first gate transition must be blocked BEFORE version create/deployment write');
+assert.match(actualDeploySource,/if\(!dryRun && process\.env\.GAS_DEPLOY_DIAGNOSTIC_ONLY!=='true'\)\s*assertFirstWriterGateCutoverSafe\(deployedTarget\.source,source\)/,
+ 'diagnostic and dry-run must remain non-mutating');
 
 // Explicit approval gate: a main push/quality success can never publish the
 // first stateful gate release; diagnostic and dry-run remain read-only.
