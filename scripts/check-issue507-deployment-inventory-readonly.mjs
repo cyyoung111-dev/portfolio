@@ -206,6 +206,52 @@ assert.equal(sourceReport.sourceKnownLegacy9281Count,1);
 assert.equal(sourceReport.sourceKnownReviewedGate9282Count,0);
 assert.equal(sourceReport.sourceGetSkippedUnversionedCount,1);
 assert.equal(sourceReport.sourceGetUnverifiedCount,0);
+assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGACY_V9281');
+assert.equal(sourceReport.additionalDeploymentKnownLegacy9281Count,2);
+assert.equal(sourceReport.additionalDeploymentVersionUnverifiedCount,1);
+assert.equal(sourceReport.additionalDeploymentUnreviewedSourceCount,0);
+assert.equal(sourceReport.additionalDeploymentSourceGetUnverifiedCount,0);
+// The distinct *version* count must not obscure the identity of the
+// expected production deployment versus three additional anonymous URLs.
+const roleList=listed.map(x=>({...x,deploymentConfig:{...x.deploymentConfig}}));
+roleList[1].deploymentConfig.versionNumber=337;
+const newSource={scriptId,files:[
+ {name:'Code',type:'SERVER_JS',source:'u'.repeat(1200)},
+ {name:'appsscript',type:'JSON',source:'{}'}]};
+const role=setup({'':{deployments:roleList}},secureDetails,
+ {'336':approvedFiles,'337':newSource});
+const byRole=await role.run({verifyDetails:true,verifySource:true});
+assert.equal(byRole.status,'BLOCKED');
+assert.equal(byRole.releaseAuthorized,false);
+assert.equal(byRole.expectedDeploymentSourceClassification,'APPROVED_LEGACY_V9281');
+assert.equal(byRole.additionalDeploymentKnownLegacy9281Count,1);
+assert.equal(byRole.additionalDeploymentUnreviewedSourceCount,1);
+assert.equal(byRole.additionalDeploymentVersionUnverifiedCount,1);
+assert.equal(byRole.additionalDeploymentReviewedGate9282Count,0);
+assert.equal(byRole.additionalDeploymentSourceGetUnverifiedCount,0);
+assert.equal(byRole.additionalRoutableDeploymentCount,3);
+assert.equal(byRole.sourceDistinctVersionCount,2);
+assert.equal(byRole.sourceGetCheckedCount,2);
+assert.equal(byRole.sourceUnreviewedCount,1);
+const roleTotal=byRole.additionalDeploymentKnownLegacy9281Count+
+ byRole.additionalDeploymentReviewedGate9282Count+
+ byRole.additionalDeploymentUnreviewedSourceCount+
+ byRole.additionalDeploymentVersionUnverifiedCount+
+ byRole.additionalDeploymentSourceGetUnverifiedCount+
+ byRole.additionalDeploymentSourceLimitUnverifiedCount+
+ byRole.additionalDeploymentSourceNotInspectedCount;
+assert.equal(roleTotal,byRole.additionalRoutableDeploymentCount);
+for(const sensitive of [expectedDeploymentId,legacyA,legacyB,legacyC,
+ 'PRIVATE_WEBAPP_URL',secret,'u'.repeat(55)]){
+ assert.ok(!JSON.stringify(byRole).includes(sensitive));
+}
+// If the expected deployment itself is not readable, never claim a
+// reviewed legacy source merely because another deployment matches.
+const missingExpected=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING')},
+ {}).run({verifyDetails:true,verifySource:true});
+assert.equal(missingExpected.expectedDeploymentSourceClassification,'SOURCE_GET_UNVERIFIED');
+assert.equal(missingExpected.releaseAuthorized,false);
 assert.equal(sourceReport.releaseAuthorized,false);
 assert.equal(versioned.calls.filter(x=>new URL(x.url).pathname.endsWith('/content')).length,1);
 for(const key of [legacySource.slice(1000,1100),expectedDeploymentId,
