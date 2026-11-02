@@ -1,0 +1,19 @@
+{
+  "status": "PREVIEW_NOT_DEPLOYABLE",
+  "predecessorVersion": "9.282",
+  "predecessorSourceBlob": "9c1a5f31d1abc4b44f7da9af7a50fe3f15967134",
+  "proposedVersion": "9.283",
+  "candidateSourceBlob": "22a5e37d48ca3b39c71dfa32d6afae5401ed4d5b",
+  "changedNhWindowClauses": 2,
+  "regularCaptureKst": ["06:45", "06:55", "07:05", "07:15", "07:25"],
+  "captureReceiptEndExclusiveKst": "07:35",
+  "nightSourceUpdatedAtKst": "06:00",
+  "briefingStartKst": "07:40",
+  "gasReadWindowEndExclusiveKst": "08:00",
+  "writerGateReleaseIdPreserved": true,
+  "financeWriteAuthorized": false,
+  "productionSourceChanged": false,
+  "gasDeploymentApproved": false,
+  "requiresLivePredecessorReadback": true,
+  "requiresStandaloneProductionRelease": true
+}
