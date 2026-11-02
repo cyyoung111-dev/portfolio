@@ -156,11 +156,11 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
     &&row.date===expectedMorningDate('SPX',date)
     &&Number.isFinite(row.value)&&row.value>0
     &&((label==='다우존스'&&row.source==='FRED_DJIA')
-      ||(label==='SOX'&&row.source==='FRED_NASDAQSOX')
+      ||(label==='SOX'&&['FRED_NASDAQSOX','YAHOO_SOX_DAILY_REFERENCE'].includes(row.source))
       ||(label==='VIX'&&row.source==='CBOE_VIX_DAILY')));
   if(candidates.length!==1){lines.push(label+': 검증값 미확보');continue;}
   const item=candidates[0];
-  const provenance=item.source==='CBOE_VIX_DAILY'?'CBOE 참고':'FRED 참고';
+  const provenance=item.source==='CBOE_VIX_DAILY'?'CBOE 참고':item.source==='YAHOO_SOX_DAILY_REFERENCE'?'Yahoo 참고':'FRED 참고';
   lines.push(label+': '+item.value.toLocaleString('en-US',{maximumFractionDigits:2})
     +' ['+item.date+' · '+provenance+']');
  }
