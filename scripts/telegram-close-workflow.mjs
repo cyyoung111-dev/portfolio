@@ -16,6 +16,7 @@ import {readNhClosingStocks,readClosingMacros,formatClosingExtra} from './closin
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
+import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -120,7 +121,7 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[]){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
@@ -137,7 +138,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
   lines.push(label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
     +change+' · '+date+' · '+provenance+' (NH 아님)');
  }
- lines.push('','■ 미국 시장 (직전 완료 거래일)');
+ lines.push('',formatCurrentFutures(date,futures),'','■ 미국 현물지수 (직전 완료 거래일 · 17시 현재값 아님)');
  for(const target of NH_VERIFIED){
   const row=valid.find(r=>r.symbol===target.symbol);
   if(!row){lines.push(target.label+': NH 완료 일봉 미확보');continue;}
@@ -173,7 +174,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
  fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros,
- fetchMarkets=readClosingMarketReferences,loadPrepared=async()=>null}={}){
+ fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
+ loadPrepared=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -194,6 +196,9 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     {token:githubToken,repository,fetchImpl,now});}catch{}
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
   let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[]}=cached||{};
+  // Futures deliberately never use the 16:50 prepared artifact. A 17:00
+  // briefing must fetch the latest safe (possibly delayed) observation.
+  let futures=[];
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
   const combine=(oldRows,liveRows,key)=>{
@@ -220,7 +225,9 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     catch{failedGroups.push('MACROS');}})(),
    (async()=>{if(markets.length===5)return;try{markets=combine(markets,normalize('markets',
     await fetchMarkets(window.date,{fetchImpl,now})),'id');}
-    catch{failedGroups.push('MARKETS');}})()
+    catch{failedGroups.push('MARKETS');}})(),
+   (async()=>{try{futures=await fetchFutures(window.date,{fetchImpl,now});}
+    catch{futures=[];}})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
@@ -234,7 +241,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets)};
+    futuresCount:futures.length,
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
@@ -259,7 +267,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
         nhConfirmed:result.nhConfirmed||0,domesticConfirmed:result.domesticConfirmed||0,
         coreCoverage:result.coverage?.core||null,referenceCoverage:result.coverage?.reference||null,
         stockCoverage:result.coverage?.stocks||null,macroCoverage:result.coverage?.macros||null,
-        marketCoverage:result.coverage?.markets||null,
+        marketCoverage:result.coverage?.markets||null,futuresCount:result.futuresCount||0,
         cacheSource:result.cacheSource||'NONE',
         sourceStatuses:result.coverage?.statuses||null,failedGroups:result.coverage?.groupErrors||[]}));
     }else if(process.argv[2]==='send'){
