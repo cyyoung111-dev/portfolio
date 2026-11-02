@@ -21,6 +21,30 @@
 - 누락된 버전이 기존 비활성화 배포인지, 비계측 구버전인지, Google API 직렬화 특성인지는 목록만으로 확정하지 않는다. 운영 재검토 전에는 이 미확인 배포를 안전하다고 분류하지 않는다.
 - 예상된 배포 하나만 보이더라도 `INVENTORY_ONLY`이며 **releaseAuthorized=false**, `allActorsAndVersionsTerminatedVerified=false`, `externalSheetsWritersExcludedVerified=false`, `editorSessionsExcludedVerified=false` 유지.
 
+## 실제 운영 배포 목록 (2026-11-02 22:54 KST)
+
+[수동 감사 #41457015647](https://github.com/cyyoung111-dev/portfolio/actions/runs/41457015647)에서 **실제 전체 목록 조회는 완료**, 기존 정책에 따라 BLOCKED(exit 2)로 종료됐다.
+
+| 실제 항목 | 결과 |
+| --- | ---: |
+| 전체 배포 / WEB_APP entry | 4 / 4 |
+| 예상 운영 배포 | 1 (발견) |
+| 추가 공개 웹앱 배포 | 3 |
+| 버전 정보 미확인 일반 배포 | 1 |
+| HEAD / EXECUTION_API / ADD_ON / unknown entry | 모두 0 |
+| REST pagination | 1페이지, 전체 확인 |
+| releaseAuthorized / GAS·금융 원본 쓰기 | false / 모두 0 |
+
+위 **3개는 추가 웹앱 진입점이 있는 배포**라는 뜻이며 실제 외부 사용 여부나 폐기 가능 여부를 뜻하지 않는다. Google 공식 문서에 따르면 버전 배포를 보관하면 기존 사용자가 영향을 받을 수 있으므로 사용자 확인·별도 승인이 필요하다: https://developers.google.com/apps-script/concepts/deployments
+
+### 다음 읽기 전용 상세 GET 검증 (이 PR)
+
+- 기존 LIST 결과와 **배포 ID별 공식 GET**(`projects.deployments.get`)을 인메모리로 비교한다: https://developers.google.com/apps-script/api/reference/rest/v1/projects.deployments/get
+- 목록 버전 미확인 1개가 상세 조회에서 정상 버전을 갖는지, 나머지 3개의 버전 또는 진입점이 목록과 불일치하는지 **개수만** 보고한다.
+- `detailGetRequestedCount`, `detailGetCheckedCount`, `detailGetUnverifiedCount`, `detailVersionRecoveredCount`, `detailVersionStillUnverifiedCount`, `detailVersionConflictCount`, `detailEntryPointMismatchCount` 등 정수 카운트를 기록한다. 원본 ID/배포 URL/설명/원본 JSON은 로그에서 제외한다.
+- 상세 GET으로 버전이 확인돼도 LIST의 원래 `VERSION_METADATA_UNVERIFIED`와 추가 배포 3개에 대한 `BLOCKED`는 유지한다. 상세 정보 일치 자체는 과거 writer 제거·사용자 접근 격리의 증거가 아니다.
+- 개별 GET 실패/미일치/응답 누락 시에도 `releaseAuthorized=false`; GAS 콘텐츠/버전/배포·시트·트리거 변경은 하지 않는다. **실행 검증은 PR 병합 후 최신 main의 별도 수동 감사로 확인해야 한다.**
+
 ## 이 조사로는 증명되지 않는 것
 1. 다른 GAS 프로젝트·다른 계정의 배포, 편집기, 수동 시트 편집 및 Sheets API 외부 writer가 차단됐는지.
 2. 모든 기존 실행자/버전이 종료됐는지. 공식 `processes.listScriptProcesses`는 별도의 script.processes OAuth 범위가 필요하며, 예전 audit 403이나 빈 결과는 종료 증거가 아니다: https://developers.google.com/apps-script/api/reference/rest/v1/processes/listScriptProcesses
