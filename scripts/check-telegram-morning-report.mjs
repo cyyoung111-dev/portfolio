@@ -85,7 +85,7 @@ assert.match(report,/위험선호 신호 우세/);
 assert.match(report,/다우존스: 52,342.56.*2026-10-29/);
 assert.match(report,/900.05pt/);
 assert.match(report,/06:00 확인/);
-assert.match(report,/마지막 체결값, 거래소 공식 정산가 아님/);
+assert.match(report,/마지막 체결값, 거래소 정산가 아님/);
 assert.match(report,/4.12% \(Yahoo \^TNX 직접 표기\)/);
 // Production regression: Yahoo October 30, 2026 ^TNX closed at 4.929%.
 const yieldRow={label:'미 10년물',symbol:'^TNX',date:'2026-10-30',
