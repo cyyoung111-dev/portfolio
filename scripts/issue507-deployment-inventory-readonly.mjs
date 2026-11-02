@@ -14,6 +14,8 @@ const HEAD_ID='HEAD';
 const MAX_PAGES=10;
 const PAGE_SIZE=50;
 const KNOWN_TYPES=new Set(['WEB_APP','EXECUTION_API','ADD_ON']);
+const WEB_ACCESS=new Set(['MYSELF','DOMAIN','ANYONE','ANYONE_ANONYMOUS']);
+const WEB_EXECUTE_AS=new Set(['USER_ACCESSING','USER_DEPLOYING']);
 const validId=value=>typeof value==='string'&&ID.test(value);
 function fail(reason){throw Error('ISSUE507_DEPLOYMENT_INVENTORY_'+reason);}
 function classify(entry){
@@ -93,6 +95,14 @@ export async function inspectGasDeploymentsReadOnly({
  const detail={requested:0,checked:0,lookupUnverified:0,
   recoveredVersion:0,stillUnversioned:0,versionConflict:0,
   entryPointMismatch:0};
+ // Only anonymous aggregate counts appear in logs. No deployment ID, URL,
+ // principal, configuration source or per-deployment details are returned.
+ const exposure={observed:0,restricted:0,domain:0,
+  signedIn:0,anonymous:0,unknownAccess:0,
+  executingAsDeployer:0,executingAsAccessing:0,unknownExecuteAs:0,
+  additionalAnonymous:0,additionalSignedIn:0,
+  additionalRunsAsDeployer:0,additionalAnonymousDeployer:0,
+  additionalUnknownSecurity:0};
  if(verifyDetails){
   for(const entry of entries.filter(e=>!e.head)){
    detail.requested++;
@@ -113,6 +123,28 @@ export async function inspectGasDeploymentsReadOnly({
    const types=record.entryPoints.map(classify);
    if(JSON.stringify([...types].sort())!==JSON.stringify([...entry.types].sort()))
     detail.entryPointMismatch++;
+   for(const point of record.entryPoints.filter(p=>classify(p)==='WEB_APP')){
+    const config=point.webApp?.entryPointConfig;
+    const access=WEB_ACCESS.has(config?.access)?config.access:null;
+    const as=WEB_EXECUTE_AS.has(config?.executeAs)?config.executeAs:null;
+    exposure.observed++;
+    if(access==='MYSELF')exposure.restricted++;
+    else if(access==='DOMAIN')exposure.domain++;
+    else if(access==='ANYONE')exposure.signedIn++;
+    else if(access==='ANYONE_ANONYMOUS')exposure.anonymous++;
+    else exposure.unknownAccess++;
+    if(as==='USER_DEPLOYING')exposure.executingAsDeployer++;
+    else if(as==='USER_ACCESSING')exposure.executingAsAccessing++;
+    else exposure.unknownExecuteAs++;
+    if(!entry.expected){
+     if(access==='ANYONE_ANONYMOUS')exposure.additionalAnonymous++;
+     if(access==='ANYONE')exposure.additionalSignedIn++;
+     if(as==='USER_DEPLOYING')exposure.additionalRunsAsDeployer++;
+     if(access==='ANYONE_ANONYMOUS'&&as==='USER_DEPLOYING')
+      exposure.additionalAnonymousDeployer++;
+     if(!access||!as)exposure.additionalUnknownSecurity++;
+    }
+   }
    const version=record.deploymentConfig?.versionNumber;
    if(!Number.isSafeInteger(version)||version<1)detail.stillUnversioned++;
    else if(!entry.versionVerified)detail.recoveredVersion++;
@@ -127,7 +159,8 @@ export async function inspectGasDeploymentsReadOnly({
  const unverifiedVersions=entries.filter(e=>!e.versionVerified).length;
  const detailProblems=verifyDetails&&(
   detail.lookupUnverified>0||detail.versionConflict>0||detail.entryPointMismatch>0||
-  detail.stillUnversioned>0||detail.recoveredVersion>0);
+  detail.stillUnversioned>0||detail.recoveredVersion>0||
+  exposure.unknownAccess>0||exposure.unknownExecuteAs>0);
  const status=expectedRows.length!==1||unverifiedVersions>0||unknown||extraRoutable>0||detailProblems
   ?'BLOCKED':'INVENTORY_ONLY';
  const reason=expectedRows.length!==1?'EXPECTED_DEPLOYMENT_NOT_PROVEN':
@@ -152,6 +185,20 @@ export async function inspectGasDeploymentsReadOnly({
   detailVersionStillUnverifiedCount:detail.stillUnversioned,
   detailVersionConflictCount:detail.versionConflict,
   detailEntryPointMismatchCount:detail.entryPointMismatch,
+  webAppSecurityInspectedCount:exposure.observed,
+  webAppAccessMyselfCount:exposure.restricted,
+  webAppAccessDomainCount:exposure.domain,
+  webAppAccessSignedInCount:exposure.signedIn,
+  webAppAccessAnonymousCount:exposure.anonymous,
+  webAppUnknownAccessCount:exposure.unknownAccess,
+  webAppExecuteAsDeployerCount:exposure.executingAsDeployer,
+  webAppExecuteAsAccessingCount:exposure.executingAsAccessing,
+  webAppUnknownExecuteAsCount:exposure.unknownExecuteAs,
+  additionalWebAppAnonymousCount:exposure.additionalAnonymous,
+  additionalWebAppSignedInCount:exposure.additionalSignedIn,
+  additionalWebAppExecuteAsDeployerCount:exposure.additionalRunsAsDeployer,
+  additionalWebAppAnonymousDeployerCount:exposure.additionalAnonymousDeployer,
+  additionalWebAppUnknownSecurityCount:exposure.additionalUnknownSecurity,
   expectedDeploymentFound:expectedRows.length===1,
   pagesRead:pages,inventoryComplete:true,
   allActorsAndVersionsTerminatedVerified:false,
