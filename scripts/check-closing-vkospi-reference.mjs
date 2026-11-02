@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import {selectClosingVkospi,verifyClosingVkospi,readClosingVkospi}
  from './closing-vkospi-reference.mjs';
 import {formatClose,prepareClose,deliverClose} from './telegram-close-workflow.mjs';
@@ -8,6 +10,26 @@ const date='2026-11-02',us='2026-10-30';
 const now=()=>new Date(date+'T17:05:00+09:00');
 const payload={status:'ok',symbol:'KRX_OPEN_API:VKOSPI',
  points:[{date,value:25.42}]};
+// Execute the real GAS handler, not an invented per-row source fixture.
+const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const start=gas.indexOf('function handleGetBenchmark(');
+const end=gas.indexOf('function handleGetBenchmarks(',start);
+assert.ok(start>=0&&end>start,'production GAS benchmark handler is present');
+const ctx={
+ _normalizeDate:x=>x,today:()=>date,
+ _benchmarkSymbolMap:()=>({VKOSPI:['KRX_OPEN_API:VKOSPI']}),
+ _readVkospiPointsFromKrx:()=>[{date,value:25.42}],
+ fetchYahooIndexCurrent:()=>null,
+ jsonOk:x=>({...x,status:'ok'}),jsonError:message=>({status:'error',message})
+};
+vm.createContext(ctx);
+vm.runInContext(gas.slice(start,end),ctx);
+const gasPayload=ctx.handleGetBenchmark('VKOSPI',date,date);
+assert.equal(gasPayload.status,'ok');
+assert.equal(gasPayload.symbol,'KRX_OPEN_API:VKOSPI');
+assert.equal(gasPayload.points.length,1);
+assert.equal(Object.hasOwn(gasPayload.points[0],'source'),false);
+assert.deepEqual(selectClosingVkospi(date,gasPayload),selectClosingVkospi(date,payload));
 const row=selectClosingVkospi(date,payload);
 assert.equal(row.length,1);
 assert.equal(row[0].value,25.42);
