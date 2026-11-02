@@ -110,16 +110,16 @@ export function formatClosingExtra(date,stocks=[],macros=[]){
  });
  const safeMacros=macros.map(x=>validateClosingMacro(date,x?.id,
    x?.source==='YAHOO_DAILY_REFERENCE'?{...x,source:'Yahoo Finance 일봉'}:x)).filter(Boolean);
- const lines=['■ 주요 종목 NH 저장 종가 (국내 당일 / 미국 직전 완료장)'];
+ const lines=['■ 주요 종목 (국내 당일 / 미국 직전 완료장)'];
  for(const item of STOCKS){
    const rows=safeStocks.filter(x=>x.id===item.id);
    const name=MORNING_SERIES.find(x=>x.id===item.id)?.label||item.id;
-   if(rows.length!==1){lines.push(name+': NH 확정 저장종가 미확보');continue;}
+   if(rows.length!==1){lines.push(name+': 종가 미확보');continue;}
    const x=rows[0],unit=item.market==='KR'?'원':'USD';
    lines.push(name+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
      +' '+unit+(Number.isFinite(x.changePercent)?' ('+(x.changePercent>=0?'+':'')
      +x.changePercent.toFixed(2)+'%)':'')
-     +' ['+x.date+' · NH 저장 정규장 종가]');
+     +' ['+x.date+']');
  }
  lines.push('','■ 환율·금리 (직전 완료 일봉, 실시간 아님)');
  for(const item of MACROS){
@@ -137,7 +137,7 @@ export function formatClosingExtra(date,stocks=[],macros=[]){
 export function closingExtraCounts(date,stocks=[],macros=[]){
  const text=formatClosingExtra(date,stocks,macros);
  return {
-  stock:STOCKS.filter(item=>!text.includes((MORNING_SERIES.find(x=>x.id===item.id)?.label||item.id)+': NH 확정 저장종가 미확보')).length,
+  stock:STOCKS.filter(item=>!text.includes((MORNING_SERIES.find(x=>x.id===item.id)?.label||item.id)+': 종가 미확보')).length,
   macro:MACROS.filter(item=>!text.includes(item.label+': 검증된 완료 일봉 미확보')).length
  };
 }
