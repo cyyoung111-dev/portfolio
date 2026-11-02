@@ -281,7 +281,24 @@ const unsafe=await import('data:text/javascript,'+encodeURIComponent(triggerSour
 assert.throws(()=>assert.throws(()=>unsafe.deliveryTrigger('close',env,{...completion,
  workflow_run:{...completion.workflow_run,head_repository:{full_name:'other/fork'}}},true)),
  'the fork rejection oracle must detect removal of the trust guard');
-assert.deepEqual(workflow.on.workflow_run.workflows,['market-briefing-headless','gas-deploy']);
+assert.deepEqual(workflow.on.workflow_run.workflows,[
+ 'market-briefing-headless','gas-deploy','Telegram closing data precompute']);
+const precomputeCompletion={...completion,workflow_run:{...completion.workflow_run,
+ name:'Telegram closing data precompute',
+ path:'.github/workflows/telegram-close-precompute.yml',event:'schedule'}};
+assert.equal(deliveryTrigger('close',env,precomputeCompletion,true),true,
+ 'precompute completion during the 17:00 delivery window is an authorized recovery event');
+assert.equal(deliveryTrigger('close',env,precomputeCompletion,false),false,
+ 'precompute completion before 17:00 must never trigger early send');
+for(const patch of [{head_branch:'feature'},
+ {head_repository:{full_name:'other/fork'}},
+ {event:'workflow_dispatch'},{conclusion:'failure'},
+ {path:'.github/workflows/untrusted.yml'},{run_attempt:2}]){
+ assert.throws(()=>deliveryTrigger('close',env,{...precomputeCompletion,
+   workflow_run:{...precomputeCompletion.workflow_run,...patch}},true),/TRIGGER_INVALID/);
+}
+assert.equal(closeWindow(new Date(day+'T17:29:59+09:00')).allowed,true);
+assert.equal(closeWindow(new Date(day+'T17:30:00+09:00')).allowed,false);
 assert.deepEqual(workflow.on.workflow_run.branches,['main']);
 assert.equal(workflow.concurrency.group,'telegram-close-briefing');
 assert.equal(workflow.concurrency['cancel-in-progress'],false);

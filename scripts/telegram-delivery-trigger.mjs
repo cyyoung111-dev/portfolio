@@ -3,7 +3,8 @@ const UPSTREAM={
  morning:{'NH night reference capture':['.github/workflows/nh-night-capture.yml',['schedule']]},
  close:{
   'market-briefing-headless':['.github/workflows/market-briefing-headless.yml',['schedule','workflow_dispatch']],
-  'gas-deploy':['.github/workflows/gas-deploy.yml',['workflow_run','workflow_dispatch']]
+  'gas-deploy':['.github/workflows/gas-deploy.yml',['workflow_run','workflow_dispatch']],
+  'Telegram closing data precompute':['.github/workflows/telegram-close-precompute.yml',['schedule']]
  }
 };
 // Completed workflows provide an extra opportunity, never a new delivery owner.
