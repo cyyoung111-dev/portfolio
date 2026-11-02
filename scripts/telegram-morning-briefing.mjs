@@ -35,6 +35,14 @@ export function scheduledWindow(instant) {
   const p=kstParts(instant), date=`${p.year}-${p.month}-${p.day}`, minutes=Number(p.hour)*60+Number(p.minute);
   return {date,allowed:minutes>=460 && minutes<490};
 }
+// Explicit manual full-briefing verification; never expands the scheduled delivery gate.
+// Local weekday 08:10–11:59 KST only. Calendar validity is checked again before generation.
+export function lateTestWindow(instant) {
+  const p=kstParts(instant),date=`${p.year}-${p.month}-${p.day}`;
+  const minutes=Number(p.hour)*60+Number(p.minute);
+  const weekday=new Date(date+'T00:00:00Z').getUTCDay();
+  return {date,allowed:weekday>=1&&weekday<=5&&minutes>=490&&minutes<720};
+}
 function dateInZone(instant, zone) {
   const parts=new Intl.DateTimeFormat('en-GB',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(instant);
   const p=Object.fromEntries(parts.map(part=>[part.type,part.value]));
@@ -82,11 +90,11 @@ export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
 }
-export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,referenceFetch=async()=>null,send=sendTelegram}={}) {
+export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram}={}) {
   if(Number(attempt)!==1)throw new Error('TELEGRAM_RETRY_BLOCKED');
   if(event==='test') { await send(token,chatId,'텔레그램 브리핑 연결 시험입니다. 실제 시장 브리핑은 아닙니다.',{fetchImpl}); return {status:'TEST_SENT'}; }
   if(event!=='schedule')throw new Error('TELEGRAM_EVENT_INVALID');
-  const first=scheduledWindow(now());
+  const first=allowLateTest?lateTestWindow(now()):scheduledWindow(now());
   if(!first.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
   const calendar=krxSessionStatus(first.date);
   if(calendar==='CLOSED')return {status:'MARKET_CLOSED'};
@@ -106,7 +114,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   const quotes=await collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,
     now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200',...nhRows.map(row=>row.symbol)])});
   const values=mergeMorningSourceRows(quotes,masterRows,nhRows,domesticRows);
-  const last=scheduledWindow(now());
+  const last=allowLateTest?lateTestWindow(now()):scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
   const reference=candidate && candidate.source==='NH' && /^K[A-Z0-9]{8}$/.test(candidate.contract||'') && candidate.kind==='REFERENCE'
     && candidate.tradingDate===first.date && candidate.officialClose===false
