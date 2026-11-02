@@ -29,7 +29,9 @@ async function getJson(url,oauth,fetchImpl){
   redirect:'error',signal:AbortSignal.timeout(16000)}));
 }
 function fileSource(files,name){
- if(!Array.isArray(files)||files.length<1||files.length>10)
+ if(!Array.isArray(files)||files.length!==2
+   ||files.filter(x=>x?.type==='SERVER_JS').length!==1
+   ||files.filter(x=>x?.type==='JSON'&&x.name==='appsscript').length!==1)
   throw Error('GAS_PUBLISHED_AUDIT_PROJECT_FILES_INVALID');
  const file=selectServerFile(files,name);
  if(typeof file?.source!=='string'||file.source.length<100000
@@ -102,7 +104,8 @@ export async function inspectPublishedGasReadOnly({
  }catch{throw Error('GAS_PUBLISHED_AUDIT_RUNTIME_UNVERIFIED');}
  if(data?.status!=='ok'||data?.gasVersion!=='9.282'||!data.writerGate
   ||!['OPEN','DRAINING','UNINITIALIZED'].includes(data.writerGate.mode)
-  ||data.writerGate.repairAuthorized!==false)
+  ||data.writerGate.repairAuthorized!==false
+  ||(data.writerGate.mode==='OPEN'&&typeof data.writerGate.approvalPresent!=='boolean'))
   throw Error('GAS_PUBLISHED_AUDIT_GATE_UNVERIFIED');
  state.gateMode=data.writerGate.mode;
  state.approvalPresent=data.writerGate.approvalPresent===true;
