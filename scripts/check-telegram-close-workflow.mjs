@@ -31,8 +31,8 @@ assert.equal(verifiedNhCloseRows(day,[{...rows[0],value:0}]).length,0);
 assert.equal(verifiedNhCloseRows(day,[{...rows[0],label:'S&P 100'}]).length,0);
 const msg=formatClose(day,rows);
 assert.match(msg,/기준: 국내 당일 마감/);
-assert.match(msg,/S&P 500: 7,720.39.*2026-10-29.*NH/);
-assert.match(msg,/NASDAQ: 26,184.72.*NH/);
+assert.match(msg,/S&P 500: 7,720.39.*\[2026-10-29\]/);
+assert.match(msg,/NASDAQ: 26,184.72.*\[2026-10-29\]/);
 assert.match(msg,/NASDAQ100: 29,402.51.*\[2026-10-29\]/);
 assert.match(msg,/KOSPI: 검증된 당일 종가 미확보/);
 assert.match(msg,/SOX: 검증값 미확보/);
@@ -160,7 +160,7 @@ const priority=await fetchDomesticCloseIndexes(day,{
 assert.deepEqual(priority.map(x=>x.source),['KRX_OFFICIAL','KRX_OFFICIAL','FDR_KRX_CACHE']);
 const officialText=formatClose(day,rows,[],priority);
 assert.match(officialText,/KOSPI: 5,668.26.*KRX/);
-assert.match(officialText,/KOSDAQ: 723.15.*KRX 공식 종가 \(NH 아님\)/);
+assert.match(officialText,/KOSDAQ: 723.15.*KRX/);
 assert.match(officialText,/KOSPI 200: 5,668.26.*FDR 참고/);
 
 assert.doesNotMatch(msg,/Yahoo Finance 일봉 기준/);
