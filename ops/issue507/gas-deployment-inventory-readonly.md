@@ -58,6 +58,18 @@
 - `ANYONE_ANONYMOUS` 또는 `USER_DEPLOYING`만으로 취약점이 확정되지는 않는다. 하지만 외부에서 호출할 수 있는 기존 구버전이 배포자 권한으로 실행될 가능성은 사용자 영향/접근 통제 관점에서 별도 검토해야 한다.
 - 기존 배포를 자동으로 비활성화/삭제하거나 POST·PUT·Sheets 수정·텔레그램 전송하지 않는다. **상세 권한 집계가 성공해도 releaseAuthorized=false**.
 
+## 배포된 불변 소스 원문 읽기 전용 분류 (2026-11-02 23:11 KST)
+
+[최신 권한 감사 #41459639729](https://github.com/cyyoung111-dev/portfolio/actions/runs/41459639729), main `f13e74a7bc34`에서 실제 GAS 4개 WEB_APP 전부 `ANYONE_ANONYMOUS` + `USER_DEPLOYING`; 추가 3개 역시 모두 익명 접근·배포자 실행. 상세 배포 GET 4/4, 버전/진입점 불일치 0, LIST·상세 모두 versionNumber 불명 1개. 이는 **취약점이나 실제 사용 여부를 증명하지 않지만**, 과거 코드 버전이 익명 호출 가능하다는 위험 검토 필요성을 확인한다.
+
+본 PR의 다음 진단은 Google 공식 `GET projects.getContent?versionNumber=N`로 **양의 정수 불변 버전**에 해당하는 GAS 소스를 메모리에서만 검증한다. 공식 문서: https://developers.google.com/apps-script/api/reference/rest/v1/projects/getContent
+
+- 기존 승인 소스의 해시와 정확히 일치하는 **v9.281 기존 운영 원문**과 **v9.282 신규 writer gate 승인 원문** 여부만 내부 분류한다. 그 외는 `unreviewed`로 집계하며 gate가 없다고 확정하지 않는다.
+- LIST에서 버전 미확인 배포는 HEAD 내용을 대신 읽어 잘못 연결하지 않는다. `sourceGetSkippedUnversionedCount`에 계산하여 **차단 유지**. 버전별 중복 소스 GET을 줄이고 최대 12개의 고유 버전만 조회하며 상한 초과도 미확인.
+- 파일의 원문, 배포 ID/URL, 버전번호, blob/hash, secret, 작성자 정보는 로그에서 제외하고 소스 분류 건수만 보고한다.
+- `sourceKnownLegacy9281Count`, `sourceKnownReviewedGate9282Count`, `sourceUnreviewedCount`, `sourceGetUnverifiedCount` 등 집계는 공개하되, **소스 일치만으로 writer/트리거/외부 Sheets API 격리 또는 v9.282 배포 승인 주장 금지**.
+- 운영 GAS 콘텐츠·버전·트리거·금융 원본에 대한 변경 요청은 없다. OAuth 토큰 교환 외 GAS API는 GET만 호출한다. 차단 상태·releaseAuthorized=false·기존 세 웹앱 유지.
+
 ## 이 조사로는 증명되지 않는 것
 1. 다른 GAS 프로젝트·다른 계정의 배포, 편집기, 수동 시트 편집 및 Sheets API 외부 writer가 차단됐는지.
 2. 모든 기존 실행자/버전이 종료됐는지. 공식 `processes.listScriptProcesses`는 별도의 script.processes OAuth 범위가 필요하며, 예전 audit 403이나 빈 결과는 종료 증거가 아니다: https://developers.google.com/apps-script/api/reference/rest/v1/processes/listScriptProcesses
