@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: portfolio-production-gas
+    # Serialize the entire authenticated audit with the production deploy job:
+    # deployment metadata verified earlier must not change before runtime GET.
     concurrency:
-      group: gas-published-version-readonly-audit
+      group: gas-production-deploy
       cancel-in-progress: false
     steps:
       - name: Checkout approved main for read-only audit
