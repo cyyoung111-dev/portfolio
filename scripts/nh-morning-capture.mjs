@@ -13,9 +13,12 @@ export async function captureMorning({now=()=>new Date(),fetchNight=fetchNhNight
   const start=captureWindow(now());
   if(!start.allowed)return {status:'OUTSIDE_CAPTURE_WINDOW',ready:false,date:start.date};
   if(krxSessionStatus(start.date)!=='OPEN')return {status:'MARKET_NOT_OPEN',ready:false,date:start.date};
-  const reference=await fetchNight(start.date,{now});
+  let reason='NH_NIGHT_REFERENCE_UNAVAILABLE';
+  const reference=await fetchNight(start.date,{now,onError:code=>{
+    if(/^NH_(?:NIGHT|PROXY)_[A-Z0-9_]{1,70}$/.test(code))reason=code;
+  }});
   const end=captureWindow(now());
-  if(!end.allowed||end.date!==start.date||!reference)return {status:'REFERENCE_UNAVAILABLE',ready:false,date:start.date};
+  if(!end.allowed||end.date!==start.date||!reference)return {status:'REFERENCE_UNAVAILABLE',ready:false,date:start.date,reason};
   const received=Date.parse(reference.receivedAt), upper=Date.parse(`${start.date}T08:00:00+09:00`), lower=Date.parse(`${start.date}T07:30:00+09:00`);
   if(reference.source!=='NH'||reference.tradingDate!==start.date||reference.officialClose!==false||reference.sourceUpdatedAt!==`${start.date}T06:00:00+09:00`||!Number.isFinite(received)||received<lower||received>=upper||received>now().getTime()||!validateNhNight({date:start.date,clock:'06:00:00',value:reference.value,contract:reference.contract,contractMonth:reference.contractMonth},start.date,reference.receivedAt))return {status:'REFERENCE_INVALID',ready:false,date:start.date};
   return {status:'CAPTURED',ready:true,date:start.date,reference};
@@ -26,6 +29,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     const r=await captureMorning();
     if(r.ready){fs.mkdirSync('.nh-night-runtime',{recursive:true});fs.writeFileSync('.nh-night-runtime/reference.json',JSON.stringify(r.reference));}
     fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${r.ready}\ndate=${r.date}\n`);
-    console.log(JSON.stringify({status:r.status,date:r.date,receivedAt:r.reference?.receivedAt||null}));
+    console.log(JSON.stringify({status:r.status,date:r.date,reason:r.reason||null,receivedAt:r.reference?.receivedAt||null}));
   }catch{console.error('NH_CAPTURE_FAILED');process.exitCode=1;}
 }
