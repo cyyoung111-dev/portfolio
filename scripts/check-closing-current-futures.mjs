@@ -25,6 +25,28 @@ assert.equal(validateCurrentFuturesQuote(date,'NQ',
 assert.equal(validateCurrentFuturesQuote(date,'NQ',
  {chart:{error:null,result:[chart('NQ=F').chart.result[0],chart('NQ=F').chart.result[0]]}},instant),null);
 
+const olderTs=Math.floor(new Date('2026-11-02T16:41:00+09:00').getTime()/1000);
+const newerTs=Math.floor(new Date('2026-11-02T16:56:00+09:00').getTime()/1000);
+let comparedHosts=[];
+const newer=await readCurrentFutures(date,{now:()=>instant,fetchImpl:async url=>{
+ const host=new URL(url).hostname;
+ comparedHosts.push(host);
+ const sym=decodeURIComponent(new URL(url).pathname.split('/').at(-1));
+ return {ok:true,json:async()=>chart(sym,host==='query1.finance.yahoo.com'?olderTs:newerTs,
+  host==='query1.finance.yahoo.com'?100:101)};
+}});
+assert.equal(comparedHosts.length,8,'10-25 minute delay requires checking second provider');
+assert.deepEqual(newer.map(x=>x.value),[101,101,101,101]);
+assert.ok(newer.every(x=>x.asOf===new Date(newerTs*1000).toISOString()));
+const fallback=await readCurrentFutures(date,{now:()=>instant,fetchImpl:async url=>{
+ const host=new URL(url).hostname;
+ if(host==='query2.finance.yahoo.com')return {ok:false};
+ const sym=decodeURIComponent(new URL(url).pathname.split('/').at(-1));
+ return {ok:true,json:async()=>chart(sym,olderTs,101)};
+}});
+assert.equal(fallback.length,4,'a verified 19-minute quote remains valid if backup fails');
+assert.ok(fallback.every(x=>x.asOf===new Date(olderTs*1000).toISOString()));
+
 let calls=[];
 const data=await readCurrentFutures(date,{now:()=>instant,fetchImpl:async(url,init)=>{
  calls.push(url);
