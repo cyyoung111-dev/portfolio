@@ -13,6 +13,8 @@ import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} from './briefing-source-coverage.mjs';
 import {readNhClosingStocks,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
+import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
+import {sanitizePreclose} from './telegram-close-precompute.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -168,7 +170,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
  fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
- fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros}={}){
+ fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros,
+ loadPrepared=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -182,13 +185,37 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   // US NH indices and Korean KRX/FDR EOD references are independently
   // eligible. A missing NH response must not block verified domestic closes.
   // FRED/CBOE secondary references alone NEVER authorize sending.
-  let rows=[],secondary=[],domestic=[],stocks=[],macros=[];const failedGroups=[];
+  // A fully verified 16:50 public-data Artifact avoids unnecessary 17:00
+  // fetches. Missing/invalid groups are fetched live, without claim bypass.
+  let rawPrepared=null;
+  try{rawPrepared=await loadPrepared(window.date,
+    {token:githubToken,repository,fetchImpl,now});}catch{}
+  const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
+  let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[]}=cached||{};
+  const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
+  const failedGroups=[];
+  const combine=(oldRows,liveRows,key)=>{
+   const byKey=new Map(oldRows.map(x=>[x[key],x]));
+   for(const x of liveRows)byKey.set(x[key],x);
+   return [...byKey.values()];
+  };
+  const normalize=(key,items)=>sanitizePreclose(window.date,{[key]:items})?.[key]||[];
   await Promise.all([
-   (async()=>{try{rows=await fetchNh(window.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{rows=[];failedGroups.push('NH');}})(),
-   (async()=>{try{secondary=await fetchSecondary(window.date,{fetchImpl});}catch{secondary=[];failedGroups.push('SECONDARY');}})(),
-   (async()=>{try{domestic=await fetchDomestic(window.date,{fetchImpl,now,gasUrl,gasToken});}catch{domestic=[];failedGroups.push('DOMESTIC');}})(),
-   (async()=>{try{stocks=await fetchStocks(window.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{stocks=[];failedGroups.push('STOCKS');}})(),
-   (async()=>{try{macros=await fetchMacros(window.date,{fetchImpl,now});}catch{macros=[];failedGroups.push('MACROS');}})()
+   (async()=>{if(rows.length===3)return;try{rows=combine(rows,normalize('nh',
+    await fetchNh(window.date,{url:gasUrl,token:gasToken,fetchImpl})),'symbol');}
+    catch{failedGroups.push('NH');}})(),
+   (async()=>{if(secondary.length===3)return;try{secondary=combine(secondary,normalize('secondary',
+    await fetchSecondary(window.date,{fetchImpl})),'label');}
+    catch{failedGroups.push('SECONDARY');}})(),
+   (async()=>{if(domestic.length===3)return;try{domestic=combine(domestic,normalize('domestic',
+    await fetchDomestic(window.date,{fetchImpl,now,gasUrl,gasToken})),'label');}
+    catch{failedGroups.push('DOMESTIC');}})(),
+   (async()=>{if(stocks.length===4)return;try{stocks=combine(stocks,normalize('stocks',
+    await fetchStocks(window.date,{url:gasUrl,token:gasToken,fetchImpl})),'id');}
+    catch{failedGroups.push('STOCKS');}})(),
+   (async()=>{if(macros.length===3)return;try{macros=combine(macros,normalize('macros',
+    await fetchMacros(window.date,{fetchImpl,now})),'id');}
+    catch{failedGroups.push('MACROS');}})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
@@ -201,7 +228,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     return {ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:window.date,coverage,quality};
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
-    coverage,quality,message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros)};
+    coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
@@ -219,13 +247,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       process.exit(0);
     }
     if(process.argv[2]==='prepare'){
-      const result=await prepareClose({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT});
+      const result=await prepareClose({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,loadPrepared:loadPreparedClose});
       if(result.ready){fs.mkdirSync('.telegram-close-runtime',{recursive:true});fs.writeFileSync('.telegram-close-runtime/payload.json',JSON.stringify(result));fs.writeFileSync('.telegram-close-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));}
       fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
       console.log(JSON.stringify({status:result.status,date:result.date,
         nhConfirmed:result.nhConfirmed||0,domesticConfirmed:result.domesticConfirmed||0,
         coreCoverage:result.coverage?.core||null,referenceCoverage:result.coverage?.reference||null,
         stockCoverage:result.coverage?.stocks||null,macroCoverage:result.coverage?.macros||null,
+        cacheSource:result.cacheSource||'NONE',
         sourceStatuses:result.coverage?.statuses||null,failedGroups:result.coverage?.groupErrors||[]}));
     }else if(process.argv[2]==='send'){
       const payload=JSON.parse(fs.readFileSync('.telegram-close-runtime/payload.json','utf8'));
