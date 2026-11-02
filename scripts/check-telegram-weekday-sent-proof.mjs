@@ -13,7 +13,7 @@ const fixtures=[
   runtime:'.telegram-runtime',command:'node scripts/telegram-morning-workflow.mjs send',
   payload:{date:'2026-11-02',artifactName:'telegram-morning-claim-2026-11-02',
     message:'Synthetic morning test'}},
- {kind:'close',time:'2026-11-02T17:30:00+09:00',deliver:deliverClose,
+ {kind:'close',time:'2026-11-02T17:20:00+09:00',deliver:deliverClose,
   workflow:'.github/workflows/telegram-close-briefing.yml',
   runtime:'.telegram-close-runtime',command:'node scripts/telegram-close-workflow.mjs send',
   payload:{date:'2026-11-02',artifactName:'telegram-close-claim-2026-11-02',
