@@ -13,6 +13,9 @@
 - OAuth의 **refresh token 교환만 POST**이고 GAS API는 GET만 수행한다. GAS/Sheets/Trigger/버전/Deployment에 대한 **쓰기 0회**.
 - 운영 로그는 배포 ID/URL/설명, 계정, OAuth/비밀정보, 원천 응답을 출력하지 않고 `deploymentCount`, 실행 API/웹앱 엔트리포인트 수, 기존 운영 배포 존재 여부와 추가 배포 가능성만 집계.
 - 예상 운영 배포 ID는 `GAS_DEPLOYMENT_ID` 또는 설정된 웹앱 URL로 대조. 실제 배포 수는 아직 미확인이다. 빈 목록/누락/추가 배포/미정 유형/부분 페이징은 `BLOCKED` 또는 `UNVERIFIED`.
+- [수동 감사 #41454759788](https://github.com/cyyoung111-dev/portfolio/actions/runs/41454759788)에서 인증된 GET 단계가 호출됐지만, 기존 스키마 검사가 `ISSUE507_DEPLOYMENT_INVENTORY_SCHEMA_UNVERIFIED`로 중단. **실제 배포 수와 서버 응답의 어느 필드가 실패했는지는 로그에 없음**. 따라서 HEAD 객체가 원인이라는 가정은 아직 확인되지 않았다.
+- [공식 GAS 배포 가이드](https://developers.google.com/apps-script/concepts/deployments)의 특수한 `HEAD` 배포는 자동 생성되고 특정 불변 코드 버전과 연결되지 않는다. `HEAD`만은 8자 미만의 ID와 `versionNumber` 부재·0, 엔트리포인트 생략을 허용한다. 다른 ID의 버전·진입점 불명 상태는 계속 차단한다. HEAD에 공개 엔트리포인트가 있다면 다른 배포와 동일하게 격리 대상으로 차단한다.
+- 실제 응답을 공개하거나 비공개 deployment ID/URL/token을 덤프하는 대신, 실패 코드를 `SCHEMA_LIST_UNVERIFIED`, `SCHEMA_ID_UNVERIFIED`, `SCHEMA_VERSION_UNVERIFIED`, `SCHEMA_ENTRY_POINTS_UNVERIFIED` 등으로 분리해 다음 실행에서 **정확한 실패 범주만** 식별한다. 단, 원인 구분 성공과 운영 writer 격리 증빙은 다른 문제다.
 - 예상된 배포 하나만 보이더라도 `INVENTORY_ONLY`이며 **releaseAuthorized=false**, `allActorsAndVersionsTerminatedVerified=false`, `externalSheetsWritersExcludedVerified=false`, `editorSessionsExcludedVerified=false` 유지.
 
 ## 이 조사로는 증명되지 않는 것
