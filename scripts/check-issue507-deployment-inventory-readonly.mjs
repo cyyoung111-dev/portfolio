@@ -39,6 +39,32 @@ assert.equal(result.allActorsAndVersionsTerminatedVerified,false);
 assert.equal(result.externalSheetsWritersExcludedVerified,false);
 assert.equal(result.gasWrites,0);
 assert.equal(single.calls.length,1);
+const headOnly={deploymentId:'HEAD'};
+const withAutoHead=setup({'':{deployments:[
+ headOnly,item(expectedDeploymentId)]}});
+result=await withAutoHead.run();
+assert.equal(result.status,'INVENTORY_ONLY');
+assert.equal(result.headDeploymentCount,1);
+assert.equal(result.deploymentCount,2);
+assert.equal(result.additionalRoutableDeploymentCount,0);
+assert.equal(result.releaseAuthorized,false);
+assert.equal(result.allActorsAndVersionsTerminatedVerified,false);
+// HEAD with a publicly routable entry point is not automatically exempt.
+const headRoutable=setup({'':{deployments:[
+ {...headOnly,entryPoints:[{entryPointType:'WEB_APP'}]},
+ item(expectedDeploymentId)]}});
+result=await headRoutable.run();
+assert.equal(result.status,'BLOCKED');
+assert.equal(result.reason,'ADDITIONAL_DEPLOYMENTS_REQUIRE_ISOLATION');
+assert.equal(result.headDeploymentCount,1);
+// A repeated field omitted for an empty list is still blocked (not approved).
+result=await setup({'':{}}).run();
+assert.equal(result.status,'BLOCKED');
+assert.equal(result.reason,'EXPECTED_DEPLOYMENT_NOT_PROVEN');
+const blankHeadConfig=setup({'':{deployments:[
+ {deploymentId:'HEAD',deploymentConfig:{versionNumber:0},entryPoints:[]},
+ item(expectedDeploymentId)]}});
+assert.equal((await blankHeadConfig.run()).status,'INVENTORY_ONLY');
 assert.ok(!JSON.stringify(result).includes(expectedDeploymentId));
 assert.ok(!JSON.stringify(result).includes('PRIVATE_'));
 assert.ok(!JSON.stringify(result).includes(scriptId));
@@ -62,6 +88,23 @@ for(const payload of [
  const t=setup({'':payload}),out=await t.run();
  assert.equal(out.status,'BLOCKED');
  assert.equal(out.releaseAuthorized,false);
+}
+for(const [payload,reason] of [
+ [{deployments:[item(expectedDeploymentId),item(expectedDeploymentId)]},
+  'SCHEMA_DUPLICATE_ID_UNVERIFIED'],
+ [{deployments:[{...item(expectedDeploymentId),deploymentConfig:{versionNumber:'336'}}]},
+  'SCHEMA_VERSION_UNVERIFIED'],
+ [{deployments:[{...item(expectedDeploymentId),entryPoints:null}]},
+  'SCHEMA_ENTRY_POINTS_UNVERIFIED'],
+ [{deployments:[{...item(expectedDeploymentId),deploymentId:'SHORT'}]},
+  'SCHEMA_ID_UNVERIFIED'],
+ [{deployments:{private:'PRIVATE_FAKE'}},
+  'SCHEMA_LIST_UNVERIFIED'],
+ [{deployments:[item(expectedDeploymentId)],nextPageToken:'LOOP'},
+  'PAGINATION_UNVERIFIED']
+]){
+ const t=setup({'':payload,LOOP:{deployments:[],nextPageToken:'LOOP'}});
+ await assert.rejects(t.run(),new RegExp('ISSUE507_DEPLOYMENT_INVENTORY_'+reason));
 }
 for(const payload of [
  {deployments:[item(expectedDeploymentId),item(expectedDeploymentId)]},
