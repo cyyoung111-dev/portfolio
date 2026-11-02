@@ -6,6 +6,7 @@ on:
     - cron: '40 22 * * 0-4' # 07:40 KST, primary
     - cron: '49 22 * * 0-4' # 07:49 KST, fallback 1
     - cron: '57 22 * * 0-4' # 07:57 KST, fallback 2
+    - cron: '0 23 * * 0-4'  # 08:00 KST, fallback 3; same claim and delivery window
     - cron: '5 23 * * 0-4'  # 08:05 KST, last fallback (08:10 cutoff)
   # Explicit same-day rescue remains inside the original clock/date and claim gates.
   # Connection tests must be selected deliberately, never the default.
