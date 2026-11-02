@@ -17,13 +17,13 @@ const extraStocks=Object.freeze([
 const extraMacros=Object.freeze([
   ['USDKRW','원/달러','KRW=X'],['DXY','DXY','DX-Y.NYB'],['UST10Y','미 10년물','^TNX']
 ]);
+const rateIds=Object.freeze([['UST2Y','미 국채 2년'],['UST3Y','미 국채 3년'],['YIELD_SPREAD','장단기금리차']]);
 const extraMarkets=Object.freeze([
  ['WTI','WTI','CL=F'],['BRENT','Brent','BZ=F'],['GOLD','금','GC=F'],
  ['COPPER','구리','HG=F'],['BTC','BTC','BTC-USD']
 ]);
 const unwired=Object.freeze([
   'VKOSPI',
-  'UST2Y','UST3Y','YIELD_SPREAD',
   'KRX_TURNOVER',
   'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
@@ -34,6 +34,7 @@ export const CLOSE_SOURCE_CATALOG=Object.freeze({
   extraStocks:Object.freeze(extraStocks.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_STOCK'}))),
   extraMacros:Object.freeze(extraMacros.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_MACRO'}))),
   extraMarkets:Object.freeze(extraMarkets.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_MARKET'}))),
+  treasuryRates:Object.freeze(rateIds.map(([id,label])=>Object.freeze({id,label,role:'OPTIONAL_MACRO'}))),
   notConnected:Object.freeze([...unwired])
 });
 export const MORNING_NOT_CONNECTED=Object.freeze([
@@ -47,11 +48,11 @@ const validRow=r=>r&&Number.isFinite(r.value)&&r.value>0;
 function state(found,failed){
   return found?'VERIFIED':failed?'FETCH_FAILED':'NO_VERIFIED_ROW';
 }
-export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],expectedUsDate=null,
+export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],rates=[],expectedUsDate=null,
   failedGroups=[]}={}){
   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)
     ||!Array.isArray(nh)||!Array.isArray(domestic)||!Array.isArray(secondary)
-    ||!Array.isArray(stocks)||!Array.isArray(macros)||!Array.isArray(markets)
+    ||!Array.isArray(stocks)||!Array.isArray(macros)||!Array.isArray(markets)||!Array.isArray(rates)
     ||!Array.isArray(failedGroups)||failedGroups.some(x=>!allowedFailureGroups.has(x))
     ||(expectedUsDate!==null&&(typeof expectedUsDate!=='string'
       ||!/^\d{4}-\d{2}-\d{2}$/.test(expectedUsDate))))
@@ -82,7 +83,10 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
       &&x.symbol===entry.symbol&&x.source==='YAHOO_DAILY_REFERENCE'
       &&(entry.id!=='UST10Y'||x.value<20)
       &&x.date===expectedUsDate&&validRow(x));
-    statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('MACROS'))});
+    const fred10=entry.id==='UST10Y'&&rates.filter(x=>x?.id==='UST10Y_FRED'
+      &&x.label==='미 국채 10년'&&x.source==='FRED_H15_DAILY'
+      &&x.date===expectedUsDate&&validRow(x)&&x.value<30).length===1;
+    statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1||fred10,failed.has('MACROS'))});
   }
   for(const entry of CLOSE_SOURCE_CATALOG.extraMarkets){
     const expected=entry.id==='BTC'
@@ -93,6 +97,13 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
       &&x.date===expected&&validRow(x));
     statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('MARKETS'))});
   }
+  const expectedRates=expectedUsDate;
+  const matchedRate=id=>rates.filter(x=>x?.id===id&&x.source==='FRED_H15_DAILY'
+    &&x.date===expectedRates&&Number.isFinite(x.value)&&x.value>0&&x.value<30).length===1;
+  const ready2=matchedRate('UST2Y'),ready3=matchedRate('UST3Y'),ready10=matchedRate('UST10Y_FRED');
+  for(const [id] of rateIds)
+    statuses.push({id,role:'OPTIONAL_MACRO',status:state(
+      id==='UST2Y'?ready2:id==='UST3Y'?ready3:ready2&&ready10,false)});
   for(const id of CLOSE_SOURCE_CATALOG.notConnected)
     statuses.push({id,role:'NOT_CONNECTED',status:'NOT_CONNECTED'});
   const verified=id=>statuses.find(x=>x.id===id)?.status==='VERIFIED';
@@ -105,6 +116,7 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
     stocks:{verified:extraStocks.filter(([id])=>verified(id)).length,total:4},
     macros:{verified:extraMacros.filter(([id])=>verified(id)).length,total:3},
     markets:{verified:extraMarkets.filter(([id])=>verified(id)).length,total:5},
+    treasury:{verified:rateIds.filter(([id])=>verified(id)).length,total:3},
     groupErrors:[...failed].sort(),
     statuses,
   };
@@ -116,7 +128,7 @@ export function formatCloseCoverageSummary(coverage){
   const displayNames=Object.fromEntries([
    ...CLOSE_SOURCE_CATALOG.core,...CLOSE_SOURCE_CATALOG.reference,
    ...CLOSE_SOURCE_CATALOG.extraStocks,...CLOSE_SOURCE_CATALOG.extraMacros,
-   ...CLOSE_SOURCE_CATALOG.extraMarkets
+   ...CLOSE_SOURCE_CATALOG.extraMarkets,...CLOSE_SOURCE_CATALOG.treasuryRates
   ].map(x=>[x.id,x.label]));
   const missing=coverage.statuses.filter(x=>x.status!=='VERIFIED'
     &&x.status!=='NOT_CONNECTED').map(x=>displayNames[x.id]||x.id);
@@ -126,7 +138,8 @@ export function formatCloseCoverageSummary(coverage){
       +' (국내 '+c.domestic+'/3 · 미국 '+c.us+'/3)'
       +' · 참고 '+aux.verified+'/'+aux.total
       +' · 주요 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3'
-      +' · 원자재/BTC '+coverage.markets.verified+'/5',
+      +' · 원자재/BTC '+coverage.markets.verified+'/5'
+      +' · 국채금리·스프레드 '+coverage.treasury.verified+'/3',
     '미확보: '+(missing.length
       ?missing.length<=8?missing.join(' · '):missing.slice(0,8).join(' · ')+' 외 '+(missing.length-8)+'개'
       :'없음'),

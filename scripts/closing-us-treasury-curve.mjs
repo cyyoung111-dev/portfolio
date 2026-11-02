@@ -1,0 +1,79 @@
+// Supplemental, read-only US Treasury constant-maturity daily H.15 series.
+// No yield is presented as a live 17:00 price. No stale-day substitution.
+import {expectedMorningDate} from './telegram-morning-report.mjs';
+
+const RATES=Object.freeze([
+ Object.freeze({id:'UST2Y',code:'DGS2',label:'미 국채 2년'}),
+ Object.freeze({id:'UST3Y',code:'DGS3',label:'미 국채 3년'}),
+ Object.freeze({id:'UST10Y_FRED',code:'DGS10',label:'미 국채 10년'})
+]);
+export function parseTreasuryFredCsv(id,expected,source){
+ const rate=RATES.find(x=>x.id===id);
+ if(!rate||!Number.isFinite(Date.parse(expected+'T00:00:00Z'))
+   ||! /^\d{4}-\d{2}-\d{2}$/.test(expected)
+   ||typeof source!=='string'||source.length>50000||source.includes('\0'))return null;
+ const lines=source.replace(/^\uFEFF/,'').trim().split(/\r?\n/);
+ if(lines.length<2||lines.length>400)return null;
+ const columns=lines.shift().trim().toUpperCase().split(',').map(x=>x.trim());
+ if(columns.length!==2||columns[0]!=='OBSERVATION_DATE'||columns[1]!==rate.code)return null;
+ let found=null,matching=0;
+ for(const line of lines){
+  const cells=line.split(',');
+  if(cells[0].trim()!==expected)continue;
+  matching++;
+  if(cells.length!==2)return null;
+  const raw=cells[1].trim();
+  if(!/^\d+(?:\.\d{1,3})?$/.test(raw))return null;
+  const value=Number(raw);
+  if(!Number.isFinite(value)||value<=0||value>=30)return null;
+  found={id:rate.id,label:rate.label,date:expected,value,
+   source:'FRED_H15_DAILY'};
+ }
+ return matching===1?found:null;
+}
+export function verifyTreasuryCurve(date,rows=[]){
+ const expected=expectedMorningDate('SPX',date);
+ if(!expected||!Array.isArray(rows)||rows.length>3)return [];
+ return RATES.flatMap(entry=>{
+  const matching=rows.filter(r=>r?.id===entry.id);
+  if(matching.length!==1)return [];
+  const x=matching[0];
+  if(x.label!==entry.label||x.date!==expected||x.source!=='FRED_H15_DAILY'
+    ||!Number.isFinite(x.value)||x.value<=0||x.value>=30)return [];
+  return [{id:x.id,label:x.label,date:x.date,value:x.value,source:x.source}];
+ });
+}
+export async function readTreasuryCurve(date,{fetchImpl=fetch}={}){
+ const expected=expectedMorningDate('SPX',date);
+ if(!expected)return [];
+ const from=new Date(Date.parse(expected+'T00:00:00Z')-21*86400000).toISOString().slice(0,10);
+ const found=await Promise.all(RATES.map(async entry=>{
+  const url=new URL('https://fred.stlouisfed.org/graph/fredgraph.csv');
+  url.searchParams.set('id',entry.code);
+  url.searchParams.set('cosd',from);
+  url.searchParams.set('coed',expected);
+  try{
+   const response=await fetchImpl(url.href,{redirect:'error',
+    headers:{accept:'text/csv'},signal:AbortSignal.timeout(6500)});
+   if(!response?.ok)return null;
+   const type=response.headers?.get?.('content-type')||'';
+   if(type&&!/csv|plain|octet-stream/i.test(type))return null;
+   return parseTreasuryFredCsv(entry.id,expected,await response.text());
+  }catch{return null;}
+ }));
+ return found.filter(Boolean);
+}
+export function formatTreasuryCurve(date,rows=[]){
+ const safe=verifyTreasuryCurve(date,rows);
+ const lines=['■ 미국 국채금리 (FRED H.15 · 직전 미국 거래일)'];
+ for(const entry of RATES){
+  const x=safe.find(r=>r.id===entry.id);
+  lines.push(entry.label+': '+(x?x.value.toFixed(2)+'% ['+x.date+']':'동일 기준일 확정치 미확보'));
+ }
+ const d2=safe.find(x=>x.id==='UST2Y'),d10=safe.find(x=>x.id==='UST10Y_FRED');
+ if(d2&&d10&&d2.date===d10.date){
+  const bp=Math.round((d10.value-d2.value)*100);
+  lines.push('장단기금리차 (10Y–2Y): '+(bp>=0?'+':'')+bp+'bp ['+d2.date+']');
+ }else lines.push('장단기금리차 (10Y–2Y): 동일 기준일 자료 미확보');
+ return lines.join('\n');
+}
