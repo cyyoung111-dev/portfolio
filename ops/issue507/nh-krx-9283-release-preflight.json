@@ -1,0 +1,22 @@
+{
+  "status": "PREVIEW_NOT_APPROVED_FOR_PRODUCTION",
+  "candidateVersion": "9.283",
+  "candidateSourceBlob": "60aa5665f218728c09888215bbe37e8aa1dea5ec",
+  "predecessorVersion": "9.282",
+  "predecessorSourceBlob": "9c1a5f31d1abc4b44f7da9af7a50fe3f15967134",
+  "reviewedNhPreviewBlob": "22a5e37d48ca3b39c71dfa32d6afae5401ed4d5b",
+  "sourceChanges": [
+    "NH 06:45 capture window",
+    "KRX daily KOSPI/KOSDAQ turnover read-only"
+  ],
+  "releaseAllowlistApproved": false,
+  "writePermissionGranted": false,
+  "productionDeploymentApproved": false,
+  "publishedProductionVersionVerified": false,
+  "writerGateLiveStatusVerified": false,
+  "mergedMainChainVerified": false,
+  "liveKrxTurnoverReadbackVerified": false,
+  "scheduledTelegramReadbackVerified": false,
+  "nextRelease": "requires separate exact full-source review, main merge, live predecessor readback, manual deploy approval",
+  "notes": "This is a code-reviewed candidate digest, not a deploy authorization or an operation record."
+}
