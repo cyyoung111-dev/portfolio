@@ -441,12 +441,12 @@ assert.deepEqual(closeOneoff.on.push.paths,['.github/workflows/telegram-close-ar
 assert.equal(closeOneoff.jobs['close-once'].timeoutMinutes,undefined);
 const closeOneoffSource=fs.readFileSync(
  '.github/workflows/telegram-close-arm-20261103.yml','utf8');
-assert.match(closeOneoffSource,/datetime[.]datetime\\(2026,11,3,17,0/);
-assert.match(closeOneoffSource,/datetime[.]datetime\\(2026,11,3,17,30/);
+assert.ok(closeOneoffSource.includes('datetime.datetime(2026,11,3,17,0,'));
+assert.ok(closeOneoffSource.includes('datetime.datetime(2026,11,3,17,30,'));
 assert.ok(!closeOneoffSource.includes('datetime.datetime(2026,11,2,'));
-assert.match(closeOneoffSource,/node scripts\\/telegram-close-workflow[.]mjs prepare/);
-assert.match(closeOneoffSource,/node scripts\\/telegram-close-workflow[.]mjs send/);
-assert.match(closeOneoffSource,/telegram-close-runtime\\/claim[.]json/);
-assert.match(closeOneoffSource,/telegram-close-runtime\\/sent[.]json/);
+assert.ok(closeOneoffSource.includes('node scripts/telegram-close-workflow.mjs prepare'));
+assert.ok(closeOneoffSource.includes('node scripts/telegram-close-workflow.mjs send'));
+assert.ok(closeOneoffSource.includes('telegram-close-runtime/claim.json'));
+assert.ok(closeOneoffSource.includes('telegram-close-runtime/sent.json'));
 
 console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');
