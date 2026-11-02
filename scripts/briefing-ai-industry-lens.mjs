@@ -10,13 +10,22 @@ const point=x=>(x>=0?'+':'')+x.toFixed(2)+'%p';
 export function formatAiIndustryCloseLens({date,usDate,nh=[],secondary=[],stocks=[]}={}){
  const spx=nh.find(x=>x?.symbol==='^GSPC'&&valid(x,usDate,'NH_INDEX_DAILY'));
  const ndx=nh.find(x=>x?.symbol==='^NDX'&&valid(x,usDate,'NH_INDEX_DAILY'));
- const sox=secondary.find(x=>x?.label==='SOX'&&x.role==='NON_NH_REFERENCE_ONLY'
+ const soxMatches=secondary.filter(x=>x?.label==='SOX'&&x.role==='NON_NH_REFERENCE_ONLY'
    &&valid(x,usDate,'FRED_NASDAQSOX'));
- const stockDates={SAMSUNG:date,SKHYNIX:date,NVDA:usDate,MU:usDate};
- const goodStocks=stocks.filter(x=>Object.hasOwn(stockDates,x?.id)
-   &&x.date===stockDates[x.id]&&x.source==='NH_REGULAR_CLOSE'
-   &&Number.isFinite(x.value)&&x.value>0);
- const confirmed=new Set(goodStocks.map(x=>x.id));
+ const sox=soxMatches.length===1?soxMatches[0]:null;
+ const contracts=[
+  ['SAMSUNG',date,'삼성전자','005930.KS'],
+  ['SKHYNIX',date,'SK하이닉스','000660.KS'],
+  ['NVDA',usDate,'엔비디아','NVDA'],
+  ['MU',usDate,'마이크론','MU']
+ ];
+ const confirmed=contracts.filter(([id,expected,label,symbol])=>{
+  const rows=stocks.filter(x=>x?.id===id);
+  return rows.length===1&&rows[0].date===expected
+   &&rows[0].label===label&&rows[0].symbol===symbol
+   &&rows[0].source==='NH_REGULAR_CLOSE'
+   &&Number.isFinite(rows[0].value)&&rows[0].value>0;
+ });
  const lines=['■ 먼저 보는 시장 해석 — AI 산업 전체'];
  if(spx&&ndx){
    const spread=ndx.changePercent-spx.changePercent;
@@ -30,8 +39,8 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],secondary=[],stocks
    lines.push('• 반도체 사이클: SOX '+pct(sox.changePercent)+' / NASDAQ100 대비 '
      +point(spread)+'. 반도체 가격 흐름과 AI 발주 증거는 구별해야 합니다.');
  }else lines.push('• 반도체 사이클: SOX·NASDAQ100 동시 검증값 부족 → 상대강도 판단 유보.');
- lines.push('• GPU·HBM·메모리: 주요 4종목 NH 확정 종가 '+confirmed.size+'/4.'
-   +(confirmed.size<4?' 개별주 반응을 업황 확정 근거로 사용하지 않습니다.':' 기업별 실적·수주 확인은 별도 필요합니다.'));
+ lines.push('• GPU·HBM·메모리: 주요 4종목 NH 확정 종가 '+confirmed.length+'/4.'
+   +(confirmed.length<4?' 개별주 반응을 업황 확정 근거로 사용하지 않습니다.':' 기업별 실적·수주 확인은 별도 필요합니다.'));
  lines.push('• AI 투자 수요: 빅테크 CAPEX·클라우드 매출·GPU 주문 데이터 미연결.'
    +' 수요 증가나 투자 축소를 지수만으로 단정하지 않습니다.');
  lines.push('• 파급 산업: 네트워크·광통신, 데이터센터 전력·냉각, AI 소프트웨어'
