@@ -43,7 +43,9 @@ assert.deepEqual(summary.stocks,{verified:0,total:4});
 assert.deepEqual(summary.macros,{verified:0,total:3});
 const qc=formatCloseCoverageSummary(summary);
 assert.match(qc,/핵심지수 6\/6 \(국내 3\/3 · 미국 3\/3\) · 참고 3\/3/);
-assert.match(qc,/미연결: VKOSPI,/);
+assert.match(qc,/미연결 참고지표: \d+개/);
+assert.match(qc,/미확보: 삼성전자/);
+assert.doesNotMatch(qc,/NO_VERIFIED_ROW|NOT_CONNECTED|FETCH_FAILED/,'internal reason codes must not clutter Telegram');
 assert.ok(!qc.includes('7720.39'),'operational log emits only status not provider numbers');
 assert.ok(formatClose(date,nh,refs,domestic).includes(qc));
 
