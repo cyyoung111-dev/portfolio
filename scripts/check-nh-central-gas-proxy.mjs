@@ -41,7 +41,9 @@ const leak=await fetchNhNightFromGas('2026-10-30',{now,url,token,request:async()
  ok:true,json:async()=>({status:'ok',provider:'NH',readOnly:true,bearerExposed:false,
  reference:{...ref,access_token:'UNEXPECTED_BEARER'}})})});
 assert.equal(leak,null,'unexpected auth fields must never be stored in GH artifacts');
-const cap=await captureMorning({now,fetchNight:async()=>result});
+const captureNow=()=>new Date('2026-10-30T06:50:00+09:00');
+const capturedEarly={...result,receivedAt:'2026-10-30T06:49:59+09:00'};
+const cap=await captureMorning({now:captureNow,fetchNight:async()=>capturedEarly});
 assert.equal(cap.status,'CAPTURED');
 // Capture failure diagnostics are fixed error codes only: never emit bearer,
 // raw provider responses or invent missing 06:00 prices.
@@ -58,7 +60,7 @@ assert.equal(await fetchNhNightFromGas('2026-10-30',{now,url,token,
  })}),
  onError:x=>missingSchema.push(x)}),null);
 assert.deepEqual(missingSchema,['NH_NIGHT_SCHEMA_INVALID']);
-const miss=await captureMorning({now,fetchNight:async(_date,{onError})=>{
+const miss=await captureMorning({now:captureNow,fetchNight:async(_date,{onError})=>{
  onError('NH_PROXY_0600_NOT_VERIFIED');return null;
 }});
 assert.equal(miss.status,'REFERENCE_UNAVAILABLE');
