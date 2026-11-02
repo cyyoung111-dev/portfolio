@@ -101,6 +101,16 @@ for(const c of checks){
  assert.equal(send.run,'node scripts/'+c.script+' send');
  assert.equal(send.env.TELEGRAM_BOT_TOKEN,'$'+'{{ secrets.TELEGRAM_BOT_TOKEN }}');
  assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
+ if(c.kind==='morning'){
+   const dispatchMode="${{ github.event_name == 'workflow_dispatch' && 'rescue' || '' }}";
+   assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_DISPATCH_MODE,dispatchMode,
+     'dispatched morning prepare needs explicit guarded rescue mode');
+   assert.equal(send.env.TELEGRAM_DISPATCH_MODE,dispatchMode,
+     'dispatched morning send must match the prepared rescue mode');
+ }else{
+   assert.equal(send.env.TELEGRAM_DISPATCH_MODE,undefined,
+     'closing needs no morning dispatch mode');
+ }
  assert.equal(send.if,"steps.prepare.outputs.ready == 'true'");
  assert.equal(steps.find(s=>s.name?.includes('Claim original dated')).with.path,c.root+'/claim.json');
  assert.equal(steps.find(s=>s.name?.includes('SENT proof')).with.path,c.root+'/sent.json');
