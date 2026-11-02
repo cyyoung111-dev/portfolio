@@ -43,7 +43,7 @@ const testSender=async(_token,_chat,text)=>{delivered++;textSent=text;};
 const tomorrow='2026-10-28',fakeRef={source:'NH',contract:'KA016C000',contractMonth:'2026-12',kind:'REFERENCE',tradingDate:tomorrow,value:872.35,officialClose:false,sourceUpdatedAt:`${tomorrow}T06:00:00+09:00`,receivedAt:`${tomorrow}T07:30:00+09:00`};
 const morningOptions={now:()=>new Date(`${tomorrow}T07:45:01+09:00`),token:'x',chatId:'x',send:testSender,referenceFetch:async()=>fakeRef,fetchImpl:async()=>({ok:false})};
 const morning=await runTelegramMorning(morningOptions);
-assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/NH PLUG 06:00 운영 확정 기준/);
+assert.equal(morning.status,'SENT_REFERENCE');assert.equal(delivered,1);assert.match(textSent,/872\.35/);assert.match(textSent,/06:00 확인/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,attempt:2}),/TELEGRAM_RETRY_BLOCKED/);
 await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(`${tomorrow}T08:10:00+09:00`)}),/TELEGRAM_SCHEDULE_LATE/);
 assert.equal(delivered,1,'재시도 및 지연 실행에서 메시지 중복 발송 금지');
@@ -53,7 +53,7 @@ const tflRef={...fakeRef,source:'NH',contract:'KA016C000',value:900.05};
 const tflMorning=await runTelegramMorning({...morningOptions,referenceFetch:async()=>tflRef});
 assert.equal(tflMorning.status,'SENT_REFERENCE');
 assert.equal(tflMorning.referenceSource,'NH');assert.equal(tflMorning.referenceDate,tomorrow);assert.equal(tflMorning.referenceContract,'KA016C000');
-assert.match(textSent,/NH PLUG 06:00 운영 확정 기준/);assert.match(textSent,/900\.05pt/);
+assert.match(textSent,/06:00 확인/);assert.match(textSent,/900\.05pt/);
 const tflBad=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...tflRef,contract:''})});
 assert.equal(tflBad.status,'SENT_SOURCE_MISSING');assert.doesNotMatch(textSent,/900\.05/);
 // The headless calendar consumes the GAS source of truth (including temporary
@@ -655,7 +655,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  const {formatFullMorningBriefing}=await import('./telegram-morning-report.mjs');
  const row={label:'S&P 500',symbol:'^GSPC',date:'2026-10-27',value:5200,changePercent:0.75,source:'NH_INDEX_DAILY'};
  const actualFormat=formatFullMorningBriefing('2026-10-28',null,[row],{now:lateNow()});
- assert.ok(actualFormat.includes('■ QC: 기준 거래일과 일치한 일봉 1/21 · NH 야선 미확보'));
+ assert.ok(actualFormat.includes('■ QC: 기준 거래일과 일치한 일봉 1/21 · 야간선물 미확보'));
  const lateOpts={...options,now:lateNow,mode:'late_test',loadReference:async()=>null,
    run:async({allowLateTest,send})=>{assert.equal(allowLateTest,true);await send(null,null,actualFormat);return {status:'SENT_SOURCE_MISSING',seriesCount:1};}};
  const late=await prepareMorning({...lateOpts,fetchImpl:mock(0)});
