@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {inspectGasDeploymentsReadOnly} from './issue507-deployment-inventory-readonly.mjs';
+import {inspectGasDeploymentsReadOnly,
+ inspectUnreviewedGasSourceSignals} from './issue507-deployment-inventory-readonly.mjs';
 
 const scriptId='TEST_SCRIPT_IDENTIFIER_12345';
 const expectedDeploymentId='TEST_EXPECTED_DEPLOYMENT_123';
@@ -313,6 +314,58 @@ const unreviewed=await setup({'':{deployments:[item(expectedDeploymentId)]}},
 assert.equal(unreviewed.status,'BLOCKED');
 assert.equal(unreviewed.sourceUnreviewedCount,1);
 assert.equal(unreviewed.sourceGetCheckedCount,1);
+assert.equal(unreviewed.unreviewedSourceStaticScanMethod,'LEXICAL_HINTS_ONLY');
+assert.equal(unreviewed.unreviewedSourceStaticVersionsScanned,1);
+assert.equal(unreviewed.unreviewedSourceWithNoRecognizedMarkersCount,1);
+assert.equal(unreviewed.unreviewedSourceWithSheetWriteMarkerCount,0);
+// Pure lexical detection is deliberately neither parsing nor reachability.
+// Comments can create false positives and dynamic writers false negatives.
+const seeded=('function doGet(e) {return null;} function doPost(e){} '+
+ 'SpreadsheetApp.getActive().getSheetByName("x").setValues([]);'+
+ 'PropertiesService.getScriptProperties().setProperty("a","b");'+
+ 'ScriptApp.newTrigger("x"); UrlFetchApp.fetch("https://example.invalid");'
+).padEnd(1250,' ');
+const markers=inspectUnreviewedGasSourceSignals(seeded);
+assert.deepEqual(markers,{webGet:true,webPost:true,sheetWrite:true,
+ propertyWrite:true,triggerMutation:true,outboundFetch:true});
+assert.equal(inspectUnreviewedGasSourceSignals('x'.repeat(1200)).webPost,false);
+assert.throws(()=>inspectUnreviewedGasSourceSignals('tiny'),
+ /ISSUE507_DEPLOYMENT_INVENTORY_SOURCE_SIGNAL_INPUT_UNVERIFIED/);
+const signalA='function doPost(e){};sheet.setValues([]);'.padEnd(1200,'a');
+const signalB='function doGet(e){};obj.setProperty("x",1);'.padEnd(1200,'b');
+const signalListed=[item(expectedDeploymentId),
+ item('EXTRA_STATIC_SOURCE_A'),item('EXTRA_STATIC_SOURCE_B')];
+signalListed[1].deploymentConfig.versionNumber=337;
+signalListed[2].deploymentConfig.versionNumber=338;
+const signalDetails={
+ [expectedDeploymentId]:item(expectedDeploymentId),
+ EXTRA_STATIC_SOURCE_A:{...item('EXTRA_STATIC_SOURCE_A'),
+  deploymentConfig:{versionNumber:337}},
+ EXTRA_STATIC_SOURCE_B:{...item('EXTRA_STATIC_SOURCE_B'),
+  deploymentConfig:{versionNumber:338}}
+};
+const signalVersions={
+ '336':approvedFiles,
+ '337':{scriptId,files:[{name:'Code',type:'SERVER_JS',source:signalA},
+  {name:'appsscript',type:'JSON',source:'{}'}]},
+ '338':{scriptId,files:[{name:'Code',type:'SERVER_JS',source:signalB},
+  {name:'appsscript',type:'JSON',source:'{}'}]}
+};
+const stats=await setup({'':{deployments:signalListed}},signalDetails,
+ signalVersions).run({verifyDetails:true,verifySource:true});
+assert.equal(stats.status,'BLOCKED');
+assert.equal(stats.releaseAuthorized,false);
+assert.equal(stats.sourceUnreviewedCount,2);
+assert.equal(stats.unreviewedSourceStaticVersionsScanned,2);
+assert.equal(stats.unreviewedSourceWithWebPostMarkerCount,1);
+assert.equal(stats.unreviewedSourceWithWebGetMarkerCount,1);
+assert.equal(stats.unreviewedSourceWithSheetWriteMarkerCount,1);
+assert.equal(stats.unreviewedSourceWithPropertyWriteMarkerCount,1);
+assert.equal(stats.unreviewedSourceWithNoRecognizedMarkersCount,0);
+for(const secretString of [signalA.slice(0,35),signalB.slice(0,35),
+ 'EXTRA_STATIC_SOURCE_A','EXTRA_STATIC_SOURCE_B',scriptId,secret]){
+ assert.ok(!JSON.stringify(stats).includes(secretString));
+}
 assert.equal(unreviewed.releaseAuthorized,false);
 await assert.rejects(
  setup({'':{deployments:[item(expectedDeploymentId)]}}).run({verifySource:true}),
@@ -448,6 +501,9 @@ assert.match(runner,/detailGetUnverifiedCount/);
 assert.match(runner,/additionalWebAppAnonymousDeployerCount/);
 assert.match(runner,/verifyDetails:true,verifySource:true/);
 assert.match(runner,/sourceGetSkippedUnversionedCount/);
+assert.match(runner,/unreviewedSourceWithSheetWriteMarkerCount/);
+assert.match(runner,/unreviewedSourceStaticScanMethod/);
+assert.doesNotMatch(runner,/releaseAuthorized:true/);
 assert.match(runner,/WEB_ACCESS.has\(config\?\.access\)/);
 assert.match(runner,/WEB_EXECUTE_AS.has\(config\?\.executeAs\)/);
 assert.doesNotMatch(runner,/method:'POST'|method:'PUT'|method:'DELETE'/);
