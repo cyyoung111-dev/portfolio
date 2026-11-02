@@ -69,7 +69,8 @@ export async function precomputeClose({now=()=>new Date(),
   (async()=>{try{nh=await fetchNh(first.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{}})(),
   (async()=>{try{domestic=await fetchDomestic(first.date,{fetchImpl,now,gasUrl,gasToken});}catch{}})(),
   (async()=>{try{secondary=await fetchSecondary(first.date,{fetchImpl});}catch{}})(),
-  (async()=>{try{stocks=await fetchStocks(first.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{}})(),
+  (async()=>{try{stocks=await fetchStocks(first.date,{url:gasUrl,token:gasToken,fetchImpl,
+    onDiagnostic:details=>console.log(JSON.stringify({kind:'NH_PRECLOSE_STOCK_READ',...details}))});}catch{}})(),
   (async()=>{try{macros=await fetchMacros(first.date,{fetchImpl,now});}catch{}})(),
   (async()=>{try{markets=await fetchMarkets(first.date,{fetchImpl,now});}catch{}})()
  ]);
