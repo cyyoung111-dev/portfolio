@@ -65,7 +65,7 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
       status:state(rows.length===1,failed.has(isKr?'DOMESTIC':'NH'))});
   }
   for(const entry of CLOSE_SOURCE_CATALOG.reference){
-    const rows=secondary.filter(x=>x?.label===entry.label&&x?.source===entry.source
+    const rows=secondary.filter(x=>x?.label===entry.label&&(x?.source===entry.source||(entry.id==='SOX'&&x?.source==='YAHOO_SOX_DAILY_REFERENCE'))
       &&x?.role==='NON_NH_REFERENCE_ONLY'&&x?.date===expectedUsDate&&validRow(x));
     statuses.push({id:entry.id,role:entry.role,
       status:state(rows.length===1,failed.has('SECONDARY'))});
