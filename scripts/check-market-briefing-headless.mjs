@@ -655,7 +655,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  const {formatFullMorningBriefing}=await import('./telegram-morning-report.mjs');
  const row={label:'S&P 500',symbol:'^GSPC',date:'2026-10-27',value:5200,changePercent:0.75,source:'NH_INDEX_DAILY'};
  const actualFormat=formatFullMorningBriefing('2026-10-28',null,[row],{now:lateNow()});
- assert.match(actualFormat,/■ QC: 기준 거래일과 일치한 일봉 1\\/21 · NH 야선 미확보/);
+ assert.ok(actualFormat.includes('■ QC: 기준 거래일과 일치한 일봉 1/21 · NH 야선 미확보'));
  const lateOpts={...options,now:lateNow,mode:'late_test',loadReference:async()=>null,
    run:async({allowLateTest,send})=>{assert.equal(allowLateTest,true);await send(null,null,actualFormat);return {status:'SENT_SOURCE_MISSING',seriesCount:1};}};
  const late=await prepareMorning({...lateOpts,fetchImpl:mock(0)});
