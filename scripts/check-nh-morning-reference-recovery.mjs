@@ -78,7 +78,7 @@ for(const options of [
  assert.equal(y.referenceSource,'NONE',JSON.stringify(options));
  assert.equal(y.referenceOrigin,'NONE');
  if(options.late)assert.equal(y.mode,'late_test');
- if(options.clock==='08:00:00'||options.clock==='08:09:59'||options.late||!options.gasUrl||!options.token)
+ if(options.clock==='08:00:00'||options.clock==='08:09:59'||options.late||options.gasUrl===''||options.token==='')
    assert.equal(x.observed().recoveryCalls,0,'no late/unauthorized GAS recovery');
 }
 // Verify the real GAS boundary is a single protected read-only POST and never
