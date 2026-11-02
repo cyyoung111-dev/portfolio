@@ -8,7 +8,7 @@ on:
     - cron: '10 8 * * 1-5' # 17:10 KST missing-schedule/data recovery only
     - cron: '20 8 * * 1-5' # 17:20 KST last recovery chance, 17:30 cutoff
   workflow_run:
-    workflows: ['market-briefing-headless', 'gas-deploy']
+    workflows: ['market-briefing-headless', 'gas-deploy', 'Telegram closing data precompute']
     types: [completed]
     branches: [main]
   # Deploy and validate this workflow through its normal, claimed send path.
