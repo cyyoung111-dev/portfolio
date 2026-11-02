@@ -11,11 +11,11 @@ const references=Object.freeze([
   ['VIX','VIX','CBOE_VIX_DAILY']
 ]);
 const extraStocks=Object.freeze([
-  ['SAMSUNG','삼성전자'],['SKHYNIX','SK하이닉스'],
-  ['NVDA','엔비디아'],['MU','마이크론']
+  ['SAMSUNG','삼성전자','005930.KS'],['SKHYNIX','SK하이닉스','000660.KS'],
+  ['NVDA','엔비디아','NVDA'],['MU','마이크론','MU']
 ]);
 const extraMacros=Object.freeze([
-  ['USDKRW','원/달러'],['DXY','DXY'],['UST10Y','미 10년물']
+  ['USDKRW','원/달러','KRW=X'],['DXY','DXY','DX-Y.NYB'],['UST10Y','미 10년물','^TNX']
 ]);
 const unwired=Object.freeze([
   'VKOSPI',
@@ -28,8 +28,8 @@ const unwired=Object.freeze([
 export const CLOSE_SOURCE_CATALOG=Object.freeze({
   core:Object.freeze(core.map(([id,label,market])=>Object.freeze({id,label,market,role:'REQUIRED_INDEX'}))),
   reference:Object.freeze(references.map(([id,label,source])=>Object.freeze({id,label,source,role:'OPTIONAL_REFERENCE'}))),
-  extraStocks:Object.freeze(extraStocks.map(([id,label])=>Object.freeze({id,label,role:'OPTIONAL_STOCK'}))),
-  extraMacros:Object.freeze(extraMacros.map(([id,label])=>Object.freeze({id,label,role:'OPTIONAL_MACRO'}))),
+  extraStocks:Object.freeze(extraStocks.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_STOCK'}))),
+  extraMacros:Object.freeze(extraMacros.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_MACRO'}))),
   notConnected:Object.freeze([...unwired])
 });
 export const MORNING_NOT_CONNECTED=Object.freeze([
@@ -67,13 +67,16 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
       status:state(rows.length===1,failed.has('SECONDARY'))});
   }
   for(const entry of CLOSE_SOURCE_CATALOG.extraStocks){
-    const rows=stocks.filter(x=>x?.id===entry.id&&x.source==='NH_REGULAR_CLOSE'
+    const rows=stocks.filter(x=>x?.id===entry.id&&x.label===entry.label
+      &&x.symbol===entry.symbol&&x.source==='NH_REGULAR_CLOSE'
       &&x.date===(entry.id==='SAMSUNG'||entry.id==='SKHYNIX'?date:expectedUsDate)
       &&validRow(x));
     statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('STOCKS'))});
   }
   for(const entry of CLOSE_SOURCE_CATALOG.extraMacros){
-    const rows=macros.filter(x=>x?.id===entry.id&&x.source==='YAHOO_DAILY_REFERENCE'
+    const rows=macros.filter(x=>x?.id===entry.id&&x.label===entry.label
+      &&x.symbol===entry.symbol&&x.source==='YAHOO_DAILY_REFERENCE'
+      &&(entry.id!=='UST10Y'||x.value<20)
       &&x.date===expectedUsDate&&validRow(x));
     statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('MACROS'))});
   }
