@@ -645,10 +645,43 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  await assert.rejects(()=>deliverPrepared(prepared,{now,attempt:2,send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  await assert.rejects(()=>deliverPrepared(prepared,{now:()=>new Date('2026-10-28T08:10:00+09:00'),send:async()=>{sends++;}}),/TELEGRAM_PREPARED_INVALID/);
  assert.equal(sends,1,'late or stale payload cannot send');
+ // Full-message late test is explicitly selected and cannot relax the regular schedule.
+ const {lateTestWindow}=await import('./telegram-morning-briefing.mjs');
+ const lateNow=()=>new Date('2026-10-28T09:40:00+09:00');
+ assert.equal(lateTestWindow(lateNow()).allowed,true);
+ assert.equal(lateTestWindow(new Date('2026-10-28T08:09:59+09:00')).allowed,false);
+ assert.equal(lateTestWindow(new Date('2026-10-28T12:00:00+09:00')).allowed,false);
+ assert.equal(lateTestWindow(new Date('2026-11-01T09:40:00+09:00')).allowed,false);
+ const {formatFullMorningBriefing}=await import('./telegram-morning-report.mjs');
+ const row={label:'S&P 500',symbol:'^GSPC',date:'2026-10-27',value:5200,changePercent:0.75,source:'NH_INDEX_DAILY'};
+ const actualFormat=formatFullMorningBriefing('2026-10-28',null,[row],{now:lateNow()});
+ assert.ok(actualFormat.includes('■ QC: 기준 거래일과 일치한 일봉 1/21 · NH 야선 미확보'));
+ const lateOpts={...options,now:lateNow,mode:'late_test',loadReference:async()=>null,
+   run:async({allowLateTest,send})=>{assert.equal(allowLateTest,true);await send(null,null,actualFormat);return {status:'SENT_SOURCE_MISSING',seriesCount:1};}};
+ const late=await prepareMorning({...lateOpts,fetchImpl:mock(0)});
+ assert.equal(late.ready,true);assert.equal(late.mode,'late_test');
+ const allMissing=formatFullMorningBriefing('2026-10-28',null,[],{now:lateNow()});
+ await assert.rejects(()=>prepareMorning({...lateOpts,fetchImpl:mock(0),
+   run:async({send})=>{await send(null,null,allMissing);return {status:'SENT_SOURCE_MISSING',seriesCount:0};}}),/TELEGRAM_TEST_DATA_UNAVAILABLE/);
+ await assert.rejects(()=>prepareMorning({...lateOpts,fetchImpl:mock(0),
+   run:async({send})=>{await send(null,null,'부분 문자열');return {status:'SENT_SOURCE_MISSING',seriesCount:1};}}),/TELEGRAM_TEST_DATA_UNAVAILABLE/);
+
+ assert.equal(late.artifactName,prepared.artifactName,'late test shares the dated production claim');
+ assert.ok(late.message.startsWith('[수동 지연 발송 테스트 · 2026-10-28 · 정규 장전 발송 아님]'),'late report must be visibly labeled');
+ assert.equal((await prepareMorning({...lateOpts,fetchImpl:mock(1,[{name:late.artifactName}])})).status,'ALREADY_CLAIMED');
+ await assert.rejects(()=>prepareMorning({...options,now:lateNow,fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
+ await assert.rejects(()=>prepareMorning({...lateOpts,now:()=>new Date('2026-10-28T12:00:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
+ await assert.rejects(()=>deliverPrepared(late,{now:lateNow,send:async()=>assert.fail('missing mode must not send')}),/TELEGRAM_PREPARED_INVALID/);
+ await assert.rejects(()=>deliverPrepared(prepared,{now:lateNow,mode:'late_test',send:async()=>assert.fail('normal payload must not be retagged')}),/TELEGRAM_PREPARED_INVALID/);
+ let lateSends=0;
+ assert.equal((await deliverPrepared(late,{now:lateNow,mode:'late_test',send:async()=>{lateSends++;}})).status,'SENT');
+ await assert.rejects(()=>deliverPrepared(late,{now:()=>new Date('2026-10-28T12:00:00+09:00'),mode:'late_test',send:async()=>{lateSends++;}}),/TELEGRAM_PREPARED_INVALID/);
+ assert.equal(lateSends,1);
  const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
- assert.deepEqual(wf.on.schedule.map(x=>x.cron),['40 22 * * 0-4','49 22 * * 0-4','57 22 * * 0-4','5 23 * * 0-4']);
+ assert.deepEqual(wf.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test','late_test']);
+ assert.deepEqual(wf.on.schedule.map(x=>x.cron),['40 22 * * 0-4','49 22 * * 0-4','57 22 * * 0-4','0 23 * * 0-4','5 23 * * 0-4']);
  const captureWf=YAML.parse(fs.readFileSync('.github/workflows/nh-night-capture.yml','utf8'));
- assert.deepEqual(captureWf.on.schedule.map(x=>x.cron),['31 22 * * 0-4','39 22 * * 0-4','47 22 * * 0-4']);
+ assert.deepEqual(captureWf.on.schedule.map(x=>x.cron),['31 22 * * 0-4','39 22 * * 0-4','47 22 * * 0-4','55 22 * * 0-4']);
  assert.equal(captureWf.permissions.contents,'read');
  assert.equal(captureWf.permissions.actions,'read');
  const priorStep=captureWf.jobs.capture.steps.find(x=>x.id==='prior');

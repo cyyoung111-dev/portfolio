@@ -1,13 +1,15 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {scheduledWindow,runTelegramMorning,sendTelegram} from './telegram-morning-briefing.mjs';
+import {scheduledWindow,lateTestWindow,runTelegramMorning,sendTelegram} from './telegram-morning-briefing.mjs';
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 
-export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,run=runTelegramMorning,loadReference=loadCapturedNight}={}) {
+export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
-  const window=scheduledWindow(now());
+  if(!['rescue','late_test'].includes(mode))throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
+  const lateTest=mode==='late_test';
+  const window=lateTest?lateTestWindow(now()):scheduledWindow(now());
   if(!window.allowed)throw Error('TELEGRAM_SCHEDULE_LATE');
   const artifactName=`telegram-morning-claim-${window.date}`;
   let response;
@@ -23,16 +25,28 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   }
   let message;
   const reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
-  const result=await run({now,fetchImpl,event:'schedule',attempt,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
+  const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
   if(!message)return {ready:false,status:result.status,date:window.date};
   const source=['NH'].includes(result.referenceSource)?result.referenceSource:'NONE';
-  return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source};
+  if(lateTest){
+    // Do not count an all-unavailable message as a successful end-to-end market briefing test.
+    // The formatter's QC count is the final authority after its source/date filters.
+    const qc=/■ QC: 기준 거래일과 일치한 일봉 (\d+)\/(\d+) · NH 야선 (확보|미확보)/.exec(message||'');
+    if(!qc||Number(qc[2])<1||Number(qc[1])>Number(qc[2])
+      ||(Number(qc[1])===0&&qc[3]==='미확보'))throw Error('TELEGRAM_TEST_DATA_UNAVAILABLE');
+    message=`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\n${message}`;
+  }
+  if(message.length>4000)throw Error('TELEGRAM_PREPARED_INVALID');
+  return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source,...(lateTest?{mode:'late_test'}:{})};
 }
-export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}) {
-  const window=scheduledWindow(now());
+export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,attempt=1,mode='',send=sendTelegram}={}) {
+  const lateTest=payload?.mode==='late_test';
+  if((lateTest&&mode!=='late_test')||(!lateTest&&mode==='late_test')||(payload?.mode&& !lateTest))throw Error('TELEGRAM_PREPARED_INVALID');
+  const window=lateTest?lateTestWindow(now()):scheduledWindow(now());
   if(Number(attempt)!==1||!window.allowed||payload?.date!==window.date
     ||payload?.artifactName!==`telegram-morning-claim-${window.date}`
-    ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000)throw Error('TELEGRAM_PREPARED_INVALID');
+    ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000
+    ||(lateTest&&!payload.message.startsWith(`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\n`)))throw Error('TELEGRAM_PREPARED_INVALID');
   await send(token,chatId,payload.message);
   return {status:'SENT',date:window.date};
 }
@@ -42,14 +56,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   // Manual workflow_dispatch must be a specifically selected guarded rescue.
   // Never let the connection-test mode (or an omitted mode) send market data.
   if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'
-     &&process.env.TELEGRAM_DISPATCH_MODE!=='rescue')throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
+     &&!['rescue','late_test'].includes(process.env.TELEGRAM_DISPATCH_MODE))throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
   if(!deliveryTrigger('morning',process.env,JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),scheduledWindow(new Date()).allowed)){
    if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
    console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW'}));
    process.exit(0);
   }
   if(process.argv[2]==='prepare'){
-   const result=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT});
+   const result=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,mode:process.env.TELEGRAM_DISPATCH_MODE||'rescue'});
    if(result.ready){
     fs.mkdirSync('.telegram-runtime',{recursive:true});
     fs.writeFileSync('.telegram-runtime/payload.json',JSON.stringify(result));
@@ -60,7 +74,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   }else if(process.argv[2]==='send'){
    const payload=JSON.parse(fs.readFileSync('.telegram-runtime/payload.json','utf8'));
    const sent=await deliverAndRecordWeekday(payload,{
-     kind:'morning',deliver:deliverPrepared,
+     kind:'morning',deliver:(payload,options)=>deliverPrepared(payload,{...options,mode:process.env.TELEGRAM_DISPATCH_MODE||''}),
      token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,
      attempt:process.env.GITHUB_RUN_ATTEMPT,
      path:'.telegram-runtime/sent.json',runId:process.env.GITHUB_RUN_ID||''

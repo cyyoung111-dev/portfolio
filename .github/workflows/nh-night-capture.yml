@@ -5,7 +5,8 @@ on:
   schedule:
     - cron: '31 22 * * 0-4' # 07:31 KST, primary
     - cron: '39 22 * * 0-4' # 07:39 KST, retry
-    - cron: '47 22 * * 0-4' # 07:47 KST, last retry
+    - cron: '47 22 * * 0-4' # 07:47 KST, retry
+    - cron: '55 22 * * 0-4' # 07:55 KST, final retry; existing artifact gate avoids duplicate NH calls
 permissions:
   contents: read
   actions: read

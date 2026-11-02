@@ -336,7 +336,7 @@ assert.deepEqual(morningWorkflow.on.workflow_run.workflows,['NH night reference 
 assert.equal(morningWorkflow.concurrency.group,'telegram-morning-briefing');
 assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare').if,/workflow_run/);
 assert.equal(morningWorkflow.on.workflow_dispatch.inputs.mode.default,'rescue');
-assert.deepEqual(morningWorkflow.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test']);
+assert.deepEqual(morningWorkflow.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test','late_test']);
 assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.id==='prepare').if,/inputs.mode == 'rescue'/);
 assert.match(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Manual connection test only').if,/inputs.mode == 'connection_test'/);
 assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.TELEGRAM_BOT_TOKEN,'${{ secrets.TELEGRAM_BOT_TOKEN }}');
@@ -367,6 +367,9 @@ try{
  const deniedTest=cli('send','connection_test');
  assert.equal(deniedTest.status,1);
  assert.match(deniedTest.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/);
+ const lateMode=cli('send','late_test');
+ assert.equal(lateMode.status,1,'without prepared payload late_test must fail closed');
+ assert.doesNotMatch(lateMode.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/);
  const acceptedMode=cli('send','rescue');
  assert.equal(acceptedMode.status,1,'missing payload must fail closed');
  assert.doesNotMatch(acceptedMode.stderr,/TELEGRAM_DISPATCH_MODE_INVALID/,
