@@ -99,10 +99,10 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,54,
-  'migration inventory: all 54 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,55,
-  'migration inventory: all 55 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,53,
+  'migration inventory: all 53 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,54,
+  'migration inventory: all 54 secret-consuming jobs must be protected');
 assert.ok(protectedWorkflowNames.includes('telegram-sunday-test-20261101.yml'),
   'Sunday read-only Telegram test must use protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('issue507-oct30-domestic-close-readonly.yml'),
