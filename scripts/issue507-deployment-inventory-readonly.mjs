@@ -19,6 +19,22 @@ const WEB_ACCESS=new Set(['MYSELF','DOMAIN','ANYONE','ANYONE_ANONYMOUS']);
 const WEB_EXECUTE_AS=new Set(['USER_ACCESSING','USER_DEPLOYING']);
 const validId=value=>typeof value==='string'&&ID.test(value);
 function fail(reason){throw Error('ISSUE507_DEPLOYMENT_INVENTORY_'+reason);}
+// Lexical signals only. Source may be dynamic/minified, and text may be in
+// comments/strings. Positive matches are TRIAGE HINTS, not reachable paths;
+// negative matches NEVER establish a read-only/safe script.
+export function inspectUnreviewedGasSourceSignals(source){
+ if(typeof source!=='string'||source.length<1000||source.length>1400000)
+  fail('SOURCE_SIGNAL_INPUT_UNVERIFIED');
+ const patterns={
+  webGet:/\b(?:function\s+doGet\s*\(|(?:var|const|let)\s+doGet\s*=|doGet\s*:\s*function)/,
+  webPost:/\b(?:function\s+doPost\s*\(|(?:var|const|let)\s+doPost\s*=|doPost\s*:\s*function)/,
+  sheetWrite:/\.(?:setValues?|appendRow|clearContent|deleteRows?|insertRows?|copyTo)\s*\(/,
+  propertyWrite:/\.(?:setProperties|setProperty|deleteProperty|deleteAllProperties)\s*\(/,
+  triggerMutation:/\bScriptApp\s*\.\s*(?:newTrigger|deleteTrigger)\s*\(/,
+  outboundFetch:/\bUrlFetchApp\s*\.\s*fetch(?:All)?\s*\(/
+ };
+ return Object.fromEntries(Object.entries(patterns).map(([k,re])=>[k,re.test(source)]));
+}
 function classify(entry){
  const type=entry?.entryPointType;
  return typeof type==='string'&&KNOWN_TYPES.has(type)?type:'OTHER';
@@ -167,6 +183,11 @@ export async function inspectGasDeploymentsReadOnly({
  // Version-to-classification mapping stays private in memory. Aggregate
  // classification by deployment role (expected vs additional), not by URL.
  const sourceByVersion=new Map();
+ // Counters refer to distinct UNREVIEWED immutable source versions, not
+ // to individual deployed URLs. A marker absence is never a clearance.
+ const hints={scanned:0,webGet:0,webPost:0,sheetWrite:0,
+  propertyWrite:0,triggerMutation:0,outboundFetch:0,
+  noRecognizedMarkers:0};
  if(verifySource){
   if(!verifyDetails)fail('SOURCE_REQUIRES_DETAILS');
   sourceAudit.attempted=true;
@@ -204,6 +225,10 @@ export async function inspectGasDeploymentsReadOnly({
     }else{
      sourceAudit.unreviewedSource++;
      sourceByVersion.set(version,'UNREVIEWED_SOURCE');
+     const found=inspectUnreviewedGasSourceSignals(code[0].source);
+     hints.scanned++;
+     for(const [key,has] of Object.entries(found))if(has)hints[key]++;
+     if(!Object.values(found).some(Boolean))hints.noRecognizedMarkers++;
     }
    }catch{
     sourceAudit.failed++;
@@ -298,6 +323,15 @@ export async function inspectGasDeploymentsReadOnly({
   sourceKnownLegacy9281Count:sourceAudit.knownLegacy9281,
   sourceKnownReviewedGate9282Count:sourceAudit.knownReviewedGate9282,
   sourceUnreviewedCount:sourceAudit.unreviewedSource,
+  unreviewedSourceStaticScanMethod:'LEXICAL_HINTS_ONLY',
+  unreviewedSourceStaticVersionsScanned:hints.scanned,
+  unreviewedSourceWithWebGetMarkerCount:hints.webGet,
+  unreviewedSourceWithWebPostMarkerCount:hints.webPost,
+  unreviewedSourceWithSheetWriteMarkerCount:hints.sheetWrite,
+  unreviewedSourceWithPropertyWriteMarkerCount:hints.propertyWrite,
+  unreviewedSourceWithTriggerMutationMarkerCount:hints.triggerMutation,
+  unreviewedSourceWithOutboundFetchMarkerCount:hints.outboundFetch,
+  unreviewedSourceWithNoRecognizedMarkersCount:hints.noRecognizedMarkers,
   expectedDeploymentSourceClassification:expectedSourceClassification,
   additionalDeploymentKnownLegacy9281Count:additionalRoleCounts.knownLegacy9281,
   additionalDeploymentReviewedGate9282Count:additionalRoleCounts.reviewedGate9282,
