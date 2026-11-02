@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/nh-night-probe-once-20261102.yml
+      - scripts/nh-night-probe-once-20261102.mjs # one scoped read-only rerun
   # Deliberately not scheduled: the test is a single push onto main.
 permissions:
   contents: read
