@@ -16,6 +16,9 @@
 - [수동 감사 #41454759788](https://github.com/cyyoung111-dev/portfolio/actions/runs/41454759788)에서 인증된 GET 단계가 호출됐지만, 기존 스키마 검사가 `ISSUE507_DEPLOYMENT_INVENTORY_SCHEMA_UNVERIFIED`로 중단. **실제 배포 수와 서버 응답의 어느 필드가 실패했는지는 로그에 없음**. 따라서 HEAD 객체가 원인이라는 가정은 아직 확인되지 않았다.
 - [공식 GAS 배포 가이드](https://developers.google.com/apps-script/concepts/deployments)의 특수한 `HEAD` 배포는 자동 생성되고 특정 불변 코드 버전과 연결되지 않는다. `HEAD`만은 8자 미만의 ID와 `versionNumber` 부재·0, 엔트리포인트 생략을 허용한다. 다른 ID의 버전·진입점 불명 상태는 계속 차단한다. HEAD에 공개 엔트리포인트가 있다면 다른 배포와 동일하게 격리 대상으로 차단한다.
 - 실제 응답을 공개하거나 비공개 deployment ID/URL/token을 덤프하는 대신, 실패 코드를 `SCHEMA_LIST_UNVERIFIED`, `SCHEMA_ID_UNVERIFIED`, `SCHEMA_VERSION_UNVERIFIED`, `SCHEMA_ENTRY_POINTS_UNVERIFIED` 등으로 분리해 다음 실행에서 **정확한 실패 범주만** 식별한다. 단, 원인 구분 성공과 운영 writer 격리 증빙은 다른 문제다.
+- [수동 실행 #41455872350](https://github.com/cyyoung111-dev/portfolio/actions/runs/41455872350)에서 `ISSUE507_DEPLOYMENT_INVENTORY_SCHEMA_VERSION_UNVERIFIED`가 확인됐다. 개별 배포 ID·개수·버전 원문은 공개되지 않았으므로 정확한 항목과 값은 미확인이다. 공식 REST `DeploymentConfig.versionNumber`는 정수 필드이나 요청한 LIST 응답에서는 어떤 배포에 양의 정수가 없었던 것으로만 판정한다.
+- 이 사례를 위해 **양의 정수 버전번호가 없는 일반 배포를 목록에서 버리지 않고 끝까지 읽어** `unverifiedVersionedDeploymentCount`와 전체 배포·진입점 개수로 보고하되, `status=BLOCKED`, `reason=VERSION_METADATA_UNVERIFIED`, `releaseAuthorized=false`로 강제한다. 단일 예상 웹앱이 확인돼도 버전 미확인 배포가 하나라도 있으면 운영 전환 불가. 추가로 실제 GAS 쓰기/금융 원본 변경/트리거 변경 없음.
+- 누락된 버전이 기존 비활성화 배포인지, 비계측 구버전인지, Google API 직렬화 특성인지는 목록만으로 확정하지 않는다. 운영 재검토 전에는 이 미확인 배포를 안전하다고 분류하지 않는다.
 - 예상된 배포 하나만 보이더라도 `INVENTORY_ONLY`이며 **releaseAuthorized=false**, `allActorsAndVersionsTerminatedVerified=false`, `externalSheetsWritersExcludedVerified=false`, `editorSessionsExcludedVerified=false` 유지.
 
 ## 이 조사로는 증명되지 않는 것
