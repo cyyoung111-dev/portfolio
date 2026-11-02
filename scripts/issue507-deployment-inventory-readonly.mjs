@@ -8,6 +8,9 @@ import {deploymentIdFromWebAppUrl} from './deploy-gas.mjs';
 const ROOT='https://script.googleapis.com/v1/projects/';
 const ERROR=/^ISSUE507_DEPLOYMENT_INVENTORY_[A-Z_]+$/;
 const ID=/^[-A-Za-z0-9_]{8,160}$/;
+// Apps Script creates one special HEAD deployment, which does not refer
+// to an immutable positive versionNumber. It is not a release approval.
+const HEAD_ID='HEAD';
 const MAX_PAGES=10;
 const PAGE_SIZE=50;
 const KNOWN_TYPES=new Set(['WEB_APP','EXECUTION_API','ADD_ON']);
@@ -43,16 +46,32 @@ export async function inspectGasDeploymentsReadOnly({
   url.searchParams.set('pageSize',String(PAGE_SIZE));
   if(next)url.searchParams.set('pageToken',next);
   const payload=await fetchPage(url.toString(),googleAccessToken,fetchImpl);
-  if(!payload||!Array.isArray(payload.deployments)||
-    payload.deployments.length>PAGE_SIZE)fail('SCHEMA_UNVERIFIED');
-  for(const d of payload.deployments){
+  if(!payload||typeof payload!=='object'||Array.isArray(payload))
+   fail('SCHEMA_RESPONSE_UNVERIFIED');
+  // The REST API can omit a repeated field when it is empty. This must
+  // still end BLOCKED when the expected deployment is missing.
+  const deployments=payload.deployments===undefined?[]:payload.deployments;
+  if(!Array.isArray(deployments)||deployments.length>PAGE_SIZE)
+   fail('SCHEMA_LIST_UNVERIFIED');
+  for(const d of deployments){
    const id=d?.deploymentId,config=d?.deploymentConfig;
-   if(!validId(id)||found.has(id)||!Number.isSafeInteger(config?.versionNumber)||
-    config.versionNumber<1||!Array.isArray(d.entryPoints)||
-    d.entryPoints.length>10)fail('SCHEMA_UNVERIFIED');
+   if((id!==HEAD_ID&&!validId(id))||typeof id!=='string')
+    fail('SCHEMA_ID_UNVERIFIED');
+   if(found.has(id))fail('SCHEMA_DUPLICATE_ID_UNVERIFIED');
+   const head=id===HEAD_ID;
+   // A versioned deployment must have a positive immutable version.
+   if(!head&&(!Number.isSafeInteger(config?.versionNumber)||config.versionNumber<1))
+    fail('SCHEMA_VERSION_UNVERIFIED');
+   if(head&&config?.versionNumber!==undefined&&
+      (!Number.isSafeInteger(config.versionNumber)||config.versionNumber<0))
+    fail('SCHEMA_HEAD_VERSION_UNVERIFIED');
+   // HEAD may have no public entry points and no version number.
+   const points=head&&d?.entryPoints===undefined?[]:d?.entryPoints;
+   if(!Array.isArray(points)||points.length>10)
+    fail('SCHEMA_ENTRY_POINTS_UNVERIFIED');
    found.add(id);
-   const types=d.entryPoints.map(classify);
-   entries.push({expected:id===expectedDeploymentId,types});
+   const types=points.map(classify);
+   entries.push({expected:id===expectedDeploymentId,head,types});
   }
   pages++;
   if(payload.nextPageToken===undefined||payload.nextPageToken===''){
@@ -66,7 +85,7 @@ export async function inspectGasDeploymentsReadOnly({
  const counts={WEB_APP:0,EXECUTION_API:0,ADD_ON:0,OTHER:0};
  for(const e of entries)for(const type of e.types)counts[type]++;
  const expectedRows=entries.filter(e=>e.expected);
- const unknown=entries.some(e=>e.types.length===0||e.types.includes('OTHER'));
+ const unknown=entries.some(e=>(!e.head&&e.types.length===0)||e.types.includes('OTHER'));
  const extraRoutable=entries.filter(e=>!e.expected&&e.types.length>0).length;
  const status=expectedRows.length!==1||unknown||extraRoutable>0?'BLOCKED':'INVENTORY_ONLY';
  const reason=expectedRows.length!==1?'EXPECTED_DEPLOYMENT_NOT_PROVEN':
@@ -75,7 +94,8 @@ export async function inspectGasDeploymentsReadOnly({
   'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED';
  // No deployment IDs, source, URL, principal or token may enter logs.
  return {mode:'GAS_DEPLOYMENT_INVENTORY_READ_ONLY',status,reason,
-  deploymentCount:entries.length,webAppEntryCount:counts.WEB_APP,
+  deploymentCount:entries.length,headDeploymentCount:entries.filter(e=>e.head).length,
+  webAppEntryCount:counts.WEB_APP,
   executionApiEntryCount:counts.EXECUTION_API,
   addonEntryCount:counts.ADD_ON,unknownEntryCount:counts.OTHER,
   additionalRoutableDeploymentCount:extraRoutable,
