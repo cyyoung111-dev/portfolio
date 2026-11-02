@@ -109,7 +109,7 @@ function entry(map,id){
   else if(id==='BTC')unit=' USD';
   const v=amount.toLocaleString('en-US',{maximumFractionDigits:id==='UST10Y'?3:2});
   const change=Number.isFinite(r.changePercent)?' ('+(r.changePercent>=0?'+':'')+r.changePercent.toFixed(2)+'%)':'';
-  const proof=r.source==='KRX_OFFICIAL'?'KRX 공식':r.source==='MARKET_MASTER'?'GAS 원장':r.source==='NH_INDEX_DAILY'?'NH PLUG 일봉':r.source==='FDR_KRX_CACHE'?'FDR·KRX 참고 종가':'Yahoo 일봉';
+  const proof=r.source==='KRX_OFFICIAL'?'KRX 공식':r.source==='MARKET_MASTER'?'GAS 원장':r.source==='NH_INDEX_DAILY'?'NH PLUG 일봉':r.source==='NH_REGULAR_CLOSE'?'NH PLUG 확정 종가(저장 이력)':r.source==='FDR_KRX_CACHE'?'FDR·KRX 참고 종가':'Yahoo 일봉';
   return info.label+': '+v+unit+change+' ['+r.date+' · '+proof+']';
 }
 function evidence(map,id){
