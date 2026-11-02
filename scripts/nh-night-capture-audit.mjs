@@ -17,12 +17,12 @@ export async function auditNhNightSchedule({
 }={}){
   if(repository!==REPO||typeof token!=='string'||!token)throw Error('NH_AUDIT_CONFIG');
   const clock=kstNow(now());
-  if(clock.minute<493)throw Error('NH_AUDIT_TOO_EARLY'); // 08:13 KST
+  if(clock.minute<458)throw Error('NH_AUDIT_TOO_EARLY'); // 07:38 KST after the 07:35 capture cutoff
   const date=clock.date,calendar=krxSessionStatus(date);
   if(calendar==='CLOSED')return {date,status:'MARKET_CLOSED',ok:true,runs:0,artifacts:0};
   if(calendar!=='OPEN')throw Error('NH_AUDIT_CALENDAR_UNVERIFIED');
-  const start=Date.parse(date+'T07:30:00+09:00');
-  const end=Date.parse(date+'T08:00:00+09:00');
+  const start=Date.parse(date+'T06:45:00+09:00');
+  const end=Date.parse(date+'T07:35:00+09:00');
   const after=new Date(start).toISOString()+'..'+new Date(end-1).toISOString();
   const base='https://api.github.com/repos/'+REPO+'/actions';
   const runUrl=base+'/workflows/'+WORKFLOW+'/runs?event=schedule&branch=main&created='+encodeURIComponent(after)+'&per_page=100';
