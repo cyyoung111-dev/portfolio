@@ -12,7 +12,7 @@ import {readClosingMarketReferences,validateClosingMarketReference} from './clos
 const REPO='cyyoung111-dev/portfolio';
 const STOCK_IDS=new Set(['SAMSUNG','SKHYNIX','NVDA','MU']);
 const MACRO_IDS=new Set(['USDKRW','DXY','UST10Y']);
-const refSources=new Map([['다우존스','FRED_DJIA'],['SOX','FRED_NASDAQSOX'],['VIX','CBOE_VIX_DAILY']]);
+const refSources=new Map([['다우존스',['FRED_DJIA']],['SOX',['FRED_NASDAQSOX','YAHOO_SOX_DAILY_REFERENCE']],['VIX',['CBOE_VIX_DAILY']]]);
 const stockSymbols=new Map(MORNING_SERIES.filter(x=>STOCK_IDS.has(x.id)).map(x=>[x.id,x]));
 const macroSymbols=new Map(MORNING_SERIES.filter(x=>MACRO_IDS.has(x.id)).map(x=>[x.id,x]));
 export function precloseWindow(instant){
@@ -28,7 +28,7 @@ export function sanitizePreclose(date,source){
  const nh=verifiedNhCloseRows(date,source.nh||[]);
  const domestic=verifiedDomesticCloseRows(date,source.domestic||[]);
  const secondary=(Array.isArray(source.secondary)?source.secondary:[])
-  .filter(x=>refSources.get(x?.label)===x.source&&x.role==='NON_NH_REFERENCE_ONLY'
+  .filter(x=>refSources.get(x?.label)?.includes(x.source)&&x.role==='NON_NH_REFERENCE_ONLY'
     &&x.date===us&&Number.isFinite(x.value)&&x.value>0)
   .map(x=>({label:x.label,source:x.source,role:'NON_NH_REFERENCE_ONLY',
     date:us,value:x.value,changePercent:Number.isFinite(x.changePercent)?x.changePercent:null}));
