@@ -64,6 +64,34 @@ const refs=await fetchSecondaryIndexes(day,{fetchImpl:async url=>{
  throw Error('BAD_SOURCE');
 }});
 assert.equal(refCalls,3);assert.equal(refs.length,3);
+let soxFallbackCalls=0;
+const whenFredLags=await fetchSecondaryIndexes('2026-11-02',{
+ fetchImpl:async url=>{
+   if(url.includes('fredgraph.csv'))return {ok:true,headers:{get:()=> 'text/csv'},
+     text:async()=>url.includes('NASDAQSOX')?soxCsv:dowCsv};
+   if(url.includes('VIX_History.csv'))return {ok:true,headers:{get:()=> 'text/csv'},text:async()=>vixCsv};
+   throw Error('unapproved feed');
+ },
+ now:()=>new Date('2026-11-02T17:00:00+09:00'),
+ fetchDaily:async(label,symbol,day,opts)=>{
+   soxFallbackCalls++;
+   assert.equal(label,'SOX');assert.equal(symbol,'^SOX');
+   assert.equal(day,'2026-11-02');
+   assert.equal(opts.host,'query1.finance.yahoo.com');
+   return {label:'SOX',symbol:'^SOX',date:'2026-10-30',value:10688.8,
+     changePercent:-7.2,source:'Yahoo Finance 일봉'};
+ }});
+assert.equal(soxFallbackCalls,1,'only fallback when FRED exact session is missing');
+assert.equal(whenFredLags.length,1);
+assert.equal(whenFredLags[0].source,'YAHOO_SOX_DAILY_REFERENCE');
+const wrongSource=await fetchSecondaryIndexes('2026-11-02',{
+ fetchImpl:async()=>({ok:false}),
+ fetchDaily:async()=>({label:'SOX',symbol:'^SOX',date:'2026-10-29',
+  value:11518.2,changePercent:-1,source:'Yahoo Finance 일봉'})});
+assert.equal(wrongSource.length,0,'stale Yahoo SOX must not pass');
+const yahooSoxText=formatClose('2026-11-02',[],whenFredLags);
+assert.match(yahooSoxText,/SOX: 10,688.8.*Yahoo 참고/);
+
 const domestic=[
  {type:'KOSPI',label:'KOSPI',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',priceType:'PUBLISHED_EOD_REFERENCE',value:5668.26,changePercent:-4.54},
  {type:'KOSDAQ',label:'KOSDAQ',date:day,source:'FDR_KRX_CACHE',role:'NON_NH_DAILY_INDEX',priceType:'PUBLISHED_EOD_REFERENCE',value:723.15,changePercent:-3.99},
