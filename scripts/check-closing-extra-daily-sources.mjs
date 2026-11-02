@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
+import {normalizeWatchOnlyCloses,PROPOSED_GAS_HANDLER,GAS_WATCH_ACTION} from './nh-briefing-watch-readonly-contract.mjs';
 import {
  closingStockSessions,normalizeClosingNhStocks,readNhClosingStocks,describeClosingNhStockRead,
  validateClosingMacro,readClosingMacros,formatClosingExtra
@@ -171,4 +173,60 @@ assert.match(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/NH_C
 assert.match(fs.readFileSync('scripts/telegram-close-precompute.mjs','utf8'),/NH_PRECLOSE_STOCK_READ/);
 const source=fs.readFileSync('scripts/closing-extra-daily-sources.mjs','utf8');
 assert.doesNotMatch(source,/bootstrapNhToken|savePriceHistory|saveSnapshot|sendTelegram/);
+// A separate fixed watch list must never mutate the financial code master.
+const watchDate='2026-11-03',watchUs='2026-11-02';
+assert.equal(GAS_WATCH_ACTION,'getBriefingWatchCloses');
+const watchReply={status:'ok',provider:'NH',readOnly:true,
+  accountIndependent:true,requestedDay:watchDate,closes:{
+  NVDA:{date:watchUs,price:220.05,source:'NH_REGULAR_CLOSE'},
+  MU:{date:watchUs,price:115.55,source:'NH_REGULAR_CLOSE'}}};
+const watchRows=normalizeWatchOnlyCloses(watchDate,watchReply);
+assert.deepEqual(watchRows.map(x=>x.id),['NVDA','MU']);
+assert.ok(watchRows.every(x=>x.role==='BRIEFING_WATCH_ONLY'&&x.date===watchUs));
+assert.deepEqual(normalizeWatchOnlyCloses(watchDate,
+ {...watchReply,accountIndependent:false}),[]);
+assert.deepEqual(normalizeWatchOnlyCloses(watchDate,
+ {...watchReply,closes:{...watchReply.closes,AAPL:watchReply.closes.NVDA}}),[]);
+assert.equal(normalizeWatchOnlyCloses(watchDate,
+ {...watchReply,closes:{NVDA:{...watchReply.closes.NVDA,date:watchDate}}}).length,0);
+const providerRows=()=>({NVDA:{
+  price:220.05,usedDate:watchUs,marketDate:watchUs,currency:'USD',
+  source:'NH_REGULAR_CLOSE',status:'CONFIRMED',priceType:'REGULAR_CLOSE'
+},MU:{price:115.55,usedDate:watchUs,marketDate:watchUs,currency:'USD',
+  source:'NH_REGULAR_CLOSE',status:'CONFIRMED',priceType:'REGULAR_CLOSE'}});
+let providerCalls=0,financialWrites=0,clockMinute=1020;
+const ctx={
+ _issue507GateInside_:true,
+ _nhProxyAuthenticated_:p=>p?.accessToken==='SYNTHETIC_GAS_AUTH',
+ _nhProxyKst_:()=>({date:watchDate,minutes:clockMinute}),
+ _foreignMarketRegularCloseCutoff_:()=>watchUs,
+ fetchNhRegularCloses:(items,day,options)=>{
+   providerCalls++;assert.deepEqual(Array.from(items.map(x=>x.code)),['NVDA','MU']);
+   assert.equal(day,watchDate);assert.equal(options.useMarketCloseCutoffs,true);
+   return providerRows();
+ },
+ jsonOk:p=>({status:'ok',...p}),
+ jsonError:message=>({status:'error',message}),
+ // No financial write stubs are exposed at all.
+};
+const watchHandler=vm.runInNewContext(PROPOSED_GAS_HANDLER+
+ '\nhandleGetBriefingWatchCloses;',ctx);
+assert.equal(watchHandler({date:watchDate}).message,'NH_WATCH_AUTH_REQUIRED');
+assert.equal(providerCalls,0);
+assert.equal(watchHandler({date:'2026-11-02',
+ accessToken:'SYNTHETIC_GAS_AUTH'}).message,'NH_WATCH_WINDOW');
+assert.equal(providerCalls,0);
+const watchReal=watchHandler({date:watchDate,accessToken:'SYNTHETIC_GAS_AUTH'});
+assert.equal(watchReal.status,'ok');
+assert.deepEqual(normalizeWatchOnlyCloses(watchDate,JSON.parse(JSON.stringify(watchReal))).map(x=>x.id),['NVDA','MU']);
+assert.equal(providerCalls,1);
+clockMinute=1090;
+assert.equal(watchHandler({date:watchDate,
+ accessToken:'SYNTHETIC_GAS_AUTH'}).message,'NH_WATCH_WINDOW');
+assert.equal(providerCalls,1);
+assert.equal(financialWrites,0);
+assert.ok(!PROPOSED_GAS_HANDLER.includes('getCodeItems('));
+assert.ok(!PROPOSED_GAS_HANDLER.includes('savePriceHistory'));
+assert.ok(!PROPOSED_GAS_HANDLER.includes('saveSnapshot'));
+
 console.log('CLOSING_EXTRA_DAILY_SOURCES_PASS stock=4 macro=3 NH_READONLY_BATCH=1');
