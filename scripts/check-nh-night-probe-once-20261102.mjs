@@ -22,8 +22,10 @@ const rejected=await verifyTodayNhNight({now:when,
  probe:async()=>({...ref,tradingDate:'2026-11-01'})});
 assert.equal(rejected.verified,false);
 const missing=await verifyTodayNhNight({now:when,
- probe:async(_d,{onError})=>{onError('NH_PROXY_0600_NOT_VERIFIED');return null;}});
+ probe:async(_d,{onError})=>{onError('NH_PROXY_0600_NOT_VERIFIED');return null;},
+ diagnose:async()=>({diagnosticOnly:true,tokenIssued:false,bearerExposed:false,reference:null})});
 assert.equal(missing.reason,'NH_PROXY_0600_NOT_VERIFIED');
+assert.equal(missing.detail,'NH_PROBE_REFERENCE_EMPTY');
 const privateFailure=await verifyTodayNhNight({now:when,
  probe:async()=>{throw Error('PRIVATE_AUTH_TOKEN');}});
 assert.equal(privateFailure.reason,'NH_PROBE_CALL_FAILED');
