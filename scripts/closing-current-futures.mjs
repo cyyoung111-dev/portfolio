@@ -18,7 +18,7 @@ export function validateCurrentFuturesQuote(date,id,data,now){
  const item=FUTURES.find(x=>x.id===id);
  if(!item||!(now instanceof Date)||!Number.isFinite(now.getTime()))return null;
  const p=closeWindow(now);
- if(p.date!==date||p.minute<1020||p.minute>=1050)return null;
+ if(p.date!==date||p.minute<1020||p.minute>=1080)return null;
  const result=data?.chart?.result;
  if(data?.chart?.error||!Array.isArray(result)||result.length!==1)return null;
  const chart=result[0];
@@ -39,7 +39,7 @@ export function validateCurrentFuturesQuote(date,id,data,now){
 export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date()}={}){
  const at=now();
  if(closeWindow(at).date!==date||closeWindow(at).minute<1020
-  ||closeWindow(at).minute>=1050)return [];
+  ||closeWindow(at).minute>=1080)return [];
  return (await Promise.all(FUTURES.map(async item=>{
   let best=null;
   for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
@@ -76,7 +76,7 @@ export function selectCurrentFuturesRows(date,rows=[],now=new Date(date+'T17:00:
  });
 }
 export function formatCurrentFutures(date,rows=[],now=new Date(date+'T17:00:00+09:00')){
- const lines=['■ 17:00 글로벌 시장 반응 — 미국 지수선물 (지연 시세)'];
+ const lines=['■ 장후 글로벌 반응 — 미국 지수선물 (지연 시세)'];
  const good=selectCurrentFuturesRows(date,rows,now).map(x=>{
   const time=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',
    hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(x.asOf));
