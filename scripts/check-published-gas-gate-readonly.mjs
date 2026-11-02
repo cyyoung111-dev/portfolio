@@ -96,6 +96,29 @@ for(const source of [older,newer,real+'\n']){
  assert.equal(r.publishedSourceApproved,false);
  assert.equal(requests.length,3,'unreviewed published code must NOT invoke GAS');
 }
+// Real observed production baseline (audit run 41442800080): deployment
+// versionNumber 336 contains exact v9.281 source. This is a recognized
+// historical baseline, NOT an authorized writer gate runtime.
+const legacy=fs.readFileSync('reference/gas-v9.281.gs','utf8');
+assert.equal(gasSourceBlobSha(legacy),'ebe697563e94cf49e514037353260fce70ae1d57');
+assert.equal(classifyPublishedGateSource(legacy).knownLegacyBaseline,true);
+assert.equal(classifyPublishedGateSource(legacy).gateReadAllowed,false);
+requests=[];pub=legacy;head=legacy;
+r=await inspectPublishedGasReadOnly(args());
+assert.equal(r.status,'BLOCKED');
+assert.equal(r.baselineClassification,'APPROVED_LEGACY_V9281_NO_GATE_AUDIT');
+assert.equal(r.historicalBaselineExactMatch,true);
+assert.equal(r.publishedSourceApproved,false);
+assert.equal(r.gateMode,'NOT_QUERIED');
+assert.equal(r.releaseAuthorized,false);
+assert.equal(requests.length,3,'legacy baseline must not call unreviewed GAS runtime');
+requests=[];head=real; // Simulate source HEAD drift on the same old deployment.
+r=await inspectPublishedGasReadOnly(args());
+assert.equal(r.status,'BLOCKED');
+assert.equal(r.baselineClassification,'APPROVED_LEGACY_V9281_NO_GATE_AUDIT');
+assert.equal(r.historicalBaselineExactMatch,false);
+assert.equal(r.headEqualsPublished,false);
+assert.equal(requests.length,3);
 pub=real;head=real+'\n';
 requests=[];r=await inspectPublishedGasReadOnly(args());
 assert.equal(r.status,'LIVE_V9282_GATE_OPEN_CONFIRMED');
@@ -150,4 +173,4 @@ assert.equal(calls[0].body.get('grant_type'),'refresh_token');
 assert.equal(calls[0].body.get('refresh_token'),'REFRESH');
 assert.ok(!JSON.stringify(r).includes('SECRET') && !JSON.stringify(r).includes('REFRESH'));
 
-console.log('GAS_PUBLISHED_READONLY_CONTRACT_PASS: real source SHA, trusted route gate, HEAD drift, no unknown runtime, approval state, no writes');
+console.log('GAS_PUBLISHED_READONLY_CONTRACT_PASS: exact 9.281 legacy BLOCKED, v9.282 gate allowlist, HEAD drift, no unknown runtime, approval state, no writes');
