@@ -1,6 +1,7 @@
 // Supplemental daily-index references. Never promote to NH operating closes,
 // price history, P&L, or Snapshots. Fail closed on missing/duplicate dates.
 import {expectedMorningDate} from './telegram-morning-report.mjs';
+import {fetchDatedDaily} from './telegram-morning-briefing.mjs';
 const SETTINGS={
  DOW:{name:'다우존스',source:'FRED_DJIA',url:'https://fred.stlouisfed.org/graph/fredgraph.csv',code:'DJIA'},
  SOX:{name:'SOX',source:'FRED_NASDAQSOX',url:'https://fred.stlouisfed.org/graph/fredgraph.csv',code:'NASDAQSOX'},
@@ -40,7 +41,7 @@ export function parseReferenceCsv(id,date,text){
   date,value:prices.get(date),changePercent:(prices.get(date)/prices.get(previous)-1)*100,
   role:'NON_NH_REFERENCE_ONLY'};
 }
-export async function fetchSecondaryIndexes(day,{fetchImpl=fetch}={}){
+export async function fetchSecondaryIndexes(day,{fetchImpl=fetch,fetchDaily=fetchDatedDaily,now=()=>new Date()}={}){
  const expected=expectedMorningDate('SPX',day);
  if(!expected)return [];
  const from=new Date(Date.parse(expected+'T00:00:00Z')-21*86400000).toISOString().slice(0,10);
@@ -55,5 +56,21 @@ export async function fetchSecondaryIndexes(day,{fetchImpl=fetch}={}){
    return parseReferenceCsv(id,expected,await response.text());
   }catch{return null;}
  }));
- return rows.filter(Boolean);
+ const verified=rows.filter(Boolean);
+ if(verified.some(x=>x.id==='SOX'))return verified;
+ // FRED NASDAQSOX may lag the last US trading day. Yahoo's named ^SOX
+ // series is supplemental ONLY, not an NH/settlement price substitution.
+ for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
+   try{
+     const row=await fetchDaily('SOX','^SOX',day,{fetchImpl,now:now(),host});
+     if(row?.label!=='SOX'||row.symbol!=='^SOX'||row.source!=='Yahoo Finance 일봉'
+       ||row.date!==expected||!Number.isFinite(row.value)||row.value<=0
+       ||!Number.isFinite(row.changePercent))continue;
+     verified.push({id:'SOX',label:'SOX',date:expected,value:row.value,
+       changePercent:row.changePercent,source:'YAHOO_SOX_DAILY_REFERENCE',
+       role:'NON_NH_REFERENCE_ONLY'});
+     break;
+   }catch{/* provider not verified: retain explicit missing state */}
+ }
+ return verified;
 }
