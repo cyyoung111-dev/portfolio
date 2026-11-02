@@ -1,0 +1,27 @@
+name: NH US master and 06:00 night reference read-only 20261103
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/nh-master-night-readonly-20261103.yml']
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify fixed-code output and time window contracts without network
+        run: node scripts/nh-briefing-master-night-readonly-20261103.mjs --self-test
+      - name: Read only NH US code-master presence and protected 06:00 night reference
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/nh-briefing-master-night-readonly-20261103.mjs
