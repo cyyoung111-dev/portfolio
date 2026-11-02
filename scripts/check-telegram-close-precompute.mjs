@@ -101,7 +101,7 @@ assert.ok(prepared.message.length<4000);
 let sends=0;
 assert.equal((await deliverClose(prepared,{now,send:async()=>{sends++;}})).status,'SENT');
 await assert.rejects(deliverClose(prepared,{
- now:()=>new Date(date+'T17:30:00+09:00'),send:async()=>{sends++;}}),
+ now:()=>new Date(date+'T18:00:00+09:00'),send:async()=>{sends++;}}),
  /PAYLOAD_INVALID/);
 assert.equal(sends,1);
 let live=0;
@@ -131,4 +131,4 @@ assert.equal(w.jobs.precompute['timeout-minutes'],6);
 assert.equal(w.jobs.precompute.steps.some(s=>s.env?.TELEGRAM_BOT_TOKEN),false);
 assert.equal(w.jobs.precompute.steps.some(s=>/Send claimed/.test(s.name||'')),false);
 assert.deepEqual(Object.keys(w.on),['schedule']);
-console.log('CLOSE_PRECOMPUTE_PASS 16:50_KST artifact 17:00 selective refresh 17:30 cutoff');
+console.log('CLOSE_PRECOMPUTE_PASS 16:50_KST artifact 17:00 selective refresh 18:00 cutoff');
