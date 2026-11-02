@@ -8,12 +8,12 @@ const time=(hhmmss)=>date+'T'+hhmmss+'+09:00';
 assert.equal(krxSessionStatus(date),'OPEN','do not assume a weekday alone is open');
 assert.deepEqual(proposedBriefingCrons(),{
  MORNING:{target:'40 22 * * 0-4',fallback:'49 22 * * 0-4'},
- CLOSE:{target:'0 8 * * 1-5',fallback:'8 8 * * 1-5'}
+ CLOSE:{target:'0 8 * * 1-5',fallback:'5 8 * * 1-5'}
 });
 assert.equal(kstWeekdayCron('07:40'),'40 22 * * 0-4');
 assert.equal(kstWeekdayCron('07:49'),'49 22 * * 0-4');
 assert.equal(kstWeekdayCron('17:00'),'0 8 * * 1-5');
-assert.equal(kstWeekdayCron('17:08'),'8 8 * * 1-5');
+assert.equal(kstWeekdayCron('17:05'),'5 8 * * 1-5');
 assert.throws(()=>kstWeekdayCron('24:00'),/BRIEFING_CLOCK_INVALID/);
 assert.throws(()=>kstWeekdayCron('7:30'),/BRIEFING_CLOCK_INVALID/);
 assert.equal(BRIEFING_WINDOWS.MORNING.target,'07:40');
@@ -38,9 +38,9 @@ for (const [kind,clock,status] of [
  ['CLOSE','16:45:00','TOO_EARLY'],
  ['CLOSE','16:59:59','TOO_EARLY'],
  ['CLOSE','17:00:00','READY_TO_CLAIM'],
- ['CLOSE','17:08:00','READY_TO_CLAIM'],
- ['CLOSE','19:59:59','READY_TO_CLAIM'],
- ['CLOSE','20:00:00','TOO_LATE']
+ ['CLOSE','17:05:00','READY_TO_CLAIM'],
+ ['CLOSE','17:29:59','READY_TO_CLAIM'],
+ ['CLOSE','17:30:00','TOO_LATE']
 ])assert.equal(plan(kind,clock),status,kind+' '+clock);
 assert.equal(plan('MORNING','07:40:00',{attempt:2}),'ACTION_RERUN_BLOCKED');
 assert.equal(plan('MORNING','07:40:00',{claimState:'CLAIMED'}),'ALREADY_CLAIMED');
@@ -67,7 +67,7 @@ assert.deepEqual(duplicated.state,morning.state,'duplicate must not delete claim
 const close=simulateBriefingAttempt({kind:'CLOSE',now:time('17:00:00'),state:morning.state});
 assert.equal(close.status,'SENT');assert.equal(close.sendCalls,1);
 assert.equal(Object.keys(close.state.claims).length,2,'morning and close use independent claims');
-const closeFallback=simulateBriefingAttempt({kind:'CLOSE',now:time('17:08:00'),state:close.state});
+const closeFallback=simulateBriefingAttempt({kind:'CLOSE',now:time('17:05:00'),state:close.state});
 assert.equal(closeFallback.status,'ALREADY_CLAIMED');
 assert.equal(closeFallback.sendCalls,0);
 
