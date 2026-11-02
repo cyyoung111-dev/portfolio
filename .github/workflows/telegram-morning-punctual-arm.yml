@@ -4,6 +4,8 @@ on:
   # exposure to queue delay but DOES NOT guarantee the target minute.
   schedule:
     - cron: '20 22 * * 0-4' # 07:20 KST early-arm; target 07:40 KST
+  # External independent scheduler may dispatch, but clock/date gates still apply.
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
@@ -15,7 +17,7 @@ concurrency:
   queue: max
 jobs:
   armed:
-    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' && github.run_attempt == 1
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: portfolio-production-gas
     timeout-minutes: 45
@@ -36,6 +38,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          TELEGRAM_DISPATCH_MODE: ${{ github.event_name == 'workflow_dispatch' && 'rescue' || '' }}
         run: node scripts/telegram-morning-workflow.mjs prepare
       - name: Claim original dated briefing before contacting Telegram
         if: steps.prepare.outputs.ready == 'true'
@@ -51,6 +54,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_DISPATCH_MODE: ${{ github.event_name == 'workflow_dispatch' && 'rescue' || '' }}
         run: node scripts/telegram-morning-workflow.mjs send
       - name: Archive Telegram API-confirmed SENT proof
         if: steps.prepare.outputs.ready == 'true'
