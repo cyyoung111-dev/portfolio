@@ -63,6 +63,11 @@ assert.match(preview,/미국 현물시장 \(직전 완료장\)/);
 assert.match(preview,/NASDAQ100: 28,384.85.*\[2026-10-30\]/);
 assert.match(preview,/NASDAQ100 선물: 25,001pt/);
 assert.ok(preview.length<4000,'Telegram limit unchanged');
+const delayedAt=new Date('2026-11-02T17:08:00+09:00');
+const delayedPreview=formatClose(date,nh,[],[],[],[],[],data,delayedAt);
+assert.match(delayedPreview,/NASDAQ100 선물: 25,001pt/,'format uses actual send time, not a hard-coded 17:00');
+const tooLatePreview=formatClose(date,nh,[],[],[],[],[],data,new Date('2026-11-02T17:29:00+09:00'));
+assert.match(tooLatePreview,/유효한 최근 거래값 미확보/,'stale quote must not become current');
 let requested=0;
 const prepared=await prepareClose({now:()=>instant,githubToken:'dummy',repository:'cyyoung111-dev/portfolio',
  fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})}),
