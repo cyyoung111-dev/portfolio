@@ -67,3 +67,12 @@
 - 알려지지 않은 TR 또는 field count 불일치는 `QUARANTINED` 처리한다.
 - `MARKET_CLS_CODE`나 K200 야간선물 필드 위치를 추측해 하드코딩하지 않는다.
 - 06:00은 실제 마지막 수신값이 검증된 경우에만 `NIGHT_FINAL`, 20:15는 세션 진행 중이면 `LIVE`로 취급한다.
+
+
+## 2026-11-03 — 지연 GitHub schedule의 역사적 MARKET_MASTER 쓰기 방지
+
+- [실제 headless schedule #41521897257](https://github.com/cyyoung111-dev/portfolio/actions/runs/41521897257)에서 `EVENING` 예약은 **11월 2일 20:15 KST(11:15 UTC)**였으나 실행 시작은 **11월 3일 05:44 KST(20:44 UTC)**였다. GitHub 지연은 약 9시간 29분이었으며, 로그에 `NOT_READY`, `published=false`, `masterPersistence.saved=15`가 기록됐다. Snapshot 발행은 없었으나 지연 수집이 MARKET_MASTER 변경을 시도할 수 있었다.
+- `scripts/run-market-briefing-headless.mjs`의 CLI는 보호된 workflow가 GitHub API에서 읽은 `run.created_at`과 예약 cron(UTC)의 최근 slot을 비교한다. **90분 초과 지연**, 예약 시각 누락 또는 미지원 cron이면 GAS·provider 호출 전에 `STALE_SCHEDULE_BLOCKED` 또는 `SCHEDULE_ANCHOR_UNVERIFIED` 진단과 exit 1을 반환한다. `gasCalls=0`, `financeWrites=0`, `telegramSends=0`은 이 차단 분기의 동작 보장값이다.
+- 슬롯과 checkpoint가 정상이고 예약시각에서 90분 이내인 자동 실행은 기존 수집/발행 로직을 그대로 이용한다. `workflow_dispatch`의 명시적 checkpoint는 입력된 trading_date와 기존 승인/품질 검증을 유지하며 **이 지연 스케줄 차단만 적용하지 않는다**. 수동 실행은 해당 유효 시간대의 실제 데이터가 준비되어야 계속 가능하다.
+- 이는 GitHub 예약 실행을 정시에 만들지 않는다. 17:00 마감 메시지 또는 07:40 장전 메시지의 **실제 수신 성공을 증명하지도 않는다**. Telegram claim/발송 검증은 별도로 확인한다. 지연 발생과 원천 누락은 각각 원인을 구분해서 운영 진단해야 한다.
+- CI에서 정확히 위 실측 일정과 경계값(90분 허용, 91분 차단), CLI의 **자격증명 없는 지연 실행**이 provider/GAS 호출 전에 차단되는지 검증한다. 이 PR은 운영 GAS 버전, Snapshot, 토큰, 기존 금융 원본을 변경하지 않는다.
