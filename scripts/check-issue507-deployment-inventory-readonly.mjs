@@ -206,6 +206,93 @@ assert.equal(sourceReport.sourceKnownLegacy9281Count,1);
 assert.equal(sourceReport.sourceKnownReviewedGate9282Count,0);
 assert.equal(sourceReport.sourceGetSkippedUnversionedCount,1);
 assert.equal(sourceReport.sourceGetUnverifiedCount,0);
+assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGACY_V9281');
+assert.equal(sourceReport.additionalDeploymentKnownLegacy9281Count,2);
+assert.equal(sourceReport.additionalDeploymentVersionUnverifiedCount,1);
+assert.equal(sourceReport.additionalDeploymentUnreviewedSourceCount,0);
+assert.equal(sourceReport.additionalDeploymentSourceGetUnverifiedCount,0);
+// The distinct *version* count must not obscure the identity of the
+// expected production deployment versus three additional anonymous URLs.
+const roleList=listed.map(x=>({...x,deploymentConfig:{...x.deploymentConfig}}));
+roleList[1].deploymentConfig.versionNumber=337;
+const newSource={scriptId,files:[
+ {name:'Code',type:'SERVER_JS',source:'u'.repeat(1200)},
+ {name:'appsscript',type:'JSON',source:'{}'}]};
+const roleDetails={...secureDetails,
+ [legacyA]:{...secureDetails[legacyA],deploymentConfig:{versionNumber:337}}};
+const role=setup({'':{deployments:roleList}},roleDetails,
+ {'336':approvedFiles,'337':newSource});
+const byRole=await role.run({verifyDetails:true,verifySource:true});
+assert.equal(byRole.status,'BLOCKED');
+assert.equal(byRole.releaseAuthorized,false);
+assert.equal(byRole.expectedDeploymentSourceClassification,'APPROVED_LEGACY_V9281');
+assert.equal(byRole.additionalDeploymentKnownLegacy9281Count,1);
+assert.equal(byRole.additionalDeploymentUnreviewedSourceCount,1);
+assert.equal(byRole.additionalDeploymentVersionUnverifiedCount,1);
+assert.equal(byRole.additionalDeploymentReviewedGate9282Count,0);
+assert.equal(byRole.additionalDeploymentSourceGetUnverifiedCount,0);
+assert.equal(byRole.additionalRoutableDeploymentCount,3);
+assert.equal(byRole.sourceDistinctVersionCount,2);
+assert.equal(byRole.sourceGetCheckedCount,2);
+assert.equal(byRole.sourceUnreviewedCount,1);
+const roleTotal=byRole.additionalDeploymentKnownLegacy9281Count+
+ byRole.additionalDeploymentReviewedGate9282Count+
+ byRole.additionalDeploymentUnreviewedSourceCount+
+ byRole.additionalDeploymentVersionUnverifiedCount+
+ byRole.additionalDeploymentSourceGetUnverifiedCount+
+ byRole.additionalDeploymentSourceLimitUnverifiedCount+
+ byRole.additionalDeploymentSourceNotInspectedCount;
+assert.equal(roleTotal,byRole.additionalRoutableDeploymentCount);
+// P2 regression: if LIST says 336 (approved legacy) but DETAIL says 337,
+// source of 336 must NOT be attributed to this current deployment.
+const driftExpectedDetail={
+ ...configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING'),
+ deploymentConfig:{versionNumber:337}
+};
+const driftExpected=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:driftExpectedDetail},
+ {'336':approvedFiles}).run({verifyDetails:true,verifySource:true});
+assert.equal(driftExpected.detailVersionConflictCount,1);
+assert.equal(driftExpected.sourceKnownLegacy9281Count,1);
+assert.equal(driftExpected.expectedDeploymentSourceClassification,'DETAIL_METADATA_UNVERIFIED');
+assert.equal(driftExpected.status,'BLOCKED');
+assert.equal(driftExpected.releaseAuthorized,false);
+const driftAdditionalDetails={
+ ...secureDetails,
+ [legacyA]:{...secureDetails[legacyA],deploymentConfig:{versionNumber:337}}
+};
+const driftAdditional=await setup({'':{deployments:listed}},
+ driftAdditionalDetails,{'336':approvedFiles})
+ .run({verifyDetails:true,verifySource:true});
+assert.equal(driftAdditional.detailVersionConflictCount,1);
+assert.equal(driftAdditional.expectedDeploymentSourceClassification,'APPROVED_LEGACY_V9281');
+assert.equal(driftAdditional.additionalDeploymentKnownLegacy9281Count,1);
+assert.equal(driftAdditional.additionalDeploymentVersionUnverifiedCount,1);
+assert.equal(driftAdditional.additionalDeploymentSourceGetUnverifiedCount,1);
+assert.equal(driftAdditional.additionalRoutableDeploymentCount,3);
+assert.equal(driftAdditional.releaseAuthorized,false);
+const changedEntryPoint=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:{...item(expectedDeploymentId,['EXECUTION_API'])}},
+ {'336':approvedFiles}).run({verifyDetails:true,verifySource:true});
+assert.equal(changedEntryPoint.detailEntryPointMismatchCount,1);
+assert.equal(changedEntryPoint.expectedDeploymentSourceClassification,'DETAIL_METADATA_UNVERIFIED');
+assert.equal(changedEntryPoint.releaseAuthorized,false);
+const missingDetailWithSource=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {},{'336':approvedFiles}).run({verifyDetails:true,verifySource:true});
+assert.equal(missingDetailWithSource.detailGetUnverifiedCount,1);
+assert.equal(missingDetailWithSource.expectedDeploymentSourceClassification,'DETAIL_METADATA_UNVERIFIED');
+assert.equal(missingDetailWithSource.releaseAuthorized,false);
+for(const sensitive of [expectedDeploymentId,legacyA,legacyB,legacyC,
+ 'PRIVATE_WEBAPP_URL',secret,'u'.repeat(55)]){
+ assert.ok(!JSON.stringify(byRole).includes(sensitive));
+}
+// If the expected deployment itself is not readable, never claim a
+// reviewed legacy source merely because another deployment matches.
+const missingExpected=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING')},
+ {}).run({verifyDetails:true,verifySource:true});
+assert.equal(missingExpected.expectedDeploymentSourceClassification,'SOURCE_GET_UNVERIFIED');
+assert.equal(missingExpected.releaseAuthorized,false);
 assert.equal(sourceReport.releaseAuthorized,false);
 assert.equal(versioned.calls.filter(x=>new URL(x.url).pathname.endsWith('/content')).length,1);
 for(const key of [legacySource.slice(1000,1100),expectedDeploymentId,

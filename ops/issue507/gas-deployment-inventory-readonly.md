@@ -70,6 +70,21 @@
 - `sourceKnownLegacy9281Count`, `sourceKnownReviewedGate9282Count`, `sourceUnreviewedCount`, `sourceGetUnverifiedCount` 등 집계는 공개하되, **소스 일치만으로 writer/트리거/외부 Sheets API 격리 또는 v9.282 배포 승인 주장 금지**.
 - 운영 GAS 콘텐츠·버전·트리거·금융 원본에 대한 변경 요청은 없다. OAuth 토큰 교환 외 GAS API는 GET만 호출한다. 차단 상태·releaseAuthorized=false·기존 세 웹앱 유지.
 
+## 배포 코드 버전별 감사 결과 (2026-11-02 23:20 KST)
+
+[실제 수동 감사 #41461024423](https://github.com/cyyoung111-dev/portfolio/actions/runs/41461024423)에서 승인 전 `GET projects.getContent?versionNumber`를 사용해 서로 다른 불변 코드 버전 3개를 모두 조회했다. 1개는 **승인된 v9.281 legacy 원문**과 정확히 일치했고, 2개는 보유한 승인 v9.281/v9.282 원문 어느 것과도 일치하지 않았다. 다른 1개의 배포는 LIST·DETAIL에서 모두 버전번호를 확인할 수 없으므로 코드 GET 대상으로 지정할 수 없었다. 비인가 또는 취약한 소스라고 단정하는 것이 아니라 **리뷰하지 않은 코드**로 보수적으로 분류했다.
+
+당시 접근 권한은 4개 전부 `ANYONE_ANONYMOUS` 및 `USER_DEPLOYING`. 실제로 호출되는 URL인지, 내부에 어떤 쓰기 함수가 있는지, 배포자 누구인지에 대한 증거는 없음. `BLOCKED`, `releaseAuthorized=false`.
+
+### 본 PR: 운영 웹앱과 추가 웹앱의 소스 분류 분리
+
+현재 감사의 1/2/1 건수는 **고유 소스 버전 수**이므로 정확한 현재 운영 URL과 추가 3개 URL의 귀속 관계를 알 수 없다. 따라서:
+- `expectedDeploymentSourceClassification`은 예상 운영 배포 ID의 소스가 정확히 승인된 v9.281인지, 승인 v9.282인지, 미검토 소스인지, 조회 불가/버전 미확인인지 문자열 enum 하나로만 반환.
+- `additionalDeploymentKnownLegacy9281Count`, `additionalDeploymentReviewedGate9282Count`, `additionalDeploymentUnreviewedSourceCount`, `additionalDeploymentVersionUnverifiedCount`, `additionalDeploymentSourceGetUnverifiedCount`, `additionalDeploymentSourceLimitUnverifiedCount`, `additionalDeploymentSourceNotInspectedCount`는 추가 접근 가능한 배포의 **배포별 건수**를 반환. 같은 소스 버전이 두 URL에 쓰여도 배포 수는 각각 계산하고 내부 고유 버전 GET 중복 제거는 유지.
+- 개별 배포 ID/URL, 원본 소스·SHA/버전 숫자·인증정보는 출력하지 않으며, Source GET 한도와 실패는 여전히 차단.
+- 결과가 어떻든 운영 writer gate 최초 cutover 승인이나 기존 배포 격리 증거로 삼지 않는다. 실제 운영 배포의 보관/삭제는 사용자에게 영향을 줄 수 있으므로 별도 증빙·승인 전에는 금지.
+- Codex P2 리뷰에서 LIST v336과 DETAIL v337처럼 **조회 사이에 버전이 바뀌는 경우** 이전 LIST 승인 소스를 현재 배포에 잘못 귀속할 위험을 발견했다. 소스 대조를 실행하더라도 배포별 DETAIL 조회 완료 여부, 양의 정수 버전, LIST/DETAIL 버전 일치, 엔트리포인트 일치가 모두 확인되지 않으면 `DETAIL_METADATA_UNVERIFIED`로 귀속을 차단한다. 같은 버전의 다른 배포가 승인됐다는 이유로 예외를 만들지 않는다.
+
 ## 이 조사로는 증명되지 않는 것
 1. 다른 GAS 프로젝트·다른 계정의 배포, 편집기, 수동 시트 편집 및 Sheets API 외부 writer가 차단됐는지.
 2. 모든 기존 실행자/버전이 종료됐는지. 공식 `processes.listScriptProcesses`는 별도의 script.processes OAuth 범위가 필요하며, 예전 audit 403이나 빈 결과는 종료 증거가 아니다: https://developers.google.com/apps-script/api/reference/rest/v1/processes/listScriptProcesses
