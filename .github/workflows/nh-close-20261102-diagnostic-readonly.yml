@@ -12,7 +12,7 @@ jobs:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v7
         with:
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Inspect four exact-date NH stored closes through existing GAS read API
+      - name: Classify 55-second NH GAS transport and stored close response (read only)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
@@ -29,7 +29,27 @@ jobs:
           import {readNhClosingStocks} from './scripts/closing-extra-daily-sources.mjs';
           const day='2026-11-02';
           const statuses=[];
+          // A one-time extended, still read-only request distinguishes the
+          // normal 17s deadline from a network/redirect/GAS response failure.
+          // Never print transport exceptions, response bodies or private URLs.
+          const observedFetch=async(url,options)=>{
+            const start=Date.now();
+            try{
+              const response=await fetch(url,{...options,signal:AbortSignal.timeout(55000)});
+              console.log(JSON.stringify({kind:'NH_GAS_TRANSPORT',
+                result:response.ok?'HTTP_OK':'HTTP_NON_OK',
+                elapsedSeconds:Math.floor((Date.now()-start)/1000)}));
+              return response;
+            }catch(error){
+              const reason=error?.name==='TimeoutError'?'TIMEOUT_55S'
+                :error?.name==='AbortError'?'ABORTED':'NETWORK_OR_REDIRECT_FAILURE';
+              console.log(JSON.stringify({kind:'NH_GAS_TRANSPORT',result:reason,
+                elapsedSeconds:Math.floor((Date.now()-start)/1000)}));
+              throw error;
+            }
+          };
           const rows=await readNhClosingStocks(day,{
+            fetchImpl:observedFetch,
             onDiagnostic:result=>{
               statuses.push(result);
               console.log(JSON.stringify({kind:'NH_CLOSE_STOCK_READ',...result}));
