@@ -1,0 +1,61 @@
+name: Telegram close early-armed fallback
+on:
+  # GitHub schedule is best-effort. Starting a runner earlier reduces
+  # exposure to queue delay but DOES NOT guarantee the target minute.
+  schedule:
+    - cron: '35 7 * * 1-5' # 16:35 KST early-arm; target 17:00 KST
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  # Same group as the regular delivery workflow; never two parallel sends.
+  group: telegram-close-briefing
+  cancel-in-progress: false
+jobs:
+  armed:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Wait for original 17:00 KST guarded delivery window
+        id: arm
+        run: node scripts/telegram-punctual-arm.mjs close
+      - name: Prepare verified close briefing through original claim and source rules
+        if: steps.arm.outputs.ready == 'true'
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/telegram-close-workflow.mjs prepare
+      - name: Claim original dated briefing before contacting Telegram
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}
+          path: .telegram-close-runtime/claim.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Send exactly one claimed close briefing
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/telegram-close-workflow.mjs send
+      - name: Archive Telegram API-confirmed SENT proof
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}-sent
+          path: .telegram-close-runtime/sent.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
