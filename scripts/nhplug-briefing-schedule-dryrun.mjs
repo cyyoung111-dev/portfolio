@@ -4,7 +4,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 // or Telegram send. Changing this module never changes production schedules.
 export const BRIEFING_WINDOWS=Object.freeze({
   MORNING:Object.freeze({target:'07:40',fallback:'07:49',end:'08:10'}),
-  CLOSE:Object.freeze({target:'17:00',fallback:'17:08',end:'20:00'}),
+  CLOSE:Object.freeze({target:'17:00',fallback:'17:05',end:'17:30'}),
 });
 const clock=/^([01]\d|2[0-3]):([0-5]\d)$/;
 const isoDate=/^\d{4}-\d{2}-\d{2}$/;
