@@ -1,0 +1,47 @@
+name: NH closing 2026-11-02 four-stock source diagnostic (read-only)
+# Single source/date probe; existing GAS getPriceHistory only, no NH OAuth,
+# Telegram, snapshot, financial writer or re-deploy operations.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/nh-close-20261102-diagnostic-readonly.yml']
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Inspect four exact-date NH stored closes through existing GAS read API
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          import {readNhClosingStocks} from './scripts/closing-extra-daily-sources.mjs';
+          const day='2026-11-02';
+          const statuses=[];
+          const rows=await readNhClosingStocks(day,{
+            onDiagnostic:result=>{
+              statuses.push(result);
+              console.log(JSON.stringify({kind:'NH_CLOSE_STOCK_READ',...result}));
+            }
+          });
+          // Only fixed identifiers/counts; never log prices, raw GAS rows,
+          // endpoint URL, access token, account or private positions.
+          const allowed=new Set(['SAMSUNG','SKHYNIX','NVDA','MU']);
+          const ids=rows.map(row=>row.id).filter(id=>allowed.has(id));
+          console.log(JSON.stringify({kind:'NH_CLOSE_STOCK_SUMMARY',
+            date:day,verifiedCount:ids.length,
+            missingIds:[...allowed].filter(id=>!ids.includes(id)),
+            diagnosticAvailable:statuses.length===1}));
+          if(statuses.length!==1)process.exitCode=1;
+          JS
