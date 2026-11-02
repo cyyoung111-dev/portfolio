@@ -42,7 +42,10 @@ assert.equal(verifyPreparedClose(date,{...r.data,date:us},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,capturedAt:date+'T17:00:00+09:00'},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,stocks:[...stocks,stocks[0]]},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,macros:[{...macros[2],value:49.9}]},now()),null);
-assert.equal(sanitizePreclose(date,{...all,nh:[...nh,nh[0]]}).nh.length,0);
+assert.equal(sanitizePreclose(date,{...all,nh:[...nh,nh[0]]}).nh.length,2,
+ 'ambiguous duplicated NH symbol must be excluded without discarding unrelated verified symbols');
+assert.equal(verifyPreparedClose(date,{...r.data,nh:[...nh,nh[0]]},now()),null,
+ 'ambiguous artifact must be rejected rather than silently pruning duplicates');
 assert.equal(sanitizePreclose(date,{...all,stocks:[{...stocks[0],source:'KRX_CARRY'}]}).stocks.length,0);
 assert.equal((await precomputeClose({now:()=>new Date('2026-10-31T16:50:00+09:00'),
  fetchNh:async()=>assert.fail('weekend no fetch')})).status,'MARKET_NOT_OPEN');
