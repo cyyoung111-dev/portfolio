@@ -24,7 +24,12 @@ jobs:
         with:
           node-version: '24'
       - name: Install offline schema validator
-        run: npm ci --ignore-scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+          fi
       - name: Read-only inventory contract
         run: node scripts/check-issue507-deployment-inventory-readonly.mjs
       - name: List Apps Script deployment metadata (GET only, redacted)
