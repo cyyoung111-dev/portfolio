@@ -45,6 +45,19 @@
 - 상세 GET으로 버전이 확인돼도 LIST의 원래 `VERSION_METADATA_UNVERIFIED`와 추가 배포 3개에 대한 `BLOCKED`는 유지한다. 상세 정보 일치 자체는 과거 writer 제거·사용자 접근 격리의 증거가 아니다.
 - 개별 GET 실패/미일치/응답 누락 시에도 `releaseAuthorized=false`; GAS 콘텐츠/버전/배포·시트·트리거 변경은 하지 않는다. **실행 검증은 PR 병합 후 최신 main의 별도 수동 감사로 확인해야 한다.**
 
+## 배포별 웹앱 접근·실행 권한 조회 (2026-11-02)
+
+[수동 감사 #41458389102](https://github.com/cyyoung111-dev/portfolio/actions/runs/41458389102): 배포 4개/WEB_APP 4개를 상세 `GET`으로 모두 조회했다. 조회 실패 0, LIST/DETAIL 버전 상충 0, 진입점 상충 0, 목록·상세 모두 버전번호를 확인할 수 없는 배포 1개, 추가 WEB_APP 3개. `BLOCKED`, `releaseAuthorized=false`. 확인된 수치는 **배포 메타데이터의 존재**이지 누가 사용 중인지 또는 어떤 권한인지 판단한 결과가 아니다.
+
+[공식 REST WebAppConfig](https://developers.google.com/apps-script/api/reference/rest/v1/projects.deployments)의 `webApp.entryPointConfig.access`와 `executeAs`를 기존 4건 GET 결과에서 읽기 전용으로 집계한다.
+
+- 접근 범위: MYSELF / DOMAIN / ANYONE(로그인 사용자) / ANYONE_ANONYMOUS(비로그인 포함) / 미확인
+- 실행 주체: USER_ACCESSING / USER_DEPLOYING / 미확인
+- 예상 운영 배포와 추가 배포를 구별하여, 추가 배포 중 익명 접근 가능 건수·로그인 사용자 접근 가능 건수·배포자 권한 실행 건수·익명 접근과 배포자 권한이 겹치는 건수만 보고한다.
+- 개별 deployment ID/URL·설명·계정·토큰·원본 REST JSON은 로그에 남기지 않는다. 누락되거나 공식 enum과 다른 값은 `unknown`으로 집계하고 `BLOCKED`를 유지한다.
+- `ANYONE_ANONYMOUS` 또는 `USER_DEPLOYING`만으로 취약점이 확정되지는 않는다. 하지만 외부에서 호출할 수 있는 기존 구버전이 배포자 권한으로 실행될 가능성은 사용자 영향/접근 통제 관점에서 별도 검토해야 한다.
+- 기존 배포를 자동으로 비활성화/삭제하거나 POST·PUT·Sheets 수정·텔레그램 전송하지 않는다. **상세 권한 집계가 성공해도 releaseAuthorized=false**.
+
 ## 이 조사로는 증명되지 않는 것
 1. 다른 GAS 프로젝트·다른 계정의 배포, 편집기, 수동 시트 편집 및 Sheets API 외부 writer가 차단됐는지.
 2. 모든 기존 실행자/버전이 종료됐는지. 공식 `processes.listScriptProcesses`는 별도의 script.processes OAuth 범위가 필요하며, 예전 audit 403이나 빈 결과는 종료 증거가 아니다: https://developers.google.com/apps-script/api/reference/rest/v1/processes/listScriptProcesses
