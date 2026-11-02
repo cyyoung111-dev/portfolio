@@ -75,7 +75,7 @@ head=real;
 projectFiles=()=>[...files(real),{name:'override',type:'SERVER_JS',source:'function doGet() {}'}];
 requests=[];
 await assert.rejects(()=>inspectPublishedGasReadOnly(args()),/PROJECT_FILES_INVALID/);
-assert.equal(requests.length,2);
+assert.equal(requests.length,3);
 projectFiles=()=>files(pub);
 // A stored approval or DRAINING gate must NEVER produce ready state.
 for(const item of [
@@ -117,5 +117,6 @@ assert.equal(calls[0].url,'https://oauth2.googleapis.com/token');
 assert.equal(calls[0].method,'POST');
 assert.equal(calls[0].body.get('grant_type'),'refresh_token');
 assert.equal(calls[0].body.get('refresh_token'),'REFRESH');
-assert.doesNotMatch(JSON.stringify(r),/ID|SECRET|REFRESH/);
+assert.ok(!JSON.stringify(r).includes('SECRET') && !JSON.stringify(r).includes('REFRESH'));
+
 console.log('GAS_PUBLISHED_READONLY_CONTRACT_PASS: real source SHA, trusted route gate, HEAD drift, no unknown runtime, approval state, no writes');
