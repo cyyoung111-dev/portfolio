@@ -21,9 +21,9 @@
 ## 다음 운영 순서 — 승인 게이트
 
 1. 이미 확인된 v9.281 baseline을 Issue #860에 보존. 미확인 writer gate OPEN/DRAINING을 추정하지 않음.
-2. 기존 `gas-deploy` 워크플로에서 **수동 `main`, `dry_run=true`, `approve_9282=false`, `approve_9283=false`**만 선택해 승인/인증/현재 소스 대비를 읽기 전용 점검. 이 단계도 별도 실행 기록이 없으면 `미실행` 표시.
+2. **완료**: [GAS 수동 dry-run #41446204818](https://github.com/cyyoung111-dev/portfolio/actions/runs/41446204818), `main` SHA `62b1c79603c273793621f4d91b97dd51f7a81134`, `dry_run=true`, `approve_9282=false`, `approve_9283=false`. `validate=success`, `deploy=success`는 dry-run 검증 job의 성공이지 실배포가 아님. GAS 프로젝트 HEAD와 게시 소스 모두 승인 v9.281이며 deployment 개정번호 336 유지. `approved:true`는 소스 해시 승인만 뜻하고 writer gate 활성화나 v9.282 전환 승인이 아님. 로그에 실제 프로젝트·버전·deployment 무변경 명시.
 3. 서비스 중단/기존 실행·다중 배포·외부 Sheets writer 격리·Snapshot 원본 백업·v9.282 gate 최초 bootstrap·forward-recovery 계획을 실제 독립 증빙. 특히 v9.281이 기존 writer gate가 없는 배포이므로 신규 gate로 바뀐 뒤 구 v9.281 deployment에 자동 rollback하지 않음.
-4. 2~3단계 확인과 사용자의 **별도 명시적 v9.282 운영 배포 승인**이 있기 전까지 `dry_run=false` 또는 `approve_9282=true` 실행 금지. GAS v9.283 / 06:45 수집 / KRX 거래대금 배포도 금지.
+4. 3단계 추가 확인과 사용자의 **별도 명시적 v9.282 운영 배포 승인**이 있기 전까지 `dry_run=false` 또는 `approve_9282=true` 실행 금지. GAS v9.283 / 06:45 수집 / KRX 거래대금 배포도 금지.
 5. 나중에 승인된 운영 배포를 마친 경우에만 `gas-published-gate-readonly-audit` 재실행, 게시 v9.282 전체 소스 SHA·정확한 writer gate 상태·NH/텔레그램/가격·Snapshot 읽기 확인. 이후 금융 복구/원본 수정은 또 다른 독립 승인.
 
 참고: Issue #507, Issue #860, `DEPLOYMENT.md`, `ops/issue507/activation-boundary.md`.
