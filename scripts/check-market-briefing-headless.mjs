@@ -652,10 +652,20 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  assert.equal(lateTestWindow(new Date('2026-10-28T08:09:59+09:00')).allowed,false);
  assert.equal(lateTestWindow(new Date('2026-10-28T12:00:00+09:00')).allowed,false);
  assert.equal(lateTestWindow(new Date('2026-11-01T09:40:00+09:00')).allowed,false);
+ const {formatFullMorningBriefing}=await import('./telegram-morning-report.mjs');
+ const row={label:'S&P 500',symbol:'^GSPC',date:'2026-10-27',value:5200,changePercent:0.75,source:'NH_INDEX_DAILY'};
+ const actualFormat=formatFullMorningBriefing('2026-10-28',null,[row],{now:lateNow()});
+ assert.match(actualFormat,/■ QC: 기준 거래일과 일치한 일봉 1\\/21 · NH 야선 미확보/);
  const lateOpts={...options,now:lateNow,mode:'late_test',loadReference:async()=>null,
-   run:async({allowLateTest,send})=>{assert.equal(allowLateTest,true);await send(null,null,'검증용 시장 요약');return {status:'SENT_SOURCE_MISSING'};}};
+   run:async({allowLateTest,send})=>{assert.equal(allowLateTest,true);await send(null,null,actualFormat);return {status:'SENT_SOURCE_MISSING',seriesCount:1};}};
  const late=await prepareMorning({...lateOpts,fetchImpl:mock(0)});
  assert.equal(late.ready,true);assert.equal(late.mode,'late_test');
+ const allMissing=formatFullMorningBriefing('2026-10-28',null,[],{now:lateNow()});
+ await assert.rejects(()=>prepareMorning({...lateOpts,fetchImpl:mock(0),
+   run:async({send})=>{await send(null,null,allMissing);return {status:'SENT_SOURCE_MISSING',seriesCount:0};}}),/TELEGRAM_TEST_DATA_UNAVAILABLE/);
+ await assert.rejects(()=>prepareMorning({...lateOpts,fetchImpl:mock(0),
+   run:async({send})=>{await send(null,null,'부분 문자열');return {status:'SENT_SOURCE_MISSING',seriesCount:1};}}),/TELEGRAM_TEST_DATA_UNAVAILABLE/);
+
  assert.equal(late.artifactName,prepared.artifactName,'late test shares the dated production claim');
  assert.ok(late.message.startsWith('[수동 지연 발송 테스트 · 2026-10-28 · 정규 장전 발송 아님]'),'late report must be visibly labeled');
  assert.equal((await prepareMorning({...lateOpts,fetchImpl:mock(1,[{name:late.artifactName}])})).status,'ALREADY_CLAIMED');
