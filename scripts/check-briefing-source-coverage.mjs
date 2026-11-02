@@ -33,7 +33,8 @@ assert.equal(closeQualityDecision(summary).fullCoreCoverage,true);
 assert.equal(summary.statuses.filter(x=>x.status==='NOT_CONNECTED').length,
  CLOSE_SOURCE_CATALOG.notConnected.length);
 assert.equal(new Set(summary.statuses.map(x=>x.id)).size,summary.statuses.length);
-assert.equal(summary.statuses.some(x=>x.id==='VKOSPI'&&x.status==='NOT_CONNECTED'),true);
+assert.equal(summary.statuses.some(x=>x.id==='VKOSPI'&&x.status==='NO_VERIFIED_ROW'),true);
+assert.deepEqual(summary.volatility,{verified:0,total:1});
 for(const id of ['SAMSUNG','SKHYNIX','NVDA','MU','USDKRW','DXY','UST10Y'])
  assert.equal(summary.statuses.find(x=>x.id===id)?.status,'NO_VERIFIED_ROW',id);
 for(const id of ['WTI','BRENT','GOLD','COPPER','BTC'])
