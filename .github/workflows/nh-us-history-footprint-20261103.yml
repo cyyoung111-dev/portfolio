@@ -1,0 +1,87 @@
+name: NH US completed-close history footprint 20261103 (read-only)
+# Single, fixed historical query of the existing GAS price history read API.
+# No token issuance, provider direct calls, price writes, or Telegram sends.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/nh-us-history-footprint-20261103.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Probe exact NVDA/MU stored history presence without revealing values
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          import {validateGasEndpoint} from './scripts/nh-gas-proxy.mjs';
+          const codes=['NVDA','MU'],targetDate='2026-10-30';
+          const from='2026-09-01',to='2026-11-02';
+          const url=validateGasEndpoint(process.env.GAS_WEB_APP_URL);
+          const token=process.env.GAS_ACCESS_TOKEN;
+          if(typeof token!=='string'||token.length<12)throw Error('HISTORY_AUDIT_CONFIG');
+          const payload=new URLSearchParams({
+            action:'getPriceHistory',accessToken:token,
+            codes:codes.join(','),from,to
+          });
+          const started=Date.now();
+          let response;
+          try {
+            response=await fetch(url,{method:'POST',redirect:'follow',
+              headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+              body:payload,signal:AbortSignal.timeout(65000)});
+          }catch(error){
+            const result=error?.name==='TimeoutError'?'TIMEOUT_65S':'NETWORK_FAILURE';
+            console.log(JSON.stringify({kind:'NH_US_HISTORY_TRANSPORT',result,
+              elapsedSeconds:Math.floor((Date.now()-started)/1000)}));
+            process.exitCode=1;
+          }
+          if(response){
+            console.log(JSON.stringify({kind:'NH_US_HISTORY_TRANSPORT',
+              result:response.ok?'HTTP_OK':'HTTP_NON_OK',
+              elapsedSeconds:Math.floor((Date.now()-started)/1000)}));
+            if(!response.ok)process.exitCode=1;
+            else{
+              let data;
+              try{data=await response.json();}catch{data=null;}
+              if(data?.status!=='ok'||!data.prices||typeof data.prices!=='object'||Array.isArray(data.prices)){
+                console.log(JSON.stringify({kind:'NH_US_HISTORY_STATUS',
+                  result:data?.status==='error'?'GAS_RESPONSE_ERROR':'SCHEMA_INVALID'}));
+                process.exitCode=1;
+              }else{
+                const out=codes.map(code=>{
+                  const rows=data.prices[code];
+                  if(!Array.isArray(rows))return {code,kind:'CODE_NOT_RETURNED',rows:0};
+                  if(rows.length>500)return {code,kind:'ROW_LIMIT_EXCEEDED',rows:null};
+                  const clean=rows.filter(r=>r&&/^20\d\d-\d\d-\d\d$/.test(String(r.date||'')));
+                  const nh=clean.filter(r=>r.source==='NH_REGULAR_CLOSE'
+                    &&typeof r.price==='number'&&Number.isFinite(r.price)&&r.price>0);
+                  const exact=nh.filter(r=>r.date===targetDate);
+                  const latest=nh.map(r=>r.date).sort().at(-1)||null;
+                  const statuses=new Set(clean.map(r=>r.source==='NH_REGULAR_CLOSE'?'NH':'OTHER'));
+                  return {code,kind:exact.length===1?'TARGET_VERIFIED'
+                    :nh.length?'NH_DATE_MISSING'
+                    :rows.length?'NON_NH_OR_INVALID':'NO_ROWS',
+                    rows:rows.length,validNhRows:nh.length,
+                    targetNhCount:exact.length,latestNhDate:latest,
+                    containsOtherSources:statuses.has('OTHER')};
+                });
+                console.log(JSON.stringify({kind:'NH_US_HISTORY_FOOTPRINT',from,to,targetDate,items:out,
+                  unexpectedKeys:Object.keys(data.prices).filter(k=>!codes.includes(k)).length,
+                  noFinanceWrites:true,noProviderCalls:true}));
+              }
+            }
+          }
+          JS
