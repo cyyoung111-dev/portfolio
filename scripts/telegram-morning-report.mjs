@@ -75,11 +75,12 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
       try {
         const row=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
         if(hasExpectedMorningDate(item,date,row,now)){list[i]={...row};continue;}
-        // A provider may return an outdated candle even after the US close.
-        // Retry once against the alternate Yahoo chart host, but accept ONLY
-        // the latest expected completed session. No stale-price fallback.
-        if(row?.date && row.date<date && !hasExpectedMorningDate(item,date,row,now)
-          && row.source==='Yahoo Finance 일봉'){
+        // Retry once using Yahoo's alternate host on a missing response or
+        // an outdated candle. Accept only the expected COMPLETED session;
+        // do not broaden date gates or backfill with a stale close.
+        if(row==null || (row?.date && row.date<date
+          && !hasExpectedMorningDate(item,date,row,now)
+          && row.source==='Yahoo Finance 일봉')){
           const retry=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl,host:'query2.finance.yahoo.com'});
           if(hasExpectedMorningDate(item,date,retry,now))list[i]={...retry};
         }
@@ -96,7 +97,13 @@ function entry(map,id){
   if(!r || r.date==null || !Number.isFinite(Number(r.value)) || Number(r.value)<=0)return info?.label+': 미확보';
   let amount=Number(r.value);
   let unit='';
-  if(id==='UST10Y'){amount/=10;unit='% (Yahoo ^TNX 환산)';}
+  // Yahoo chart ^TNX now delivers percent yields directly (e.g. 4.929).
+  // Do not divide by ten. A 10x-scaled index-level observation is ambiguous
+  // and must fail closed rather than silently printing an incorrect yield.
+  if(id==='UST10Y'){
+    if(!(amount>0&&amount<20))return info.label+': 미확보 (금리 단위 검증 필요)';
+    unit='% (Yahoo ^TNX 직접 표기)';
+  }
   else if(id==='WTI'||id==='BRENT'||id==='GOLD')unit=' USD';
   else if(id==='COPPER')unit=' USD/lb';
   else if(id==='BTC')unit=' USD';
