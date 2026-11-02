@@ -81,13 +81,13 @@ for(const c of checks){
  assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
  assert.equal(steps.find(s=>s.id==='prepare').env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
  assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_BOT_TOKEN,undefined);
- const send=steps.find(s=>s.name.includes('Send exactly one claimed'));
+ const send=steps.find(s=>s.name?.includes('Send exactly one claimed'));
  assert.equal(send.run,'node scripts/'+c.script+' send');
  assert.equal(send.env.TELEGRAM_BOT_TOKEN,'$'+'{{ secrets.TELEGRAM_BOT_TOKEN }}');
  assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
  assert.equal(send.if,"steps.prepare.outputs.ready == 'true'");
- assert.equal(steps.find(s=>s.name.includes('Claim original dated')).with.path,c.root+'/claim.json');
- assert.equal(steps.find(s=>s.name.includes('SENT proof')).with.path,c.root+'/sent.json');
+ assert.equal(steps.find(s=>s.name?.includes('Claim original dated')).with.path,c.root+'/claim.json');
+ assert.equal(steps.find(s=>s.name?.includes('SENT proof')).with.path,c.root+'/sent.json');
  assert.equal(steps.filter(s=>s.uses?.startsWith('actions/upload-artifact@')).length,2);
  assert.equal(src.includes('sendMessage'),false,'never bypass production Telegram API guard');
 }
