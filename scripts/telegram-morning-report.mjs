@@ -75,11 +75,12 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
       try {
         const row=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
         if(hasExpectedMorningDate(item,date,row,now)){list[i]={...row};continue;}
-        // A provider may return an outdated candle even after the US close.
-        // Retry once against the alternate Yahoo chart host, but accept ONLY
-        // the latest expected completed session. No stale-price fallback.
-        if(row?.date && row.date<date && !hasExpectedMorningDate(item,date,row,now)
-          && row.source==='Yahoo Finance 일봉'){
+        // Retry once using Yahoo's alternate host on a missing response or
+        // an outdated candle. Accept only the expected COMPLETED session;
+        // do not broaden date gates or backfill with a stale close.
+        if(row==null || (row?.date && row.date<date
+          && !hasExpectedMorningDate(item,date,row,now)
+          && row.source==='Yahoo Finance 일봉')){
           const retry=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl,host:'query2.finance.yahoo.com'});
           if(hasExpectedMorningDate(item,date,retry,now))list[i]={...retry};
         }
