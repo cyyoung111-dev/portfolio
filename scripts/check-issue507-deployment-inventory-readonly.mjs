@@ -99,6 +99,14 @@ const yaml=JSON.stringify(doc.jobs.audit);
 assert.match(yaml,/secrets\.CLASPRC_JSON/);
 assert.doesNotMatch(yaml,/GAS_ACCESS_TOKEN|NHPLUG|write|deploy-gas\.mjs|scripts\.run/);
 assert.match(yaml,/scripts\/issue507-deployment-inventory-readonly\.mjs/);
+// Regress live workflow #41453599853: repository intentionally lacks
+// package-lock.json; unconditional npm ci aborts before the GET-only audit.
+const installer=doc.jobs.audit.steps.find(step=>step.name==='Install offline schema validator');
+assert.ok(installer&&typeof installer.run==='string');
+assert.match(installer.run,/if \[ -f package-lock\.json \]; then/);
+assert.match(installer.run,/npm ci --ignore-scripts/);
+assert.match(installer.run,/npm install --no-package-lock --no-audit --no-fund --ignore-scripts/);
+assert.doesNotMatch(installer.run,/npm install[^\n]*--dangerously-allow-all-scripts/);
 const runner=fs.readFileSync('scripts/issue507-deployment-inventory-readonly.mjs','utf8');
 assert.match(runner,/method:'GET'/);
 assert.doesNotMatch(runner,/method:\s*'PUT'|method:\s*'DELETE'/);
