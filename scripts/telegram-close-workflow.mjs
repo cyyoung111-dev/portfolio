@@ -243,6 +243,9 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
     futuresCount:futures.length,
+    // Market-only public rows; no tokens, accounts or GAS ledger data. The
+    // send step re-renders AI/US futures at the actual transmission time.
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures},
     message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now())};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
@@ -251,7 +254,23 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
   ||!(Number.isSafeInteger(payload.domesticConfirmed)&&payload.domesticConfirmed>=0&&payload.domesticConfirmed<=3)
   ||payload.nhConfirmed+payload.domesticConfirmed<1
   ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
-  await send(token,chatId,payload.message);return {status:'SENT',date:window.date};
+  let outgoing=payload.message;
+  // All new live-futures payloads require the original public market inputs.
+  // Recheck intraday quote age at SEND (not PREPARE) time; refresh the entire
+  // AI commentary and futures block together. Older EOD-only payloads retain
+  // the original compatibility path and cannot introduce a new futures quote.
+  if(Object.hasOwn(payload,'futuresCount')){
+    const r=payload.reportInputs;
+    if(!r||typeof r!=='object'||!['nh','secondary','domestic','stocks','macros','markets','futures']
+      .every(k=>Array.isArray(r[k]))||r.futures.length>4
+      ||r.futures.length!==payload.futuresCount)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+    const fresh=sanitizePreclose(window.date,r);
+    if(!fresh)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+    outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
+      fresh.stocks,fresh.macros,fresh.markets,r.futures,now());
+    if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+  }
+  await send(token,chatId,outgoing);return {status:'SENT',date:window.date};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
