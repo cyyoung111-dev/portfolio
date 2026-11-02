@@ -121,32 +121,32 @@ export function verifiedDomesticCloseRows(date,rows){
  return valid;
 }
 export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[]){
- const valid=verifiedNhCloseRows(date,rows),count=valid.length;
+ const valid=verifiedNhCloseRows(date,rows);
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
-  '기준: NH PLUG(지원 지수) · 국내 지수 KRX 공식 우선 / Yahoo·신한 교차검증 / FDR 공개 EOD','',
-  '■ 국내 시장 (비NH 공개 일별 종가)'];
+  '기준: 국내 당일 마감 · 해외 직전 완료장 · 외부 참고 출처만 표시','',
+  '■ 국내 시장 (당일 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
   const matches=validDomestic.filter(x=>x.label===label);
   if(matches.length!==1){lines.push(label+': 검증된 당일 종가 미확보');continue;}
   const x=matches[0];
   const change=Number.isFinite(x.changePercent)
     ?' ('+(x.changePercent>=0?'+':'')+x.changePercent.toFixed(2)+'%)':'';
-  const provenance=x.source==='KRX_OFFICIAL'?'KRX 공식 종가'
-    :x.source==='YAHOO_SHINHAN_CROSSCHECKED_EOD'?'Yahoo·신한 일치 참고 종가':'FDR/KRX 공개 참고';
+  const provenance=x.source==='KRX_OFFICIAL'?'KRX'
+    :x.source==='YAHOO_SHINHAN_CROSSCHECKED_EOD'?'Yahoo·신한 참고':'FDR 참고';
   lines.push(label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
-    +change+' · '+date+' · '+provenance+' (NH 아님)');
+    +change+' ['+date+' · '+provenance+']');
  }
- lines.push('','■ 미국 시장 (직전 완료 거래일)');
+ lines.push('','■ 미국 현물시장 (직전 완료장)');
  for(const target of NH_VERIFIED){
   const row=valid.find(r=>r.symbol===target.symbol);
-  if(!row){lines.push(target.label+': NH 완료 일봉 미확보');continue;}
+  if(!row){lines.push(target.label+': 완료 종가 미확보');continue;}
   const change=Number.isFinite(row.changePercent)
     ?' ('+(row.changePercent>=0?'+':'')+row.changePercent.toFixed(2)+'%)':'';
   lines.push(target.label+': '+row.value.toLocaleString('en-US',{maximumFractionDigits:2})
-    +change+' · '+row.date+' · NH');
+    +change+' ['+row.date+']');
  }
- lines.push('','■ 비NH 공식 외부 참고 지표');
+ lines.push('','■ 글로벌 참고 지표');
  for(const label of NH_UNVERIFIED.slice(3)){
   const candidates=secondary.filter(row=>row?.label===label&&row.role==='NON_NH_REFERENCE_ONLY'
     &&row.date===expectedMorningDate('SPX',date)
@@ -154,19 +154,17 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
     &&((label==='다우존스'&&row.source==='FRED_DJIA')
       ||(label==='SOX'&&row.source==='FRED_NASDAQSOX')
       ||(label==='VIX'&&row.source==='CBOE_VIX_DAILY')));
-  if(candidates.length!==1){lines.push(label+': NH 지수 코드 미검증 · 별도 참고값 미확보');continue;}
+  if(candidates.length!==1){lines.push(label+': 검증값 미확보');continue;}
   const item=candidates[0];
+  const provenance=item.source==='CBOE_VIX_DAILY'?'CBOE 참고':'FRED 참고';
   lines.push(label+': '+item.value.toLocaleString('en-US',{maximumFractionDigits:2})
-    +' · '+item.date+' · '+item.source+' 참고 (NH 아님)');
+    +' ['+item.date+' · '+provenance+']');
  }
- lines.push('','NH 지수 확인 '+count+'/'+NH_VERIFIED.length+' · NH 별도 검증 대상 지수 '+NH_UNVERIFIED.length+'개',
-  '국내 3대 지수는 KRX 공식 또는 날짜·값이 교차검증된 비NH 공개 참고값입니다.',
-  '보유 주식·ETF 종가 및 포트폴리오 손익의 기준은 NH PLUG로 유지합니다.',
-  'NH 지수 일봉은 거래소의 별도 정산가격으로 오인하지 않습니다.');
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
   secondary,stocks,macros,markets,expectedUsDate:expectedMorningDate('SPX',date)});
  lines.push('',formatClosingExtra(date,stocks,macros),'',
-  formatClosingMarketReferences(date,markets),'',formatCloseCoverageSummary(coverage));
+  formatClosingMarketReferences(date,markets),'',formatCloseCoverageSummary(coverage),
+  '※ 기본 가격·미국 지수: NH PLUG · 그 외 참고값 출처 별도 표기');
  return lines.join('\n');
 }
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
