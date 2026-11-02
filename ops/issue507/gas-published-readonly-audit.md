@@ -5,6 +5,7 @@
 ## 안전한 검증 경로
 
 - `gas-published-gate-readonly-audit.yml`은 `workflow_dispatch`만 수용합니다. schedule/push/workflow_run과 GAS 배포 단계가 없습니다.
+- 감사 job과 운영 `gas-deploy.yml`의 **실배포 job**은 저장소 공통 concurrency 키 `gas-production-deploy`를 공유합니다(`cancel-in-progress: false`). 게시 버전 확인과 읽기 전용 런타임 조회 사이에 GitHub 배포 job이 끼어들어 다른 버전으로 바꾸는 경쟁을 차단합니다. 수동 dry-run은 기존의 별도 그룹을 유지합니다. 저장소 밖에서 이루어지는 수동 GAS 배포까지 막는 보장은 아닙니다.
 - GitHub Environment `portfolio-production-gas`의 기존 `GAS_SCRIPT_ID`, `GAS_WEB_APP_URL`, `GAS_DEPLOYMENT_ID`, `GAS_SERVER_FILE_NAME`, `CLASPRC_JSON`, `GAS_ACCESS_TOKEN`만 사용합니다. 신규 KRX/NH 키 또는 금융 데이터 접근 권한을 만들지 않습니다.
 - Google OAuth는 Apps Script REST 메타데이터 조회용입니다. Google Apps Script API에 프로젝트 배포 조회(읽기), 게시된 정확한 버전의 전체 소스 조회(읽기), 현재 HEAD 소스 조회(읽기)만 실행합니다. JSON 본문, 소스, 키, URL은 로그에 출력하지 않습니다.
 - **게시된 서버 코드가 승인된 정확한 v9.282 전체 소스 SHA `9c1a5f31d1abc4b44f7da9af7a50fe3f15967134`이고, 배포 프로젝트가 검토된 단일 서버 파일+manifest 구조일 때만** 실제 `getWriterGateStatus` GET을 호출합니다. 해당 액션은 코드상 `_issue507GateStatusRequest_`로 바로 분기되어 인증·ScriptLock 아래 Script Properties 읽기만 합니다.
