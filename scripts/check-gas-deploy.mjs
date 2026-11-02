@@ -705,8 +705,10 @@ assert.ok(currentGasSource.slice(headerV226,headerV225).includes('미완료 과�
   'v9.226 historical release must not be overwritten by the v9.227 header');
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
 if (hasStackedKrxRecovery) {
-  assert.equal(actualSourceBlob, approvedFullSourceBlob,
-    'a fully stacked PR #481 implementation must match the reviewed full-source blob');
+  assert.equal(actualSourceBlob, 'daa161558edf07319d7fe59bb11f27f857e11675',
+    '06:45 GAS window patch must match the reviewed exact full-source blob');
+  assert.notEqual(actualSourceBlob,approvedFullSourceBlob,
+    'previous v9.282 approved source remains distinct and allowed');
   assert.equal(assertGasReleaseReady(currentGasSource),'9.282',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
