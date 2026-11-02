@@ -28,6 +28,11 @@ assert.match(result,/CAPEX.*클라우드 매출.*미연결/);
 assert.match(result,/네트워크·광통신.*전력·냉각.*AI 소프트웨어/);
 assert.match(result,/AI 설비투자 → HBM\/GPU 수요/);
 assert.doesNotMatch(result,/AI 수요 급증|실제 주문 증가|AI 버블 확정/);
+const duplicates=formatAiIndustryCloseLens({date,usDate,nh,
+ secondary:[...secondary,secondary[0]],stocks:[...stocks,stocks[0]]}).join('\n');
+assert.match(duplicates,/SOX·NASDAQ100 동시 검증값 부족 → 상대강도 판단 유보/);
+assert.match(duplicates,/주요 4종목 NH 확정 종가 3\/4/);
+
 
 const missing=formatAiIndustryCloseLens({date,usDate,nh:nh.slice(0,1),
  secondary:secondary.slice(1),stocks:[]}).join('\n');
