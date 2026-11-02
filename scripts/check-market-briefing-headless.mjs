@@ -104,7 +104,7 @@ const cliBlocked=spawnSync(process.execPath,[
  GAS_WEB_APP_URL:'',GAS_ACCESS_TOKEN:''}});
 assert.equal(cliBlocked.status,1,
  'stale CI schedule must fail before API calls even if GAS credentials absent');
-const cliDiagnostic=JSON.parse(cliBlocked.stdout.trim().split('\\n').at(-1));
+const cliDiagnostic=JSON.parse(cliBlocked.stdout.trim().split('\n').at(-1));
 assert.equal(cliDiagnostic.status,'STALE_SCHEDULE_BLOCKED');
 assert.equal(cliDiagnostic.gasCalls,0);
 assert.equal(cliDiagnostic.financeWrites,0);
