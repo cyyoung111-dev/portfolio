@@ -213,7 +213,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     await fetchDomestic(window.date,{fetchImpl,now,gasUrl,gasToken})),'label');}
     catch{failedGroups.push('DOMESTIC');}})(),
    (async()=>{if(stocks.length===4)return;try{stocks=combine(stocks,normalize('stocks',
-    await fetchStocks(window.date,{url:gasUrl,token:gasToken,fetchImpl})),'id');}
+    await fetchStocks(window.date,{url:gasUrl,token:gasToken,fetchImpl,
+      onDiagnostic:details=>console.log(JSON.stringify({kind:'NH_CLOSE_STOCK_READ',...details}))})),'id');}
     catch{failedGroups.push('STOCKS');}})(),
    (async()=>{if(macros.length===3)return;try{macros=combine(macros,normalize('macros',
     await fetchMacros(window.date,{fetchImpl,now})),'id');}
