@@ -8,8 +8,6 @@ export const FUTURES=Object.freeze([
  Object.freeze({id:'YM',label:'다우 선물',symbol:'YM=F'}),
  Object.freeze({id:'RTY',label:'러셀2000 선물',symbol:'RTY=F'})
 ]);
-const kstDate=d=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',
- year:'numeric',month:'2-digit',day:'2-digit'}).format(d).replace(/\./g,'');
 const closeWindow=d=>{
  const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',
   year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})
@@ -43,6 +41,7 @@ export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date(
  if(closeWindow(at).date!==date||closeWindow(at).minute<1020
   ||closeWindow(at).minute>=1050)return [];
  return (await Promise.all(FUTURES.map(async item=>{
+  let best=null;
   for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
    try{
     const url=new URL('https://'+host+'/v8/finance/chart/'+encodeURIComponent(item.symbol));
@@ -51,11 +50,16 @@ export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date(
     const res=await fetchImpl(url.href,{headers:{accept:'application/json'},
       redirect:'error',signal:AbortSignal.timeout(6000)});
     if(!res?.ok)continue;
-    const row=validateCurrentFuturesQuote(date,item.id,await res.json(),now());
-    if(row)return row;
+    const observed=now(),row=validateCurrentFuturesQuote(date,item.id,await res.json(),observed);
+    if(!row)continue;
+    if(!best||row.asOf>best.asOf)best=row;
+    // Avoid an unnecessary second request when already <=10m fresh.
+    // If delayed by 10-25m, compare the backup provider's timestamp
+    // and choose its latest *verified* same-session price.
+    if(observed.getTime()-Date.parse(best.asOf)<=10*60*1000)break;
    }catch{/* no stale or unverified current price */ }
   }
-  return null;
+  return best;
  }))).filter(Boolean);
 }
 export function selectCurrentFuturesRows(date,rows=[],now=new Date(date+'T17:00:00+09:00')){
