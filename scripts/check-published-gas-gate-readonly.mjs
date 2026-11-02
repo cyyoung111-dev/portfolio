@@ -4,6 +4,12 @@ import {gasSourceBlobSha} from './deploy-gas.mjs';
 import {classifyPublishedGateSource,inspectPublishedGasReadOnly,
  fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 
+const wf=fs.readFileSync('.github/workflows/gas-published-gate-readonly-audit.yml','utf8');
+assert.match(wf,/^on:\s*\n\s+workflow_dispatch:/m);
+assert.match(wf,/if: github\.ref == 'refs\/heads\/main' && github\.event_name == 'workflow_dispatch'/);
+assert.match(wf,/environment: portfolio-production-gas/);
+assert.match(wf,/node scripts\/audit-published-gas-gate-readonly\.mjs/);
+assert.doesNotMatch(wf,/deploy-gas\.mjs|GAS_DEPLOY_DRY_RUN|workflow_run:|push:|schedule:/);
 const real=fs.readFileSync('src/gas/apps_script.gs','utf8');
 assert.equal(gasSourceBlobSha(real),'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
 assert.equal(classifyPublishedGateSource(real).gateReadAllowed,true);
