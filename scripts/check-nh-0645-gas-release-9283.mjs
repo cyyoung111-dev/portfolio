@@ -8,6 +8,15 @@ const {candidate,manifest}=prepareNh0645Gas9283();
 const baseline=fs.readFileSync('src/gas/apps_script.gs','utf8');
 assert.equal(gasSourceBlobSha(baseline),V9282_BLOB);
 assert.notEqual(candidate,baseline);
+const pinned=JSON.parse(fs.readFileSync('ops/issue507/nh-0645-v9283-preview.json','utf8'));
+assert.equal(pinned.candidateSourceBlob,manifest.candidateBlob,
+ 'the in-memory candidate must match the separately pinned review blob');
+assert.equal(pinned.predecessorSourceBlob,V9282_BLOB);
+assert.equal(pinned.proposedVersion,manifest.proposedVersion);
+assert.equal(pinned.productionSourceChanged,false);
+assert.equal(pinned.financeWriteAuthorized,false);
+assert.equal(pinned.gasDeploymentApproved,false);
+assert.equal(pinned.requiresLivePredecessorReadback,true);
 assert.equal(manifest.status,'PREVIEW_NOT_DEPLOYABLE');
 assert.equal(manifest.proposedVersion,'9.283');
 assert.equal(manifest.predecessorBlob,V9282_BLOB);
