@@ -1,7 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 
-const REPO='cyyoung111-dev/portfolio',PARTS=['nh','domestic','secondary','stocks','macros'];
+const REPO='cyyoung111-dev/portfolio',PARTS=['nh','domestic','secondary','stocks','macros','markets'];
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 function decodeZip(buf){
  const script="import io,sys,zipfile\nz=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))\na=z.infolist()\nassert len(a)==1 and a[0].filename=='prepared.json' and not a[0].is_dir() and a[0].file_size<=45000\nsys.stdout.buffer.write(z.read(a[0]))";
