@@ -20,9 +20,18 @@ export function persistWeekdaySentProof(sent,payload,{
     ||!/^\d+$/.test(String(runId))
     ||typeof writeFile!=='function')
     throw Error('TELEGRAM_SENT_PROOF_INVALID');
+  // Distinguish a one-off real-format test from a regular delivery in durable proof.
+  // Keep the same dated claim so neither path can bypass duplicate protection.
+  if(payload?.mode && (kind!=='morning'||payload.mode!=='late_test'))
+    throw Error('TELEGRAM_SENT_PROOF_INVALID');
+  const deliveryMode=payload?.mode==='late_test'?'late_test':'regular';
+  if(deliveryMode==='late_test' &&
+    (typeof payload.message!=='string' ||
+     !payload.message.startsWith(`[수동 지연 발송 테스트 · ${date} · 정규 장전 발송 아님]\n`)))
+    throw Error('TELEGRAM_SENT_PROOF_INVALID');
   // No market values, Telegram recipient, API tokens, GAS properties, or
   // message contents can enter the artifact.
-  const receipt={status:'SENT',date,kind,claim:prefix+date,workflowRunId:String(runId)};
+  const receipt={status:'SENT',date,kind,deliveryMode,claim:prefix+date,workflowRunId:String(runId)};
   writeFile(path,JSON.stringify(receipt),{flag:'wx'});
   return receipt;
 }
