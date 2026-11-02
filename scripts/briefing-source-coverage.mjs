@@ -118,7 +118,7 @@ export function formatCloseCoverageSummary(coverage){
     '■ 데이터 QC: 핵심지수 '+c.verified+'/'+c.total
       +' (국내 '+c.domestic+'/3 · 미국 '+c.us+'/3)'
       +' · 참고 '+aux.verified+'/'+aux.total
-      +' · NH 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3'
+      +' · 주요 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3'
       +' · 원자재/BTC '+coverage.markets.verified+'/5',
     '핵심 미확보: '+(coverage.statuses.filter(x=>x.role==='REQUIRED_INDEX'
       &&x.status!=='VERIFIED').map(x=>x.id+':'+x.status).join(', ')||'없음'),
