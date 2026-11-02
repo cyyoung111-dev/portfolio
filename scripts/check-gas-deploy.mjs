@@ -862,7 +862,7 @@ assert.doesNotMatch(workflow, /GOOGLE_OAUTH_CLIENT_ID|GOOGLE_OAUTH_CLIENT_SECRET
 assert.match(workflow, /GAS_SCRIPT_ID/);
 assert.match(workflow, /GAS_WEB_APP_URL/);
 assert.match(workflow, /GAS_AUTO_DEPLOY_ENABLED/, 'automatic release must require administrator opt-in');
-assert.match(workflow,/approve_9283:\\s*[\\s\\S]*?default: false/,'GAS 9.283 manual approval must default to false');
+assert.match(workflow,/approve_9283:\s*[\s\S]*?default: false/,'GAS 9.283 manual approval must default to false');
 assert.match(workflow,/GAS_9283_RELEASE_APPROVAL:/,'GAS 9.283 dispatch approval must be explicit');
 assert.doesNotMatch(workflow, /github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED/, 'auto production deployment on push is forbidden');
 assert.match(workflow, /deploy:\s*[\s\S]*concurrency:/);
