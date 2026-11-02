@@ -1,0 +1,74 @@
+name: Audit GitHub briefing scheduler state 20261103 (read-only)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/briefing-scheduler-status-20261103.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify workflow active states and recent actual schedule runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          const repo='cyyoung111-dev/portfolio';
+          const paths=[
+            'nh-night-capture.yml',
+            'telegram-morning-briefing.yml',
+            'telegram-morning-punctual-arm.yml',
+            'telegram-close-briefing.yml',
+            'telegram-close-punctual-arm.yml'
+          ];
+          const headers={authorization:'Bearer '+process.env.GH_TOKEN,
+            accept:'application/vnd.github+json','x-github-api-version':'2022-11-28'};
+          const get=async path=>{
+            const response=await fetch('https://api.github.com/repos/'+repo+path,
+              {headers,signal:AbortSignal.timeout(25000)});
+            if(!response.ok)throw Error('SCHEDULE_AUDIT_HTTP_UNAVAILABLE');
+            return response.json();
+          };
+          const all=[];
+          for(let page=1;page<=4;page++){
+            const response=await get('/actions/workflows?per_page=100&page='+page);
+            if(!Array.isArray(response.workflows)||!Number.isSafeInteger(response.total_count))
+              throw Error('SCHEDULE_AUDIT_SCHEMA');
+            all.push(...response.workflows);
+            if(all.length>=response.total_count||response.workflows.length<100)break;
+          }
+          const now=new Date(),kst=new Intl.DateTimeFormat('en-CA',{
+            timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+          }).format(now);
+          const out=[];
+          for(const basename of paths){
+            const matches=all.filter(x=>x.path==='.github/workflows/'+basename);
+            if(matches.length!==1){
+              out.push({workflow:basename,state:'MISSING_OR_DUPLICATE',scheduleToday:0});
+              continue;
+            }
+            const target=matches[0];
+            const history=await get('/actions/workflows/'+target.id+'/runs?event=schedule&per_page=20');
+            if(!Array.isArray(history.workflow_runs))throw Error('SCHEDULE_AUDIT_RUN_SCHEMA');
+            const today=history.workflow_runs.filter(run=>{
+              const iso=run.created_at;
+              if(typeof iso!=='string'||!Number.isFinite(Date.parse(iso)))return false;
+              const day=new Intl.DateTimeFormat('en-CA',{
+                timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+              }).format(new Date(iso));
+              return day===kst;
+            });
+            out.push({workflow:basename,state:target.state,
+              scheduleToday:today.length,
+              mostRecentSchedule:history.workflow_runs[0]?.created_at||null});
+          }
+          console.log(JSON.stringify({kind:'BRIEFING_SCHEDULER_AUDIT',dateKst:kst,rows:out,
+            hasSecrets:false,noDeployment:true,noTelegram:true}));
+          if(out.some(x=>x.state!=='active'))process.exitCode=2;
+          else if(out.every(x=>x.scheduleToday===0))process.exitCode=1;
+          JS
