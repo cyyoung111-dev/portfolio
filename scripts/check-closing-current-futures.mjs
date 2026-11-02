@@ -58,9 +58,9 @@ const nh=[
  {label:'NASDAQ100',symbol:'^NDX',source:'NH_INDEX_DAILY',date:'2026-10-30',value:28384.85,changePercent:-3.46}
 ];
 const preview=formatClose(date,nh,[],[],[],[],[],data);
-assert.ok(preview.indexOf('미국 지수선물')<preview.indexOf('미국 현물지수'));
-assert.match(preview,/미국 현물지수 \(직전 완료 거래일 · 17시 현재값 아님\)/);
-assert.match(preview,/NASDAQ100: 28,384.85.*2026-10-30 · NH/);
+assert.ok(preview.indexOf('미국 지수선물')<preview.indexOf('미국 현물시장'));
+assert.match(preview,/미국 현물시장 \(직전 완료장\)/);
+assert.match(preview,/NASDAQ100: 28,384.85.*\[2026-10-30\]/);
 assert.match(preview,/NASDAQ100 선물: 25,001pt/);
 assert.ok(preview.length<4000,'Telegram limit unchanged');
 let requested=0;
