@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {FUTURES,validateCurrentFuturesQuote,readCurrentFutures,formatCurrentFutures}
  from './closing-current-futures.mjs';
-import {formatClose,prepareClose} from './telegram-close-workflow.mjs';
+import {formatClose,prepareClose,deliverClose} from './telegram-close-workflow.mjs';
 
 const date='2026-11-02', instant=new Date('2026-11-02T17:00:00+09:00');
 const ts=Math.floor(new Date('2026-11-02T16:52:00+09:00').getTime()/1000);
@@ -100,6 +100,31 @@ assert.equal(requested,1);
 assert.equal(prepared.ready,true);
 assert.equal(prepared.futuresCount,4);
 assert.match(prepared.message,/NASDAQ100 선물: 25,001pt/);
+assert.ok(prepared.reportInputs&&prepared.reportInputs.futures.length===4,
+ 'prepare must preserve public futures observation timestamps');
+let immediateMessage='';
+assert.equal((await deliverClose(prepared,{
+ now:()=>new Date('2026-11-02T17:05:00+09:00'),
+ send:async(_token,_chat,message)=>{immediateMessage=message;}
+})).status,'SENT');
+assert.match(immediateMessage,/NASDAQ100 선물: 25,001pt/,
+ 'fresh prepared quotes remain visible at actual 17:05 send');
+let lateMessage='';
+assert.equal((await deliverClose(prepared,{
+ now:()=>new Date('2026-11-02T17:29:00+09:00'),
+ send:async(_token,_chat,message)=>{lateMessage=message;}
+})).status,'SENT');
+assert.match(lateMessage,/유효한 최근 거래값 미확보/,
+ 'a 16:52 quote must be removed from a 17:29 send');
+assert.doesNotMatch(lateMessage,/NASDAQ100 선물: 25,001pt/,
+ 'do not send stale futures levels');
+assert.match(lateMessage,/17시 시장: 미국 지수선물 최신값 일부 미확보/,
+ 'AI commentary is also refreshed at actual send time');
+assert.notEqual(immediateMessage,lateMessage);
+await assert.rejects(deliverClose({...prepared,reportInputs:null},{
+ now:()=>instant,send:async()=>assert.fail('invalid futures payload sent')
+}),/TELEGRAM_CLOSE_PAYLOAD_INVALID/);
+
 const fail=await prepareClose({now:()=>instant,githubToken:'dummy',repository:'cyyoung111-dev/portfolio',
  fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})}),
  fetchNh:async()=>nh,fetchDomestic:async()=>[],fetchSecondary:async()=>[],
