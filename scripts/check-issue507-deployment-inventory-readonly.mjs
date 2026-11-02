@@ -12,7 +12,7 @@ const item=(id,types=['WEB_APP'])=>({
   webApp:{url:'https://example.invalid/PRIVATE_WEBAPP_URL'}})),
  description:'PRIVATE_DEPLOYMENT_DESCRIPTION'
 });
-function setup(pages,details={}){
+function setup(pages,details={},versions={}){
  const calls=[];
  const fetchImpl=async(url,options)=>{
   calls.push({url,options});
@@ -21,7 +21,9 @@ function setup(pages,details={}){
   assert.equal(options.redirect,'error');
   const parsed=new URL(url),p=parsed.searchParams.get('pageToken')||'';
   const match=parsed.pathname.match(/\/deployments\/([^/]+)$/);
-  const value=match?details[decodeURIComponent(match[1])]:pages[p];
+  const value=parsed.pathname.endsWith('/content')
+   ?versions[parsed.searchParams.get('versionNumber')]
+   :match?details[decodeURIComponent(match[1])]:pages[p];
   if(!value)throw Error('PRIVATE_UNEXPECTED_FETCH_URL');
   return {ok:true,status:200,text:async()=>JSON.stringify(value)};
  };
@@ -186,6 +188,48 @@ assert.equal(secureAudit.additionalWebAppExecuteAsDeployerCount,1);
 assert.equal(secureAudit.additionalWebAppAnonymousDeployerCount,1);
 assert.equal(secureAudit.additionalWebAppUnknownSecurityCount,0);
 assert.equal(secureAudit.releaseAuthorized,false);
+// Immutable published versions can be inspected without logging source,
+// version identifiers, deployment IDs or authenticating against /exec.
+const legacySource=fs.readFileSync('reference/gas-v9.281.gs','utf8');
+const approvedFiles={scriptId,files:[
+ {name:'Code',type:'SERVER_JS',source:legacySource},
+ {name:'appsscript',type:'JSON',source:'{}'}]};
+const versioned=setup({'':{deployments:listed}},secureDetails,
+ {'336':approvedFiles});
+const sourceReport=await versioned.run({verifyDetails:true,verifySource:true});
+assert.equal(sourceReport.status,'BLOCKED');
+assert.equal(sourceReport.reason,'VERSION_METADATA_UNVERIFIED');
+assert.equal(sourceReport.sourceAuditAttempted,true);
+assert.equal(sourceReport.sourceDistinctVersionCount,1);
+assert.equal(sourceReport.sourceGetCheckedCount,1);
+assert.equal(sourceReport.sourceKnownLegacy9281Count,1);
+assert.equal(sourceReport.sourceKnownReviewedGate9282Count,0);
+assert.equal(sourceReport.sourceGetSkippedUnversionedCount,1);
+assert.equal(sourceReport.sourceGetUnverifiedCount,0);
+assert.equal(sourceReport.releaseAuthorized,false);
+assert.equal(versioned.calls.filter(x=>new URL(x.url).pathname.endsWith('/content')).length,1);
+for(const key of [legacySource.slice(1000,1100),expectedDeploymentId,
+ legacyA,legacyB,legacyC,secret])
+ assert.ok(!JSON.stringify(sourceReport).includes(key));
+const unreadableVersion=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING')})
+ .run({verifyDetails:true,verifySource:true});
+assert.equal(unreadableVersion.status,'BLOCKED');
+assert.equal(unreadableVersion.sourceGetUnverifiedCount,1);
+assert.equal(unreadableVersion.releaseAuthorized,false);
+const unknownContent={scriptId,files:[
+ {name:'Code',type:'SERVER_JS',source:'z'.repeat(1200)},
+ {name:'appsscript',type:'JSON',source:'{}'}]};
+const unreviewed=await setup({'':{deployments:[item(expectedDeploymentId)]}},
+ {[expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING')},
+ {'336':unknownContent}).run({verifyDetails:true,verifySource:true});
+assert.equal(unreviewed.status,'BLOCKED');
+assert.equal(unreviewed.sourceUnreviewedCount,1);
+assert.equal(unreviewed.sourceGetCheckedCount,1);
+assert.equal(unreviewed.releaseAuthorized,false);
+await assert.rejects(
+ setup({'':{deployments:[item(expectedDeploymentId)]}}).run({verifySource:true}),
+ /ISSUE507_DEPLOYMENT_INVENTORY_SOURCE_REQUIRES_DETAILS/);
 for(const id of [expectedDeploymentId,legacyA,legacyB,legacyC])
  assert.ok(!JSON.stringify(secureAudit).includes(id));
 // The expected deployment itself needs a verified security config.
@@ -315,6 +359,8 @@ assert.match(runner,/googleAccessToken:token,verifyDetails:true/,
  'manual main audit must conduct detail GET-only verification');
 assert.match(runner,/detailGetUnverifiedCount/);
 assert.match(runner,/additionalWebAppAnonymousDeployerCount/);
+assert.match(runner,/verifyDetails:true,verifySource:true/);
+assert.match(runner,/sourceGetSkippedUnversionedCount/);
 assert.match(runner,/WEB_ACCESS.has\(config\?\.access\)/);
 assert.match(runner,/WEB_EXECUTE_AS.has\(config\?\.executeAs\)/);
 assert.doesNotMatch(runner,/method:'POST'|method:'PUT'|method:'DELETE'/);
