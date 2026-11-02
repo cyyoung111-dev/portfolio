@@ -13,11 +13,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Guarded same-day rescue or explicit connection test'
+        description: 'Guarded rescue, explicit connection test, or full morning late_test (weekdays 08:10-12:00 KST)'
         type: choice
         required: true
         default: rescue
-        options: [rescue, connection_test]
+        options: [rescue, connection_test, late_test]
   workflow_run:
     workflows: ['NH night reference capture']
     types: [completed]
@@ -48,7 +48,7 @@ jobs:
         run: node scripts/telegram-morning-briefing.mjs
       - name: Prepare scheduled briefing and inspect durable claim
         id: prepare
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'rescue')
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'rescue' || inputs.mode == 'late_test'))
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
