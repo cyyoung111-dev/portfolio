@@ -27,6 +27,18 @@ for(const [kind,before,arm,target,last,cutoff] of [
  assert.equal(valid(target).allowed,true,kind+' target');
  assert.equal(valid(last).allowed,true,kind+' last permissible time');
  assert.equal(valid(cutoff).allowed,false,kind+' cutoff');
+ // Independent scheduler dispatch is authorized only for the same main repo,
+ // with no untrusted inputs or date override, inside the original KST window.
+ const externalEnv={...env,GITHUB_EVENT_NAME:'workflow_dispatch'};
+ const externalEvent={ref:'refs/heads/main',repository:{full_name:repo}};
+ assert.equal(authorizeArmedDelivery(kind,externalEnv,externalEvent,kst(arm)).allowed,true);
+ assert.equal(authorizeArmedDelivery(kind,externalEnv,externalEvent,kst(target)).allowed,true);
+ assert.equal(authorizeArmedDelivery(kind,externalEnv,externalEvent,kst(cutoff)).allowed,false);
+ assert.equal(authorizeArmedDelivery(kind,externalEnv,{...externalEvent,ref:'refs/heads/other'},kst(arm)).allowed,false);
+ assert.equal(authorizeArmedDelivery(kind,externalEnv,{...externalEvent,inputs:{date}},kst(arm)).allowed,false);
+ assert.equal(authorizeArmedDelivery(kind,{...externalEnv,GITHUB_RUN_ATTEMPT:'2'},externalEvent,kst(arm)).allowed,false);
+ assert.equal(authorizeArmedDelivery(kind,externalEnv,{...externalEvent,repository:{full_name:'other/repo'}},kst(arm)).allowed,false);
+
  assert.equal(authorizeArmedDelivery(kind,env,event(kind),kst(arm,'2026-11-01')).allowed,false,
   'closed Korean session cannot arm');
  for(const override of [
@@ -71,7 +83,8 @@ const checks=[
 for(const c of checks){
  const src=fs.readFileSync('.github/workflows/'+c.file,'utf8');
  const y=YAML.parse(src),j=y.jobs.armed,steps=j.steps;
- assert.deepEqual(Object.keys(y.on),['schedule'],'scheduled only; no push/manual bypass');
+ assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch'],
+  'schedule or authenticated external dispatch only; never push');
  assert.deepEqual(y.on.schedule,[{cron:c.cron}]);
  assert.equal(y.concurrency.group,c.group,'share original dated claim concurrency group');
  assert.equal(y.concurrency['cancel-in-progress'],false);
@@ -124,4 +137,4 @@ try{
   assert.match(out.stdout,/ARM_AUTH_OR_SESSION_REJECTED/);
  }
 }finally{fs.rmSync(sandbox,{recursive:true,force:true});}
-console.log('TELEGRAM_EARLY_ARM_PASS 07:20->07:40 16:35->17:00 exact gates, cancel/claim/SENT protection');
+console.log('TELEGRAM_EARLY_ARM_PASS scheduled/external dispatch same KST gates, cancel/claim/SENT protection');
