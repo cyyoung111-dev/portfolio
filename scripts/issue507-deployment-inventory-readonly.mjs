@@ -34,7 +34,8 @@ async function fetchPage(url,token,fetchImpl){
  try{return JSON.parse(raw);}catch{fail('SCHEMA_UNVERIFIED');}
 }
 export async function inspectGasDeploymentsReadOnly({
- scriptId,expectedDeploymentId,googleAccessToken,fetchImpl=fetch
+ scriptId,expectedDeploymentId,googleAccessToken,fetchImpl=fetch,
+ verifyDetails=false
 }={}){
  if(!validId(scriptId)||!validId(expectedDeploymentId)||
   typeof googleAccessToken!=='string'||googleAccessToken.length<20)
@@ -73,8 +74,9 @@ export async function inspectGasDeploymentsReadOnly({
     fail('SCHEMA_ENTRY_POINTS_UNVERIFIED');
    found.add(id);
    const types=points.map(classify);
-   entries.push({expected:id===expectedDeploymentId,head,types,
-    versionVerified});
+   // IDs and versions remain private in-memory; never return or log them.
+   entries.push({id,expected:id===expectedDeploymentId,head,types,
+    versionVerified,versionNumber:versionVerified&&!head?config.versionNumber:null});
   }
   pages++;
   if(payload.nextPageToken===undefined||payload.nextPageToken===''){
@@ -85,18 +87,54 @@ export async function inspectGasDeploymentsReadOnly({
   tokens.add(payload.nextPageToken);next=payload.nextPageToken;
  }
  if(!complete)fail('PAGINATION_UNVERIFIED');
+ // Independent metadata-only GET for each versioned deployment. The list
+ // remains authoritative for quarantine: a GET can never erase its blockers.
+ // Never log IDs, URLs, config description or the upstream body/errors.
+ const detail={requested:0,checked:0,lookupUnverified:0,
+  recoveredVersion:0,stillUnversioned:0,versionConflict:0,
+  entryPointMismatch:0};
+ if(verifyDetails){
+  for(const entry of entries.filter(e=>!e.head)){
+   detail.requested++;
+   let record;
+   try{
+    record=await fetchPage(
+     ROOT+encodeURIComponent(scriptId)+'/deployments/'+encodeURIComponent(entry.id),
+     googleAccessToken,fetchImpl);
+   }catch{
+    detail.lookupUnverified++;continue;
+   }
+   if(!record||typeof record!=='object'||Array.isArray(record)||
+     record.deploymentId!==entry.id||!Array.isArray(record.entryPoints)||
+     record.entryPoints.length>10){
+    detail.lookupUnverified++;continue;
+   }
+   detail.checked++;
+   const types=record.entryPoints.map(classify);
+   if(JSON.stringify([...types].sort())!==JSON.stringify([...entry.types].sort()))
+    detail.entryPointMismatch++;
+   const version=record.deploymentConfig?.versionNumber;
+   if(!Number.isSafeInteger(version)||version<1)detail.stillUnversioned++;
+   else if(!entry.versionVerified)detail.recoveredVersion++;
+   else if(entry.versionNumber!==version)detail.versionConflict++;
+  }
+ }
  const counts={WEB_APP:0,EXECUTION_API:0,ADD_ON:0,OTHER:0};
  for(const e of entries)for(const type of e.types)counts[type]++;
  const expectedRows=entries.filter(e=>e.expected);
  const unknown=entries.some(e=>(!e.head&&e.types.length===0)||e.types.includes('OTHER'));
  const extraRoutable=entries.filter(e=>!e.expected&&e.types.length>0).length;
  const unverifiedVersions=entries.filter(e=>!e.versionVerified).length;
- const status=expectedRows.length!==1||unverifiedVersions>0||unknown||extraRoutable>0
+ const detailProblems=verifyDetails&&(
+  detail.lookupUnverified>0||detail.versionConflict>0||detail.entryPointMismatch>0||
+  detail.stillUnversioned>0||detail.recoveredVersion>0);
+ const status=expectedRows.length!==1||unverifiedVersions>0||unknown||extraRoutable>0||detailProblems
   ?'BLOCKED':'INVENTORY_ONLY';
  const reason=expectedRows.length!==1?'EXPECTED_DEPLOYMENT_NOT_PROVEN':
   unverifiedVersions>0?'VERSION_METADATA_UNVERIFIED':
   unknown?'UNKNOWN_ENTRY_POINTS':
   extraRoutable>0?'ADDITIONAL_DEPLOYMENTS_REQUIRE_ISOLATION':
+  detailProblems?'DETAIL_METADATA_UNVERIFIED':
   'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED';
  // No deployment IDs, source, URL, principal or token may enter logs.
  return {mode:'GAS_DEPLOYMENT_INVENTORY_READ_ONLY',status,reason,
@@ -106,6 +144,14 @@ export async function inspectGasDeploymentsReadOnly({
   executionApiEntryCount:counts.EXECUTION_API,
   addonEntryCount:counts.ADD_ON,unknownEntryCount:counts.OTHER,
   additionalRoutableDeploymentCount:extraRoutable,
+  detailVerificationAttempted:verifyDetails===true,
+  detailGetRequestedCount:detail.requested,
+  detailGetCheckedCount:detail.checked,
+  detailGetUnverifiedCount:detail.lookupUnverified,
+  detailVersionRecoveredCount:detail.recoveredVersion,
+  detailVersionStillUnverifiedCount:detail.stillUnversioned,
+  detailVersionConflictCount:detail.versionConflict,
+  detailEntryPointMismatchCount:detail.entryPointMismatch,
   expectedDeploymentFound:expectedRows.length===1,
   pagesRead:pages,inventoryComplete:true,
   allActorsAndVersionsTerminatedVerified:false,
@@ -120,7 +166,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    deploymentIdFromWebAppUrl(process.env.GAS_WEB_APP_URL||'');
   const result=await inspectGasDeploymentsReadOnly({
    scriptId:process.env.GAS_SCRIPT_ID,expectedDeploymentId:expected,
-   googleAccessToken:token
+   googleAccessToken:token,verifyDetails:true
   });
   console.log(JSON.stringify(result));
   if(result.status==='BLOCKED')process.exitCode=2;
