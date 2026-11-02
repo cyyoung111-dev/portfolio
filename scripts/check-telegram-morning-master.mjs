@@ -69,7 +69,7 @@ const yStock=[{label:'삼성전자',symbol:'005930.KS',date:'2026-10-29',value:9
  changePercent:9,source:'Yahoo Finance 일봉'}];
 const nhFirst=mergeMorningSourceRows(yStock,[],[],[],nhStock);
 assert.equal(nhFirst.find(x=>x.symbol==='005930.KS').value,110);
-assert.match(formatFullMorningBriefing(date,null,nhFirst),/삼성전자: 110 .*NH PLUG 확정 종가\\(저장 이력\\)/);
+assert.match(formatFullMorningBriefing(date,null,nhFirst),/삼성전자: 110 .*NH PLUG 확정 종가\(저장 이력\)/);
 const rejected=structuredClone(stored);
 rejected.prices.NVDA[1].source='Yahoo Finance 일봉';
 rejected.prices.MU[0].date='2026-10-28';
