@@ -33,12 +33,17 @@ export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
   return body;
 }
 export async function fetchNhNightFromGas(date,{now=()=>new Date(),
-  url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,request=fetch}={}){
+  url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,request=fetch,onError=()=>{}}={}){
   const instant=now(),kst=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',
     year:'numeric',month:'2-digit',day:'2-digit'}).format(instant);
-  if(kst!==date)return null;
+  if(kst!==date){onError('NH_NIGHT_DATE_MISMATCH');return null;}
   let body;
-  try{body=await callNhGasProxy('getNhNightProxy',{url,token,date,request});}catch{return null;}
+  try{body=await callNhGasProxy('getNhNightProxy',{url,token,date,request});}
+  catch(error){
+    const code=String(error?.message||'');
+    onError(/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code)?code:'NH_NIGHT_SOURCE_UNAVAILABLE');
+    return null;
+  }
   const ref=body.reference;
   // Fail closed if the server ever accidentally returns more than the
   // canonical reference schema. In particular, bearer/key/secret fields may
@@ -48,15 +53,20 @@ export async function fetchNhNightFromGas(date,{now=()=>new Date(),
     'value','clock','sourceUpdatedAt','receivedAt','officialClose'];
   if(Object.keys(body).some(k=>!responseKeys.includes(k))||
     !ref||typeof ref!=='object'||Array.isArray(ref)||
-    Object.keys(ref).some(k=>!referenceKeys.includes(k)))return null;
+    Object.keys(ref).some(k=>!referenceKeys.includes(k))){
+    onError('NH_NIGHT_SCHEMA_INVALID');return null;
+  }
   if(body.bearerExposed!==false||!ref||ref.source!=='NH'||ref.kind!=='REFERENCE'
     ||ref.tradingDate!==date||ref.officialClose!==false
     ||ref.sourceUpdatedAt!==date+'T06:00:00+09:00'
     ||typeof ref.receivedAt!=='string'||!Number.isFinite(Date.parse(ref.receivedAt))
-    ||Date.parse(ref.receivedAt)>instant.getTime()+2000)
-    return null;
-  return validateNhNight({date,clock:ref.clock,contract:ref.contract,
+    ||Date.parse(ref.receivedAt)>instant.getTime()+2000){
+    onError('NH_NIGHT_REFERENCE_INVALID');return null;
+  }
+  const validated=validateNhNight({date,clock:ref.clock,contract:ref.contract,
     contractMonth:ref.contractMonth,value:ref.value},date,ref.receivedAt);
+  if(!validated)onError('NH_NIGHT_REFERENCE_INVALID');
+  return validated;
 }
 
 export async function fetchNhNightProbeFromGas(date,{now=()=>new Date(),

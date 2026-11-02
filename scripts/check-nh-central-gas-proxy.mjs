@@ -43,6 +43,27 @@ const leak=await fetchNhNightFromGas('2026-10-30',{now,url,token,request:async()
 assert.equal(leak,null,'unexpected auth fields must never be stored in GH artifacts');
 const cap=await captureMorning({now,fetchNight:async()=>result});
 assert.equal(cap.status,'CAPTURED');
+// Capture failure diagnostics are fixed error codes only: never emit bearer,
+// raw provider responses or invent missing 06:00 prices.
+const errorCodes=[];
+assert.equal(await fetchNhNightFromGas('2026-10-30',{now,url,token,
+ request:async()=>{throw Error('PRIVATE_NETWORK_DETAILS');},
+ onError:x=>errorCodes.push(x)}),null);
+assert.deepEqual(errorCodes,['NH_PROXY_NETWORK_OR_RESPONSE']);
+const missingSchema=[];
+assert.equal(await fetchNhNightFromGas('2026-10-30',{now,url,token,
+ request:async()=>({ok:true,json:async()=>({
+   status:'ok',provider:'NH',readOnly:true,bearerExposed:false,
+   reference:{...ref,unknown_private_field:'PRIVATE_VALUE'}
+ })}),
+ onError:x=>missingSchema.push(x)}),null);
+assert.deepEqual(missingSchema,['NH_NIGHT_SCHEMA_INVALID']);
+const miss=await captureMorning({now,fetchNight:async(_date,{onError})=>{
+ onError('NH_PROXY_0600_NOT_VERIFIED');return null;
+}});
+assert.equal(miss.status,'REFERENCE_UNAVAILABLE');
+assert.equal(miss.reason,'NH_PROXY_0600_NOT_VERIFIED');
+assert.ok(!JSON.stringify({errorCodes,missingSchema,miss}).includes('PRIVATE_'));
 const accepted={status:'ok',provider:'NH',readOnly:true,enabled:true,
  tokenCached:true,tokenIssued:false,gasVersion:'9.282'};
 assert.equal(isSupportedNhCentralStatus(accepted),true,'current live GAS is accepted');
