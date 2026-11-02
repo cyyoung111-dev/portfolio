@@ -472,10 +472,12 @@ export function summarizeGasReleaseFailure(error,stage) {
 }
 
 // Deployment approval for first stateful gate release is separate from merge.
-export function assertIssue507ManualReleasePermission({version,eventName,approved=false,dryRun=false,diagnosticOnly=false}={}) {
-  if(version!=='9.282'||dryRun||diagnosticOnly)return;
-  if(eventName!=='workflow_dispatch'||approved!==true)
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,dryRun=false,diagnosticOnly=false}={}) {
+  if(dryRun||diagnosticOnly)return;
+  if(version==='9.282'&&(eventName!=='workflow_dispatch'||approved!==true))
     throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  if(version==='9.283'&&(eventName!=='workflow_dispatch'||approved9283!==true))
+    throw Error('GAS_9283_EXPLICIT_MANUAL_RELEASE_REQUIRED');
 }
 export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
@@ -494,7 +496,8 @@ export async function deploy() {
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
   assertIssue507ManualReleasePermission({
     version:expectedVersion,eventName:process.env.GITHUB_EVENT_NAME,
-    approved:process.env.GAS_9282_RELEASE_APPROVAL==='true',dryRun,
+    approved:process.env.GAS_9282_RELEASE_APPROVAL==='true',
+    approved9283:process.env.GAS_9283_RELEASE_APPROVAL==='true',dryRun,
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);

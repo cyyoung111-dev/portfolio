@@ -7,13 +7,16 @@ import {pathToFileURL} from 'node:url';
 const SHA=/^[a-f0-9]{40}$/;
 const PATH='src/gas/apps_script.gs';
 const API='https://api.github.com';
-// GAS v9.282 is stateful: a green main push never authorizes first publish.
-// Inspect the actual checked-out HEAD header, not a PR title or git message.
-// Subsequent v9.283+ releases retain the existing provenance policy.
+// GAS v9.282+ retains a stateful writer gate. Never infer permission to
+// publish a new GAS version from a successful main quality-check alone.
+// Inspect the real checked-out source header; unknown future 9.x versions
+// must also remain manual-only until a separately reviewed policy change.
 export function isManualOnlyGasRelease(source) {
  if(typeof source!=='string')return false;
  const header=source.slice(0,2048).match(/\/\/[^\r\n]*Google Apps Script\s+v(\d+\.\d+)\b/);
- return header?.[1]==='9.282';
+ if(!header)return false;
+ const [major,minor]=header[1].split('.').map(Number);
+ return major>9||(major===9&&minor>=282);
 }
 async function readJson(url,token,fetchImpl){
  const response=await fetchImpl(url,{headers:{accept:'application/vnd.github+json',
@@ -29,10 +32,14 @@ export async function checkGasAutoDeployEligibility({repository,token,currentRun
  if(!Number.isSafeInteger(Number(currentRunId))||Number(currentRunId)<=0)
   return unverified('PROVENANCE_CURRENT_RUN_UNVERIFIED');
  try{
-  // Preserve the pending/unknown provenance state but suppress the actual
-  // production job: an administrator must dispatch v9.282 explicitly.
-  if(isManualOnlyGasRelease(readSource()))
-    return {changed:true,reason:'GAS_9282_MANUAL_RELEASE_ONLY',manualOnly:true};
+  // Preserve unknown/pending provenance but NEVER enter production deploy
+  // for any v9.282+ on workflow_run, even if auto opt-in is enabled.
+  const checkedSource=readSource();
+  if(isManualOnlyGasRelease(checkedSource)){
+    const version=checkedSource.slice(0,2048).match(/\/\/[^\r\n]*Google Apps Script\s+v(\d+\.\d+)\b/)?.[1];
+    return {changed:true,reason:version==='9.282'
+      ?'GAS_9282_MANUAL_RELEASE_ONLY':'GAS_STATEFUL_MANUAL_RELEASE_ONLY',manualOnly:true};
+  }
   // Repo-wide last 100 runs are overwhelmed by unrelated workflows. Query
   // this exact GAS workflow with bounded pagination so a proven real deploy
   // is not lost behind hundreds of no-op or unrelated completed runs.

@@ -30,6 +30,17 @@ assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',e
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_run',dryRun:true}));
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.282',eventName:'workflow_run',diagnosticOnly:true}));
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.281',eventName:'workflow_run'}));
+for(const inputs of [
+ {version:'9.283',eventName:'workflow_run',approved9283:false},
+ {version:'9.283',eventName:'workflow_run',approved9283:true},
+ {version:'9.283',eventName:'workflow_dispatch',approved9283:false},
+ {version:'9.283',eventName:'workflow_dispatch',approved:true,approved9283:false},
+ {version:'9.283',eventName:undefined,approved9283:true}
+])assert.throws(()=>assertIssue507ManualReleasePermission(inputs),/GAS_9283_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.283',eventName:'workflow_dispatch',approved9283:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.283',eventName:'workflow_run',dryRun:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.283',eventName:'workflow_run',diagnosticOnly:true}));
+
 let unsafeRollbackReads=0,unsafeRollbackWrites=0;
 await assert.rejects(()=>rollbackGasCode({
  beforeFiles:[{name:'Code',type:'SERVER_JS',source:'// Google Apps Script v9.281'}],
@@ -851,6 +862,8 @@ assert.doesNotMatch(workflow, /GOOGLE_OAUTH_CLIENT_ID|GOOGLE_OAUTH_CLIENT_SECRET
 assert.match(workflow, /GAS_SCRIPT_ID/);
 assert.match(workflow, /GAS_WEB_APP_URL/);
 assert.match(workflow, /GAS_AUTO_DEPLOY_ENABLED/, 'automatic release must require administrator opt-in');
+assert.match(workflow,/approve_9283:\s*[\s\S]*?default: false/,'GAS 9.283 manual approval must default to false');
+assert.match(workflow,/GAS_9283_RELEASE_APPROVAL:/,'GAS 9.283 dispatch approval must be explicit');
 assert.doesNotMatch(workflow, /github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED/, 'auto production deployment on push is forbidden');
 assert.match(workflow, /deploy:\s*[\s\S]*concurrency:/);
 assert.match(workflow, /gas-deploy-dry-run/);
