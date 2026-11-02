@@ -17,7 +17,8 @@ assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('ES=F'),instant),null);
 assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F',ts,0),instant),null);
 assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F',ts,NaN),instant),null);
 assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F'),new Date('2026-11-02T16:50:00+09:00')),null);
-assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F'),new Date('2026-11-02T17:30:00+09:00')),null);
+assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F'),new Date('2026-11-02T17:30:00+09:00')),null, 'old candle is stale at 17:30');
+assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F'),new Date('2026-11-02T18:00:00+09:00')),null, '18:00 cutoff');
 assert.equal(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F'),new Date('2026-11-03T17:00:00+09:00')),null);
 assert.equal(validateCurrentFuturesQuote(date,'NQ',
  {chart:{error:null,result:[{...chart('NQ=F').chart.result[0],
@@ -66,6 +67,9 @@ assert.match(formatted,/확보 4\/4/);
 assert.doesNotMatch(formatted,/현물지수: 25,001|확정 종가|등락률/);
 const stale=formatCurrentFutures(date,data,new Date('2026-11-02T17:29:00+09:00'));
 assert.match(stale,/유효한 최근 거래값 미확보/);
+const beforeCutoff=new Date('2026-11-02T17:59:00+09:00');
+const nearCutoff=Math.floor(new Date('2026-11-02T17:52:00+09:00').getTime()/1000);
+assert.ok(validateCurrentFuturesQuote(date,'NQ',chart('NQ=F',nearCutoff),beforeCutoff),'fresh quote at 17:59 allowed');
 assert.match(stale,/확보 0\/4/);
 const dup=formatCurrentFutures(date,[data[0],data[0]],instant);
 assert.match(dup,/확보 0\/4/);
