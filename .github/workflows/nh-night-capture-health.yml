@@ -1,0 +1,29 @@
+name: NH night capture health audit
+on:
+  # Independent, read-only schedule. A missing NH capture run fails visibly,
+  # but GitHub's shared scheduler can still miss both workflows.
+  schedule:
+    - cron: '13 23 * * 0-4' # 08:13 KST, after all four capture windows
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nh-night-capture-health
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Audit dated capture run and artifact without NH access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/nh-night-capture-audit.mjs
