@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {fetchNhNightProbeFromGas} from './nh-gas-proxy.mjs';
+import {fetchNhNightProbeFromGas,callNhGasProxy} from './nh-gas-proxy.mjs';
 
 // One-time production read-only diagnostic. No Telegram, financial sheet writes,
 // NH OAuth bootstrap or after-the-fact creation of a 06:00 price record.
@@ -14,7 +14,8 @@ export function kstProbeTime(instant){
     minute:Number(parts.hour)*60+Number(parts.minute)};
 }
 export async function verifyTodayNhNight({
-  now=()=>new Date(),probe=fetchNhNightProbeFromGas
+  now=()=>new Date(),probe=fetchNhNightProbeFromGas,
+  diagnose=async date=>callNhGasProxy('getNhNightProbe',{date})
 }={}){
   const t=kstProbeTime(now());
   if(t.date!==TARGET_DAY||t.minute<480||t.minute>=780)
@@ -24,8 +25,30 @@ export async function verifyTodayNhNight({
   try{v=await probe(TARGET_DAY,{now,onError:code=>{
     if(/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code))errors.push(code);
   }});}catch{errors.push('NH_PROBE_CALL_FAILED');}
-  if(!v)return {status:'NH_0600_REFERENCE_UNVERIFIED',date:TARGET_DAY,
-    verified:false,reason:errors[0]||'NH_REFERENCE_NOT_RETURNED'};
+  if(!v){
+    // Classify once through the same cached, read-only GAS action. Return
+    // only fixed reason enums, never raw response bodies or token contents.
+    let detail='NH_PROBE_DETAIL_UNAVAILABLE';
+    try{
+      const body=await diagnose(TARGET_DAY);
+      const r=body?.reference;
+      if(body?.diagnosticOnly!==true||body?.tokenIssued!==false
+        ||body?.bearerExposed!==false)detail='NH_PROBE_OUTER_CONTRACT_INVALID';
+      else if(r==null)detail='NH_PROBE_REFERENCE_EMPTY';
+      else if(typeof r!=='object'||Array.isArray(r))detail='NH_PROBE_REFERENCE_SCHEMA_INVALID';
+      else if(r.source!=='NH'||r.kind!=='REFERENCE'
+        ||r.tradingDate!==TARGET_DAY||r.sourceUpdatedAt!==TARGET_DAY+'T06:00:00+09:00')
+        detail='NH_PROBE_REFERENCE_PROVENANCE_MISMATCH';
+      else if(!Number.isFinite(Date.parse(r.receivedAt||''))
+        ||Date.parse(r.receivedAt)>now().getTime())
+        detail='NH_PROBE_RECEIPT_TIME_INVALID';
+      else if(!(Number(r.value)>0)||!/^K[A-Z0-9]{8}$/.test(r.contract||''))
+        detail='NH_PROBE_VALUE_OR_CONTRACT_INVALID';
+      else detail='NH_PROBE_REFERENCE_NOT_ACCEPTED_BY_VALIDATOR';
+    }catch{detail='NH_PROBE_DETAIL_UNAVAILABLE';}
+    return {status:'NH_0600_REFERENCE_UNVERIFIED',date:TARGET_DAY,
+      verified:false,reason:errors[0]||'NH_REFERENCE_NOT_RETURNED',detail};
+  }
   const expected=TARGET_DAY+'T06:00:00+09:00';
   if(v.source!=='NH'||v.tradingDate!==TARGET_DAY||v.officialClose!==false
     ||v.sourceUpdatedAt!==expected||!/^K[A-Z0-9]{8}$/.test(v.contract||'')
