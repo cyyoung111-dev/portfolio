@@ -13,6 +13,9 @@ const samples={
 const ids=['UST2Y','UST3Y','UST10Y_FRED'];
 const valid=ids.map(id=>parseTreasuryFredCsv(id,us,samples[id]));
 assert.ok(valid.every(Boolean));
+assert.equal(parseTreasuryFredCsv('UST2Y',us,samples.UST2Y+'2026-10-30,4.90,extra'),null);
+assert.equal(parseTreasuryFredCsv('UST2Y',us,'observation_date,DGS2\n2026-10-30'),null);
+assert.equal(summarizeCloseCoverage(date,{rates:valid,expectedUsDate:us}).statuses.find(x=>x.id==='UST10Y').status,'VERIFIED');
 assert.equal(valid[0].value,4.2);
 assert.equal(valid[1].source,'FRED_H15_DAILY');
 assert.equal(parseTreasuryFredCsv('UST2Y',us,'observation_date,DGS2\n2026-10-29,4.21'),null);

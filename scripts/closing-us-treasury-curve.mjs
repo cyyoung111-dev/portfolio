@@ -19,8 +19,9 @@ export function parseTreasuryFredCsv(id,expected,source){
  let found=null,matching=0;
  for(const line of lines){
   const cells=line.split(',');
-  if(cells.length!==2||cells[0].trim()!==expected)continue;
+  if(cells[0].trim()!==expected)continue;
   matching++;
+  if(cells.length!==2)return null;
   const raw=cells[1].trim();
   if(!/^\d+(?:\.\d{1,3})?$/.test(raw))return null;
   const value=Number(raw);

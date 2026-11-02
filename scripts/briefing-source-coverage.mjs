@@ -83,7 +83,10 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
       &&x.symbol===entry.symbol&&x.source==='YAHOO_DAILY_REFERENCE'
       &&(entry.id!=='UST10Y'||x.value<20)
       &&x.date===expectedUsDate&&validRow(x));
-    statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('MACROS'))});
+    const fred10=entry.id==='UST10Y'&&rates.filter(x=>x?.id==='UST10Y_FRED'
+      &&x.label==='미 국채 10년'&&x.source==='FRED_H15_DAILY'
+      &&x.date===expectedUsDate&&validRow(x)&&x.value<30).length===1;
+    statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1||fred10,failed.has('MACROS'))});
   }
   for(const entry of CLOSE_SOURCE_CATALOG.extraMarkets){
     const expected=entry.id==='BTC'
