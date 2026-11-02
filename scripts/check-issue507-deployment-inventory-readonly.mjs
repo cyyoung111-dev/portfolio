@@ -218,7 +218,9 @@ roleList[1].deploymentConfig.versionNumber=337;
 const newSource={scriptId,files:[
  {name:'Code',type:'SERVER_JS',source:'u'.repeat(1200)},
  {name:'appsscript',type:'JSON',source:'{}'}]};
-const role=setup({'':{deployments:roleList}},secureDetails,
+const roleDetails={...secureDetails,
+ [legacyA]:{...secureDetails[legacyA],deploymentConfig:{versionNumber:337}}};
+const role=setup({'':{deployments:roleList}},roleDetails,
  {'336':approvedFiles,'337':newSource});
 const byRole=await role.run({verifyDetails:true,verifySource:true});
 assert.equal(byRole.status,'BLOCKED');
