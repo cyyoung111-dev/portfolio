@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {scheduledWindow,lateTestWindow,runTelegramMorning,sendTelegram} from './telegram-morning-briefing.mjs';
+import {scheduledWindow,lateTestWindow,runTelegramMorning,sendTelegram,fetchNightReference} from './telegram-morning-briefing.mjs';
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 
-export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight}={}) {
+export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,recoverReference=fetchNightReference,
+  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
   if(!['rescue','late_test'].includes(mode))throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
   const lateTest=mode==='late_test';
@@ -24,7 +25,31 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     return {ready:false,status:'ALREADY_CLAIMED',date:window.date};
   }
   let message;
-  const reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
+  let reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
+  let referenceOrigin=reference?'CAPTURE_ARTIFACT':'NONE';
+  // Only when the pre-captured artifact is absent: one bounded, read-only
+  // request through the existing GAS NH 06:00 proxy (no GitHub NH OAuth).
+  // Never create an after-the-fact 06:00 observation or extend the 08:00 cutoff.
+  const recoveryCutoff=Date.parse(window.date+'T08:00:00+09:00');
+  const recoveryStart=Date.parse(window.date+'T07:40:00+09:00');
+  const recoveryAt=now().getTime();
+  if(!reference&&!lateTest&&gasUrl&&gasToken
+    &&recoveryAt>=recoveryStart&&recoveryAt<recoveryCutoff){
+    try{
+      const recovered=await recoverReference(window.date,{
+        now,url:gasUrl,token:gasToken,request:fetchImpl
+      });
+      if(recovered?.source==='NH'&&recovered.tradingDate===window.date
+        &&recovered.sourceUpdatedAt===window.date+'T06:00:00+09:00'
+        &&Number.isFinite(Date.parse(recovered.receivedAt))
+        &&Date.parse(recovered.receivedAt)>=Date.parse(window.date+'T07:30:00+09:00')
+        &&Date.parse(recovered.receivedAt)<recoveryCutoff
+        &&now().getTime()<recoveryCutoff){
+        reference=recovered;
+        referenceOrigin='GAS_RECOVERY';
+      }
+    }catch{/* Preserve missing reference: never invent or reuse a stale tick. */}
+  }
   const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
   if(!message)return {ready:false,status:result.status,date:window.date};
   const source=['NH'].includes(result.referenceSource)?result.referenceSource:'NONE';
@@ -37,7 +62,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     message=`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\n${message}`;
   }
   if(message.length>4000)throw Error('TELEGRAM_PREPARED_INVALID');
-  return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source,...(lateTest?{mode:'late_test'}:{})};
+  return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source,
+    referenceOrigin:source==='NH'?referenceOrigin:'NONE',...(lateTest?{mode:'late_test'}:{})};
 }
 export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,attempt=1,mode='',send=sendTelegram}={}) {
   const lateTest=payload?.mode==='late_test';
@@ -70,7 +96,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     fs.writeFileSync('.telegram-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));
    }
    fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
-   console.log(JSON.stringify({status:result.status,date:result.date,referenceSource:result.referenceSource||'NONE'}));
+   console.log(JSON.stringify({status:result.status,date:result.date,referenceSource:result.referenceSource||'NONE',referenceOrigin:result.referenceOrigin||'NONE'}));
   }else if(process.argv[2]==='send'){
    const payload=JSON.parse(fs.readFileSync('.telegram-runtime/payload.json','utf8'));
    const sent=await deliverAndRecordWeekday(payload,{
