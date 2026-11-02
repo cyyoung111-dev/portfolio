@@ -61,6 +61,21 @@ const macros=[
  {id:'UST10Y',label:'미 10년물',symbol:'^TNX',date:usDate,value:4.929,
  changePercent:-1.2,source:'YAHOO_DAILY_REFERENCE'}
 ];
+const domesticAnalysis=formatAiIndustryCloseLens({date,usDate,nh,domestic,secondary,stocks}).join('\n');
+assert.match(domesticAnalysis,/KOSPI \+2\.24% \/ KOSDAQ \+1\.38% → 양 시장 상승/);
+for(const name of ['버핏','다모다란','애크먼','피터 린치'])
+ assert.ok(domesticAnalysis.includes(name),'investor lens: '+name);
+assert.match(domesticAnalysis,/ROIC.*현금흐름/);
+assert.match(domesticAnalysis,/시장가격이 요구하는 성장 가정/);
+assert.match(domesticAnalysis,/계좌별 중복 노출/);
+assert.match(domesticAnalysis,/메모리 업황 최고점/);
+assert.match(domesticAnalysis,/■ 조건부 시나리오/);
+assert.doesNotMatch(domesticAnalysis,/매수 확정|버핏이 오늘|다모다란이 오늘/);
+const yahooSoxAnalysis=formatAiIndustryCloseLens({date,usDate,nh,domestic,
+ secondary:[{...secondary[0],source:'YAHOO_SOX_DAILY_REFERENCE'}],stocks}).join('\n');
+assert.match(yahooSoxAnalysis,/SOX -7\.20% \/ NASDAQ100 대비 -3\.74%p/,
+ 'exact-date Yahoo backup should inform the same AI semiconductor spread');
+
 const msg=formatClose(date,nh,secondary,domestic,stocks,macros,[]);
 assert.ok(msg.startsWith('['+date+' 장후 시장 브리핑]'));
 assert.ok(msg.indexOf('■ 먼저 보는 시장 해석')<msg.indexOf('■ 국내 시장'));
