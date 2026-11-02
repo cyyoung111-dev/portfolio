@@ -430,4 +430,23 @@ try{
 assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
 
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
+// The one-day fallback is deliberately merged around 16:20 KST only.
+// It must NOT be available to run for arbitrary later dates or bypass claims.
+const closeOneoff=YAML.parse(fs.readFileSync(
+ '.github/workflows/telegram-close-arm-20261103.yml','utf8'));
+assert.equal(closeOneoff.concurrency.group,'telegram-close-briefing');
+assert.equal(closeOneoff.jobs['close-once'].environment,'portfolio-production-gas');
+assert.deepEqual(closeOneoff.on.push.branches,['main']);
+assert.deepEqual(closeOneoff.on.push.paths,['.github/workflows/telegram-close-arm-20261103.yml']);
+assert.equal(closeOneoff.jobs['close-once'].timeoutMinutes,undefined);
+const closeOneoffSource=fs.readFileSync(
+ '.github/workflows/telegram-close-arm-20261103.yml','utf8');
+assert.match(closeOneoffSource,/datetime[.]datetime\\(2026,11,3,17,0/);
+assert.match(closeOneoffSource,/datetime[.]datetime\\(2026,11,3,17,30/);
+assert.ok(!closeOneoffSource.includes('datetime.datetime(2026,11,2,'));
+assert.match(closeOneoffSource,/node scripts\\/telegram-close-workflow[.]mjs prepare/);
+assert.match(closeOneoffSource,/node scripts\\/telegram-close-workflow[.]mjs send/);
+assert.match(closeOneoffSource,/telegram-close-runtime\\/claim[.]json/);
+assert.match(closeOneoffSource,/telegram-close-runtime\\/sent[.]json/);
+
 console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');
