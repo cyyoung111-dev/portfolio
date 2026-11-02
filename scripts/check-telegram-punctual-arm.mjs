@@ -19,7 +19,7 @@ assert.equal(armedKstClock(kst('07:40:00')).minutes,460);
 assert.equal(armedKstClock(kst('17:00:00')).minutes,1020);
 for(const [kind,before,arm,target,last,cutoff] of [
  ['morning','07:19:59','07:20:00','07:40:00','08:09:59','08:10:00'],
- ['close','16:34:59','16:35:00','17:00:00','17:29:59','17:30:00']
+ ['close','16:34:59','16:35:00','17:00:00','17:59:59','18:00:00']
 ]){
  const valid=t=>authorizeArmedDelivery(kind,env,event(kind),kst(t));
  assert.equal(valid(before).allowed,false,kind+' too early');
@@ -58,7 +58,9 @@ assert.equal(scheduledWindow(kst('07:40:00')).allowed,true);
 assert.equal(scheduledWindow(kst('08:10:00')).allowed,false);
 assert.equal(closeWindow(kst('16:59:59')).allowed,false);
 assert.equal(closeWindow(kst('17:00:00')).allowed,true);
-assert.equal(closeWindow(kst('17:30:00')).allowed,false);
+assert.equal(closeWindow(kst('17:30:00')).allowed,true);
+assert.equal(closeWindow(kst('17:59:59')).allowed,true);
+assert.equal(closeWindow(kst('18:00:00')).allowed,false);
 
 const checks=[
  {file:'telegram-morning-punctual-arm.yml',kind:'morning',cron:'20 22 * * 0-4',
