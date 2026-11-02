@@ -90,6 +90,12 @@ const coverage=summarizeCloseCoverage(date,{stocks,macros,expectedUsDate:us});
 assert.deepEqual(coverage.stocks,{verified:4,total:4});
 assert.deepEqual(coverage.macros,{verified:3,total:3});
 assert.equal(coverage.core.verified,0,'optional stock/FX cannot authorize a market briefing');
+const falselyLabeled=summarizeCloseCoverage(date,{expectedUsDate:us,
+ stocks:[{...stocks[0],label:'UNVERIFIED_STOCK'}],
+ macros:[{...macros[2],value:49.29}]});
+assert.equal(falselyLabeled.stocks.verified,0);
+assert.equal(falselyLabeled.macros.verified,0,
+ 'out-of-range yield must not be marked verified by coverage even if a row is injected');
 for(const id of [...['SAMSUNG','SKHYNIX','NVDA','MU','USDKRW','DXY','UST10Y']])
  assert.equal(coverage.statuses.find(x=>x.id===id).status,'VERIFIED');
 const previous=summarizeCloseCoverage(date,{expectedUsDate:us});
