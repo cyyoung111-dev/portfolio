@@ -41,7 +41,7 @@ export async function loadMorningMaster(date,{url,token,fetchImpl=fetch,now=new 
     return verifiedMorningMaster(date,result.observations);
   }catch{return [];}
 }
-export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[],domesticIndexRows=[]) {
+export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[],domesticIndexRows=[],nhStockRows=[]) {
   const output=new Map(yahooRows.filter(r=>!NH_ONLY_INDEX_SET.has(r?.symbol)).map(r=>[r.symbol,r]));
   for(const r of masterRows){
     if(NH_ONLY_INDEX_SET.has(r?.symbol))continue;
@@ -57,6 +57,16 @@ export function mergeMorningSourceRows(yahooRows=[],masterRows=[],nhRows=[],dome
   }
   for(const row of nhRows){
     if(row?.source!=='NH_INDEX_DAILY'||!/\d{4}-\d{2}-\d{2}/.test(row.date)||!Number.isFinite(row.value)||row.value<=0)continue;
+    const prior=output.get(row.symbol);
+    if(!prior||row.date>=prior.date)output.set(row.symbol,row);
+  }
+  // Exact-date, saved NH regular closes outrank same-date Yahoo observations.
+  // The reader already validated NH provenance and correct market session.
+  const targetStocks=new Set(['005930.KS','000660.KS','NVDA','MU']);
+  for(const row of nhStockRows){
+    if(!targetStocks.has(row?.symbol)||row?.source!=='NH_REGULAR_CLOSE'
+      ||!/^\\d{4}-\\d{2}-\\d{2}$/.test(row?.date||'')
+      ||!Number.isFinite(row?.value)||row.value<=0)continue;
     const prior=output.get(row.symbol);
     if(!prior||row.date>=prior.date)output.set(row.symbol,row);
   }
