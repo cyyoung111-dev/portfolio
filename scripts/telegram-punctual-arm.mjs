@@ -8,7 +8,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 export const ARMED_DELIVERY=Object.freeze({
  morning:Object.freeze({cron:'20 22 * * 0-4',arm:7*60+20,target:7*60+40,cutoff:8*60+10}),
- close:Object.freeze({cron:'35 7 * * 1-5',arm:16*60+35,target:17*60,cutoff:17*60+30})
+ close:Object.freeze({cron:'35 7 * * 1-5',arm:16*60+35,target:17*60,cutoff:18*60})
 });
 const REPO='cyyoung111-dev/portfolio';
 export function armedKstClock(at){
@@ -40,7 +40,7 @@ export async function waitUntilPunctualWindow(kind,{now=()=>new Date(),
  // scheduled job that starts inside the normal send window may attempt once.
  const {date}=first.clock,targetAt=Date.parse(date+'T'+
   (kind==='morning'?'07:40:00':'17:00:00')+'+09:00'),
-  cutoffAt=Date.parse(date+'T'+(kind==='morning'?'08:10:00':'17:30:00')+'+09:00');
+  cutoffAt=Date.parse(date+'T'+(kind==='morning'?'08:10:00':'18:00:00')+'+09:00');
  let rounds=0;
  while(true){
   const instant=now(),ms=instant.getTime();
