@@ -12,7 +12,7 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
  const spx=nh.find(x=>x?.symbol==='^GSPC'&&valid(x,usDate,'NH_INDEX_DAILY'));
  const ndx=nh.find(x=>x?.symbol==='^NDX'&&valid(x,usDate,'NH_INDEX_DAILY'));
  const soxMatches=secondary.filter(x=>x?.label==='SOX'&&x.role==='NON_NH_REFERENCE_ONLY'
-   &&valid(x,usDate,'FRED_NASDAQSOX'));
+   &&(valid(x,usDate,'FRED_NASDAQSOX')||valid(x,usDate,'YAHOO_SOX_DAILY_REFERENCE')));
  const sox=soxMatches.length===1?soxMatches[0]:null;
  const contracts=[
   ['SAMSUNG',date,'삼성전자','005930.KS'],
