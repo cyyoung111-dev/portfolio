@@ -59,9 +59,11 @@ export async function inspectGasDeploymentsReadOnly({
     fail('SCHEMA_ID_UNVERIFIED');
    if(found.has(id))fail('SCHEMA_DUPLICATE_ID_UNVERIFIED');
    const head=id===HEAD_ID;
-   // A versioned deployment must have a positive immutable version.
-   if(!head&&(!Number.isSafeInteger(config?.versionNumber)||config.versionNumber<1))
-    fail('SCHEMA_VERSION_UNVERIFIED');
+   // Google may omit a non-HEAD versionNumber in list metadata (e.g.
+   // an archived/legacy deployment). Count it, but NEVER treat it as a
+   // verified immutable version or as permission for a writer cutover.
+   const versionVerified=head||(
+    Number.isSafeInteger(config?.versionNumber)&&config.versionNumber>=1);
    if(head&&config?.versionNumber!==undefined&&
       (!Number.isSafeInteger(config.versionNumber)||config.versionNumber<0))
     fail('SCHEMA_HEAD_VERSION_UNVERIFIED');
@@ -71,7 +73,8 @@ export async function inspectGasDeploymentsReadOnly({
     fail('SCHEMA_ENTRY_POINTS_UNVERIFIED');
    found.add(id);
    const types=points.map(classify);
-   entries.push({expected:id===expectedDeploymentId,head,types});
+   entries.push({expected:id===expectedDeploymentId,head,types,
+    versionVerified});
   }
   pages++;
   if(payload.nextPageToken===undefined||payload.nextPageToken===''){
@@ -87,14 +90,18 @@ export async function inspectGasDeploymentsReadOnly({
  const expectedRows=entries.filter(e=>e.expected);
  const unknown=entries.some(e=>(!e.head&&e.types.length===0)||e.types.includes('OTHER'));
  const extraRoutable=entries.filter(e=>!e.expected&&e.types.length>0).length;
- const status=expectedRows.length!==1||unknown||extraRoutable>0?'BLOCKED':'INVENTORY_ONLY';
+ const unverifiedVersions=entries.filter(e=>!e.versionVerified).length;
+ const status=expectedRows.length!==1||unverifiedVersions>0||unknown||extraRoutable>0
+  ?'BLOCKED':'INVENTORY_ONLY';
  const reason=expectedRows.length!==1?'EXPECTED_DEPLOYMENT_NOT_PROVEN':
+  unverifiedVersions>0?'VERSION_METADATA_UNVERIFIED':
   unknown?'UNKNOWN_ENTRY_POINTS':
   extraRoutable>0?'ADDITIONAL_DEPLOYMENTS_REQUIRE_ISOLATION':
   'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED';
  // No deployment IDs, source, URL, principal or token may enter logs.
  return {mode:'GAS_DEPLOYMENT_INVENTORY_READ_ONLY',status,reason,
   deploymentCount:entries.length,headDeploymentCount:entries.filter(e=>e.head).length,
+  unverifiedVersionedDeploymentCount:unverifiedVersions,
   webAppEntryCount:counts.WEB_APP,
   executionApiEntryCount:counts.EXECUTION_API,
   addonEntryCount:counts.ADD_ON,unknownEntryCount:counts.OTHER,

@@ -46,6 +46,7 @@ result=await withAutoHead.run();
 assert.equal(result.status,'INVENTORY_ONLY');
 assert.equal(result.headDeploymentCount,1);
 assert.equal(result.deploymentCount,2);
+assert.equal(result.unverifiedVersionedDeploymentCount,0);
 assert.equal(result.additionalRoutableDeploymentCount,0);
 assert.equal(result.releaseAuthorized,false);
 assert.equal(result.allActorsAndVersionsTerminatedVerified,false);
@@ -65,6 +66,43 @@ const blankHeadConfig=setup({'':{deployments:[
  {deploymentId:'HEAD',deploymentConfig:{versionNumber:0},entryPoints:[]},
  item(expectedDeploymentId)]}});
 assert.equal((await blankHeadConfig.run()).status,'INVENTORY_ONLY');
+// Some legacy/archived deployments lack positive version metadata in LIST.
+// Finish listing and count every entry, but never permit a writer cutover.
+for(const badVersion of [undefined,0,-1,'336',null]){
+ const id='OLD_MISSING_VERSION_DEPLOYMENT_123';
+ const d=item(id,['EXECUTION_API']);
+ if(badVersion===undefined)delete d.deploymentConfig.versionNumber;
+ else d.deploymentConfig.versionNumber=badVersion;
+ const t=setup({'':{deployments:[item(expectedDeploymentId),d]}});
+ const out=await t.run();
+ assert.equal(out.status,'BLOCKED');
+ assert.equal(out.reason,'VERSION_METADATA_UNVERIFIED');
+ assert.equal(out.unverifiedVersionedDeploymentCount,1);
+ assert.equal(out.deploymentCount,2);
+ assert.equal(out.additionalRoutableDeploymentCount,1);
+ assert.equal(out.executionApiEntryCount,1);
+ assert.equal(out.releaseAuthorized,false);
+ assert.equal(out.allActorsAndVersionsTerminatedVerified,false);
+ assert.ok(!JSON.stringify(out).includes(id));
+}
+const missingVersionPage=setup({
+ '':{deployments:[item(expectedDeploymentId),{
+  ...item('ARCHIVED_NO_VERSION'),deploymentConfig:{}}],nextPageToken:'SECOND'},
+ SECOND:{deployments:[item('ADDITIONAL_VERSIONED_WEB_APP')]}
+});
+const missingVersionReport=await missingVersionPage.run();
+assert.equal(missingVersionReport.status,'BLOCKED');
+assert.equal(missingVersionReport.reason,'VERSION_METADATA_UNVERIFIED');
+assert.equal(missingVersionReport.pagesRead,2);
+assert.equal(missingVersionReport.deploymentCount,3);
+assert.equal(missingVersionReport.unverifiedVersionedDeploymentCount,1);
+assert.equal(missingVersionReport.additionalRoutableDeploymentCount,2);
+const missingExpectedVersion=item(expectedDeploymentId);
+delete missingExpectedVersion.deploymentConfig.versionNumber;
+const expectedMissing=await setup({'':{deployments:[missingExpectedVersion]}}).run();
+assert.equal(expectedMissing.status,'BLOCKED');
+assert.equal(expectedMissing.reason,'VERSION_METADATA_UNVERIFIED');
+assert.equal(expectedMissing.expectedDeploymentFound,true);
 assert.ok(!JSON.stringify(result).includes(expectedDeploymentId));
 assert.ok(!JSON.stringify(result).includes('PRIVATE_'));
 assert.ok(!JSON.stringify(result).includes(scriptId));
@@ -92,8 +130,6 @@ for(const payload of [
 for(const [payload,reason] of [
  [{deployments:[item(expectedDeploymentId),item(expectedDeploymentId)]},
   'SCHEMA_DUPLICATE_ID_UNVERIFIED'],
- [{deployments:[{...item(expectedDeploymentId),deploymentConfig:{versionNumber:'336'}}]},
-  'SCHEMA_VERSION_UNVERIFIED'],
  [{deployments:[{...item(expectedDeploymentId),entryPoints:null}]},
   'SCHEMA_ENTRY_POINTS_UNVERIFIED'],
  [{deployments:[{...item(expectedDeploymentId),deploymentId:'SHORT'}]},
@@ -108,7 +144,6 @@ for(const [payload,reason] of [
 }
 for(const payload of [
  {deployments:[item(expectedDeploymentId),item(expectedDeploymentId)]},
- {deployments:[{...item(expectedDeploymentId),deploymentConfig:{versionNumber:'336'}}]},
  {deployments:[{...item(expectedDeploymentId),entryPoints:null}]},
  {deployments:'PRIVATE_FAKE'},
  {deployments:[item(expectedDeploymentId)],nextPageToken:'LOOP'}
