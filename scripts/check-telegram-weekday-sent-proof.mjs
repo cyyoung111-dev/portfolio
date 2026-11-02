@@ -32,7 +32,7 @@ try{
   assert.equal(accepted.status,'SENT');
   assert.equal(calls,1);
   assert.deepEqual(JSON.parse(fs.readFileSync(path,'utf8')),{status:'SENT',
-    date:'2026-11-02',kind:f.kind,claim:f.payload.artifactName,
+    date:'2026-11-02',kind:f.kind,deliveryMode:'regular',claim:f.payload.artifactName,
     workflowRunId:'41200012345'});
   assert.throws(()=>persistWeekdaySentProof(accepted,f.payload,{
     kind:f.kind,path,runId:'41200012345'}),/EEXIST/);
@@ -75,6 +75,36 @@ try{
   assert.ok(steps[send].env.TELEGRAM_BOT_TOKEN);
   assert.equal(steps[send].env.GAS_ACCESS_TOKEN,undefined);
  }
+ // A real-format late test must never be reported as a regular delivery.
+ const lateDate='2026-11-02';
+ const latePayload={date:lateDate,artifactName:'telegram-morning-claim-'+lateDate,
+   mode:'late_test',
+   message:'[수동 지연 발송 테스트 · 2026-11-02 · 정규 장전 발송 아님]\\n[한국장 장전 종합 브리핑 | 2026-11-02]'};
+ const latePath=join(dir,'morning-late-test-sent.json');
+ let lateCalls=0;
+ const lateSent=await deliverAndRecordWeekday(latePayload,{
+   kind:'morning',deliver:(payload,options)=>deliverPrepared(payload,{...options,mode:'late_test'}),
+   now:()=>new Date('2026-11-02T10:20:00+09:00'),
+   path:latePath,runId:'41200012346',
+   send:async()=>{lateCalls++;return true;}
+ });
+ assert.equal(lateSent.status,'SENT');
+ assert.equal(lateCalls,1);
+ assert.deepEqual(JSON.parse(fs.readFileSync(latePath,'utf8')),{
+   status:'SENT',date:lateDate,kind:'morning',deliveryMode:'late_test',
+   claim:latePayload.artifactName,workflowRunId:'41200012346'
+ });
+ const invalidPath=join(dir,'invalid-test-proof.json');
+ for(const invalid of [
+   {...latePayload,message:'[한국장 장전 종합 브리핑 | 2026-11-02]'},
+   {...latePayload,mode:'connection_test'},
+   {...latePayload,mode:'rescue'},
+   {...latePayload,artifactName:'telegram-morning-claim-2026-11-01'}
+ ]){
+   assert.throws(()=>persistWeekdaySentProof(lateSent,invalid,{
+     kind:'morning',path:invalidPath,runId:'41200012346'}),/PROOF_INVALID/);
+   assert.equal(fs.existsSync(invalidPath),false);
+ }
  const source=fs.readFileSync('scripts/telegram-weekday-sent-proof.mjs','utf8');
  assert.match(source,/const sent=await deliver\(payload,/);
  assert.match(source,/persistWeekdaySentProof\(sent,payload,/);
@@ -86,4 +116,4 @@ try{
 } finally {
  fs.rmSync(dir,{recursive:true,force:true});
 }
-console.log('WEEKDAY_TELEGRAM_SENT_PROOF_PASS morning=1 close=1 no-duplicate no-proof-on-failure');
+console.log('WEEKDAY_TELEGRAM_SENT_PROOF_PASS morning=1 close=1 late_test=1 no-duplicate no-proof-on-failure');
