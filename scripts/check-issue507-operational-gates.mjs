@@ -99,10 +99,10 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,62,
-  'migration inventory: all 62 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,63,
-  'migration inventory: all 63 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,63,
+  'migration inventory: all 63 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,64,
+  'migration inventory: all 64 secret-consuming jobs must be protected');
 assert.ok(protectedWorkflowNames.includes('issue507-deployment-inventory-readonly.yml'),
   'manual GAS deployment inventory must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('gas-published-gate-readonly-audit.yml'),
@@ -111,6 +111,8 @@ assert.ok(protectedWorkflowNames.includes('telegram-morning-audit-20261102.yml')
   'one-off read-only morning 07:40 audit must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-close-arm-20261102.yml'),
   'one-off 17:00 punctual guard must retain protected GAS environment');
+assert.ok(protectedWorkflowNames.includes('nh-us-history-footprint-20261103.yml'),
+  'one-off US NH history footprint must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('nh-close-20261102-diagnostic-readonly.yml'),
   'one-off NH stored close diagnostic must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-morning-arm-20261103.yml'),
