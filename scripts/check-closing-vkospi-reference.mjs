@@ -7,7 +7,7 @@ import {CLOSE_SOURCE_CATALOG,summarizeCloseCoverage} from './briefing-source-cov
 const date='2026-11-02',us='2026-10-30';
 const now=()=>new Date(date+'T17:05:00+09:00');
 const payload={status:'ok',symbol:'KRX_OPEN_API:VKOSPI',
- points:[{date,value:25.42,source:'KRX_OFFICIAL'}]};
+ points:[{date,value:25.42}]};
 const row=selectClosingVkospi(date,payload);
 assert.equal(row.length,1);
 assert.equal(row[0].value,25.42);
@@ -15,6 +15,8 @@ assert.deepEqual(verifyClosingVkospi(date,row),row);
 assert.deepEqual(selectClosingVkospi(date,{...payload,points:payload.points.concat(payload.points)}),[]);
 assert.deepEqual(selectClosingVkospi(date,{...payload,points:[{...payload.points[0],date:'2026-10-30'}]}),[]);
 assert.deepEqual(selectClosingVkospi(date,{...payload,points:[{...payload.points[0],source:'NH_INDEX_DAILY'}]}),[]);
+assert.deepEqual(selectClosingVkospi(date,{...payload,points:[{...payload.points[0],source:'KRX_OFFICIAL'}]}),row,
+ 'source may be explicitly KRX but production GAS omits it');
 assert.deepEqual(selectClosingVkospi(date,{...payload,points:[{...payload.points[0],value:0}]}),[]);
 assert.deepEqual(selectClosingVkospi(date,{...payload,symbol:'VKOSPI'}),[]);
 assert.deepEqual(verifyClosingVkospi(date,[{...row[0],date:'2026-10-30'}]),[]);
