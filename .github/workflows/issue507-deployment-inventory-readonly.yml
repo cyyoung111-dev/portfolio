@@ -1,0 +1,36 @@
+name: issue507 GAS deployment inventory — read only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The entire authenticated metadata GET is serialized with GAS writes.
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install offline schema validator
+        run: npm ci --ignore-scripts
+      - name: Read-only inventory contract
+        run: node scripts/check-issue507-deployment-inventory-readonly.mjs
+      - name: List Apps Script deployment metadata (GET only, redacted)
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
