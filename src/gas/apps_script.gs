@@ -19699,7 +19699,7 @@ function _nhProxyNightReference_(today,now,diagnosticOnly) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyNightReference_', _nhProxyNightReference_, this, arguments);
   var kst=_nhProxyKst_(now);
   if(kst.date!==today
-    ||(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<450||kst.minutes>=480)))
+    ||(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<405||kst.minutes>=480)))
     throw new Error('NH_PROXY_WINDOW');
   var props=PropertiesService.getScriptProperties();
   var creds=_nhCredentials_();
@@ -19758,7 +19758,7 @@ function handleGetNhNightProxy(params) {
   if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
   var now=new Date(),kst=_nhProxyKst_(now);
   if(params.date!==kst.date||!/^\d{4}-\d{2}-\d{2}$/.test(params.date||'')
-    ||kst.minutes<450||kst.minutes>=480)return jsonError('NH_PROXY_WINDOW');
+    ||kst.minutes<405||kst.minutes>=480)return jsonError('NH_PROXY_WINDOW');
   try{
     return jsonOk({provider:'NH',reference:_nhProxyNightReference_(params.date,now),readOnly:true,
       bearerExposed:false});
