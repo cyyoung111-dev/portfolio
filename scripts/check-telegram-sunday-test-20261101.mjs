@@ -164,7 +164,7 @@ for (const [period,clock,expectedCount] of [
     '^DJI':chart('^DJI',['2026-10-29T20:00:00Z','2026-10-30T20:00:00Z'],[51000,51200]),
     'NVDA':chart('NVDA',['2026-10-29T20:00:00Z','2026-10-30T20:00:00Z'],[195,201]),
     'MU':chart('MU',['2026-10-28T20:00:00Z','2026-10-29T20:00:00Z'],[112,113]),
-    '^TNX':chart('^TNX',['2026-10-29T20:00:00Z','2026-10-30T20:00:00Z'],[40.8,41.2]),
+    '^TNX':chart('^TNX',['2026-10-29T20:00:00Z','2026-10-30T20:00:00Z'],[4.08,4.12]),
     'BTC-USD':chart('BTC-USD',['2026-10-30T18:00:00Z','2026-10-31T18:00:00Z'],[69000,70000],'Etc/UTC')
   };
   const syntheticFetch=async (endpoint,init={})=>{
@@ -224,7 +224,7 @@ const rows=[{label:'KOSPI',symbol:'^KS11',date:'2026-10-30',value:4100,
  changePercent:0.5,source:'NH_INDEX_DAILY'},
  {label:'NASDAQ',symbol:'^IXIC',date:'2026-10-29',value:24000,
  changePercent:1,source:'NH_INDEX_DAILY'},
- {label:'미 10년물',symbol:'^TNX',date:'2026-10-30',value:41.2,
+ {label:'미 10년물',symbol:'^TNX',date:'2026-10-30',value:4.12,
  changePercent:0.1,source:'Yahoo Finance 일봉'}];
 const message=formatClosingTest(rows);
 assert.match(message,/일요일 휴장/);
