@@ -85,6 +85,21 @@
 - 결과가 어떻든 운영 writer gate 최초 cutover 승인이나 기존 배포 격리 증거로 삼지 않는다. 실제 운영 배포의 보관/삭제는 사용자에게 영향을 줄 수 있으므로 별도 증빙·승인 전에는 금지.
 - Codex P2 리뷰에서 LIST v336과 DETAIL v337처럼 **조회 사이에 버전이 바뀌는 경우** 이전 LIST 승인 소스를 현재 배포에 잘못 귀속할 위험을 발견했다. 소스 대조를 실행하더라도 배포별 DETAIL 조회 완료 여부, 양의 정수 버전, LIST/DETAIL 버전 일치, 엔트리포인트 일치가 모두 확인되지 않으면 `DETAIL_METADATA_UNVERIFIED`로 귀속을 차단한다. 같은 버전의 다른 배포가 승인됐다는 이유로 예외를 만들지 않는다.
 
+## 미검토 불변 소스의 쓰기 표면 정적 힌트 검사 (2026-11-03)
+
+[수동 감사 #41524387649](https://github.com/cyyoung111-dev/portfolio/actions/runs/41524387649), 최신 main `f106ccd73d38cb05f84a057108f158ce2cd73f63`:
+- 예상 운영 WEB_APP은 승인된 기존 v9.281 원문과 **정확히 일치**.
+- 추가 WEB_APP 3개 중 **미검토 불변 소스 2개**, 버전정보 미확인(소스 조회 대상 제외) 1개. 이 3개 모두 `ANYONE_ANONYMOUS` 및 `USER_DEPLOYING`.
+- `BLOCKED`는 정상 안전 차단. 기존 URL을 자동 종료하거나 비인가 위험을 확정하지 않는다.
+
+이번 변경은 버전이 확인된 **미검토 소스 2종**에 대해서만 승인된 `getContent?versionNumber` 응답 본문을 메모리에서 검사하여, 제한된 **텍스트 출현 신호**의 존재 건수를 익명으로 집계한다.
+
+- 웹 진입점 `doGet`, `doPost` 선언 형식, Spreadsheet 관련 `.setValue(s)`·`.appendRow`·`.clearContent` 등, Script Properties 변경, 트리거 생성/삭제, `UrlFetchApp.fetch` 문구의 유무를 각 **고유 불변 소스 버전 단위**로 집계한다.
+- 소스 원문/배포 ID/URL/버전번호/SHA/사용자·OAuth/금융 데이터는 출력하지 않는다. 실제 원문을 다운로드하여 새 파일로 저장하지 않고 기존 REST GET 응답의 메모리 내용만 검사한다.
+- **매우 중요한 한계:** 이 검사는 AST·실행 가능성·인증 경계·호출 그래프를 검증하지 않는 단순 정적 문자열 검사다. 주석/문자열에 있는 코드를 실제 쓰기 경로로 오인할 수 있고, 동적 호출·간접 호출 등을 누락할 수 있다. *양성/음성 모두 안전·취약성·실사용 여부의 증거가 아니며 자동 배포 승인을 허용하지 않는다.*
+- 버전번호 미확인 배포 1개는 HEAD를 대신 검사하지 않고 계속 미확인으로 처리한다. 다른 GAS 프로젝트·트리거·외부 Sheets API writer 경합도 이 검사로 알 수 없다.
+- 모든 결과에서 `releaseAuthorized=false`, 최초 writer-gate 설치 차단, 수동 운영 아카이브 금지, 금융 원본·트리거·NH·Telegram 무변경을 유지한다.
+
 ## 이 조사로는 증명되지 않는 것
 1. 다른 GAS 프로젝트·다른 계정의 배포, 편집기, 수동 시트 편집 및 Sheets API 외부 writer가 차단됐는지.
 2. 모든 기존 실행자/버전이 종료됐는지. 공식 `processes.listScriptProcesses`는 별도의 script.processes OAuth 범위가 필요하며, 예전 audit 403이나 빈 결과는 종료 증거가 아니다: https://developers.google.com/apps-script/api/reference/rest/v1/processes/listScriptProcesses
