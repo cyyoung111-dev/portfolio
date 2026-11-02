@@ -4,6 +4,7 @@ import {scheduledWindow,lateTestWindow,runTelegramMorning,sendTelegram,fetchNigh
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
+import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,recoverReference=fetchNightReference,
   gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}) {
@@ -62,7 +63,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     message=`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\n${message}`;
   }
   if(message.length>4000)throw Error('TELEGRAM_PREPARED_INVALID');
-  return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source,
+  const coverage=inspectMorningMessage(window.date,message,{now:now()});
+  return {ready:true,status:'PREPARED',date:window.date,artifactName,message,coverage,referenceSource:source,
     referenceOrigin:source==='NH'?referenceOrigin:'NONE',...(lateTest?{mode:'late_test'}:{})};
 }
 export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,attempt=1,mode='',send=sendTelegram}={}) {
@@ -96,7 +98,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     fs.writeFileSync('.telegram-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));
    }
    fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
-   console.log(JSON.stringify({status:result.status,date:result.date,referenceSource:result.referenceSource||'NONE',referenceOrigin:result.referenceOrigin||'NONE'}));
+   console.log(JSON.stringify({status:result.status,date:result.date,referenceSource:result.referenceSource||'NONE',referenceOrigin:result.referenceOrigin||'NONE',coverage:result.coverage||null}));
   }else if(process.argv[2]==='send'){
    const payload=JSON.parse(fs.readFileSync('.telegram-runtime/payload.json','utf8'));
    const sent=await deliverAndRecordWeekday(payload,{
