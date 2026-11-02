@@ -4,6 +4,7 @@
 import {pathToFileURL} from 'node:url';
 import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 import {deploymentIdFromWebAppUrl} from './deploy-gas.mjs';
+import {classifyPublishedGateSource} from './audit-published-gas-gate-readonly.mjs';
 
 const ROOT='https://script.googleapis.com/v1/projects/';
 const ERROR=/^ISSUE507_DEPLOYMENT_INVENTORY_[A-Z_]+$/;
@@ -22,7 +23,7 @@ function classify(entry){
  const type=entry?.entryPointType;
  return typeof type==='string'&&KNOWN_TYPES.has(type)?type:'OTHER';
 }
-async function fetchPage(url,token,fetchImpl){
+async function fetchPage(url,token,fetchImpl,maxChars=250000){
  let res;
  try{res=await fetchImpl(url,{method:'GET',headers:{
   Authorization:'Bearer '+token,Accept:'application/json'
@@ -32,12 +33,12 @@ async function fetchPage(url,token,fetchImpl){
  if(!res?.ok)fail('HTTP_UNVERIFIED');
  let raw;
  try{raw=await res.text();}catch{fail('RESPONSE_UNVERIFIED');}
- if(typeof raw!=='string'||raw.length>250000)fail('RESPONSE_UNVERIFIED');
+ if(typeof raw!=='string'||raw.length>maxChars)fail('RESPONSE_UNVERIFIED');
  try{return JSON.parse(raw);}catch{fail('SCHEMA_UNVERIFIED');}
 }
 export async function inspectGasDeploymentsReadOnly({
  scriptId,expectedDeploymentId,googleAccessToken,fetchImpl=fetch,
- verifyDetails=false
+ verifyDetails=false,verifySource=false
 }={}){
  if(!validId(scriptId)||!validId(expectedDeploymentId)||
   typeof googleAccessToken!=='string'||googleAccessToken.length<20)
@@ -151,23 +152,69 @@ export async function inspectGasDeploymentsReadOnly({
    else if(entry.versionNumber!==version)detail.versionConflict++;
   }
  }
+ // Immutable version source is inspected only in memory. Never print source,
+ // manifest, author, version number, deployment IDs, or response JSON.
+ // This is a fingerprint comparison, NOT a penetration test or proof of
+ // complete writer isolation. HEAD/unknown version is never fetched as source.
+ const sourceAudit={attempted:false,distinctVersions:0,successful:0,
+  failed:0,skippedUnversioned:0,skippedOverLimit:0,
+  knownLegacy9281:0,knownReviewedGate9282:0,unreviewedSource:0};
+ if(verifySource){
+  if(!verifyDetails)fail('SOURCE_REQUIRES_DETAILS');
+  sourceAudit.attempted=true;
+  const uniq=new Set();
+  for(const entry of entries.filter(e=>!e.head)){
+   if(!entry.versionVerified){sourceAudit.skippedUnversioned++;continue;}
+   uniq.add(entry.versionNumber);
+  }
+  const LIMIT=12;
+  sourceAudit.distinctVersions=uniq.size;
+  for(const version of uniq){
+   if(sourceAudit.successful+sourceAudit.failed>=LIMIT){
+    sourceAudit.skippedOverLimit++;continue;
+   }
+   try{
+    const u=new URL(ROOT+encodeURIComponent(scriptId)+'/content');
+    u.searchParams.set('versionNumber',String(version));
+    const payload=await fetchPage(u.toString(),googleAccessToken,fetchImpl,1600000);
+    if(payload?.scriptId!==scriptId||!Array.isArray(payload.files)||
+      payload.files.filter(x=>x?.type==='JSON'&&x.name==='appsscript').length!==1)
+     throw Error('schema');
+    const code=payload.files.filter(x=>x?.type==='SERVER_JS');
+    if(code.length!==1||typeof code[0].source!=='string'||
+      code[0].source.length<1000||code[0].source.length>1400000)
+     throw Error('source');
+    const classified=classifyPublishedGateSource(code[0].source);
+    sourceAudit.successful++;
+    if(classified.knownLegacyBaseline)sourceAudit.knownLegacy9281++;
+    else if(classified.gateReadAllowed)sourceAudit.knownReviewedGate9282++;
+    else sourceAudit.unreviewedSource++;
+   }catch{
+    sourceAudit.failed++;
+   }
+  }
+ }
  const counts={WEB_APP:0,EXECUTION_API:0,ADD_ON:0,OTHER:0};
  for(const e of entries)for(const type of e.types)counts[type]++;
  const expectedRows=entries.filter(e=>e.expected);
  const unknown=entries.some(e=>(!e.head&&e.types.length===0)||e.types.includes('OTHER'));
  const extraRoutable=entries.filter(e=>!e.expected&&e.types.length>0).length;
  const unverifiedVersions=entries.filter(e=>!e.versionVerified).length;
+ const sourceProblems=verifySource&&(sourceAudit.failed>0||
+  sourceAudit.skippedUnversioned>0||sourceAudit.skippedOverLimit>0||
+  sourceAudit.unreviewedSource>0||sourceAudit.knownLegacy9281>0);
  const detailProblems=verifyDetails&&(
   detail.lookupUnverified>0||detail.versionConflict>0||detail.entryPointMismatch>0||
   detail.stillUnversioned>0||detail.recoveredVersion>0||
   exposure.unknownAccess>0||exposure.unknownExecuteAs>0);
- const status=expectedRows.length!==1||unverifiedVersions>0||unknown||extraRoutable>0||detailProblems
+ const status=expectedRows.length!==1||unverifiedVersions>0||unknown||extraRoutable>0||detailProblems||sourceProblems
   ?'BLOCKED':'INVENTORY_ONLY';
  const reason=expectedRows.length!==1?'EXPECTED_DEPLOYMENT_NOT_PROVEN':
   unverifiedVersions>0?'VERSION_METADATA_UNVERIFIED':
   unknown?'UNKNOWN_ENTRY_POINTS':
   extraRoutable>0?'ADDITIONAL_DEPLOYMENTS_REQUIRE_ISOLATION':
   detailProblems?'DETAIL_METADATA_UNVERIFIED':
+  sourceProblems?'VERSIONED_SOURCE_UNVERIFIED':
   'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED';
  // No deployment IDs, source, URL, principal or token may enter logs.
  return {mode:'GAS_DEPLOYMENT_INVENTORY_READ_ONLY',status,reason,
@@ -199,6 +246,15 @@ export async function inspectGasDeploymentsReadOnly({
   additionalWebAppExecuteAsDeployerCount:exposure.additionalRunsAsDeployer,
   additionalWebAppAnonymousDeployerCount:exposure.additionalAnonymousDeployer,
   additionalWebAppUnknownSecurityCount:exposure.additionalUnknownSecurity,
+  sourceAuditAttempted:sourceAudit.attempted,
+  sourceDistinctVersionCount:sourceAudit.distinctVersions,
+  sourceGetCheckedCount:sourceAudit.successful,
+  sourceGetUnverifiedCount:sourceAudit.failed,
+  sourceGetSkippedUnversionedCount:sourceAudit.skippedUnversioned,
+  sourceGetSkippedOverLimitCount:sourceAudit.skippedOverLimit,
+  sourceKnownLegacy9281Count:sourceAudit.knownLegacy9281,
+  sourceKnownReviewedGate9282Count:sourceAudit.knownReviewedGate9282,
+  sourceUnreviewedCount:sourceAudit.unreviewedSource,
   expectedDeploymentFound:expectedRows.length===1,
   pagesRead:pages,inventoryComplete:true,
   allActorsAndVersionsTerminatedVerified:false,
@@ -213,7 +269,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    deploymentIdFromWebAppUrl(process.env.GAS_WEB_APP_URL||'');
   const result=await inspectGasDeploymentsReadOnly({
    scriptId:process.env.GAS_SCRIPT_ID,expectedDeploymentId:expected,
-   googleAccessToken:token,verifyDetails:true
+   googleAccessToken:token,verifyDetails:true,verifySource:true
   });
   console.log(JSON.stringify(result));
   if(result.status==='BLOCKED')process.exitCode=2;
