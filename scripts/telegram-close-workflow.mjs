@@ -16,6 +16,7 @@ import {readNhClosingStocks,readClosingMacros,formatClosingExtra} from './closin
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
+import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -125,6 +126,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
   '기준: NH PLUG(지원 지수) · 국내 지수 KRX 공식 우선 / Yahoo·신한 교차검증 / FDR 공개 EOD','',
+  ...formatAiIndustryCloseLens({date,usDate:expectedMorningDate('SPX',date),
+    nh:valid,secondary,stocks}),'',
   '■ 국내 시장 (비NH 공개 일별 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
   const matches=validDomestic.filter(x=>x.label===label);
