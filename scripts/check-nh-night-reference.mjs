@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
+import fs from 'node:fs';
+import YAML from 'yaml';
 import {validateNhNight} from './nh-night-reference.mjs';
 import {captureMorning,captureWindow} from './nh-morning-capture.mjs';
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
@@ -7,6 +9,7 @@ const date='2026-10-28',row={value:900.05,contract:'KA016C000',contractMonth:'20
 const captureAt='2026-10-28T06:45:30+09:00', captured=validateNhNight(row,date,captureAt);
 assert.equal(captureWindow(new Date('2026-10-28T06:44:59+09:00')).allowed,false);
 assert.equal(captureWindow(new Date(captureAt)).allowed,true);
+assert.equal(captureWindow(new Date('2026-10-28T07:34:59+09:00')).allowed,true);
 assert.equal(captureWindow(new Date('2026-10-28T07:35:00+09:00')).allowed,false);
 assert.equal((await captureMorning({now:()=>new Date(captureAt),fetchNight:async()=>captured})).status,'CAPTURED');
 assert.equal((await captureMorning({now:()=>new Date(captureAt),fetchNight:async()=>({...captured,receivedAt:'bad'})})).ready,false);
@@ -29,4 +32,14 @@ const traversalZipScript="import io,sys,zipfile\nb=io.BytesIO()\nwith zipfile.Zi
 const malicious=spawnSync('python3',['-c',traversalZipScript,JSON.stringify(captured)]).stdout;
 const maliciousFetch=async url=>url.includes('/runs/')?{ok:true,json:async()=>run}:url.includes('/zip')?{ok:true,arrayBuffer:async()=>malicious}:{ok:true,json:async()=>({total_count:1,artifacts:[artifact]})};
 assert.equal(await loadCapturedNight(date,{...options,fetchImpl:maliciousFetch,decode:undefined}),null,'archive traversal rejected');
+// Every cron is UTC Sun–Thu and maps to the planned Mon–Fri KST buffer.
+const captureYaml=YAML.parse(fs.readFileSync('.github/workflows/nh-night-capture.yml','utf8'));
+assert.deepEqual(captureYaml.on.schedule.map(x=>x.cron),[
+ '45 21 * * 0-4','55 21 * * 0-4','5 22 * * 0-4',
+ '15 22 * * 0-4','25 22 * * 0-4'
+]);
+const morningYaml=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
+assert.equal(morningYaml.on.schedule[0].cron,'40 22 * * 0-4',
+ '07:40 KST briefing must stay unchanged');
+assert.equal(captureYaml.jobs.capture.timeoutMinutes,undefined);
 console.log('NH reference: date, time, contract, tick, duplicate and unavailable checks PASS');
