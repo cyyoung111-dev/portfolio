@@ -536,7 +536,6 @@ function validateBriefingWorkflow(source){
  const doc=YAML.parseDocument(source,{uniqueKeys:true,version:'1.2'});
  assert.equal(doc.errors.length,0,'Briefing YAML parses without duplicate keys');
  const wf=doc.toJS({maxAliasCount:0});
- assert.deepEqual(wf.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test','late_test']);
  assert.deepEqual(wf.on.schedule.map(x=>x.cron),schedules,'NH-only night: KRX headless night cron removed');
  assert.ok(Object.hasOwn(wf.on,'workflow_dispatch'),'manual route preserved');
  assert.deepEqual(wf.on.workflow_dispatch.inputs.checkpoint.options,
@@ -669,6 +668,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  await assert.rejects(()=>deliverPrepared(late,{now:()=>new Date('2026-10-28T12:00:00+09:00'),mode:'late_test',send:async()=>{lateSends++;}}),/TELEGRAM_PREPARED_INVALID/);
  assert.equal(lateSends,1);
  const wf=YAML.parse(fs.readFileSync('.github/workflows/telegram-morning-briefing.yml','utf8'));
+ assert.deepEqual(wf.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test','late_test']);
  assert.deepEqual(wf.on.schedule.map(x=>x.cron),['40 22 * * 0-4','49 22 * * 0-4','57 22 * * 0-4','0 23 * * 0-4','5 23 * * 0-4']);
  const captureWf=YAML.parse(fs.readFileSync('.github/workflows/nh-night-capture.yml','utf8'));
  assert.deepEqual(captureWf.on.schedule.map(x=>x.cron),['31 22 * * 0-4','39 22 * * 0-4','47 22 * * 0-4','55 22 * * 0-4']);
