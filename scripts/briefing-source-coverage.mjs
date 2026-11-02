@@ -23,7 +23,6 @@ const extraMarkets=Object.freeze([
  ['COPPER','구리','HG=F'],['BTC','BTC','BTC-USD']
 ]);
 const unwired=Object.freeze([
-  'VKOSPI',
   'KRX_TURNOVER',
   'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
@@ -35,6 +34,7 @@ export const CLOSE_SOURCE_CATALOG=Object.freeze({
   extraMacros:Object.freeze(extraMacros.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_MACRO'}))),
   extraMarkets:Object.freeze(extraMarkets.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_MARKET'}))),
   treasuryRates:Object.freeze(rateIds.map(([id,label])=>Object.freeze({id,label,role:'OPTIONAL_MACRO'}))),
+  volatility:Object.freeze([{id:'VKOSPI',label:'VKOSPI',role:'OPTIONAL_REFERENCE'}]),
   notConnected:Object.freeze([...unwired])
 });
 export const MORNING_NOT_CONNECTED=Object.freeze([
@@ -43,16 +43,16 @@ export const MORNING_NOT_CONNECTED=Object.freeze([
   'INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
 
-const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY','STOCKS','MACROS','MARKETS']);
+const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY','STOCKS','MACROS','MARKETS','VKOSPI']);
 const validRow=r=>r&&Number.isFinite(r.value)&&r.value>0;
 function state(found,failed){
   return found?'VERIFIED':failed?'FETCH_FAILED':'NO_VERIFIED_ROW';
 }
-export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],rates=[],expectedUsDate=null,
+export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],rates=[],vkospi=[],expectedUsDate=null,
   failedGroups=[]}={}){
   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)
     ||!Array.isArray(nh)||!Array.isArray(domestic)||!Array.isArray(secondary)
-    ||!Array.isArray(stocks)||!Array.isArray(macros)||!Array.isArray(markets)||!Array.isArray(rates)
+    ||!Array.isArray(stocks)||!Array.isArray(macros)||!Array.isArray(markets)||!Array.isArray(rates)||!Array.isArray(vkospi)
     ||!Array.isArray(failedGroups)||failedGroups.some(x=>!allowedFailureGroups.has(x))
     ||(expectedUsDate!==null&&(typeof expectedUsDate!=='string'
       ||!/^\d{4}-\d{2}-\d{2}$/.test(expectedUsDate))))
@@ -104,6 +104,12 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
   for(const [id] of rateIds)
     statuses.push({id,role:'OPTIONAL_MACRO',status:state(
       id==='UST2Y'?ready2:id==='UST3Y'?ready3:ready2&&ready10,false)});
+  const volatilityRows=vkospi.filter(x=>x?.id==='VKOSPI'&&x.label==='VKOSPI'
+    &&x.date===date&&x.source==='KRX_OFFICIAL'
+    &&x.role==='NON_NH_REFERENCE_ONLY'&&Number.isFinite(x.value)
+    &&x.value>0&&x.value<200);
+  statuses.push({id:'VKOSPI',role:'OPTIONAL_REFERENCE',
+    status:state(volatilityRows.length===1,failed.has('VKOSPI'))});
   for(const id of CLOSE_SOURCE_CATALOG.notConnected)
     statuses.push({id,role:'NOT_CONNECTED',status:'NOT_CONNECTED'});
   const verified=id=>statuses.find(x=>x.id===id)?.status==='VERIFIED';
@@ -117,6 +123,7 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
     macros:{verified:extraMacros.filter(([id])=>verified(id)).length,total:3},
     markets:{verified:extraMarkets.filter(([id])=>verified(id)).length,total:5},
     treasury:{verified:rateIds.filter(([id])=>verified(id)).length,total:3},
+    volatility:{verified:verified('VKOSPI')?1:0,total:1},
     groupErrors:[...failed].sort(),
     statuses,
   };
@@ -128,7 +135,8 @@ export function formatCloseCoverageSummary(coverage){
   const displayNames=Object.fromEntries([
    ...CLOSE_SOURCE_CATALOG.core,...CLOSE_SOURCE_CATALOG.reference,
    ...CLOSE_SOURCE_CATALOG.extraStocks,...CLOSE_SOURCE_CATALOG.extraMacros,
-   ...CLOSE_SOURCE_CATALOG.extraMarkets,...CLOSE_SOURCE_CATALOG.treasuryRates
+   ...CLOSE_SOURCE_CATALOG.extraMarkets,...CLOSE_SOURCE_CATALOG.treasuryRates,
+   ...CLOSE_SOURCE_CATALOG.volatility
   ].map(x=>[x.id,x.label]));
   const missing=coverage.statuses.filter(x=>x.status!=='VERIFIED'
     &&x.status!=='NOT_CONNECTED').map(x=>displayNames[x.id]||x.id);
@@ -139,7 +147,8 @@ export function formatCloseCoverageSummary(coverage){
       +' · 참고 '+aux.verified+'/'+aux.total
       +' · 주요 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3'
       +' · 원자재/BTC '+coverage.markets.verified+'/5'
-      +' · 국채금리·스프레드 '+coverage.treasury.verified+'/3',
+      +' · 국채금리·스프레드 '+coverage.treasury.verified+'/3'
+      +' · VKOSPI '+coverage.volatility.verified+'/1',
     '미확보: '+(missing.length
       ?missing.length<=8?missing.join(' · '):missing.slice(0,8).join(' · ')+' 외 '+(missing.length-8)+'개'
       :'없음'),
