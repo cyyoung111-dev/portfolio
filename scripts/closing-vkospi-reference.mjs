@@ -15,7 +15,7 @@ export function selectClosingVkospi(date,payload){
  const matching=payload.points.filter(row=>row?.date===date);
  if(matching.length!==1)return [];
  const row=matching[0];
- if(row.source!==SOURCE||!validValue(row.value)
+ if((row.source!==undefined&&row.source!==SOURCE)||!validValue(row.value)
   ||(row.sourceDate!==undefined&&row.sourceDate!==date))return [];
  return [{id:'VKOSPI',label:'VKOSPI',date,value:row.value,source:SOURCE,
   role:'NON_NH_REFERENCE_ONLY'}];
