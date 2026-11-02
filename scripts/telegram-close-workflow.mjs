@@ -128,7 +128,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  const lines=['['+date+' 장후 시장 브리핑]',
   '기준: 국내 당일 마감 · 17시 해외 선물 · 미국 현물 직전 완료장','',
   ...formatAiIndustryCloseLens({date,usDate:expectedMorningDate('SPX',date),
-    nh:valid,secondary,stocks,futures,now}),'',
+    nh:valid,domestic:validDomestic,secondary,stocks,futures,now}),'',
   '■ 국내 시장 (당일 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
   const matches=validDomestic.filter(x=>x.label===label);
