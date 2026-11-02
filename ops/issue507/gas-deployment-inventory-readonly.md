@@ -83,6 +83,7 @@
 - `additionalDeploymentKnownLegacy9281Count`, `additionalDeploymentReviewedGate9282Count`, `additionalDeploymentUnreviewedSourceCount`, `additionalDeploymentVersionUnverifiedCount`, `additionalDeploymentSourceGetUnverifiedCount`, `additionalDeploymentSourceLimitUnverifiedCount`, `additionalDeploymentSourceNotInspectedCount`는 추가 접근 가능한 배포의 **배포별 건수**를 반환. 같은 소스 버전이 두 URL에 쓰여도 배포 수는 각각 계산하고 내부 고유 버전 GET 중복 제거는 유지.
 - 개별 배포 ID/URL, 원본 소스·SHA/버전 숫자·인증정보는 출력하지 않으며, Source GET 한도와 실패는 여전히 차단.
 - 결과가 어떻든 운영 writer gate 최초 cutover 승인이나 기존 배포 격리 증거로 삼지 않는다. 실제 운영 배포의 보관/삭제는 사용자에게 영향을 줄 수 있으므로 별도 증빙·승인 전에는 금지.
+- Codex P2 리뷰에서 LIST v336과 DETAIL v337처럼 **조회 사이에 버전이 바뀌는 경우** 이전 LIST 승인 소스를 현재 배포에 잘못 귀속할 위험을 발견했다. 소스 대조를 실행하더라도 배포별 DETAIL 조회 완료 여부, 양의 정수 버전, LIST/DETAIL 버전 일치, 엔트리포인트 일치가 모두 확인되지 않으면 `DETAIL_METADATA_UNVERIFIED`로 귀속을 차단한다. 같은 버전의 다른 배포가 승인됐다는 이유로 예외를 만들지 않는다.
 
 ## 이 조사로는 증명되지 않는 것
 1. 다른 GAS 프로젝트·다른 계정의 배포, 편집기, 수동 시트 편집 및 Sheets API 외부 writer가 차단됐는지.
