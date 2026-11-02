@@ -23,7 +23,7 @@ const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
 export function closeWindow(instant){
   const p=parts(instant),minute=Number(p.hour)*60+Number(p.minute);
-  return {date:`${p.year}-${p.month}-${p.day}`,allowed:minute>=1020&&minute<1050}; // 17:00–17:29 KST
+  return {date:`${p.year}-${p.month}-${p.day}`,allowed:minute>=1020&&minute<1080}; // 17:00–17:59 KST; 18:00 hard cutoff
 }
 
 const NH_VERIFIED=Object.freeze([
