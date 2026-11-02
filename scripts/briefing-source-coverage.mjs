@@ -10,9 +10,16 @@ const references=Object.freeze([
   ['SOX','SOX','FRED_NASDAQSOX'],
   ['VIX','VIX','CBOE_VIX_DAILY']
 ]);
+const extraStocks=Object.freeze([
+  ['SAMSUNG','삼성전자','005930.KS'],['SKHYNIX','SK하이닉스','000660.KS'],
+  ['NVDA','엔비디아','NVDA'],['MU','마이크론','MU']
+]);
+const extraMacros=Object.freeze([
+  ['USDKRW','원/달러','KRW=X'],['DXY','DXY','DX-Y.NYB'],['UST10Y','미 10년물','^TNX']
+]);
 const unwired=Object.freeze([
-  'VKOSPI','SAMSUNG','SKHYNIX','NVDA','MU',
-  'USDKRW','DXY','UST2Y','UST3Y','UST10Y','YIELD_SPREAD',
+  'VKOSPI',
+  'UST2Y','UST3Y','YIELD_SPREAD',
   'WTI','BRENT','GOLD','COPPER','BTC','KRX_TURNOVER',
   'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE',
   'US_INDEX_FUTURES'
@@ -21,6 +28,8 @@ const unwired=Object.freeze([
 export const CLOSE_SOURCE_CATALOG=Object.freeze({
   core:Object.freeze(core.map(([id,label,market])=>Object.freeze({id,label,market,role:'REQUIRED_INDEX'}))),
   reference:Object.freeze(references.map(([id,label,source])=>Object.freeze({id,label,source,role:'OPTIONAL_REFERENCE'}))),
+  extraStocks:Object.freeze(extraStocks.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_STOCK'}))),
+  extraMacros:Object.freeze(extraMacros.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_MACRO'}))),
   notConnected:Object.freeze([...unwired])
 });
 export const MORNING_NOT_CONNECTED=Object.freeze([
@@ -29,15 +38,16 @@ export const MORNING_NOT_CONNECTED=Object.freeze([
   'INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
 
-const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY']);
+const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY','STOCKS','MACROS']);
 const validRow=r=>r&&Number.isFinite(r.value)&&r.value>0;
 function state(found,failed){
   return found?'VERIFIED':failed?'FETCH_FAILED':'NO_VERIFIED_ROW';
 }
-export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],expectedUsDate=null,
+export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],expectedUsDate=null,
   failedGroups=[]}={}){
   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)
     ||!Array.isArray(nh)||!Array.isArray(domestic)||!Array.isArray(secondary)
+    ||!Array.isArray(stocks)||!Array.isArray(macros)
     ||!Array.isArray(failedGroups)||failedGroups.some(x=>!allowedFailureGroups.has(x))
     ||(expectedUsDate!==null&&(typeof expectedUsDate!=='string'
       ||!/^\d{4}-\d{2}-\d{2}$/.test(expectedUsDate))))
@@ -56,6 +66,20 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],expe
     statuses.push({id:entry.id,role:entry.role,
       status:state(rows.length===1,failed.has('SECONDARY'))});
   }
+  for(const entry of CLOSE_SOURCE_CATALOG.extraStocks){
+    const rows=stocks.filter(x=>x?.id===entry.id&&x.label===entry.label
+      &&x.symbol===entry.symbol&&x.source==='NH_REGULAR_CLOSE'
+      &&x.date===(entry.id==='SAMSUNG'||entry.id==='SKHYNIX'?date:expectedUsDate)
+      &&validRow(x));
+    statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('STOCKS'))});
+  }
+  for(const entry of CLOSE_SOURCE_CATALOG.extraMacros){
+    const rows=macros.filter(x=>x?.id===entry.id&&x.label===entry.label
+      &&x.symbol===entry.symbol&&x.source==='YAHOO_DAILY_REFERENCE'
+      &&(entry.id!=='UST10Y'||x.value<20)
+      &&x.date===expectedUsDate&&validRow(x));
+    statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('MACROS'))});
+  }
   for(const id of CLOSE_SOURCE_CATALOG.notConnected)
     statuses.push({id,role:'NOT_CONNECTED',status:'NOT_CONNECTED'});
   const verified=id=>statuses.find(x=>x.id===id)?.status==='VERIFIED';
@@ -65,6 +89,8 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],expe
     schemaVersion:1,sessionDate:date,expectedUsDate,
     core:{verified:domesticCount+usCount,total:6,domestic:domesticCount,us:usCount},
     reference:{verified:references.filter(([id])=>verified(id)).length,total:3},
+    stocks:{verified:extraStocks.filter(([id])=>verified(id)).length,total:4},
+    macros:{verified:extraMacros.filter(([id])=>verified(id)).length,total:3},
     groupErrors:[...failed].sort(),
     statuses,
   };
@@ -76,8 +102,11 @@ export function formatCloseCoverageSummary(coverage){
   return [
     '■ 데이터 QC: 핵심지수 '+c.verified+'/'+c.total
       +' (국내 '+c.domestic+'/3 · 미국 '+c.us+'/3)'
-      +' · 참고 '+aux.verified+'/'+aux.total,
+      +' · 참고 '+aux.verified+'/'+aux.total
+      +' · NH 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3',
     '핵심 미확보: '+(coverage.statuses.filter(x=>x.role==='REQUIRED_INDEX'
+      &&x.status!=='VERIFIED').map(x=>x.id+':'+x.status).join(', ')||'없음'),
+    '추가 미확보: '+(coverage.statuses.filter(x=>['OPTIONAL_STOCK','OPTIONAL_MACRO'].includes(x.role)
       &&x.status!=='VERIFIED').map(x=>x.id+':'+x.status).join(', ')||'없음'),
     '미연결: '+coverage.statuses.filter(x=>x.status==='NOT_CONNECTED').map(x=>x.id).join(', '),
   ].join('\n');

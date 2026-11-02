@@ -34,8 +34,11 @@ assert.equal(summary.statuses.filter(x=>x.status==='NOT_CONNECTED').length,
  CLOSE_SOURCE_CATALOG.notConnected.length);
 assert.equal(new Set(summary.statuses.map(x=>x.id)).size,summary.statuses.length);
 assert.equal(summary.statuses.some(x=>x.id==='VKOSPI'&&x.status==='NOT_CONNECTED'),true);
-for(const id of ['SAMSUNG','SKHYNIX','NVDA','MU','USDKRW','DXY','BTC','UST10Y'])
- assert.equal(summary.statuses.find(x=>x.id===id)?.status,'NOT_CONNECTED',id);
+for(const id of ['SAMSUNG','SKHYNIX','NVDA','MU','USDKRW','DXY','UST10Y'])
+ assert.equal(summary.statuses.find(x=>x.id===id)?.status,'NO_VERIFIED_ROW',id);
+assert.equal(summary.statuses.find(x=>x.id==='BTC')?.status,'NOT_CONNECTED');
+assert.deepEqual(summary.stocks,{verified:0,total:4});
+assert.deepEqual(summary.macros,{verified:0,total:3});
 const qc=formatCloseCoverageSummary(summary);
 assert.match(qc,/핵심지수 6\/6 \(국내 3\/3 · 미국 3\/3\) · 참고 3\/3/);
 assert.match(qc,/미연결: VKOSPI,/);

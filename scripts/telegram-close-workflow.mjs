@@ -12,6 +12,7 @@ import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} from './briefing-source-coverage.mjs';
+import {readNhClosingStocks,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -116,7 +117,7 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[]){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
@@ -160,13 +161,14 @@ export function formatClose(date,rows,secondary=[],domestic=[]){
   '보유 주식·ETF 종가 및 포트폴리오 손익의 기준은 NH PLUG로 유지합니다.',
   'NH 지수 일봉은 거래소의 별도 정산가격으로 오인하지 않습니다.');
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
-  secondary,expectedUsDate:expectedMorningDate('SPX',date)});
- lines.push('',formatCloseCoverageSummary(coverage));
+  secondary,stocks,macros,expectedUsDate:expectedMorningDate('SPX',date)});
+ lines.push('',formatClosingExtra(date,stocks,macros),'',formatCloseCoverageSummary(coverage));
  return lines.join('\n');
 }
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
- fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes}={}){
+ fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
+ fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -180,16 +182,18 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   // US NH indices and Korean KRX/FDR EOD references are independently
   // eligible. A missing NH response must not block verified domestic closes.
   // FRED/CBOE secondary references alone NEVER authorize sending.
-  let rows=[],secondary=[],domestic=[];const failedGroups=[];
+  let rows=[],secondary=[],domestic=[],stocks=[],macros=[];const failedGroups=[];
   await Promise.all([
    (async()=>{try{rows=await fetchNh(window.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{rows=[];failedGroups.push('NH');}})(),
    (async()=>{try{secondary=await fetchSecondary(window.date,{fetchImpl});}catch{secondary=[];failedGroups.push('SECONDARY');}})(),
-   (async()=>{try{domestic=await fetchDomestic(window.date,{fetchImpl,now,gasUrl,gasToken});}catch{domestic=[];failedGroups.push('DOMESTIC');}})()
+   (async()=>{try{domestic=await fetchDomestic(window.date,{fetchImpl,now,gasUrl,gasToken});}catch{domestic=[];failedGroups.push('DOMESTIC');}})(),
+   (async()=>{try{stocks=await fetchStocks(window.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{stocks=[];failedGroups.push('STOCKS');}})(),
+   (async()=>{try{macros=await fetchMacros(window.date,{fetchImpl,now});}catch{macros=[];failedGroups.push('MACROS');}})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const coverage=summarizeCloseCoverage(window.date,{nh:verified,domestic:domesticVerified,
-   secondary,expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
+   secondary,stocks,macros,expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
   const quality=closeQualityDecision(coverage);
   const after=closeWindow(now());
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
@@ -197,7 +201,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     return {ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:window.date,coverage,quality};
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
-    coverage,quality,message:formatClose(window.date,verified,secondary,domesticVerified)};
+    coverage,quality,message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
@@ -221,6 +225,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       console.log(JSON.stringify({status:result.status,date:result.date,
         nhConfirmed:result.nhConfirmed||0,domesticConfirmed:result.domesticConfirmed||0,
         coreCoverage:result.coverage?.core||null,referenceCoverage:result.coverage?.reference||null,
+        stockCoverage:result.coverage?.stocks||null,macroCoverage:result.coverage?.macros||null,
         sourceStatuses:result.coverage?.statuses||null,failedGroups:result.coverage?.groupErrors||[]}));
     }else if(process.argv[2]==='send'){
       const payload=JSON.parse(fs.readFileSync('.telegram-close-runtime/payload.json','utf8'));
