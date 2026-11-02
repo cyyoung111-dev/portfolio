@@ -76,7 +76,7 @@ const rows=[
  {label:'SOX',symbol:'^SOX',date:'2026-10-29',value:6900,changePercent:0.4},
  {label:'VIX',symbol:'^VIX',date:'2026-10-29',value:18,changePercent:-2.3},
  {label:'원/달러',symbol:'KRW=X',date:'2026-10-29',value:1440,changePercent:0.1},
- {label:'미 10년물',symbol:'^TNX',date:'2026-10-29',value:41.2,changePercent:-0.2},
+ {label:'미 10년물',symbol:'^TNX',date:'2026-10-29',value:4.12,changePercent:-0.2},
 ];
 const report=formatFullMorningBriefing(date,ref,rows);
 assert.equal(formatMorningBriefing(date,ref,rows),report);
@@ -86,7 +86,16 @@ assert.match(report,/다우존스: 52,342.56.*2026-10-29/);
 assert.match(report,/900.05pt/);
 assert.match(report,/NH PLUG 06:00 운영 확정 기준/);
 assert.match(report,/마지막 체결값, 거래소 공식 정산가 아님/);
-assert.match(report,/4.12% \(Yahoo \^TNX 환산\)/);
+assert.match(report,/4.12% \(Yahoo \^TNX 직접 표기\)/);
+// Production regression: Yahoo October 30, 2026 ^TNX closed at 4.929%.
+const yieldRow={label:'미 10년물',symbol:'^TNX',date:'2026-10-30',
+ value:4.929,changePercent:-1.2,source:'Yahoo Finance 일봉'};
+const yieldReport=formatFullMorningBriefing('2026-11-02',null,[yieldRow]);
+assert.match(yieldReport,/미 10년물: 4\.929% \(Yahoo \^TNX 직접 표기\)/);
+assert.doesNotMatch(yieldReport,/0\.493%/);
+const scaledYieldReport=formatFullMorningBriefing('2026-11-02',null,
+ [{...yieldRow,value:49.29}]);
+assert.match(scaledYieldReport,/미 10년물: 미확보 \(금리 단위 검증 필요\)/);
 assert.match(report,/외국인\/기관.*미확보/);
 assert.match(report,/미국 선물 ES\/NQ\/YM\/RTY: 장전 실시간 검증값 미확보/);
 assert.match(report,/투자판단|Base:/);
@@ -132,6 +141,29 @@ const recovered=await collectMorningSeries(date,{fetchDaily:async(label,symbol,t
  return row('NVDA',host==='query2.finance.yahoo.com'?'2026-10-29':'2026-10-28');
 }});
 assert.deepEqual(alternateHosts,['query1.finance.yahoo.com','query2.finance.yahoo.com']);
+// A primary Yahoo network/HTTP failure returns null; the alternate host
+// must still be attempted, but only an exact-date completed bar is accepted.
+const retryHosts=[];
+const wtiItem=MORNING_SERIES.find(x=>x.id==='WTI');
+const fallback=await collectMorningSeries(date,{
+ skipSymbols:new Set(MORNING_SERIES.filter(x=>x.id!=='WTI').map(x=>x.symbol)),
+ fetchDaily:async(_label,_symbol,_date,{host}={})=>{
+   retryHosts.push(host||'query1.finance.yahoo.com');
+   return host==='query2.finance.yahoo.com'?{
+     label:wtiItem.label,symbol:wtiItem.symbol,date:'2026-10-29',
+     value:65,changePercent:0.2,source:'Yahoo Finance 일봉'}:null;
+ }
+});
+assert.deepEqual(retryHosts,['query1.finance.yahoo.com','query2.finance.yahoo.com']);
+assert.equal(fallback.length,1);
+const noStale=await collectMorningSeries(date,{
+ skipSymbols:new Set(MORNING_SERIES.filter(x=>x.id!=='WTI').map(x=>x.symbol)),
+ fetchDaily:async(_label,_symbol,_date,{host}={})=>host==='query2.finance.yahoo.com'?{
+   label:wtiItem.label,symbol:wtiItem.symbol,date:'2026-10-28',
+   value:65,changePercent:0.2,source:'Yahoo Finance 일봉'}:null
+});
+assert.equal(noStale.length,0,'alternate host may never promote stale bars');
+
 assert.equal(recovered.length,1);
 assert.equal(recovered[0].date,'2026-10-29');
 const expectedRows=await collectMorningSeries(date,{fetchDaily:async(label,symbol)=>symbol==='NVDA'?row('NVDA','2026-10-28'):null});
