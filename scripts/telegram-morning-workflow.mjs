@@ -28,7 +28,14 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
   if(!message)return {ready:false,status:result.status,date:window.date};
   const source=['NH'].includes(result.referenceSource)?result.referenceSource:'NONE';
-  if(lateTest)message=`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\n${message}`;
+  if(lateTest){
+    // Do not count an all-unavailable message as a successful end-to-end market briefing test.
+    // The formatter's QC count is the final authority after its source/date filters.
+    const qc=/■ QC: 기준 거래일과 일치한 일봉 (\\d+)\\/(\\d+) · NH 야선 (확보|미확보)/.exec(message||'');
+    if(!qc||Number(qc[2])<1||Number(qc[1])>Number(qc[2])
+      ||(Number(qc[1])===0&&qc[3]==='미확보'))throw Error('TELEGRAM_TEST_DATA_UNAVAILABLE');
+    message=`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\\n${message}`;
+  }
   if(message.length>4000)throw Error('TELEGRAM_PREPARED_INVALID');
   return {ready:true,status:'PREPARED',date:window.date,artifactName,message,referenceSource:source,...(lateTest?{mode:'late_test'}:{})};
 }
