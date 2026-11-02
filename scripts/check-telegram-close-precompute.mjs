@@ -32,16 +32,26 @@ const nh=[
  {id:'DXY',label:'DXY',symbol:'DX-Y.NYB',date:us,source:'YAHOO_DAILY_REFERENCE',value:102,changePercent:0.4},
  {id:'UST10Y',label:'미 10년물',symbol:'^TNX',date:us,source:'YAHOO_DAILY_REFERENCE',value:4.9,changePercent:0.1}
 ];
-const all={nh,domestic,secondary,stocks,macros};
+const markets=[
+ {id:'WTI',label:'WTI',symbol:'CL=F',date:us,source:'YAHOO_DAILY_REFERENCE',value:72,changePercent:1},
+ {id:'BRENT',label:'Brent',symbol:'BZ=F',date:us,source:'YAHOO_DAILY_REFERENCE',value:75,changePercent:-1},
+ {id:'GOLD',label:'금',symbol:'GC=F',date:us,source:'YAHOO_DAILY_REFERENCE',value:4200,changePercent:0.2},
+ {id:'COPPER',label:'구리',symbol:'HG=F',date:us,source:'YAHOO_DAILY_REFERENCE',value:4.9,changePercent:0.2},
+ {id:'BTC',label:'BTC',symbol:'BTC-USD',date:us,source:'YAHOO_DAILY_REFERENCE',value:115000,changePercent:0.5}
+];
+const all={nh,domestic,secondary,stocks,macros,markets};
 const r=await precomputeClose({now:pre,fetchNh:async()=>nh,fetchDomestic:async()=>domestic,
- fetchSecondary:async()=>secondary,fetchStocks:async()=>stocks,fetchMacros:async()=>macros});
+ fetchSecondary:async()=>secondary,fetchStocks:async()=>stocks,fetchMacros:async()=>macros,
+ fetchMarkets:async()=>markets});
 assert.equal(r.status,'PRECOMPUTED');
-assert.deepEqual(r.counts,{nh:3,domestic:3,secondary:3,stocks:4,macros:3});
+assert.deepEqual(r.counts,{nh:3,domestic:3,secondary:3,stocks:4,macros:3,markets:5});
 assert.equal(verifyPreparedClose(date,r.data,now())?.nh.length,3);
 assert.equal(verifyPreparedClose(date,{...r.data,date:us},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,capturedAt:date+'T17:00:00+09:00'},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,stocks:[...stocks,stocks[0]]},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,macros:[{...macros[2],value:49.9}]},now()),null);
+assert.equal(verifyPreparedClose(date,{...r.data,markets:[{...markets[4],date}]},now()),null);
+assert.equal(verifyPreparedClose(date,{...r.data,markets:undefined},now()),null);
 assert.equal(sanitizePreclose(date,{...all,nh:[...nh,nh[0]]}).nh.length,2,
  'ambiguous duplicated NH symbol must be excluded without discarding unrelated verified symbols');
 assert.equal(verifyPreparedClose(date,{...r.data,nh:[...nh,nh[0]]},now()),null,
@@ -79,13 +89,14 @@ let calls=0;
 const noFetch=async()=>{calls++;throw Error('duplicate fetch');};
 const prepared=await prepareClose({...opts,loadPrepared:async()=>r.data,
  fetchNh:noFetch,fetchDomestic:noFetch,fetchSecondary:noFetch,
- fetchStocks:noFetch,fetchMacros:noFetch});
+ fetchStocks:noFetch,fetchMacros:noFetch,fetchMarkets:noFetch});
 assert.equal(prepared.ready,true);
 assert.equal(calls,0,'all cached groups skip redundant provider fetches');
 assert.equal(prepared.cacheSource,'VERIFIED_1650_ARTIFACT');
 assert.equal(prepared.coverage.core.verified,6);
 assert.equal(prepared.coverage.stocks.verified,4);
 assert.equal(prepared.coverage.macros.verified,3);
+assert.equal(prepared.coverage.markets.verified,5);
 assert.ok(prepared.message.length<4000);
 let sends=0;
 assert.equal((await deliverClose(prepared,{now,send:async()=>{sends++;}})).status,'SENT');
@@ -96,20 +107,22 @@ assert.equal(sends,1);
 let live=0;
 const partial=await prepareClose({...opts,
  loadPrepared:async()=>({...r.data,nh:nh.slice(0,1),domestic:domestic.slice(0,2),
-  secondary:[],stocks:stocks.slice(0,2),macros:macros.slice(0,1)}),
+  secondary:[],stocks:stocks.slice(0,2),macros:macros.slice(0,1),markets:markets.slice(0,3)}),
  fetchNh:async()=>{live++;return nh.slice(1);},
  fetchDomestic:async()=>{live++;return domestic.slice(2);},
  fetchSecondary:async()=>{live++;return secondary;},
  fetchStocks:async()=>{live++;return stocks.slice(2);},
- fetchMacros:async()=>{live++;return macros.slice(1);}
+ fetchMacros:async()=>{live++;return macros.slice(1);},
+ fetchMarkets:async()=>{live++;return markets.slice(3);}
 });
-assert.equal(live,5);
+assert.equal(live,6);
 assert.equal(partial.coverage.core.verified,6);
 assert.equal(partial.coverage.stocks.verified,4);
 assert.equal(partial.coverage.macros.verified,3);
+assert.equal(partial.coverage.markets.verified,5);
 const missing=await prepareClose({...opts,loadPrepared:async()=>null,
  fetchNh:async()=>[],fetchDomestic:async()=>[],fetchSecondary:async()=>[],
- fetchStocks:async()=>[],fetchMacros:async()=>[]});
+ fetchStocks:async()=>[],fetchMacros:async()=>[],fetchMarkets:async()=>[]});
 assert.equal(missing.status,'NO_VERIFIED_INDEX_CLOSE');
 const w=YAML.parse(fs.readFileSync('.github/workflows/telegram-close-precompute.yml','utf8'));
 assert.deepEqual(w.on.schedule.map(x=>x.cron),['50 7 * * 1-5']);
