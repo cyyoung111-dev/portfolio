@@ -18,6 +18,7 @@ import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures.mjs';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
+import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -122,9 +123,10 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00')){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[]){
  const valid=verifiedNhCloseRows(date,rows);
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
+ const verifiedRates=verifyTreasuryCurve(date,rates);
  const lines=['['+date+' 장후 시장 브리핑]',
   '기준: 국내 당일 마감 · 17시 해외 선물 · 미국 현물 직전 완료장','',
   ...formatAiIndustryCloseLens({date,usDate:expectedMorningDate('SPX',date),
@@ -165,8 +167,9 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
     +' ['+item.date+' · '+provenance+']');
  }
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
-  secondary,stocks,macros,markets,expectedUsDate:expectedMorningDate('SPX',date)});
- lines.push('',formatClosingExtra(date,stocks,macros),'',
+  secondary,stocks,macros,markets,rates:verifiedRates,expectedUsDate:expectedMorningDate('SPX',date)});
+ lines.push('',formatClosingExtra(date,stocks,macros,{omitUs10y:verifiedRates.some(x=>x.id==='UST10Y_FRED')}),'',
+  formatTreasuryCurve(date,verifiedRates),'',
   formatClosingMarketReferences(date,markets),'',formatCloseCoverageSummary(coverage),
   '※ 기본 가격·미국 지수: NH PLUG · 그 외 참고값 출처 별도 표기');
  return lines.join('\n');
@@ -176,6 +179,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros,
  fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
+ fetchRates=readTreasuryCurve,
  loadPrepared=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
@@ -198,7 +202,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
   let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[]}=cached||{};
   // Latest 17:00 overseas quotes must never come from the 16:50 EOD artifact.
-  let futures=[];
+  let futures=[],rates=[];
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
   const combine=(oldRows,liveRows,key)=>{
@@ -228,12 +232,14 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     await fetchMarkets(window.date,{fetchImpl,now})),'id');}
     catch{failedGroups.push('MARKETS');}})(),
    (async()=>{try{futures=await fetchFutures(window.date,{fetchImpl,now});}
-    catch{futures=[];}})()
+    catch{futures=[];}})(),
+   (async()=>{try{rates=verifyTreasuryCurve(window.date,await fetchRates(window.date,{fetchImpl}));}
+    catch{rates=[];}})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const coverage=summarizeCloseCoverage(window.date,{nh:verified,domestic:domesticVerified,
-   secondary,stocks,macros,markets,expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
+   secondary,stocks,macros,markets,rates,expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
   const quality=closeQualityDecision(coverage);
   const after=closeWindow(now());
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
@@ -242,11 +248,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
-    futuresCount:futures.length,
+    futuresCount:futures.length,ratesCount:rates.length,
     // Market-only public rows; no tokens, accounts or GAS ledger data. The
     // send step re-renders AI/US futures at the actual transmission time.
-    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures},
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now())};
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates},
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
@@ -266,8 +272,12 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       ||r.futures.length!==payload.futuresCount)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     const fresh=sanitizePreclose(window.date,r);
     if(!fresh)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+    const rates=Array.isArray(r.rates)?verifyTreasuryCurve(window.date,r.rates):[];
+    if((r.rates!==undefined&&!Array.isArray(r.rates))||
+      (Array.isArray(r.rates)&&r.rates.length!==rates.length))
+      throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
-      fresh.stocks,fresh.macros,fresh.markets,r.futures,now());
+      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates);
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
   }
   await send(token,chatId,outgoing);return {status:'SENT',date:window.date};
