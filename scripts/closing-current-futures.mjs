@@ -58,23 +58,27 @@ export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date(
   return null;
  }))).filter(Boolean);
 }
+export function selectCurrentFuturesRows(date,rows=[],now=new Date(date+'T17:00:00+09:00')){
+ if(!(now instanceof Date)||!Number.isFinite(now.getTime())||!Array.isArray(rows))return [];
+ return FUTURES.flatMap(item=>{
+  const found=rows.filter(x=>x?.id===item.id&&x?.symbol===item.symbol
+    &&x?.label===item.label&&x?.source==='YAHOO_DELAYED_FUTURES_REFERENCE');
+  if(found.length!==1)return [];
+  const x=found[0],at=new Date(x.asOf);
+  if(!Number.isFinite(at.getTime())||!Number.isFinite(x.value)||x.value<=0)return [];
+  const age=now.getTime()-at.getTime();
+  if(age<0||age>25*60*1000||closeWindow(at).date!==date)return [];
+  return [x];
+ });
+}
 export function formatCurrentFutures(date,rows=[],now=new Date(date+'T17:00:00+09:00')){
  const lines=['■ 17:00 글로벌 시장 반응 — 미국 지수선물 (지연 시세)'];
- const good=[];
- for(const item of FUTURES){
-  const found=Array.isArray(rows)?rows.filter(x=>x?.id===item.id
-    &&x?.symbol===item.symbol&&x?.label===item.label
-    &&x?.source==='YAHOO_DELAYED_FUTURES_REFERENCE'):[];
-  if(found.length!==1)continue;
-  const x=found[0], at=new Date(x.asOf);
-  if(!Number.isFinite(at.getTime())||!Number.isFinite(x.value)||x.value<=0)continue;
-  const age=now.getTime()-at.getTime();
-  if(age<0||age>25*60*1000||closeWindow(at).date!==date)continue;
+ const good=selectCurrentFuturesRows(date,rows,now).map(x=>{
   const time=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',
-   hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(at);
-  good.push(item.label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
-   +'pt ['+time+' KST · Yahoo 지연 참고]');
- }
+   hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(x.asOf));
+  return x.label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
+   +'pt ['+time+' KST · Yahoo 지연 참고]';
+ });
  lines.push(...(good.length?good:['유효한 최근 거래값 미확보 — 직전 미국 현물 종가를 현재값으로 대체하지 않음']));
  lines.push('확보 '+good.length+'/4 · 실시간 확정값이 아니며, 지수선물과 현물지수는 서로 다릅니다.');
  return lines.join('\n');
