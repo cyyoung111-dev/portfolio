@@ -681,7 +681,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  assert.deepEqual(wf.on.workflow_dispatch.inputs.mode.options,['rescue','connection_test','late_test']);
  assert.deepEqual(wf.on.schedule.map(x=>x.cron),['40 22 * * 0-4','49 22 * * 0-4','57 22 * * 0-4','0 23 * * 0-4','5 23 * * 0-4']);
  const captureWf=YAML.parse(fs.readFileSync('.github/workflows/nh-night-capture.yml','utf8'));
- assert.deepEqual(captureWf.on.schedule.map(x=>x.cron),['31 22 * * 0-4','39 22 * * 0-4','47 22 * * 0-4','55 22 * * 0-4']);
+ assert.deepEqual(captureWf.on.schedule.map(x=>x.cron),['45 21 * * 0-4','55 21 * * 0-4','5 22 * * 0-4','15 22 * * 0-4','25 22 * * 0-4']);
  assert.equal(captureWf.permissions.contents,'read');
  assert.equal(captureWf.permissions.actions,'read');
  const priorStep=captureWf.jobs.capture.steps.find(x=>x.id==='prior');
