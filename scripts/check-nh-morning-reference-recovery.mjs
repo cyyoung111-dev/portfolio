@@ -55,6 +55,9 @@ assert.equal(a.referenceOrigin,'GAS_RECOVERY');
 assert.equal(recovered.observed().recoveryCalls,1);
 assert.equal(recovered.observed().referenceSeen.value,900.05);
 assert.equal(recovered.observed().sent,1);
+const earlyValid=simulated({reference:{...ref,receivedAt:DATE+'T06:50:00+09:00'}});
+assert.equal((await earlyValid.result).referenceOrigin,'GAS_RECOVERY',
+  'a valid 06:45 capture must remain acceptable to 07:40 briefing fallback');
 const withArtifact=simulated({artifact:ref});
 const art=await withArtifact.result;
 assert.equal(art.referenceOrigin,'CAPTURE_ARTIFACT');
@@ -71,7 +74,7 @@ for(const options of [
  {reference:{...ref,tradingDate:'2026-10-29'}},
  {reference:{...ref,sourceUpdatedAt:'2026-10-29T06:00:00+09:00'}},
  {reference:{...ref,receivedAt:DATE+'T08:00:00+09:00'}},
- {reference:{...ref,receivedAt:DATE+'T07:29:59+09:00'}}
+ {reference:{...ref,receivedAt:DATE+'T06:44:59+09:00'}}
 ]){
  const x=simulated(options);
  const y=await x.result;

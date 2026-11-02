@@ -42,7 +42,7 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
       if(recovered?.source==='NH'&&recovered.tradingDate===window.date
         &&recovered.sourceUpdatedAt===window.date+'T06:00:00+09:00'
         &&Number.isFinite(Date.parse(recovered.receivedAt))
-        &&Date.parse(recovered.receivedAt)>=Date.parse(window.date+'T07:30:00+09:00')
+        &&Date.parse(recovered.receivedAt)>=Date.parse(window.date+'T06:45:00+09:00')
         &&Date.parse(recovered.receivedAt)<recoveryCutoff
         &&now().getTime()<recoveryCutoff){
         reference=recovered;

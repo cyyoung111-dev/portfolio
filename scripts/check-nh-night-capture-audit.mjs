@@ -8,7 +8,7 @@ const repo='cyyoung111-dev/portfolio';
 const run={id:41300000001,name:'NH night reference capture',
  path:'.github/workflows/nh-night-capture.yml',event:'schedule',
  head_branch:'main',head_repository:{full_name:repo},run_attempt:1,
- created_at:'2026-11-01T22:31:00Z',status:'completed',conclusion:'success'};
+ created_at:'2026-11-01T21:45:00Z',status:'completed',conclusion:'success'};
 const artifact={id:13100000001,name:'nh-night-reference-'+date,expired:false,
  workflow_run:{id:run.id}};
 function mock({runs=[run],artifacts=[artifact],fail=false,badSchema=false}={}){
@@ -22,7 +22,7 @@ function mock({runs=[run],artifacts=[artifact],fail=false,badSchema=false}={}){
    if(u.pathname.endsWith('/runs')){
      assert.equal(u.searchParams.get('event'),'schedule');
      assert.equal(u.searchParams.get('branch'),'main');
-     assert.match(u.searchParams.get('created'),/2026-11-01T22:30:00.000Z[.][.]2026-11-01T22:59:59.999Z/);
+     assert.match(u.searchParams.get('created'),/2026-11-01T21:45:00.000Z[.][.]2026-11-01T22:34:59.999Z/);
      return {ok:true,json:async()=>badSchema?{total_count:'1',workflow_runs:runs}:
        {total_count:runs.length,workflow_runs:runs}};
    }
@@ -50,7 +50,7 @@ assert.equal((await audit({runs:[{...run,event:'workflow_dispatch'}],artifacts:[
 assert.equal((await audit({runs:[{...run,created_at:'2026-11-01T23:05:00Z'}],artifacts:[]})).status,'SCHEDULE_NOT_TRIGGERED');
 await assert.rejects(audit({fail:true}),/NH_AUDIT_API_UNAVAILABLE/);
 await assert.rejects(audit({badSchema:true}),/NH_AUDIT_API_SCHEMA/);
-await assert.rejects(auditNhNightSchedule({now:()=>new Date(date+'T08:12:59+09:00'),
+await assert.rejects(auditNhNightSchedule({now:()=>new Date(date+'T07:37:59+09:00'),
  repository:repo,token:'GH_READ_TOKEN',fetchImpl:async()=>assert.fail('too early')}),/NH_AUDIT_TOO_EARLY/);
 assert.deepEqual(await auditNhNightSchedule({
  now:()=>new Date('2026-11-01T08:14:00+09:00'),
@@ -59,7 +59,7 @@ assert.deepEqual(await auditNhNightSchedule({
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/nh-night-capture-health.yml','utf8'));
 assert.equal(workflow.jobs.audit['if'],
  "github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')");
-assert.deepEqual(workflow.on.schedule.map(x=>x.cron),['13 23 * * 0-4']);
+assert.deepEqual(workflow.on.schedule.map(x=>x.cron),['38 22 * * 0-4']);
 assert.equal(workflow.permissions.actions,'read');
 assert.equal(workflow.permissions.contents,'read');
 assert.equal(workflow.jobs.audit.environment,undefined,'no privileged GAS environment');

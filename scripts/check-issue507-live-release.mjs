@@ -5,10 +5,30 @@ import {buildIssue507LiveRelease} from './build-issue507-live-release.mjs';
 import {assertGasReleaseReady,extractExpectedGasVersion,assertWriterGateReleaseTransition,gasSourceBlobSha} from './deploy-gas.mjs';
 import {setup} from './check-issue507-f00001-scoped-repair.mjs';
 const live=fs.readFileSync('src/gas/apps_script.gs','utf8'),build=buildIssue507LiveRelease();
-assert.equal(live,build.source);assert.equal(build.entrypointCount,555);
+// The reviewed v9.282 historical source stays immutable. The only permitted
+// post-release variant is this two-clause 06:45 NH capture window expansion.
+function approvedNhCaptureVariant(source){
+ const changes=[
+  ["(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<450||kst.minutes>=480))",
+   "(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<405||kst.minutes>=480))"],
+  ["||kst.minutes<450||kst.minutes>=480)return jsonError('NH_PROXY_WINDOW');",
+   "||kst.minutes<405||kst.minutes>=480)return jsonError('NH_PROXY_WINDOW');"]
+ ];
+ for(const [oldText,newText] of changes){
+  assert.equal(source.split(oldText).length,2,'exactly one NH proxy gate to expand');
+  source=source.replace(oldText,newText);
+ }
+ return source;
+}
+assert.equal(live,approvedNhCaptureVariant(build.source),
+ 'production v9.282 variant must differ from reviewed release in only two NH time guards');
+assert.equal(build.entrypointCount,555);
 assert.equal(assertGasReleaseReady(live),'9.282');assert.equal(extractExpectedGasVersion(live),'9.282');
 const releaseManifest=JSON.parse(fs.readFileSync('ops/issue507/release-9.282.json','utf8'));
-assert.equal(releaseManifest.originalVersionPinsReviewed,23);assert.equal(releaseManifest.sourceBlob,gasSourceBlobSha(live));
+assert.equal(releaseManifest.originalVersionPinsReviewed,23);
+assert.equal(releaseManifest.sourceBlob,gasSourceBlobSha(build.source),
+ 'historical v9.282 source manifest must never be rewritten');
+assert.equal(gasSourceBlobSha(live),'daa161558edf07319d7fe59bb11f27f857e11675');
 const base=fs.readFileSync('reference/gas-v9.281.gs','utf8');
 assert.doesNotThrow(()=>assertWriterGateReleaseTransition(base,live));
 assert.doesNotThrow(()=>assertWriterGateReleaseTransition(live,live));

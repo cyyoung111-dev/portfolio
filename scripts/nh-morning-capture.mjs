@@ -7,7 +7,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 export function captureWindow(now) {
   const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(x=>[x.type,x.value]));
   const date=`${parts.year}-${parts.month}-${parts.day}`,minute=Number(parts.hour)*60+Number(parts.minute);
-  return {date,allowed:minute>=450&&minute<480};
+  return {date,allowed:minute>=405&&minute<455}; // 06:45–07:34 KST
 }
 export async function captureMorning({now=()=>new Date(),fetchNight=fetchNhNightFromGas}={}) {
   const start=captureWindow(now());
@@ -19,7 +19,7 @@ export async function captureMorning({now=()=>new Date(),fetchNight=fetchNhNight
   }});
   const end=captureWindow(now());
   if(!end.allowed||end.date!==start.date||!reference)return {status:'REFERENCE_UNAVAILABLE',ready:false,date:start.date,reason};
-  const received=Date.parse(reference.receivedAt), upper=Date.parse(`${start.date}T08:00:00+09:00`), lower=Date.parse(`${start.date}T07:30:00+09:00`);
+  const received=Date.parse(reference.receivedAt), upper=Date.parse(`${start.date}T07:35:00+09:00`), lower=Date.parse(`${start.date}T06:45:00+09:00`);
   if(reference.source!=='NH'||reference.tradingDate!==start.date||reference.officialClose!==false||reference.sourceUpdatedAt!==`${start.date}T06:00:00+09:00`||!Number.isFinite(received)||received<lower||received>=upper||received>now().getTime()||!validateNhNight({date:start.date,clock:'06:00:00',value:reference.value,contract:reference.contract,contractMonth:reference.contractMonth},start.date,reference.receivedAt))return {status:'REFERENCE_INVALID',ready:false,date:start.date};
   return {status:'CAPTURED',ready:true,date:start.date,reference};
 }

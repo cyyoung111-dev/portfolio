@@ -1,12 +1,13 @@
 name: NH night reference capture
 on:
-  # Multiple spaced chances for best-effort GitHub scheduling.
-  # Daily artifact existence is checked before querying NH (see step below).
+  # Capture the fixed 06:00 NH reference well before the 07:40 briefing.
+  # Daily artifact existence is checked before each bounded retry.
   schedule:
-    - cron: '31 22 * * 0-4' # 07:31 KST, primary
-    - cron: '39 22 * * 0-4' # 07:39 KST, retry
-    - cron: '47 22 * * 0-4' # 07:47 KST, retry
-    - cron: '55 22 * * 0-4' # 07:55 KST, final retry; existing artifact gate avoids duplicate NH calls
+    - cron: '45 21 * * 0-4' # 06:45 KST, primary
+    - cron: '55 21 * * 0-4' # 06:55 KST, retry
+    - cron: '5 22 * * 0-4'  # 07:05 KST, retry
+    - cron: '15 22 * * 0-4' # 07:15 KST, retry
+    - cron: '25 22 * * 0-4' # 07:25 KST, final retry (07:35 capture cutoff)
 permissions:
   contents: read
   actions: read

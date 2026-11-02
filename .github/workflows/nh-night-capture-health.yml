@@ -3,7 +3,7 @@ on:
   # Independent, read-only schedule. A missing NH capture run fails visibly,
   # but GitHub's shared scheduler can still miss both workflows.
   schedule:
-    - cron: '13 23 * * 0-4' # 08:13 KST, after all four capture windows
+    - cron: '38 22 * * 0-4' # 07:38 KST, after the final 07:35 capture cutoff
   workflow_dispatch:
 permissions:
   contents: read
