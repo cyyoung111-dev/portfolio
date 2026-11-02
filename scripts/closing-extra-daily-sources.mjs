@@ -132,7 +132,7 @@ export async function readClosingMacros(date,{fetchImpl=fetch,now=()=>new Date()
  }));
  return entries.filter(Boolean);
 }
-export function formatClosingExtra(date,stocks=[],macros=[]){
+export function formatClosingExtra(date,stocks=[],macros=[],{omitUs10y=false}={}){
  const safeStocks=stocks.filter(x=>{
    const sessions=closingStockSessions(date),target=STOCKS.find(s=>s.id===x?.id);
    const expected=target?.market==='KR'?sessions?.day:sessions?.us;
@@ -156,6 +156,7 @@ export function formatClosingExtra(date,stocks=[],macros=[]){
  }
  lines.push('','■ 환율·금리 (직전 완료 일봉, 실시간 아님)');
  for(const item of MACROS){
+   if(omitUs10y&&item.id==='UST10Y')continue;
    const rows=safeMacros.filter(x=>x.id===item.id);
    if(rows.length!==1){lines.push(item.label+': 검증된 완료 일봉 미확보');continue;}
    const x=rows[0],unit=item.id==='UST10Y'?'%':item.id==='USDKRW'?' KRW/USD':' index';
