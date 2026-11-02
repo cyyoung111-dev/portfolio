@@ -8,6 +8,31 @@ const wf=fs.readFileSync('.github/workflows/gas-published-gate-readonly-audit.ym
 assert.match(wf,/^on:\s*\n\s+workflow_dispatch:/m);
 assert.match(wf,/if: github\.ref == 'refs\/heads\/main' && github\.event_name == 'workflow_dispatch'/);
 assert.match(wf,/environment: portfolio-production-gas/);
+// Regression for P2: GitHub Actions concurrency is repository-wide, so the
+// source check and the runtime GET must exclude production deployment writes.
+// A distinct audit concurrency key permits the deployment to swap /exec
+// after a valid v9.282 source readback but before getWriterGateStatus.
+const auditJob=wf.split('\n  verify-published-gas:\n')[1];
+assert.ok(auditJob,'read-only audit job must exist');
+assert.match(auditJob,/concurrency:\s*\n\s+group: gas-production-deploy\s*\n\s+cancel-in-progress: false/);
+const auditGroup=auditJob.match(/group: ([a-z-]+)\s*\n\s+cancel-in-progress:/)?.[1];
+assert.equal(auditGroup,'gas-production-deploy');
+const deployWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+const deployJob=deployWorkflow.split('\n  deploy:\n')[1];
+assert.ok(deployJob,'production deploy job must exist');
+assert.match(deployJob,/environment: portfolio-production-gas/);
+assert.match(deployJob,/concurrency:\s*\n\s+group: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.dry_run && 'gas-deploy-dry-run' \|\| 'gas-production-deploy' \}\}\s*\n\s+cancel-in-progress: false/);
+for(const scenario of [
+ {event:'workflow_dispatch',dryRun:false},
+ {event:'workflow_run',dryRun:false},
+]){
+ // The production branch of the real deploy expression must hold the same
+ // lock as the audit; otherwise the tested v9.282 blob can become stale.
+ const deployGroup=scenario.event==='workflow_dispatch' && scenario.dryRun
+  ? 'gas-deploy-dry-run' : 'gas-production-deploy';
+ assert.equal(auditGroup,deployGroup,
+  'audit must not overlap a production deployment between source verification and runtime GET');
+}
 assert.match(wf,/node scripts\/audit-published-gas-gate-readonly\.mjs/);
 assert.doesNotMatch(wf,/deploy-gas\.mjs|GAS_DEPLOY_DRY_RUN|workflow_run:|push:|schedule:/);
 const real=fs.readFileSync('src/gas/apps_script.gs','utf8');
