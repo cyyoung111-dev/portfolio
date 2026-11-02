@@ -266,7 +266,7 @@ const send=workflow.jobs.briefing.steps.find(s=>s.name==='Send claimed closing b
 assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
 assert.deepEqual(workflow.on.schedule.map(x=>x.cron),[
  '0 8 * * 1-5','5 8 * * 1-5',
- '10 8 * * 1-5','20 8 * * 1-5'
+ '10 8 * * 1-5','20 8 * * 1-5','40 8 * * 1-5','50 8 * * 1-5'
 ]);
 assert.ok(Object.hasOwn(workflow.on,'workflow_dispatch'),
  'guarded manual rescue must be enabled');
@@ -300,7 +300,7 @@ assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
  {ref:'refs/heads/main',repository:{full_name:env.GITHUB_REPOSITORY}},false),false,
  'off-hours main workflow push must not enter close preparation or fail TELEGRAM_CLOSE_LATE');
 // A scheduled close still gets its own strong date/market/claim gates;
-// do not relax the 17:30 cutoff or permit an off-hour send.
+// do not relax the 18:00 cutoff or permit an off-hour send.
 assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'schedule'},
  {},false),true,'schedule reaches guarded prepare; no unconditional send');
 assert.throws(()=>deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
