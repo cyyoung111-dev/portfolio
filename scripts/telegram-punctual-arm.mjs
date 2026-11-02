@@ -21,10 +21,16 @@ export function armedKstClock(at){
 }
 export function authorizeArmedDelivery(kind,env,event,at){
  const config=ARMED_DELIVERY[kind],clock=armedKstClock(at);
- if(!config||!clock||env?.GITHUB_EVENT_NAME!=='schedule'
+ const scheduled=env?.GITHUB_EVENT_NAME==='schedule'&&event?.schedule===config?.cron;
+ const dispatched=env?.GITHUB_EVENT_NAME==='workflow_dispatch'
+   &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO
+   &&(!event?.inputs||Object.keys(event.inputs).length===0);
+ // Do not accept push, user-supplied dates or unrecognized cron events.
+ // Dispatch is only an alternative independent trigger for the SAME
+ // guarded KST source-date, claim and delivery path.
+ if(!config||!clock||!(scheduled||dispatched)
   ||env.GITHUB_REF!=='refs/heads/main'||env.GITHUB_REPOSITORY!==REPO
-  ||env.GITHUB_RUN_ATTEMPT!=='1'
-  ||event?.schedule!==config.cron||event?.repository?.full_name!==REPO
+  ||env.GITHUB_RUN_ATTEMPT!=='1'||event?.repository?.full_name!==REPO
   ||krxSessionStatus(clock.date)!=='OPEN')
   return {allowed:false,reason:'ARM_AUTH_OR_SESSION_REJECTED',clock};
  if(clock.minutes<config.arm||clock.minutes>=config.cutoff)
