@@ -140,6 +140,10 @@ function outlook(map) {
 }
 export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const map=new Map(rows.filter(x=>{const item=MORNING_SERIES.find(i=>i.symbol===x?.symbol);return item&&hasExpectedMorningDate(item,date,x,options?.now||null);}).map(x=>[x.symbol,x]));
+  const verifiedDisplayed=MORNING_SERIES.filter(item=>{
+   const r=map.get(item.symbol);
+   return r&&(item.id!=='UST10Y'||(r.value>0&&r.value<20));
+  }).length;
   const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 원천은 개별 날짜·출처 표시 (NH 야선 포함)','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id)),
@@ -161,7 +165,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   'FedWatch·Finviz 히트맵·주요 이벤트: 별도 검증 필요','',
   '■ 8. 오늘의 시나리오 (조건부, 확률 미산정)',
   ...outlook(map),'',
-  '■ QC: 기준 거래일과 일치한 일봉 '+map.size+'/'+MORNING_SERIES.length
+  '■ QC: 기준 거래일과 일치한 일봉 '+verifiedDisplayed+'/'+MORNING_SERIES.length
    +' · NH 야선 '+(reference?'확보':'미확보'),
   '일봉은 각 항목 [날짜] 기준이며 현재가·KRX 공식 정산가와 다릅니다.',
   '미확보 항목은 원천 갱신 지연 또는 거래일 미검증으로 표기합니다.'];
