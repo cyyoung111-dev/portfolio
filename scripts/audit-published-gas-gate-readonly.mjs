@@ -9,6 +9,9 @@ import {parseClaspCredentials,gasSourceBlobSha,extractExpectedGasVersion,
 const API='https://script.googleapis.com/v1';
 const OAUTH='https://oauth2.googleapis.com/token';
 const APPROVED_GATE_BLOB='9c1a5f31d1abc4b44f7da9af7a50fe3f15967134';
+// Historical production baseline; pinned identity is evidence, never authority
+// to invoke the v9.282-only getWriterGateStatus runtime route.
+const APPROVED_LEGACY_BLOB='ebe697563e94cf49e514037353260fce70ae1d57';
 const SHA=/^[a-f0-9]{40}$/;
 const ALLOWED_ERROR=/^GAS_PUBLISHED_AUDIT_[A-Z_]+$/;
 
@@ -49,9 +52,10 @@ export function classifyPublishedGateSource(source){
   const blob=gasSourceBlobSha(source);
   if(!SHA.test(blob))throw Error('invalid');
   return {version,blob,gateReadAllowed:version==='9.282'
-   &&blob===APPROVED_GATE_BLOB};
+   &&blob===APPROVED_GATE_BLOB,
+   knownLegacyBaseline:version==='9.281'&&blob===APPROVED_LEGACY_BLOB};
  }catch{
-  return {version:'UNKNOWN',blob:'UNKNOWN',gateReadAllowed:false};
+  return {version:'UNKNOWN',blob:'UNKNOWN',gateReadAllowed:false,knownLegacyBaseline:false};
  }
 }
 export async function inspectPublishedGasReadOnly({
@@ -85,6 +89,10 @@ export async function inspectPublishedGasReadOnly({
   headVersion:h.version,headBlob:h.blob,headEqualsPublished:p.blob===h.blob,
   gateMode:'NOT_QUERIED',activeCount:null,approvalPresent:null,
   publishedSourceApproved:p.gateReadAllowed,releaseAuthorized:false,
+  baselineClassification:p.gateReadAllowed?'APPROVED_V9282_GATE'
+   :p.knownLegacyBaseline?'APPROVED_LEGACY_V9281_NO_GATE_AUDIT'
+   :'UNREVIEWED_PUBLISHED_SOURCE',
+  historicalBaselineExactMatch:p.knownLegacyBaseline&&h.knownLegacyBaseline,
   deploymentVersionNumber:versionNumber,
   gasWrites:0,financeWrites:0,telegramSends:0,nhOAuthRequests:0
  };
