@@ -49,9 +49,9 @@ assert.equal(yahooCalls,18);
 assert.equal(yahoo.length,18);
 const combined=mergeMorningSourceRows(yahoo,[],nh);
 const text=formatFullMorningBriefing(day,null,combined);
-assert.match(text,/S&P 500: 7,720.39.*NH PLUG 일봉/);
-assert.match(text,/NASDAQ: 26,184.72.*NH PLUG 일봉/);
-assert.match(text,/NASDAQ100: 29,402.51.*NH PLUG 일봉/);
+assert.match(text,/S&P 500: 7,720.39.*\[2026-10-29\]/);
+assert.match(text,/NASDAQ: 26,184.72.*\[2026-10-29\]/);
+assert.match(text,/NASDAQ100: 29,402.51.*\[2026-10-29\]/);
 const yy=[{label:'S&P 500',symbol:'^GSPC',date:'2026-10-29',value:7000,source:'Yahoo Finance 일봉'}];
 assert.equal(mergeMorningSourceRows(yy,[],nh)[0].value,7720.39);
 assert.deepEqual(NH_ONLY_INDEX_SYMBOLS,['^GSPC','^IXIC','^NDX']);
@@ -119,10 +119,10 @@ try{
  assert.equal(historyCalls,1,'one stored NH history batch');
  for(const s of ['005930.KS','000660.KS','NVDA','MU'])
    assert.ok(!yahooTargets.includes(s),'valid NH close skips duplicate Yahoo '+s);
- assert.match(actualText,/삼성전자: 120 .*NH PLUG 확정 종가/);
- assert.match(actualText,/SK하이닉스: 220 .*NH PLUG 확정 종가/);
- assert.match(actualText,/엔비디아: 210 .*NH PLUG 확정 종가/);
- assert.match(actualText,/마이크론: 180 .*NH PLUG 확정 종가/);
+ assert.match(actualText,/삼성전자: 120 .*2026-10-29/);
+ assert.match(actualText,/SK하이닉스: 220 .*2026-10-29/);
+ assert.match(actualText,/엔비디아: 210 .*2026-10-29/);
+ assert.match(actualText,/마이크론: 180 .*2026-10-29/);
 }finally{
  if(priorUrl===undefined)delete process.env.GAS_WEB_APP_URL;
  else process.env.GAS_WEB_APP_URL=priorUrl;

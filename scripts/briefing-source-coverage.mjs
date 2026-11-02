@@ -25,8 +25,7 @@ const unwired=Object.freeze([
   'VKOSPI',
   'UST2Y','UST3Y','YIELD_SPREAD',
   'KRX_TURNOVER',
-  'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE',
-  'US_INDEX_FUTURES'
+  'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
 
 export const CLOSE_SOURCE_CATALOG=Object.freeze({
@@ -66,7 +65,7 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
       status:state(rows.length===1,failed.has(isKr?'DOMESTIC':'NH'))});
   }
   for(const entry of CLOSE_SOURCE_CATALOG.reference){
-    const rows=secondary.filter(x=>x?.label===entry.label&&x?.source===entry.source
+    const rows=secondary.filter(x=>x?.label===entry.label&&(x?.source===entry.source||(entry.id==='SOX'&&x?.source==='YAHOO_SOX_DAILY_REFERENCE'))
       &&x?.role==='NON_NH_REFERENCE_ONLY'&&x?.date===expectedUsDate&&validRow(x));
     statuses.push({id:entry.id,role:entry.role,
       status:state(rows.length===1,failed.has('SECONDARY'))});
@@ -114,17 +113,24 @@ export function formatCloseCoverageSummary(coverage){
   if(coverage?.schemaVersion!==1||!Array.isArray(coverage.statuses))
     throw Error('BRIEFING_COVERAGE_SCHEMA_INVALID');
   const c=coverage.core,aux=coverage.reference;
+  const displayNames=Object.fromEntries([
+   ...CLOSE_SOURCE_CATALOG.core,...CLOSE_SOURCE_CATALOG.reference,
+   ...CLOSE_SOURCE_CATALOG.extraStocks,...CLOSE_SOURCE_CATALOG.extraMacros,
+   ...CLOSE_SOURCE_CATALOG.extraMarkets
+  ].map(x=>[x.id,x.label]));
+  const missing=coverage.statuses.filter(x=>x.status!=='VERIFIED'
+    &&x.status!=='NOT_CONNECTED').map(x=>displayNames[x.id]||x.id);
+  const notConnected=coverage.statuses.filter(x=>x.status==='NOT_CONNECTED').length;
   return [
-    '■ 데이터 QC: 핵심지수 '+c.verified+'/'+c.total
+    '■ 데이터 확인: 핵심지수 '+c.verified+'/'+c.total
       +' (국내 '+c.domestic+'/3 · 미국 '+c.us+'/3)'
       +' · 참고 '+aux.verified+'/'+aux.total
-      +' · NH 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3'
+      +' · 주요 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3'
       +' · 원자재/BTC '+coverage.markets.verified+'/5',
-    '핵심 미확보: '+(coverage.statuses.filter(x=>x.role==='REQUIRED_INDEX'
-      &&x.status!=='VERIFIED').map(x=>x.id+':'+x.status).join(', ')||'없음'),
-    '추가 미확보: '+(coverage.statuses.filter(x=>['OPTIONAL_STOCK','OPTIONAL_MACRO','OPTIONAL_MARKET'].includes(x.role)
-      &&x.status!=='VERIFIED').map(x=>x.id+':'+x.status).join(', ')||'없음'),
-    '미연결: '+coverage.statuses.filter(x=>x.status==='NOT_CONNECTED').map(x=>x.id).join(', '),
+    '미확보: '+(missing.length
+      ?missing.length<=8?missing.join(' · '):missing.slice(0,8).join(' · ')+' 외 '+(missing.length-8)+'개'
+      :'없음'),
+    '미연결 참고지표: '+notConnected+'개 (상세는 시스템 진단 로그)',
   ].join('\n');
 }
 // "READY" remains the existing gate (>= 1 verified core index) until a

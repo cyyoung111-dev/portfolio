@@ -109,8 +109,10 @@ function entry(map,id){
   else if(id==='BTC')unit=' USD';
   const v=amount.toLocaleString('en-US',{maximumFractionDigits:id==='UST10Y'?3:2});
   const change=Number.isFinite(r.changePercent)?' ('+(r.changePercent>=0?'+':'')+r.changePercent.toFixed(2)+'%)':'';
-  const proof=r.source==='KRX_OFFICIAL'?'KRX 공식':r.source==='MARKET_MASTER'?'GAS 원장':r.source==='NH_INDEX_DAILY'?'NH PLUG 일봉':r.source==='NH_REGULAR_CLOSE'?'NH PLUG 확정 종가(저장 이력)':r.source==='FDR_KRX_CACHE'?'FDR·KRX 참고 종가':'Yahoo 일봉';
-  return info.label+': '+v+unit+change+' ['+r.date+' · '+proof+']';
+  const reference=r.source==='NH_INDEX_DAILY'||r.source==='NH_REGULAR_CLOSE'?'':
+    r.source==='KRX_OFFICIAL'?' · KRX':r.source==='MARKET_MASTER'?' · 자료원장 참고':
+    r.source==='FDR_KRX_CACHE'?' · FDR 참고':' · Yahoo 참고';
+  return info.label+': '+v+unit+change+' ['+r.date+reference+']';
 }
 function evidence(map,id){
   const symbol=MORNING_SERIES.find(x=>x.id===id)?.symbol;
@@ -144,7 +146,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
    const r=map.get(item.symbol);
    return r&&(item.id!=='UST10Y'||(r.value>0&&r.value<20));
   }).length;
-  const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST / 원천은 개별 날짜·출처 표시 (NH 야선 포함)','',
+  const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST · 기준일별 종가 / 외부 참고값만 출처 표시','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id)),
   '거래대금·외국인/기관·시장폭(A/D·ADR20): 미확보','',
@@ -152,7 +154,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id)),'',
   '■ 4. 코스피200 야간선물 (06:00)',
   reference && Number.isFinite(reference.value) && reference.value>0
-    ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt · NH PLUG 06:00 운영 확정 기준 ('+reference.tradingDate+') · 마지막 체결값, 거래소 공식 정산가 아님'
+    ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt [06:00 확인 · '+reference.tradingDate+'] · 마지막 체결값, 거래소 정산가 아님'
     :'코스피200 야간선물: 당일 참고값 미확보',
   '미국 선물 ES/NQ/YM/RTY: 장전 실시간 검증값 미확보','',
   '■ 5. 환율 / 금리 / 변동성',
@@ -166,7 +168,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   '■ 8. 오늘의 시나리오 (조건부, 확률 미산정)',
   ...outlook(map),'',
   '■ QC: 기준 거래일과 일치한 일봉 '+verifiedDisplayed+'/'+MORNING_SERIES.length
-   +' · NH 야선 '+(reference?'확보':'미확보'),
+   +' · 야간선물 '+(reference?'확보':'미확보'),
   '일봉은 각 항목 [날짜] 기준이며 현재가·KRX 공식 정산가와 다릅니다.',
   '미확보 항목은 원천 갱신 지연 또는 거래일 미검증으로 표기합니다.'];
   const message=lines.join('\n');

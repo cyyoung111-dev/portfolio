@@ -3,13 +3,19 @@
 // prices, message bodies, NH/GAS/Telegram credentials, or account data.
 import {MORNING_SERIES,expectedMorningDate} from './telegram-morning-report.mjs';
 
+// Display labels intentionally omit the primary NH provider. Only these
+// fixed instrument IDs may carry an unlabelled primary-source row; every
+// supplemental provider must retain an explicit visible reference marker.
 const SOURCE_LABELS=Object.freeze({
- 'KRX 공식':'KRX_OFFICIAL',
- 'GAS 원장':'MARKET_MASTER',
- 'NH PLUG 일봉':'NH_INDEX_DAILY',
- 'NH PLUG 확정 종가(저장 이력)':'NH_REGULAR_CLOSE',
- 'FDR·KRX 참고 종가':'FDR_KRX_CACHE',
- 'Yahoo 일봉':'YAHOO_DAILY_REFERENCE'
+ 'KRX':'KRX_OFFICIAL',
+ '자료원장 참고':'MARKET_MASTER',
+ 'FDR 참고':'FDR_KRX_CACHE',
+ 'Yahoo 참고':'YAHOO_DAILY_REFERENCE'
+});
+const PRIMARY_SOURCE_BY_ID=Object.freeze({
+ SPX:'NH_INDEX_DAILY',NASDAQ:'NH_INDEX_DAILY',NDX:'NH_INDEX_DAILY',
+ SAMSUNG:'NH_REGULAR_CLOSE',SKHYNIX:'NH_REGULAR_CLOSE',
+ NVDA:'NH_REGULAR_CLOSE',MU:'NH_REGULAR_CLOSE'
 });
 export function inspectMorningMessage(date,message,{now=new Date(date+'T07:40:00+09:00')}={}){
  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||''))
@@ -17,7 +23,7 @@ export function inspectMorningMessage(date,message,{now=new Date(date+'T07:40:00
   ||typeof message!=='string')return null;
  const lines=message.split('\n');
  const qcLine=lines.find(x=>x.startsWith('■ QC: 기준 거래일과 일치한 일봉 '));
- const qc=/^■ QC: 기준 거래일과 일치한 일봉 (\d+)\/(\d+) · NH 야선 (확보|미확보)$/.exec(qcLine||'');
+ const qc=/^■ QC: 기준 거래일과 일치한 일봉 (\d+)\/(\d+) · 야간선물 (확보|미확보)$/.exec(qcLine||'');
  if(!qc||Number(qc[2])!==MORNING_SERIES.length)return null;
  const statuses=[],sourceCounts={};
  for(const item of MORNING_SERIES){
@@ -27,8 +33,8 @@ export function inspectMorningMessage(date,message,{now=new Date(date+'T07:40:00
    statuses.push({id:item.id,status:'NO_VERIFIED_ROW',expectedDate:expected});continue;
   }
   const line=fields[0];
-  const bracket=/\[([0-9]{4}-[0-9]{2}-[0-9]{2}) · (.+)\]$/.exec(line);
-  const source=bracket?SOURCE_LABELS[bracket[2]]:null;
+  const bracket=/\[([0-9]{4}-[0-9]{2}-[0-9]{2})(?: · (.+))?\]$/.exec(line);
+  const source=bracket?(bracket[2]?SOURCE_LABELS[bracket[2]]:PRIMARY_SOURCE_BY_ID[item.id]):null;
   if(line.includes('미확보')||!bracket||bracket[1]!==expected||!source){
    statuses.push({id:item.id,status:'NO_VERIFIED_ROW',expectedDate:expected});continue;
   }

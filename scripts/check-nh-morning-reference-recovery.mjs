@@ -9,7 +9,7 @@ const ref={source:'NH',kind:'REFERENCE',tradingDate:DATE,
  clock:'06:00:00',sourceUpdatedAt:DATE+'T06:00:00+09:00',
  receivedAt:DATE+'T07:45:00+09:00',officialClose:false};
 const payload='[한국장 장전 종합 브리핑 | '+DATE+']\n'+
- '■ QC: 기준 거래일과 일치한 일봉 1/21 · NH 야선 미확보';
+ '■ QC: 기준 거래일과 일치한 일봉 1/21 · 야간선물 미확보';
 const stamp=x=>()=>new Date(DATE+'T'+x+'+09:00');
 function simulated({clock='07:50:00',artifact=null,reference=ref,
   token='GAS_READONLY_TOKEN',gasUrl='https://script.google.com/macros/s/TEST/exec',

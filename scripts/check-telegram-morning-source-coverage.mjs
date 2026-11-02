@@ -39,7 +39,7 @@ assert.deepEqual(inspectMorningMessage(date,yieldMessage,{now:now()}).missing.ma
 const mismatchedMessage=message.replace('■ QC: 기준 거래일과 일치한 일봉 21/21',
  '■ QC: 기준 거래일과 일치한 일봉 20/21');
 assert.equal(inspectMorningMessage(date,mismatchedMessage,{now:now()}).status,'QC_MISMATCH');
-const badSource=message.replace(' · Yahoo 일봉]',' · NO_PROOF]');
+const badSource=message.replace(' · Yahoo 참고]',' · NO_PROOF]');
 assert.equal(inspectMorningMessage(date,badSource,{now:now()}).status,'QC_MISMATCH');
 assert.equal(inspectMorningMessage(date,'arbitrary text',{now:now()}),null);
 let messageCreated=0,providerCalls=0;

@@ -50,7 +50,7 @@ assert.deepEqual(verified.map(r=>r.value),[5730.74,724.38,899.78]);
 assert.ok(verified.every(r=>r.source==='YAHOO_SHINHAN_CROSSCHECKED_EOD'
  &&r.priceType==='INDEPENDENT_CROSSCHECKED_EOD'&&Number.isFinite(r.changePercent)));
 assert.equal(verifiedDomesticCloseRows(date,verified).length,3);
-assert.match(formatClose(date,[],[],verified),/KOSPI200|KOSPI 200: 899.78.*Yahoo·신한 일치 참고 종가/);
+assert.match(formatClose(date,[],[],verified),/KOSPI200|KOSPI 200: 899.78.*Yahoo·신한 참고/);
 assert.equal(verifiedDomesticCloseRows(date,[{...verified[0],source:'KRX_OFFICIAL'}]).length,0);
 const changed=structuredClone(gas);changed.series.KOSPI[0].value=5668.26;
 assert.deepEqual(verifyCrosscheckedYahooIndexes(date,changed,shinhan,'2026-10-29',prev).map(r=>r.type),

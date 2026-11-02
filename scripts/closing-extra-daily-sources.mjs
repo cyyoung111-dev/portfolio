@@ -51,23 +51,56 @@ export function normalizeClosingNhStocks(date,data){
  }
  return result;
 }
-export async function readNhClosingStocks(date,{url=process.env.GAS_WEB_APP_URL,
- token=process.env.GAS_ACCESS_TOKEN,fetchImpl=fetch}={}){
+// Read-only, fixed-enum diagnosis for missing NH regular closes. Never return
+// raw GAS responses, prices, account details, credentials or endpoint URLs.
+export function describeClosingNhStockRead(date,data){
  const session=closingStockSessions(date);
- if(!session||!url||typeof token!=='string'||token.length<12)return [];
+ if(!session)return {status:'SESSION_UNVERIFIED'};
+ if(data?.status!=='ok')return {status:data?.status==='error'&&data?.message==='인증 실패'
+   ?'GAS_AUTH_REJECTED':'GAS_RESPONSE_NOT_OK'};
+ if(!data.prices||typeof data.prices!=='object'||Array.isArray(data.prices))
+   return {status:'PRICE_RESPONSE_SCHEMA'};
+ return {status:'GAS_RESPONSE_OK',stocks:STOCKS.map(item=>{
+   const expected=item.market==='KR'?session.day:session.us;
+   const rows=data.prices[item.code];
+   if(!Array.isArray(rows))return {id:item.id,status:'CODE_NOT_RETURNED'};
+   if(rows.length>30)return {id:item.id,status:'ROW_LIMIT_EXCEEDED'};
+   const matching=rows.filter(x=>x?.date===expected);
+   if(matching.length===0)return {id:item.id,status:'EXPECTED_DATE_MISSING'};
+   if(matching.length!==1)return {id:item.id,status:'DUPLICATE_DATE'};
+   const row=matching[0];
+   if(row.source!=='NH_REGULAR_CLOSE')return {id:item.id,status:'SOURCE_NOT_NH'};
+   if(!Number.isFinite(row.price)||row.price<=0)return {id:item.id,status:'INVALID_PRICE'};
+   return {id:item.id,status:'VERIFIED'};
+ })};
+}
+
+export async function readNhClosingStocks(date,{url=process.env.GAS_WEB_APP_URL,
+ token=process.env.GAS_ACCESS_TOKEN,fetchImpl=fetch,onDiagnostic=()=>{}}={}){
+ const emit=result=>{try{onDiagnostic(result);}catch{}};
+ const session=closingStockSessions(date);
+ if(!session||!url||typeof token!=='string'||token.length<12){
+   emit({status:'CONFIG_OR_SESSION_UNVERIFIED'});return [];
+ }
  let endpoint;
- try{endpoint=validateGasEndpoint(url);}catch{return [];}
+ try{endpoint=validateGasEndpoint(url);}catch{
+   emit({status:'GAS_ENDPOINT_INVALID'});return [];
+ }
  const oldest=Math.min(...[session.priorKr,session.priorUs].map(s=>Date.parse(s+'T00:00:00Z')));
  const from=new Date(oldest-2*86400000).toISOString().slice(0,10);
  const payload=new URLSearchParams({action:'getPriceHistory',accessToken:token,
    codes:STOCKS.map(x=>x.code).join(','),from,to:date});
+ let response,data;
  try{
-   const response=await fetchImpl(endpoint,{method:'POST',
+   response=await fetchImpl(endpoint,{method:'POST',
      headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
      body:payload,redirect:'follow',signal:AbortSignal.timeout(17000)});
-   if(!response.ok)return [];
-   return normalizeClosingNhStocks(date,await response.json());
- }catch{return [];}
+ }catch{emit({status:'GAS_FETCH_FAILED'});return [];}
+ if(!response?.ok){emit({status:'GAS_HTTP_UNAVAILABLE'});return [];}
+ try{data=await response.json();}
+ catch{emit({status:'GAS_JSON_INVALID'});return [];}
+ emit(describeClosingNhStockRead(date,data));
+ return normalizeClosingNhStocks(date,data);
 }
 // Yahoo daily macro snapshots are annotated as prior completed US/FX sessions,
 // never as current 17:00 spot/interest-rate quotes. Fail closed on stale dates.
@@ -110,16 +143,16 @@ export function formatClosingExtra(date,stocks=[],macros=[]){
  });
  const safeMacros=macros.map(x=>validateClosingMacro(date,x?.id,
    x?.source==='YAHOO_DAILY_REFERENCE'?{...x,source:'Yahoo Finance 일봉'}:x)).filter(Boolean);
- const lines=['■ 주요 종목 NH 저장 종가 (국내 당일 / 미국 직전 완료장)'];
+ const lines=['■ 주요 종목 (국내 당일 / 미국 직전 완료장)'];
  for(const item of STOCKS){
    const rows=safeStocks.filter(x=>x.id===item.id);
    const name=MORNING_SERIES.find(x=>x.id===item.id)?.label||item.id;
-   if(rows.length!==1){lines.push(name+': NH 확정 저장종가 미확보');continue;}
+   if(rows.length!==1){lines.push(name+': 종가 미확보');continue;}
    const x=rows[0],unit=item.market==='KR'?'원':'USD';
    lines.push(name+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
      +' '+unit+(Number.isFinite(x.changePercent)?' ('+(x.changePercent>=0?'+':'')
      +x.changePercent.toFixed(2)+'%)':'')
-     +' ['+x.date+' · NH 저장 정규장 종가]');
+     +' ['+x.date+']');
  }
  lines.push('','■ 환율·금리 (직전 완료 일봉, 실시간 아님)');
  for(const item of MACROS){
@@ -137,7 +170,7 @@ export function formatClosingExtra(date,stocks=[],macros=[]){
 export function closingExtraCounts(date,stocks=[],macros=[]){
  const text=formatClosingExtra(date,stocks,macros);
  return {
-  stock:STOCKS.filter(item=>!text.includes((MORNING_SERIES.find(x=>x.id===item.id)?.label||item.id)+': NH 확정 저장종가 미확보')).length,
+  stock:STOCKS.filter(item=>!text.includes((MORNING_SERIES.find(x=>x.id===item.id)?.label||item.id)+': 종가 미확보')).length,
   macro:MACROS.filter(item=>!text.includes(item.label+': 검증된 완료 일봉 미확보')).length
  };
 }

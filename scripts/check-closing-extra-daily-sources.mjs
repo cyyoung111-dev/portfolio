@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
- closingStockSessions,normalizeClosingNhStocks,readNhClosingStocks,
+ closingStockSessions,normalizeClosingNhStocks,readNhClosingStocks,describeClosingNhStockRead,
  validateClosingMacro,readClosingMacros,formatClosingExtra
 } from './closing-extra-daily-sources.mjs';
 import {summarizeCloseCoverage} from './briefing-source-coverage.mjs';
@@ -23,6 +23,21 @@ const payload={status:'ok',prices:{
  MU:[{date:'2026-10-29',price:100,source:'NH_REGULAR_CLOSE'},
      {date:us,price:105,source:'NH_REGULAR_CLOSE'}]
 }};
+const audit=describeClosingNhStockRead(date,payload);
+assert.deepEqual(audit,{status:'GAS_RESPONSE_OK',stocks:[
+ {id:'SAMSUNG',status:'VERIFIED'},{id:'SKHYNIX',status:'VERIFIED'},
+ {id:'NVDA',status:'VERIFIED'},{id:'MU',status:'VERIFIED'}
+]});
+assert.equal(describeClosingNhStockRead(date,{status:'error',message:'인증 실패'}).status,'GAS_AUTH_REJECTED');
+assert.equal(describeClosingNhStockRead(date,{status:'ok'}).status,'PRICE_RESPONSE_SCHEMA');
+const missing=structuredClone(payload);
+delete missing.prices.MU;
+missing.prices['005930']=[{date,price:1,source:'KRX_CARRY'}];
+missing.prices['000660']=[{date:'2026-10-30',price:1,source:'NH_REGULAR_CLOSE'}];
+missing.prices.NVDA.push({date:us,price:1,source:'NH_REGULAR_CLOSE'});
+assert.deepEqual(describeClosingNhStockRead(date,missing).stocks.map(x=>x.status),[
+ 'SOURCE_NOT_NH','EXPECTED_DATE_MISSING','DUPLICATE_DATE','CODE_NOT_RETURNED']);
+assert.ok(!JSON.stringify(describeClosingNhStockRead(date,missing)).includes('72000'));
 const stocks=normalizeClosingNhStocks(date,payload);
 assert.equal(stocks.length,4);
 assert.deepEqual(stocks.map(x=>x.date),[date,date,us,us],
@@ -40,7 +55,9 @@ assert.equal(normalizeClosingNhStocks(date,{...payload,prices:{...payload.prices
 assert.equal(normalizeClosingNhStocks(date,{status:'error',prices:payload.prices}).length,0);
 
 let stockCalls=0;
+const recordedAudit=[];
 const saved=await readNhClosingStocks(date,{
+ onDiagnostic:value=>recordedAudit.push(value),
  url:'https://script.google.com/macros/s/EXAMPLE123/exec',token:'TEST_ACCESS_TOKEN_WITH_LENGTH',
  fetchImpl:async (url,request)=>{
   stockCalls++;
@@ -53,6 +70,7 @@ const saved=await readNhClosingStocks(date,{
   return {ok:true,json:async()=>payload};
  }
 });
+assert.deepEqual(recordedAudit,[audit],'source diagnostics log only allowed fixed enums');
 assert.equal(stockCalls,1,'one read-only stored NH history batch');
 assert.equal(saved.length,4);
 assert.deepEqual(await readNhClosingStocks(date,{url:'http://evil.net/exec',
@@ -82,8 +100,8 @@ const macros=await readClosingMacros(date,{
 });
 assert.equal(macros.length,3);assert.equal(attempts.length,4);
 assert.ok(attempts.some(x=>x.host==='query2.finance.yahoo.com'));
-assert.match(formatClosingExtra(date,stocks,macros),/삼성전자: 73,500 원.*2026-11-02.*NH 저장/);
-assert.match(formatClosingExtra(date,stocks,macros),/엔비디아: 215 USD.*2026-10-30.*NH 저장/);
+assert.match(formatClosingExtra(date,stocks,macros),/삼성전자: 73,500 원.*\[2026-11-02\]/);
+assert.match(formatClosingExtra(date,stocks,macros),/엔비디아: 215 USD.*\[2026-10-30\]/);
 assert.match(formatClosingExtra(date,stocks,macros),/미 10년물: 4.929%.*2026-10-30/);
 assert.doesNotMatch(formatClosingExtra(date,[],[]),/73,500|1445.12/);
 const coverage=summarizeCloseCoverage(date,{stocks,macros,expectedUsDate:us});
@@ -113,7 +131,7 @@ const prepared=await prepareClose({
 assert.equal(prepared.ready,true);
 assert.equal(prepared.coverage.stocks.verified,4);
 assert.equal(prepared.coverage.macros.verified,3);
-assert.match(prepared.message,/■ 주요 종목 NH 저장 종가/);
+assert.match(prepared.message,/■ 주요 종목/);
 assert.match(prepared.message,/■ 환율·금리/);
 assert.ok(prepared.message.length<4000);
 const noCore=await prepareClose({
@@ -126,6 +144,8 @@ const noCore=await prepareClose({
 assert.equal(noCore.ready,false,'optional extra data do not bypass existing core index safety gate');
 assert.equal(noCore.coverage.stocks.verified,4);
 assert.equal(noCore.status,'NO_VERIFIED_INDEX_CLOSE');
+assert.match(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/NH_CLOSE_STOCK_READ/);
+assert.match(fs.readFileSync('scripts/telegram-close-precompute.mjs','utf8'),/NH_PRECLOSE_STOCK_READ/);
 const source=fs.readFileSync('scripts/closing-extra-daily-sources.mjs','utf8');
 assert.doesNotMatch(source,/bootstrapNhToken|savePriceHistory|saveSnapshot|sendTelegram/);
 console.log('CLOSING_EXTRA_DAILY_SOURCES_PASS stock=4 macro=3 NH_READONLY_BATCH=1');

@@ -91,7 +91,7 @@ const morning=await runTelegramMorning({event:'schedule',now:mondayMorning,attem
  }});
 assert.equal(morning.status,'SENT_SOURCE_MISSING');
 assert.equal(yahooIndexRequested,false,'NH-missing domestic indexes must not query Yahoo');
-assert.match(delivered,/KOSPI: 5,668.26.*FDR·KRX 참고 종가/);
-assert.match(delivered,/KOSDAQ: 5,668.26.*FDR·KRX 참고 종가/);
-assert.match(delivered,/KOSPI200: 5,668.26.*FDR·KRX 참고 종가/);
+assert.match(delivered,/KOSPI: 5,668.26.*FDR 참고/);
+assert.match(delivered,/KOSDAQ: 5,668.26.*FDR 참고/);
+assert.match(delivered,/KOSPI200: 5,668.26.*FDR 참고/);
 console.log('Domestic index EOD: date, post-close provenance, intraday exclusion, source labels PASS');
