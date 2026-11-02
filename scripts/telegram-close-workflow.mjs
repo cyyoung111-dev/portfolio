@@ -16,6 +16,8 @@ import {readNhClosingStocks,readClosingMacros,formatClosingExtra} from './closin
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
+import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures.mjs';
+import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -120,11 +122,13 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[]){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00')){
  const valid=verifiedNhCloseRows(date,rows);
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
-  '기준: 국내 당일 마감 · 해외 직전 완료장 · 외부 참고 출처만 표시','',
+  '기준: 국내 당일 마감 · 17시 해외 선물 · 미국 현물 직전 완료장','',
+  ...formatAiIndustryCloseLens({date,usDate:expectedMorningDate('SPX',date),
+    nh:valid,secondary,stocks,futures,now}),'',
   '■ 국내 시장 (당일 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
   const matches=validDomestic.filter(x=>x.label===label);
@@ -137,7 +141,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
   lines.push(label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
     +change+' ['+date+' · '+provenance+']');
  }
- lines.push('','■ 미국 현물시장 (직전 완료장)');
+ lines.push('',formatCurrentFutures(date,futures,now),'','■ 미국 현물시장 (직전 완료장)');
  for(const target of NH_VERIFIED){
   const row=valid.find(r=>r.symbol===target.symbol);
   if(!row){lines.push(target.label+': 완료 종가 미확보');continue;}
@@ -171,7 +175,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
  fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros,
- fetchMarkets=readClosingMarketReferences,loadPrepared=async()=>null}={}){
+ fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
+ loadPrepared=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -192,6 +197,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     {token:githubToken,repository,fetchImpl,now});}catch{}
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
   let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[]}=cached||{};
+  // Latest 17:00 overseas quotes must never come from the 16:50 EOD artifact.
+  let futures=[];
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
   const combine=(oldRows,liveRows,key)=>{
@@ -218,7 +225,9 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     catch{failedGroups.push('MACROS');}})(),
    (async()=>{if(markets.length===5)return;try{markets=combine(markets,normalize('markets',
     await fetchMarkets(window.date,{fetchImpl,now})),'id');}
-    catch{failedGroups.push('MARKETS');}})()
+    catch{failedGroups.push('MARKETS');}})(),
+   (async()=>{try{futures=await fetchFutures(window.date,{fetchImpl,now});}
+    catch{futures=[];}})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
@@ -232,7 +241,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets)};
+    futuresCount:futures.length,
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now())};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
@@ -257,7 +267,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
         nhConfirmed:result.nhConfirmed||0,domesticConfirmed:result.domesticConfirmed||0,
         coreCoverage:result.coverage?.core||null,referenceCoverage:result.coverage?.reference||null,
         stockCoverage:result.coverage?.stocks||null,macroCoverage:result.coverage?.macros||null,
-        marketCoverage:result.coverage?.markets||null,
+        marketCoverage:result.coverage?.markets||null,futuresCount:result.futuresCount||0,
         cacheSource:result.cacheSource||'NONE',
         sourceStatuses:result.coverage?.statuses||null,failedGroups:result.coverage?.groupErrors||[]}));
     }else if(process.argv[2]==='send'){
