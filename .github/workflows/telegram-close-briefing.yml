@@ -3,11 +3,10 @@ on:
   # Schedule delivery is best-effort. Multiple staggered triggers help
   # recovery, but only a dated claim can authorize a single Telegram send.
   schedule:
-    - cron: '30 7 * * 1-5' # 16:30 KST primary
-    - cron: '38 7 * * 1-5' # 16:38 KST fallback
-    - cron: '50 7 * * 1-5' # 16:50 KST fallback
-    - cron: '2 8 * * 1-5'  # 17:02 KST fallback
-    - cron: '24 8 * * 1-5' # 17:24 KST delayed-scheduler recovery
+    - cron: '0 8 * * 1-5'  # 17:00 KST PRIMARY: fully published close data only
+    - cron: '8 8 * * 1-5'  # 17:08 KST provider/scheduler fallback
+    - cron: '17 8 * * 1-5' # 17:17 KST provider/scheduler fallback
+    - cron: '31 8 * * 1-5' # 17:31 KST delayed-scheduler recovery
     - cron: '14 9 * * 1-5' # 18:14 KST recovery
     - cron: '17 10 * * 1-5' # 19:17 KST final fallback, 20:00 cutoff
   workflow_run:
