@@ -15,6 +15,7 @@ function simulated({clock='07:50:00',artifact=null,reference=ref,
   token='GAS_READONLY_TOKEN',gasUrl='https://script.google.com/macros/s/TEST/exec',
   claimExists=false,late=false,recoveryClock=null}={}){
  let claims=0,archives=0,recoveryCalls=0,sent=0,referenceSeen=null;
+ const recoveryDiagnostics=[];
  const result=prepareMorning({
   now:stamp(clock),
   githubToken:'TEST_GITHUB_READ_TOKEN',repository:REPO,
@@ -28,12 +29,14 @@ function simulated({clock='07:50:00',artifact=null,reference=ref,
   },
   loadReference:async()=>{archives++;return artifact;},
   gasUrl,gasToken:token,
+  onRecoveryDiagnostic:result=>recoveryDiagnostics.push(result),
   recoverReference:async (_date,options)=>{
     recoveryCalls++;
     assert.equal(_date,DATE);
     assert.equal(options.url,gasUrl);
     assert.equal(options.token,token);
     assert.equal(typeof options.request,'function');
+    if(reference===null){options.onError('NH_NIGHT_SOURCE_UNAVAILABLE');return null;}
     if(recoveryClock)return {...reference,receivedAt:DATE+'T'+recoveryClock+'+09:00'};
     return reference;
   },
@@ -45,7 +48,8 @@ function simulated({clock='07:50:00',artifact=null,reference=ref,
       referenceSource:referenceSeen?.source||'NONE'};
   }
  });
- return {result,observed:()=>({claims,archives,recoveryCalls,sent,referenceSeen})};
+ return {result,observed:()=>({claims,archives,recoveryCalls,sent,referenceSeen}),
+  diagnostics:()=>recoveryDiagnostics};
 }
 const recovered=simulated();
 const a=await recovered.result;
@@ -55,6 +59,7 @@ assert.equal(a.referenceOrigin,'GAS_RECOVERY');
 assert.equal(recovered.observed().recoveryCalls,1);
 assert.equal(recovered.observed().referenceSeen.value,900.05);
 assert.equal(recovered.observed().sent,1);
+assert.deepEqual(recovered.diagnostics(),[{status:'VERIFIED',reason:null}]);
 const withArtifact=simulated({artifact:ref});
 const art=await withArtifact.result;
 assert.equal(art.referenceOrigin,'CAPTURE_ARTIFACT');
@@ -75,6 +80,16 @@ for(const options of [
 ]){
  const x=simulated(options);
  const y=await x.result;
+ if(options.reference===null){
+   assert.deepEqual(x.diagnostics(),[{
+     status:'NOT_VERIFIED',reason:'NH_NIGHT_SOURCE_UNAVAILABLE'
+   }],'recovery source failure is an enum only');
+ }
+ if(options.reference?.tradingDate==='2026-10-29'){
+   assert.deepEqual(x.diagnostics(),[{
+     status:'NOT_VERIFIED',reason:'RECOVERY_METADATA_REJECTED'
+   }],'wrong date remains rejected and is observable');
+ }
  assert.equal(y.referenceSource,'NONE',JSON.stringify(options));
  assert.equal(y.referenceOrigin,'NONE');
  if(options.late)assert.equal(y.mode,'late_test');
@@ -103,4 +118,6 @@ assert.equal(method,'POST');
 assert.equal(action,'getNhNightProxy');
 assert.equal((await protectedRead.result).referenceOrigin,'GAS_RECOVERY');
 assert.ok(!JSON.stringify(await recovered.result).includes('GAS_READONLY_TOKEN'));
+assert.ok(!JSON.stringify(recovered.diagnostics()).includes('900.05'),
+ 'privacy: recovery diagnostics never print NH quote values');
 console.log('NH morning recovery: verified 06:00 GAS fallback, time/date/claim guard, no direct OAuth PASS');

@@ -7,7 +7,8 @@ import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,recoverReference=fetchNightReference,
-  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}) {
+  onRecoveryDiagnostic=()=>{},gasUrl=process.env.GAS_WEB_APP_URL,
+  gasToken=process.env.GAS_ACCESS_TOKEN}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
   if(!['rescue','late_test'].includes(mode))throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
   const lateTest=mode==='late_test';
@@ -36,20 +37,30 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   const recoveryAt=now().getTime();
   if(!reference&&!lateTest&&gasUrl&&gasToken
     &&recoveryAt>=recoveryStart&&recoveryAt<recoveryCutoff){
+    let recovered=null,reason='RECOVERY_NO_VALID_REFERENCE';
     try{
-      const recovered=await recoverReference(window.date,{
-        now,url:gasUrl,token:gasToken,request:fetchImpl
+      recovered=await recoverReference(window.date,{
+        now,url:gasUrl,token:gasToken,request:fetchImpl,
+        // Only preapproved fixed diagnostic enums; never log raw NH/GAS
+        // errors, prices, credentials, account data or source payloads.
+        onError:code=>{
+          if(typeof code==='string'&&/^NH_(?:PROXY|NIGHT)_[A-Z0-9_]{1,70}$/.test(code))
+            reason=code;
+        }
       });
-      if(recovered?.source==='NH'&&recovered.tradingDate===window.date
-        &&recovered.sourceUpdatedAt===window.date+'T06:00:00+09:00'
-        &&Number.isFinite(Date.parse(recovered.receivedAt))
-        &&Date.parse(recovered.receivedAt)>=Date.parse(window.date+'T07:30:00+09:00')
-        &&Date.parse(recovered.receivedAt)<recoveryCutoff
-        &&now().getTime()<recoveryCutoff){
-        reference=recovered;
-        referenceOrigin='GAS_RECOVERY';
-      }
-    }catch{/* Preserve missing reference: never invent or reuse a stale tick. */}
+    }catch{reason='RECOVERY_CALL_FAILED';}
+    const accepted=recovered?.source==='NH'&&recovered.tradingDate===window.date
+      &&recovered.sourceUpdatedAt===window.date+'T06:00:00+09:00'
+      &&Number.isFinite(Date.parse(recovered.receivedAt))
+      &&Date.parse(recovered.receivedAt)>=Date.parse(window.date+'T07:30:00+09:00')
+      &&Date.parse(recovered.receivedAt)<recoveryCutoff
+      &&now().getTime()<recoveryCutoff;
+    if(accepted){
+      reference=recovered;
+      referenceOrigin='GAS_RECOVERY';
+    }else if(recovered){reason='RECOVERY_METADATA_REJECTED';}
+    try{onRecoveryDiagnostic({status:accepted?'VERIFIED':'NOT_VERIFIED',
+      reason:accepted?null:reason});}catch{};
   }
   const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
   if(!message)return {ready:false,status:result.status,date:window.date};
@@ -91,7 +102,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    process.exit(0);
   }
   if(process.argv[2]==='prepare'){
-   const result=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,mode:process.env.TELEGRAM_DISPATCH_MODE||'rescue'});
+   const result=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,mode:process.env.TELEGRAM_DISPATCH_MODE||'rescue',
+      onRecoveryDiagnostic:details=>console.log(JSON.stringify({kind:'NH_MORNING_REFERENCE_RECOVERY',...details}))});
    if(result.ready){
     fs.mkdirSync('.telegram-runtime',{recursive:true});
     fs.writeFileSync('.telegram-runtime/payload.json',JSON.stringify(result));
