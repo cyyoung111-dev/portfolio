@@ -91,8 +91,8 @@ await readNhClosingStocks(date,{
 assert.deepEqual(networkAudit,[{status:'GAS_FETCH_FAILED'}],
  'network/redirect failures are not mislabeled as timeout');
 const protectedSource=fs.readFileSync('scripts/closing-extra-daily-sources.mjs','utf8');
-assert.match(protectedSource,/AbortSignal\\.timeout\\(30000\\)/,
- 'exactly one bounded 30-second GAS read and no automatic retry');
+assert.ok(protectedSource.includes('AbortSignal.timeout(30000)'),
+ 'read-only GAS request must have a bounded 30-second timeout');
 
 assert.equal(stockCalls,1,'one read-only stored NH history batch');
 assert.equal(saved.length,4);
