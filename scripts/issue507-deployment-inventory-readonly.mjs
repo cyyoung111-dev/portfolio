@@ -159,6 +159,9 @@ export async function inspectGasDeploymentsReadOnly({
  const sourceAudit={attempted:false,distinctVersions:0,successful:0,
   failed:0,skippedUnversioned:0,skippedOverLimit:0,
   knownLegacy9281:0,knownReviewedGate9282:0,unreviewedSource:0};
+ // Version-to-classification mapping stays private in memory. Aggregate
+ // classification by deployment role (expected vs additional), not by URL.
+ const sourceByVersion=new Map();
  if(verifySource){
   if(!verifyDetails)fail('SOURCE_REQUIRES_DETAILS');
   sourceAudit.attempted=true;
@@ -171,7 +174,8 @@ export async function inspectGasDeploymentsReadOnly({
   sourceAudit.distinctVersions=uniq.size;
   for(const version of uniq){
    if(sourceAudit.successful+sourceAudit.failed>=LIMIT){
-    sourceAudit.skippedOverLimit++;continue;
+    sourceAudit.skippedOverLimit++;
+    sourceByVersion.set(version,'SOURCE_LIMIT_UNVERIFIED');continue;
    }
    try{
     const u=new URL(ROOT+encodeURIComponent(scriptId)+'/content');
@@ -186,13 +190,41 @@ export async function inspectGasDeploymentsReadOnly({
      throw Error('source');
     const classified=classifyPublishedGateSource(code[0].source);
     sourceAudit.successful++;
-    if(classified.knownLegacyBaseline)sourceAudit.knownLegacy9281++;
-    else if(classified.gateReadAllowed)sourceAudit.knownReviewedGate9282++;
-    else sourceAudit.unreviewedSource++;
+    if(classified.knownLegacyBaseline){
+     sourceAudit.knownLegacy9281++;
+     sourceByVersion.set(version,'APPROVED_LEGACY_V9281');
+    }else if(classified.gateReadAllowed){
+     sourceAudit.knownReviewedGate9282++;
+     sourceByVersion.set(version,'REVIEWED_GATE_V9282');
+    }else{
+     sourceAudit.unreviewedSource++;
+     sourceByVersion.set(version,'UNREVIEWED_SOURCE');
+    }
    }catch{
     sourceAudit.failed++;
+    sourceByVersion.set(version,'SOURCE_GET_UNVERIFIED');
    }
   }
+ }
+ const getRole=e=>{
+  if(!verifySource)return 'NOT_INSPECTED';
+  if(!e.versionVerified)return 'VERSION_METADATA_UNVERIFIED';
+  return sourceByVersion.get(e.versionNumber)||'SOURCE_GET_UNVERIFIED';
+ };
+ const expectedRow=entries.find(e=>e.expected);
+ const expectedSourceClassification=expectedRow?getRole(expectedRow):'EXPECTED_NOT_FOUND';
+ const additionalRoleCounts={
+  knownLegacy9281:0,reviewedGate9282:0,unreviewed:0,
+  versionUnverified:0,getUnverified:0,limitUnverified:0,notInspected:0};
+ for(const e of entries.filter(x=>!x.expected&&x.types.length>0)){
+  const role=getRole(e);
+  if(role==='APPROVED_LEGACY_V9281')additionalRoleCounts.knownLegacy9281++;
+  else if(role==='REVIEWED_GATE_V9282')additionalRoleCounts.reviewedGate9282++;
+  else if(role==='UNREVIEWED_SOURCE')additionalRoleCounts.unreviewed++;
+  else if(role==='VERSION_METADATA_UNVERIFIED')additionalRoleCounts.versionUnverified++;
+  else if(role==='SOURCE_LIMIT_UNVERIFIED')additionalRoleCounts.limitUnverified++;
+  else if(role==='NOT_INSPECTED')additionalRoleCounts.notInspected++;
+  else additionalRoleCounts.getUnverified++;
  }
  const counts={WEB_APP:0,EXECUTION_API:0,ADD_ON:0,OTHER:0};
  for(const e of entries)for(const type of e.types)counts[type]++;
@@ -255,6 +287,14 @@ export async function inspectGasDeploymentsReadOnly({
   sourceKnownLegacy9281Count:sourceAudit.knownLegacy9281,
   sourceKnownReviewedGate9282Count:sourceAudit.knownReviewedGate9282,
   sourceUnreviewedCount:sourceAudit.unreviewedSource,
+  expectedDeploymentSourceClassification:expectedSourceClassification,
+  additionalDeploymentKnownLegacy9281Count:additionalRoleCounts.knownLegacy9281,
+  additionalDeploymentReviewedGate9282Count:additionalRoleCounts.reviewedGate9282,
+  additionalDeploymentUnreviewedSourceCount:additionalRoleCounts.unreviewed,
+  additionalDeploymentVersionUnverifiedCount:additionalRoleCounts.versionUnverified,
+  additionalDeploymentSourceGetUnverifiedCount:additionalRoleCounts.getUnverified,
+  additionalDeploymentSourceLimitUnverifiedCount:additionalRoleCounts.limitUnverified,
+  additionalDeploymentSourceNotInspectedCount:additionalRoleCounts.notInspected,
   expectedDeploymentFound:expectedRows.length===1,
   pagesRead:pages,inventoryComplete:true,
   allActorsAndVersionsTerminatedVerified:false,
