@@ -67,9 +67,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   }else if(process.argv[2]==='send'){
    const payload=JSON.parse(fs.readFileSync('.telegram-runtime/payload.json','utf8'));
    const sent=await deliverAndRecordWeekday(payload,{
-     kind:'morning',deliver:deliverPrepared,
+     kind:'morning',deliver:(payload,options)=>deliverPrepared(payload,{...options,mode:process.env.TELEGRAM_DISPATCH_MODE||''}),
      token:process.env.TELEGRAM_BOT_TOKEN,chatId:process.env.TELEGRAM_CHAT_ID,
-     attempt:process.env.GITHUB_RUN_ATTEMPT,mode:process.env.TELEGRAM_DISPATCH_MODE||'',
+     attempt:process.env.GITHUB_RUN_ATTEMPT,
      path:'.telegram-runtime/sent.json',runId:process.env.GITHUB_RUN_ID||''
    });
    console.log(JSON.stringify(sent));
