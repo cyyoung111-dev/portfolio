@@ -37,7 +37,8 @@ const counts=summarizeCloseCoverage(date,{markets:normalized,expectedUsDate:prev
 assert.deepEqual(counts.markets,{verified:5,total:5});
 assert.equal(counts.core.verified,0,'commodity & BTC cannot authorize message without verified index');
 assert.equal(CLOSE_SOURCE_CATALOG.notConnected.includes('BTC'),false);
-assert.equal(CLOSE_SOURCE_CATALOG.notConnected.includes('VKOSPI'),true);
+assert.equal(CLOSE_SOURCE_CATALOG.notConnected.includes('VKOSPI'),false);
+assert.equal(counts.volatility.verified,0);
 assert.equal(counts.statuses.filter(x=>x.role==='OPTIONAL_MARKET').length,5);
 assert.equal(summarizeCloseCoverage(date,{expectedUsDate:prev,
  markets:[{...normalized[4],date:prev}]}).markets.verified,0);
