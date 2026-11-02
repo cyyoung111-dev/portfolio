@@ -11,6 +11,8 @@ concurrency:
   # Same group as the regular delivery workflow; never two parallel sends.
   group: telegram-morning-briefing
   cancel-in-progress: false
+  # Preserve pending retries; still serialize all claimed sends.
+  queue: max
 jobs:
   armed:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' && github.run_attempt == 1

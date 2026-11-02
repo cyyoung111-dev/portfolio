@@ -73,6 +73,7 @@ for(const c of checks){
  assert.deepEqual(y.on.schedule,[{cron:c.cron}]);
  assert.equal(y.concurrency.group,c.group,'share original dated claim concurrency group');
  assert.equal(y.concurrency['cancel-in-progress'],false);
+ assert.equal(y.concurrency.queue,'max','all fallback workflows must retain pending runs instead of replacing them');
  assert.equal(j.environment,'portfolio-production-gas');
  assert.equal(j['runs-on'],'ubuntu-latest');
  assert.ok(j['timeout-minutes']>=30&&j['timeout-minutes']<=50);
@@ -90,6 +91,23 @@ for(const c of checks){
  assert.equal(steps.find(s=>s.name?.includes('SENT proof')).with.path,c.root+'/sent.json');
  assert.equal(steps.filter(s=>s.uses?.startsWith('actions/upload-artifact@')).length,2);
  assert.equal(src.includes('sendMessage'),false,'never bypass production Telegram API guard');
+}
+
+// GitHub default pending queue is 'single', which cancels the previous
+// pending workflow. All recurring workflows in these shared delivery groups
+// must opt in to queue:max, including regular workflows and early-arm backups.
+// Different-day queued work still fails the original clock/claim gates.
+for(const [file,group] of [
+ ['telegram-morning-briefing.yml','telegram-morning-briefing'],
+ ['telegram-close-briefing.yml','telegram-close-briefing']
+]){
+ const raw=fs.readFileSync('.github/workflows/'+file,'utf8');
+ const y=YAML.parse(raw);
+ assert.equal(y.concurrency.group,group);
+ assert.equal(y.concurrency['cancel-in-progress'],false);
+ assert.equal(y.concurrency.queue,'max','regular scheduled briefing must not cancel queued failover');
+ assert.ok(y.on.schedule?.length>=4,'retain existing fallback slots');
+ assert.ok(y.jobs,'retain protected delivery job');
 }
 
 const sandbox=fs.mkdtempSync(join(tmpdir(),'telegram-arm-event-'));
