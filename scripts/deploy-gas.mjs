@@ -483,6 +483,19 @@ export function assertWriterGateReleaseTransition(publishedSource,candidateSourc
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
      !candidateSource.includes('var ISSUE507_GATE_RELEASE_ID='))throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
 }
+// First-ever installation of the stateful writer gate is a separate operational
+// cutover, not implied by the v9.282 release checkbox or by a green dry-run.
+// Until an independently reviewed maintenance/legacy-writer isolation procedure
+// is integrated, refuse all production writes from an ungated deployment to
+// a gated candidate. Read-only diagnostic and dry-run remain available.
+export function assertFirstWriterGateCutoverSafe(publishedSource,candidateSource) {
+  if(typeof publishedSource!=='string'||typeof candidateSource!=='string')
+    throw Error('GAS_FIRST_GATE_SOURCE_UNVERIFIED');
+  if(!publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=')
+     &&candidateSource.includes('var ISSUE507_GATE_RELEASE_ID='))
+    throw Error('GAS_FIRST_GATE_CUTOVER_UNVERIFIED');
+}
+
 
 export async function deploy() {
   const dryRun = String(process.env.GAS_DEPLOY_DRY_RUN || '').toLowerCase() === 'true';
@@ -536,6 +549,8 @@ export async function deploy() {
   const releaseState=inspectGasReleaseState({headSource:target.source,publishedSource:deployedTarget.source});
   console.log(JSON.stringify(releaseState));
   if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');
+  if(!dryRun && process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY!=='true')
+    assertFirstWriterGateCutoverSafe(deployedTarget.source,source);
   if(process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true')return releaseState;
   const alreadyDeployed = sameSource(deployedTarget.source, source) && sameSource(target.source, source);
 
