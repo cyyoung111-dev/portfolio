@@ -38,7 +38,10 @@ function stub({runs=[makeRun(42)],pages=null,jobsById={42:[deployedJob]},oldBlob
 // outstanding/unknown deployment status for the later manual procedure.
 assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.282'),true);
 assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.281'),false);
-assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.283'),false);
+assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.283'),true);
+assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.284'),true);
+assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v10.001'),true);
+assert.equal(isManualOnlyGasRelease('// Dashboard — Google Apps Script  v9.281'),false);
 assert.equal(isManualOnlyGasRelease('// Version v9.282 without actual header'),false);
 let manualOnly=stub({sourceText:'// Dashboard — Google Apps Script  v9.282',failApi:true,failGit:true,oldBlob:old});
 assert.deepEqual(await manualOnly.call(),{
@@ -46,6 +49,14 @@ assert.deepEqual(await manualOnly.call(),{
 });
 assert.deepEqual(manualOnly.calls.urls,[],'manual-only v9.282 must not call GitHub release API');
 assert.deepEqual(manualOnly.calls.git,[],'manual-only v9.282 must not start Git fetch');
+for(const version of ['9.283','9.284','10.001']){
+ const guarded=stub({sourceText:'// Dashboard — Google Apps Script  v'+version,
+   failApi:true,failGit:true,oldBlob:old});
+ const out=await guarded.call();
+ assert.deepEqual(out,{changed:true,reason:'GAS_STATEFUL_MANUAL_RELEASE_ONLY',manualOnly:true});
+ assert.deepEqual(guarded.calls.urls,[],'manual-only '+version+' must not call GitHub release API');
+ assert.deepEqual(guarded.calls.git,[],'manual-only '+version+' must not start Git fetch');
+}
 const workflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 assert.match(workflow,/auto_manual_only:.*steps\.gas_source\.outputs\.manual_only/);
 assert.match(workflow,/needs\.validate\.outputs\.auto_manual_only != 'true'/);
