@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {readClosingKrxTurnoverFromGas} from './closing-krx-turnover.mjs';
+import {composeGasTurnoverProposal,BASE_GAS_BLOB_SHA} from './compose-gas-krx-turnover-proposal.mjs';
 
 const date='2026-11-02';
 const now=()=>new Date(date+'T17:05:00+09:00');
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const approved=fs.readFileSync('src/gas/apps_script.gs','utf8');
+assert.doesNotMatch(approved,/function handleGetKrxMarketTurnover\(/,'approved original remains unchanged');
+assert.equal(BASE_GAS_BLOB_SHA,'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
+const gas=composeGasTurnoverProposal(approved);
+assert.notEqual(gas,approved);
+assert.throws(()=>composeGasTurnoverProposal(approved+'\n'),/UNREVIEWED_BASE/);
 const from=gas.indexOf('function _krxMarketTurnoverKrw_(');
 const to=gas.indexOf('function handleGetBenchmarks(',from);
 assert.ok(from>0&&to>from,'production GAS turnover functions must be present');
@@ -129,4 +135,4 @@ for(const bad of [
  assert.deepEqual(await readClosingKrxTurnoverFromGas(date,{
   ...args,fetchImpl:async()=>({ok:true,json:async()=>bad})}),[]);
 }
-console.log('CENTRAL_GAS_KRX_TURNOVER_PASS production handler, auth fallback, published-date, read-only, fail-closed client');
+console.log('CENTRAL_GAS_KRX_TURNOVER_PASS reproducible production-handler candidate, approved blob unchanged, auth/date/partial failure/client');
