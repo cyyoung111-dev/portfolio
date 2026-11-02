@@ -121,9 +121,11 @@ export async function inspectGasDeploymentsReadOnly({
     detail.lookupUnverified++;continue;
    }
    detail.checked++;
+   entry.detailChecked=true;
    const types=record.entryPoints.map(classify);
-   if(JSON.stringify([...types].sort())!==JSON.stringify([...entry.types].sort()))
-    detail.entryPointMismatch++;
+   entry.detailEntryPointMismatch=JSON.stringify([...types].sort())!==
+    JSON.stringify([...entry.types].sort());
+   if(entry.detailEntryPointMismatch)detail.entryPointMismatch++;
    for(const point of record.entryPoints.filter(p=>classify(p)==='WEB_APP')){
     const config=point.webApp?.entryPointConfig;
     const access=WEB_ACCESS.has(config?.access)?config.access:null;
@@ -147,9 +149,12 @@ export async function inspectGasDeploymentsReadOnly({
     }
    }
    const version=record.deploymentConfig?.versionNumber;
-   if(!Number.isSafeInteger(version)||version<1)detail.stillUnversioned++;
+   entry.detailVersionVerified=Number.isSafeInteger(version)&&version>=1;
+   entry.detailVersionConflict=entry.versionVerified&&
+    entry.detailVersionVerified&&entry.versionNumber!==version;
+   if(!entry.detailVersionVerified)detail.stillUnversioned++;
    else if(!entry.versionVerified)detail.recoveredVersion++;
-   else if(entry.versionNumber!==version)detail.versionConflict++;
+   else if(entry.detailVersionConflict)detail.versionConflict++;
   }
  }
  // Immutable version source is inspected only in memory. Never print source,
@@ -209,6 +214,12 @@ export async function inspectGasDeploymentsReadOnly({
  const getRole=e=>{
   if(!verifySource)return 'NOT_INSPECTED';
   if(!e.versionVerified)return 'VERSION_METADATA_UNVERIFIED';
+  // LIST may race with a deployment update. Even if the old LIST source
+  // blob is approved, it cannot be attributed to a deployment whose
+  // DETAIL version/entry points are missing or have changed.
+  if(!e.detailChecked||!e.detailVersionVerified||
+    e.detailVersionConflict||e.detailEntryPointMismatch)
+   return 'DETAIL_METADATA_UNVERIFIED';
   return sourceByVersion.get(e.versionNumber)||'SOURCE_GET_UNVERIFIED';
  };
  const expectedRow=entries.find(e=>e.expected);
