@@ -15,6 +15,7 @@ import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} 
 import {readNhClosingStocks,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
+import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -119,7 +120,7 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[]){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[]){
  const valid=verifiedNhCloseRows(date,rows),count=valid.length;
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const lines=['['+date+' 장후 시장 브리핑]',
@@ -163,15 +164,16 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
   '보유 주식·ETF 종가 및 포트폴리오 손익의 기준은 NH PLUG로 유지합니다.',
   'NH 지수 일봉은 거래소의 별도 정산가격으로 오인하지 않습니다.');
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
-  secondary,stocks,macros,expectedUsDate:expectedMorningDate('SPX',date)});
- lines.push('',formatClosingExtra(date,stocks,macros),'',formatCloseCoverageSummary(coverage));
+  secondary,stocks,macros,markets,expectedUsDate:expectedMorningDate('SPX',date)});
+ lines.push('',formatClosingExtra(date,stocks,macros),'',
+  formatClosingMarketReferences(date,markets),'',formatCloseCoverageSummary(coverage));
  return lines.join('\n');
 }
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
  fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros,
- loadPrepared=async()=>null}={}){
+ fetchMarkets=readClosingMarketReferences,loadPrepared=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -191,7 +193,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   try{rawPrepared=await loadPrepared(window.date,
     {token:githubToken,repository,fetchImpl,now});}catch{}
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
-  let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[]}=cached||{};
+  let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[]}=cached||{};
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
   const combine=(oldRows,liveRows,key)=>{
@@ -215,12 +217,15 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     catch{failedGroups.push('STOCKS');}})(),
    (async()=>{if(macros.length===3)return;try{macros=combine(macros,normalize('macros',
     await fetchMacros(window.date,{fetchImpl,now})),'id');}
-    catch{failedGroups.push('MACROS');}})()
+    catch{failedGroups.push('MACROS');}})(),
+   (async()=>{if(markets.length===5)return;try{markets=combine(markets,normalize('markets',
+    await fetchMarkets(window.date,{fetchImpl,now})),'id');}
+    catch{failedGroups.push('MARKETS');}})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const coverage=summarizeCloseCoverage(window.date,{nh:verified,domestic:domesticVerified,
-   secondary,stocks,macros,expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
+   secondary,stocks,macros,markets,expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
   const quality=closeQualityDecision(coverage);
   const after=closeWindow(now());
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
@@ -229,7 +234,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros)};
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets)};
 }
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
@@ -254,6 +259,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
         nhConfirmed:result.nhConfirmed||0,domesticConfirmed:result.domesticConfirmed||0,
         coreCoverage:result.coverage?.core||null,referenceCoverage:result.coverage?.reference||null,
         stockCoverage:result.coverage?.stocks||null,macroCoverage:result.coverage?.macros||null,
+        marketCoverage:result.coverage?.markets||null,
         cacheSource:result.cacheSource||'NONE',
         sourceStatuses:result.coverage?.statuses||null,failedGroups:result.coverage?.groupErrors||[]}));
     }else if(process.argv[2]==='send'){
