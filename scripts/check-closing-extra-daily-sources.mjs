@@ -71,6 +71,29 @@ const saved=await readNhClosingStocks(date,{
  }
 });
 assert.deepEqual(recordedAudit,[audit],'source diagnostics log only allowed fixed enums');
+// A 17-second tail was observed as a silent 0/4 on a real production probe.
+const timeoutAudit=[];
+const timeoutRows=await readNhClosingStocks(date,{
+ url:'https://script.google.com/macros/s/EXAMPLE123/exec',token:'TEST_ACCESS_TOKEN_WITH_LENGTH',
+ fetchImpl:async()=>{const e=new Error('PRIVATE_URL_TOKEN_SHOULD_NOT_LEAK');e.name='TimeoutError';throw e;},
+ onDiagnostic:diagnostic=>timeoutAudit.push(diagnostic)
+});
+assert.deepEqual(timeoutRows,[]);
+assert.deepEqual(timeoutAudit,[{status:'GAS_TIMEOUT_30S'}],
+ 'timeout must be distinguishable without raw private error text');
+assert.ok(!JSON.stringify(timeoutAudit).includes('PRIVATE_URL_TOKEN'));
+const networkAudit=[];
+await readNhClosingStocks(date,{
+ url:'https://script.google.com/macros/s/EXAMPLE123/exec',token:'TEST_ACCESS_TOKEN_WITH_LENGTH',
+ fetchImpl:async()=>{throw Error('PRIVATE_NETWORK_DETAILS');},
+ onDiagnostic:diagnostic=>networkAudit.push(diagnostic)
+});
+assert.deepEqual(networkAudit,[{status:'GAS_FETCH_FAILED'}],
+ 'network/redirect failures are not mislabeled as timeout');
+const protectedSource=fs.readFileSync('scripts/closing-extra-daily-sources.mjs','utf8');
+assert.ok(protectedSource.includes('AbortSignal.timeout(30000)'),
+ 'read-only GAS request must have a bounded 30-second timeout');
+
 assert.equal(stockCalls,1,'one read-only stored NH history batch');
 assert.equal(saved.length,4);
 assert.deepEqual(await readNhClosingStocks(date,{url:'http://evil.net/exec',

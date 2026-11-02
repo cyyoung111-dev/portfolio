@@ -94,8 +94,13 @@ export async function readNhClosingStocks(date,{url=process.env.GAS_WEB_APP_URL,
  try{
    response=await fetchImpl(endpoint,{method:'POST',
      headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
-     body:payload,redirect:'follow',signal:AbortSignal.timeout(17000)});
- }catch{emit({status:'GAS_FETCH_FAILED'});return [];}
+     body:payload,redirect:'follow',signal:AbortSignal.timeout(30000)});
+ }catch(error){
+   // Don't reveal URL, token or raw errors. Real 17s GAS tails can otherwise
+   // silently appear as empty NH history; the 30s cap remains bounded.
+   emit({status:error?.name==='TimeoutError'?'GAS_TIMEOUT_30S':'GAS_FETCH_FAILED'});
+   return [];
+ }
  if(!response?.ok){emit({status:'GAS_HTTP_UNAVAILABLE'});return [];}
  try{data=await response.json();}
  catch{emit({status:'GAS_JSON_INVALID'});return [];}
