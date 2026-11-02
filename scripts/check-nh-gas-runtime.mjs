@@ -129,7 +129,10 @@ assert.match(source,/\|provider='/);
   // Central GAS route: never exposes OAuth bearer, verifies 06:00 actual NH
   // reference and caches validated data across retry runs.
   const p=setup({expiresIn:86400});
-  p.advance(Date.parse('2026-10-30T07:35:00+09:00')-time);
+  p.advance(Date.parse('2026-10-30T06:44:59+09:00')-time);
+  assert.equal(p.ctx.handleGetNhNightProxy({date:'2026-10-30',accessToken:'admin-token'}).message,'NH_PROXY_WINDOW',
+    '06:44:59 KST must fail closed before NH token / price requests');
+  p.advance(1000); // 06:45:00 KST: permitted production capture
   p.props.set('access_token','admin-token');
   p.props.set('NHPLUG_APP_KEY','nh-key');
   p.props.set('NHPLUG_APP_SECRET','nh-secret');
@@ -206,7 +209,7 @@ assert.match(source,/\|provider='/);
   assert.equal(authCalls,1);
   // 10:50 KST readback must query an actual dated NH 06:00 record using the
   // already persisted OAuth bearer, never minting a second token.
-  p.advance(Date.parse('2026-10-30T10:50:00+09:00')-Date.parse('2026-10-30T07:35:00+09:00'));
+  p.advance(Date.parse('2026-10-30T10:50:00+09:00')-Date.parse('2026-10-30T06:45:00+09:00'));
   p.cache.clear();
   const probe=p.ctx.handleGetNhNightProbe({date:'2026-10-30',accessToken:'admin-token'});
   assert.equal(probe.status,'ok');
