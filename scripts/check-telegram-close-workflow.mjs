@@ -9,8 +9,9 @@ import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index
 import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose}
  from './telegram-close-workflow.mjs';
 import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
-const day='2026-10-30',now=()=>new Date(day+'T16:30:00+09:00');
-assert.equal(closeWindow(new Date(day+'T16:29:59+09:00')).allowed,false);
+const day='2026-10-30',now=()=>new Date(day+'T17:00:00+09:00');
+assert.equal(closeWindow(new Date(day+'T16:59:59+09:00')).allowed,false);
+assert.equal(closeWindow(new Date(day+'T16:45:00+09:00')).allowed,false,'preparation can run early but delivery may not');
 assert.equal(closeWindow(now()).allowed,true);
 assert.equal(closeWindow(new Date(day+'T17:10:00+09:00')).allowed,true);
 assert.equal(closeWindow(new Date(day+'T19:59:59+09:00')).allowed,true);
@@ -174,6 +175,7 @@ const options={now,githubToken:'dummy',repository:'cyyoung111-dev/portfolio',
  }};
 options.fetchSecondary=async()=>[dow,vix];
 options.fetchDomestic=async()=>[];
+await assert.rejects(prepareClose({...options,now:()=>new Date(day+'T16:59:59+09:00')}),/TELEGRAM_CLOSE_LATE/);
 const prepared=await prepareClose(options);
 assert.equal(prepared.ready,true);assert.equal(fetched,1);assert.equal(prepared.nhConfirmed,3);
 assert.equal(prepared.domesticConfirmed,0);
@@ -222,7 +224,7 @@ const claimed=await prepareClose({...options,fetchImpl:async()=>({ok:true,
 assert.equal(claimed.ready,false);
 await assert.rejects(prepareClose({...options,fetchImpl:async()=>{throw Error('private');}}),/CLAIM_FAILED/);
 await assert.rejects(prepareClose({...options,attempt:2}),/CONFIG/);
-assert.equal((await prepareClose({...options,now:()=>new Date('2026-10-31T16:30:00+09:00')})).status,'MARKET_CLOSED');
+assert.equal((await prepareClose({...options,now:()=>new Date('2026-10-31T17:00:00+09:00')})).status,'MARKET_CLOSED');
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/telegram-close-briefing.yml','utf8'));
 assert.equal(workflow.jobs.briefing.environment,'portfolio-production-gas');
 const step=workflow.jobs.briefing.steps.find(s=>s.id==='prepare');
@@ -230,10 +232,10 @@ assert.match(step.env.GAS_ACCESS_TOKEN,/secrets[.]GAS_ACCESS_TOKEN/);
 assert.match(step.env.GAS_WEB_APP_URL,/vars[.]GAS_WEB_APP_URL/);
 const send=workflow.jobs.briefing.steps.find(s=>s.name==='Send claimed closing briefing once');
 assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
-assert.match(JSON.stringify(workflow.on.schedule),/30 7/);
-assert.match(JSON.stringify(workflow.on.schedule),/38 7/);
-assert.match(JSON.stringify(workflow.on.schedule),/50 7/);
-assert.match(JSON.stringify(workflow.on.schedule),/2 8/);
+assert.deepEqual(workflow.on.schedule.map(x=>x.cron),[
+ '0 8 * * 1-5','8 8 * * 1-5','17 8 * * 1-5',
+ '31 8 * * 1-5','14 9 * * 1-5','17 10 * * 1-5'
+]);
 assert.ok(Object.hasOwn(workflow.on,'workflow_dispatch'),
  'guarded manual rescue must be enabled');
 // The observed scheduler incident started morning at 11:07 and created no
