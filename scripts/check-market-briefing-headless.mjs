@@ -658,7 +658,7 @@ assert.equal(earlyColdMorning.decision.data.snapshot.values.K200_NIGHT.receivedA
  const late=await prepareMorning({...lateOpts,fetchImpl:mock(0)});
  assert.equal(late.ready,true);assert.equal(late.mode,'late_test');
  assert.equal(late.artifactName,prepared.artifactName,'late test shares the dated production claim');
- assert.match(late.message,/^\\[수동 지연 발송 테스트/);
+ assert.ok(late.message.startsWith('[수동 지연 발송 테스트 · 2026-10-28 · 정규 장전 발송 아님]'),'late report must be visibly labeled');
  assert.equal((await prepareMorning({...lateOpts,fetchImpl:mock(1,[{name:late.artifactName}])})).status,'ALREADY_CLAIMED');
  await assert.rejects(()=>prepareMorning({...options,now:lateNow,fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
  await assert.rejects(()=>prepareMorning({...lateOpts,now:()=>new Date('2026-10-28T12:00:00+09:00'),fetchImpl:mock(0)}),/TELEGRAM_SCHEDULE_LATE/);
