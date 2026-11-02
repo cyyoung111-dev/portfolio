@@ -14,7 +14,7 @@ export const PROPOSED_GAS_HANDLER=String.raw`function handleGetBriefingWatchClos
     return _issue507GateInvoke_('handleGetBriefingWatchCloses', handleGetBriefingWatchCloses, this, arguments);
   if (!_nhProxyAuthenticated_(params)) return jsonError('NH_WATCH_AUTH_REQUIRED');
   var now=new Date(),kst=_nhProxyKst_(now),minute=kst.minutes;
-  if (!params || params.date!==kst.date || !/^20\\d{2}-\\d{2}-\\d{2}$/.test(params.date||'')
+  if (!params || params.date!==kst.date || !/^20\d{2}-\d{2}-\d{2}$/.test(params.date||'')
       || !((minute>=450&&minute<490)||(minute>=1010&&minute<1080)))
     return jsonError('NH_WATCH_WINDOW');
   var items=[{code:'NVDA',currency:'USD',market:'NASDAQ',type:'주식'},
