@@ -1,0 +1,34 @@
+name: GAS published version and writer gate — read-only audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-published-gas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: portfolio-production-gas
+    concurrency:
+      group: gas-published-version-readonly-audit
+      cancel-in-progress: false
+    steps:
+      - name: Checkout approved main for read-only audit
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify pinned source and contract locally
+        run: node scripts/check-published-gas-gate-readonly.mjs
+      - name: Inspect immutable deployed source, then gate metadata only
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-published-gas-gate-readonly.mjs
