@@ -93,4 +93,18 @@ const manualCtx=vm.createContext({
   persistDividendSettings:async()=>{writes++;return true},
   showToast:message=>messages.push(message),
 });
-vm.runInContext(mgmtSource+String.raw
+vm.runInContext(mgmtSource+'\n'+'globalThis.__setDividendName=name=>{_divManualName=name};',manualCtx);
+manualCtx.__setDividendName('테스트 종목');
+await manualCtx.saveDivManualEditor();
+assert.equal(writes,0,'future payable receipt confirmation must not save');
+assert.match(messages.at(-1),/입금 확인/);
+eventInput.payDate='2026-01-15';
+manualCtx.__setDividendName('테스트 종목');
+await manualCtx.saveDivManualEditor();
+assert.equal(writes,1);
+assert.equal(manualCtx.DIVDATA['005930'].events[0].receivedConfirmed,true,
+  'manual receipt marker must survive the actual event save path');
+assert.equal(manualCtx.DIVDATA['005930'].events[0].payDate,'2026-01-15');
+assert.match(source,/올해 입금 확인 \(수동\)/);
+assert.doesNotMatch(source,/올해 수령 \(/);
+console.log('PASS: declared distribution vs manually verified deposit and actual editor save');
