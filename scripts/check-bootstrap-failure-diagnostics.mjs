@@ -1720,7 +1720,7 @@ for (const mode of ['match','server-diff','partial-read','source-changed','backu
 }
 // Two-account holdings from the real trade reducer are grouped by NAME by
 // production GAS syncHoldings; exact server match must not be rejected.
-for (const scenario of ['match','late-entered','same-day-swapped','account-order','cost-diff','master-code','account-id','asset-type','partial-read']) {
+for (const scenario of ['match','late-entered','exact-cost-new','exact-cost-old','exact-cost-mixed','same-day-swapped','account-order','cost-diff','master-code','account-id','asset-type','partial-read']) {
   const x=setup();
   const trades=[
     {date:'2026-10-07',tradeType:'buy',acct:'일반',accountId:'acct-A',
@@ -1728,6 +1728,7 @@ for (const scenario of ['match','late-entered','same-day-swapped','account-order
     {date:'2026-10-08',tradeType:'buy',acct:'ISA',accountId:'acct-B',
       name:'테스트',code:'005930',qty:3,price:120,assetType:'주식',memo:''}
   ];
+  if(scenario.startsWith('exact-cost-')) {trades[0].price=100.25; trades[1].price=120.2;}
   x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
   x.response.settings.ACCOUNTS_MASTER=[
     {id:'acct-A',displayName:'일반'},{id:'acct-B',displayName:'ISA'}
@@ -1737,7 +1738,8 @@ for (const scenario of ['match','late-entered','same-day-swapped','account-order
     ...t,ratio:0,fractionalCash:0,fund:false
   }));
   if(scenario==='same-day-swapped') x.response.trades.reverse();
-  x.response.holdings=[{code:'005930',name:'테스트',qty:5,costAmt:560,
+  x.response.holdings=[{code:'005930',name:'테스트',qty:5,
+    costAmt:scenario==='exact-cost-new'?562:scenario==='exact-cost-mixed'?561:560,
     assetType:'주식',acct:'일반,ISA'}];
   vm.runInContext(
     "ACCOUNTS_MASTER.push({id:'acct-A',displayName:'일반'},"
@@ -1762,11 +1764,13 @@ for (const scenario of ['match','late-entered','same-day-swapped','account-order
   x.ctx.confirm=()=>true;
   const initial=JSON.stringify(x.ctx._getPortfolioRemoteDirty());
   const matched=await x.ctx.diagnoseLegacyJournal();
-  assert.equal(matched,scenario==='match'||scenario==='late-entered',scenario);
+  const expectedMatch=['match','late-entered','exact-cost-new','exact-cost-old'].includes(scenario);
+  assert.equal(matched,expectedMatch,scenario);
   const category={
     'same-day-swapped':'TRADE_ROWS_DIFFER',
     'account-order':'HOLDING_ROWS_DIFFER',
     'cost-diff':'HOLDING_ROWS_DIFFER',
+    'exact-cost-mixed':'HOLDING_ROWS_DIFFER',
     'master-code':'HOLDING_TRADE_CODE_MISMATCH',
     'account-id':'TRADE_ROWS_INVALID',
     'asset-type':'HOLDING_ASSET_TYPE_MISMATCH',
@@ -1774,8 +1778,8 @@ for (const scenario of ['match','late-entered','same-day-swapped','account-order
   }[scenario];
   const currentText=vm.runInContext('_legacyReviewStatus',x.ctx);
   if(category) assert.ok(currentText.includes('대조 실패: '+category),scenario+': '+currentText);
-  assert.equal(await x.ctx.archiveMatchedLegacyJournal(),scenario==='match'||scenario==='late-entered',scenario);
-  if(scenario==='match'||scenario==='late-entered'){
+  assert.equal(await x.ctx.archiveMatchedLegacyJournal(),expectedMatch,scenario);
+  if(expectedMatch){
     assert.equal(x.ctx._getPortfolioRemoteDirty(),null,
       'verified multi-account journal archived without remote write');
     assert.equal(vm.runInContext('_gsPortfolioRestoreRequired',x.ctx),true);

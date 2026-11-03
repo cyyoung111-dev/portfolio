@@ -231,4 +231,63 @@ viewContext.__setTypeFilter('전체');
 if(viewContext.__donutModel().total!==5000)
   throw new Error('donut fails to invalidate cache when type filter resets');
 
+
+// #507 live reconciliation regression: server Snapshot uses exact trade cost,
+// while the old web holdings-sync mistakenly recomputed rounded average * qty.
+// Test the actual production sender with two accounts and legacy fallback.
+{
+  const syncSource=fs.readFileSync('src/web/features/settings/settings_sync.js','utf8');
+  const syncFn=syncSource.match(/async function syncHoldingsToGsheet\(options\) \{[\s\S]*?\n\}/)?.[0];
+  if (!syncFn) throw Error('missing actual holdings sync production function');
+  let eligible=false;
+  const writes=[];
+  const fixtureHoldings=[
+    {acct:'ISA',name:'ETF test',qty:3,cost:1200,costAmt:3601,assetType:'ETF'},
+    {acct:'IRP',name:'ETF test',qty:2,cost:1200,costAmt:2401,assetType:'ETF'},
+    {acct:'Legacy',name:'legacy share',qty:2,cost:999,assetType:'주식'},
+    {acct:'Legacy',name:'invalid prior cost',qty:1,cost:500,costAmt:'invalid',assetType:'주식'}
+  ];
+  const ctx=vm.createContext({
+    rawHoldings:fixtureHoldings,
+    fundDirect:{},GSHEET_API_URL:'https://script.google.com/macros/s/fake/exec',
+    getEP:name=>({code: name==='ETF test'?'441800':name==='legacy share'?'005930':'000660'}),
+    getEPType:(ep,fallback)=>fallback,
+    STOCK_CODE:{},_normalizeSyncCode:value=>String(value||''),
+    isGsheetPortfolioWriteReady:()=>eligible,
+    requestGsheetFormJson:async (action,body,options)=>{
+      writes.push({action,body:JSON.parse(body.data),options});
+      return {status:'ok',synced:JSON.parse(body.data).length};
+    },
+    _syncWarn:()=>{}
+  });
+  vm.runInContext(syncFn,ctx,{filename:'production-holdings-sync.js'});
+  await ctx.syncHoldingsToGsheet();
+  if (writes.length!==0)throw Error('holdings sync bypassed restore/write readiness gate');
+  eligible=true;
+  await ctx.syncHoldingsToGsheet();
+  if (writes.length!==1||writes[0].action!=='syncHoldings')
+    throw Error('unexpected GAS holdings write path');
+  const rows=writes[0].body,etf=rows.find(x=>x.code==='441800');
+  if (!etf||etf.qty!==5||etf.costAmt!==6002||etf.acct!=='ISA,IRP')
+    throw Error('exact per-account trade acquisition cost was lost in GAS sync');
+  const legacy=rows.find(x=>x.code==='005930');
+  const invalid=rows.find(x=>x.code==='000660');
+  if (!legacy||legacy.costAmt!==1998||!invalid||invalid.costAmt!==500)
+    throw Error('legacy fallback for missing/invalid exact cost changed');
+  // During authoritative restore, pinned master must also preserve exact cost.
+  writes.length=0;
+  await ctx.syncHoldingsToGsheet({
+    targetUrl:'https://script.google.com/macros/s/fake/exec',
+    allowDuringRestore:true,
+    holdingsOverride:[{acct:'ISA',name:'ETF test',code:'441800',
+      qty:5,cost:1200,costAmt:6002,assetType:'ETF'}],
+    masterCodesOverride:[{name:'ETF test',code:'441800',type:'ETF'}],
+    fundDirectOverride:{}
+  });
+  if (writes.length!==1||writes[0].body.length!==1
+      ||writes[0].body[0].costAmt!==6002)
+    throw Error('pinned restore recalculated exact trade cost');
+  console.log('PASS #507 exact trade cost survives normal and pinned holdings sync; write gate unchanged');
+}
+
 console.log('✅ 거래 저장·전량 매도·마지막 거래 삭제의 보유현황 반영 검사 통과');

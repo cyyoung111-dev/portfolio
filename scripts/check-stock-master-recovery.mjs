@@ -78,7 +78,7 @@ assert.match(history,/fullRestoreDone = typeof _gsBootRestored !== 'undefined'/,
 assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말고/,
  'read-only partial restore must warn that editing and saving are unsafe');
 
-assert.match(html,/settings_sync\.js\?v=20261028-6/);
+assert.match(html,/settings_sync\.js\?v=20261103-1/);
 
 assert.ok(html.includes('domain/portfolio/data.js?v=20261028-6'));
 assert.ok(sw.includes('domain/portfolio/data.js?v=20261028-6'));
@@ -122,7 +122,7 @@ assert.match(responsive,/@media\(max-width:300px\)/,
   'accessibility zoom must stack controls instead of clipping buttons');
 
 assert.match(html,/views_history\.js\?v=20261103-1/);
-assert.match(sw,/settings_sync\.js\?v=20261028-6/);
+assert.match(sw,/settings_sync\.js\?v=20261103-1/);
 assert.match(sw,/views_history\.js\?v=20261103-1/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
