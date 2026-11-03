@@ -1,5 +1,23 @@
 // One explicitly selected missing date only. Never log credentials/raw errors.
 import {validateWebAppUrl,parseDates} from './diagnose-krx-operational.mjs';
+// Only fixed, reviewed GAS reason codes may be forwarded to Actions logs.
+const SAFE_PREFLIGHT_REASONS=new Set([
+  'INVALID_HISTORICAL_DATE','STORED_READ_FAILED','NOT_PENDING',
+  'TARGET_NOT_EMPTY','TARGET_HOLDINGS_UNVERIFIED','TARGET_FOREIGN_DATE_CONFLICT',
+  'SOURCE_READ_FAILED','SOURCE_INCOMPLETE'
+]);
+export function classifyTargetedPreflight(preview,date) {
+  if(preview?.status!=='ok'||preview.mode!=='DRY_RUN'||preview.date!==date)
+    return 'TARGET_PREFLIGHT_BLOCKED';
+  if(preview.ready===false) {
+    const reason=typeof preview.reason==='string'&&SAFE_PREFLIGHT_REASONS.has(preview.reason)
+      ?preview.reason:'UNVERIFIED';
+    return 'TARGET_PREFLIGHT_'+reason;
+  }
+  if(preview.ready!==true||!Number.isSafeInteger(preview.expected)||preview.expected<1)
+    return 'TARGET_PREFLIGHT_BLOCKED';
+  return null;
+}
 export async function runTargetedRecovery({url,token,date,apply=false,fetchImpl=fetch}) {
   const endpoint=validateWebAppUrl(url);
   if(parseDates(date).length!==1 || typeof token!=='string' || !token.trim())throw Error('TARGET_INVALID_INPUT');
@@ -18,9 +36,8 @@ export async function runTargetedRecovery({url,token,date,apply=false,fetchImpl=
   const denied=await request(invalid,'0');
   if(denied?.status!=='error'||denied.message!=='인증 실패')throw Error('TARGET_AUTH_NOT_ENFORCED');
   const preview=await request(token,'0');
-  if(preview?.status!=='ok'||preview.mode!=='DRY_RUN'||preview.date!==date
-      ||preview.ready!==true||!Number.isSafeInteger(preview.expected)||preview.expected<1)
-    throw Error('TARGET_PREFLIGHT_BLOCKED');
+  const failure=classifyTargetedPreflight(preview,date);
+  if(failure)throw Error(failure);
   if(!apply)return {mode:'DRY_RUN',date,ready:true,expected:preview.expected};
   const result=await request(token,'1');
   if(result?.status!=='ok'||result.mode!=='APPLY'||result.date!==date
