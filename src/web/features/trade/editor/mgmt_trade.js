@@ -621,6 +621,57 @@ function _teUpdateFxPreview(currency) {
   }
 }
 
+// Validate both the new and the previous account+security timelines before
+// committing an edit. Matches syncHoldingsFromTrades() chronological
+// average-cost reducer and preserves original same-day transaction order.
+function _validateTradeTimelineCorrection(candidate, editingId) {
+  const editingIndex = editingId == null ? -1
+    : rawTrades.findIndex(t => String(t.id) === String(editingId));
+  if (editingId != null && editingIndex === -1) {
+    return { ok:false, message:'❌ 수정할 원본 거래를 찾을 수 없습니다. 다시 조회해주세요' };
+  }
+  const previous = editingIndex >= 0 ? rawTrades[editingIndex] : null;
+  const next = editingIndex >= 0
+    ? rawTrades.map((t,i) => i === editingIndex ? candidate : t)
+    : rawTrades.concat(candidate);
+  const affected = new Set([
+    (candidate.acct || '') + '||' + (candidate.name || ''),
+    ...(previous ? [(previous.acct || '') + '||' + (previous.name || '')] : [])
+  ]);
+  let currentQty = 0;
+  for (const key of affected) {
+    const ordered = next.map((item,index) => ({item,index}))
+      .filter(({item}) => (item.acct || '') + '||' + (item.name || '') === key)
+      .sort((a,b) => String(a.item.date || '').localeCompare(String(b.item.date || '')) || a.index - b.index);
+    let balance = 0;
+    for (const {item} of ordered) {
+      const count = Number(item.qty), actionRatio = Number(item.ratio);
+      const day = String(item.date || '');
+      if (item === candidate) currentQty = balance;
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day)) {
+        return {ok:false,message:'❌ 거래일을 확인할 수 없습니다. 날짜를 다시 선택해주세요'};
+      }
+      if (item.tradeType === 'buy') {
+        if (!(count > 0) || !Number.isFinite(count))
+          return {ok:false,message:`❌ ${day} 매수수량이 유효하지 않습니다`};
+        balance += count;
+      } else if (item.tradeType === 'sell') {
+        if (!(count > 0) || !Number.isFinite(count) || count > balance + 1e-8)
+          return {ok:false,message:`❌ ${day} 매도수량이 해당 날짜의 보유수량을 초과합니다`};
+        balance -= count;
+      } else if (item.tradeType === 'split' || item.tradeType === 'reverse_split') {
+        if (!(actionRatio > 0) || !Number.isFinite(actionRatio) || balance <= 0)
+          return {ok:false,message:`❌ ${day} 분할·병합의 이전 보유수량 또는 비율이 유효하지 않습니다`};
+        balance = item.tradeType === 'split' ? balance * actionRatio : balance / actionRatio;
+      }
+      if (!Number.isFinite(balance) || balance < -1e-8)
+        return {ok:false,message:`❌ ${day} 이후 보유수량에 오류가 있습니다`};
+      if (Math.abs(balance) < 1e-8) balance = 0;
+    }
+  }
+  return {ok:true,currentQty};
+}
+
 function saveTrade() {
   const f         = id => $el(id);
   const err       = f('te-error');
@@ -667,45 +718,17 @@ function saveTrade() {
   //   수정: 유효성 검사 통과 후 1회만 선언, 이하 모든 로직에서 공유
   const normN = normName(name) || name;
 
-  // 신규 매도·기업행위는 거래일 기준 수량 및 후속 거래 정합성을 확인
-  let currentQty = null;
-  if ((tradeType === 'sell' || isAction) && !isEditing) {
-    const acct = acctVal || '';
-    // 후보를 실제 저장 순서(같은 날은 기존 거래 뒤)에 넣어 전체 수량을 검증합니다.
-    // 후속 보유현황·실현손익과 동일한 계좌+종목명 식별 기준을 유지합니다.
-    // 미래 매수나 이후 분할 수량으로 과거를 판단하지 않습니다.
-    const candidate = { date, tradeType, qty, ratio, name:normN, code, acct };
-    const ordered = rawTrades.concat(candidate).map((item,index) => ({item,index}))
-      .filter(({item}) => item.acct === acct &&
-        item.name === normN)
-      .sort((a,b) => String(a.item.date || '').localeCompare(String(b.item.date || '')) || a.index-b.index);
-    let balance = 0, invalidDate = '';
-    ordered.forEach(({item}) => {
-      if (item === candidate) currentQty = balance;
-      const units = Number(item.qty) || 0, actionRatio = Number(item.ratio) || 0;
-      if (item.tradeType === 'buy') balance += units;
-      else if (item.tradeType === 'sell') {
-        if (units > balance + 0.00000001 && !invalidDate) invalidDate = item.date;
-        balance -= units;
-      } else if (item.tradeType === 'split' && actionRatio > 0) balance *= actionRatio;
-      else if (item.tradeType === 'reverse_split' && actionRatio > 0) balance /= actionRatio;
-    });
-    if (tradeType === 'sell' && qty > currentQty) {
-      err.textContent = `❌ 매도 수량(${qty})이 보유 수량(${currentQty})을 초과합니다`;
-      err.style.display = 'block';
-      return;
-    }
-    if (invalidDate) {
-      err.textContent = `❌ ${invalidDate} 거래의 매도 수량이 당시 보유 수량을 초과합니다. 거래일과 이후 거래를 확인해주세요`;
-      err.style.display = 'block';
-      return;
-    }
-    if (currentQty <= 0) {
-      err.textContent = `❌ ${normN} 보유 수량이 없습니다`;
-      err.style.display = 'block';
-      return;
-    }
+  // Historical corrections must validate the ENTIRE affected timeline before
+  // changing rawTrades. A past buy reduction or an edited sale can invalidate a
+  // later sale even when the current holding appears non-negative.
+  const candidate = { date, tradeType, qty, ratio, name:normN, code, acct:acctVal || '' };
+  const timeline = _validateTradeTimelineCorrection(candidate, _editingTradeId);
+  if (!timeline.ok) {
+    err.textContent = timeline.message;
+    err.style.display = 'block';
+    return;
   }
+  const currentQty = timeline.currentQty;
 
   const trade = {
     id:        _editingTradeId ?? genTradeId(),
