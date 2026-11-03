@@ -98,6 +98,7 @@ assert.equal(sheets.size,1,'must never access or mutate holdings, ledger or snap
 // Client mock: no remote reporting without opt-in and GAS support check.
 let consent=new Map(),generation=1,connected='https://script.google.com/macros/s/test/exec',callCount=0;
 let resolveDelayed=null, delayProbe=false, resolveProbe=null;
+let delayDigest=false, resolveDigest=null;
 const pending=[],requests=[];
 const storage={
  getItem:k=>consent.get(k)??null,
@@ -138,7 +139,9 @@ const webCtx=vm.createContext({
   if(resolveDelayed){return await new Promise(resolve=>{pending.push(resolve)})}
   return {status:'ok',accepted:JSON.parse(data.data).samples.length};
  },
- crypto:webcrypto,TextEncoder,
+ crypto:{subtle:{digest:(algorithm,data)=>delayDigest
+  ? new Promise(resolve=>{resolveDigest=()=>resolve(webcrypto.subtle.digest(algorithm,data));})
+  : webcrypto.subtle.digest(algorithm,data)}},TextEncoder,
  setTimeout:()=>1234,clearTimeout:()=>{},Date,Math,Set,Object,JSON,
  String,Number,Array
 });
@@ -188,6 +191,36 @@ assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
 const uploaded=JSON.parse(requests.at(-1).data.data);
 assert.equal(uploaded.samples.length,1);
 assert.equal(uploaded.samples[0].ms,222,'only newly consented workbook sample may be sent');
+// Revoking consent WHILE SHA256 is pending must stop all telemetry POSTs.
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:333,result:'ok'});
+delayDigest=true;
+const countBeforeRevocation=callCount;
+const digestPending=window.PortfolioPerfTelemetry.flush();
+assert.equal(typeof resolveDigest,'function');
+await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
+resolveDigest();
+assert.equal(await digestPending,false);
+assert.equal(callCount,countBeforeRevocation,
+ 'no telemetry POST after consent revocation during digest');
+delayDigest=false;
+resolveDigest=null;
+// Changing the finance GAS target during digest must also discard the batch.
+await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:444,result:'ok'});
+delayDigest=true;
+const countBeforeSwap=callCount;
+const swapPending=window.PortfolioPerfTelemetry.flush();
+assert.equal(typeof resolveDigest,'function');
+connected='https://script.google.com/macros/s/changed-during-digest/exec';
+webCtx.GSHEET_API_URL=connected;
+generation++;
+resolveDigest();
+assert.equal(await swapPending,false);
+assert.equal(callCount,countBeforeSwap,
+ 'no telemetry POST after finance GAS switch during digest');
+assert.equal(window.PortfolioPerfTelemetry.enabled(),false);
+delayDigest=false;
+resolveDigest=null;
 assert.doesNotMatch(web,/PERFORMANCE_LOG\W+(?:getRange|appendRow)/,
  'client must not write Sheet directly');
 console.log('PASS: standalone GAS derived token, per-device opt-in, connection isolation and 8-row batches');
