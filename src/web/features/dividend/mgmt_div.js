@@ -149,7 +149,7 @@ function addDivManualEventRow(event) {
   row.innerHTML = `
     <label class="lbl-60-muted-mt">배당 기준일<input type="date" data-div-event="date" value="${_escapeHtml(String(event?.date || '').slice(0, 10))}" class="input-full-73" style="margin-top:3px"/></label>
     <label class="lbl-60-muted-mt">지급일<input type="date" data-div-event="payDate" value="${_escapeHtml(String(event?.payDate || '').slice(0, 10))}" class="input-full-73" style="margin-top:3px"/></label>
-    <label class="lbl-60-muted-mt">주당 금액<input type="number" min="0" step="any" data-div-event="amount" value="${Number(event?.amount || 0) || ''}" placeholder="원" class="input-full-73" style="margin-top:3px"/></label>
+    <label class="lbl-60-muted-mt">주당 금액<input type="number" min="0" step="any" data-div-event="amount" value="${Number(event?.amount || 0) || ''}" placeholder="원" class="input-full-73" style="margin-top:3px"/><span style="display:flex;align-items:center;gap:4px;margin-top:4px;white-space:nowrap;font-size:.59rem"><input type="checkbox" data-div-event="receivedConfirmed" ${event?.receivedConfirmed === true ? 'checked' : ''}/> 입금 확인</span></label>
     <button type="button" data-div-action="manual-event-remove" class="btn-cancel-sm" title="배당 건 삭제">−</button>`;
   container.appendChild(row);
 }
@@ -177,10 +177,16 @@ async function saveDivManualEditor() {
     date: row.querySelector('[data-div-event="date"]')?.value || '',
     payDate: row.querySelector('[data-div-event="payDate"]')?.value || '',
     amount: Number(row.querySelector('[data-div-event="amount"]')?.value || 0),
+    receivedConfirmed: row.querySelector('[data-div-event="receivedConfirmed"]')?.checked === true,
     source: 'MANUAL',
   })).filter(event => event.date || event.payDate || event.amount).sort((a, b) => a.date.localeCompare(b.date));
   if (events.some(event => !/^\d{4}-\d{2}-\d{2}$/.test(event.date) || event.amount <= 0)) {
     showToast('각 배당 건의 기준일과 주당 금액을 확인해주세요', 'error'); return;
+  }
+  // Never equate an event or elapsed pay date with actual receipt.
+  if (events.some(event => event.receivedConfirmed
+      && (!/^\d{4}-\d{2}-\d{2}$/.test(event.payDate) || event.payDate > _kstTodayStr()))) {
+    showToast('입금 확인은 지급일이 지난 배당 건만 선택할 수 있습니다.', 'error'); return;
   }
   if (!events.length && perShare <= 0) { showToast('배당 건 또는 예상 주당 배당금을 입력해주세요', 'error'); return; }
   if (!events.length && (freq === '-' || months.length === 0)) { showToast('예상 배당의 지급 주기와 지급 월을 입력해주세요', 'error'); return; }
