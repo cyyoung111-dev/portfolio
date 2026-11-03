@@ -205,6 +205,8 @@ console.log('PASS: bulk dotted-date ISO normalization, legacy trading chronology
     "globalThis.__applyImport=applyBulkImport;"
   ].join('\n');
   vm.runInContext(bulkSource+'\n'+exposeImport,ctx);
+  // The production module defines closeBulkImport; replace only that UI side-effect after evaluation.
+  ctx.closeBulkImport=()=>{ctx.closed++};
   for(const [mode,dateKey,priceKey] of [
     ['buy','buyDate','buyPrice'],
     ['sell','sellDate','sellPrice'],
