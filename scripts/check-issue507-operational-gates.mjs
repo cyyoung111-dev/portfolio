@@ -233,7 +233,7 @@ for(const [a,b] of [
  ['2026-11-03','2026-11-04'],
  ["    branches: [main]","    branches: [main, dev]"],
  ["      group: gas-production-deploy","      group: unprotected"],
- ["      contents: read","      contents: write"],
+ ["  contents: read","  contents: write"],
  ["    environment: portfolio-production-gas","    environment: other"],
  ["      cancel-in-progress: false","      cancel-in-progress: true"]
 ]){
