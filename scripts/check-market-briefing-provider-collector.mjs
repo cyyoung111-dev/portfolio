@@ -36,6 +36,102 @@ assert.equal(rows.find(x=>x.seriesId==='KOSPI').observedAt,null);
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').status,'PARTIAL');
 assert.equal(rows.find(x=>x.seriesId==='SPX').status,'FINAL');
 assert.equal(rows.find(x=>x.seriesId==='USDKRW').market,'FX');
+// #734: optional NH COMP (NASDAQ Composite) must be stored with exact primary
+// source identity; missing/foreign/stale bars may never become verified MASTER.
+assert.ok(!collector.REQUEST_TYPES.includes('NASDAQ'),'unconditional COMP would trigger extra NH OAuth');
+const indexDate='2026-11-03',priorUs='2026-11-02';
+const makeIndexPayload=(patch={},metaPatch={})=>({
+ status:'ok',
+ series:{NASDAQ:[{date:priorUs,sourceDate:priorUs,value:25164.32,
+   source:'NH_INDEX_DAILY',status:'CONFIRMED',priceType:'REGULAR_CLOSE',...patch}]},
+ seriesMeta:{NASDAQ:{source:'NH_INDEX_DAILY',providerCode:'COMP',...metaPatch}}
+});
+const optionalIndexRequest=(payload,{cached=true,supported=true,record=[]}={})=>async (action,params)=>{
+ record.push({action,requested:params?.benchmarks||'',cachedOnly:params?.cachedOnly||''});
+ if(action==='getNhAuthStatusProxy')return {status:'ok',provider:'NH',
+  enabled:true,tokenCached:cached,tokenIssued:false,cachedOnlyBenchmarks:supported};
+ if(action==='getBenchmarks')return payload;
+ if(action==='getBenchmark')return {status:'ok',points:[]};
+ if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
+ if(action==='getPrices')return {status:'ok',prices:{}};
+ if(action==='getPriceHistory')return {status:'ok',prices:{}};
+ throw Error('unexpected optional-index action');
+};
+const optionalSuccessCalls=[];
+const optionalNh=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {record:optionalSuccessCalls}),indexDate,{checkpoint:'EVENING'});
+const benchmarkCalls=optionalSuccessCalls.filter(x=>x.action==='getBenchmarks');
+assert.equal(benchmarkCalls.length,2,'optional COMP must never join baseline getBenchmarks');
+assert.ok(!benchmarkCalls[0].requested.split(',').includes('NASDAQ'));
+assert.equal(benchmarkCalls[1].requested,'NASDAQ');
+assert.equal(benchmarkCalls[1].cachedOnly,'1');
+assert.equal(optionalNh.payload.NASDAQ.value,25164.32);
+assert.equal(optionalNh.payload.NASDAQ.source,'NH_INDEX_DAILY');
+assert.equal(optionalNh.payload.NASDAQ.status,'FINAL');
+const persistedComposite=normalizer.normalizeMap({NASDAQ:optionalNh.payload.NASDAQ},
+ {tradingDate:indexDate,receivedAt:'2026-11-03T17:00:00+09:00'});
+assert.equal(persistedComposite.length,1);
+assert.equal(persistedComposite[0].seriesId,'NASDAQ');
+assert.equal(persistedComposite[0].source,'NH_INDEX_DAILY');
+assert.equal(persistedComposite[0].finality,'REGULAR_CLOSE');
+// In current GAS v9.281 there is NO atomic cached-only capability.
+const noCapabilityCalls=[];
+const noCapability=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {supported:false,record:noCapabilityCalls}),indexDate,{checkpoint:'EVENING'});
+assert.equal(noCapability.payload.NASDAQ,undefined,'v9.281 capability absent: no optional COMP');
+assert.ok(!noCapabilityCalls.some(x=>x.requested==='NASDAQ'),
+ 'status-only cached flag must never authorize a fresh NH OAuth possibility');
+const blockedCalls=[];
+const notCached=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {cached:false,record:blockedCalls}),indexDate,{checkpoint:'EVENING'});
+assert.equal(notCached.payload.NASDAQ,undefined,'uncached NH token must not request optional COMP');
+assert.ok(!blockedCalls.find(x=>x.action==='getBenchmarks').requested.split(',').includes('NASDAQ'));
+// If the optional COMP endpoint fails, existing core market facts and missing
+// counts must be identical, with no failed optional source promoted to FINAL.
+const independentBaseline={status:'ok',series:{
+ SP500:[{date:priorUs,value:7600,source:'NH_INDEX_DAILY',status:'CONFIRMED'}],
+ NASDAQ100:[{date:priorUs,value:28000,source:'NH_INDEX_DAILY',status:'CONFIRMED'}]
+},seriesMeta:{SP500:{source:'NH_INDEX_DAILY',providerCode:'SPX'},
+ NASDAQ100:{source:'NH_INDEX_DAILY',providerCode:'NDX'}}};
+const fallbackRequest=async(action,params)=>{
+ if(action==='getNhAuthStatusProxy')return {status:'ok',provider:'NH',enabled:true,
+  tokenCached:true,tokenIssued:false,cachedOnlyBenchmarks:true};
+ if(action==='getBenchmarks'){
+  if(params.benchmarks==='NASDAQ')throw Error('simulated optional provider failure');
+  return independentBaseline;
+ }
+ if(action==='getBenchmark')return {status:'ok',points:[]};
+ if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
+ if(action==='getPrices')return {status:'ok',prices:{}};
+ if(action==='getPriceHistory')return {status:'ok',prices:{}};
+ throw Error('unexpected optional failure action');
+};
+const failedOptional=await collector.collect(fallbackRequest,indexDate,{checkpoint:'EVENING'});
+assert.equal(failedOptional.payload.SP500.value,7600);
+assert.equal(failedOptional.payload.NASDAQ100.value,28000);
+assert.equal(failedOptional.payload.NASDAQ,undefined);
+assert.ok(!failedOptional.missing.includes('NASDAQ'));
+assert.equal(failedOptional.errors.getBenchmarks,undefined,
+ 'optional endpoint error must not poison core GAS success');
+const optionalMorningCalls=[];
+const noMorningComp=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {cached:true,record:optionalMorningCalls}),indexDate,{checkpoint:'MORNING'});
+assert.equal(noMorningComp.payload.NASDAQ,undefined);
+assert.ok(!optionalMorningCalls.some(x=>x.action==='getNhAuthStatusProxy'));
+assert.ok(!optionalMorningCalls.find(x=>x.action==='getBenchmarks').requested.split(',').includes('NASDAQ'));
+for(const [patch,metaPatch] of [
+ [{source:'YAHOO'},{}],
+ [{status:'PARTIAL'},{}],
+ [{sourceDate:'2026-10-30'},{}],
+ [{date:indexDate,sourceDate:indexDate},{}],
+ [{}, {source:'YAHOO_UNVERIFIED_DAILY'}],
+ [{}, {providerCode:'NDX'}]
+]){
+ const result=await collector.collect(optionalIndexRequest(makeIndexPayload(patch,metaPatch)),
+   indexDate,{checkpoint:'EVENING'});
+ assert.equal(result.payload.NASDAQ,undefined,'unverified optional COMP must not be persisted');
+ assert.ok(!result.missing.includes('NASDAQ'),'optional COMP cannot block existing core readiness');
+}
 const currentFx=collector.normalizeFxPoint({history:[{date:'2026-09-18',rate:1385}]},'2026-09-18');
 assert.equal(currentFx.status,'PARTIAL');
 assert.equal(currentFx.finality,null);
@@ -119,6 +215,41 @@ assert.equal(master.buildBriefingSnapshot(finalRows,'2026-09-18','EVENING',['KOS
 assert.equal(finalRows[0].receivedAt,'2026-09-18T07:00:05.000Z'); assert.equal(finalRows[0].observedAt,'2026-09-18T06:30:00.000Z');
 const yahooSameDay=collector.normalizeBenchmarkPoint('KOSPI200',{date:'2026-09-18',value:456},{symbols:{KOSPI200:'^KS200'}},'2026-09-18','EVENING');
 assert.equal(yahooSameDay.status,'DELAYED'); assert.equal(yahooSameDay.finality,null);
+// #734: previous-day Yahoo KOSPI200 may be a useful reference but must
+// NEVER be elevated to a verified KRX close by elapsed time alone.
+const k200YahooPrevious=collector.normalizeBenchmarkPoint('KOSPI200',{
+  date:'2026-11-02',value:920.63,source:'YAHOO_UNVERIFIED_DAILY'
+},{seriesMeta:{KOSPI200:{source:'YAHOO_UNVERIFIED_DAILY',confirmedClose:false}}},'2026-11-03','MORNING');
+assert.equal(k200YahooPrevious.status,'PARTIAL');
+assert.equal(k200YahooPrevious.finality,null);
+const k200YahooRows=normalizer.normalizeMap({KOSPI200:k200YahooPrevious},{
+  tradingDate:'2026-11-03',receivedAt:'2026-11-03T07:40:00+09:00'
+});
+assert.equal(k200YahooRows[0].status,'PARTIAL');
+assert.equal(k200YahooRows[0].finality,null);
+const k200Proof={seriesMeta:{KOSPI200:{
+  source:'KRX_OFFICIAL',confirmedClose:true,officialDate:'2026-11-02'
+}}};
+const officialK200=collector.normalizeBenchmarkPoint('KOSPI200',{
+  date:'2026-11-02',sourceDate:'2026-11-02',value:920.63,
+  observedAt:'2026-11-02T16:10:00+09:00',source:'KRX_OFFICIAL'
+},k200Proof,'2026-11-03','MORNING');
+assert.equal(officialK200.status,'FINAL');
+assert.equal(officialK200.finality,'REGULAR_CLOSE');
+for(const [point,meta] of [
+ [{date:'2026-11-02',source:'KRX_OFFICIAL',value:920.63},k200Proof],
+ [{date:'2026-11-02',source:'KRX_OFFICIAL',
+   observedAt:'2026-11-02T16:10:00+09:00',value:920.63},k200Proof],
+ [{date:'2026-11-02',sourceDate:'2026-10-30',source:'KRX_OFFICIAL',
+   observedAt:'2026-11-02T16:10:00+09:00',value:920.63},k200Proof],
+ [{date:'2026-11-02',source:'KRX_OFFICIAL',
+   observedAt:'2026-11-02T16:10:00+09:00',value:920.63},
+   {seriesMeta:{KOSPI200:{source:'KRX_OFFICIAL',confirmedClose:true,officialDate:'2026-10-30'}}}]
+]){
+ const row=collector.normalizeBenchmarkPoint('KOSPI200',point,meta,'2026-11-03','MORNING');
+ assert.equal(row.status,'PARTIAL');
+ assert.equal(row.finality,null);
+}
 const indicative=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[],'2026-09-18');
 assert.equal(indicative.status,'PARTIAL'); assert.equal(indicative.finality,null); assert.equal(indicative.observedAt,undefined);
 const untrusted=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[{date:'2026-09-18',price:80500,source:'TOSS'}],'2026-09-18');

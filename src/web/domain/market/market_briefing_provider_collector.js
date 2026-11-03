@@ -1,7 +1,7 @@
 (function(global){
 'use strict';
 const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ100','SOX','VIX','DXY','UST10Y','WTI','GOLD','BTC']);
-const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX',DXY:'DXY',UST10Y:'UST10Y',WTI:'WTI',GOLD:'GOLD',BTC:'BTC'});
+const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ:'NASDAQ',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX',DXY:'DXY',UST10Y:'UST10Y',WTI:'WTI',GOLD:'GOLD',BTC:'BTC'});
 const STOCKS=Object.freeze({SAMSUNG:'005930',SKHYNIX:'000660'});
 const KRX_FINAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','AFTER_FINAL','EVENING']);
 const STOCK_OFFICIAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','EVENING']);
@@ -16,8 +16,12 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const observedAt=point.observedAt&&Number.isFinite(Date.parse(point.observedAt))?point.observedAt:null;
  // Toss 일봉은 이전 날짜라는 이유만으로 확정 종가가 되지 않습니다.
  // KRX 공식 API로 확인된 정규장 종가만 국내 대표지수 FINAL로 승격합니다.
- const isKrIndex=type==='KOSPI'||type==='KOSDAQ';
+ // KOSPI200은 NH 미지원이며 Yahoo 과거값도 확정 KRX 종가가 아닙니다.
+ const isKrIndex=type==='KOSPI'||type==='KOSDAQ'||type==='KOSPI200';
  const krxCloseVerified=Boolean(source==='KRX_OFFICIAL'&&!delayed&&providerMeta&&providerMeta.confirmedClose===true
+  &&(type==='KOSPI200'
+    ?point.sourceDate===sourceDate&&providerMeta.officialDate===sourceDate
+    :point.sourceDate==null||point.sourceDate===sourceDate)
   &&observedAt&&(!isCurrent||KRX_FINAL_CHECKPOINTS.includes(checkpoint)));
  const final=isKrIndex?krxCloseVerified:(!isCurrent||krxCloseVerified);
  // 공백 증거는 기준일과 확인된 CLOSED 날짜 모두를 포함해 MARKET_MASTER에 보존합니다.
@@ -33,6 +37,13 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market,currency:null,
   observedAt,quality:delayed?'EOD_DELAYED':quality,fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
+}
+function verifiedNasdaqComposite(point,meta){
+ // Optional only. The NH benchmark code COMP is the verified NASDAQ Composite;
+ // never let a generic Yahoo day-old bar impersonate this series.
+ return meta?.source==='NH_INDEX_DAILY'&&meta.providerCode==='COMP'
+   &&point?.source==='NH_INDEX_DAILY'&&point.status==='CONFIRMED'
+   &&point.priceType==='REGULAR_CLOSE'&&point.sourceDate===point.date;
 }
 function normalizeFxPoint(data,tradingDate,options={}){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close),observedAt:row.observedAt&&Number.isFinite(Date.parse(row.observedAt))?row.observedAt:null})));if(!point)return null;const isCurrent=point.date===tradingDate,scheduledTolerance=Number(options.scheduledToleranceSeconds)===300&&isCurrent&&!point.observedAt;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',observedAt:point.observedAt,quality:scheduledTolerance?'SCHEDULED_DELAY_TOLERANCE_300S':'EOD',fallback:!isCurrent};}
 function trustedStockClose(source){return /^(KRX|KRX_OTP|KRX_OFFICIAL|KRX_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE|NH_REGULAR_CLOSE)$/.test(String(source||'').toUpperCase());}
@@ -54,9 +65,16 @@ async function collect(request,tradingDate,options={}){
  const benchmarkTo=options.checkpoint==='MORNING'&&to>=tradingDate?lookback(tradingDate,1):to;
  const benchmarkFrom=from>benchmarkTo?lookback(benchmarkTo):from;
  const payload={},missing=[],errors={};
+ // Optional NH Composite must never enlarge/fail the core benchmark request.
+ // A cached-token status check is read-only, but it is NOT an atomic guarantee
+ // against token expiration between calls; a GAS cached-only endpoint is needed
+ // before claiming optional COMP can never trigger a refresh.
+ const types=REQUEST_TYPES;
+ let coreReadOk=false;
  try{
-  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from:benchmarkFrom,to:benchmarkTo,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
-  for(const type of REQUEST_TYPES){
+  const data=await request('getBenchmarks',{benchmarks:types.join(','),from:benchmarkFrom,to:benchmarkTo,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
+  coreReadOk=data?.status==='ok';
+  for(const type of types){
    const points=data&&data.series&&data.series[type];
    // 응답이 요청 범위를 벗어나더라도 장전 당일 Toss 일봉이 전일 KRX 공식 종가를 덮지 못하도록 차단.
    const eligible=options.checkpoint==='MORNING'&&Array.isArray(points)?points.filter(point=>point&&point.date<=benchmarkTo):points;
@@ -66,6 +84,30 @@ async function collect(request,tradingDate,options={}){
   }
   Object.assign(errors,(data&&data.errors)||{});
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}
+ // Optional request is isolated: COMP errors cannot erase SPX, NDX or other
+ // market indicators, change core missing counts, or stop a briefing.
+ if(coreReadOk&&options.checkpoint==='EVENING'){
+  try{
+   const auth=await request('getNhAuthStatusProxy',{}, {timeoutMs:6000,retry:0});
+   // A cached token *status* alone is not atomic: it may expire after
+   // readback and cause the optional COMP call to issue fresh NH OAuth.
+   // Only a future server that explicitly implements a cached-only contract
+   // may enable this path. v9.281 reports no such capability -> skip safely.
+   if(auth?.status==='ok'&&auth.provider==='NH'&&auth.enabled===true
+       &&auth.tokenCached===true&&auth.tokenIssued===false
+       &&auth.cachedOnlyBenchmarks===true){
+    const optional=await request('getBenchmarks',{
+      benchmarks:'NASDAQ',from:benchmarkFrom,to:benchmarkTo,
+      fresh:'0',cachedOnly:'1'
+    },{timeoutMs:12000,retry:0});
+    const point=latest(optional?.series?.NASDAQ);
+    if(point&&point.date<tradingDate
+       &&verifiedNasdaqComposite(point,optional?.seriesMeta?.NASDAQ)){
+      payload.NASDAQ=normalizeBenchmarkPoint('NASDAQ',point,optional,tradingDate,options.checkpoint);
+    }
+   }
+  }catch{/* Optional read failure must leave core source/coverage untouched. */}
+ }
  if(options.checkpoint==='NIGHT_FINAL'||options.checkpoint==='MORNING'){
   try{
    const nightDate=String(options.nightSourceDate||tradingDate);

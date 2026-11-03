@@ -182,7 +182,7 @@ let observations=[],snapshots=[],snapshotPosts=0,requestParams={};
 const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots};
- if(action==='getBenchmarks'){requestParams.getBenchmarks=params;return {status:'ok',series:{KOSPI:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSDAQ:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]},seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'},KOSDAQ:{confirmedClose:true,source:'KRX_OFFICIAL'}}};}
+ if(action==='getBenchmarks'){requestParams.getBenchmarks=params;return {status:'ok',series:{KOSPI:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSDAQ:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSPI200:[{date:prior,value:1,source:'KRX_OFFICIAL',sourceDate:prior,observedAt:`${prior}T15:30:00+09:00`}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]},seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'},KOSDAQ:{confirmedClose:true,source:'KRX_OFFICIAL'},KOSPI200:{confirmedClose:true,source:'KRX_OFFICIAL',officialDate:prior}}};}
  if(action==='getKrxK200NightClose'){
   requestParams.getKrxK200NightClose=params;
   const sourceDate=params.date;
