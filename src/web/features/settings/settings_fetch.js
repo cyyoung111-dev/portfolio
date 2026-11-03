@@ -391,7 +391,28 @@ function _priceLookupDetail(kind) {
       recentHistory: '최근 확정 이력', snapshot: '가격이력/Snapshot', other: '기타', finalize: '마무리'
     };
     const rows = Object.keys(labels).map(key => `<li><span>${labels[key]}</span><b>${Math.max(0, Math.round(Number(timings[key]) || 0))}ms</b></li>`).join('');
-    wrap.innerHTML = `<div class="price-lookup-detail-head"><b>GAS 단계별 처리시간</b>${close}</div><ul>${rows}</ul>`;
+    // Same expandable diagnostics on PC and mobile; no extra always-visible chips.
+    const clientSamples = Array.isArray(window.__PF_LOOKUP_TIMES) ? window.__PF_LOOKUP_TIMES : [];
+    const latestMs = stage => {
+      for (let i = clientSamples.length - 1; i >= 0; i--) {
+        if (clientSamples[i]?.stage === stage) return clientSamples[i].ms;
+      }
+      return null;
+    };
+    const clientLabels = {
+      'load.initial-restore': '초기 거래·보유 복원',
+      'load.initial-prices': '초기 자동 가격조회',
+      'price.poll-network': '현재가 네트워크/응답',
+      'price.poll-render': '현재가 화면 반영',
+      'price.poll-total': '현재가 총 소요',
+      'load.full-update': '전체 업데이트'
+    };
+    const clientRows = Object.entries(clientLabels).map(([stage, label]) => {
+      const ms = latestMs(stage);
+      return ms === null ? '' : `<li><span>${label}</span><b>${ms}ms</b></li>`;
+    }).join('');
+    wrap.innerHTML = `<div class="price-lookup-detail-head"><b>GAS 단계별 처리시간</b>${close}</div><ul>${rows}</ul>`
+      + (clientRows ? `<div class="price-lookup-detail-head"><b>이 기기 조회시간</b></div><ul>${clientRows}</ul>` : '');
   } else {
     return;
   }
