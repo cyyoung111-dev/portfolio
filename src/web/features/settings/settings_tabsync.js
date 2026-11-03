@@ -117,12 +117,19 @@ async function manualSyncByTab(tabId) {
         const codesSaved = settingsSaved === true
           ? await syncCodesToGsheet() : null;
         const holdingsSaved = codesSaved?.status === 'ok'
-          ? await syncHoldingsToGsheet() : null;
-        const tradesSaved = holdingsSaved?.status === 'ok'
+          ? await syncHoldingsToGsheet({ reportEmptySkip: true }) : null;
+        // A portfolio with all shares sold legitimately has no holdings
+        // payload. Require the explicit guarded no-op, never a bare null
+        // (which can also mean a network or write-preflight failure).
+        const holdingsStepOk = holdingsSaved?.status === 'ok'
+          || (holdingsSaved?.status === 'skipped'
+            && holdingsSaved?.reason === 'EMPTY_HOLDINGS_PROTECTED'
+            && Array.isArray(rawTrades) && rawTrades.length > 0);
+        const tradesSaved = holdingsStepOk
           ? await syncTradesToGsheet() : null;
         ok = settingsSaved === true
           && codesSaved?.status === 'ok'
-          && holdingsSaved?.status === 'ok'
+          && holdingsStepOk
           && tradesSaved?.status === 'ok'
           && tradesSaved?.saveState !== 'partial';
         if (ok) {
