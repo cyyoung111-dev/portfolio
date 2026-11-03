@@ -93,6 +93,18 @@ for(const c of checks){
  assert.equal(j['runs-on'],'ubuntu-latest');
  assert.ok(j['timeout-minutes']>=30&&j['timeout-minutes']<=50);
  assert.match(j.if,/github\.run_attempt == 1/);
+ if(c.kind==='morning'){
+   const warm=steps.find(s=>s.name?.startsWith('Prefetch verified 06:00 NH night'));
+   const warmIndex=steps.indexOf(warm),armedIndex=steps.findIndex(s=>s.id==='arm');
+   assert.ok(warmIndex>1&&warmIndex<armedIndex);
+   assert.equal(warm.run,'node scripts/telegram-morning-prefetch.mjs');
+   assert.ok(String(warm.env.GAS_ACCESS_TOKEN||'').includes('secrets.GAS_ACCESS_TOKEN'));
+   assert.ok(String(warm.env.GAS_WEB_APP_URL||'').includes('vars.GAS_WEB_APP_URL'));
+   assert.equal(warm.env.TELEGRAM_BOT_TOKEN,undefined);
+   const source=fs.readFileSync('scripts/telegram-morning-prefetch.mjs','utf8');
+   assert.ok(source.includes('PREFETCH_NOT_VERIFIED'));
+   assert.ok(!source.includes('GITHUB_OUTPUT'));
+ }
  assert.equal(steps.find(s=>s.id==='arm').run,'node scripts/telegram-punctual-arm.mjs '+c.kind);
  assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
  assert.equal(steps.find(s=>s.id==='prepare').env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
