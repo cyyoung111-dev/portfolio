@@ -5,6 +5,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
+import os from 'node:os';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 
 const exact = "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'";
 const workflows = [
@@ -243,6 +246,25 @@ for(const [a,b] of [
 }
 
 
+function executeActualJointGate(command,event,stubDate){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue507-readonly-gate-'));
+ try{
+  // Run the ACTUAL YAML bash step; only the current KST date CLI is stubbed.
+  const fakeDate=path.join(dir,'date'),out=path.join(dir,'github-output.txt');
+  fs.writeFileSync(fakeDate,'#!/bin/sh\\nprintf "%s\\\\n" "$STUB_KST_DATE"\\n',{mode:0o755});
+  const run=spawnSync('bash',['-e'],{
+   input:command,encoding:'utf8',timeout:2500,
+   env:{...process.env,
+    PATH:dir+path.delimiter+(process.env.PATH||''),
+    STUB_KST_DATE:stubDate,
+    GITHUB_EVENT_NAME:event,
+    GITHUB_OUTPUT:out}
+  });
+  assert.equal(run.status,0,'KST read-only gate script must exit successfully');
+  return fs.readFileSync(out,'utf8').trim();
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+}
+
 function verifyJointIssue507NhReadOnlyWorkflow(source){
  const doc=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
  assert.equal(doc.errors.length,0);
@@ -262,6 +284,10 @@ function verifyJointIssue507NhReadOnlyWorkflow(source){
  const date=steps.find(s=>s.id==='window');
  assert.ok(date.run.includes('TZ=Asia/Seoul date +%F'));
  assert.ok(date.run.includes('2026-11-03'));
+ assert.equal(executeActualJointGate(date.run,'push','2026-11-03'),'ready=true');
+ assert.equal(executeActualJointGate(date.run,'push','2026-11-04'),'ready=false');
+ assert.equal(executeActualJointGate(date.run,'workflow_dispatch','2026-11-04'),'ready=true');
+ assert.equal(executeActualJointGate(date.run,'workflow_dispatch','2026-11-03'),'ready=true');
  const ones=[
  ['funds','node scripts/diagnose-fund-snapshot-evidence-readonly.mjs'],
  ['closes','node scripts/issue507-oct30-domestic-close-readonly.mjs']];
@@ -292,7 +318,9 @@ for(const [before,after] of [
  ['  contents: read','  contents: write'],
  ['    environment: portfolio-production-gas','    environment: unprotected'],
  ['node scripts/issue507-oct30-domestic-close-readonly.mjs','echo bypassed'],
- ["github.event_name == 'push' && github.run_attempt == 1","github.event_name == 'push'"]
+ ["github.event_name == 'push' && github.run_attempt == 1","github.event_name == 'push'"],
+ ['[ "$(TZ=Asia/Seoul date +%F)" = "2026-11-03" ]; then',
+  '[ "$(TZ=Asia/Seoul date +%F)" = "2026-11-03" ] || true; then']
 ]){
  const alternate=before==='2026-11-03'?jointAuditFile.replaceAll(before,after)
   :jointAuditFile.replace(before,after);
