@@ -41,6 +41,7 @@
     "views/views_system.js",
     "views/views_system_tabsettings.js",
     "features/settings/settings_net.js",
+    "features/settings/settings_perf_monitor.js",
     "features/settings/settings_persistence_utils.js",
     "features/settings/settings.js",
     "features/settings/settings_legacy_recovery.js",

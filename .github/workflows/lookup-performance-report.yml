@@ -1,0 +1,38 @@
+name: lookup-performance-report
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '10 23 * * *' # 08:10 KST
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    if: vars.PERF_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read collector aggregate only
+        env:
+          COLLECTOR: ${{ secrets.PERF_COLLECTOR_URL }}
+          REPORT_TOKEN: ${{ secrets.PERF_REPORT_TOKEN }}
+        run: |
+          set -eu
+          test -n "$COLLECTOR"
+          test -n "$REPORT_TOKEN"
+          case "$COLLECTOR" in https://* ) ;; * ) exit 2 ;; esac
+          curl --fail --silent --show-error --max-time 20             -H "Authorization: Bearer $REPORT_TOKEN" -H "Accept: application/json"             "$COLLECTOR/report" -o perf-summary.json
+          node -e '
+            const fs=require("fs"),x=JSON.parse(fs.readFileSync("perf-summary.json","utf8"));
+            if(x.windowDays!==7||!Array.isArray(x.groups))process.exit(2);
+            const lines=["## PC / Mobile Lookup Performance (7d)","", "Samples: "+x.sampleCount+" / Truncated: "+x.truncated,"",
+            "| Device | Stage | Count | Median ms | p95 ms | Fail % |","|---|---|---:|---:|---:|---:|",
+            ...x.groups.map(g=>"| "+[g.device,g.stage,g.count,g.medianMs,g.p95Ms,g.failureRatePct].join(" | ")+" |")];
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join("\n")+"\n");
+          '
+      - name: Store aggregate only (7d retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lookup-performance-aggregates
+          path: perf-summary.json
+          retention-days: 7
