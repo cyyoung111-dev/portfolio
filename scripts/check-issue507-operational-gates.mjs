@@ -289,7 +289,7 @@ const jointAuditFile=fs.readFileSync(
 verifyJointIssue507NhReadOnlyWorkflow(jointAuditFile);
 for(const [before,after] of [
  ['2026-11-03','2026-11-04'],
- ['      contents: read','      contents: write'],
+ ['  contents: read','  contents: write'],
  ['    environment: portfolio-production-gas','    environment: unprotected'],
  ['node scripts/issue507-oct30-domestic-close-readonly.mjs','echo bypassed'],
  ["github.event_name == 'push' && github.run_attempt == 1","github.event_name == 'push'"]
