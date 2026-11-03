@@ -1799,7 +1799,11 @@ for(const mode of ['ok','read-failed','backup-failed']) {
  h.response.settings.ACCOUNTS_MASTER=[{name:'계좌'}];
  vm.runInContext('_markPortfolioRemoteDirty()',h.ctx);
  const dirty=JSON.stringify(h.ctx._getPortfolioRemoteDirty());
- if(mode==='read-failed')h.response.portfolioReadStatus.holdingsOk=false;
+ if(mode==='read-failed'){
+  h.response.portfolioReadStatus.holdingsOk=false;
+  h.ctx.requestGsheetActionJson=async action=>
+   action==='getBootstrap'?h.response:{status:'error',errorCode:'SERVER_ERROR'};
+ }
  if(mode==='backup-failed')h.ctx.localStorage.setItem=(k,v)=>{if(k==='portfolio_empty_dirty_restore_archive_v1')throw Error('quota');h.storage.set(k,v);};
  const q=quickFixture(h);await h.ctx.quickFetchByDate();
  assert.equal(h.writes,0,'empty generic dirty must never delete remote ledger, holdings or fundDirect');
