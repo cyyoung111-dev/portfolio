@@ -133,3 +133,49 @@ const safeSplit=run([historicBuy,split,postSplitSale],10,'2026-02-10',{type:'spl
 assert.equal(safeSplit.saved,true);
 assert.equal(safeSplit.holdings[0].qty,15,'historical split replays before subsequent sale');
 console.log('PASS: historical buy/sell/price/account/split correction, future oversell guard, fail-closed editing');
+
+
+// Bulk-import UI explicitly accepts dotted dates. Its writer must store ISO
+// so the GAS transaction ledger and historical Snapshot date keys align.
+const bulkSource=fs.readFileSync('src/web/features/import/mgmt_bulk.js','utf8');
+const bulkContext=vm.createContext({});
+vm.runInContext(bulkSource+'\nglobalThis.__date=_normalizeBulkTradeDate;',bulkContext);
+assert.equal(bulkContext.__date('2026.02.01'),'2026-02-01');
+assert.equal(bulkContext.__date('2026/2/1'),'2026-02-01');
+assert.equal(bulkContext.__date('2026-02-01'),'2026-02-01');
+assert.equal(bulkContext.__date('2026.02.30'),'','invalid dates are rejected');
+assert.match(bulkSource,/date: _normalizeBulkTradeDate\(r\.buyDate\)/);
+assert.match(bulkSource,/date: _normalizeBulkTradeDate\(r\.sellDate\)/);
+assert.match(bulkSource,/date: _normalizeBulkTradeDate\(r\.date\)/);
+
+const dottedBuy={id:21,...row('2026.02.01','buy',10)};
+const dottedSale={id:22,...row('2026-03-01','sell',8)};
+const acceptedLegacy=run([dottedBuy],4,'2026-02-20');
+assert.equal(acceptedLegacy.saved,true,'legacy dotted buy may fund a later ISO sale');
+assert.equal(acceptedLegacy.holdings[0].qty,6);
+assert.equal(acceptedLegacy.holdings[0].costAmt,600);
+const correctedLegacy=run([dottedBuy,dottedSale],12,'2026-02-01',{type:'buy',editId:21});
+assert.equal(correctedLegacy.saved,true,'legacy imported buy may be corrected');
+assert.equal(correctedLegacy.holdings[0].qty,4);
+const rejectedLegacy=run([dottedBuy,dottedSale],5,'2026-02-01',{type:'buy',editId:21});
+assert.equal(rejectedLegacy.saved,false,'legacy dotted buy correction protects later ISO sale');
+
+// Dividend entitlement / projected amount must use units from the corrected
+// historical ledger, not the currently displayed holding snapshot.
+const dataFull=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+const qtyStart=dataFull.indexOf('function getQtyAtDate(');
+const qtyEnd=dataFull.indexOf('\n}',qtyStart)+2;
+const serviceFull=fs.readFileSync('src/web/domain/portfolio/portfolio_service.js','utf8');
+const keyStart=serviceFull.indexOf('function _portfolioTradeDateKey(');
+const keyEnd=serviceFull.indexOf('\n}',keyStart)+2;
+assert.ok(qtyStart>=0&&qtyEnd>qtyStart&&keyStart>=0&&keyEnd>keyStart);
+const entitlementContext=vm.createContext({rawTrades:[dottedBuy,dottedSale],rawHoldings:[],
+  _kstTodayStr:()=> '2026-11-04'});
+vm.runInContext(serviceFull.slice(keyStart,keyEnd)+'\n'+dataFull.slice(qtyStart,qtyEnd)
+  +'\nglobalThis.__qty=getQtyAtDate;',entitlementContext);
+assert.equal(entitlementContext.__qty('시험','2026-02-15'),10);
+assert.equal(entitlementContext.__qty('시험','2026-03-02'),2);
+entitlementContext.rawTrades[0]={...dottedBuy,qty:12};
+assert.equal(entitlementContext.__qty('시험','2026-02-15'),12);
+assert.equal(entitlementContext.__qty('시험','2026-03-02'),4);
+console.log('PASS: bulk dotted-date ISO normalization, legacy trading chronology and dividend entitlement units');
