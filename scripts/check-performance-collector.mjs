@@ -87,8 +87,8 @@ assert.equal(sheets.size,1,'must never access or mutate holdings, ledger or snap
 
 // Client mock: no remote reporting without opt-in and GAS support check.
 let consent=new Map(),generation=1,connected='https://script.google.com/macros/s/test/exec',callCount=0;
-let resolveDelayed=null;
-const pending=[];
+let resolveDelayed=null, delayProbe=false, resolveProbe=null;
+const pending=[],requests=[];
 const storage={
  getItem:k=>consent.get(k)??null,
  setItem:(k,v)=>{consent.set(k,String(v));},
@@ -115,8 +115,12 @@ const webCtx=vm.createContext({
  getGsheetConnectionGeneration:()=>generation,
  requestGsheetFormJson:async(action,data,opts)=>{
   callCount++;
+  requests.push({action,data,opts});
   assert.equal(opts.targetUrl,connected);
-  if(action==='getPerformanceSummary')return {status:'ok',enabled:true,groups:[],sampleCount:0};
+  if(action==='getPerformanceSummary'){
+    if(delayProbe) await new Promise(resolve=>{resolveProbe=resolve;});
+    return {status:'ok',enabled:true,groups:[],sampleCount:0};
+  }
   if(resolveDelayed){return await new Promise(resolve=>{pending.push(resolve)})}
   return {status:'ok',accepted:JSON.parse(data.data).samples.length};
  },
@@ -138,5 +142,35 @@ assert.equal(callCount,3,'one probe plus 2 batches');
 await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
 assert.equal(consent.get('pf_perf_gas_consent_v1'),'0');
 assert.equal(window.PortfolioPerfTelemetry.enabled(),false);
-assert.doesNotMatch(web,/PERFORMANCE_LOG\W+(?:getRange|appendRow)/,'client must not write Sheet directly');
+// If the user revokes consent before the GAS support probe completes,
+// the delayed success must NEVER silently re-enable collection.
+delayProbe=true;
+const probing=handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+await Promise.resolve();
+assert.equal(typeof resolveProbe,'function');
+await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
+resolveProbe();
+await probing;
+assert.equal(window.PortfolioPerfTelemetry.enabled(),false,'stopped probe must not resurrect consent');
+delayProbe=false;
+// Re-enable and queue one old-GAS sample, then change connection before flush.
+await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:111,result:'ok'});
+const callsBeforeSwitch=callCount;
+connected='https://script.google.com/macros/s/another/exec';
+webCtx.GSHEET_API_URL=connected;
+generation++;
+assert.equal(await window.PortfolioPerfTelemetry.flush(),false,
+ 'switching GAS must drop queued samples instead of sending them to new workbook');
+assert.equal(callCount,callsBeforeSwitch);
+assert.equal(window.PortfolioPerfTelemetry.enabled(),false,
+ 'changed workbook must require fresh per-device opt-in');
+await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:222,result:'ok'});
+assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
+const uploaded=JSON.parse(requests.at(-1).data.data);
+assert.equal(uploaded.samples.length,1);
+assert.equal(uploaded.samples[0].ms,222,'only newly consented workbook sample may be sent');
+assert.doesNotMatch(web,/PERFORMANCE_LOG\W+(?:getRange|appendRow)/,
+ 'client must not write Sheet directly');
 console.log('PASS: GAS token fail-closed, separate sheet, cap/schema, aggregate p50/p95, opt-in and 8-row batching');
