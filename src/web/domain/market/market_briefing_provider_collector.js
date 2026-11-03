@@ -64,32 +64,43 @@ async function collect(request,tradingDate,options={}){
  const benchmarkTo=options.checkpoint==='MORNING'&&to>=tradingDate?lookback(tradingDate,1):to;
  const benchmarkFrom=from>benchmarkTo?lookback(benchmarkTo):from;
  const payload={},missing=[],errors={};
- // Nasdaq Composite is optional and NH-only. Do not make it a fresh-token
- // trigger in morning, at close, or while the NH cached bearer is absent.
- // The central GAS status action is explicitly read-only and does not issue OAuth.
- let includeCachedNasdaq=false;
- if(options.checkpoint==='EVENING'){
-  try{
-   const auth=await request('getNhAuthStatusProxy',{},
-    {timeoutMs:6000,retry:0});
-   includeCachedNasdaq=auth?.status==='ok'&&auth.provider==='NH'
-     &&auth.enabled===true&&auth.tokenCached===true&&auth.tokenIssued===false;
-  }catch{/* Optional path is fail-closed without blocking core indices. */}
- }
- const types=includeCachedNasdaq?[...REQUEST_TYPES,'NASDAQ']:REQUEST_TYPES;
+ // Optional NH Composite must never enlarge/fail the core benchmark request.
+ // A cached-token status check is read-only, but it is NOT an atomic guarantee
+ // against token expiration between calls; a GAS cached-only endpoint is needed
+ // before claiming optional COMP can never trigger a refresh.
+ const types=REQUEST_TYPES;
+ let coreReadOk=false;
  try{
   const data=await request('getBenchmarks',{benchmarks:types.join(','),from:benchmarkFrom,to:benchmarkTo,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
+  coreReadOk=data?.status==='ok';
   for(const type of types){
    const points=data&&data.series&&data.series[type];
    // 응답이 요청 범위를 벗어나더라도 장전 당일 Toss 일봉이 전일 KRX 공식 종가를 덮지 못하도록 차단.
    const eligible=options.checkpoint==='MORNING'&&Array.isArray(points)?points.filter(point=>point&&point.date<=benchmarkTo):points;
    const point=latest(eligible);
-   if(!point){if(type!=='NASDAQ')missing.push(type);continue;}
-   if(type==='NASDAQ'&&(point.date>=tradingDate||!verifiedNasdaqComposite(point,data?.seriesMeta?.NASDAQ)))continue;
+   if(!point){missing.push(type);continue;}
    payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);
   }
   Object.assign(errors,(data&&data.errors)||{});
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}
+ // Optional request is isolated: COMP errors cannot erase SPX, NDX or other
+ // market indicators, change core missing counts, or stop a briefing.
+ if(coreReadOk&&options.checkpoint==='EVENING'){
+  try{
+   const auth=await request('getNhAuthStatusProxy',{}, {timeoutMs:6000,retry:0});
+   if(auth?.status==='ok'&&auth.provider==='NH'&&auth.enabled===true
+       &&auth.tokenCached===true&&auth.tokenIssued===false){
+    const optional=await request('getBenchmarks',{
+      benchmarks:'NASDAQ',from:benchmarkFrom,to:benchmarkTo,fresh:'0'
+    },{timeoutMs:12000,retry:0});
+    const point=latest(optional?.series?.NASDAQ);
+    if(point&&point.date<tradingDate
+       &&verifiedNasdaqComposite(point,optional?.seriesMeta?.NASDAQ)){
+      payload.NASDAQ=normalizeBenchmarkPoint('NASDAQ',point,optional,tradingDate,options.checkpoint);
+    }
+   }
+  }catch{/* Optional read failure must leave core source/coverage untouched. */}
+ }
  if(options.checkpoint==='NIGHT_FINAL'||options.checkpoint==='MORNING'){
   try{
    const nightDate=String(options.nightSourceDate||tradingDate);
