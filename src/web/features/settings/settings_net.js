@@ -16,6 +16,8 @@ function _recordLookupPerf(stage, elapsedMs, result = 'ok') {
   };
   samples.push(entry);
   if (samples.length > 60) samples.splice(0, samples.length - 60);
+  // No financial service impact: reporter is optional, separately consented.
+  try { window.PortfolioPerfTelemetry?.record(entry); } catch (_) {}
   if (window.__pfPerfMode === true) console.info('[portfolio-lookup-timing]', entry);
 }
 
