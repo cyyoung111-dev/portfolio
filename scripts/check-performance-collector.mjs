@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import {composePerformanceGasCandidate,sourceSha,APPROVED_GAS_V9282_BLOB} from './compose-gas-performance-proposal.mjs';
 
 const gasCandidate=fs.readFileSync('ops/lookup-performance-gas/collector.gs','utf8');
 const web=fs.readFileSync('src/web/features/settings/settings_perf_monitor.js','utf8');
@@ -179,3 +180,182 @@ assert.equal(uploaded.samples[0].ms,222,'only newly consented workbook sample ma
 assert.doesNotMatch(web,/PERFORMANCE_LOG\W+(?:getRange|appendRow)/,
  'client must not write Sheet directly');
 console.log('PASS: GAS token fail-closed, separate sheet, cap/schema, aggregate p50/p95, opt-in and 8-row batching');
+
+
+// Execute the ACTUAL v9.282 doGet/doPost and authentication with the
+// proposed collector, but without changing production source or remote GAS.
+{
+  const approved=fs.readFileSync('src/gas/apps_script.gs','utf8');
+  assert.equal(sourceSha(approved),APPROVED_GAS_V9282_BLOB);
+  const proposal=composePerformanceGasCandidate(approved,gasCandidate);
+  assert.equal(proposal.deployable,false);
+  assert.equal(proposal.financialWriteApproved,false);
+  assert.equal(proposal.productionSourceChanged,false);
+  assert.equal(sourceSha(approved),APPROVED_GAS_V9282_BLOB,
+    'source-only preparation cannot alter approved GAS blob');
+  assert.throws(()=>composePerformanceGasCandidate(approved+' ',gasCandidate),
+    /PERF_COMPOSE_BASE_UNAPPROVED/);
+  assert.throws(()=>composePerformanceGasCandidate(approved,gasCandidate.replace(
+    'function handleAppendPerformanceMetrics(params)','function changedMetrics(params)')),
+    /PERF_COMPOSE_COLLECTOR_INVALID/);
+  function extract(name){
+    const start=proposal.source.indexOf('function '+name+'(');
+    assert.ok(start>=0,'missing production function: '+name);
+    const end=proposal.source.indexOf('\n}',start);
+    assert.ok(end>start,'missing closing declaration: '+name);
+    return proposal.source.slice(start,end+2);
+  }
+  const routes=[
+    '_isAuthorizedRequest','doGet','doPost','jsonOk','jsonError'
+  ].map(extract).join('\n\n');
+  const testToken='valid_gas_telemetry_access_token_20261103';
+  const properties={access_token:testToken};
+  const created=[];
+  const routeSheets=new Map();
+  const spreadsheet={
+    getSheetByName:n=>routeSheets.get(n)||null,
+    insertSheet:n=>{
+      created.push(n);const sh=createSheet(n);routeSheets.set(n,sh);return sh;
+    }
+  };
+  const routeCtx=vm.createContext({
+    console,Math,Date,JSON,Object,Array,String,Number,isFinite,
+    _issue507GateInside_:true, // approved gate's inner routing; never live calls
+    PropertiesService:{getScriptProperties:()=>({
+      getProperty:k=>properties[k]||null,
+      setProperty:()=>{throw Error('PROPERTIES_WRITE_DENIED');}
+    })},
+    ContentService:{MimeType:{JSON:'application/json'},
+      createTextOutput:text=>({getContent:()=>text,setMimeType(){return this;}})},
+    LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
+    getss:()=>spreadsheet,
+    Utilities:{formatDate:(d,tz)=>{
+      assert.equal(tz,'Asia/Seoul');
+      const x=new Date(d.getTime()+9*3600000).toISOString();
+      return x.slice(0,10)+' '+x.slice(11,19);
+    }}
+  });
+  new vm.Script(routes+'\n'+gasCandidate,{
+    filename:'approved-v9282-real-routes-with-perf-module.gs'
+  }).runInContext(routeCtx);
+  const request=(action,token,data,method='POST')=>{
+    const fields={action};
+    if(token!==null)fields.accessToken=token;
+    if(data!==undefined)fields.data=JSON.stringify(data);
+    const event=method==='GET'?{parameter:fields}
+      :{postData:{contents:new URLSearchParams(fields).toString()}};
+    const response=method==='GET'?routeCtx.doGet(event):routeCtx.doPost(event);
+    return JSON.parse(response.getContent());
+  };
+  const metrics={version:1,device:'desktop',samples:[
+    {stage:'price.poll-total',ms:1191,result:'ok'},
+    {stage:'price.poll-render',ms:165,result:'ok'}
+  ]};
+  assert.equal(request('appendPerformanceMetrics',null,metrics).status,'error');
+  assert.equal(request('appendPerformanceMetrics','wrong',metrics).status,'error');
+  assert.equal(request('appendPerformanceMetrics',testToken,metrics,'GET').message,'POST_ONLY');
+  assert.equal(request('getPerformanceSummary',testToken,undefined,'GET').message,'POST_ONLY');
+  assert.deepEqual(created,[],'GET and unauthenticated calls must not create sheet');
+  assert.equal(request('appendPerformanceMetrics',testToken,metrics).status,'ok');
+  assert.deepEqual(created,['PERFORMANCE_LOG'],
+    'real POST must write only the dedicated diagnostic sheet');
+  const summary=request('getPerformanceSummary',testToken);
+  assert.equal(summary.status,'ok');
+  assert.equal(summary.sampleCount,2);
+  assert.ok(summary.groups.some(x=>x.stage==='price.poll-total'&&x.medianMs===1191));
+  const before=routeSheets.get('PERFORMANCE_LOG').rows.length;
+  delete properties.access_token;
+  const noToken=request('appendPerformanceMetrics',null,metrics);
+  assert.equal(noToken.message,'PERF_AUTH_REQUIRED',
+    'legacy anonymous GAS compatibility must still deny telemetry writes');
+  assert.equal(routeSheets.get('PERFORMANCE_LOG').rows.length,before);
+
+  // Exercise the FULL v9.282 source candidate and actual writer gate.
+  const protectedProperties=new Map([['access_token',testToken]]);
+  const propertiesApi={
+    getProperty:k=>protectedProperties.get(k)||null,
+    getProperties:()=>Object.fromEntries(protectedProperties),
+    setProperty:(k,v)=>{protectedProperties.set(k,v);},
+    deleteProperty:k=>{protectedProperties.delete(k);}
+  };
+  let held=false,seq=0;
+  const scriptLock={
+    hasLock:()=>held,
+    waitLock:()=>{if(held)throw Error('SYNTHETIC_LOCK_BUSY');held=true;},
+    tryLock:()=>{if(held)return false;held=true;return true;},
+    releaseLock:()=>{held=false;}
+  };
+  const protectedSheets=new Map(),protectedWrites=[];
+  const protectedWorkbook={
+    getSheetByName:n=>protectedSheets.get(n)||null,
+    insertSheet:n=>{protectedWrites.push('insert:'+n);
+      const sh=createSheet(n);protectedSheets.set(n,sh);return sh;}
+  };
+  const fullCtx=vm.createContext({
+    console,Date,Math,JSON,Object,Array,String,Number,isFinite,
+    PropertiesService:{getScriptProperties:()=>propertiesApi},
+    LockService:{getScriptLock:()=>scriptLock},
+    SpreadsheetApp:{getActiveSpreadsheet:()=>protectedWorkbook},
+    Utilities:{
+      getUuid:()=> 'perf-gate-'+(++seq),
+      formatDate:(date,tz)=>{
+        assert.equal(tz,'Asia/Seoul');
+        const d=new Date(date.getTime()+9*3600000).toISOString();
+        return d.slice(0,10)+' '+d.slice(11,19);
+      }
+    },
+    ContentService:{MimeType:{JSON:'application/json'},createTextOutput:t=>({
+      getContent:()=>t,setMimeType(){return this;}
+    })}
+  });
+  vm.runInContext(proposal.source,fullCtx,{
+    filename:'approved-gas-v9282-with-performance-proposal.gs'
+  });
+  assert.equal(fullCtx._issue507GateInside_,false);
+  const positive={accessToken:testToken,data:JSON.stringify(metrics)};
+  const direct=fullCtx.handleAppendPerformanceMetrics(positive);
+  assert.equal(JSON.parse(direct.getContent()).accepted,2);
+  assert.deepEqual(protectedWrites,['insert:PERFORMANCE_LOG']);
+  let gateState=JSON.parse(protectedProperties.get('issue507_writer_gate_v1'));
+  assert.equal(gateState.mode,'OPEN');
+  assert.equal(gateState.finished,1,'direct entrypoint has exactly one completion receipt');
+  assert.equal(Object.keys(gateState.active).length,0);
+  assert.equal(gateState.completed.at(-1).name,'handleAppendPerformanceMetrics');
+  assert.equal(fullCtx._issue507GateInside_,false);
+  const protectedPost=fullCtx.doPost({postData:{contents:new URLSearchParams({
+    action:'appendPerformanceMetrics',accessToken:testToken,
+    data:JSON.stringify(metrics)
+  }).toString()}});
+  assert.equal(JSON.parse(protectedPost.getContent()).accepted,2);
+  gateState=JSON.parse(protectedProperties.get('issue507_writer_gate_v1'));
+  assert.equal(gateState.finished,2,'doPost wraps nested collector in one gate owner');
+  assert.equal(gateState.completed.at(-1).name,'doPost');
+  assert.equal(Object.keys(gateState.active).length,0);
+  // Maintenance: every new function must reject before touching even PERF.
+  const rowsBefore=protectedSheets.get('PERFORMANCE_LOG').rows.length;
+  protectedProperties.set('issue507_writer_gate_v1',JSON.stringify({
+    ...gateState,mode:'DRAINING',barrierAt:Date.now()
+  }));
+  const rejected=[
+    ['handleAppendPerformanceMetrics',[positive]],
+    ['handleGetPerformanceSummary',[{accessToken:testToken}]],
+    ['_perfMonitorSheet_',[true]],
+    ['_perfMonitorAuthorized_',[positive]],
+    ['_perfMonitorValidate_',[JSON.stringify(metrics)]],
+    ['_perfMonitorTimestamp_',[new Date()]]
+  ];
+  for(const [name,args] of rejected){
+    assert.throws(()=>fullCtx[name](...args),/GATE_MAINTENANCE/,
+      'writer gate must block direct '+name+' during DRAINING');
+  }
+  assert.throws(()=>fullCtx.doPost({postData:{contents:new URLSearchParams({
+    action:'appendPerformanceMetrics',accessToken:testToken,
+    data:JSON.stringify(metrics)
+  }).toString()}}),/GATE_MAINTENANCE/);
+  assert.equal(protectedSheets.get('PERFORMANCE_LOG').rows.length,rowsBefore);
+  assert.deepEqual(protectedWrites,['insert:PERFORMANCE_LOG']);
+  assert.equal(fullCtx._issue507GateInside_,false);
+  console.log('PASS full v9.282 writer gate: direct/POST admission, terminal receipts and DRAINING denial (no sheet writes)');
+
+  console.log('PASS source-only v9.282 composition + production doGet/doPost auth and POST-only routes');
+}
