@@ -79,6 +79,11 @@ assert.equal(result.groups[0].medianMs,2000);
 assert.equal(result.groups[0].p95Ms,3000);
 assert.equal(result.groups[0].failureRatePct,33.3);
 assert.equal(Object.keys(result.groups[0]).includes('account'),false);
+// Native Sheets can coerce timestamp cells to Date objects.
+const originalStamp=sheet.rows[1][0];
+sheet.rows[1][0]=new Date();
+assert.equal(call('handleGetPerformanceSummary',{accessToken:props.access_token}).sampleCount,3);
+sheet.rows[1][0]=originalStamp;
 // Existing sheet with unexpected header must be rejected, never overwritten.
 const before=sheet.rows[0][0];sheet.rows[0][0]='foreign';
 assert.equal(call('handleAppendPerformanceMetrics',valid).message,'PERF_COLLECTOR_UNAVAILABLE');
