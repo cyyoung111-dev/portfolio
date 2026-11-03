@@ -88,7 +88,21 @@ jobs:
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/collect-kb-fund-nav.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          preview="$(node scripts/collect-kb-fund-nav.mjs)"
+          NAV_PREVIEW_OUTPUT="$preview" node --input-type=module <<'JS'
+          let result;
+          try { result=JSON.parse(process.env.NAV_PREVIEW_OUTPUT||'null'); } catch {}
+          if(result?.mode!=='DRY_RUN'||result?.imported!==0
+             ||!Number.isSafeInteger(result?.sourceRows)||result.sourceRows<1
+             ||!Number.isSafeInteger(result?.candidates)||result.candidates<0) {
+            console.error('KB_NAV_PREVIEW_INCOMPLETE');
+            process.exit(2);
+          }
+          console.log('KB_NAV_DRY_RUN_SOURCE_VERIFIED_NO_WRITES');
+          JS
       - name: Report all read-only evidence; no financial repair authorization
         if: always()
         env:
