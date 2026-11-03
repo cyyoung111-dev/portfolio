@@ -105,6 +105,23 @@ assert.equal(writes,1);
 assert.equal(manualCtx.DIVDATA['005930'].events[0].receivedConfirmed,true,
   'manual receipt marker must survive the actual event save path');
 assert.equal(manualCtx.DIVDATA['005930'].events[0].payDate,'2026-01-15');
+
+const persisted=JSON.parse(JSON.stringify(manualCtx.DIVDATA));
+const persistenceSource=fs.readFileSync('src/web/features/settings/settings_persistence_utils.js','utf8');
+vm.runInContext(persistenceSource,manualCtx);
+manualCtx.DIVDATA['005930'].events[0].receivedConfirmed=false; // simulate stale browser state
+manualCtx._applyDivData(persisted); // same normalization as live GAS restoration
+assert.equal(manualCtx.DIVDATA['005930'].events[0].receivedConfirmed,true,
+  'verified cash deposit must survive actual _applyDivData reload');
+assert.equal(manualCtx._normalizeDivData({'005930':{events:[{date:'2026-01-02',
+  payDate:'2026-01-15',amount:100,receivedConfirmed:'true'}]}})['005930'].events[0].receivedConfirmed,false,
+  'untrusted string values cannot forge a payment receipt');
+context.DIVDATA=JSON.parse(JSON.stringify(manualCtx.DIVDATA));
+context.EDITABLE_PRICES=[{name:'테스트 종목',code:'005930'}];
+context.getQtyAtDate=()=>10;
+assert.equal(context.calcDividends()[0].receivedDiv,1_000,
+  'restored manual receipt must appear in the actual portfolio dividend view');
+
 assert.match(source,/올해 입금 확인 \(수동\)/);
 assert.doesNotMatch(source,/올해 수령 \(/);
 console.log('PASS: declared distribution vs manually verified deposit and actual editor save');
