@@ -1,6 +1,11 @@
 name: issue-507-fund-snapshot-evidence-readonly
+# 2026-11-03 one-off push event to correlate finance Snapshot + NH close
+# without ANY production writes. Original manual dispatch is retained.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/issue-507-fund-snapshot-evidence-readonly.yml']
 permissions:
   contents: read
 concurrency:
@@ -8,17 +13,63 @@ concurrency:
   cancel-in-progress: false
 jobs:
   inspect:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Diagnose F00001 2026-10-30 persisted Snapshot vs price (read only)
+      - name: Reject delayed 2026-11-03 one-shot; manual read-only mode preserved
+        id: window
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$(TZ=Asia/Seoul date +%F)" = "2026-11-03" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+            echo 'ISSUE507_NH_READONLY_WINDOW_VALID'
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'ISSUE507_NH_READONLY_ONEOFF_EXPIRED'
+          fi
+      - name: Validate existing source-only read contracts
+        if: steps.window.outputs.ready == 'true'
+        run: |
+          node scripts/check-issue507-fund-snapshot-evidence-readonly.mjs
+          node scripts/check-issue507-oct30-domestic-close-readonly.mjs
+      - name: Read persisted F00001 and F00002 fund/NAV provenance (never writes)
+        id: funds
+        if: steps.window.outputs.ready == 'true'
+        continue-on-error: true
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/diagnose-fund-snapshot-evidence-readonly.mjs
+      - name: Read exact-date 2026-10-30 NH/stock close coverage (never writes)
+        id: closes
+        if: steps.window.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-oct30-domestic-close-readonly.mjs
+      - name: Report both independent reads; no financial repair authorization
+        if: always()
+        env:
+          READY: ${{ steps.window.outputs.ready }}
+          FUNDS: ${{ steps.funds.outcome }}
+          CLOSES: ${{ steps.closes.outcome }}
+        shell: bash
+        run: |
+          echo "JOINT_READONLY_FUND_STATUS=$FUNDS"
+          echo "JOINT_READONLY_NH_CLOSE_STATUS=$CLOSES"
+          echo 'JOINT_READONLY_FINANCE_WRITES=0'
+          echo 'JOINT_READONLY_RELEASE_AUTHORIZED=false'
+          if [ "$READY" != 'true' ] || [ "$FUNDS" != 'success' ] || [ "$CLOSES" != 'success' ]; then
+            echo 'JOINT_READONLY_EVIDENCE_INCOMPLETE'
+            exit 2
+          fi
+          echo 'JOINT_READONLY_EVIDENCE_COLLECTED_REVIEW_REQUIRED'
