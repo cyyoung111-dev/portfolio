@@ -9,12 +9,14 @@ var PERF_MONITOR_STAGES = [
   'network.getBootstrap','network.getSettings','network.getPrices','network.getPriceHistory'
 ];
 function _perfMonitorAuthorized_(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_perfMonitorAuthorized_', _perfMonitorAuthorized_, this, arguments);
   // GAS's legacy compatibility mode permits anonymous requests. Never write metrics
   // in that mode, even when doPost() itself passes _isAuthorizedRequest().
   var configured = String(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim();
   return configured.length >= 24 && _isAuthorizedRequest(params);
 }
 function _perfMonitorValidate_(text) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_perfMonitorValidate_', _perfMonitorValidate_, this, arguments);
   if (String(text || '').length > 1800) return null;
   var payload;
   try { payload = JSON.parse(String(text || '')); } catch (_) { return null; }
@@ -30,12 +32,14 @@ function _perfMonitorValidate_(text) {
   return payload;
 }
 function _perfMonitorTimestamp_(value) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_perfMonitorTimestamp_', _perfMonitorTimestamp_, this, arguments);
   // Sheets may return Date objects even if the server originally wrote text.
   if (value instanceof Date && isFinite(value.getTime()))
     return Utilities.formatDate(value, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
   return String(value || '');
 }
 function _perfMonitorSheet_(create) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_perfMonitorSheet_', _perfMonitorSheet_, this, arguments);
   var ss = getss();
   var sh = ss.getSheetByName(PERF_MONITOR_SHEET);
   if (!sh && !create) return null;
@@ -51,6 +55,7 @@ function _perfMonitorSheet_(create) {
   return sh;
 }
 function handleAppendPerformanceMetrics(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleAppendPerformanceMetrics', handleAppendPerformanceMetrics, this, arguments);
   if (!_perfMonitorAuthorized_(params)) return jsonError('PERF_AUTH_REQUIRED');
   var payload = _perfMonitorValidate_(params.data || '');
   if (!payload) return jsonError('PERF_INVALID_PAYLOAD');
@@ -94,6 +99,7 @@ function handleAppendPerformanceMetrics(params) {
   } finally { lock.releaseLock(); }
 }
 function handleGetPerformanceSummary(params) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetPerformanceSummary', handleGetPerformanceSummary, this, arguments);
   if (!_perfMonitorAuthorized_(params)) return jsonError('PERF_AUTH_REQUIRED');
   try {
     var sh = _perfMonitorSheet_(false);
