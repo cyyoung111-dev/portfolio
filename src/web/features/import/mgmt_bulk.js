@@ -355,10 +355,34 @@ function downloadBulkTemplate() {
 
 // ── 가져오기 적용 ──────────────────────────────────────────────
 
+// Normalize the date format shown by this importer (YYYY.MM.DD) before
+// sending trades to the chronological reducer and GAS daily Snapshot writer.
+function _normalizeBulkTradeDate(value) {
+  const m = String(value || '').trim().match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})$/);
+  if (!m) return '';
+  const [year,month,day] = m.slice(1).map(Number);
+  const ts=Date.UTC(year,month-1,day), check=new Date(ts);
+  if (!Number.isFinite(ts) || check.getUTCFullYear()!==year
+      || check.getUTCMonth()+1!==month || check.getUTCDate()!==day) return '';
+  return String(year).padStart(4,'0')+'-'+String(month).padStart(2,'0')
+    +'-'+String(day).padStart(2,'0');
+}
+
 function applyBulkImport() {
   const err = $el('bulkError');
   if (err) err.style.display = 'none';
   const added = [];
+  // Reject invalid complete dates atomically; never import just part of a
+  // selected batch or let legacy dotted dates bypass Snapshot date matching.
+  const sourceRows = _bulkMode === 'buy' ? _bulkRows : _bulkMode === 'sell' ? _bulkRowsSell : _bulkRowsMix;
+  const dateField = _bulkMode === 'buy' ? 'buyDate' : _bulkMode === 'sell' ? 'sellDate' : 'date';
+  const priceField = _bulkMode === 'buy' ? 'buyPrice' : _bulkMode === 'sell' ? 'sellPrice' : 'price';
+  const invalidDate = sourceRows.some(r => r.name && r.acct && r.qty && r[priceField]
+    && r[dateField] && !_normalizeBulkTradeDate(r[dateField]));
+  if (invalidDate) {
+    if (err) { err.textContent='❌ 날짜가 잘못되었습니다. YYYY.MM.DD 또는 YYYY-MM-DD 형식을 확인해주세요'; err.style.display='block'; }
+    return;
+  }
 
   if (_bulkMode === 'buy') {
     const valid = _bulkRows.filter(r => r.name && r.acct && r.qty && r.buyDate && r.buyPrice);
@@ -374,7 +398,7 @@ function applyBulkImport() {
         acct: r.acct, accountId:getAccountId(r.acct), assetType: r.type||'주식',
         name: normN,  code: r.code||'',
         qty: parseInt(r.qty)||0, price: parseFloat(r.buyPrice)||0,
-        date: r.buyDate||'', memo: r.memo||''
+        date: _normalizeBulkTradeDate(r.buyDate), memo: r.memo||''
       };
       if (isFund) trade.fund = true;
       rawTrades.push(trade);
@@ -399,7 +423,7 @@ function applyBulkImport() {
         acct: r.acct, accountId:getAccountId(r.acct), assetType: ep ? ep.assetType : '주식',
         name: normN,  code: ep ? ep.code||'' : '',
         qty: parseInt(r.qty)||0, price: parseFloat(r.sellPrice)||0,
-        date: r.sellDate||'', memo: r.memo||''
+        date: _normalizeBulkTradeDate(r.sellDate), memo: r.memo||''
       };
       if (isFund) trade.fund = true;
       rawTrades.push(trade);
@@ -424,7 +448,7 @@ function applyBulkImport() {
         acct: r.acct, accountId:getAccountId(r.acct), assetType,
         name: normN,  code: r.code || (ep ? ep.code||'' : ''),
         qty: parseInt(r.qty)||0, price: parseFloat(r.price)||0,
-        date: r.date||'', memo: r.memo||''
+        date: _normalizeBulkTradeDate(r.date), memo: r.memo||''
       };
       if (isFund) trade.fund = true;
       rawTrades.push(trade);
