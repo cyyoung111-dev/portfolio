@@ -1092,8 +1092,16 @@ async function syncHoldingsToGsheet(options) {
       const key  = h.name;
       if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType, accts: [] };
       if (h.acct && !holdMap[key].accts.includes(h.acct)) holdMap[key].accts.push(h.acct);
-      holdMap[key].qty     += h.qty;
-      holdMap[key].costAmt += (h.qty * (h.cost || 0));
+      holdMap[key].qty += h.qty;
+      // The trade reducer preserves exact outstanding acquisition cost in costAmt.
+      // Multiplying an independently rounded average unit cost by quantity loses
+      // original won amounts (e.g. 1,948 shares can drift by hundreds of won).
+      // Older saved holdings lack costAmt: retain the historical fallback only then.
+      const hasExactCost = h.costAmt !== undefined && h.costAmt !== null && h.costAmt !== '';
+      const parsedExactCost = hasExactCost ? Number(h.costAmt) : Number.NaN;
+      const exactCost = Number.isFinite(parsedExactCost) && parsedExactCost >= 0
+        ? parsedExactCost : h.qty * (h.cost || 0);
+      holdMap[key].costAmt += exactCost;
     });
     // ★ fundDirect(TDF/펀드) 항목 추가 — qty 개념 없으므로 qty=1, costAmt=cost로 저장
     Object.entries(sourceFundDirect).forEach(([name, fd]) => {
