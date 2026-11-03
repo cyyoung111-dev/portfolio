@@ -70,6 +70,12 @@ assert.match(responsiveCss, /\.toolbar-section-settings\{order:initial;width:aut
 for (const token of ['--type-caption:.75rem','--type-label:.8125rem','--type-body:.875rem','--type-value:1rem','--line-body:1.55','--line-reading:1.65','--radius-control:8px','--radius-card:12px','--radius-panel:16px','--control-height-md:38px']) {
   assert.ok(css.includes(token), `타이포그래피 토큰 누락: ${token}`);
 }
+assert.match(componentsCss, /button:not\(\.editor-close\):not\(\.btn-close-icon\):not\(\.price-status-chip\)/,
+  '클릭 가능한 가격 상태 칩이 모바일 일반 버튼 40px 규칙에서 제외되어야 합니다.');
+assert.match(componentsCss, /\.price-status-chip\{[^}]*min-height:20px[^}]*padding:2px 7px/,
+  'PC 기준 가격 상태 칩의 최소 높이·패딩을 유지해야 합니다.');
+assert.match(responsiveCss, /\.price-status-chip\{flex:0 0 auto\}/,
+  '모바일도 가격 상태 칩의 PC 패딩을 공유해야 합니다.');
 assert.match(css, /--font-size-body:16px/);
 assert.match(css, /--font-size-body-mobile:15px/);
 for (const size of [8, 9, 10, 11, 12]) {

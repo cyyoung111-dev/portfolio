@@ -800,7 +800,7 @@ input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):
 .tbl-wrap,.editor-box{border-radius:var(--radius-panel)}
 .empty-state-inline{padding:10px 0}
 @media(max-width:768px){
-  button:not(.editor-close):not(.btn-close-icon),
+  button:not(.editor-close):not(.btn-close-icon):not(.price-status-chip),
   input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):not([type=range]),select{
     min-height:40px;
   }
