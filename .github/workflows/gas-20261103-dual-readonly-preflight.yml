@@ -1,6 +1,7 @@
 name: GAS 2026-11-03 published and deployment preflight (read-only)
 # Second read-only preflight: revalidate live GAS source/deployments after reviewed performance proposal.
 # NO GAS deployment, script run, NH OAuth, financial writers or Telegram.
+# Repeat on this workflow change to check repo source references against GAS deployment IDs (counts only).
 on:
   push:
     branches: [main]
