@@ -89,5 +89,32 @@ assert.equal(body.samples.length,1,'unknown/financial-symbol stage must be filte
 assert.deepEqual(Object.keys(body.samples[0]).sort(),['ms','result','stage']);
 assert.equal(sent[0].opts.credentials,'omit');
 assert.equal(expected.get('pf_perf_remote_queue_v1'),'[]');
+// After offline recovery, eight-per-request batching must drain all pending entries.
+for(let i=0;i<9;i++)window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:100+i,result:'ok'});
+assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
+assert.equal(JSON.parse(expected.get('pf_perf_remote_queue_v1')).length,1);
+assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
+assert.equal(expected.get('pf_perf_remote_queue_v1'),'[]');
+assert.equal(sent.at(-2).opts.body.includes('localId'),false,'client-only queue IDs must not be uploaded');
+// A successful response from the old endpoint must not remove new samples.
+let release;
+ctx.fetch=async()=>new Promise(resolve=>{release=resolve});
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:321,result:'ok'});
+const oldPending=window.PortfolioPerfTelemetry.flush();
+assert.equal(typeof release,'function');
+listeners.click({target:{closest:()=>({id:'perfCollectorStop'})}});
+expected.set('pf_perf_remote_endpoint_v1','https://newcollector.example.test/ingest');
+expected.set('pf_perf_remote_consent_v1','1');
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:654,result:'ok'});
+release({ok:true});
+await oldPending;
+assert.equal(JSON.parse(expected.get('pf_perf_remote_queue_v1')).length,1,
+ 'old collector response must not erase new collector queue');
+ctx.fetch=window.fetch;
+assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
+assert.equal(JSON.parse(sent.at(-1).opts.body).samples[0].ms,654);
+assert.equal(expected.get('pf_perf_remote_queue_v1'),'[]');
+assert.match(source,/if\(\(delivered\|\|sentRevision!==revision\)/,
+ 'successful partial batch must schedule pending samples');
 assert.doesNotMatch(source,/getGsheetAccessToken|GSHEET_API_URL|savedPrices|rawTrades/);
 console.log('PASS isolated collector + no-consent fail-closed + p50/p95/error + bounded sanitized client upload');
