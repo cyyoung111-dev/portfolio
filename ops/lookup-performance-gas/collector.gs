@@ -29,6 +29,12 @@ function _perfMonitorValidate_(text) {
   })) return null;
   return payload;
 }
+function _perfMonitorTimestamp_(value) {
+  // Sheets may return Date objects even if the server originally wrote text.
+  if (value instanceof Date && isFinite(value.getTime()))
+    return Utilities.formatDate(value, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+  return String(value || '');
+}
 function _perfMonitorSheet_(create) {
   var ss = getss();
   var sh = ss.getSheetByName(PERF_MONITOR_SHEET);
@@ -61,7 +67,7 @@ function handleAppendPerformanceMetrics(params) {
     // reaching 240 same-day entries is enough to reject further writes.
     var from = Math.max(2, n - 240 + 2);
     var recent = n ? sh.getRange(from,1,Math.min(240,n),1).getValues() : [];
-    var todayCount = recent.filter(function(row){return String(row[0] || '').slice(0,10) === day;}).length;
+    var todayCount = recent.filter(function(row){return _perfMonitorTimestamp_(row[0]).slice(0,10) === day;}).length;
     if (todayCount + payload.samples.length > 240) return jsonError('PERF_DAILY_LIMIT');
     var data = payload.samples.map(function(sample) {
       return [stamp,payload.device,sample.stage,sample.ms,sample.result];
@@ -77,7 +83,7 @@ function handleAppendPerformanceMetrics(params) {
       var oldest = sh.getRange(2,1,take,1).getValues();
       var expired = 0;
       for (var i=0;i<oldest.length;i++) {
-        if (String(oldest[i][0] || '') >= cutoff) break;
+        if (_perfMonitorTimestamp_(oldest[i][0]) >= cutoff) break;
         expired++;
       }
       if (expired > 0) sh.deleteRows(2,expired);
@@ -98,7 +104,7 @@ function handleGetPerformanceSummary(params) {
     var groups = {};
     var total = 0;
     values.forEach(function(row) {
-      var date = String(row[0] || ''),dev = String(row[1] || ''),stage = String(row[2] || '');
+      var date = _perfMonitorTimestamp_(row[0]),dev = String(row[1] || ''),stage = String(row[2] || '');
       var ms = Number(row[3]),state = String(row[4] || '');
       if (date < cutoff || ['desktop','mobile','unknown'].indexOf(dev) < 0 ||
           PERF_MONITOR_STAGES.indexOf(stage) < 0 || !isFinite(ms) || ms < 0 || ms > 120000 ||
