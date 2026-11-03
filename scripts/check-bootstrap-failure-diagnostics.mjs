@@ -2162,9 +2162,8 @@ for(const emptyTradeHistory of [false,true]) {
   const x=setup(),calls=[];
   vm.runInContext(`_gsBootRestored=true; _gsPortfolioRestoreRequired=false;
     EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});`,x.ctx);
-  if (!emptyTradeHistory) x.ctx.rawTrades.push({
-    date:'2026-10-07',tradeType:'sell',name:'테스트',code:'005930',qty:1,price:100
-  });
+  if (!emptyTradeHistory) vm.runInContext(
+    "rawTrades.push({date:'2026-10-07',tradeType:'sell',name:'테스트',code:'005930',qty:1,price:100})",x.ctx);
   x.ctx.saveSettings=async()=>true;
   x.ctx.syncCodesToGsheet=async()=>({status:'ok'});
   x.ctx.syncHoldingsToGsheet=async()=>emptyTradeHistory
