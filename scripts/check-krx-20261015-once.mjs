@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {runTargetedRecovery} from './run-krx-targeted-recovery.mjs';
+import {runTargetedRecovery,classifyTargetedPreflight} from './run-krx-targeted-recovery.mjs';
 
 const workflow=fs.readFileSync('.github/workflows/krx-20261015-targeted-once.yml','utf8');
 assert.match(workflow,/APPROVED_PARENT_SHA: bdb0a9035c7f26de04fc34105d8a8298acdccca5/);
@@ -18,7 +18,7 @@ assert.ok(runnerMinutes*60000>=maxRequestMs+3*60000,'timeout must include source
 const url='https://script.google.com/macros/s/abc123/exec';
 const token='NEVER_LOG_THIS_TOKEN';
 const requested=[];
-function fake({canRecover=true,applyOk=true}={}){
+function fake({canRecover=true,applyOk=true,reason='SOURCE_INCOMPLETE'}={}){
   return async (_url,options)=>{
     assert.equal(options.method,'POST');
     const body=options.body;
@@ -30,7 +30,7 @@ function fake({canRecover=true,applyOk=true}={}){
     if(body.get('accessToken')!==token)
       return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
     if(mode==='0')return {ok:true,json:async()=>({
-      status:'ok',mode:'DRY_RUN',date:'2026-10-15',ready:canRecover,expected:37
+      status:'ok',mode:'DRY_RUN',date:'2026-10-15',ready:canRecover,expected:37,reason:canRecover?'':reason
     })};
     return {ok:true,json:async()=>({
       status:'ok',mode:'APPLY',date:'2026-10-15',attempted:true,
@@ -45,6 +45,34 @@ requested.length=0;
 await assert.rejects(()=>runTargetedRecovery({url,token,date:'2026-10-15',apply:true,
   fetchImpl:fake({canRecover:false})}),/TARGET_PREFLIGHT_BLOCKED/);
 assert.deepEqual(requested,['0','0'],'no data write when official exact-date source missing');
+
+assert.equal(classifyTargetedPreflight({
+  status:'ok',mode:'DRY_RUN',date:'2026-11-03',
+  ready:false,reason:'NOT_PENDING'
+},'2026-11-03'),'TARGET_PREFLIGHT_NOT_PENDING');
+assert.equal(classifyTargetedPreflight({
+  status:'ok',mode:'DRY_RUN',date:'2026-11-03',
+  ready:false,reason:'INVALID_HISTORICAL_DATE'
+},'2026-11-03'),'TARGET_PREFLIGHT_INVALID_HISTORICAL_DATE');
+assert.equal(classifyTargetedPreflight({
+  status:'ok',mode:'DRY_RUN',date:'2026-11-03',
+  ready:false,reason:'TOKEN_PRIVATE-ACCOUNT_12345'
+},'2026-11-03'),'TARGET_PREFLIGHT_UNVERIFIED',
+  'never print unknown raw source, identifiers or credential details');
+assert.equal(classifyTargetedPreflight({
+  status:'ok',mode:'DRY_RUN',date:'2026-11-03',
+  ready:true,expected:37
+},'2026-11-03'),null);
+assert.equal(classifyTargetedPreflight({
+  status:'ok',mode:'DRY_RUN',date:'2026-11-02',
+  ready:false,reason:'NOT_PENDING'
+},'2026-11-03'),'TARGET_PREFLIGHT_BLOCKED',
+  'wrong-day response must not be accepted');
+requested.length=0;
+await assert.rejects(()=>runTargetedRecovery({url,token,date:'2026-10-15',apply:true,
+  fetchImpl:fake({canRecover:false,reason:'NOT_PENDING'})}),/TARGET_PREFLIGHT_NOT_PENDING/);
+assert.deepEqual(requested,['0','0'],'failed preflight must never reach financial apply');
+
 requested.length=0;
 const applied=await runTargetedRecovery({url,token,date:'2026-10-15',apply:true,fetchImpl:fake()});
 assert.deepEqual(requested,['0','0','1']);
