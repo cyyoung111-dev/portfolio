@@ -294,7 +294,8 @@ for(const [before,after] of [
  ['node scripts/issue507-oct30-domestic-close-readonly.mjs','echo bypassed'],
  ["github.event_name == 'push' && github.run_attempt == 1","github.event_name == 'push'"]
 ]){
- const alternate=jointAuditFile.replace(before,after);
+ const alternate=before==='2026-11-03'?jointAuditFile.replaceAll(before,after)
+  :jointAuditFile.replace(before,after);
  if(alternate!==jointAuditFile)
   assert.throws(()=>verifyJointIssue507NhReadOnlyWorkflow(alternate));
 }
