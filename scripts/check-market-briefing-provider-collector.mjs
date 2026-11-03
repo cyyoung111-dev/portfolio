@@ -238,6 +238,8 @@ assert.equal(officialK200.status,'FINAL');
 assert.equal(officialK200.finality,'REGULAR_CLOSE');
 for(const [point,meta] of [
  [{date:'2026-11-02',source:'KRX_OFFICIAL',value:920.63},k200Proof],
+ [{date:'2026-11-02',source:'KRX_OFFICIAL',
+   observedAt:'2026-11-02T16:10:00+09:00',value:920.63},k200Proof],
  [{date:'2026-11-02',sourceDate:'2026-10-30',source:'KRX_OFFICIAL',
    observedAt:'2026-11-02T16:10:00+09:00',value:920.63},k200Proof],
  [{date:'2026-11-02',source:'KRX_OFFICIAL',
