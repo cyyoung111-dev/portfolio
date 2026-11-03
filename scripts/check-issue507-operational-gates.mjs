@@ -251,7 +251,7 @@ function executeActualJointGate(command,event,stubDate){
  try{
   // Run the ACTUAL YAML bash step; only the current KST date CLI is stubbed.
   const fakeDate=path.join(dir,'date'),out=path.join(dir,'github-output.txt');
-  fs.writeFileSync(fakeDate,'#!/bin/sh\\nprintf "%s\\\\n" "$STUB_KST_DATE"\\n',{mode:0o755});
+  fs.writeFileSync(fakeDate,'#!/bin/sh\nprintf "%s\\n" "$STUB_KST_DATE"\n',{mode:0o755});
   const run=spawnSync('bash',['-e'],{
    input:command,encoding:'utf8',timeout:2500,
    env:{...process.env,
