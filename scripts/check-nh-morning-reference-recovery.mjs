@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {prepareMorning} from './telegram-morning-workflow.mjs';
 import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
+import {loadPrefetchedNight,collectMorningPrefetch,prefetchAdmission} from './telegram-morning-prefetch.mjs';
 
 const DATE='2026-10-30';
 const REPO='cyyoung111-dev/portfolio';
@@ -11,7 +12,7 @@ const ref={source:'NH',kind:'REFERENCE',tradingDate:DATE,
 const payload='[한국장 장전 종합 브리핑 | '+DATE+']\n'+
  '■ QC: 기준 거래일과 일치한 일봉 1/21 · 야간선물 미확보';
 const stamp=x=>()=>new Date(DATE+'T'+x+'+09:00');
-function simulated({clock='07:50:00',artifact=null,reference=ref,
+function simulated({clock='07:50:00',artifact=null,prefetch=null,reference=ref,
   token='GAS_READONLY_TOKEN',gasUrl='https://script.google.com/macros/s/TEST/exec',
   claimExists=false,late=false,recoveryClock=null}={}){
  let claims=0,archives=0,recoveryCalls=0,sent=0,referenceSeen=null;
@@ -28,6 +29,7 @@ function simulated({clock='07:50:00',artifact=null,reference=ref,
       {total_count:0,artifacts:[]}};
   },
   loadReference:async()=>{archives++;return artifact;},
+  loadPrefetch:async()=>prefetch,
   gasUrl,gasToken:token,
   onRecoveryDiagnostic:result=>recoveryDiagnostics.push(result),
   recoverReference:async (_date,options)=>{
@@ -60,6 +62,73 @@ assert.equal(recovered.observed().recoveryCalls,1);
 assert.equal(recovered.observed().referenceSeen.value,900.05);
 assert.equal(recovered.observed().sent,1);
 assert.deepEqual(recovered.diagnostics(),[{status:'VERIFIED',reason:null}]);
+// Existing verified prewarm takes precedence over a second GAS recovery.
+const prewarmed=simulated({artifact:null,prefetch:ref});
+const fromPrefetch=await prewarmed.result;
+assert.equal(fromPrefetch.referenceSource,'NH');
+assert.equal(fromPrefetch.referenceOrigin,'GAS_PREFETCH_0730');
+assert.equal(prewarmed.observed().recoveryCalls,0);
+assert.equal(prewarmed.observed().referenceSeen.value,ref.value);
+assert.equal((await simulated({artifact:ref,prefetch:{...ref,value:950}}).result).referenceOrigin,
+ 'CAPTURE_ARTIFACT','earlier verified capture remains primary');
+
+// Reproduce early-arm's 07:20 -> 07:30:15 run without network, token,
+// Telegram or financial writes.
+const prefectDate='2026-11-03';
+const morningEvent={schedule:'20 22 * * 0-4',
+ repository:{full_name:'cyyoung111-dev/portfolio'}};
+const warmEnv={GITHUB_EVENT_NAME:'schedule',
+ GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',
+ GITHUB_RUN_ATTEMPT:'1',
+ GAS_WEB_APP_URL:'https://script.google.com/macros/s/TEST/exec',
+ GAS_ACCESS_TOKEN:'SYNTHETIC_GAS_TOKEN'};
+const clockAt=stamp=>new Date(prefectDate+'T'+stamp+'+09:00');
+assert.equal(prefetchAdmission({now:clockAt('07:20:00'),env:warmEnv,event:morningEvent}).allowed,true);
+assert.equal(prefetchAdmission({now:clockAt('07:39:00'),env:warmEnv,event:morningEvent}).allowed,false);
+assert.equal(prefetchAdmission({now:clockAt('07:20:00'),env:{...warmEnv,GITHUB_REF:'refs/heads/test'},event:morningEvent}).allowed,false);
+let warmNow=clockAt('07:20:00').getTime(),readRequests=0,fileWritten=null;
+const warmReference={...ref,tradingDate:prefectDate,
+ sourceUpdatedAt:prefectDate+'T06:00:00+09:00',
+ receivedAt:prefectDate+'T07:30:16+09:00'};
+const warming=await collectMorningPrefetch({
+ now:()=>new Date(warmNow),sleep:async ms=>{warmNow+=ms;},
+ env:warmEnv,event:morningEvent,
+ requestNight:async(day,opts)=>{
+  readRequests++;assert.equal(day,prefectDate);
+  assert.equal(opts.token,warmEnv.GAS_ACCESS_TOKEN);
+  assert.equal(opts.url,warmEnv.GAS_WEB_APP_URL);
+  // Simulate a valid GAS server reception no later than current client clock.
+  warmNow=clockAt('07:30:17').getTime();
+  return warmReference;
+ },
+ mkdir:()=>{},writeFile:(path,contents,options)=>{
+  assert.equal(path,'.telegram-runtime/nh-night-prefetch.json');
+  assert.equal(options.flag,'wx');
+  fileWritten=contents;
+ }
+});
+assert.equal(warming.status,'PREFETCH_VERIFIED');
+assert.equal(readRequests,1);
+assert.ok(fileWritten.length<1600);
+const kept=loadPrefetchedNight(prefectDate,{
+ now:()=>clockAt('07:40:00'),readFile:()=>fileWritten});
+assert.equal(kept.value,ref.value);
+for(const bad of [
+ {...warmReference,sourceUpdatedAt:prefectDate+'T05:59:00+09:00'},
+ {...warmReference,tradingDate:'2026-11-02'},
+ {...warmReference,receivedAt:prefectDate+'T07:29:59+09:00'},
+ {...warmReference,receivedAt:prefectDate+'T07:40:01+09:00'},
+ {...warmReference,unknownPrivateField:'SHOULD_REJECT'}
+])assert.equal(loadPrefetchedNight(prefectDate,{
+ now:()=>clockAt('07:40:00'),readFile:()=>JSON.stringify(bad)}),null);
+assert.equal(loadPrefetchedNight(prefectDate,{
+ now:()=>clockAt('08:00:00'),readFile:()=>fileWritten}),null);
+assert.equal((await collectMorningPrefetch({
+ now:()=>clockAt('07:39:00'),env:warmEnv,event:morningEvent,
+ requestNight:async()=>assert.fail('no late warmup')
+})).status,'PREFETCH_TOO_LATE_OR_EARLY');
+assert.ok(!JSON.stringify(warming).includes('SYNTHETIC_GAS_TOKEN'));
+
 const withArtifact=simulated({artifact:ref});
 const art=await withArtifact.result;
 assert.equal(art.referenceOrigin,'CAPTURE_ARTIFACT');
