@@ -2078,7 +2078,8 @@ for (const restored of [false,true]) {
   const x=setup(),calls=[];
   vm.runInContext("_gsBootRestored=true; _gsPortfolioRestoreRequired=false; EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});",x.ctx);
   for(const key of ['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet'])
-    x.ctx[key]=async()=>{calls.push(key);return true;};
+    x.ctx[key]=async()=>{calls.push(key);return key==='saveSettings'
+      ? true : {status:'ok',saveState:'success'};};
   x.ctx.refreshAll=()=>{};
   x.ctx.buildStockMgmt=()=>{};
   x.ctx.buildSectorMgmt=()=>{};
@@ -2087,6 +2088,91 @@ for (const restored of [false,true]) {
   await x.ctx.manualSyncByTab('stocks');
   assert.deepEqual(calls,['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet']);
   assert.equal(vm.runInContext('TAB_SYNC_STATUS.stocks.state',x.ctx),'ok');
+}
+// A stock-tab manual sync must not show success after only one successful
+// stage; especially a trade/Snapshot PARTIAL response must retain failure.
+for (const failure of [
+  {stage:'saveSettings',result:false,count:1},
+  {stage:'syncCodesToGsheet',result:null,count:2},
+  {stage:'syncHoldingsToGsheet',result:{status:'error'},count:3},
+  {stage:'syncTradesToGsheet',result:{status:'ok',saveState:'partial'},count:4}
+]) {
+  const x=setup(),calls=[],toasts=[];
+  vm.runInContext("_gsBootRestored=true; _gsPortfolioRestoreRequired=false; EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});",x.ctx);
+  for (const key of ['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet']) {
+    x.ctx[key]=async()=>{
+      calls.push(key);
+      if (key===failure.stage) return failure.result;
+      return key==='saveSettings' ? true : {status:'ok',saveState:'success'};
+    };
+  }
+  x.ctx.refreshAll=()=>{throw Error('failed sync cannot refresh as success');};
+  x.ctx.buildStockMgmt=()=>{};
+  x.ctx.buildSectorMgmt=()=>{};
+  x.ctx.buildAcctMgmt=()=>{};
+  x.ctx.showToast=(message,kind)=>toasts.push([message,kind]);
+  await x.ctx.manualSyncByTab('stocks');
+  assert.equal(calls.length,failure.count,failure.stage+': stop after failed step');
+  assert.equal(vm.runInContext('TAB_SYNC_STATUS.stocks.state',x.ctx),'fail',
+    failure.stage+': incomplete workbook must not display success');
+  assert.deepEqual(toasts,[['재동기화 실패','error']]);
+}
+// Codex #912: a verified all-sold portfolio has legitimate empty holdings,
+// but its remaining historical trade ledger still needs Snapshot sync.
+{
+  const x=setup(),calls=[];
+  vm.runInContext(`_gsBootRestored=true; _gsPortfolioRestoreRequired=false;
+    EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});
+    rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100});
+    rawTrades.push({date:'2026-10-08',tradeType:'sell',name:'테스트',code:'005930',qty:1,price:120});
+    rawHoldings.length=0;
+    Object.keys(fundDirect).forEach(k=>delete fundDirect[k]);`,x.ctx);
+  x.ctx.isGsheetPortfolioWriteReady=()=>true;
+  let forbiddenWrites=0;
+  x.ctx.requestGsheetFormJson=async()=>{forbiddenWrites++;throw Error('empty holdings must never be uploaded');};
+  const actualHoldings=x.ctx.syncHoldingsToGsheet;
+  const skip=await actualHoldings({reportEmptySkip:true});
+  assert.equal(skip?.status,'skipped');
+  assert.equal(skip?.reason,'EMPTY_HOLDINGS_PROTECTED');
+  assert.equal(forbiddenWrites,0,'no remote delete should be attempted by a guarded no-op');
+  x.ctx.saveSettings=async()=>{calls.push('settings');return true;};
+  x.ctx.syncCodesToGsheet=async()=>{calls.push('codes');return {status:'ok'};};
+  x.ctx.syncHoldingsToGsheet=async opts=>{
+    calls.push('holdings');
+    return actualHoldings(opts);
+  };
+  x.ctx.syncTradesToGsheet=async()=>{
+    calls.push('trades');
+    return {status:'ok',saveState:'success'};
+  };
+  x.ctx.refreshAll=()=>{};
+  x.ctx.buildStockMgmt=()=>{};
+  x.ctx.buildSectorMgmt=()=>{};
+  x.ctx.buildAcctMgmt=()=>{};
+  x.ctx.showToast=()=>{};
+  await x.ctx.manualSyncByTab('stocks');
+  assert.deepEqual(calls,['settings','codes','holdings','trades'],
+    'safe empty holdings skip must not suppress historical trade/Snapshot sync');
+  assert.equal(vm.runInContext('TAB_SYNC_STATUS.stocks.state',x.ctx),'ok');
+  assert.equal(forbiddenWrites,0);
+}
+// A generic null response, or a skipped response without any trade history,
+// is not proof of a valid empty-holdings no-op.
+for(const emptyTradeHistory of [false,true]) {
+  const x=setup(),calls=[];
+  vm.runInContext(`_gsBootRestored=true; _gsPortfolioRestoreRequired=false;
+    EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});`,x.ctx);
+  if (!emptyTradeHistory) vm.runInContext(
+    "rawTrades.push({date:'2026-10-07',tradeType:'sell',name:'테스트',code:'005930',qty:1,price:100})",x.ctx);
+  x.ctx.saveSettings=async()=>true;
+  x.ctx.syncCodesToGsheet=async()=>({status:'ok'});
+  x.ctx.syncHoldingsToGsheet=async()=>emptyTradeHistory
+    ? {status:'skipped',reason:'EMPTY_HOLDINGS_PROTECTED'} : null;
+  x.ctx.syncTradesToGsheet=async()=>{calls.push('trades');return {status:'ok'};};
+  x.ctx.showToast=()=>{};
+  await x.ctx.manualSyncByTab('stocks');
+  assert.deepEqual(calls,[],'unproven no-op cannot authorize a ledger write');
+  assert.equal(vm.runInContext('TAB_SYNC_STATUS.stocks.state',x.ctx),'fail');
 }
 console.log('PASS: stock/asset resync blocks provisional codes and local writes until GAS restore is verified');
 

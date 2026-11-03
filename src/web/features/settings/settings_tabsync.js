@@ -110,11 +110,28 @@ async function manualSyncByTab(tabId) {
       const hasLocalData = EDITABLE_PRICES.length > 0 || rawTrades.length > 0;
       if (hasLocalData) {
         // 로컬 데이터 있음 → GAS에 업로드
-        const r0 = await saveSettings(true);
-        const r1 = await syncCodesToGsheet();
-        await syncHoldingsToGsheet();
-        await syncTradesToGsheet();
-        ok = !!(r0 || r1);
+        // A manual sync is complete only after ALL four writes succeed.
+        // A partial trade/Snapshot rebuild must never display "completed".
+        // Stop at the first failure so later stages cannot hide the error.
+        const settingsSaved = await saveSettings(true);
+        const codesSaved = settingsSaved === true
+          ? await syncCodesToGsheet() : null;
+        const holdingsSaved = codesSaved?.status === 'ok'
+          ? await syncHoldingsToGsheet({ reportEmptySkip: true }) : null;
+        // A portfolio with all shares sold legitimately has no holdings
+        // payload. Require the explicit guarded no-op, never a bare null
+        // (which can also mean a network or write-preflight failure).
+        const holdingsStepOk = holdingsSaved?.status === 'ok'
+          || (holdingsSaved?.status === 'skipped'
+            && holdingsSaved?.reason === 'EMPTY_HOLDINGS_PROTECTED'
+            && Array.isArray(rawTrades) && rawTrades.length > 0);
+        const tradesSaved = holdingsStepOk
+          ? await syncTradesToGsheet() : null;
+        ok = settingsSaved === true
+          && codesSaved?.status === 'ok'
+          && holdingsStepOk
+          && tradesSaved?.status === 'ok'
+          && tradesSaved?.saveState !== 'partial';
         if (ok) {
           try { refreshAll(); } catch(e) {}
           try { if (typeof buildStockMgmt  === 'function') buildStockMgmt();  } catch(e) {}
