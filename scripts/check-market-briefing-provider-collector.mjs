@@ -46,10 +46,10 @@ const makeIndexPayload=(patch={},metaPatch={})=>({
    source:'NH_INDEX_DAILY',status:'CONFIRMED',priceType:'REGULAR_CLOSE',...patch}]},
  seriesMeta:{NASDAQ:{source:'NH_INDEX_DAILY',providerCode:'COMP',...metaPatch}}
 });
-const optionalIndexRequest=(payload,{cached=true,record=[]}={})=>async (action,params)=>{
- record.push({action,requested:params?.benchmarks||''});
+const optionalIndexRequest=(payload,{cached=true,supported=true,record=[]}={})=>async (action,params)=>{
+ record.push({action,requested:params?.benchmarks||'',cachedOnly:params?.cachedOnly||''});
  if(action==='getNhAuthStatusProxy')return {status:'ok',provider:'NH',
-  enabled:true,tokenCached:cached,tokenIssued:false};
+  enabled:true,tokenCached:cached,tokenIssued:false,cachedOnlyBenchmarks:supported};
  if(action==='getBenchmarks')return payload;
  if(action==='getBenchmark')return {status:'ok',points:[]};
  if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
@@ -64,6 +64,7 @@ const benchmarkCalls=optionalSuccessCalls.filter(x=>x.action==='getBenchmarks');
 assert.equal(benchmarkCalls.length,2,'optional COMP must never join baseline getBenchmarks');
 assert.ok(!benchmarkCalls[0].requested.split(',').includes('NASDAQ'));
 assert.equal(benchmarkCalls[1].requested,'NASDAQ');
+assert.equal(benchmarkCalls[1].cachedOnly,'1');
 assert.equal(optionalNh.payload.NASDAQ.value,25164.32);
 assert.equal(optionalNh.payload.NASDAQ.source,'NH_INDEX_DAILY');
 assert.equal(optionalNh.payload.NASDAQ.status,'FINAL');
@@ -73,6 +74,13 @@ assert.equal(persistedComposite.length,1);
 assert.equal(persistedComposite[0].seriesId,'NASDAQ');
 assert.equal(persistedComposite[0].source,'NH_INDEX_DAILY');
 assert.equal(persistedComposite[0].finality,'REGULAR_CLOSE');
+// In current GAS v9.281 there is NO atomic cached-only capability.
+const noCapabilityCalls=[];
+const noCapability=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {supported:false,record:noCapabilityCalls}),indexDate,{checkpoint:'EVENING'});
+assert.equal(noCapability.payload.NASDAQ,undefined,'v9.281 capability absent: no optional COMP');
+assert.ok(!noCapabilityCalls.some(x=>x.requested==='NASDAQ'),
+ 'status-only cached flag must never authorize a fresh NH OAuth possibility');
 const blockedCalls=[];
 const notCached=await collector.collect(optionalIndexRequest(makeIndexPayload(),
  {cached:false,record:blockedCalls}),indexDate,{checkpoint:'EVENING'});
@@ -87,7 +95,7 @@ const independentBaseline={status:'ok',series:{
  NASDAQ100:{source:'NH_INDEX_DAILY',providerCode:'NDX'}}};
 const fallbackRequest=async(action,params)=>{
  if(action==='getNhAuthStatusProxy')return {status:'ok',provider:'NH',enabled:true,
-  tokenCached:true,tokenIssued:false};
+  tokenCached:true,tokenIssued:false,cachedOnlyBenchmarks:true};
  if(action==='getBenchmarks'){
   if(params.benchmarks==='NASDAQ')throw Error('simulated optional provider failure');
   return independentBaseline;
