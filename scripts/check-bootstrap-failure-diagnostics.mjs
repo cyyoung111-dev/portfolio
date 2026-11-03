@@ -1888,8 +1888,10 @@ for (const configured of [true, false]) {
 }
 {
   const f=setup();
-  f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}:
-    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.282'};
+  f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}
+    :action==='getTrades'?{status:'ok',trades:[]}
+    :action==='getHoldings'?{status:'ok',holdings:[]}
+    :{status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.282'};
   assert.equal(await f.ctx.loadSettings(),true);
   assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
 }
