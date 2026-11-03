@@ -1,0 +1,50 @@
+name: gas-deployment-usage-metrics-readonly
+
+# Deployment-level activity observations; NOT a release authorization.
+on:
+  pull_request:
+    paths:
+      - 'scripts/audit-gas-deployment-usage-metrics.mjs'
+      - '.github/workflows/gas-deployment-usage-metrics-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/audit-gas-deployment-usage-metrics.mjs'
+      - '.github/workflows/gas-deployment-usage-metrics-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify GET-only privacy and fail-closed test
+        run: node scripts/audit-gas-deployment-usage-metrics.mjs --self-test
+
+  live-readonly:
+    needs: contract
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 5
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Query deployed-version usage through Apps Script metrics (GET only)
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/audit-gas-deployment-usage-metrics.mjs
