@@ -119,6 +119,39 @@ assert.equal(master.buildBriefingSnapshot(finalRows,'2026-09-18','EVENING',['KOS
 assert.equal(finalRows[0].receivedAt,'2026-09-18T07:00:05.000Z'); assert.equal(finalRows[0].observedAt,'2026-09-18T06:30:00.000Z');
 const yahooSameDay=collector.normalizeBenchmarkPoint('KOSPI200',{date:'2026-09-18',value:456},{symbols:{KOSPI200:'^KS200'}},'2026-09-18','EVENING');
 assert.equal(yahooSameDay.status,'DELAYED'); assert.equal(yahooSameDay.finality,null);
+// #734: previous-day Yahoo KOSPI200 may be a useful reference but must
+// NEVER be elevated to a verified KRX close by elapsed time alone.
+const k200YahooPrevious=collector.normalizeBenchmarkPoint('KOSPI200',{
+  date:'2026-11-02',value:920.63,source:'YAHOO_UNVERIFIED_DAILY'
+},{seriesMeta:{KOSPI200:{source:'YAHOO_UNVERIFIED_DAILY',confirmedClose:false}}},'2026-11-03','MORNING');
+assert.equal(k200YahooPrevious.status,'PARTIAL');
+assert.equal(k200YahooPrevious.finality,null);
+const k200YahooRows=normalizer.normalizeMap({KOSPI200:k200YahooPrevious},{
+  tradingDate:'2026-11-03',receivedAt:'2026-11-03T07:40:00+09:00'
+});
+assert.equal(k200YahooRows[0].status,'PARTIAL');
+assert.equal(k200YahooRows[0].finality,null);
+const k200Proof={seriesMeta:{KOSPI200:{
+  source:'KRX_OFFICIAL',confirmedClose:true,officialDate:'2026-11-02'
+}}};
+const officialK200=collector.normalizeBenchmarkPoint('KOSPI200',{
+  date:'2026-11-02',sourceDate:'2026-11-02',value:920.63,
+  observedAt:'2026-11-02T16:10:00+09:00',source:'KRX_OFFICIAL'
+},k200Proof,'2026-11-03','MORNING');
+assert.equal(officialK200.status,'FINAL');
+assert.equal(officialK200.finality,'REGULAR_CLOSE');
+for(const [point,meta] of [
+ [{date:'2026-11-02',source:'KRX_OFFICIAL',value:920.63},k200Proof],
+ [{date:'2026-11-02',sourceDate:'2026-10-30',source:'KRX_OFFICIAL',
+   observedAt:'2026-11-02T16:10:00+09:00',value:920.63},k200Proof],
+ [{date:'2026-11-02',source:'KRX_OFFICIAL',
+   observedAt:'2026-11-02T16:10:00+09:00',value:920.63},
+   {seriesMeta:{KOSPI200:{source:'KRX_OFFICIAL',confirmedClose:true,officialDate:'2026-10-30'}}}]
+]){
+ const row=collector.normalizeBenchmarkPoint('KOSPI200',point,meta,'2026-11-03','MORNING');
+ assert.equal(row.status,'PARTIAL');
+ assert.equal(row.finality,null);
+}
 const indicative=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[],'2026-09-18');
 assert.equal(indicative.status,'PARTIAL'); assert.equal(indicative.finality,null); assert.equal(indicative.observedAt,undefined);
 const untrusted=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[{date:'2026-09-18',price:80500,source:'TOSS'}],'2026-09-18');
