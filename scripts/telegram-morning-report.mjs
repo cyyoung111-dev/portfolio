@@ -140,6 +140,39 @@ function outlook(map) {
     'Bull: 한국 장초반 상승 확산·외국인 수급 동반 시',
     'Bear: VIX 반등·원화 약세·반도체 상대약세 시'];
 }
+// AI value-chain and four-investor frameworks applied to verified previous-session
+// market prices. This is our scenario analysis, never a claim that the investors
+// commented on today's market. CAPEX/orders/valuations are not in this feed.
+function morningAiInvestorLens(map) {
+  const ndx=evidence(map,'NDX'), sox=evidence(map,'SOX'), vix=evidence(map,'VIX');
+  const pct=x=>(x>=0?'+':'')+x.toFixed(2)+'%';
+  let relative='SOX·NASDAQ100 동시 확정 일봉 부족 → 반도체 상대강도 판단 보류';
+  if(sox&&ndx) {
+    const spread=sox.changePercent-ndx.changePercent;
+    relative='SOX '+pct(sox.changePercent)+' / NASDAQ100 '+pct(ndx.changePercent)
+      +' (격차 '+(spread>=0?'+':'')+spread.toFixed(2)+'%p)';
+  }
+  const trend=sox&&ndx&&vix
+    ?sox.changePercent>0&&ndx.changePercent>0&&vix.changePercent<0
+      ?'가격·변동성은 위험선호에 우호적(실제 AI 수요 확증 아님)'
+      :sox.changePercent<0&&ndx.changePercent<0&&vix.changePercent>0
+        ?'가격·변동성은 위험회피 경계(실적 악화 확정 아님)'
+        :'가격·변동성 혼조, 단일 방향 판단 유보'
+    :'미국 반도체·기술주·VIX 중 검증값 부족 → 종합판단 유보';
+  return [
+    '■ 8. AI 산업·반도체 종합평가 (전일 일봉 기반)',
+    '• 상대강도: '+relative,
+    '• 종합: '+trend,
+    '• 실수요: 빅테크 CAPEX·GPU/HBM 주문·AI 수익화·재고 실측 미연결 → 업황 확정 불가.',
+    '',
+    '■ 9. 4인 투자 철학 적용 (당일 실제 발언 아님)',
+    '• 버핏: 해자·ROIC·유지 CAPEX 차감 소유주 FCF로 이익의 질 확인.',
+    '• 애크먼: 반복 FCF·재무건전성 확인 전 집중·영구손실 위험 경계.',
+    '• 피터 린치: 이익성장 대비 PER 점검; 반도체 최고점 EPS 착시 주의.',
+    '• 다모다란: AI 성장·마진·재투자·할인율로 내재가치와 가격의 기대치 비교.',
+    ''
+  ];
+}
 export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const map=new Map(rows.filter(x=>{const item=MORNING_SERIES.find(i=>i.symbol===x?.symbol);return item&&hasExpectedMorningDate(item,date,x,options?.now||null);}).map(x=>[x.symbol,x]));
   const verifiedDisplayed=MORNING_SERIES.filter(item=>{
@@ -165,7 +198,8 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   '■ 7. 수급·유동성 / 체크포인트',
   'KOSPI·KOSDAQ 거래대금, 고객예탁금, 신용잔고: 미확보',
   'FedWatch·Finviz 히트맵·주요 이벤트: 별도 검증 필요','',
-  '■ 8. 오늘의 시나리오 (조건부, 확률 미산정)',
+  ...morningAiInvestorLens(map),
+  '■ 10. 오늘의 시나리오 (조건부, 확률 미산정)',
   ...outlook(map),'',
   '■ QC: 기준 거래일과 일치한 일봉 '+verifiedDisplayed+'/'+MORNING_SERIES.length
    +' · 야간선물 '+(reference?'확보':'미확보'),
