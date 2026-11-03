@@ -624,6 +624,18 @@ function _teUpdateFxPreview(currency) {
 // Validate both the new and the previous account+security timelines before
 // committing an edit. Matches syncHoldingsFromTrades() chronological
 // average-cost reducer and preserves original same-day transaction order.
+function _tradeEditorDateKey(value) {
+  const m = String(value || '').trim().match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})$/);
+  if (!m) return '';
+  const [year,month,day] = m.slice(1).map(Number);
+  const ts = Date.UTC(year, month - 1, day);
+  const check = new Date(ts);
+  if (!Number.isFinite(ts) || check.getUTCFullYear() !== year
+      || check.getUTCMonth() + 1 !== month || check.getUTCDate() !== day) return '';
+  return String(year).padStart(4,'0') + '-' + String(month).padStart(2,'0')
+    + '-' + String(day).padStart(2,'0');
+}
+
 function _validateTradeTimelineCorrection(candidate, editingId) {
   const editingIndex = editingId == null ? -1
     : rawTrades.findIndex(t => String(t.id) === String(editingId));
@@ -642,13 +654,13 @@ function _validateTradeTimelineCorrection(candidate, editingId) {
   for (const key of affected) {
     const ordered = next.map((item,index) => ({item,index}))
       .filter(({item}) => (item.acct || '') + '||' + (item.name || '') === key)
-      .sort((a,b) => String(a.item.date || '').localeCompare(String(b.item.date || '')) || a.index - b.index);
+      .sort((a,b) => _tradeEditorDateKey(a.item.date).localeCompare(_tradeEditorDateKey(b.item.date)) || a.index - b.index);
     let balance = 0;
     for (const {item} of ordered) {
       const count = Number(item.qty), actionRatio = Number(item.ratio);
-      const day = String(item.date || '');
+      const day = _tradeEditorDateKey(item.date);
       if (item === candidate) currentQty = balance;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      if (!day) {
         return {ok:false,message:'❌ 거래일을 확인할 수 없습니다. 날짜를 다시 선택해주세요'};
       }
       if (item.tradeType === 'buy') {
