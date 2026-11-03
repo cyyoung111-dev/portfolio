@@ -179,7 +179,7 @@ assert.match(settings, /const hasAuthoritativeFundDirect = Object\.prototype\.ha
   'fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 적용');
 assert.match(settings, /const bootstrapPortfolioStatus = isBootstrap[\s\S]*bootstrapTradesOk[\s\S]*bootstrapHoldingsOk[\s\S]*status: bootstrapTradesOk \? 'ok' : 'error'[\s\S]*status: bootstrapHoldingsOk \? 'ok' : 'error'/,
   'bootstrap 하위 거래·보유 읽기 성공 여부를 강제 복원 판정에 보존');
-assert.match(settings, /const bootstrapTradesOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore[\s\S]*const bootstrapHoldingsOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore/,
+assert.match(settings, /let bootstrapTradesOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore[\s\S]*let bootstrapHoldingsOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore/,
   '구버전 bootstrap의 성공 여부 누락은 연결 변경 강제 복원에서 안전 실패 처리');
 assert.match(settings, /if \(forcePortfolioRestore && portfolioRestorePromise\)[\s\S]*forcedPortfolioRestoreData = await portfolioRestorePromise[\s\S]*preflightTradesOk[\s\S]*preflightHoldingsOk[\s\S]*if \(!preflightTradesOk \|\| !preflightHoldingsOk\) \{\s*return failLoad\(!preflightTradesOk \? 'TRADES_READ_FAILED' : 'HOLDINGS_READ_FAILED'\)/,
   '연결 변경 강제 복원은 설정 전역상태 적용 전에 거래·보유 읽기를 preflight');
