@@ -1,0 +1,92 @@
+name: GAS 2026-11-03 published and deployment preflight (read-only)
+# Single use: verify actual immutable published GAS source and all deployments.
+# NO GAS deployment, script run, NH OAuth, financial writers or Telegram.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/gas-20261103-dual-readonly-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 13
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Enforce November 3 KST read-only window, no delayed replay
+        id: date_gate
+        shell: bash
+        run: |
+          if [ "$(TZ=Asia/Seoul date +%F)" = "2026-11-03" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+            echo 'READONLY_GAS_PREFLIGHT_DATE_APPROVED'
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'READONLY_GAS_PREFLIGHT_DATE_EXPIRED'
+          fi
+      - name: Install offline contract validator
+        if: steps.date_gate.outputs.ready == 'true'
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+          fi
+      - name: Verify both read-only contracts before obtaining credentials
+        if: steps.date_gate.outputs.ready == 'true'
+        run: |
+          node scripts/check-published-gas-gate-readonly.mjs
+          node scripts/check-issue507-deployment-inventory-readonly.mjs
+      - name: Read immutable published/HEAD source; only approved gate may read status
+        id: published
+        if: steps.date_gate.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-published-gas-gate-readonly.mjs
+      - name: Audit all GAS deployment metadata and source (REST GET only)
+        id: inventory
+        if: steps.date_gate.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
+      - name: Produce explicit fail-closed audit status, never imply release approval
+        if: always()
+        env:
+          DATE_READY: ${{ steps.date_gate.outputs.ready }}
+          PUBLISHED_OUTCOME: ${{ steps.published.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+        run: |
+          if [ "$DATE_READY" != "true" ]; then
+            echo 'GAS_PREFLIGHT_NOT_RUN_EXPIRED'
+            exit 2
+          fi
+          echo "GAS_PREFLIGHT_PUBLISHED_CHECK=$PUBLISHED_OUTCOME"
+          echo "GAS_PREFLIGHT_INVENTORY_CHECK=$INVENTORY_OUTCOME"
+          echo 'GAS_PREFLIGHT_NO_DEPLOYMENT_NO_FINANCE_WRITES'
+          # A successful metadata audit is NOT proof that external writers
+          # have stopped or that any release was approved.
+          if [ "$PUBLISHED_OUTCOME" != "success" ] || [ "$INVENTORY_OUTCOME" != "success" ]; then
+            echo 'GAS_PREFLIGHT_BLOCKED_EXPECTED'
+            exit 2
+          fi
+          echo 'GAS_PREFLIGHT_METADATA_ONLY_NO_RELEASE_AUTHORIZATION'
