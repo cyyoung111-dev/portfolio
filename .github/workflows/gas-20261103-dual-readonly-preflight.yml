@@ -1,5 +1,5 @@
 name: GAS 2026-11-03 published and deployment preflight (read-only)
-# Single use: verify actual immutable published GAS source and all deployments.
+# Second read-only preflight: revalidate live GAS source/deployments after reviewed performance proposal.
 # NO GAS deployment, script run, NH OAuth, financial writers or Telegram.
 on:
   push:
@@ -47,6 +47,9 @@ jobs:
         run: |
           node scripts/check-published-gas-gate-readonly.mjs
           node scripts/check-issue507-deployment-inventory-readonly.mjs
+      - name: Offline reviewed performance module and GAS gate route proof
+        if: steps.date_gate.outputs.ready == 'true'
+        run: node scripts/check-performance-collector.mjs
       - name: Read immutable published/HEAD source; only approved gate may read status
         id: published
         if: steps.date_gate.outputs.ready == 'true'
