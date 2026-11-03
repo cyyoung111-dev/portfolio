@@ -96,134 +96,14 @@ for(const c of checks){
  if(c.kind==='morning'){
    const warm=steps.find(s=>s.name?.startsWith('Prefetch verified 06:00 NH night'));
    const warmIndex=steps.indexOf(warm),armedIndex=steps.findIndex(s=>s.id==='arm');
-   assert.ok(warmIndex>1&&warmIndex<armedIndex,
-     'prefetch should run before 07:40 wait and claim');
+   assert.ok(warmIndex>1&&warmIndex<armedIndex);
    assert.equal(warm.run,'node scripts/telegram-morning-prefetch.mjs');
    assert.ok(String(warm.env.GAS_ACCESS_TOKEN||'').includes('secrets.GAS_ACCESS_TOKEN'));
    assert.ok(String(warm.env.GAS_WEB_APP_URL||'').includes('vars.GAS_WEB_APP_URL'));
    assert.equal(warm.env.TELEGRAM_BOT_TOKEN,undefined);
-   const warmSource=fs.readFileSync('scripts/telegram-morning-prefetch.mjs','utf8');
-   assert.ok(warmSource.includes('PREFETCH_NOT_VERIFIED'));
-   assert.ok(!warmSource.includes('GITHUB_OUTPUT'));
- }
- assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
- assert.equal(steps.find(s=>s.id==='prepare').env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
- assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_BOT_TOKEN,undefined);
- const send=steps.find(s=>s.name?.includes('Send exactly one claimed'));
- assert.equal(send.run,'node scripts/'+c.script+' send');
- assert.equal(send.env.TELEGRAM_BOT_TOKEN,'$'+'{{ secrets.TELEGRAM_BOT_TOKEN }}');
- assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
- if(c.kind==='morning'){
-   const dispatchMode="${{ github.event_name == 'workflow_dispatch' && 'rescue' || '' }}";
-   assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_DISPATCH_MODE,dispatchMode,
-     'dispatched morning prepare needs explicit guarded rescue mode');
-   assert.equal(send.env.TELEGRAM_DISPATCH_MODE,dispatchMode,
-     'dispatched morning send must match the prepared rescue mode');
- }else{
-   assert.equal(send.env.TELEGRAM_DISPATCH_MODE,undefined,
-     'closing needs no morning dispatch mode');
- }
- assert.equal(send.if,"steps.prepare.outputs.ready == 'true'");
- assert.equal(steps.find(s=>s.name?.includes('Claim original dated')).with.path,c.root+'/claim.json');
- assert.equal(steps.find(s=>s.name?.includes('SENT proof')).with.path,c.root+'/sent.json');
- assert.equal(steps.filter(s=>s.uses?.startsWith('actions/upload-artifact@')).length,2);
- assert.equal(src.includes('sendMessage'),false,'never bypass production Telegram API guard');
-}
-
-// GitHub default pending queue is 'single', which cancels the previous
-// pending workflow. All recurring workflows in these shared delivery groups
-// must opt in to queue:max, including regular workflows and early-arm backups.
-// Different-day queued work still fails the original clock/claim gates.
-for(const [file,group] of [
- ['telegram-morning-briefing.yml','telegram-morning-briefing'],
- ['telegram-close-briefing.yml','telegram-close-briefing']
-]){
- const raw=fs.readFileSync('.github/workflows/'+file,'utf8');
- const y=YAML.parse(raw);
- assert.equal(y.concurrency.group,group);
- assert.equal(y.concurrency['cancel-in-progress'],false);
- assert.equal(y.concurrency.queue,'max','regular scheduled briefing must not cancel queued failover');
- assert.ok(y.on.schedule?.length>=4,'retain existing fallback slots');
- assert.ok(y.jobs,'retain protected delivery job');
-}
-
-const sandbox=fs.mkdtempSync(join(tmpdir(),'telegram-arm-event-'));
-try{
- const eventPath=join(sandbox,'event.json');
- fs.writeFileSync(eventPath,JSON.stringify(event('morning')));
- const e={...process.env,...env,GITHUB_EVENT_PATH:eventPath};
- for(const kind of ['morning','close']){
-  const out=spawnSync(process.execPath,['scripts/telegram-punctual-arm.mjs',kind],
-   {cwd:process.cwd(),env:{...e,GITHUB_EVENT_NAME:'push'},encoding:'utf8',timeout:5000});
-  assert.equal(out.status,0);
-  assert.match(out.stdout,/ARM_AUTH_OR_SESSION_REJECTED/);
- }
-}finally{fs.rmSync(sandbox,{recursive:true,force:true});}
-console.log('TELEGRAM_EARLY_ARM_PASS scheduled/external dispatch same KST gates, cancel/claim/SENT protection');
-+'{{ secrets.GAS_ACCESS_TOKEN }}');
-   assert.equal(prewarm.env.GAS_WEB_APP_URL,'
- assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
- assert.equal(steps.find(s=>s.id==='prepare').env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
- assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_BOT_TOKEN,undefined);
- const send=steps.find(s=>s.name?.includes('Send exactly one claimed'));
- assert.equal(send.run,'node scripts/'+c.script+' send');
- assert.equal(send.env.TELEGRAM_BOT_TOKEN,'$'+'{{ secrets.TELEGRAM_BOT_TOKEN }}');
- assert.equal(send.env.GAS_ACCESS_TOKEN,undefined);
- if(c.kind==='morning'){
-   const dispatchMode="${{ github.event_name == 'workflow_dispatch' && 'rescue' || '' }}";
-   assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_DISPATCH_MODE,dispatchMode,
-     'dispatched morning prepare needs explicit guarded rescue mode');
-   assert.equal(send.env.TELEGRAM_DISPATCH_MODE,dispatchMode,
-     'dispatched morning send must match the prepared rescue mode');
- }else{
-   assert.equal(send.env.TELEGRAM_DISPATCH_MODE,undefined,
-     'closing needs no morning dispatch mode');
- }
- assert.equal(send.if,"steps.prepare.outputs.ready == 'true'");
- assert.equal(steps.find(s=>s.name?.includes('Claim original dated')).with.path,c.root+'/claim.json');
- assert.equal(steps.find(s=>s.name?.includes('SENT proof')).with.path,c.root+'/sent.json');
- assert.equal(steps.filter(s=>s.uses?.startsWith('actions/upload-artifact@')).length,2);
- assert.equal(src.includes('sendMessage'),false,'never bypass production Telegram API guard');
-}
-
-// GitHub default pending queue is 'single', which cancels the previous
-// pending workflow. All recurring workflows in these shared delivery groups
-// must opt in to queue:max, including regular workflows and early-arm backups.
-// Different-day queued work still fails the original clock/claim gates.
-for(const [file,group] of [
- ['telegram-morning-briefing.yml','telegram-morning-briefing'],
- ['telegram-close-briefing.yml','telegram-close-briefing']
-]){
- const raw=fs.readFileSync('.github/workflows/'+file,'utf8');
- const y=YAML.parse(raw);
- assert.equal(y.concurrency.group,group);
- assert.equal(y.concurrency['cancel-in-progress'],false);
- assert.equal(y.concurrency.queue,'max','regular scheduled briefing must not cancel queued failover');
- assert.ok(y.on.schedule?.length>=4,'retain existing fallback slots');
- assert.ok(y.jobs,'retain protected delivery job');
-}
-
-const sandbox=fs.mkdtempSync(join(tmpdir(),'telegram-arm-event-'));
-try{
- const eventPath=join(sandbox,'event.json');
- fs.writeFileSync(eventPath,JSON.stringify(event('morning')));
- const e={...process.env,...env,GITHUB_EVENT_PATH:eventPath};
- for(const kind of ['morning','close']){
-  const out=spawnSync(process.execPath,['scripts/telegram-punctual-arm.mjs',kind],
-   {cwd:process.cwd(),env:{...e,GITHUB_EVENT_NAME:'push'},encoding:'utf8',timeout:5000});
-  assert.equal(out.status,0);
-  assert.match(out.stdout,/ARM_AUTH_OR_SESSION_REJECTED/);
- }
-}finally{fs.rmSync(sandbox,{recursive:true,force:true});}
-console.log('TELEGRAM_EARLY_ARM_PASS scheduled/external dispatch same KST gates, cancel/claim/SENT protection');
-+'{{ vars.GAS_WEB_APP_URL }}');
-   assert.equal(prewarm.env.TELEGRAM_BOT_TOKEN,undefined);
-   assert.equal(prewarm['continue-on-error'],undefined,
-     'prefetch CLI itself handles missing NH data and must not hide runtime setup errors');
-   const prefetchSource=fs.readFileSync('scripts/telegram-morning-prefetch.mjs','utf8');
-   assert.ok(prefetchSource.includes("status:'PREFETCH_NOT_VERIFIED'"));
-   assert.ok(!prefetchSource.includes('GITHUB_OUTPUT'),
-     'prewarm may not skip or alter existing 07:40 claim/send');
+   const source=fs.readFileSync('scripts/telegram-morning-prefetch.mjs','utf8');
+   assert.ok(source.includes('PREFETCH_NOT_VERIFIED'));
+   assert.ok(!source.includes('GITHUB_OUTPUT'));
  }
  assert.equal(steps.find(s=>s.id==='arm').run,'node scripts/telegram-punctual-arm.mjs '+c.kind);
  assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
