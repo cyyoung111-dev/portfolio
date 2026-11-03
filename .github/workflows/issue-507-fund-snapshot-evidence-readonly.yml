@@ -16,7 +16,7 @@ jobs:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -56,19 +56,39 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue507-oct30-domestic-close-readonly.mjs
-      - name: Report both independent reads; no financial repair authorization
+      - name: Audit historical deferred Snapshot dates (read only, no queue changes)
+        id: historical
+        if: steps.window.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-deferred-source-audit-readonly.mjs
+      - name: Audit last seven days F00001-F00003 NAV and Snapshot states (read only)
+        id: nav
+        if: steps.window.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/diagnose-fund-valuation-readonly.mjs
+      - name: Report all read-only evidence; no financial repair authorization
         if: always()
         env:
           READY: ${{ steps.window.outputs.ready }}
           FUNDS: ${{ steps.funds.outcome }}
           CLOSES: ${{ steps.closes.outcome }}
+          HISTORICAL: ${{ steps.historical.outcome }}
+          NAV: ${{ steps.nav.outcome }}
         shell: bash
         run: |
           echo "JOINT_READONLY_FUND_STATUS=$FUNDS"
           echo "JOINT_READONLY_NH_CLOSE_STATUS=$CLOSES"
+          echo "JOINT_READONLY_HISTORICAL_STATUS=$HISTORICAL"
+          echo "JOINT_READONLY_NAV_STATUS=$NAV"
           echo 'JOINT_READONLY_FINANCE_WRITES=0'
           echo 'JOINT_READONLY_RELEASE_AUTHORIZED=false'
-          if [ "$READY" != 'true' ] || [ "$FUNDS" != 'success' ] || [ "$CLOSES" != 'success' ]; then
+          if [ "$READY" != 'true' ] || [ "$FUNDS" != 'success' ] || [ "$CLOSES" != 'success' ] || [ "$HISTORICAL" != 'success' ] || [ "$NAV" != 'success' ]; then
             echo 'JOINT_READONLY_EVIDENCE_INCOMPLETE'
             exit 2
           fi
