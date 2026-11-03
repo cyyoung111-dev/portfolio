@@ -125,7 +125,7 @@ for (const failed of ['tradesOk','holdingsOk']) {
     'a separately verified subread should restore the first mobile session');
   assert.deepEqual(calls,['getBootstrap',failed==='tradesOk'?'getTrades':'getHoldings']);
   assert.equal(vm.runInContext('_gsBootRestored',x.ctx),true);
-  assert.equal(x.ctx.rawTrades.length,1);
+  assert.equal(vm.runInContext('rawTrades.length',x.ctx),1);
   assert.ok(saveCalls.some(opts=>opts?.skipGsheet===true),
     'remote financial restore must be local-only, never GAS writeback');
   assert.equal(x.writes,0);
