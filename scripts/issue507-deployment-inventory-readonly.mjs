@@ -5,6 +5,7 @@ import {pathToFileURL} from 'node:url';
 import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 import {deploymentIdFromWebAppUrl} from './deploy-gas.mjs';
 import {classifyPublishedGateSource} from './audit-published-gas-gate-readonly.mjs';
+import {scanDeploymentReferences,loadTrackedRuntimeSources} from './issue507-deployment-reference-analysis.mjs';
 
 const ROOT='https://script.googleapis.com/v1/projects/';
 const ERROR=/^ISSUE507_DEPLOYMENT_INVENTORY_[A-Z_]+$/;
@@ -54,7 +55,7 @@ async function fetchPage(url,token,fetchImpl,maxChars=250000){
 }
 export async function inspectGasDeploymentsReadOnly({
  scriptId,expectedDeploymentId,googleAccessToken,fetchImpl=fetch,
- verifyDetails=false,verifySource=false
+ verifyDetails=false,verifySource=false,referenceFiles=null
 }={}){
  if(!validId(scriptId)||!validId(expectedDeploymentId)||
   typeof googleAccessToken!=='string'||googleAccessToken.length<20)
@@ -236,6 +237,12 @@ export async function inspectGasDeploymentsReadOnly({
    }
   }
  }
+ // A checkout reference scan observes only committed source literals.
+ // It cannot see saved browser settings, other repositories or call traffic.
+ // Never let it override VERSION_METADATA_UNVERIFIED / old writers blockers.
+ const referenceAudit=referenceFiles === null ? null : scanDeploymentReferences({
+   entries,expectedDeploymentId,files:referenceFiles
+ });
  const getRole=e=>{
   if(!verifySource)return 'NOT_INSPECTED';
   if(!e.versionVerified)return 'VERSION_METADATA_UNVERIFIED';
@@ -345,6 +352,8 @@ export async function inspectGasDeploymentsReadOnly({
   allActorsAndVersionsTerminatedVerified:false,
   externalSheetsWritersExcludedVerified:false,
   editorSessionsExcludedVerified:false,
+  repositoryReferenceAuditAttempted:referenceAudit!==null,
+  ...(referenceAudit ? referenceAudit : {}),
   releaseAuthorized:false,gasWrites:0,financeWrites:0,telegramSends:0};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
@@ -354,7 +363,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    deploymentIdFromWebAppUrl(process.env.GAS_WEB_APP_URL||'');
   const result=await inspectGasDeploymentsReadOnly({
    scriptId:process.env.GAS_SCRIPT_ID,expectedDeploymentId:expected,
-   googleAccessToken:token,verifyDetails:true,verifySource:true
+   googleAccessToken:token,verifyDetails:true,verifySource:true,
+   referenceFiles:loadTrackedRuntimeSources()
   });
   console.log(JSON.stringify(result));
   if(result.status==='BLOCKED')process.exitCode=2;

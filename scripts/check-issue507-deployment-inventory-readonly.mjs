@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
+import {scanDeploymentReferences,loadTrackedRuntimeSources} from './issue507-deployment-reference-analysis.mjs';
 import {inspectGasDeploymentsReadOnly,
  inspectUnreviewedGasSourceSignals} from './issue507-deployment-inventory-readonly.mjs';
 
@@ -507,4 +508,40 @@ assert.doesNotMatch(runner,/releaseAuthorized:true/);
 assert.match(runner,/WEB_ACCESS.has\(config\?\.access\)/);
 assert.match(runner,/WEB_EXECUTE_AS.has\(config\?\.executeAs\)/);
 assert.doesNotMatch(runner,/method:'POST'|method:'PUT'|method:'DELETE'/);
+// Static references count only committed runtime literals, not live callers.
+const extraLiteralId='EXTRA_STALE_DEPLOYMENT_A0123';
+const staticRefs=[
+ {path:'src/web/app/runtime.js',content:'const url="https://script.google.com/macros/s/'+extraLiteralId+'/exec";'},
+ {path:'src/web/features/settings/connection.js',content:'localStorage.getItem("gsheet_api_url"); saveGsheetUrl(input);'},
+ {path:'.github/workflows/diagnostic.yml',content:'GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}'},
+ {path:'scripts/runtime-bridge.mjs',content:'const approved="'+expectedDeploymentId+'";'}
+];
+const entriesForStatic=[{id:expectedDeploymentId,head:false},{id:extraLiteralId,head:false}];
+const statics=scanDeploymentReferences({entries:entriesForStatic,expectedDeploymentId,files:staticRefs});
+assert.equal(statics.runtimeSourceFilesScanned,4);
+assert.equal(statics.expectedLiteralReferenceFiles,1);
+assert.equal(statics.additionalLiteralReferenceFiles,1);
+assert.equal(statics.additionalMatchedDeploymentCount,1);
+assert.equal(statics.dynamicWorkflowConfigFiles,1);
+assert.equal(statics.browserConfigurableEndpointFiles,1);
+assert.equal(statics.oldDeploymentUnusedVerified,false);
+assert.equal(statics.deploymentRemovalAuthorized,false);
+assert.doesNotMatch(JSON.stringify(statics),new RegExp(extraLiteralId+'|'+expectedDeploymentId));
+const noMatch=scanDeploymentReferences({
+ entries:entriesForStatic,expectedDeploymentId,
+ files:[{path:'src/web/app/runtime.js',content:'const api=localStorage.getItem("gsheet_api_url")'}]
+});
+assert.equal(noMatch.additionalMatchedDeploymentCount,0);
+assert.equal(noMatch.oldDeploymentUnusedVerified,false,'no source refs does not prove URL inactive');
+assert.throws(()=>scanDeploymentReferences({
+ entries:entriesForStatic,expectedDeploymentId,
+ files:[{path:'secrets/deploy.txt',content:extraLiteralId}]
+}),/ISSUE507_REFERENCE_FILES_UNVERIFIED/);
+const fromInventory=await setup({'':{deployments:[item(expectedDeploymentId),item(extraLiteralId)]}})
+ .run({referenceFiles:staticRefs});
+assert.equal(fromInventory.status,'BLOCKED');
+assert.equal(fromInventory.additionalLiteralReferenceFiles,1);
+assert.equal(fromInventory.additionalRoutableDeploymentCount,1);
+assert.equal(fromInventory.releaseAuthorized,false);
+assert.ok(loadTrackedRuntimeSources().length>0,'read-only scan must see checked-out files');
 console.log('Issue507 GAS deployment inventory GET-only, pagination, redaction, fail-closed: PASS');
