@@ -121,9 +121,9 @@ assert.match(responsive,/\.action-update-card>\.action-refresh-btn span\{[^}]*ov
 assert.match(responsive,/@media\(max-width:300px\)/,
   'accessibility zoom must stack controls instead of clipping buttons');
 
-assert.match(html,/views_history\.js\?v=20261101-9/);
+assert.match(html,/views_history\.js\?v=20261103-1/);
 assert.match(sw,/settings_sync\.js\?v=20261028-6/);
-assert.match(sw,/views_history\.js\?v=20261101-9/);
+assert.match(sw,/views_history\.js\?v=20261103-1/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,
