@@ -1,10 +1,14 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import {webcrypto,createHash} from 'node:crypto';
+import {TextEncoder} from 'node:util';
 import {composePerformanceGasCandidate,sourceSha,APPROVED_GAS_V9282_BLOB} from './compose-gas-performance-proposal.mjs';
 
 const gasCandidate=fs.readFileSync('ops/lookup-performance-gas/collector.gs','utf8');
 const web=fs.readFileSync('src/web/features/settings/settings_perf_monitor.js','utf8');
+const PERF_URL=web.match(/const PERF_ENDPOINT = '([^']+)'/)?.[1];
+assert.match(PERF_URL||'',/^https:\/\/script\.google\.com\/macros\/s\/[-A-Za-z0-9_]+\/exec$/);
 const html=fs.readFileSync('src/web/index.html','utf8');
 const net=fs.readFileSync('src/web/features/settings/settings_net.js','utf8');
 assert.match(gasCandidate,/function handleAppendPerformanceMetrics\(params\)/);
@@ -122,7 +126,11 @@ const webCtx=vm.createContext({
  requestGsheetFormJson:async(action,data,opts)=>{
   callCount++;
   requests.push({action,data,opts});
-  assert.equal(opts.targetUrl,connected);
+  assert.equal(opts.targetUrl,PERF_URL,'performance calls must never mutate/read financial GAS');
+  const expected=createHash('sha256').update('portfolio-telemetry:v1|'+props.access_token).digest('hex');
+  assert.equal(opts.accessTokenOverride,expected,
+    'new GAS must receive only isolated SHA256 derivative, not finance access token');
+  assert.notEqual(opts.accessTokenOverride,props.access_token);
   if(action==='getPerformanceSummary'){
     if(delayProbe) await new Promise(resolve=>{resolveProbe=resolve;});
     return {status:'ok',enabled:true,groups:[],sampleCount:0};
@@ -130,15 +138,16 @@ const webCtx=vm.createContext({
   if(resolveDelayed){return await new Promise(resolve=>{pending.push(resolve)})}
   return {status:'ok',accepted:JSON.parse(data.data).samples.length};
  },
+ crypto:webcrypto,TextEncoder,
  setTimeout:()=>1234,clearTimeout:()=>{},Date,Math,Set,Object,JSON,
  String,Number,Array
 });
 vm.runInContext(web,webCtx);
-assert.equal(consent.has('pf_perf_gas_consent_v1'),false);
+assert.equal(consent.has('pf_perf_isolated_consent_v1'),false);
 window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:1234,result:'ok'});
 assert.equal(callCount,0,'disabled client never sends');
 await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
-assert.equal(consent.get('pf_perf_gas_consent_v1'),'1');
+assert.equal(consent.get('pf_perf_isolated_consent_v1'),'1');
 for(let i=0;i<10;i++)window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:100+i,result:'ok'});
 const first=await window.PortfolioPerfTelemetry.flush();
 assert.equal(first,true);
@@ -146,7 +155,7 @@ const second=await window.PortfolioPerfTelemetry.flush();
 assert.equal(second,true);
 assert.equal(callCount,3,'one probe plus 2 batches');
 await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
-assert.equal(consent.get('pf_perf_gas_consent_v1'),'0');
+assert.equal(consent.get('pf_perf_isolated_consent_v1'),'0');
 assert.equal(window.PortfolioPerfTelemetry.enabled(),false);
 // If the user revokes consent before the GAS support probe completes,
 // the delayed success must NEVER silently re-enable collection.
@@ -179,7 +188,7 @@ assert.equal(uploaded.samples.length,1);
 assert.equal(uploaded.samples[0].ms,222,'only newly consented workbook sample may be sent');
 assert.doesNotMatch(web,/PERFORMANCE_LOG\W+(?:getRange|appendRow)/,
  'client must not write Sheet directly');
-console.log('PASS: GAS token fail-closed, separate sheet, cap/schema, aggregate p50/p95, opt-in and 8-row batching');
+console.log('PASS: standalone GAS derived token, per-device opt-in, connection isolation and 8-row batches');
 
 
 // Execute the ACTUAL v9.282 doGet/doPost and authentication with the
