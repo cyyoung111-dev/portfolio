@@ -88,10 +88,16 @@ async function collect(request,tradingDate,options={}){
  if(coreReadOk&&options.checkpoint==='EVENING'){
   try{
    const auth=await request('getNhAuthStatusProxy',{}, {timeoutMs:6000,retry:0});
+   // A cached token *status* alone is not atomic: it may expire after
+   // readback and cause the optional COMP call to issue fresh NH OAuth.
+   // Only a future server that explicitly implements a cached-only contract
+   // may enable this path. v9.281 reports no such capability -> skip safely.
    if(auth?.status==='ok'&&auth.provider==='NH'&&auth.enabled===true
-       &&auth.tokenCached===true&&auth.tokenIssued===false){
+       &&auth.tokenCached===true&&auth.tokenIssued===false
+       &&auth.cachedOnlyBenchmarks===true){
     const optional=await request('getBenchmarks',{
-      benchmarks:'NASDAQ',from:benchmarkFrom,to:benchmarkTo,fresh:'0'
+      benchmarks:'NASDAQ',from:benchmarkFrom,to:benchmarkTo,
+      fresh:'0',cachedOnly:'1'
     },{timeoutMs:12000,retry:0});
     const point=latest(optional?.series?.NASDAQ);
     if(point&&point.date<tradingDate
