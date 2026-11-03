@@ -2078,7 +2078,8 @@ for (const restored of [false,true]) {
   const x=setup(),calls=[];
   vm.runInContext("_gsBootRestored=true; _gsPortfolioRestoreRequired=false; EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});",x.ctx);
   for(const key of ['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet'])
-    x.ctx[key]=async()=>{calls.push(key);return true;};
+    x.ctx[key]=async()=>{calls.push(key);return key==='saveSettings'
+      ? true : {status:'ok',saveState:'success'};};
   x.ctx.refreshAll=()=>{};
   x.ctx.buildStockMgmt=()=>{};
   x.ctx.buildSectorMgmt=()=>{};
@@ -2087,6 +2088,34 @@ for (const restored of [false,true]) {
   await x.ctx.manualSyncByTab('stocks');
   assert.deepEqual(calls,['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet']);
   assert.equal(vm.runInContext('TAB_SYNC_STATUS.stocks.state',x.ctx),'ok');
+}
+// A stock-tab manual sync must not show success after only one successful
+// stage; especially a trade/Snapshot PARTIAL response must retain failure.
+for (const failure of [
+  {stage:'saveSettings',result:false,count:1},
+  {stage:'syncCodesToGsheet',result:null,count:2},
+  {stage:'syncHoldingsToGsheet',result:{status:'error'},count:3},
+  {stage:'syncTradesToGsheet',result:{status:'ok',saveState:'partial'},count:4}
+]) {
+  const x=setup(),calls=[],toasts=[];
+  vm.runInContext("_gsBootRestored=true; _gsPortfolioRestoreRequired=false; EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});",x.ctx);
+  for (const key of ['saveSettings','syncCodesToGsheet','syncHoldingsToGsheet','syncTradesToGsheet']) {
+    x.ctx[key]=async()=>{
+      calls.push(key);
+      if (key===failure.stage) return failure.result;
+      return key==='saveSettings' ? true : {status:'ok',saveState:'success'};
+    };
+  }
+  x.ctx.refreshAll=()=>{throw Error('failed sync cannot refresh as success');};
+  x.ctx.buildStockMgmt=()=>{};
+  x.ctx.buildSectorMgmt=()=>{};
+  x.ctx.buildAcctMgmt=()=>{};
+  x.ctx.showToast=(message,kind)=>toasts.push([message,kind]);
+  await x.ctx.manualSyncByTab('stocks');
+  assert.equal(calls.length,failure.count,failure.stage+': stop after failed step');
+  assert.equal(vm.runInContext('TAB_SYNC_STATUS.stocks.state',x.ctx),'fail',
+    failure.stage+': incomplete workbook must not display success');
+  assert.deepEqual(toasts,[['재동기화 실패','error']]);
 }
 console.log('PASS: stock/asset resync blocks provisional codes and local writes until GAS restore is verified');
 
