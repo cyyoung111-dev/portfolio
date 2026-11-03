@@ -38,7 +38,7 @@ assert.equal(rows.find(x=>x.seriesId==='SPX').status,'FINAL');
 assert.equal(rows.find(x=>x.seriesId==='USDKRW').market,'FX');
 // #734: optional NH COMP (NASDAQ Composite) must be stored with exact primary
 // source identity; missing/foreign/stale bars may never become verified MASTER.
-assert.ok(collector.REQUEST_TYPES.includes('NASDAQ'));
+assert.ok(!collector.REQUEST_TYPES.includes('NASDAQ'),'unconditional COMP would trigger extra NH OAuth');
 const indexDate='2026-11-03',priorUs='2026-11-02';
 const makeIndexPayload=(patch={},metaPatch={})=>({
  status:'ok',
@@ -46,7 +46,10 @@ const makeIndexPayload=(patch={},metaPatch={})=>({
    source:'NH_INDEX_DAILY',status:'CONFIRMED',priceType:'REGULAR_CLOSE',...patch}]},
  seriesMeta:{NASDAQ:{source:'NH_INDEX_DAILY',providerCode:'COMP',...metaPatch}}
 });
-const optionalIndexRequest=payload=>async action=>{
+const optionalIndexRequest=(payload,{cached=true,record=[]}={})=>async (action,params)=>{
+ record.push({action,requested:params?.benchmarks||''});
+ if(action==='getNhAuthStatusProxy')return {status:'ok',provider:'NH',
+  enabled:true,tokenCached:cached,tokenIssued:false};
  if(action==='getBenchmarks')return payload;
  if(action==='getBenchmark')return {status:'ok',points:[]};
  if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
@@ -65,6 +68,17 @@ assert.equal(persistedComposite.length,1);
 assert.equal(persistedComposite[0].seriesId,'NASDAQ');
 assert.equal(persistedComposite[0].source,'NH_INDEX_DAILY');
 assert.equal(persistedComposite[0].finality,'REGULAR_CLOSE');
+const blockedCalls=[];
+const notCached=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {cached:false,record:blockedCalls}),indexDate,{checkpoint:'EVENING'});
+assert.equal(notCached.payload.NASDAQ,undefined,'uncached NH token must not request optional COMP');
+assert.ok(!blockedCalls.find(x=>x.action==='getBenchmarks').requested.includes('NASDAQ'));
+const morningCalls=[];
+const noMorningComp=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {cached:true,record:morningCalls}),indexDate,{checkpoint:'MORNING'});
+assert.equal(noMorningComp.payload.NASDAQ,undefined);
+assert.ok(!morningCalls.some(x=>x.action==='getNhAuthStatusProxy'));
+assert.ok(!morningCalls.find(x=>x.action==='getBenchmarks').requested.includes('NASDAQ'));
 for(const [patch,metaPatch] of [
  [{source:'YAHOO'},{}],
  [{status:'PARTIAL'},{}],
