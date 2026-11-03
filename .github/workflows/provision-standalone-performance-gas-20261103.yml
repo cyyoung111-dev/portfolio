@@ -1,0 +1,56 @@
+name: provision-standalone-performance-gas-20261103
+
+# One-time, explicitly scoped creation of a separate performance-only GAS project.
+# NEVER updates the existing finance GAS project, sheet, version, or deployment.
+on:
+  pull_request:
+    paths:
+      - 'ops/performance-standalone-gas/Code.gs'
+      - 'scripts/check-standalone-performance-gas.mjs'
+      - 'scripts/provision-standalone-performance-gas.mjs'
+      - '.github/workflows/provision-standalone-performance-gas-20261103.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/provision-standalone-performance-gas-20261103.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify isolated GAS authorization, storage, retention, URL and source
+        run: |
+          node scripts/check-standalone-performance-gas.mjs
+          node scripts/provision-standalone-performance-gas.mjs --check
+
+  provision:
+    needs: contract
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.repository == 'cyyoung111-dev/portfolio'
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 10
+    concurrency:
+      group: perf-standalone-gas-first-provision
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Deploy only a separate ScriptProperties telemetry-only GAS project
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          PERF_STANDALONE_SCRIPT_ID: ${{ vars.PERF_STANDALONE_SCRIPT_ID }}
+        run: node scripts/provision-standalone-performance-gas.mjs
