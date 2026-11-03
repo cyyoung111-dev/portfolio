@@ -19,7 +19,7 @@ assert.equal(armedKstClock(kst('07:40:00')).minutes,460);
 assert.equal(armedKstClock(kst('17:00:00')).minutes,1020);
 for(const [kind,before,arm,target,last,cutoff] of [
  ['morning','07:19:59','07:20:00','07:40:00','08:09:59','08:10:00'],
- ['close','16:34:59','16:35:00','17:00:00','17:59:59','18:00:00']
+ ['close','16:19:59','16:20:00','17:00:00','17:59:59','18:00:00']
 ]){
  const valid=t=>authorizeArmedDelivery(kind,env,event(kind),kst(t));
  assert.equal(valid(before).allowed,false,kind+' too early');
@@ -38,6 +38,41 @@ for(const [kind,before,arm,target,last,cutoff] of [
  assert.equal(authorizeArmedDelivery(kind,externalEnv,{...externalEvent,inputs:{date}},kst(arm)).allowed,false);
  assert.equal(authorizeArmedDelivery(kind,{...externalEnv,GITHUB_RUN_ATTEMPT:'2'},externalEvent,kst(arm)).allowed,false);
  assert.equal(authorizeArmedDelivery(kind,externalEnv,{...externalEvent,repository:{full_name:'other/repo'}},kst(arm)).allowed,false);
+ // A reviewed local-git-diff workflow step, not untrusted event arrays,
+ // must set this one-step authorization output.
+ if(kind==='close'){
+   const pushEnv={...env,GITHUB_EVENT_NAME:'push',
+     TELEGRAM_CLOSE_SENTINEL_VERIFIED:'true'};
+   const pushEvent={ref:'refs/heads/main',repository:{full_name:repo}};
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,pushEvent,kst(arm)).allowed,true);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,pushEvent,kst('16:19:59')).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,pushEvent,kst('17:00:00')).allowed,true,
+     'pre-armed push remains approved once 17:00 has arrived');
+   assert.equal(authorizeArmedDelivery(kind,{...pushEnv,
+     TELEGRAM_CLOSE_SENTINEL_VERIFIED:'false'},pushEvent,kst(arm)).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,{...pushEvent,
+     ref:'refs/heads/feature'},kst(arm)).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,{...pushEvent,
+     repository:{full_name:'other/repo'}},kst(arm)).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,{...pushEnv,GITHUB_RUN_ATTEMPT:'2'},
+     pushEvent,kst(arm)).allowed,false);
+   // Exercise the REAL waitUntilPunctualWindow production function across
+   // 17:00: the first version incorrectly revoked authorization at target.
+   let pushNow=kst(arm).getTime(),pushTicks=0;
+   const actual=await waitUntilPunctualWindow('close',{
+     env:pushEnv,event:pushEvent,now:()=>new Date(pushNow),
+     sleep:async ms=>{pushNow+=ms;pushTicks++;}
+   });
+   assert.equal(actual.ready,true,'verified push must reach 17:00');
+   assert.equal(actual.reason,'ARM_TARGET_REACHED');
+   assert.equal(pushNow,kst('17:00:00').getTime());
+   assert.ok(pushTicks>0&&pushTicks<=270);
+   const latePush=await waitUntilPunctualWindow('close',{
+     env:pushEnv,event:pushEvent,now:()=>kst('17:00:00')
+   });
+   assert.equal(latePush.ready,false,'a NEW push cannot start after target');
+   assert.equal(latePush.reason,'ARM_PUSH_TOO_LATE');
+ }
 
  assert.equal(authorizeArmedDelivery(kind,env,event(kind),kst(arm,'2026-11-01')).allowed,false,
   'closed Korean session cannot arm');
@@ -59,7 +94,7 @@ for(const [kind,before,arm,target,last,cutoff] of [
  assert.equal(r.date,date);
  assert.equal(r.reason,'ARM_TARGET_REACHED');
  assert.equal(clockNow,kst(target).getTime(),'must not enter delivery pipeline before target');
- assert.ok(ticks>0&&ticks<=180);
+ assert.ok(ticks>0&&ticks<=270);
  assert.equal(await waitUntilPunctualWindow(kind,{env,event:event(kind),now:()=>kst(cutoff)}).then(x=>x.ready),false);
  const late=await waitUntilPunctualWindow(kind,{env,event:event(kind),now:()=>kst(last),
   sleep:async()=>assert.fail('late runner should not sleep')});
@@ -83,8 +118,24 @@ const checks=[
 for(const c of checks){
  const src=fs.readFileSync('.github/workflows/'+c.file,'utf8');
  const y=YAML.parse(src),j=y.jobs.armed,steps=j.steps;
- assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch'],
-  'schedule or authenticated external dispatch only; never push');
+ if(c.kind==='close'){
+   assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch','push']);
+   assert.deepEqual(y.on.push,{branches:['main'],paths:['ops/telegram-close-arm-trigger.txt']});
+   assert.match(j.if,/github\.event_name == 'push'/);
+   const verify=steps.find(step=>step.id==='verify_sentinel');
+   const waiting=steps.find(step=>step.id==='arm');
+   assert.ok(verify&&steps.indexOf(verify)<steps.indexOf(waiting),
+     'verify the exact single-file push before arming');
+   assert.equal(verify.if,"github.event_name == 'push'");
+   assert.match(String(verify.env.PUSH_BEFORE||''),/github[.]event[.]before/);
+   assert.match(verify.run,/git diff --name-only HEAD\^ HEAD/);
+   assert.match(verify.run,/CLOSE_SENTINEL_MULTI_COMMIT_REJECTED/);
+   assert.match(verify.run,/CLOSE_SENTINEL_FILE_MODE_UNVERIFIED/);
+   assert.ok(String(waiting.env.TELEGRAM_CLOSE_SENTINEL_VERIFIED||'')
+     .includes('steps.verify_sentinel.outputs.verified'));
+   assert.equal(steps.find(step=>step.uses==='actions/checkout@v7').with['fetch-depth'],2);
+ }else assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch'],
+  'morning schedule/dispatch only; never push');
  assert.deepEqual(y.on.schedule,[{cron:c.cron}]);
  assert.equal(y.concurrency.group,c.group,'share original dated claim concurrency group');
  assert.equal(y.concurrency['cancel-in-progress'],false);

@@ -8,7 +8,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 export const ARMED_DELIVERY=Object.freeze({
  morning:Object.freeze({cron:'20 22 * * 0-4',arm:7*60+20,target:7*60+40,cutoff:8*60+10}),
- close:Object.freeze({cron:'35 7 * * 1-5',arm:16*60+35,target:17*60,cutoff:18*60})
+ close:Object.freeze({cron:'35 7 * * 1-5',arm:16*60+20,target:17*60,cutoff:18*60})
 });
 const REPO='cyyoung111-dev/portfolio';
 export function armedKstClock(at){
@@ -25,10 +25,18 @@ export function authorizeArmedDelivery(kind,env,event,at){
  const dispatched=env?.GITHUB_EVENT_NAME==='workflow_dispatch'
    &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO
    &&(!event?.inputs||Object.keys(event.inputs).length===0);
- // Do not accept push, user-supplied dates or unrecognized cron events.
+ // A single changed, reviewed trigger file on main may pre-arm the closing runner
+ // before 17:00 even when every GitHub cron was delayed or dropped.
+ // Never accept a push for morning, arbitrary files, or a late direct send.
+ const pushed=kind==='close' && env?.GITHUB_EVENT_NAME==='push'
+   && event?.ref==='refs/heads/main' && event?.repository?.full_name===REPO
+   // GitHub Actions push payload omits changed-file arrays: the guarded
+   // workflow step verifies a one-file commit with a local git diff first.
+   && env?.TELEGRAM_CLOSE_SENTINEL_VERIFIED==='true';
+ // Reject user-supplied dates, arbitrary pushes and unrecognized cron events.
  // Dispatch is only an alternative independent trigger for the SAME
  // guarded KST source-date, claim and delivery path.
- if(!config||!clock||!(scheduled||dispatched)
+ if(!config||!clock||!(scheduled||dispatched||pushed)
   ||env.GITHUB_REF!=='refs/heads/main'||env.GITHUB_REPOSITORY!==REPO
   ||env.GITHUB_RUN_ATTEMPT!=='1'||event?.repository?.full_name!==REPO
   ||krxSessionStatus(clock.date)!=='OPEN')
@@ -42,6 +50,12 @@ export async function waitUntilPunctualWindow(kind,{now=()=>new Date(),
  env=process.env,event}={}){
  const first=authorizeArmedDelivery(kind,env,event,now());
  if(!first.allowed)return {ready:false,reason:first.reason,date:first.clock?.date||null};
+ // An approved push must START before target, but remain authorized while
+ // its already-running worker crosses 17:00 to the original send pipeline.
+ // Otherwise the repeated loop check could cancel a perfectly punctual arm.
+ if(env?.GITHUB_EVENT_NAME==='push' &&
+    first.clock.minutes>=first.config.target)
+   return {ready:false,reason:'ARM_PUSH_TOO_LATE',date:first.clock.date};
  // At most 25 minutes (the schedule's early reservation interval). A delayed
  // scheduled job that starts inside the normal send window may attempt once.
  const {date}=first.clock,targetAt=Date.parse(date+'T'+
