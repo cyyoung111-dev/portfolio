@@ -3,7 +3,7 @@
 'use strict';
 const CONSENT='pf_perf_remote_consent_v1',ENDPOINT='pf_perf_remote_endpoint_v1',QUEUE='pf_perf_remote_queue_v1';
 const STAGES=new Set(['load.initial-restore','load.initial-prices','load.full-update','price.poll-network','price.poll-render','price.poll-total','network.getBootstrap','network.getSettings','network.getPrices','network.getPriceHistory']);
-let sending=false,timer=null;
+let sending=false,timer=null,revision=0;
 const read=k=>{try{return localStorage.getItem(k)||''}catch(_){return ''}};
 const write=(k,v)=>{try{localStorage.setItem(k,v)}catch(_){}};
 const remove=k=>{try{localStorage.removeItem(k)}catch(_){}};
@@ -18,18 +18,28 @@ function pftelemetry_save(queue){write(QUEUE,JSON.stringify(queue.slice(-60)))}
 function pftelemetry_device(){try{return window.matchMedia('(max-width: 768px)').matches?'mobile':'desktop'}catch(_){return 'unknown'}}
 function pftelemetry_record(entry){
  if(!pftelemetry_enabled()||!entry||!STAGES.has(entry.stage)||!Number.isInteger(entry.ms)||entry.ms<0||entry.ms>120000)return;
- const items=pftelemetry_getQueue();items.push({stage:entry.stage,ms:entry.ms,result:entry.result==='ok'?'ok':'error'});pftelemetry_save(items);
+ const items=pftelemetry_getQueue();items.push({stage:entry.stage,ms:entry.ms,result:entry.result==='ok'?'ok':'error',localId:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)});pftelemetry_save(items);
  if(!timer)timer=setTimeout(()=>{timer=null;void pftelemetry_flush()},20000);
 }
 async function pftelemetry_flush(){
  if(sending||!pftelemetry_enabled()||typeof fetch!=='function')return false;
  const items=pftelemetry_getQueue();if(!items.length)return true;
- sending=true;const batch=items.slice(0,8);
+ sending=true;const batch=items.slice(0,8),sentRevision=revision,destination=pftelemetry_validEndpoint(read(ENDPOINT));
+ let delivered=false;
  try{
-  const res=await fetch(pftelemetry_validEndpoint(read(ENDPOINT)),{method:'POST',mode:'cors',credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:1,pftelemetry_device:pftelemetry_device(),samples:batch}),keepalive:true});
+  const sanitized=batch.map(e=>({stage:e.stage,ms:e.ms,result:e.result}));
+  const res=await fetch(destination,{method:'POST',mode:'cors',credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:1,device:pftelemetry_device(),samples:sanitized}),keepalive:true});
   if(!res.ok)return false;
-  pftelemetry_save(pftelemetry_getQueue().slice(batch.length));return true;
- }catch(_){return false}finally{sending=false}
+  if(sentRevision!==revision||!pftelemetry_enabled()||destination!==pftelemetry_validEndpoint(read(ENDPOINT)))return false;
+  const ids=new Set(batch.map(e=>e.localId));
+  pftelemetry_save(pftelemetry_getQueue().filter(e=>!ids.has(e.localId)));delivered=true;
+  return true;
+ }catch(_){return false}finally{
+  sending=false;
+  // Drain 9+ backlogged samples, and restart after collector settings changed.
+  if((delivered||sentRevision!==revision)&&pftelemetry_enabled()&&pftelemetry_getQueue().length&&!timer)
+    timer=setTimeout(()=>{timer=null;void pftelemetry_flush()},1200);
+ }
 }
 function pftelemetry_renderSettingsHtml(){
  const safe=pftelemetry_validEndpoint(read(ENDPOINT)).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
@@ -44,7 +54,7 @@ function pftelemetry_renderSettingsHtml(){
  + '<p id="perfCollectorStatus" role="status" style="font-size:.65rem;color:var(--muted);margin-top:8px">'+(pftelemetry_enabled()?'사용 중 · 전송 대기 '+pftelemetry_getQueue().length+'건':'현재 비활성화')+'</p></div>';
 }
 function pftelemetry_notify(msg){const e=document.getElementById('perfCollectorStatus');if(e)e.textContent=msg}
-function pftelemetry_stop(){write(CONSENT,'0');remove(QUEUE);if(timer){clearTimeout(timer);timer=null}}
+function pftelemetry_stop(){revision++;write(CONSENT,'0');remove(QUEUE);if(timer){clearTimeout(timer);timer=null}}
 document.addEventListener('click',event=>{
  const btn=event.target.closest?.('button');if(!btn)return;
  if(btn.id==='perfCollectorStop'){pftelemetry_stop();const e=document.getElementById('perfCollectorConsent');if(e)e.checked=false;pftelemetry_notify('전송 중지 · 대기 로그 삭제')}
@@ -54,7 +64,7 @@ document.addEventListener('click',event=>{
   const normalized=pftelemetry_validEndpoint(value);
   if(consent&&!normalized){pftelemetry_notify('유효한 HTTPS 수집기 /ingest 주소를 입력하세요');return}
   if(!consent){pftelemetry_stop();if(normalized)write(ENDPOINT,normalized);pftelemetry_notify('비활성화 · 원격 전송 없음');return}
-  if(normalized!==read(ENDPOINT))remove(QUEUE);
+  if(normalized!==read(ENDPOINT)){revision++;remove(QUEUE);}
   write(ENDPOINT,normalized);write(CONSENT,'1');
   pftelemetry_notify('수집 활성 · 이후 조회부터 자동 기록');
  }
