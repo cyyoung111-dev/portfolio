@@ -276,7 +276,7 @@ function verifyJointIssue507NhReadOnlyWorkflow(source){
  assert.equal(flow.concurrency['cancel-in-progress'],false);
  const job=flow.jobs.inspect;
  assert.equal(job.environment,'portfolio-production-gas');
- assert.equal(job['timeout-minutes'],15);
+ assert.equal(job['timeout-minutes'],30);
  assert.ok(job.if.includes("github.ref == 'refs/heads/main'"));
  assert.ok(job.if.includes("github.event_name == 'workflow_dispatch'"));
  assert.ok(job.if.includes("github.event_name == 'push' && github.run_attempt == 1"));
@@ -290,7 +290,9 @@ function verifyJointIssue507NhReadOnlyWorkflow(source){
  assert.equal(executeActualJointGate(date.run,'workflow_dispatch','2026-11-03'),'ready=true');
  const ones=[
  ['funds','node scripts/diagnose-fund-snapshot-evidence-readonly.mjs'],
- ['closes','node scripts/issue507-oct30-domestic-close-readonly.mjs']];
+ ['closes','node scripts/issue507-oct30-domestic-close-readonly.mjs'],
+ ['historical','node scripts/issue507-deferred-source-audit-readonly.mjs'],
+ ['nav','node scripts/diagnose-fund-valuation-readonly.mjs']];
  for(const [id,cmd] of ones){
   const s=steps.find(v=>v.id===id);
   assert.equal(s.run,cmd);
@@ -303,6 +305,9 @@ function verifyJointIssue507NhReadOnlyWorkflow(source){
  const last=steps.at(-1);
  assert.equal(last.if,'always()');
  assert.ok(last.run.includes('JOINT_READONLY_FINANCE_WRITES=0'));
+ assert.ok(last.run.includes('JOINT_READONLY_HISTORICAL_STATUS=$HISTORICAL'));
+ assert.ok(last.run.includes('JOINT_READONLY_NAV_STATUS=$NAV'));
+ assert.ok(last.run.includes('|| [ "$HISTORICAL" != \'success\' ] || [ "$NAV" != \'success\' ]'));
  assert.ok(last.run.includes('exit 2'));
  const commands=steps.map(s=>s.run||'').join('\n');
  assert.ok(!commands.includes('scripts/deploy-gas.mjs'));
