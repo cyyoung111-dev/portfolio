@@ -1114,7 +1114,13 @@ async function syncHoldingsToGsheet(options) {
     const holdings = Object.values(holdMap).filter(h => h.qty > 0);
     // 확인된 마지막 거래 삭제에서 실제 보유도 0이 된 경우에만 원격 보유현황 [] 삭제를 허용합니다.
     // 초기 복원 실패 등 일반 빈 상태에서는 기존 원격 보유현황을 보존합니다.
-    if (holdings.length === 0 && !allowEmpty) return;
+    if (holdings.length === 0 && !allowEmpty) {
+      // Explicitly distinguish intentional empty-payload protection from
+      // network/auth failures for the manual-sync controller. All other
+      // call sites keep the existing undefined return contract.
+      return options?.reportEmptySkip === true
+        ? { status: 'skipped', reason: 'EMPTY_HOLDINGS_PROTECTED' } : undefined;
+    }
 
     const writeHoldings = options?.recoveryWrite === true && _hasPortfolioReceiptProtocol(targetUrl)
       ? _requestPortfolioRecoveryWrite : requestGsheetFormJson;
