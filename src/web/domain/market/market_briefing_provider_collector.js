@@ -1,6 +1,6 @@
 (function(global){
 'use strict';
-const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ','NASDAQ100','SOX','VIX','DXY','UST10Y','WTI','GOLD','BTC']);
+const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ100','SOX','VIX','DXY','UST10Y','WTI','GOLD','BTC']);
 const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ:'NASDAQ',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX',DXY:'DXY',UST10Y:'UST10Y',WTI:'WTI',GOLD:'GOLD',BTC:'BTC'});
 const STOCKS=Object.freeze({SAMSUNG:'005930',SKHYNIX:'000660'});
 const KRX_FINAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','AFTER_FINAL','EVENING']);
@@ -64,9 +64,22 @@ async function collect(request,tradingDate,options={}){
  const benchmarkTo=options.checkpoint==='MORNING'&&to>=tradingDate?lookback(tradingDate,1):to;
  const benchmarkFrom=from>benchmarkTo?lookback(benchmarkTo):from;
  const payload={},missing=[],errors={};
+ // Nasdaq Composite is optional and NH-only. Do not make it a fresh-token
+ // trigger in morning, at close, or while the NH cached bearer is absent.
+ // The central GAS status action is explicitly read-only and does not issue OAuth.
+ let includeCachedNasdaq=false;
+ if(options.checkpoint==='EVENING'){
+  try{
+   const auth=await request('getNhAuthStatusProxy',{},
+    {timeoutMs:6000,retry:0});
+   includeCachedNasdaq=auth?.status==='ok'&&auth.provider==='NH'
+     &&auth.enabled===true&&auth.tokenCached===true&&auth.tokenIssued===false;
+  }catch{/* Optional path is fail-closed without blocking core indices. */}
+ }
+ const types=includeCachedNasdaq?[...REQUEST_TYPES,'NASDAQ']:REQUEST_TYPES;
  try{
-  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from:benchmarkFrom,to:benchmarkTo,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
-  for(const type of REQUEST_TYPES){
+  const data=await request('getBenchmarks',{benchmarks:types.join(','),from:benchmarkFrom,to:benchmarkTo,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
+  for(const type of types){
    const points=data&&data.series&&data.series[type];
    // 응답이 요청 범위를 벗어나더라도 장전 당일 Toss 일봉이 전일 KRX 공식 종가를 덮지 못하도록 차단.
    const eligible=options.checkpoint==='MORNING'&&Array.isArray(points)?points.filter(point=>point&&point.date<=benchmarkTo):points;
