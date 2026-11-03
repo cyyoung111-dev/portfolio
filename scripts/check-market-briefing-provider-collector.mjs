@@ -57,8 +57,13 @@ const optionalIndexRequest=(payload,{cached=true,record=[]}={})=>async (action,p
  if(action==='getPriceHistory')return {status:'ok',prices:{}};
  throw Error('unexpected optional-index action');
 };
-const optionalNh=await collector.collect(optionalIndexRequest(makeIndexPayload()),
- indexDate,{checkpoint:'EVENING'});
+const optionalSuccessCalls=[];
+const optionalNh=await collector.collect(optionalIndexRequest(makeIndexPayload(),
+ {record:optionalSuccessCalls}),indexDate,{checkpoint:'EVENING'});
+const benchmarkCalls=optionalSuccessCalls.filter(x=>x.action==='getBenchmarks');
+assert.equal(benchmarkCalls.length,2,'optional COMP must never join baseline getBenchmarks');
+assert.ok(!benchmarkCalls[0].requested.split(',').includes('NASDAQ'));
+assert.equal(benchmarkCalls[1].requested,'NASDAQ');
 assert.equal(optionalNh.payload.NASDAQ.value,25164.32);
 assert.equal(optionalNh.payload.NASDAQ.source,'NH_INDEX_DAILY');
 assert.equal(optionalNh.payload.NASDAQ.status,'FINAL');
@@ -73,6 +78,33 @@ const notCached=await collector.collect(optionalIndexRequest(makeIndexPayload(),
  {cached:false,record:blockedCalls}),indexDate,{checkpoint:'EVENING'});
 assert.equal(notCached.payload.NASDAQ,undefined,'uncached NH token must not request optional COMP');
 assert.ok(!blockedCalls.find(x=>x.action==='getBenchmarks').requested.split(',').includes('NASDAQ'));
+// If the optional COMP endpoint fails, existing core market facts and missing
+// counts must be identical, with no failed optional source promoted to FINAL.
+const independentBaseline={status:'ok',series:{
+ SP500:[{date:priorUs,value:7600,source:'NH_INDEX_DAILY',status:'CONFIRMED'}],
+ NASDAQ100:[{date:priorUs,value:28000,source:'NH_INDEX_DAILY',status:'CONFIRMED'}]
+},seriesMeta:{SP500:{source:'NH_INDEX_DAILY',providerCode:'SPX'},
+ NASDAQ100:{source:'NH_INDEX_DAILY',providerCode:'NDX'}}};
+const fallbackRequest=async(action,params)=>{
+ if(action==='getNhAuthStatusProxy')return {status:'ok',provider:'NH',enabled:true,
+  tokenCached:true,tokenIssued:false};
+ if(action==='getBenchmarks'){
+  if(params.benchmarks==='NASDAQ')throw Error('simulated optional provider failure');
+  return independentBaseline;
+ }
+ if(action==='getBenchmark')return {status:'ok',points:[]};
+ if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
+ if(action==='getPrices')return {status:'ok',prices:{}};
+ if(action==='getPriceHistory')return {status:'ok',prices:{}};
+ throw Error('unexpected optional failure action');
+};
+const failedOptional=await collector.collect(fallbackRequest,indexDate,{checkpoint:'EVENING'});
+assert.equal(failedOptional.payload.SPX.value,7600);
+assert.equal(failedOptional.payload.NDX.value,28000);
+assert.equal(failedOptional.payload.NASDAQ,undefined);
+assert.ok(!failedOptional.missing.includes('NASDAQ'));
+assert.equal(failedOptional.errors.getBenchmarks,undefined,
+ 'optional endpoint error must not poison core GAS success');
 const optionalMorningCalls=[];
 const noMorningComp=await collector.collect(optionalIndexRequest(makeIndexPayload(),
  {cached:true,record:optionalMorningCalls}),indexDate,{checkpoint:'MORNING'});
