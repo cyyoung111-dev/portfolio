@@ -13,6 +13,7 @@
   const CAP = 40;
   let queue = [], sequence = 0, revision = 0, sending = false, timer = null;
   let retryAfter = 0;
+  let connectionIdentity = null;
   const getConsent = () => { try { return localStorage.getItem(CONSENT) === '1'; } catch (_) { return false; } };
   const setConsent = value => { try { localStorage.setItem(CONSENT, value ? '1' : '0'); } catch (_) {} };
   // Permanently retire Cloudflare settings and pending batches from PR #896.
@@ -25,6 +26,19 @@
       && typeof requestGsheetFormJson === 'function');
   }
   function pftelemetry_enabled() { return getConsent() && pftelemetry_gasReady(); }
+  function pftelemetry_guardConnection() {
+    const url = typeof GSHEET_API_URL === 'undefined' ? '' : String(GSHEET_API_URL || '').trim();
+    const generation = typeof getGsheetConnectionGeneration === 'function'
+      ? getGsheetConnectionGeneration() : 0;
+    const current = url + '|generation:' + String(generation);
+    if (connectionIdentity === null) { connectionIdentity = current; return true; }
+    if (current === connectionIdentity) return true;
+    connectionIdentity = current;
+    // A changed workbook or credential invalidates both old queued samples and
+    // old device consent. Never transfer timing data across GAS connections.
+    pftelemetry_stop();
+    return false;
+  }
   function pftelemetry_device() {
     try {
       if (typeof navigator !== 'undefined' && navigator.userAgentData &&
@@ -39,7 +53,7 @@
     timer = setTimeout(() => { timer = null; void pftelemetry_flush(); }, delayMs);
   }
   function pftelemetry_record(entry) {
-    if (!pftelemetry_enabled() || !entry || !ALLOWED.has(entry.stage) || !Number.isInteger(entry.ms) ||
+    if (!pftelemetry_guardConnection() || !pftelemetry_enabled() || !entry || !ALLOWED.has(entry.stage) || !Number.isInteger(entry.ms) ||
         entry.ms < 0 || entry.ms > 120000) return;
     queue.push({
       stage: entry.stage, ms: entry.ms, result: entry.result === 'error' ? 'error' : 'ok',
@@ -49,7 +63,11 @@
     pftelemetry_schedule(25000); // Low priority; no extra request in the critical price path.
   }
   async function pftelemetry_flush() {
-    if (!pftelemetry_enabled() || sending || !queue.length || Date.now() < retryAfter) return false;
+    if (!pftelemetry_guardConnection() || !pftelemetry_enabled() || sending || !queue.length) return false;
+    if (Date.now() < retryAfter) {
+      pftelemetry_schedule(Math.max(1000, retryAfter - Date.now()));
+      return false;
+    }
     const url = String(GSHEET_API_URL || '').trim();
     const generation = typeof getGsheetConnectionGeneration === 'function'
       ? getGsheetConnectionGeneration() : null;
@@ -142,9 +160,12 @@
     const id=e.target.closest?.('button')?.id;
     if (id === 'perfGasStop') { pftelemetry_stop(); pftelemetry_status('수집 중지 · 대기 중인 로그 삭제'); }
     else if (id === 'perfGasEnable') {
+      pftelemetry_guardConnection();
       if (!pftelemetry_gasReady()) { pftelemetry_status('GAS 연결·접근 토큰을 확인해 주세요.'); return; }
+      const attemptRevision = revision;
       pftelemetry_status('GAS 성능 수집 지원 여부 확인 중');
       const r=await pftelemetry_summaryRequest();
+      if (revision !== attemptRevision) return; // User pressed stop or changed connection.
       if (!r || r.enabled !== true) {
         pftelemetry_stop();
         pftelemetry_status('현재 운영 GAS에 성능 수집 API가 배포되지 않아 비활성화 상태입니다.');
