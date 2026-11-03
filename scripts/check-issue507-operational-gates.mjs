@@ -183,3 +183,61 @@ for(const [before,after] of [
   assert.notEqual(mutated,auditWorkflow);
   assert.throws(()=>verifyMonitor(mutated));
 }
+function verifySingleDayGasPreflight(source){
+ const flow=YAML.parse(source);
+ assert.deepEqual(Object.keys(flow.on),['push'],
+  'GAS one-off only accepts an exact main push and no manual/scheduled rerun');
+ assert.deepEqual(flow.on.push.branches,['main']);
+ assert.deepEqual(flow.on.push.paths,['.github/workflows/gas-20261103-dual-readonly-preflight.yml']);
+ assert.deepEqual(flow.permissions,{contents:'read'});
+ const job=flow.jobs.inspect;
+ assert.equal(job.environment,'portfolio-production-gas');
+ assert.equal(job.concurrency.group,'gas-production-deploy');
+ assert.equal(job.concurrency['cancel-in-progress'],false);
+ assert.equal(job['timeout-minutes'],13);
+ assert.equal(job.if,
+  "github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1");
+ const steps=job.steps;
+ const readOnly=steps.filter(s=>s.id==='published'||s.id==='inventory');
+ assert.equal(readOnly.length,2);
+ assert.ok(readOnly.every(s=>s['continue-on-error']===true
+   &&s.if==="steps.date_gate.outputs.ready == 'true'"));
+ const published=readOnly.find(s=>s.id==='published');
+ const inventory=readOnly.find(s=>s.id==='inventory');
+ assert.equal(published.run,'node scripts/audit-published-gas-gate-readonly.mjs');
+ assert.equal(inventory.run,'node scripts/issue507-deployment-inventory-readonly.mjs');
+ assert.equal(published.env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
+ assert.equal(inventory.env.GAS_ACCESS_TOKEN,undefined);
+ assert.equal(published.env.CLASPRC_JSON,'$'+'{{ secrets.CLASPRC_JSON }}');
+ assert.equal(inventory.env.CLASPRC_JSON,'$'+'{{ secrets.CLASPRC_JSON }}');
+ const contracts=steps.find(s=>s.name?.includes('Verify both read-only contracts'));
+ assert.ok(contracts.run.includes('check-published-gas-gate-readonly.mjs'));
+ assert.ok(contracts.run.includes('check-issue507-deployment-inventory-readonly.mjs'));
+ const dateGate=steps.find(s=>s.id==='date_gate');
+ assert.ok(dateGate.run.includes('TZ=Asia/Seoul date +%F'));
+ assert.ok(dateGate.run.includes('2026-11-03'));
+ const final=steps.at(-1);
+ assert.equal(final.if,'always()');
+ assert.ok(final.run.includes('GAS_PREFLIGHT_BLOCKED_EXPECTED'));
+ assert.ok(final.run.includes('exit 2'));
+ const allCommands=steps.map(s=>s.run||'').join('\n');
+ assert.ok(!allCommands.includes('scripts/deploy-gas.mjs'));
+ assert.ok(!allCommands.includes('approve_9282=true'));
+ assert.ok(!allCommands.includes('script.googleapis.com/v1/projects'));
+ assert.ok(!allCommands.includes('curl '));
+}
+const oneShotGasAudit=fs.readFileSync(
+ '.github/workflows/gas-20261103-dual-readonly-preflight.yml','utf8');
+verifySingleDayGasPreflight(oneShotGasAudit);
+for(const [a,b] of [
+ ['2026-11-03','2026-11-04'],
+ ["    branches: [main]","    branches: [main, dev]"],
+ ["      group: gas-production-deploy","      group: unprotected"],
+ ["      contents: read","      contents: write"],
+ ["    environment: portfolio-production-gas","    environment: other"],
+ ["      cancel-in-progress: false","      cancel-in-progress: true"]
+]){
+ const alt=oneShotGasAudit.replace(a,b);
+ if(alt!==oneShotGasAudit)assert.throws(()=>verifySingleDayGasPreflight(alt));
+}
+
