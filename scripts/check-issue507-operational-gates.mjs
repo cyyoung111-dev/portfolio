@@ -237,7 +237,8 @@ for(const [a,b] of [
  ["    environment: portfolio-production-gas","    environment: other"],
  ["      cancel-in-progress: false","      cancel-in-progress: true"]
 ]){
- const alt=oneShotGasAudit.replace(a,b);
+ const alt=a==='2026-11-03'?oneShotGasAudit.replaceAll(a,b)
+  :oneShotGasAudit.replace(a,b);
  if(alt!==oneShotGasAudit)assert.throws(()=>verifySingleDayGasPreflight(alt));
 }
 
