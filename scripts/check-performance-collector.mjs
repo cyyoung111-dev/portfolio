@@ -269,5 +269,93 @@ console.log('PASS: GAS token fail-closed, separate sheet, cap/schema, aggregate 
   assert.equal(noToken.message,'PERF_AUTH_REQUIRED',
     'legacy anonymous GAS compatibility must still deny telemetry writes');
   assert.equal(routeSheets.get('PERFORMANCE_LOG').rows.length,before);
+
+  // Exercise the FULL v9.282 source candidate and actual writer gate.
+  const protectedProperties=new Map([['access_token',testToken]]);
+  const propertiesApi={
+    getProperty:k=>protectedProperties.get(k)||null,
+    getProperties:()=>Object.fromEntries(protectedProperties),
+    setProperty:(k,v)=>{protectedProperties.set(k,v);},
+    deleteProperty:k=>{protectedProperties.delete(k);}
+  };
+  let held=false,seq=0;
+  const scriptLock={
+    hasLock:()=>held,
+    waitLock:()=>{if(held)throw Error('SYNTHETIC_LOCK_BUSY');held=true;},
+    tryLock:()=>{if(held)return false;held=true;return true;},
+    releaseLock:()=>{held=false;}
+  };
+  const protectedSheets=new Map(),protectedWrites=[];
+  const protectedWorkbook={
+    getSheetByName:n=>protectedSheets.get(n)||null,
+    insertSheet:n=>{protectedWrites.push('insert:'+n);
+      const sh=createSheet(n);protectedSheets.set(n,sh);return sh;}
+  };
+  const fullCtx=vm.createContext({
+    console,Date,Math,JSON,Object,Array,String,Number,isFinite,
+    PropertiesService:{getScriptProperties:()=>propertiesApi},
+    LockService:{getScriptLock:()=>scriptLock},
+    SpreadsheetApp:{getActiveSpreadsheet:()=>protectedWorkbook},
+    Utilities:{
+      getUuid:()=> 'perf-gate-'+(++seq),
+      formatDate:(date,tz)=>{
+        assert.equal(tz,'Asia/Seoul');
+        const d=new Date(date.getTime()+9*3600000).toISOString();
+        return d.slice(0,10)+' '+d.slice(11,19);
+      }
+    },
+    ContentService:{MimeType:{JSON:'application/json'},createTextOutput:t=>({
+      getContent:()=>t,setMimeType(){return this;}
+    })}
+  });
+  vm.runInContext(proposal.source,fullCtx,{
+    filename:'approved-gas-v9282-with-performance-proposal.gs'
+  });
+  assert.equal(fullCtx._issue507GateInside_,false);
+  const positive={accessToken:testToken,data:JSON.stringify(metrics)};
+  const direct=fullCtx.handleAppendPerformanceMetrics(positive);
+  assert.equal(JSON.parse(direct.getContent()).accepted,2);
+  assert.deepEqual(protectedWrites,['insert:PERFORMANCE_LOG']);
+  let gateState=JSON.parse(protectedProperties.get('issue507_writer_gate_v1'));
+  assert.equal(gateState.mode,'OPEN');
+  assert.equal(gateState.finished,1,'direct entrypoint has exactly one completion receipt');
+  assert.equal(Object.keys(gateState.active).length,0);
+  assert.equal(gateState.completed.at(-1).name,'handleAppendPerformanceMetrics');
+  assert.equal(fullCtx._issue507GateInside_,false);
+  const protectedPost=fullCtx.doPost({postData:{contents:new URLSearchParams({
+    action:'appendPerformanceMetrics',accessToken:testToken,
+    data:JSON.stringify(metrics)
+  }).toString()}});
+  assert.equal(JSON.parse(protectedPost.getContent()).accepted,2);
+  gateState=JSON.parse(protectedProperties.get('issue507_writer_gate_v1'));
+  assert.equal(gateState.finished,2,'doPost wraps nested collector in one gate owner');
+  assert.equal(gateState.completed.at(-1).name,'doPost');
+  assert.equal(Object.keys(gateState.active).length,0);
+  // Maintenance: every new function must reject before touching even PERF.
+  const rowsBefore=protectedSheets.get('PERFORMANCE_LOG').rows.length;
+  protectedProperties.set('issue507_writer_gate_v1',JSON.stringify({
+    ...gateState,mode:'DRAINING',barrierAt:Date.now()
+  }));
+  const rejected=[
+    ['handleAppendPerformanceMetrics',[positive]],
+    ['handleGetPerformanceSummary',[{accessToken:testToken}]],
+    ['_perfMonitorSheet_',[true]],
+    ['_perfMonitorAuthorized_',[positive]],
+    ['_perfMonitorValidate_',[JSON.stringify(metrics)]],
+    ['_perfMonitorTimestamp_',[new Date()]]
+  ];
+  for(const [name,args] of rejected){
+    assert.throws(()=>fullCtx[name](...args),/GATE_MAINTENANCE/,
+      'writer gate must block direct '+name+' during DRAINING');
+  }
+  assert.throws(()=>fullCtx.doPost({postData:{contents:new URLSearchParams({
+    action:'appendPerformanceMetrics',accessToken:testToken,
+    data:JSON.stringify(metrics)
+  }).toString()}}),/GATE_MAINTENANCE/);
+  assert.equal(protectedSheets.get('PERFORMANCE_LOG').rows.length,rowsBefore);
+  assert.deepEqual(protectedWrites,['insert:PERFORMANCE_LOG']);
+  assert.equal(fullCtx._issue507GateInside_,false);
+  console.log('PASS full v9.282 writer gate: direct/POST admission, terminal receipts and DRAINING denial (no sheet writes)');
+
   console.log('PASS source-only v9.282 composition + production doGet/doPost auth and POST-only routes');
 }
