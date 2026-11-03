@@ -1,9 +1,10 @@
-// Lookup performance collection using the EXISTING authenticated GAS connection.
-// No Cloudflare endpoint, account, external ID, financial row or credentials in logs.
-// The GAS server must support the reviewed performance actions before opt-in.
+// Opt-in isolated Apps Script performance collector under the SAME Google account.
+// Never transmit the original financial GAS token, positions, prices, IDs or URLs.
+// No Financial GAS server changes and no Cloudflare account required.
 (function () {
   'use strict';
-  const CONSENT = 'pf_perf_gas_consent_v1';
+  const CONSENT = 'pf_perf_isolated_consent_v1';
+  const PERF_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxv2UEdFW5ipjFxddbUyW7F3h6xj3cPkZVlLfSqGglabtjVdGuCJ0QsEHYHxwOasC7n7Q/exec';
   const ALLOWED = new Set([
     'load.initial-restore', 'load.initial-prices', 'load.full-update',
     'price.poll-network', 'price.poll-render', 'price.poll-total',
@@ -17,15 +18,28 @@
   const getConsent = () => { try { return localStorage.getItem(CONSENT) === '1'; } catch (_) { return false; } };
   const setConsent = value => { try { localStorage.setItem(CONSENT, value ? '1' : '0'); } catch (_) {} };
   // Permanently retire Cloudflare settings and pending batches from PR #896.
-  for (const oldKey of ['pf_perf_remote_consent_v1','pf_perf_remote_endpoint_v1','pf_perf_remote_queue_v1']) {
+  for (const oldKey of ['pf_perf_remote_consent_v1','pf_perf_remote_endpoint_v1',
+    'pf_perf_remote_queue_v1','pf_perf_gas_consent_v1']) {
     try { localStorage.removeItem(oldKey); } catch (_) {}
   }
   function pftelemetry_gasReady() {
     return !!(typeof GSHEET_API_URL !== 'undefined' && String(GSHEET_API_URL || '').trim()
+      && PERF_ENDPOINT.startsWith('https://script.google.com/macros/s/')
       && typeof getGsheetAccessToken === 'function' && getGsheetAccessToken()
-      && typeof requestGsheetFormJson === 'function');
+      && typeof requestGsheetFormJson === 'function'
+      && typeof crypto !== 'undefined' && crypto.subtle
+      && typeof TextEncoder !== 'undefined');
   }
   function pftelemetry_enabled() { return getConsent() && pftelemetry_gasReady(); }
+  async function pftelemetry_deriveToken() {
+    if (!pftelemetry_gasReady()) return '';
+    const token = getGsheetAccessToken();
+    // Only a purpose-specific SHA256 derivative leaves this device; original
+    // finance GAS accessToken must NEVER be sent to a second deployment.
+    const input = new TextEncoder().encode('portfolio-telemetry:v1|' + token);
+    const hash = await crypto.subtle.digest('SHA-256', input);
+    return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
   function pftelemetry_guardConnection() {
     const url = typeof GSHEET_API_URL === 'undefined' ? '' : String(GSHEET_API_URL || '').trim();
     const generation = typeof getGsheetConnectionGeneration === 'function'
@@ -78,9 +92,17 @@
     try {
       const payload = {version: 1, device: pftelemetry_device(),
         samples: batch.map(e => ({stage:e.stage,ms:e.ms,result:e.result}))};
+      const derived = await pftelemetry_deriveToken();
+      // WebCrypto is asynchronous. Stop/switch can occur while digesting;
+      // never upload a queued sample after device consent was revoked.
+      if (!pftelemetry_guardConnection() || !pftelemetry_enabled()
+          || revision !== sentRevision || String(GSHEET_API_URL || '').trim() !== url
+          || (generation !== null && getGsheetConnectionGeneration() !== generation))
+        return false;
+      if (!/^[a-f0-9]{64}$/.test(derived)) return false;
       const response = await requestGsheetFormJson('appendPerformanceMetrics',
         {data: JSON.stringify(payload)},
-        {targetUrl:url,timeoutMs:8000,retry:0,preserveError:true});
+        {targetUrl:PERF_ENDPOINT,accessTokenOverride:derived,timeoutMs:8000,retry:0,preserveError:true});
       const current = String(GSHEET_API_URL || '').trim() === url
         && (generation === null || getGsheetConnectionGeneration() === generation);
       // A stale response must not penalize a newly consented connection.
@@ -111,13 +133,13 @@
   function pftelemetry_renderSettingsHtml() {
     return '<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:12px">'
       + '<div style="font-size:.74rem;font-weight:700">PC·모바일 조회시간 자동 진단</div>'
-      + '<p style="font-size:.66rem;color:var(--muted);margin:7px 0">새 계정 없이 기존 GAS 연결을 사용합니다. 조회 단계·밀리초·성공 여부·기기 구분만 전용 PERFORMANCE_LOG 시트에 저장합니다. 금융 원장과 무관하며 기본 비활성화입니다.</p>'
+      + '<p style="font-size:.66rem;color:var(--muted);margin:7px 0">새 계정 없이 기존 Google 계정의 독립 성능 수집기를 사용합니다. 기기 구분·조회 단계·소요시간·성공 여부만 7일간 전용 스크립트 저장소에 보관합니다. 금융 원본과 무관하며 기기별 동의가 필요합니다.</p>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
       + '<button id="perfGasEnable" type="button" class="btn-purple-sm">수집 시작·연결 확인</button>'
       + '<button id="perfGasSummary" type="button" class="btn-purple-sm">PC·모바일 비교</button>'
       + '<button id="perfGasStop" type="button" class="btn-ghost-sm">수집 중지</button></div>'
       + '<p id="perfGasStatus" role="status" style="font-size:.65rem;color:var(--muted);margin:7px 0">'
-      + (pftelemetry_enabled() ? '수집 사용 중 (기기별 동의 저장)' : '수집 비활성화 · GAS 성능 API 배포 후 사용 가능')
+      + (pftelemetry_enabled() ? '수집 사용 중 (기기별 동의 저장)' : '수집 비활성화 · 수집 시작을 눌러 기기별 연결 확인')
       + '</p><div id="perfGasSummaryBody" style="overflow-x:auto;font-size:.66rem"></div></div>';
   }
   function pftelemetry_status(message) {
@@ -129,8 +151,10 @@
     const url=String(GSHEET_API_URL||'').trim();
     const generation=typeof getGsheetConnectionGeneration==='function' ? getGsheetConnectionGeneration() : null;
     try {
+      const derived = await pftelemetry_deriveToken();
+      if (!/^[a-f0-9]{64}$/.test(derived)) return null;
       const r = await requestGsheetFormJson('getPerformanceSummary',{},
-        {targetUrl:url,timeoutMs:8000,retry:0,preserveError:true});
+        {targetUrl:PERF_ENDPOINT,accessTokenOverride:derived,timeoutMs:8000,retry:0,preserveError:true});
       if (url !== String(GSHEET_API_URL||'').trim() ||
           (generation !== null && getGsheetConnectionGeneration() !== generation)) return null;
       return r?.status === 'ok' ? r : null;
@@ -170,7 +194,7 @@
       if (revision !== attemptRevision) return; // User pressed stop or changed connection.
       if (!r || r.enabled !== true) {
         pftelemetry_stop();
-        pftelemetry_status('현재 운영 GAS에 성능 수집 API가 배포되지 않아 비활성화 상태입니다.');
+        pftelemetry_status('독립 성능 수집기 연결 또는 인증 확인 실패 · 수집 비활성화');
         return;
       }
       revision++;setConsent(true);
@@ -178,7 +202,7 @@
     } else if (id === 'perfGasSummary') {
       pftelemetry_status('PC·모바일 최근 7일 기록 조회 중');
       const r=await pftelemetry_summaryRequest();
-      if (!r) { pftelemetry_status('현재 GAS에서 집계를 읽을 수 없습니다. 운영 API 배포 확인이 필요합니다.'); return; }
+      if (!r) { pftelemetry_status('독립 성능 수집기 조회 실패 · 인증/연결 확인 필요'); return; }
       pftelemetry_renderSummary(r);pftelemetry_status('최근 7일 성능 집계 · 총 '+(r.sampleCount||0)+'건');
     }
   });

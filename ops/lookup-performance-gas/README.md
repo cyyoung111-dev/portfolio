@@ -1,3 +1,5 @@
+> **운영 방향 변경(2026-11-03):** 이 문서는 기존 금융 GAS v9.282에 직접 통합하는 미배포 후보의 기록입니다. 실제 사용 예정 수집기는 PR #900에서 생성한 **별도 Google Apps Script 프로젝트**이며, 금융 GAS나 Google Sheets를 건드리지 않고 ScriptProperties만 사용합니다. 자세한 사용법은 [독립 성능 GAS](../performance-standalone-gas/README.md)를 참고하십시오. 이 구형 후보를 운영 GAS에 배포하지 마십시오.
+
 # 기존 GAS·Google Sheets만 사용하는 조회시간 진단
 
 Cloudflare Worker/D1을 사용하지 않습니다. 이 모듈은 **현재 금융 GAS v9.281의 운영 배포를 건드리지 않는 통합 후보**입니다. 새 계정은 필요 없으나, 기존 GAS 프로젝트에 안전하게 새 동작을 배포하는 과정은 여전히 필요합니다.

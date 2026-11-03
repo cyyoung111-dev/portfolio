@@ -1,10 +1,14 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import {webcrypto,createHash} from 'node:crypto';
+import {TextEncoder} from 'node:util';
 import {composePerformanceGasCandidate,sourceSha,APPROVED_GAS_V9282_BLOB} from './compose-gas-performance-proposal.mjs';
 
 const gasCandidate=fs.readFileSync('ops/lookup-performance-gas/collector.gs','utf8');
 const web=fs.readFileSync('src/web/features/settings/settings_perf_monitor.js','utf8');
+const PERF_URL=web.match(/const PERF_ENDPOINT = '([^']+)'/)?.[1];
+assert.match(PERF_URL||'',/^https:\/\/script\.google\.com\/macros\/s\/[-A-Za-z0-9_]+\/exec$/);
 const html=fs.readFileSync('src/web/index.html','utf8');
 const net=fs.readFileSync('src/web/features/settings/settings_net.js','utf8');
 assert.match(gasCandidate,/function handleAppendPerformanceMetrics\(params\)/);
@@ -94,6 +98,7 @@ assert.equal(sheets.size,1,'must never access or mutate holdings, ledger or snap
 // Client mock: no remote reporting without opt-in and GAS support check.
 let consent=new Map(),generation=1,connected='https://script.google.com/macros/s/test/exec',callCount=0;
 let resolveDelayed=null, delayProbe=false, resolveProbe=null;
+let delayDigest=false, resolveDigest=null;
 const pending=[],requests=[];
 const storage={
  getItem:k=>consent.get(k)??null,
@@ -122,7 +127,11 @@ const webCtx=vm.createContext({
  requestGsheetFormJson:async(action,data,opts)=>{
   callCount++;
   requests.push({action,data,opts});
-  assert.equal(opts.targetUrl,connected);
+  assert.equal(opts.targetUrl,PERF_URL,'performance calls must never mutate/read financial GAS');
+  const expected=createHash('sha256').update('portfolio-telemetry:v1|'+props.access_token).digest('hex');
+  assert.equal(opts.accessTokenOverride,expected,
+    'new GAS must receive only isolated SHA256 derivative, not finance access token');
+  assert.notEqual(opts.accessTokenOverride,props.access_token);
   if(action==='getPerformanceSummary'){
     if(delayProbe) await new Promise(resolve=>{resolveProbe=resolve;});
     return {status:'ok',enabled:true,groups:[],sampleCount:0};
@@ -130,15 +139,18 @@ const webCtx=vm.createContext({
   if(resolveDelayed){return await new Promise(resolve=>{pending.push(resolve)})}
   return {status:'ok',accepted:JSON.parse(data.data).samples.length};
  },
+ crypto:{subtle:{digest:(algorithm,data)=>delayDigest
+  ? new Promise(resolve=>{resolveDigest=()=>resolve(webcrypto.subtle.digest(algorithm,data));})
+  : webcrypto.subtle.digest(algorithm,data)}},TextEncoder,
  setTimeout:()=>1234,clearTimeout:()=>{},Date,Math,Set,Object,JSON,
  String,Number,Array
 });
 vm.runInContext(web,webCtx);
-assert.equal(consent.has('pf_perf_gas_consent_v1'),false);
+assert.equal(consent.has('pf_perf_isolated_consent_v1'),false);
 window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:1234,result:'ok'});
 assert.equal(callCount,0,'disabled client never sends');
 await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
-assert.equal(consent.get('pf_perf_gas_consent_v1'),'1');
+assert.equal(consent.get('pf_perf_isolated_consent_v1'),'1');
 for(let i=0;i<10;i++)window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:100+i,result:'ok'});
 const first=await window.PortfolioPerfTelemetry.flush();
 assert.equal(first,true);
@@ -146,13 +158,15 @@ const second=await window.PortfolioPerfTelemetry.flush();
 assert.equal(second,true);
 assert.equal(callCount,3,'one probe plus 2 batches');
 await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
-assert.equal(consent.get('pf_perf_gas_consent_v1'),'0');
+assert.equal(consent.get('pf_perf_isolated_consent_v1'),'0');
 assert.equal(window.PortfolioPerfTelemetry.enabled(),false);
 // If the user revokes consent before the GAS support probe completes,
 // the delayed success must NEVER silently re-enable collection.
 delayProbe=true;
 const probing=handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
-await Promise.resolve();
+// WebCrypto.subtle.digest is asynchronous; wait for the request to be issued.
+for(let i=0;i<40 && typeof resolveProbe!=='function';i++)
+  await new Promise(resolve=>setTimeout(resolve,5));
 assert.equal(typeof resolveProbe,'function');
 await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
 resolveProbe();
@@ -177,9 +191,39 @@ assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
 const uploaded=JSON.parse(requests.at(-1).data.data);
 assert.equal(uploaded.samples.length,1);
 assert.equal(uploaded.samples[0].ms,222,'only newly consented workbook sample may be sent');
+// Revoking consent WHILE SHA256 is pending must stop all telemetry POSTs.
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:333,result:'ok'});
+delayDigest=true;
+const countBeforeRevocation=callCount;
+const digestPending=window.PortfolioPerfTelemetry.flush();
+assert.equal(typeof resolveDigest,'function');
+await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
+resolveDigest();
+assert.equal(await digestPending,false);
+assert.equal(callCount,countBeforeRevocation,
+ 'no telemetry POST after consent revocation during digest');
+delayDigest=false;
+resolveDigest=null;
+// Changing the finance GAS target during digest must also discard the batch.
+await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:444,result:'ok'});
+delayDigest=true;
+const countBeforeSwap=callCount;
+const swapPending=window.PortfolioPerfTelemetry.flush();
+assert.equal(typeof resolveDigest,'function');
+connected='https://script.google.com/macros/s/changed-during-digest/exec';
+webCtx.GSHEET_API_URL=connected;
+generation++;
+resolveDigest();
+assert.equal(await swapPending,false);
+assert.equal(callCount,countBeforeSwap,
+ 'no telemetry POST after finance GAS switch during digest');
+assert.equal(window.PortfolioPerfTelemetry.enabled(),false);
+delayDigest=false;
+resolveDigest=null;
 assert.doesNotMatch(web,/PERFORMANCE_LOG\W+(?:getRange|appendRow)/,
  'client must not write Sheet directly');
-console.log('PASS: GAS token fail-closed, separate sheet, cap/schema, aggregate p50/p95, opt-in and 8-row batching');
+console.log('PASS: standalone GAS derived token, per-device opt-in, connection isolation and 8-row batches');
 
 
 // Execute the ACTUAL v9.282 doGet/doPost and authentication with the

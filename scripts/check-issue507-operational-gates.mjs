@@ -102,10 +102,12 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,67,
-  'migration inventory: all 67 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,68,
-  'migration inventory: all 68 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,68,
+  'migration inventory: all 68 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,69,
+  'migration inventory: all 69 secret-consuming jobs must be protected');
+assert.ok(protectedWorkflowNames.includes('probe-standalone-performance-gas-20261103.yml'),
+  'isolated GAS live probe must require protected Environment');
 assert.ok(protectedWorkflowNames.includes('provision-standalone-performance-gas-20261103.yml'),
   'independent GAS provisioning must run only in protected production Environment');
 assert.ok(protectedWorkflowNames.includes('gas-deployment-usage-metrics-readonly.yml'),
