@@ -3,6 +3,22 @@
 //  의존: settings.js(상단 공용 상태), core_storage.js
 // ════════════════════════════════════════════════════════════════
 
+// Local, bounded, privacy-safe timing diagnostics. No URL, token, holdings,
+// codes or financial values are recorded or sent to a server.
+function _recordLookupPerf(stage, elapsedMs, result = 'ok') {
+  if (typeof window === 'undefined' || !Number.isFinite(elapsedMs)) return;
+  const samples = Array.isArray(window.__PF_LOOKUP_TIMES)
+    ? window.__PF_LOOKUP_TIMES : (window.__PF_LOOKUP_TIMES = []);
+  const entry = {
+    stage: String(stage || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 48),
+    ms: Math.max(0, Math.round(elapsedMs)),
+    result: result === 'ok' ? 'ok' : 'error'
+  };
+  samples.push(entry);
+  if (samples.length > 60) samples.splice(0, samples.length - 60);
+  if (window.__pfPerfMode === true) console.info('[portfolio-lookup-timing]', entry);
+}
+
 // AbortSignal.timeout 미지원 브라우저 대응
 function fetchWithTimeout(url, ms, options) {
   const ctrl = new AbortController();
@@ -46,13 +62,18 @@ async function requestJsonWithPolicy(url, opts) {
           : 'SERVER_ERROR';
         throw error;
       }
-      try { return await res.json(); }
-      catch (error) { error.errorCode = 'INVALID_RESPONSE'; throw error; }
+      try {
+        const body = await res.json();
+        _recordLookupPerf('network.' + (o.action || 'unknown'), Date.now() - startedAt,
+          body?.status === 'error' ? 'error' : 'ok');
+        return body;
+      } catch (error) { error.errorCode = 'INVALID_RESPONSE'; throw error; }
     } catch (error) {
       lastError = error;
       if (i < retry) await new Promise(r => setTimeout(r, delayMs));
     }
   }
+  _recordLookupPerf('network.' + (o.action || 'unknown'), Date.now() - startedAt, 'error');
   if (o.preserveError) {
     const errorCode = lastError?.name === 'AbortError' ? 'CLIENT_TIMEOUT' : (lastError?.errorCode || 'SERVER_ERROR');
     const reason = errorCode === 'CLIENT_TIMEOUT' ? `요청 timeout (${timeoutMs}ms)` : `${errorCode === 'INVALID_RESPONSE' ? '응답 파싱' : '네트워크/서버'} 오류`;

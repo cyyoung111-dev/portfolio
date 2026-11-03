@@ -391,7 +391,28 @@ function _priceLookupDetail(kind) {
       recentHistory: '최근 확정 이력', snapshot: '가격이력/Snapshot', other: '기타', finalize: '마무리'
     };
     const rows = Object.keys(labels).map(key => `<li><span>${labels[key]}</span><b>${Math.max(0, Math.round(Number(timings[key]) || 0))}ms</b></li>`).join('');
-    wrap.innerHTML = `<div class="price-lookup-detail-head"><b>GAS 단계별 처리시간</b>${close}</div><ul>${rows}</ul>`;
+    // Same expandable diagnostics on PC and mobile; no extra always-visible chips.
+    const clientSamples = Array.isArray(window.__PF_LOOKUP_TIMES) ? window.__PF_LOOKUP_TIMES : [];
+    const latestMs = stage => {
+      for (let i = clientSamples.length - 1; i >= 0; i--) {
+        if (clientSamples[i]?.stage === stage) return clientSamples[i].ms;
+      }
+      return null;
+    };
+    const clientLabels = {
+      'load.initial-restore': '초기 거래·보유 복원',
+      'load.initial-prices': '초기 자동 가격조회',
+      'price.poll-network': '현재가 네트워크/응답',
+      'price.poll-render': '현재가 화면 반영',
+      'price.poll-total': '현재가 총 소요',
+      'load.full-update': '전체 업데이트'
+    };
+    const clientRows = Object.entries(clientLabels).map(([stage, label]) => {
+      const ms = latestMs(stage);
+      return ms === null ? '' : `<li><span>${label}</span><b>${ms}ms</b></li>`;
+    }).join('');
+    wrap.innerHTML = `<div class="price-lookup-detail-head"><b>GAS 단계별 처리시간</b>${close}</div><ul>${rows}</ul>`
+      + (clientRows ? `<div class="price-lookup-detail-head"><b>이 기기 조회시간</b></div><ul>${clientRows}</ul>` : '');
   } else {
     return;
   }
@@ -451,6 +472,7 @@ async function quickFetchByDate() {
   if (!dateInput.value) dateInput.value = getDateStr(0);
   const targetDate = dateInput.value;
 
+  const fullUpdateStartedAt = Date.now();
   _fullPortfolioUpdateInProgress = true;
   btn.disabled = true;
   if (priceBtn) priceBtn.disabled = true;
@@ -567,6 +589,8 @@ async function quickFetchByDate() {
     if (priceBtn) priceBtn.disabled = false;
     btn.removeAttribute('aria-busy');
     btn.querySelector('span').textContent = '업데이트';
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('load.full-update', Date.now() - fullUpdateStartedAt);
   }
 }
 
@@ -712,19 +736,28 @@ async function pollCurrentPrices() {
   if (document.hidden || !GSHEET_API_URL || _fullPortfolioUpdateInProgress) return false;
   if (typeof _gsBootRestored !== 'undefined'
       && (!_gsBootRestored || _gsPortfolioRestoreRequired)) return false;
+  // Coalesce only calls from the same connection, restore epoch and KST date.
+  // A slow/stale old GAS connection must never block a newly restored one.
+  const requestDate = getDateStr(0);
+  const settingsLoadEpoch = typeof _gsSettingsLoadEpoch !== 'undefined'
+    ? _gsSettingsLoadEpoch : null;
+  const dateInput = typeof $el === 'function' ? $el('quickDateInput') : null;
+  if (dateInput?.value && dateInput.value !== requestDate) return false;
+  const targetUrl = String(GSHEET_API_URL || '').trim();
+  const generation = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration() : 0;
+  const active = window.__pfPricePollingInFlight;
+  if (active && active.date === requestDate && active.targetUrl === targetUrl
+      && active.generation === generation && active.settingsLoadEpoch === settingsLoadEpoch) {
+    return active.run;
+  }
+  const pollStartedAt = Date.now();
+  const run = (async () => {
   try {
-    const requestDate = getDateStr(0);
-    // A trades-tab reload can begin and finish while the quote request waits.
-    // Snapshot its epoch so even a completed intermediate restore invalidates
-    // the stale response before touching displayed portfolio prices.
-    const settingsLoadEpoch = typeof _gsSettingsLoadEpoch !== 'undefined'
-      ? _gsSettingsLoadEpoch : null;
-    const dateInput = typeof $el === 'function' ? $el('quickDateInput') : null;
-    if (dateInput?.value && dateInput.value !== requestDate) return false;
-    const targetUrl = String(GSHEET_API_URL || '').trim();
-    const generation = typeof getGsheetConnectionGeneration === 'function'
-      ? getGsheetConnectionGeneration() : 0;
+    const priceRequestStartedAt = Date.now();
     const results = await fetchFromGsheet(requestDate, { persist: false, polling: true });
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('price.poll-network', Date.now() - priceRequestStartedAt, results ? 'ok' : 'error');
     // Never apply an in-flight request to a different workbook or hidden tab.
     if (document.hidden || _fullPortfolioUpdateInProgress
         || (typeof _gsBootRestored !== 'undefined'
@@ -771,6 +804,7 @@ async function pollCurrentPrices() {
       lookupMsg,
       [dateNotice, '저장 이력/Snapshot 미변경'].filter(Boolean).join(' · ')
     ), 'ok');
+    const repaintStartedAt = Date.now();
     // Current-price polling must not recreate the Settings/GAS panel.
     // renderGsheetView() issues getAutomationStatus every time it mounts;
     // a portfolio-wide refresh would erase the visible status and refetch
@@ -785,11 +819,24 @@ async function pollCurrentPrices() {
       if (typeof invalidateViewCache === 'function') invalidateViewCache();
       renderSummary();
     }
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('price.poll-render', Date.now() - repaintStartedAt);
     return true;
   } catch (e) {
     console.warn('[price-polling] 현재가 갱신 실패:', e.message);
     setStatusLabel('⚠️ 현재가 polling 실패 · 마지막 정상값 유지', 'warn');
     return false;
+  }
+  })();
+  window.__pfPricePollingInFlight = {
+    run, date: requestDate, targetUrl, generation, settingsLoadEpoch
+  };
+  try {
+    return await run;
+  } finally {
+    if (window.__pfPricePollingInFlight?.run === run) window.__pfPricePollingInFlight = null;
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('price.poll-total', Date.now() - pollStartedAt);
   }
 }
 
@@ -879,7 +926,19 @@ setTimeout(() => { if (typeof migrateFundCodes === 'function') migrateFundCodes(
 setTimeout(async () => {
   // GAS 설정·기초정보·수동가격을 먼저 복원한 뒤 현재가를 조회합니다.
   // 두 작업을 동시에 시작하면 늦게 끝난 설정 복원이 방금 조회한 현재가를 과거 캐시로 덮어쓸 수 있습니다.
-  if (typeof bootstrapGsheetSettings === 'function') await bootstrapGsheetSettings();
-  if (typeof autoLoadPrices === 'function') await autoLoadPrices();
+  const restoreStartedAt = Date.now();
+  try {
+    if (typeof bootstrapGsheetSettings === 'function') await bootstrapGsheetSettings();
+  } finally {
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('load.initial-restore', Date.now() - restoreStartedAt);
+  }
+  const priceStartedAt = Date.now();
+  try {
+    if (typeof autoLoadPrices === 'function') await autoLoadPrices();
+  } finally {
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('load.initial-prices', Date.now() - priceStartedAt);
+  }
   startPricePolling();
 }, 100);

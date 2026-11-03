@@ -4,6 +4,13 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync('src/web/features/settings/settings_fetch.js', 'utf8');
 const portfolioSource = fs.readFileSync('src/web/domain/portfolio/portfolio_service.js', 'utf8');
+const netSource = fs.readFileSync('src/web/features/settings/settings_net.js', 'utf8');
+assert.match(netSource, /function _recordLookupPerf\(stage, elapsedMs/);
+assert.match(netSource, /samples.length > 60/);
+assert.match(netSource, /_recordLookupPerf\('network\.' \+ \(o.action/);
+assert.match(source, /_recordLookupPerf\('load.initial-restore'/);
+assert.match(source, /_recordLookupPerf\('load.initial-prices'/);
+assert.match(source, /_recordLookupPerf\('price.poll-render'/);
 const resolver = source.match(/function _resolvePriceDateLabel\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
 const polling = source.match(/async function pollCurrentPrices\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
 const recompute = portfolioSource.match(/function recomputeRows\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
@@ -35,9 +42,12 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
   embeddedMeta = null, embeddedDate = null,
   selectedDate = '2026-10-13', selectHistoryAfterFetch = false,
   fullRestore = false, beginRestoreAfterFetch = false, rollDateAfterFetch = false,
-  beginTradesRestoreAfterFetch = false, completeTradesRestoreAfterFetch = false } = {}) => {
+  beginTradesRestoreAfterFetch = false, completeTradesRestoreAfterFetch = false,
+  concurrent = false, concurrentContext = '' } = {}) => {
   let networkCount = 0, repaintCount = 0, summaryCount = 0, cacheInvalidations = 0;
   let persistedCount = 0, badge = null, status = null, connected = true;
+  const releaseConcurrentFetch = [];
+  let generation = 1;
   const cache = { '005930': 1000 };
   const rows = [], savedPriceDates = {};
   const rawHoldings = [{ code:'005930', qty:2, costAmt:12000 }];
@@ -50,11 +60,13 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
     _gsSettingsLoadEpoch:1,
     $el:id=>id==='quickDateInput'?dateInput:null,
     window:{ _gsheetPriceMeta:meta, _gsheetResolvedPriceDate:resolvedDate },
-    getGsheetConnectionGeneration:()=>1, isGsheetConnectionCurrent:()=>connected,
+    getGsheetConnectionGeneration:()=>generation,
+    isGsheetConnectionCurrent:(url,gen)=>connected && gen===generation && url===context.GSHEET_API_URL,
     savedPriceDates, lastUpdated:'2026.10.08',
     currentView:view, savedPrices:cache, rows, rawHoldings,
     fetchFromGsheet:async (date, opts) => {
       networkCount++;
+      if (concurrent || concurrentContext) await new Promise(resolve => { releaseConcurrentFetch.push(resolve); });
       assert.equal(opts.persist, false);
       assert.equal(opts.polling, true);
       if (fail) throw Error('network failure');
@@ -97,7 +109,22 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
     console:{ warn:()=>{} }
   });
   vm.runInContext(recomputeSource + '\n' + resolverSource + '\n' + pollSource, context);
-  await vm.runInContext('pollCurrentPrices()', context);
+  if (concurrent || concurrentContext) {
+    const first = vm.runInContext('pollCurrentPrices()', context);
+    if (concurrentContext === 'epoch') context._gsSettingsLoadEpoch = 2;
+    if (concurrentContext === 'connection') {
+      generation = 2;
+      context.GSHEET_API_URL = 'https://script.google.com/macros/s/next/exec';
+    }
+    const second = vm.runInContext('pollCurrentPrices()', context);
+    assert.equal(networkCount, concurrentContext ? 2 : 1,
+      'same context coalesces; new GAS/restore epoch must start independent quote');
+    assert.equal(releaseConcurrentFetch.length, concurrentContext ? 2 : 1);
+    releaseConcurrentFetch.forEach(release => release());
+    await Promise.all([first, second]);
+  } else {
+    await vm.runInContext('pollCurrentPrices()', context);
+  }
   return {networkCount,repaintCount,summaryCount,cacheInvalidations,persistedCount,cache,rows,
     dates:savedPriceDates, updated:context.lastUpdated, badge,status};
 };
@@ -117,6 +144,16 @@ assert.equal(settings.persistedCount,0,'polling에서 localStorage/GAS 가격이
 
 const account = await testPoll({view:'acct'});
 assert.equal(account.networkCount,1);
+const concurrentAccount = await testPoll({view:'acct', concurrent:true});
+assert.equal(concurrentAccount.networkCount,1);
+assert.equal(concurrentAccount.repaintCount,1, 'simultaneous visibility/timer refreshes must render only once');
+assert.equal(concurrentAccount.summaryCount,1);
+for (const contextType of ['epoch','connection']) {
+  const switched = await testPoll({view:'acct', concurrentContext:contextType});
+  assert.equal(switched.networkCount,2, 'new verified context must not await stale quote');
+  assert.equal(switched.repaintCount,1, 'discard stale old response; render fresh context once');
+  assert.equal(switched.summaryCount,1);
+}
 assert.equal(account.repaintCount,1,'계좌 화면에서는 전체 새로 그리기');
 assert.equal(account.rows[0].evalAmt,24690);
 assert.equal(account.cacheInvalidations,1);
