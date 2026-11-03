@@ -30,11 +30,9 @@ export function authorizeArmedDelivery(kind,env,event,at){
  // Never accept a push for morning, arbitrary files, or a late direct send.
  const pushed=kind==='close' && env?.GITHUB_EVENT_NAME==='push'
    && event?.ref==='refs/heads/main' && event?.repository?.full_name===REPO
-   && Array.isArray(event?.head_commit?.modified)
-   && event.head_commit.modified.length===1
-   && event.head_commit.modified[0]==='ops/telegram-close-arm-trigger.txt'
-   && (!Array.isArray(event?.head_commit?.added)||event.head_commit.added.length===0)
-   && clock && clock.minutes<17*60;
+   // GitHub Actions push payload omits changed-file arrays: the guarded
+   // workflow step verifies a one-file commit with a local git diff first.
+   && env?.TELEGRAM_CLOSE_SENTINEL_VERIFIED==='true';
  // Reject user-supplied dates, arbitrary pushes and unrecognized cron events.
  // Dispatch is only an alternative independent trigger for the SAME
  // guarded KST source-date, claim and delivery path.
@@ -52,6 +50,12 @@ export async function waitUntilPunctualWindow(kind,{now=()=>new Date(),
  env=process.env,event}={}){
  const first=authorizeArmedDelivery(kind,env,event,now());
  if(!first.allowed)return {ready:false,reason:first.reason,date:first.clock?.date||null};
+ // An approved push must START before target, but remain authorized while
+ // its already-running worker crosses 17:00 to the original send pipeline.
+ // Otherwise the repeated loop check could cancel a perfectly punctual arm.
+ if(env?.GITHUB_EVENT_NAME==='push' &&
+    first.clock.minutes>=first.config.target)
+   return {ready:false,reason:'ARM_PUSH_TOO_LATE',date:first.clock.date};
  // At most 25 minutes (the schedule's early reservation interval). A delayed
  // scheduled job that starts inside the normal send window may attempt once.
  const {date}=first.clock,targetAt=Date.parse(date+'T'+
