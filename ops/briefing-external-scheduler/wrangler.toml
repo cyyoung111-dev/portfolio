@@ -1,0 +1,12 @@
+name = "portfolio-briefing-dispatch"
+main = "worker.mjs"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+# Cloudflare cron is always UTC:
+# 22:20 SUN-THU UTC = 07:20 MON-FRI KST
+# 07:35 MON-FRI UTC = 16:35 MON-FRI KST
+# This Worker ONLY dispatches guarded GitHub Actions, never sends Telegram.
+[triggers]
+crons = ["20 22 * * SUN-THU", "35 7 * * MON-FRI"]
