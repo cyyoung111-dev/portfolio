@@ -1,4 +1,4 @@
-// Dedicated Apps Script performance reporter. NO SpreadsheetApp, Drive, Finance APIs.
+// Dedicated Apps Script performance reporter. No access to financial sources, Google Sheets, or other services.
 // Published source is installed in a NEW standalone script project, not existing GAS.
 var PERF_ACCESS_KEY = '__PERF_BEARER_SHA256__';
 var PERF_ALLOWED = [
