@@ -5,6 +5,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
+import os from 'node:os';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 
 const exact = "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'";
 const workflows = [
@@ -242,3 +245,85 @@ for(const [a,b] of [
  if(alt!==oneShotGasAudit)assert.throws(()=>verifySingleDayGasPreflight(alt));
 }
 
+
+function executeActualJointGate(command,event,stubDate){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue507-readonly-gate-'));
+ try{
+  // Run the ACTUAL YAML bash step; only the current KST date CLI is stubbed.
+  const fakeDate=path.join(dir,'date'),out=path.join(dir,'github-output.txt');
+  fs.writeFileSync(fakeDate,'#!/bin/sh\nprintf "%s\\n" "$STUB_KST_DATE"\n',{mode:0o755});
+  const run=spawnSync('bash',['-e'],{
+   input:command,encoding:'utf8',timeout:2500,
+   env:{...process.env,
+    PATH:dir+path.delimiter+(process.env.PATH||''),
+    STUB_KST_DATE:stubDate,
+    GITHUB_EVENT_NAME:event,
+    GITHUB_OUTPUT:out}
+  });
+  assert.equal(run.status,0,'KST read-only gate script must exit successfully');
+  return fs.readFileSync(out,'utf8').trim();
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+}
+
+function verifyJointIssue507NhReadOnlyWorkflow(source){
+ const doc=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
+ assert.equal(doc.errors.length,0);
+ const flow=doc.toJS({maxAliasCount:0});
+ assert.deepEqual(Object.keys(flow.on),['workflow_dispatch','push']);
+ assert.deepEqual(flow.on.push.branches,['main']);
+ assert.deepEqual(flow.on.push.paths,['.github/workflows/issue-507-fund-snapshot-evidence-readonly.yml']);
+ assert.deepEqual(flow.permissions,{contents:'read'});
+ assert.equal(flow.concurrency['cancel-in-progress'],false);
+ const job=flow.jobs.inspect;
+ assert.equal(job.environment,'portfolio-production-gas');
+ assert.equal(job['timeout-minutes'],15);
+ assert.ok(job.if.includes("github.ref == 'refs/heads/main'"));
+ assert.ok(job.if.includes("github.event_name == 'workflow_dispatch'"));
+ assert.ok(job.if.includes("github.event_name == 'push' && github.run_attempt == 1"));
+ const steps=job.steps;
+ const date=steps.find(s=>s.id==='window');
+ assert.ok(date.run.includes('TZ=Asia/Seoul date +%F'));
+ assert.ok(date.run.includes('2026-11-03'));
+ assert.equal(executeActualJointGate(date.run,'push','2026-11-03'),'ready=true');
+ assert.equal(executeActualJointGate(date.run,'push','2026-11-04'),'ready=false');
+ assert.equal(executeActualJointGate(date.run,'workflow_dispatch','2026-11-04'),'ready=true');
+ assert.equal(executeActualJointGate(date.run,'workflow_dispatch','2026-11-03'),'ready=true');
+ const ones=[
+ ['funds','node scripts/diagnose-fund-snapshot-evidence-readonly.mjs'],
+ ['closes','node scripts/issue507-oct30-domestic-close-readonly.mjs']];
+ for(const [id,cmd] of ones){
+  const s=steps.find(v=>v.id===id);
+  assert.equal(s.run,cmd);
+  assert.equal(s['continue-on-error'],true,
+    'one failed read may not prevent independent cross-source evidence');
+  assert.equal(s.if,"steps.window.outputs.ready == 'true'");
+  assert.equal(s.env.GAS_WEB_APP_URL,'$'+'{{ vars.GAS_WEB_APP_URL }}');
+  assert.equal(s.env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
+ }
+ const last=steps.at(-1);
+ assert.equal(last.if,'always()');
+ assert.ok(last.run.includes('JOINT_READONLY_FINANCE_WRITES=0'));
+ assert.ok(last.run.includes('exit 2'));
+ const commands=steps.map(s=>s.run||'').join('\n');
+ assert.ok(!commands.includes('scripts/deploy-gas.mjs'));
+ assert.ok(!commands.includes('rewriteSnapshotDate'));
+ assert.ok(!commands.includes('savePriceHistory'));
+ assert.ok(!commands.includes('NHPLUG_APP_KEY'));
+}
+const jointAuditFile=fs.readFileSync(
+ '.github/workflows/issue-507-fund-snapshot-evidence-readonly.yml','utf8');
+verifyJointIssue507NhReadOnlyWorkflow(jointAuditFile);
+for(const [before,after] of [
+ ['2026-11-03','2026-11-04'],
+ ['  contents: read','  contents: write'],
+ ['    environment: portfolio-production-gas','    environment: unprotected'],
+ ['node scripts/issue507-oct30-domestic-close-readonly.mjs','echo bypassed'],
+ ["github.event_name == 'push' && github.run_attempt == 1","github.event_name == 'push'"],
+ ['[ "$(TZ=Asia/Seoul date +%F)" = "2026-11-03" ]; then',
+  '[ "$(TZ=Asia/Seoul date +%F)" = "2026-11-03" ] || true; then']
+]){
+ const alternate=before==='2026-11-03'?jointAuditFile.replaceAll(before,after)
+  :jointAuditFile.replace(before,after);
+ if(alternate!==jointAuditFile)
+  assert.throws(()=>verifyJointIssue507NhReadOnlyWorkflow(alternate));
+}
