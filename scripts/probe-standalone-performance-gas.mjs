@@ -32,11 +32,25 @@ export async function probeStandalone({financeToken,url=DEFAULT_URL,fetchImpl=fe
   fail('UNAUTHENTICATED_DENIAL_UNVERIFIED');
  const valid=await call(auth);
  if(valid?.status!=='ok'||valid.enabled!==true||valid.windowDays!==7||
-   !Array.isArray(valid.groups)||!Number.isInteger(valid.sampleCount)||valid.sampleCount<0)
+   !Array.isArray(valid.groups)||valid.groups.length>40||
+   !Number.isInteger(valid.sampleCount)||valid.sampleCount<0)
    fail('AUTHORIZED_SUMMARY_UNVERIFIED');
+ const stages=new Set(['load.initial-restore','load.initial-prices','load.full-update',
+   'price.poll-network','price.poll-render','price.poll-total',
+   'network.getBootstrap','network.getSettings','network.getPrices','network.getPriceHistory']);
+ const groups=valid.groups.map(g=>{
+   if(!g||!['mobile','desktop','unknown'].includes(g.device)||!stages.has(g.stage)||
+      !Number.isInteger(g.count)||g.count<1||g.count>2000||
+      !Number.isInteger(g.medianMs)||g.medianMs<0||g.medianMs>120000||
+      !Number.isInteger(g.p95Ms)||g.p95Ms<0||g.p95Ms>120000||
+      typeof g.failureRatePct!=='number'||!Number.isFinite(g.failureRatePct)||
+      g.failureRatePct<0||g.failureRatePct>100)fail('GROUP_SCHEMA_UNVERIFIED');
+   return {device:g.device,stage:g.stage,count:g.count,
+     medianMs:g.medianMs,p95Ms:g.p95Ms,failureRatePct:g.failureRatePct};
+ });
  return {mode:'PERF_STANDALONE_LIVE_READONLY',status:'VERIFIED',
   unauthorizedRejected:true,readOnlySummary:true,windowDays:7,
-  sampleCount:valid.sampleCount,financialGASWrites:0,financialSheetWrites:0};
+  sampleCount:valid.sampleCount,groups,financialGASWrites:0,financialSheetWrites:0};
 }
 export async function selfTest(){
  const x=await probeStandalone({financeToken:'FAKE_FINANCE_TOKEN_FOR_TESTS_123456',
@@ -48,7 +62,7 @@ export async function selfTest(){
       {status:'ok',enabled:true,windowDays:7,sampleCount:3,groups:[]}:
       {status:'error',message:'AUTH_REQUIRED'})};
    }});
- if(x.status!=='VERIFIED'||x.sampleCount!==3)fail('LOCAL_TEST');
+ if(x.status!=='VERIFIED'||x.sampleCount!==3||x.groups.length!==0)fail('LOCAL_TEST');
  console.log('PASS isolated GAS read-only live probe contract, denied/authorized cases');
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
