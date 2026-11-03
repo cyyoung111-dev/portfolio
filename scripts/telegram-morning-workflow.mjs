@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {scheduledWindow,lateTestWindow,runTelegramMorning,sendTelegram,fetchNightReference} from './telegram-morning-briefing.mjs';
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
+import {loadPrefetchedNight} from './telegram-morning-prefetch.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
 
-export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,recoverReference=fetchNightReference,
+export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,
+  loadPrefetch=loadPrefetchedNight,recoverReference=fetchNightReference,
   onRecoveryDiagnostic=()=>{},gasUrl=process.env.GAS_WEB_APP_URL,
   gasToken=process.env.GAS_ACCESS_TOKEN}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
@@ -29,6 +31,10 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   let message;
   let reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
   let referenceOrigin=reference?'CAPTURE_ARTIFACT':'NONE';
+  if(!reference&&!lateTest){
+    reference=await loadPrefetch(window.date,{now});
+    if(reference)referenceOrigin='GAS_PREFETCH_0730';
+  }
   // Only when the pre-captured artifact is absent: one bounded, read-only
   // request through the existing GAS NH 06:00 proxy (no GitHub NH OAuth).
   // Never create an after-the-fact 06:00 observation or extend the 08:00 cutoff.
