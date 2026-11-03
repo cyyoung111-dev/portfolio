@@ -40,7 +40,9 @@ function _normalizeDivData(raw) {
     if (Number.isInteger(Number(prev.count)) && prev.count != null) row.count = Number(prev.count);
     if (Array.isArray(prev.events)) row.events = prev.events.map(event => ({
       date:String(event?.date || '').slice(0,10), payDate:String(event?.payDate || '').slice(0,10),
-      amount:_toNum(event?.amount,0), source:String(event?.source || prev.source || '')
+      amount:_toNum(event?.amount,0), source:String(event?.source || prev.source || ''),
+      // Explicit cash receipt confirmation must survive GAS reload and tab refresh.
+      receivedConfirmed:event?.receivedConfirmed === true
     })).filter(event => /^\d{4}-\d{2}-\d{2}$/.test(event.date) && event.amount > 0);
   });
   return next;
