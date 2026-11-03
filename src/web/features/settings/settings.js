@@ -1271,7 +1271,9 @@ async function loadSettings(onProgress, options) {
             rawTrades.push({ ...t, id: t.id || genTradeId() });
           });
           syncHoldingsFromTrades();
-          saveHoldings();
+          // Reapplying server data locally must not mark it dirty and echo
+          // financial trades/holdings back to GAS from a freshly restored device.
+          saveHoldings({ skipGsheet: true });
         } else {
           // ── 거래이력도 없을 때 → 보유현황 시트에서 직접 복원 (최후 fallback)
           try {
@@ -1296,7 +1298,7 @@ async function loadSettings(onProgress, options) {
                   assetType: h.assetType || '주식',
                 });
               });
-              saveHoldings();
+              saveHoldings({ skipGsheet: true });
             }
           } catch(e) { console.warn('보유현황 복원 실패:', e); }
         }
