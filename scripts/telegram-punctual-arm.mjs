@@ -8,7 +8,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 export const ARMED_DELIVERY=Object.freeze({
  morning:Object.freeze({cron:'20 22 * * 0-4',arm:7*60+20,target:7*60+40,cutoff:8*60+10}),
- close:Object.freeze({cron:'35 7 * * 1-5',arm:16*60+35,target:17*60,cutoff:18*60})
+ close:Object.freeze({cron:'35 7 * * 1-5',arm:16*60+20,target:17*60,cutoff:18*60})
 });
 const REPO='cyyoung111-dev/portfolio';
 export function armedKstClock(at){
@@ -25,10 +25,20 @@ export function authorizeArmedDelivery(kind,env,event,at){
  const dispatched=env?.GITHUB_EVENT_NAME==='workflow_dispatch'
    &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO
    &&(!event?.inputs||Object.keys(event.inputs).length===0);
- // Do not accept push, user-supplied dates or unrecognized cron events.
+ // A single changed, reviewed trigger file on main may pre-arm the closing runner
+ // before 17:00 even when every GitHub cron was delayed or dropped.
+ // Never accept a push for morning, arbitrary files, or a late direct send.
+ const pushed=kind==='close' && env?.GITHUB_EVENT_NAME==='push'
+   && event?.ref==='refs/heads/main' && event?.repository?.full_name===REPO
+   && Array.isArray(event?.head_commit?.modified)
+   && event.head_commit.modified.length===1
+   && event.head_commit.modified[0]==='ops/telegram-close-arm-trigger.txt'
+   && (!Array.isArray(event?.head_commit?.added)||event.head_commit.added.length===0)
+   && clock && clock.minutes<17*60;
+ // Reject user-supplied dates, arbitrary pushes and unrecognized cron events.
  // Dispatch is only an alternative independent trigger for the SAME
  // guarded KST source-date, claim and delivery path.
- if(!config||!clock||!(scheduled||dispatched)
+ if(!config||!clock||!(scheduled||dispatched||pushed)
   ||env.GITHUB_REF!=='refs/heads/main'||env.GITHUB_REPOSITORY!==REPO
   ||env.GITHUB_RUN_ATTEMPT!=='1'||event?.repository?.full_name!==REPO
   ||krxSessionStatus(clock.date)!=='OPEN')
