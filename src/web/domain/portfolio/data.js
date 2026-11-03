@@ -293,16 +293,24 @@ function getCode(name) {
 // acct가 없으면 기존처럼 전체 계좌 합산 (하위 호환)
 function getQtyAtDate(name, dateStr, acct) {
   const todayStr = _kstTodayStr(); // ★ KST 기준 오늘 날짜
+  const refDay = typeof _portfolioTradeDateKey === 'function'
+    ? _portfolioTradeDateKey(dateStr) : String(dateStr || '');
   // 미래 날짜면 현재 보유수량 사용
-  if (dateStr > todayStr) {
+  if (refDay > todayStr) {
     return rawHoldings.filter(h => h.name === name && !h.fund && (!acct || h.acct === acct))
       .reduce((s, h) => s + (h.qty || 0), 0);
   }
   // 과거/오늘: rawTrades에서 해당 날짜 이하 buy/sell 합산
   let qty = 0;
   rawTrades
-    .filter(t => t.name === name && t.date && t.date <= dateStr && (!acct || t.acct === acct))
-    .sort((a, b) => a.date.localeCompare(b.date))
+    .filter(t => t.name === name && t.date
+      && (typeof _portfolioTradeDateKey === 'function' ? _portfolioTradeDateKey(t.date) : t.date) <= refDay
+      && (!acct || t.acct === acct))
+    .sort((a, b) => {
+      const aDay = typeof _portfolioTradeDateKey === 'function' ? _portfolioTradeDateKey(a.date) : a.date;
+      const bDay = typeof _portfolioTradeDateKey === 'function' ? _portfolioTradeDateKey(b.date) : b.date;
+      return aDay.localeCompare(bDay);
+    })
     .forEach(t => {
       if (t.tradeType === 'buy')  qty += (t.qty || 0);
       if (t.tradeType === 'sell') qty -= (t.qty || 0);
