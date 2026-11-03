@@ -82,6 +82,32 @@ const report=formatFullMorningBriefing(date,ref,rows);
 assert.equal(formatMorningBriefing(date,ref,rows),report);
 for (const part of ['오늘의 결론','전일 한국장','밤사이 미국장','코스피200 야간선물','환율 / 금리','원자재','수급·유동성','오늘의 시나리오','QC'])assert.ok(report.includes(part),part);
 assert.match(report,/위험선호 신호 우세/);
+assert.match(report,/AI 산업·반도체 종합평가/);
+for(const name of ['버핏','애크먼','피터 린치','다모다란'])
+  assert.ok(report.includes(name),'morning investor lens: '+name);
+assert.match(report,/당일 실제 발언 아님/);
+assert.match(report,/CAPEX.*GPU\/HBM 주문.*미연결/);
+assert.match(report,/상대강도 판단 보류/,'missing NDX must not fabricate relative strength');
+const ndxItem=MORNING_SERIES.find(x=>x.id==='NDX');
+const aiRows=[...rows,{label:ndxItem.label,symbol:ndxItem.symbol,
+  date:'2026-10-29',value:27900,changePercent:0.2,source:'NH_INDEX_DAILY'}];
+const aiReport=formatFullMorningBriefing(date,ref,aiRows);
+assert.match(aiReport,/SOX \+0\.40% \/ NASDAQ100 \+0\.20% \(격차 \+0\.20%p\)/);
+assert.match(aiReport,/가격·변동성은 위험선호에 우호적/);
+const staleAi=formatFullMorningBriefing(date,ref,aiRows.map(r=>
+  r.symbol==='^SOX'?{...r,date:'2026-10-28'}:r));
+assert.match(staleAi,/상대강도 판단 보류/);
+assert.doesNotMatch(staleAi,/격차 \+0\.20%p/);
+assert.doesNotMatch(aiReport,/버핏이 오늘|애크먼이 오늘|매수 확정|AI 수요 급증 확정/);
+// Retain a one-message Telegram cap even if all 21 series have closes.
+const completeRows=MORNING_SERIES.map(item=>({
+  label:item.label,symbol:item.symbol,
+  date:expectedMorningDate(item.id,date),value:item.id==='UST10Y'?4.21:22000.12,
+  changePercent:0.2,source:'Yahoo Finance 일봉'
+}));
+const completeAi=formatFullMorningBriefing(date,ref,completeRows);
+assert.ok(completeAi.length<3900,'full 21 series + AI/investor lens must fit Telegram');
+
 assert.match(report,/다우존스: 52,342.56.*2026-10-29/);
 assert.match(report,/900.05pt/);
 assert.match(report,/06:00 확인/);
