@@ -93,6 +93,12 @@
       const payload = {version: 1, device: pftelemetry_device(),
         samples: batch.map(e => ({stage:e.stage,ms:e.ms,result:e.result}))};
       const derived = await pftelemetry_deriveToken();
+      // WebCrypto is asynchronous. Stop/switch can occur while digesting;
+      // never upload a queued sample after device consent was revoked.
+      if (!pftelemetry_guardConnection() || !pftelemetry_enabled()
+          || revision !== sentRevision || String(GSHEET_API_URL || '').trim() !== url
+          || (generation !== null && getGsheetConnectionGeneration() !== generation))
+        return false;
       if (!/^[a-f0-9]{64}$/.test(derived)) return false;
       const response = await requestGsheetFormJson('appendPerformanceMetrics',
         {data: JSON.stringify(payload)},
