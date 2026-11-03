@@ -103,11 +103,14 @@ assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/sw\.js\?v=\d{8}-\d+/);
 assert.match(sw,/portfolio-cache-\d{8}-\d+/);
-assert.match(html,/styles\/responsive\.css\?v=20261101-3/);
-assert.match(sw,/styles\/responsive\.css\?v=20261101-3/);
+assert.match(html,/styles\/responsive\.css\?v=20261103-1/);
+assert.match(sw,/styles\/responsive\.css\?v=20261103-1/);
 assert.match(html,/id="quickFetchBtn"/);
 assert.match(html,/id="quickPriceBtn"/);
 const responsive=fs.readFileSync('src/web/styles/responsive.css','utf8');
+assert.match(responsive,/\.price-status-meta\{flex-wrap:nowrap;overflow-x:auto/, 'mobile status chips should not stack');
+assert.match(responsive,/\.vs-btn\{min-width:46px;height:40px;min-height:40px/, 'mobile nav height must stay compact');
+assert.match(responsive,/\.action-update-card>\.action-refresh-btn\{[^}]*height:40px/, 'mobile quick actions must stay compact');
 assert.match(responsive,/@media\(max-width:480px\)/);
 assert.match(responsive,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
   'mobile action buttons must share equal full-width columns');

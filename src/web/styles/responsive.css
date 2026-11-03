@@ -17,23 +17,33 @@
   .toolbar-section{padding:2px;gap:3px}
   .toolbar-section-settings{order:initial;width:auto;flex:none}
   .toolbar-section-danger{margin-left:0}
-  .toolbar-btn{width:44px;height:44px}
+  .toolbar-btn{width:44px;height:40px;min-height:40px;gap:2px}
   .toolbar-btn svg{width:14px;height:14px}
   /* Full-width date above two equal-width buttons; keep Korean labels readable. */
-  .action-update-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;height:auto;min-height:52px;padding:6px;width:100%;overflow:visible}
+  .action-update-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;height:auto;min-height:52px;padding:4px;width:100%;overflow:visible}
   .action-update-card>.action-date-input{grid-column:1/-1;width:100%;min-width:0;font-size:.76rem}
-  .action-update-card>.action-refresh-btn{width:100%;min-width:0;height:44px;padding:5px 8px;font-size:.76rem;line-height:1.2}
+  .action-update-card>.action-refresh-btn{width:100%;min-width:0;height:40px;min-height:40px;gap:1px;padding:3px 6px;font-size:.76rem;line-height:1.2}
   .action-update-card>.action-refresh-btn span{display:block;max-width:100%;overflow:visible;text-overflow:clip;white-space:nowrap}
-  .action-update-card>.action-refresh-btn svg{width:16px;height:16px}
+  .action-update-card>.action-refresh-btn svg{width:14px;height:14px}
   .action-update-card>.action-status-label,#price-updated-label.has-price-details{grid-column:1/-1;width:100%;max-width:100%;min-width:0;font-size:.65rem}
   .action-icon-btn{min-width:42px;padding:5px 10px;border-radius:6px}
   .action-icon-btn svg{width:15px;height:15px}
   .action-icon-btn span{font-size:.60rem}
-  .vs-btn{min-width:46px;padding:6px 8px;border-radius:6px}
-  .vs-btn-icon{width:20px;height:20px}
-  .vs-btn-icon svg{width:16px;height:16px}
+  .vs-btn{min-width:46px;height:40px;min-height:40px;gap:2px;padding:4px 6px;border-radius:6px}
+  .vs-btn-icon{width:17px;height:17px}
+  .vs-btn-icon svg{width:14px;height:14px}
   .vs-btn-label{font-size:.60rem}
-  .view-switcher{gap:5px}
+  .view-switcher{gap:3px;margin-bottom:8px}
+  /* Keep full diagnostic text, but avoid stacking every chip into extra rows. */
+  .action-update-card>.action-status-label,
+  #price-updated-label.has-price-details{padding:4px 6px}
+  .price-status-content{gap:2px}
+  .price-status-primary{flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:thin}
+  .price-status-meta{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px;scrollbar-width:thin}
+  .price-status-chips{flex-wrap:nowrap}
+  .price-status-chip{flex:0 0 auto;padding:2px 5px}
+  .toolbar-btn-group{padding-bottom:1px}
+  .toolbar-section{padding:1px;gap:2px}
 }
 
 /* Large accessibility zoom: don't squeeze either label into a narrow column. */
