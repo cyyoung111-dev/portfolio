@@ -161,7 +161,9 @@ assert.equal(window.PortfolioPerfTelemetry.enabled(),false);
 // the delayed success must NEVER silently re-enable collection.
 delayProbe=true;
 const probing=handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
-await Promise.resolve();
+// WebCrypto.subtle.digest is asynchronous; wait for the request to be issued.
+for(let i=0;i<40 && typeof resolveProbe!=='function';i++)
+  await new Promise(resolve=>setTimeout(resolve,5));
 assert.equal(typeof resolveProbe,'function');
 await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
 resolveProbe();
