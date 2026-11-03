@@ -118,32 +118,49 @@ function _legacyExactLedgerMatch(dirty,server,onBlock) {
     if (remoteCode && String(sourceRow?.type||sourceRow?.assetType||'주식')!==assetType) return blocked('HOLDING_ASSET_TYPE_MISMATCH');
     let entry=grouped.get(name);
     if (!entry) {
-      entry={code:remoteCode,name,qty:0,costAmt:0,assetType,accts:[]};
+      entry={code:remoteCode,name,qty:0,costAmt:0,legacyCostAmt:0,assetType,accts:[]};
       grouped.set(name,entry);
     } else if (entry.code!==remoteCode || entry.assetType!==assetType) {
       // Conflicting local asset identities must not be merged.
       return blocked('HOLDING_GROUP_CONFLICT');
     }
     if (!entry.accts.includes(acct)) entry.accts.push(acct);
-    entry.qty+=qty;
-    entry.costAmt+=qty*cost;
+    entry.qty += qty;
+    const legacyCost = qty * cost;
+    // Both formats were legitimately sent by published web versions:
+    // legacy = rounded average price * shares, current = exact trade costAmt.
+    // A lost ACK has no sender-version tag. Match one COMPLETE payload shape
+    // (all exact or all legacy); never mix formats per holding.
+    const hasExact = h.costAmt !== undefined && h.costAmt !== null && h.costAmt !== '';
+    const parsed = hasExact ? Number(h.costAmt) : Number.NaN;
+    entry.legacyCostAmt += legacyCost;
+    entry.costAmt += Number.isFinite(parsed) && parsed >= 0 ? parsed : legacyCost;
   }
   const funds=dirty.fundDirect||{};
   for (const [name,fd] of Object.entries(funds)) {
     if (!fd || !Number.isFinite(Number(fd.cost))) return blocked('FUND_COST_INVALID');
     if (Number(fd.cost)<=0 || grouped.has(name)) continue;
     grouped.set(name,{code:'',name,qty:1,costAmt:Number(fd.cost),
-      assetType:fd.type||'TDF',accts:[]});
+      legacyCostAmt:Number(fd.cost),assetType:fd.type||'TDF',accts:[]});
   }
-  const expected=[...grouped.values()].map(h=>({
-    code:h.code,name:h.name,qty:h.qty,costAmt:h.costAmt,
+  const makeExpected = costKey => [...grouped.values()].map(h=>({
+    code:h.code,name:h.name,qty:h.qty,costAmt:h[costKey],
     assetType:h.assetType,acct:h.accts.join(',')
   }));
-  if (expected.length!==server.holdings.length) return blocked('HOLDING_COUNT_MISMATCH');
+  const expectedExact=makeExpected('costAmt'),expectedLegacy=makeExpected('legacyCostAmt');
+  if (expectedExact.length!==server.holdings.length) return blocked('HOLDING_COUNT_MISMATCH');
   const sorted=rows=>rows.map(_legacyHoldingTuple).sort((x,y)=>
     JSON.stringify(x).localeCompare(JSON.stringify(y)));
-  const lh=sorted(expected),rh=sorted(server.holdings);
-  if (lh.some(x=>!x)||rh.some(x=>!x)||JSON.stringify(lh)!==JSON.stringify(rh)) return blocked('HOLDING_ROWS_DIFFER');
+  const remote=sorted(server.holdings);
+  const matchesWholeFormat=rows=>{
+    const local=sorted(rows);
+    return !local.some(x=>!x) && !remote.some(x=>!x)
+      && JSON.stringify(local)===JSON.stringify(remote);
+  };
+  // Strict full-ledger comparison; the old format is not permitted to mask
+  // an arbitrary mixed-format or stale account-level journal.
+  if (!matchesWholeFormat(expectedExact) && !matchesWholeFormat(expectedLegacy))
+    return blocked('HOLDING_ROWS_DIFFER');
   const canon=obj=>JSON.stringify(Object.fromEntries(Object.entries(obj||{}).sort(([a],[b])=>a.localeCompare(b))));
   if (canon(funds)!==canon(server.settings.fundDirect||{})) return blocked('FUND_SETTINGS_DIFFER');
   return true;
