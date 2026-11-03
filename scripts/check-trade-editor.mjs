@@ -179,3 +179,55 @@ entitlementContext.rawTrades[0]={...dottedBuy,qty:12};
 assert.equal(entitlementContext.__qty('시험','2026-02-15'),12);
 assert.equal(entitlementContext.__qty('시험','2026-03-02'),4);
 console.log('PASS: bulk dotted-date ISO normalization, legacy trading chronology and dividend entitlement units');
+
+
+// Exercise production applyBulkImport, not just source snippets. A mixed batch
+// with an invalid date must fail atomically across buy/sell/mixed modes.
+{
+  const errorBox={style:{display:'none'},textContent:''};
+  const ctx=vm.createContext({
+    rawTrades:[],STOCK_CODE:{},$el:id=>id==='bulkError'?errorBox:null,
+    normName:x=>x,getAccountId:()=> 'acct-A',
+    genTradeId:()=> 900,
+    getEP:()=>({name:'시험',code:'005930',assetType:'주식'}),
+    epPush:()=>{ctx.masterWrites++},
+    _commitTrades:()=>{ctx.commits++},
+    closeBulkImport:()=>{ctx.closed++},
+    showToast:()=>{},commits:0,masterWrites:0,closed:0
+  });
+  const exposeImport=[
+    "globalThis.__setImport=(mode,rows)=>{",
+    " _bulkMode=mode;",
+    " if(mode==='buy')_bulkRows=rows;",
+    " else if(mode==='sell')_bulkRowsSell=rows;",
+    " else _bulkRowsMix=rows;",
+    "};",
+    "globalThis.__applyImport=applyBulkImport;"
+  ].join('\n');
+  vm.runInContext(bulkSource+'\n'+exposeImport,ctx);
+  for(const [mode,dateKey,priceKey] of [
+    ['buy','buyDate','buyPrice'],
+    ['sell','sellDate','sellPrice'],
+    ['mixed','date','price']
+  ]){
+    const good={name:'시험',acct:'계좌',code:'005930',qty:'2',
+      [dateKey]:'2026.02.01',[priceKey]:'100',tradeType:'buy'};
+    const bad={...good,[dateKey]:'2026.02.30'};
+    ctx.rawTrades.length=0;ctx.commits=0;ctx.masterWrites=0;ctx.closed=0;
+    ctx.__setImport(mode,[good,bad]);
+    ctx.__applyImport();
+    assert.equal(ctx.rawTrades.length,0,mode+': invalid batch must not append any trade');
+    assert.equal(ctx.commits,0,mode+': invalid batch must not persist');
+    assert.equal(ctx.masterWrites,0,mode+': invalid batch must not mutate master');
+    assert.equal(ctx.closed,0,mode+': invalid batch must retain editor');
+    assert.match(errorBox.textContent,/날짜가 잘못/);
+    ctx.__setImport(mode,[good]);
+    ctx.__applyImport();
+    assert.equal(ctx.rawTrades.length,1,mode+': valid batch adds one trade');
+    assert.equal(ctx.rawTrades[0].date,'2026-02-01',mode+': normalized ISO persisted');
+    assert.equal(ctx.commits,1,mode+': commits exactly once');
+    assert.equal(ctx.closed,1,mode+': closes only after commit');
+  }
+}
+console.log('PASS: REAL bulk buy/sell/mixed atomic date rejection and ISO persistence');
+
