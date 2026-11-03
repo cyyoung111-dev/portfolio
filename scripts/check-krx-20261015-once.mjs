@@ -43,7 +43,7 @@ assert.equal(preview.mode,'DRY_RUN');
 assert.deepEqual(requested,['0','0'],'default cannot call GAS apply');
 requested.length=0;
 await assert.rejects(()=>runTargetedRecovery({url,token,date:'2026-10-15',apply:true,
-  fetchImpl:fake({canRecover:false})}),/TARGET_PREFLIGHT_BLOCKED/);
+  fetchImpl:fake({canRecover:false})}),/TARGET_PREFLIGHT_SOURCE_INCOMPLETE/);
 assert.deepEqual(requested,['0','0'],'no data write when official exact-date source missing');
 
 assert.equal(classifyTargetedPreflight({
