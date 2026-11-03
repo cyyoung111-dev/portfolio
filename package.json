@@ -100,7 +100,7 @@
     "check:nh-index-probe": "node scripts/check-nh-index-probe.mjs",
     "check:nh-index-primary": "node scripts/check-nh-index-primary.mjs",
     "check:issue507-mobile-remote-readonly": "node scripts/check-issue507-mobile-remote-readonly.mjs",
-    "check:performance-collector": "node scripts/check-performance-collector.mjs"
+    "check:performance-collector": "node scripts/check-performance-collector.mjs && node scripts/check-standalone-performance-gas.mjs"
   },
   "devDependencies": {
     "yaml": "^2.8.1"
