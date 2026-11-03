@@ -94,7 +94,8 @@ function calcDividends() {
       const div = amount * qty;
       actualMonths.add(month);
       actualDiv += div;
-      if (ev?.receivedConfirmed === true) receivedDiv += div;
+      if (ev?.receivedConfirmed === true && /^\d{4}-\d{2}-\d{2}$/.test(payDate)
+          && payDate <= _kstTodayStr()) receivedDiv += div;
       annualDiv += div;
       monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
     });
