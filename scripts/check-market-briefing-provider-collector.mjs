@@ -36,6 +36,48 @@ assert.equal(rows.find(x=>x.seriesId==='KOSPI').observedAt,null);
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').status,'PARTIAL');
 assert.equal(rows.find(x=>x.seriesId==='SPX').status,'FINAL');
 assert.equal(rows.find(x=>x.seriesId==='USDKRW').market,'FX');
+// #734: optional NH COMP (NASDAQ Composite) must be stored with exact primary
+// source identity; missing/foreign/stale bars may never become verified MASTER.
+assert.ok(collector.REQUEST_TYPES.includes('NASDAQ'));
+const indexDate='2026-11-03',priorUs='2026-11-02';
+const makeIndexPayload=(patch={},metaPatch={})=>({
+ status:'ok',
+ series:{NASDAQ:[{date:priorUs,sourceDate:priorUs,value:25164.32,
+   source:'NH_INDEX_DAILY',status:'CONFIRMED',priceType:'REGULAR_CLOSE',...patch}]},
+ seriesMeta:{NASDAQ:{source:'NH_INDEX_DAILY',providerCode:'COMP',...metaPatch}}
+});
+const optionalIndexRequest=payload=>async action=>{
+ if(action==='getBenchmarks')return payload;
+ if(action==='getBenchmark')return {status:'ok',points:[]};
+ if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
+ if(action==='getPrices')return {status:'ok',prices:{}};
+ if(action==='getPriceHistory')return {status:'ok',prices:{}};
+ throw Error('unexpected optional-index action');
+};
+const optionalNh=await collector.collect(optionalIndexRequest(makeIndexPayload()),
+ indexDate,{checkpoint:'EVENING'});
+assert.equal(optionalNh.payload.NASDAQ.value,25164.32);
+assert.equal(optionalNh.payload.NASDAQ.source,'NH_INDEX_DAILY');
+assert.equal(optionalNh.payload.NASDAQ.status,'FINAL');
+const persistedComposite=normalizer.normalizeMap({NASDAQ:optionalNh.payload.NASDAQ},
+ {tradingDate:indexDate,receivedAt:'2026-11-03T17:00:00+09:00'});
+assert.equal(persistedComposite.length,1);
+assert.equal(persistedComposite[0].seriesId,'NASDAQ');
+assert.equal(persistedComposite[0].source,'NH_INDEX_DAILY');
+assert.equal(persistedComposite[0].finality,'REGULAR_CLOSE');
+for(const [patch,metaPatch] of [
+ [{source:'YAHOO'},{}],
+ [{status:'PARTIAL'},{}],
+ [{sourceDate:'2026-10-30'},{}],
+ [{date:indexDate,sourceDate:indexDate},{}],
+ [{}, {source:'YAHOO_UNVERIFIED_DAILY'}],
+ [{}, {providerCode:'NDX'}]
+]){
+ const result=await collector.collect(optionalIndexRequest(makeIndexPayload(patch,metaPatch)),
+   indexDate,{checkpoint:'EVENING'});
+ assert.equal(result.payload.NASDAQ,undefined,'unverified optional COMP must not be persisted');
+ assert.ok(!result.missing.includes('NASDAQ'),'optional COMP cannot block existing core readiness');
+}
 const currentFx=collector.normalizeFxPoint({history:[{date:'2026-09-18',rate:1385}]},'2026-09-18');
 assert.equal(currentFx.status,'PARTIAL');
 assert.equal(currentFx.finality,null);
