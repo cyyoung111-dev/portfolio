@@ -127,7 +127,13 @@ for(const c of checks){
    assert.ok(verify&&steps.indexOf(verify)<steps.indexOf(waiting),
      'verify the exact single-file push before arming');
    assert.equal(verify.if,"github.event_name == 'push'");
-   assert.equal(verify.env.PUSH_BEFORE,'
+   assert.match(String(verify.env.PUSH_BEFORE||''),/github[.]event[.]before/);
+   assert.match(verify.run,/git diff --name-only HEAD\^ HEAD/);
+   assert.match(verify.run,/CLOSE_SENTINEL_MULTI_COMMIT_REJECTED/);
+   assert.match(verify.run,/CLOSE_SENTINEL_FILE_MODE_UNVERIFIED/);
+   assert.ok(String(waiting.env.TELEGRAM_CLOSE_SENTINEL_VERIFIED||'')
+     .includes('steps.verify_sentinel.outputs.verified'));
+   assert.equal(steps.find(step=>step.uses==='actions/checkout@v7').with['fetch-depth'],2);
  }else assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch'],
   'morning schedule/dispatch only; never push');
  assert.deepEqual(y.on.schedule,[{cron:c.cron}]);
