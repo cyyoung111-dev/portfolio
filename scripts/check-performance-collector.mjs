@@ -1,120 +1,181 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import worker from '../ops/lookup-performance-collector/worker.mjs';
 
-// Synthetic isolated D1: no Cloudflare/financial network access.
-const rows=[];
-const db={
-  prepare(sql){return {bind(...args){
-    return {
-      async first(){assert.match(sql,/COUNT\(\*\)/);return {n:rows.length};},
-      async all(){assert.match(sql,/SELECT device/);return {results:rows.slice().reverse().map(x=>({device:x[1],stage:x[2],ms:x[3],result:x[4]}))};},
-      async run(){
-        if(sql.startsWith('INSERT'))rows.push(args);
-        else if(sql.startsWith('DELETE'))rows.splice(0,rows.length,...rows.filter(r=>r[5]>=args[0]));
-        return {success:true};
-      }
-    };
-  }};},
-  async batch(items){for(const item of items)await item.run();return [];}
-};
-const env={DB:db,INGEST_ENABLED:'false',ALLOWED_ORIGIN:'https://portfolio.example.test',REPORT_TOKEN:'TEST_ONLY_SECRET_LONG_TOKEN_1234'};
-const payload={version:1,device:'mobile',samples:[
-  {stage:'price.poll-total',ms:2000,result:'ok'},
-  {stage:'price.poll-total',ms:3000,result:'ok'},
-  {stage:'price.poll-total',ms:4000,result:'error'}
-]};
-const request=(body,origin='https://portfolio.example.test')=>new Request('https://telemetry.example.test/ingest',{
-  method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body)
-});
-assert.equal((await worker.fetch(request(payload),env)).status,503,'disabled collector must write nothing');
-assert.equal(rows.length,0);
-env.INGEST_ENABLED='true';
-assert.equal((await worker.fetch(request(payload,'https://attacker.example.test'),env)).status,403);
-assert.equal((await worker.fetch(request({...payload,extra:'ignored',samples:[{...payload.samples[0],code:'SECRET'}]}),env)).status,400);
-assert.equal((await worker.fetch(request(payload),env)).status,202);
-assert.equal(rows.length,3);
-const authReq=token=>new Request('https://telemetry.example.test/report',{headers:{Authorization:'Bearer '+token}});
-assert.equal((await worker.fetch(authReq('wrong'),env)).status,401);
-const report=await (await worker.fetch(authReq(env.REPORT_TOKEN),env)).json();
-assert.equal(report.windowDays,7);
-assert.equal(report.sampleCount,3);
-assert.equal(report.groups.length,1);
-assert.equal(report.groups[0].medianMs,3000);
-assert.equal(report.groups[0].p95Ms,4000);
-assert.equal(report.groups[0].failureRatePct,33.3);
-await worker.scheduled({},env);
-assert.equal(rows.length,3);
-
-const source=fs.readFileSync('src/web/features/settings/settings_perf_monitor.js','utf8');
-const net=fs.readFileSync('src/web/features/settings/settings_net.js','utf8');
-const view=fs.readFileSync('src/web/views/views_history.js','utf8');
+const gasCandidate=fs.readFileSync('ops/lookup-performance-gas/collector.gs','utf8');
+const web=fs.readFileSync('src/web/features/settings/settings_perf_monitor.js','utf8');
 const html=fs.readFileSync('src/web/index.html','utf8');
-const sw=fs.readFileSync('src/web/sw.js','utf8');
+const net=fs.readFileSync('src/web/features/settings/settings_net.js','utf8');
+assert.match(gasCandidate,/function handleAppendPerformanceMetrics\(params\)/);
+assert.match(gasCandidate,/function handleGetPerformanceSummary\(params\)/);
+assert.match(web,/requestGsheetFormJson\('appendPerformanceMetrics'/);
+assert.match(web,/requestGsheetFormJson\('getPerformanceSummary'/);
 assert.match(net,/window\.PortfolioPerfTelemetry\?\.record\(entry\)/);
-assert.match(view,/window\.PortfolioPerfTelemetry\?\.renderSettingsHtml\?\.\(\)/);
-assert.match(html,/settings_perf_monitor\.js\?v=20261103-1/);
-assert.match(sw,/settings_perf_monitor\.js\?v=20261103-1/);
-const expected=new Map();
+assert.match(html,/settings_perf_monitor\.js\?v=/);
+assert.doesNotMatch(web,/Cloudflare Worker|PERF_COLLECTOR_URL|https:\/\/.*\/ingest/);
+
+// Minimal spreadsheet mock: writes restricted to dedicated diagnostics sheet.
+const sheets=new Map();let inserted=[],locked=false,canLock=true;
+function createSheet(name) {
+ const rows=[];
+ return {
+  name,rows,
+  getLastRow(){return rows.length;},
+  getRange(r,c,n=1,k=1){return {
+   setValues(vals){for(let a=0;a<n;a++){const row=rows[r-1+a]||[];for(let b=0;b<k;b++)row[c-1+b]=vals[a][b];rows[r-1+a]=row;}return this;},
+   getValues(){return Array.from({length:n},(_,a)=>Array.from({length:k},(_,b)=>rows[r-1+a]?.[c-1+b]??''));}
+  };},
+  hideSheet(){},
+  deleteRows(r,n){rows.splice(r-1,n);}
+ };
+}
+const props={access_token:'a_secure_test_token_abcdefghijklmnopqrstuvwxyz'};
+const ss={
+ getSheetByName:name=>sheets.get(name)||null,
+ insertSheet:name=>{inserted.push(name);const s=createSheet(name);sheets.set(name,s);return s;}
+};
+const lock={tryLock(){locked=canLock;return canLock;},releaseLock(){locked=false;}};
+const context=vm.createContext({
+ console,Math,Date,JSON,Object,Array,String,Number,isFinite,
+ PropertiesService:{getScriptProperties:()=>({getProperty:k=>props[k]||''})},
+ _isAuthorizedRequest:p=>p.accessToken===props.access_token,
+ jsonError:m=>({status:'error',message:m}),
+ jsonOk:e=>({status:'ok',...e}),
+ LockService:{getScriptLock:()=>lock},
+ getss:()=>ss,
+ Utilities:{formatDate:(date,tz,fmt)=>{
+   assert.equal(tz,'Asia/Seoul');
+   const kr=new Date(date.getTime()+9*3600000).toISOString();
+   return kr.slice(0,10)+' '+kr.slice(11,19);
+ }}
+});
+vm.runInContext(gasCandidate,context);
+const call=(name,params)=>vm.runInContext(name+'(__params)',Object.assign(context,{__params:params}));
+const valid={accessToken:props.access_token,data:JSON.stringify({version:1,device:'mobile',
+ samples:[{stage:'price.poll-total',ms:1000,result:'ok'},
+ {stage:'price.poll-total',ms:2000,result:'ok'},
+ {stage:'price.poll-total',ms:3000,result:'error'}]})};
+assert.equal(call('handleAppendPerformanceMetrics',{...valid,accessToken:'wrong'}).message,'PERF_AUTH_REQUIRED');
+delete props.access_token;
+assert.equal(call('handleAppendPerformanceMetrics',valid).message,'PERF_AUTH_REQUIRED','legacy unauthenticated GAS must fail closed');
+props.access_token='a_secure_test_token_abcdefghijklmnopqrstuvwxyz';
+assert.equal(inserted.length,0);
+const invalid={...valid,data:JSON.stringify({version:1,device:'mobile',samples:[{stage:'price.poll-total',ms:10,result:'ok',account:'secret'}]})};
+assert.equal(call('handleAppendPerformanceMetrics',invalid).message,'PERF_INVALID_PAYLOAD');
+assert.equal(inserted.length,0);
+canLock=false;
+assert.equal(call('handleAppendPerformanceMetrics',valid).message,'PERF_LOW_PRIORITY_BUSY');
+canLock=true;
+assert.deepEqual(call('handleAppendPerformanceMetrics',valid),{status:'ok',accepted:3});
+assert.deepEqual(inserted,['PERFORMANCE_LOG']);
+const sheet=sheets.get('PERFORMANCE_LOG');
+assert.deepEqual(sheet.rows[0],['observed_at_kst','device','stage','elapsed_ms','result']);
+assert.equal(sheet.rows.length,4);
+const result=call('handleGetPerformanceSummary',{accessToken:props.access_token});
+assert.equal(result.status,'ok');
+assert.equal(result.enabled,true);
+assert.equal(result.sampleCount,3);
+assert.equal(result.groups[0].medianMs,2000);
+assert.equal(result.groups[0].p95Ms,3000);
+assert.equal(result.groups[0].failureRatePct,33.3);
+assert.equal(Object.keys(result.groups[0]).includes('account'),false);
+// Native Sheets can coerce timestamp cells to Date objects.
+const originalStamp=sheet.rows[1][0];
+sheet.rows[1][0]=new Date();
+assert.equal(call('handleGetPerformanceSummary',{accessToken:props.access_token}).sampleCount,3);
+sheet.rows[1][0]=originalStamp;
+// Existing sheet with unexpected header must be rejected, never overwritten.
+const before=sheet.rows[0][0];sheet.rows[0][0]='foreign';
+assert.equal(call('handleAppendPerformanceMetrics',valid).message,'PERF_COLLECTOR_UNAVAILABLE');
+assert.equal(sheet.rows[0][0],'foreign');sheet.rows[0][0]=before;
+assert.equal(sheets.size,1,'must never access or mutate holdings, ledger or snapshot');
+
+// Client mock: no remote reporting without opt-in and GAS support check.
+let consent=new Map(),generation=1,connected='https://script.google.com/macros/s/test/exec',callCount=0;
+let resolveDelayed=null, delayProbe=false, resolveProbe=null;
+const pending=[],requests=[];
 const storage={
-  getItem:k=>expected.get(k)||null,
-  setItem:(k,v)=>{expected.set(k,String(v));},
-  removeItem:k=>{expected.delete(k);}
+ getItem:k=>consent.get(k)??null,
+ setItem:(k,v)=>{consent.set(k,String(v));},
+ removeItem:k=>{consent.delete(k);}
 };
-const sent=[];
+const elements={
+ perfGasStatus:{textContent:''},
+ perfGasSummaryBody:{textContent:'',replaceChildren(){}}
+};
+const handlers={};
 const window={
-  localStorage:storage,matchMedia:()=>({matches:true}),addEventListener:()=>{},
-  fetch:async(url,opts)=>{sent.push({url,opts});return {ok:true};},
-  setTimeout:()=>1,clearTimeout:()=>{}
+ matchMedia:()=>({matches:true}),addEventListener:(n,fn)=>handlers[n]=fn,
+ PortfolioPerfTelemetry:null
 };
-const listeners={};
 const document={
-  addEventListener:(event,handler)=>{listeners[event]=handler;},
-  getElementById:()=>null
+ getElementById:id=>elements[id]||null,
+ addEventListener:(n,fn)=>handlers[n]=fn,
+ createElement:tag=>({textContent:'',style:{},appendChild(){},replaceChildren(){}})
 };
-const ctx=vm.createContext({window,document,localStorage:storage,URL,setTimeout:()=>1,clearTimeout:()=>{},fetch:window.fetch,Set,Object,JSON,Number,String,Array});
-vm.runInContext(source,ctx);
-window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:999,result:'ok'});
-assert.equal(expected.has('pf_perf_remote_queue_v1'),false,'no user opt-in = no storage/upload');
-expected.set('pf_perf_remote_endpoint_v1','https://telemetry.example.test/ingest');
-expected.set('pf_perf_remote_consent_v1','1');
-window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:999,result:'ok'});
-window.PortfolioPerfTelemetry.record({stage:'symbol.005930',ms:25,result:'ok'});
+const webCtx=vm.createContext({
+ window,document,localStorage:storage, navigator:{userAgentData:{mobile:true}},
+ GSHEET_API_URL:connected,
+ getGsheetAccessToken:()=>props.access_token,
+ getGsheetConnectionGeneration:()=>generation,
+ requestGsheetFormJson:async(action,data,opts)=>{
+  callCount++;
+  requests.push({action,data,opts});
+  assert.equal(opts.targetUrl,connected);
+  if(action==='getPerformanceSummary'){
+    if(delayProbe) await new Promise(resolve=>{resolveProbe=resolve;});
+    return {status:'ok',enabled:true,groups:[],sampleCount:0};
+  }
+  if(resolveDelayed){return await new Promise(resolve=>{pending.push(resolve)})}
+  return {status:'ok',accepted:JSON.parse(data.data).samples.length};
+ },
+ setTimeout:()=>1234,clearTimeout:()=>{},Date,Math,Set,Object,JSON,
+ String,Number,Array
+});
+vm.runInContext(web,webCtx);
+assert.equal(consent.has('pf_perf_gas_consent_v1'),false);
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:1234,result:'ok'});
+assert.equal(callCount,0,'disabled client never sends');
+await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+assert.equal(consent.get('pf_perf_gas_consent_v1'),'1');
+for(let i=0;i<10;i++)window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:100+i,result:'ok'});
+const first=await window.PortfolioPerfTelemetry.flush();
+assert.equal(first,true);
+const second=await window.PortfolioPerfTelemetry.flush();
+assert.equal(second,true);
+assert.equal(callCount,3,'one probe plus 2 batches');
+await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
+assert.equal(consent.get('pf_perf_gas_consent_v1'),'0');
+assert.equal(window.PortfolioPerfTelemetry.enabled(),false);
+// If the user revokes consent before the GAS support probe completes,
+// the delayed success must NEVER silently re-enable collection.
+delayProbe=true;
+const probing=handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+await Promise.resolve();
+assert.equal(typeof resolveProbe,'function');
+await handlers.click({target:{closest:()=>({id:'perfGasStop'})}});
+resolveProbe();
+await probing;
+assert.equal(window.PortfolioPerfTelemetry.enabled(),false,'stopped probe must not resurrect consent');
+delayProbe=false;
+// Re-enable and queue one old-GAS sample, then change connection before flush.
+await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:111,result:'ok'});
+const callsBeforeSwitch=callCount;
+connected='https://script.google.com/macros/s/another/exec';
+webCtx.GSHEET_API_URL=connected;
+generation++;
+assert.equal(await window.PortfolioPerfTelemetry.flush(),false,
+ 'switching GAS must drop queued samples instead of sending them to new workbook');
+assert.equal(callCount,callsBeforeSwitch);
+assert.equal(window.PortfolioPerfTelemetry.enabled(),false,
+ 'changed workbook must require fresh per-device opt-in');
+await handlers.click({target:{closest:()=>({id:'perfGasEnable'})}});
+window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:222,result:'ok'});
 assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
-assert.equal(sent.length,1);
-const body=JSON.parse(sent[0].opts.body);
-assert.equal(body.device,'mobile');
-assert.equal(body.samples.length,1,'unknown/financial-symbol stage must be filtered');
-assert.deepEqual(Object.keys(body.samples[0]).sort(),['ms','result','stage']);
-assert.equal(sent[0].opts.credentials,'omit');
-assert.equal(expected.get('pf_perf_remote_queue_v1'),'[]');
-// After offline recovery, eight-per-request batching must drain all pending entries.
-for(let i=0;i<9;i++)window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:100+i,result:'ok'});
-assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
-assert.equal(JSON.parse(expected.get('pf_perf_remote_queue_v1')).length,1);
-assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
-assert.equal(expected.get('pf_perf_remote_queue_v1'),'[]');
-assert.equal(sent.at(-2).opts.body.includes('localId'),false,'client-only queue IDs must not be uploaded');
-// A successful response from the old endpoint must not remove new samples.
-let release;
-ctx.fetch=async()=>new Promise(resolve=>{release=resolve});
-window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:321,result:'ok'});
-const oldPending=window.PortfolioPerfTelemetry.flush();
-assert.equal(typeof release,'function');
-listeners.click({target:{closest:()=>({id:'perfCollectorStop'})}});
-expected.set('pf_perf_remote_endpoint_v1','https://newcollector.example.test/ingest');
-expected.set('pf_perf_remote_consent_v1','1');
-window.PortfolioPerfTelemetry.record({stage:'price.poll-total',ms:654,result:'ok'});
-release({ok:true});
-await oldPending;
-assert.equal(JSON.parse(expected.get('pf_perf_remote_queue_v1')).length,1,
- 'old collector response must not erase new collector queue');
-ctx.fetch=window.fetch;
-assert.equal(await window.PortfolioPerfTelemetry.flush(),true);
-assert.equal(JSON.parse(sent.at(-1).opts.body).samples[0].ms,654);
-assert.equal(expected.get('pf_perf_remote_queue_v1'),'[]');
-assert.match(source,/if\(\(delivered\|\|sentRevision!==revision\)/,
- 'successful partial batch must schedule pending samples');
-assert.doesNotMatch(source,/getGsheetAccessToken|GSHEET_API_URL|savedPrices|rawTrades/);
-console.log('PASS isolated collector + no-consent fail-closed + p50/p95/error + bounded sanitized client upload');
+const uploaded=JSON.parse(requests.at(-1).data.data);
+assert.equal(uploaded.samples.length,1);
+assert.equal(uploaded.samples[0].ms,222,'only newly consented workbook sample may be sent');
+assert.doesNotMatch(web,/PERFORMANCE_LOG\W+(?:getRange|appendRow)/,
+ 'client must not write Sheet directly');
+console.log('PASS: GAS token fail-closed, separate sheet, cap/schema, aggregate p50/p95, opt-in and 8-row batching');
