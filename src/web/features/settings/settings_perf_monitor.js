@@ -83,7 +83,9 @@
         {targetUrl:url,timeoutMs:8000,retry:0,preserveError:true});
       const current = String(GSHEET_API_URL || '').trim() === url
         && (generation === null || getGsheetConnectionGeneration() === generation);
-      if (response?.status !== 'ok' || !current || !pftelemetry_enabled() || revision !== sentRevision) {
+      // A stale response must not penalize a newly consented connection.
+      if (!current || !pftelemetry_enabled() || revision !== sentRevision) return false;
+      if (response?.status !== 'ok') {
         retryAfter = Date.now() + 300000;
         return false;
       }
