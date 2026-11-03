@@ -94,13 +94,18 @@ for(const c of checks){
  assert.ok(j['timeout-minutes']>=30&&j['timeout-minutes']<=50);
  assert.match(j.if,/github\.run_attempt == 1/);
  if(c.kind==='morning'){
-   const prewarm=steps.find(s=>s.name?.startsWith('Prefetch verified 06:00 NH night'));
-   const prewarmIndex=steps.indexOf(prewarm);
-   const armedIndex=steps.findIndex(s=>s.id==='arm');
-   assert.ok(prewarmIndex>1&&prewarmIndex<armedIndex,
-     'getNhNightProxy prefetch must execute during early runner reservation');
-   assert.equal(prewarm.run,'node scripts/telegram-morning-prefetch.mjs');
-   assert.equal(prewarm.env.GAS_ACCESS_TOKEN,'
+   const warm=steps.find(s=>s.name?.startsWith('Prefetch verified 06:00 NH night'));
+   const warmIndex=steps.indexOf(warm),armedIndex=steps.findIndex(s=>s.id==='arm');
+   assert.ok(warmIndex>1&&warmIndex<armedIndex,
+     'prefetch should run before 07:40 wait and claim');
+   assert.equal(warm.run,'node scripts/telegram-morning-prefetch.mjs');
+   assert.ok(String(warm.env.GAS_ACCESS_TOKEN||'').includes('secrets.GAS_ACCESS_TOKEN'));
+   assert.ok(String(warm.env.GAS_WEB_APP_URL||'').includes('vars.GAS_WEB_APP_URL'));
+   assert.equal(warm.env.TELEGRAM_BOT_TOKEN,undefined);
+   const warmSource=fs.readFileSync('scripts/telegram-morning-prefetch.mjs','utf8');
+   assert.ok(warmSource.includes('PREFETCH_NOT_VERIFIED'));
+   assert.ok(!warmSource.includes('GITHUB_OUTPUT'));
+ }
  assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
  assert.equal(steps.find(s=>s.id==='prepare').env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
  assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_BOT_TOKEN,undefined);
