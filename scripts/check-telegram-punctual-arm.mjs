@@ -19,7 +19,7 @@ assert.equal(armedKstClock(kst('07:40:00')).minutes,460);
 assert.equal(armedKstClock(kst('17:00:00')).minutes,1020);
 for(const [kind,before,arm,target,last,cutoff] of [
  ['morning','07:19:59','07:20:00','07:40:00','08:09:59','08:10:00'],
- ['close','16:34:59','16:35:00','17:00:00','17:59:59','18:00:00']
+ ['close','16:19:59','16:20:00','17:00:00','17:59:59','18:00:00']
 ]){
  const valid=t=>authorizeArmedDelivery(kind,env,event(kind),kst(t));
  assert.equal(valid(before).allowed,false,kind+' too early');
@@ -38,6 +38,22 @@ for(const [kind,before,arm,target,last,cutoff] of [
  assert.equal(authorizeArmedDelivery(kind,externalEnv,{...externalEvent,inputs:{date}},kst(arm)).allowed,false);
  assert.equal(authorizeArmedDelivery(kind,{...externalEnv,GITHUB_RUN_ATTEMPT:'2'},externalEvent,kst(arm)).allowed,false);
  assert.equal(authorizeArmedDelivery(kind,externalEnv,{...externalEvent,repository:{full_name:'other/repo'}},kst(arm)).allowed,false);
+ // Only a single main-branch sentinel update can arm closing before 17:00.
+ if(kind==='close'){
+   const pushEnv={...env,GITHUB_EVENT_NAME:'push'};
+   const pushEvent={ref:'refs/heads/main',repository:{full_name:repo},
+     head_commit:{modified:['ops/telegram-close-arm-trigger.txt'],added:[]}};
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,pushEvent,kst(arm)).allowed,true);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,pushEvent,kst('16:19:59')).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,pushEvent,kst('17:00:00')).allowed,false,
+     'after target, only existing scheduled/manual rescue can attempt');
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,{...pushEvent,
+     head_commit:{modified:['src/gas/apps_script.gs'],added:[]}},kst(arm)).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,{...pushEvent,
+     head_commit:{modified:['ops/telegram-close-arm-trigger.txt','README.md'],added:[]}},kst(arm)).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,{...pushEvent,ref:'refs/heads/feature'},kst(arm)).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,{...pushEnv,GITHUB_RUN_ATTEMPT:'2'},pushEvent,kst(arm)).allowed,false);
+ }
 
  assert.equal(authorizeArmedDelivery(kind,env,event(kind),kst(arm,'2026-11-01')).allowed,false,
   'closed Korean session cannot arm');
@@ -59,7 +75,7 @@ for(const [kind,before,arm,target,last,cutoff] of [
  assert.equal(r.date,date);
  assert.equal(r.reason,'ARM_TARGET_REACHED');
  assert.equal(clockNow,kst(target).getTime(),'must not enter delivery pipeline before target');
- assert.ok(ticks>0&&ticks<=180);
+ assert.ok(ticks>0&&ticks<=270);
  assert.equal(await waitUntilPunctualWindow(kind,{env,event:event(kind),now:()=>kst(cutoff)}).then(x=>x.ready),false);
  const late=await waitUntilPunctualWindow(kind,{env,event:event(kind),now:()=>kst(last),
   sleep:async()=>assert.fail('late runner should not sleep')});
@@ -83,8 +99,12 @@ const checks=[
 for(const c of checks){
  const src=fs.readFileSync('.github/workflows/'+c.file,'utf8');
  const y=YAML.parse(src),j=y.jobs.armed,steps=j.steps;
- assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch'],
-  'schedule or authenticated external dispatch only; never push');
+ if(c.kind==='close'){
+   assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch','push']);
+   assert.deepEqual(y.on.push,{branches:['main'],paths:['ops/telegram-close-arm-trigger.txt']});
+   assert.match(j.if,/github\.event_name == 'push'/);
+ }else assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch'],
+  'morning schedule/dispatch only; never push');
  assert.deepEqual(y.on.schedule,[{cron:c.cron}]);
  assert.equal(y.concurrency.group,c.group,'share original dated claim concurrency group');
  assert.equal(y.concurrency['cancel-in-progress'],false);
