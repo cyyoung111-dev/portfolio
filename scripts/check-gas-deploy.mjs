@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import YAML from 'yaml';
 import {
   buildUpdatedFiles,
   deploymentIdFromWebAppUrl,
@@ -937,3 +938,36 @@ console.log('✅ GAS clasp 인증·Node 24 자동배포 구성 회귀 검사 통
  assert.equal(runRealDiagnostics({...args,missing:['runPortfolioMorningKrxBackfill0845']}).data.overallStatus,'ERROR','missing morning recovery remains ERROR');
 }
 console.log('Actual automation publication wait remains WARNING; fund failure/missing recovery remain ERROR: PASS');
+
+function validateInventoryBeforeProductionDeploy(wf){
+ const doc=YAML.parse(wf),job=doc.jobs.deploy;
+ const steps=job.steps;
+ const gate=steps.findIndex(x=>x.name==='Require clean full GAS deployment inventory before real deploy');
+ const publish=steps.findIndex(x=>x.name==='Deploy GAS');
+ const read=steps.findIndex(x=>x.name==='Read-only release state before any deployment write');
+ assert.ok(gate>read&&publish>gate,'inventory must precede actual deployment');
+ const step=steps[gate];
+ assert.equal(step.run,'node scripts/issue507-deployment-inventory-readonly.mjs');
+ assert.equal(step.if,"env.GAS_DEPLOY_DRY_RUN != 'true'");
+ assert.equal(step['continue-on-error'],undefined);
+ assert.equal(job.environment,'portfolio-production-gas');
+ assert.ok(String(job.env.CLASPRC_JSON||'').includes('secrets.CLASPRC_JSON'));
+ assert.equal(job.concurrency['cancel-in-progress'],false);
+ const auditor=fs.readFileSync('scripts/issue507-deployment-inventory-readonly.mjs','utf8');
+ assert.ok(auditor.includes("if(result.status==='BLOCKED')process.exitCode=2"));
+ assert.ok(auditor.includes('additionalRoutableDeploymentCount'));
+ assert.ok(auditor.includes('unverifiedVersionedDeploymentCount'));
+ assert.ok(auditor.includes('releaseAuthorized:false'));
+}
+const inventoryDeploymentWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+validateInventoryBeforeProductionDeploy(inventoryDeploymentWorkflow);
+for(const [before,after] of [
+ ["if: env.GAS_DEPLOY_DRY_RUN != 'true'","if: always()"],
+ ['node scripts/issue507-deployment-inventory-readonly.mjs','echo skipped'],
+ ['      - name: Require clean full GAS deployment inventory before real deploy','      - name: Bypass inventory'],
+ ['      - name: Deploy GAS','      - name: Bypass deploy'],
+ ['    environment: portfolio-production-gas','    environment: unprotected']
+]){
+ const alt=inventoryDeploymentWorkflow.replace(before,after);
+ if(alt!==inventoryDeploymentWorkflow)assert.throws(()=>validateInventoryBeforeProductionDeploy(alt));
+}
