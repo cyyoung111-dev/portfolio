@@ -53,12 +53,13 @@ export async function dispatchProtectedWorkflow(controller,env,{
   const url=API+result.workflow+'/dispatches';
   try{
     const response=await fetchImpl(url,{
-      method:'POST',redirect:'error',
+      method:'POST',redirect:'manual',
       headers:{
         'Authorization':'Bearer '+token,
         'Accept':'application/vnd.github+json',
         'X-GitHub-Api-Version':'2022-11-28',
-        'Content-Type':'application/json'
+        'Content-Type':'application/json',
+        'User-Agent':'cyyoung111-portfolio-briefing-dispatcher'
       },
       body:JSON.stringify({ref:'main'}),
       signal:AbortSignal.timeout(10000)
