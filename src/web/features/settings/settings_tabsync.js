@@ -110,11 +110,21 @@ async function manualSyncByTab(tabId) {
       const hasLocalData = EDITABLE_PRICES.length > 0 || rawTrades.length > 0;
       if (hasLocalData) {
         // 로컬 데이터 있음 → GAS에 업로드
-        const r0 = await saveSettings(true);
-        const r1 = await syncCodesToGsheet();
-        await syncHoldingsToGsheet();
-        await syncTradesToGsheet();
-        ok = !!(r0 || r1);
+        // A manual sync is complete only after ALL four writes succeed.
+        // A partial trade/Snapshot rebuild must never display "completed".
+        // Stop at the first failure so later stages cannot hide the error.
+        const settingsSaved = await saveSettings(true);
+        const codesSaved = settingsSaved === true
+          ? await syncCodesToGsheet() : null;
+        const holdingsSaved = codesSaved?.status === 'ok'
+          ? await syncHoldingsToGsheet() : null;
+        const tradesSaved = holdingsSaved?.status === 'ok'
+          ? await syncTradesToGsheet() : null;
+        ok = settingsSaved === true
+          && codesSaved?.status === 'ok'
+          && holdingsSaved?.status === 'ok'
+          && tradesSaved?.status === 'ok'
+          && tradesSaved?.saveState !== 'partial';
         if (ok) {
           try { refreshAll(); } catch(e) {}
           try { if (typeof buildStockMgmt  === 'function') buildStockMgmt();  } catch(e) {}
