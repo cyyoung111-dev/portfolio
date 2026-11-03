@@ -648,7 +648,7 @@ function _validateTradeTimelineCorrection(candidate, editingId) {
       const count = Number(item.qty), actionRatio = Number(item.ratio);
       const day = String(item.date || '');
       if (item === candidate) currentQty = balance;
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
         return {ok:false,message:'❌ 거래일을 확인할 수 없습니다. 날짜를 다시 선택해주세요'};
       }
       if (item.tradeType === 'buy') {
