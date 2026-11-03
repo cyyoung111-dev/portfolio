@@ -6,6 +6,10 @@ on:
     - cron: '35 7 * * 1-5' # 16:35 KST early-arm; target 17:00 KST
   # External independent scheduler may dispatch, but clock/date gates still apply.
   workflow_dispatch:
+  # A reviewed main-only push provides an independent one-file activation path.
+  push:
+    branches: [main]
+    paths: ['ops/telegram-close-arm-trigger.txt']
 permissions:
   contents: read
   actions: read
@@ -17,7 +21,7 @@ concurrency:
   queue: max
 jobs:
   armed:
-    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.run_attempt == 1
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: portfolio-production-gas
     timeout-minutes: 50
