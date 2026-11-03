@@ -1,0 +1,18 @@
+name = "portfolio-lookup-performance"
+main = "worker.mjs"
+compatibility_date = "2026-11-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+INGEST_ENABLED = "false"
+ALLOWED_ORIGIN = ""
+
+# Create D1 and replace database_id before deploying.
+[[d1_databases]]
+binding = "DB"
+database_name = "portfolio-lookup-performance"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[triggers]
+crons = ["0 16 * * *"] # 01:00 KST retention cleanup
