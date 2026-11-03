@@ -78,14 +78,58 @@ for (const failed of ['tradesOk','holdingsOk']) {
   const x=setup();
   x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
   x.response.portfolioReadStatus[failed]=false;
+  const calls=[];
+  x.ctx.requestGsheetActionJson=async action=>{
+    calls.push(action);
+    return action==='getBootstrap'?x.response:{status:'error',errorCode:'SERVER_ERROR'};
+  };
   const before=[...x.storage];
   assert.equal(await x.ctx.loadSettings(),false,
     'initial bootstrap must fail closed on '+failed);
+  assert.deepEqual(calls,['getBootstrap',failed==='tradesOk'?'getTrades':'getHoldings'],
+    'only the failed financial subread may retry');
   assert.match(x.ctx.getGsheetSettingsLoadFailure(),
     new RegExp(failed==='tradesOk'?'TRADES_READ_FAILED':'HOLDINGS_READ_FAILED'));
   assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
   assert.equal(x.writes,0,'partial read cannot create financial writes');
   assert.deepEqual([...x.storage],before,'partial read preserves local original');
+}
+// A partially successful Bootstrap can be recovered with exactly one
+// authenticated read-only GET per failed financial subread. Never echo a
+// successfully restored ledger back to GAS or create a dirty journal.
+for (const failed of ['tradesOk','holdingsOk']) {
+  const x=setup();
+  x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  x.response.portfolioReadStatus[failed]=false;
+  const calls=[];
+  const trade={date:'2026-10-07',tradeType:'buy',acct:'일반',
+    name:'테스트',code:'005930',qty:2,price:100,assetType:'주식'};
+  const holding={acct:'일반',name:'테스트',code:'005930',qty:2,
+    costAmt:200,assetType:'주식'};
+  x.response.trades=failed==='tradesOk'?[...[]]:[trade];
+  x.response.holdings=failed==='holdingsOk'?[...[]]:[holding];
+  x.ctx.requestGsheetActionJson=async (action,params,options)=>{
+    calls.push(action);
+    if(action==='getBootstrap')return x.response;
+    assert.equal(options.retry,0,'financial subread must not do repeated writes/requests');
+    assert.equal(options.timeoutMs,20000);
+    assert.equal(options.preserveError,true);
+    return action==='getTrades'?{status:'ok',trades:[trade]}
+      :action==='getHoldings'?{status:'ok',holdings:[holding]}
+      :{status:'error'};
+  };
+  let saveCalls=[];
+  const originalSave=x.ctx.saveHoldings;
+  x.ctx.saveHoldings=(opts)=>{saveCalls.push(opts);return originalSave(opts);};
+  assert.equal(await x.ctx.loadSettings(),true,
+    'a separately verified subread should restore the first mobile session');
+  assert.deepEqual(calls,['getBootstrap',failed==='tradesOk'?'getTrades':'getHoldings']);
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),true);
+  assert.equal(vm.runInContext('rawTrades.length',x.ctx),1);
+  assert.ok(saveCalls.some(opts=>opts?.skipGsheet===true),
+    'remote financial restore must be local-only, never GAS writeback');
+  assert.equal(x.writes,0);
+  assert.equal(x.ctx._getPortfolioRemoteDirty(),null);
 }
 // Apps Script denies a bad token with JSON HTTP 200; do not misreport it as
 // missing stock codes or a generic invalid Settings payload.
@@ -98,8 +142,14 @@ for (const failed of ['tradesOk','holdingsOk']) {
 }
 for(const failed of ['tradesOk','holdingsOk']) {
   h=setup();h.response.portfolioReadStatus[failed]=false;
+  const calls=[];
+  h.ctx.requestGsheetActionJson=async action=>{
+    calls.push(action);
+    return action==='getBootstrap'?h.response:{status:'error',errorCode:'CLIENT_TIMEOUT'};
+  };
   const before=[...h.storage];
   assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),false);
+  assert.deepEqual(calls,['getBootstrap',failed==='tradesOk'?'getTrades':'getHoldings']);
   assert.match(h.ctx.getGsheetSettingsLoadFailure(),new RegExp(failed==='tradesOk'?'TRADES_READ_FAILED':'HOLDINGS_READ_FAILED'));
   assert.deepEqual([...h.storage],before,'forced read failure must precede local settings application');
   assert.equal(h.writes,0);
@@ -1749,7 +1799,11 @@ for(const mode of ['ok','read-failed','backup-failed']) {
  h.response.settings.ACCOUNTS_MASTER=[{name:'계좌'}];
  vm.runInContext('_markPortfolioRemoteDirty()',h.ctx);
  const dirty=JSON.stringify(h.ctx._getPortfolioRemoteDirty());
- if(mode==='read-failed')h.response.portfolioReadStatus.holdingsOk=false;
+ if(mode==='read-failed'){
+  h.response.portfolioReadStatus.holdingsOk=false;
+  h.ctx.requestGsheetActionJson=async action=>
+   action==='getBootstrap'?h.response:{status:'error',errorCode:'SERVER_ERROR'};
+ }
  if(mode==='backup-failed')h.ctx.localStorage.setItem=(k,v)=>{if(k==='portfolio_empty_dirty_restore_archive_v1')throw Error('quota');h.storage.set(k,v);};
  const q=quickFixture(h);await h.ctx.quickFetchByDate();
  assert.equal(h.writes,0,'empty generic dirty must never delete remote ledger, holdings or fundDirect');

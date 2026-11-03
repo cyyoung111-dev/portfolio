@@ -742,19 +742,43 @@ async function loadSettings(onProgress, options) {
       : null;
     // 구버전 GAS는 하위 읽기 성공 여부가 없으므로 일반 초기복원은 기존 동작을 유지하되,
     // 연결 변경 강제복원에서는 "빈 배열"을 성공으로 추정하지 않습니다.
-    const bootstrapTradesOk = bootstrapPortfolioStatus
+    let bootstrapTradesOk = bootstrapPortfolioStatus
       ? bootstrapPortfolioStatus.tradesOk === true
       : !forcePortfolioRestore;
-    const bootstrapHoldingsOk = bootstrapPortfolioStatus
+    let bootstrapHoldingsOk = bootstrapPortfolioStatus
       ? bootstrapPortfolioStatus.holdingsOk === true
       : !forcePortfolioRestore;
-    // A one-shot getBootstrap can return HTTP 200 + status:ok even when its
-    // trades or holdings subread failed. Never treat missing financial rows as
-    // an authoritative empty ledger on a fresh device.
+    // Bootstrap's single-call shortcut may return status:ok but report that
+    // a financial subread failed. Recover ONLY the failed reads, using
+    // existing authenticated read-only endpoints and a bounded single try.
+    // Never substitute partial/empty Bootstrap arrays for server evidence.
     if (shouldRestorePortfolio && isBootstrap
         && (!bootstrapTradesOk || !bootstrapHoldingsOk)) {
-      loadStage = '거래·보유 읽기 확인';
-      return failLoad(!bootstrapTradesOk ? 'TRADES_READ_FAILED' : 'HOLDINGS_READ_FAILED');
+      loadStage = '거래·보유 개별 재조회';
+      const read = (action) => requestGsheetActionJson(action, {}, {
+        timeoutMs: 20000, retry: 0, targetUrl: loadTarget, preserveError: true
+      }).catch(() => null);
+      const missing = await Promise.all([
+        bootstrapTradesOk ? Promise.resolve(null) : read('getTrades'),
+        bootstrapHoldingsOk ? Promise.resolve(null) : read('getHoldings')
+      ]);
+      if (!isLoadConnectionCurrent()) return false;
+      if (!bootstrapTradesOk) {
+        const result = missing[0];
+        bootstrapTradesOk = !!(result && result.status === 'ok'
+          && Array.isArray(result.trades));
+        if (bootstrapTradesOk) data.trades = result.trades;
+      }
+      if (!bootstrapHoldingsOk) {
+        const result = missing[1];
+        bootstrapHoldingsOk = !!(result && result.status === 'ok'
+          && Array.isArray(result.holdings));
+        if (bootstrapHoldingsOk) data.holdings = result.holdings;
+      }
+      if (!bootstrapTradesOk || !bootstrapHoldingsOk) {
+        loadStage = '거래·보유 읽기 확인';
+        return failLoad(!bootstrapTradesOk ? 'TRADES_READ_FAILED' : 'HOLDINGS_READ_FAILED');
+      }
     }
     const portfolioRestorePromise = blockRemotePortfolioRestore
       ? null
@@ -1247,7 +1271,9 @@ async function loadSettings(onProgress, options) {
             rawTrades.push({ ...t, id: t.id || genTradeId() });
           });
           syncHoldingsFromTrades();
-          saveHoldings();
+          // Reapplying server data locally must not mark it dirty and echo
+          // financial trades/holdings back to GAS from a freshly restored device.
+          saveHoldings({ skipGsheet: true });
         } else {
           // ── 거래이력도 없을 때 → 보유현황 시트에서 직접 복원 (최후 fallback)
           try {
@@ -1272,7 +1298,7 @@ async function loadSettings(onProgress, options) {
                   assetType: h.assetType || '주식',
                 });
               });
-              saveHoldings();
+              saveHoldings({ skipGsheet: true });
             }
           } catch(e) { console.warn('보유현황 복원 실패:', e); }
         }
