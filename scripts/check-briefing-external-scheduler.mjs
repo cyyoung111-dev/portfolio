@@ -48,9 +48,11 @@ const makeFetch=status=>async(url,opts)=>{
    'https://api.github.com/repos/cyyoung111-dev/portfolio/actions/workflows/'+
    'telegram-morning-punctual-arm.yml/dispatches');
  assert.equal(opts.method,'POST');
- assert.equal(opts.redirect,'error');
+ assert.equal(opts.redirect,'manual',
+   'Workers only supports manual/follow; redirects must not forward auth');
  assert.equal(opts.headers.Authorization,'Bearer '+token);
  assert.equal(opts.headers.Accept,'application/vnd.github+json');
+ assert.equal(opts.headers['User-Agent'],'cyyoung111-portfolio-briefing-dispatcher');
  assert.equal(opts.headers['Content-Type'],'application/json');
  assert.deepEqual(JSON.parse(opts.body),{ref:'main'});
  assert.ok(opts.signal);
@@ -72,6 +74,11 @@ assert.deepEqual(await run({cron:'unknown',scheduledTime:mr.scheduledTime},env,m
 });
 assert.equal(calls,2,'inert, invalid and disabled runs must not fetch');
 assert.deepEqual(await run(mr,env,makeFetch(403)),{status:'GITHUB_DISPATCH_REJECTED'});
+assert.deepEqual(await run(mr,env,makeFetch(301)),{status:'GITHUB_DISPATCH_REJECTED'},
+ 'GitHub API redirect must not be followed with Bearer token');
+assert.deepEqual(await run(mr,env,makeFetch(302)),{status:'GITHUB_DISPATCH_REJECTED'});
+assert.deepEqual(await run(mr,env,makeFetch(307)),{status:'GITHUB_DISPATCH_REJECTED'});
+assert.deepEqual(await run(mr,env,makeFetch(308)),{status:'GITHUB_DISPATCH_REJECTED'});
 assert.equal((await run(mr,env,async()=>{throw Error('TOKEN_SHOULD_NOT_LEAK');})).status,
  'GITHUB_NETWORK_UNVERIFIED');
 
