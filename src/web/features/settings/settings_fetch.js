@@ -736,23 +736,24 @@ async function pollCurrentPrices() {
   if (document.hidden || !GSHEET_API_URL || _fullPortfolioUpdateInProgress) return false;
   if (typeof _gsBootRestored !== 'undefined'
       && (!_gsBootRestored || _gsPortfolioRestoreRequired)) return false;
-  // Visibility, 60-second polling and manual refresh can overlap on mobile.
-  // Share the entire apply/render operation, not only the GAS request.
-  if (window.__pfPricePollingInFlight) return window.__pfPricePollingInFlight;
+  // Coalesce only calls from the same connection, restore epoch and KST date.
+  // A slow/stale old GAS connection must never block a newly restored one.
+  const requestDate = getDateStr(0);
+  const settingsLoadEpoch = typeof _gsSettingsLoadEpoch !== 'undefined'
+    ? _gsSettingsLoadEpoch : null;
+  const dateInput = typeof $el === 'function' ? $el('quickDateInput') : null;
+  if (dateInput?.value && dateInput.value !== requestDate) return false;
+  const targetUrl = String(GSHEET_API_URL || '').trim();
+  const generation = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration() : 0;
+  const active = window.__pfPricePollingInFlight;
+  if (active && active.date === requestDate && active.targetUrl === targetUrl
+      && active.generation === generation && active.settingsLoadEpoch === settingsLoadEpoch) {
+    return active.run;
+  }
   const pollStartedAt = Date.now();
   const run = (async () => {
   try {
-    const requestDate = getDateStr(0);
-    // A trades-tab reload can begin and finish while the quote request waits.
-    // Snapshot its epoch so even a completed intermediate restore invalidates
-    // the stale response before touching displayed portfolio prices.
-    const settingsLoadEpoch = typeof _gsSettingsLoadEpoch !== 'undefined'
-      ? _gsSettingsLoadEpoch : null;
-    const dateInput = typeof $el === 'function' ? $el('quickDateInput') : null;
-    if (dateInput?.value && dateInput.value !== requestDate) return false;
-    const targetUrl = String(GSHEET_API_URL || '').trim();
-    const generation = typeof getGsheetConnectionGeneration === 'function'
-      ? getGsheetConnectionGeneration() : 0;
     const priceRequestStartedAt = Date.now();
     const results = await fetchFromGsheet(requestDate, { persist: false, polling: true });
     if (typeof _recordLookupPerf === 'function')
@@ -827,11 +828,13 @@ async function pollCurrentPrices() {
     return false;
   }
   })();
-  window.__pfPricePollingInFlight = run;
+  window.__pfPricePollingInFlight = {
+    run, date: requestDate, targetUrl, generation, settingsLoadEpoch
+  };
   try {
     return await run;
   } finally {
-    if (window.__pfPricePollingInFlight === run) window.__pfPricePollingInFlight = null;
+    if (window.__pfPricePollingInFlight?.run === run) window.__pfPricePollingInFlight = null;
     if (typeof _recordLookupPerf === 'function')
       _recordLookupPerf('price.poll-total', Date.now() - pollStartedAt);
   }
