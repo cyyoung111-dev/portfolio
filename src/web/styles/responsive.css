@@ -41,7 +41,7 @@
   .price-status-primary{flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:thin}
   .price-status-meta{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px;scrollbar-width:thin}
   .price-status-chips{flex-wrap:nowrap}
-  .price-status-chip{flex:0 0 auto;padding:2px 5px}
+  .price-status-chip{flex:0 0 auto}
   .toolbar-btn-group{padding-bottom:1px}
   .toolbar-section{padding:1px;gap:2px}
 }
