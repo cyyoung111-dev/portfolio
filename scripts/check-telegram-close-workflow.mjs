@@ -430,4 +430,25 @@ try{
 assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
 
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
+const closeOneoff=YAML.parse(fs.readFileSync(
+ '.github/workflows/telegram-close-arm-20261103.yml','utf8'));
+assert.equal(closeOneoff.concurrency.group,'telegram-close-briefing');
+assert.equal(closeOneoff.concurrency['cancel-in-progress'],false);
+assert.equal(closeOneoff.jobs['close-once'].environment,'portfolio-production-gas');
+assert.equal(closeOneoff.jobs['close-once']['timeout-minutes'],100);
+assert.deepEqual(Object.keys(closeOneoff.on),['push']);
+assert.deepEqual(closeOneoff.on.push.branches,['main']);
+assert.deepEqual(closeOneoff.on.push.paths,['.github/workflows/telegram-close-arm-20261103.yml']);
+assert.ok(closeOneoff.jobs['close-once'].if.includes("github.event_name == 'push'"));
+assert.ok(closeOneoff.jobs['close-once'].if.includes("github.run_attempt == 1"));
+const closeSource=fs.readFileSync('.github/workflows/telegram-close-arm-20261103.yml','utf8');
+assert.ok(closeSource.includes('datetime.datetime(2026,11,3,17,0,'));
+assert.ok(closeSource.includes('datetime.datetime(2026,11,3,17,30,'));
+assert.ok(closeSource.includes('datetime.datetime(2026,11,3,15,0,'));
+assert.ok(closeSource.includes('node scripts/telegram-close-workflow.mjs prepare'));
+assert.ok(closeSource.includes('node scripts/telegram-close-workflow.mjs send'));
+assert.ok(closeSource.includes('telegram-close-runtime/claim.json'));
+assert.ok(closeSource.includes('telegram-close-runtime/sent.json'));
+assert.ok(!closeSource.includes('datetime.datetime(2026,11,2,'));
+
 console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');
