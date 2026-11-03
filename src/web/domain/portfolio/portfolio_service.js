@@ -3,9 +3,17 @@
 //  data.js에서 분리한 포트폴리오 도메인 계산/조회 서비스
 // ════════════════════════════════════════════════════════════════
 
+// Reconcile previously imported YYYY.MM.DD and canonical ISO days without
+// changing historical source rows. New bulk imports are stored as ISO.
+function _portfolioTradeDateKey(value) {
+  const m = String(value || '').trim().match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})$/);
+  if (!m) return String(value || '');
+  return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+}
+
 // ── 계좌+종목별 평균매수단가 계산 (FIFO 누적 방식)
 function calcRealizedPnl() {
-  const sorted = [...rawTrades].sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  const sorted = [...rawTrades].sort((a,b) => _portfolioTradeDateKey(a.date).localeCompare(_portfolioTradeDateKey(b.date)));
   const costMap = {}; // acct||name → { qty, totalCost }
   let totalPnl = 0, totalCost = 0;
 
@@ -81,7 +89,7 @@ function syncHoldingsFromTrades(options) {
 
   // ── Step 1: 매수/매도 분리하여 보유 수량·평균단가 계산
   const map = {};
-  const sorted = [...rawTrades].sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  const sorted = [...rawTrades].sort((a,b) => _portfolioTradeDateKey(a.date).localeCompare(_portfolioTradeDateKey(b.date)));
 
   sorted.forEach(t => {
     if (!t.name || !t.acct) return;
