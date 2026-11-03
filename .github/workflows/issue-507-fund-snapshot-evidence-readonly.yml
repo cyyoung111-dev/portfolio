@@ -40,6 +40,7 @@ jobs:
         run: |
           node scripts/check-issue507-fund-snapshot-evidence-readonly.mjs
           node scripts/check-issue507-oct30-domestic-close-readonly.mjs
+          node scripts/check-issue507-mobile-remote-readonly.mjs
       - name: Read persisted F00001 and F00002 fund/NAV provenance (never writes)
         id: funds
         if: steps.window.outputs.ready == 'true'
@@ -72,6 +73,22 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/diagnose-fund-valuation-readonly.mjs
+      - name: Verify remote trade and holding reads without loading user devices
+        id: mobile
+        if: steps.window.outputs.ready == 'true' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-mobile-remote-readonly.mjs
+      - name: Preview exact KB S-T NAV source without importing or refreshing
+        id: kbpreview
+        if: steps.window.outputs.ready == 'true' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/collect-kb-fund-nav.mjs
       - name: Report all read-only evidence; no financial repair authorization
         if: always()
         env:
@@ -80,16 +97,24 @@ jobs:
           CLOSES: ${{ steps.closes.outcome }}
           HISTORICAL: ${{ steps.historical.outcome }}
           NAV: ${{ steps.nav.outcome }}
+          MOBILE: ${{ steps.mobile.outcome }}
+          KBPREVIEW: ${{ steps.kbpreview.outcome }}
         shell: bash
         run: |
           echo "JOINT_READONLY_FUND_STATUS=$FUNDS"
           echo "JOINT_READONLY_NH_CLOSE_STATUS=$CLOSES"
           echo "JOINT_READONLY_HISTORICAL_STATUS=$HISTORICAL"
           echo "JOINT_READONLY_NAV_STATUS=$NAV"
+          echo "JOINT_READONLY_MOBILE_SOURCE_STATUS=$MOBILE"
+          echo "JOINT_READONLY_KB_NAV_PREVIEW_STATUS=$KBPREVIEW"
           echo 'JOINT_READONLY_FINANCE_WRITES=0'
           echo 'JOINT_READONLY_RELEASE_AUTHORIZED=false'
           if [ "$READY" != 'true' ] || [ "$FUNDS" != 'success' ] || [ "$CLOSES" != 'success' ] || [ "$HISTORICAL" != 'success' ] || [ "$NAV" != 'success' ]; then
             echo 'JOINT_READONLY_EVIDENCE_INCOMPLETE'
+            exit 2
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && { [ "$MOBILE" != 'success' ] || [ "$KBPREVIEW" != 'success' ]; }; then
+            echo 'JOINT_READONLY_FOLLOWUP_EVIDENCE_INCOMPLETE'
             exit 2
           fi
           echo 'JOINT_READONLY_EVIDENCE_COLLECTED_REVIEW_REQUIRED'
