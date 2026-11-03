@@ -1,7 +1,7 @@
 (function(global){
 'use strict';
-const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ100','SOX','VIX','DXY','UST10Y','WTI','GOLD','BTC']);
-const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX',DXY:'DXY',UST10Y:'UST10Y',WTI:'WTI',GOLD:'GOLD',BTC:'BTC'});
+const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ','NASDAQ100','SOX','VIX','DXY','UST10Y','WTI','GOLD','BTC']);
+const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ:'NASDAQ',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX',DXY:'DXY',UST10Y:'UST10Y',WTI:'WTI',GOLD:'GOLD',BTC:'BTC'});
 const STOCKS=Object.freeze({SAMSUNG:'005930',SKHYNIX:'000660'});
 const KRX_FINAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','AFTER_FINAL','EVENING']);
 const STOCK_OFFICIAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','EVENING']);
@@ -37,6 +37,13 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market,currency:null,
   observedAt,quality:delayed?'EOD_DELAYED':quality,fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
 }
+function verifiedNasdaqComposite(point,meta){
+ // Optional only. The NH benchmark code COMP is the verified NASDAQ Composite;
+ // never let a generic Yahoo day-old bar impersonate this series.
+ return meta?.source==='NH_INDEX_DAILY'&&meta.providerCode==='COMP'
+   &&point?.source==='NH_INDEX_DAILY'&&point.status==='CONFIRMED'
+   &&point.priceType==='REGULAR_CLOSE'&&point.sourceDate===point.date;
+}
 function normalizeFxPoint(data,tradingDate,options={}){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close),observedAt:row.observedAt&&Number.isFinite(Date.parse(row.observedAt))?row.observedAt:null})));if(!point)return null;const isCurrent=point.date===tradingDate,scheduledTolerance=Number(options.scheduledToleranceSeconds)===300&&isCurrent&&!point.observedAt;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',observedAt:point.observedAt,quality:scheduledTolerance?'SCHEDULED_DELAY_TOLERANCE_300S':'EOD',fallback:!isCurrent};}
 function trustedStockClose(source){return /^(KRX|KRX_OTP|KRX_OFFICIAL|KRX_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE|NH_REGULAR_CLOSE)$/.test(String(source||'').toUpperCase());}
 function regularCloseObservedAt(tradingDate){return masterApi.checkpointAt(tradingDate,'KRX_FINAL');}
@@ -64,7 +71,8 @@ async function collect(request,tradingDate,options={}){
    // 응답이 요청 범위를 벗어나더라도 장전 당일 Toss 일봉이 전일 KRX 공식 종가를 덮지 못하도록 차단.
    const eligible=options.checkpoint==='MORNING'&&Array.isArray(points)?points.filter(point=>point&&point.date<=benchmarkTo):points;
    const point=latest(eligible);
-   if(!point){missing.push(type);continue;}
+   if(!point){if(type!=='NASDAQ')missing.push(type);continue;}
+   if(type==='NASDAQ'&&!verifiedNasdaqComposite(point,data?.seriesMeta?.NASDAQ))continue;
    payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);
   }
   Object.assign(errors,(data&&data.errors)||{});
