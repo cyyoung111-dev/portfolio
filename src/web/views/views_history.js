@@ -603,6 +603,9 @@ function renderGsheetView(area) {
         <div id="automationStatusBody" style="font-size:.68rem;color:var(--muted);min-height:2.4em">상태 조회 전입니다.</div>
       </div>
 
+      <!-- Minimal lookup performance collector, disabled until consent. -->
+      ${window.PortfolioPerfTelemetry?.renderSettingsHtml?.() || ''}
+
       <!-- URL 입력 -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:8px">Apps Script 웹앱 URL</div>
