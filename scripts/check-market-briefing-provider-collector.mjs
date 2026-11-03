@@ -73,12 +73,12 @@ const notCached=await collector.collect(optionalIndexRequest(makeIndexPayload(),
  {cached:false,record:blockedCalls}),indexDate,{checkpoint:'EVENING'});
 assert.equal(notCached.payload.NASDAQ,undefined,'uncached NH token must not request optional COMP');
 assert.ok(!blockedCalls.find(x=>x.action==='getBenchmarks').requested.includes('NASDAQ'));
-const morningCalls=[];
+const optionalMorningCalls=[];
 const noMorningComp=await collector.collect(optionalIndexRequest(makeIndexPayload(),
- {cached:true,record:morningCalls}),indexDate,{checkpoint:'MORNING'});
+ {cached:true,record:optionalMorningCalls}),indexDate,{checkpoint:'MORNING'});
 assert.equal(noMorningComp.payload.NASDAQ,undefined);
-assert.ok(!morningCalls.some(x=>x.action==='getNhAuthStatusProxy'));
-assert.ok(!morningCalls.find(x=>x.action==='getBenchmarks').requested.includes('NASDAQ'));
+assert.ok(!optionalMorningCalls.some(x=>x.action==='getNhAuthStatusProxy'));
+assert.ok(!optionalMorningCalls.find(x=>x.action==='getBenchmarks').requested.includes('NASDAQ'));
 for(const [patch,metaPatch] of [
  [{source:'YAHOO'},{}],
  [{status:'PARTIAL'},{}],
