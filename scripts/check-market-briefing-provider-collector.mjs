@@ -99,8 +99,8 @@ const fallbackRequest=async(action,params)=>{
  throw Error('unexpected optional failure action');
 };
 const failedOptional=await collector.collect(fallbackRequest,indexDate,{checkpoint:'EVENING'});
-assert.equal(failedOptional.payload.SPX.value,7600);
-assert.equal(failedOptional.payload.NDX.value,28000);
+assert.equal(failedOptional.payload.SP500.value,7600);
+assert.equal(failedOptional.payload.NASDAQ100.value,28000);
 assert.equal(failedOptional.payload.NASDAQ,undefined);
 assert.ok(!failedOptional.missing.includes('NASDAQ'));
 assert.equal(failedOptional.errors.getBenchmarks,undefined,
