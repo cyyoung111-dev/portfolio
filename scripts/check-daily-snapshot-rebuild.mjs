@@ -181,8 +181,8 @@ assert.match(settings, /const bootstrapPortfolioStatus = isBootstrap[\s\S]*boots
   'bootstrap 하위 거래·보유 읽기 성공 여부를 강제 복원 판정에 보존');
 assert.match(settings, /let bootstrapTradesOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore[\s\S]*let bootstrapHoldingsOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore/,
   '구버전 bootstrap의 성공 여부 누락은 연결 변경 강제 복원에서 안전 실패 처리');
-assert.match(settings, /if \(forcePortfolioRestore && portfolioRestorePromise\)[\s\S]*forcedPortfolioRestoreData = await portfolioRestorePromise[\s\S]*preflightTradesOk[\s\S]*preflightHoldingsOk[\s\S]*if \(!preflightTradesOk \|\| !preflightHoldingsOk\) \{\s*return failLoad\(!preflightTradesOk \? 'TRADES_READ_FAILED' : 'HOLDINGS_READ_FAILED'\)/,
-  '연결 변경 강제 복원은 설정 전역상태 적용 전에 거래·보유 읽기를 preflight');
+assert.match(settings, /if \(portfolioRestorePromise\)[\s\S]*forcedPortfolioRestoreData = await portfolioRestorePromise[\s\S]*preflightTradesOk[\s\S]*preflightHoldingsOk[\s\S]*if \(!preflightTradesOk \|\| !preflightHoldingsOk\) \{\s*return failLoad\(!preflightTradesOk \? 'TRADES_READ_FAILED' : 'HOLDINGS_READ_FAILED'\)/,
+  '최초 복원과 연결 변경 강제 복원 모두 설정 전역상태 적용 전에 거래·보유 읽기를 preflight');
 assert.match(settings, /if \(!hasAuthoritativeFundDirect && holdingsLoaded\) \{[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*Object\.prototype\.hasOwnProperty\.call\(fundDirect, h\.name\)[\s\S]*fundDirect\[h\.name\]/,
   'fundDirect 키가 없는 레거시 연결만 holdings의 직접펀드를 보완 복원');
 assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*const targetUrl[\s\S]*const isCurrentLoad[\s\S]*const generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*_applyDivData/,

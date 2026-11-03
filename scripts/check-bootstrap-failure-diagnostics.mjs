@@ -94,6 +94,30 @@ for (const failed of ['tradesOk','holdingsOk']) {
   assert.equal(x.writes,0,'partial read cannot create financial writes');
   assert.deepEqual([...x.storage],before,'partial read preserves local original');
 }
+// A first-load mobile fallback to legacy getSettings must not claim a
+// successful restore when getTrades or getHoldings fails. Both reads are
+// required before any remote Settings overwrite or empty-ledger acceptance.
+for(const failedAction of ['getTrades','getHoldings']) {
+  const x=setup(),calls=[];
+  x.ctx.requestGsheetActionJson=async action=>{
+    calls.push(action);
+    if(action==='getBootstrap') return {status:'error',errorCode:'UNKNOWN_ACTION'};
+    if(action==='getSettings') return {status:'ok',settings:x.response.settings};
+    if(action===failedAction)return {status:'error',errorCode:'CLIENT_TIMEOUT'};
+    if(action==='getTrades')return {status:'ok',trades:[]};
+    if(action==='getHoldings')return {status:'ok',holdings:[]};
+    throw Error('unexpected action '+action);
+  };
+  const before=[...x.storage];
+  assert.equal(await x.ctx.loadSettings(),false,'legacy first-load '+failedAction+' must fail closed');
+  assert.deepEqual(calls,['getBootstrap','getSettings','getTrades','getHoldings']);
+  assert.match(x.ctx.getGsheetSettingsLoadFailure(),
+    new RegExp(failedAction==='getTrades'?'TRADES_READ_FAILED':'HOLDINGS_READ_FAILED'));
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
+  assert.equal(vm.runInContext('rawTrades.length',x.ctx),0);
+  assert.deepEqual([...x.storage],before,'failed legacy financial read cannot mutate local storage');
+  assert.equal(x.writes,0,'failed legacy read cannot POST financial payloads');
+}
 // A partially successful Bootstrap can be recovered with exactly one
 // authenticated read-only GET per failed financial subread. Never echo a
 // successfully restored ledger back to GAS or create a dirty journal.
@@ -1864,8 +1888,10 @@ for (const configured of [true, false]) {
 }
 {
   const f=setup();
-  f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}:
-    {status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.282'};
+  f.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'?{status:'error'}
+    :action==='getTrades'?{status:'ok',trades:[]}
+    :action==='getHoldings'?{status:'ok',holdings:[]}
+    :{status:'ok',settings:{...f.response.settings,apiKeyStatus:{publicDataApiKeyConfigured:true,krxAuthKeyConfigured:true}},gasVersion:'9.282'};
   assert.equal(await f.ctx.loadSettings(),true);
   assert.equal(f.ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true,'legacy getSettings also restores status');
 }

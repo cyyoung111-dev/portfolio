@@ -810,11 +810,12 @@ async function loadSettings(onProgress, options) {
           { timeoutMs: 15000, retry: 1, targetUrl: loadTarget }
         ).catch(() => null);
 
-    // 연결 변경 강제 복원은 설정 전역상태를 건드리기 전에 거래/보유 원격 읽기가 둘 다
-    // 성공했는지 먼저 확인합니다. 실패한 B의 설정 일부와 A의 포트폴리오가 섞이지 않게 합니다.
+    // 최초 모바일 복원과 연결 변경 강제 복원 모두, 거래/보유 읽기 성공을
+    // 설정 전역상태 적용 전에 확인합니다. 구형 GAS(getSettings fallback)의
+    // 조회 실패를 빈 거래원장으로 처리하고 복원 성공을 표시하지 않습니다.
     let forcedPortfolioRestoreData = null;
     loadStage = '거래·보유 읽기 확인';
-    if (forcePortfolioRestore && portfolioRestorePromise) {
+    if (portfolioRestorePromise) {
       forcedPortfolioRestoreData = await portfolioRestorePromise;
       if (!isLoadConnectionCurrent()) return false;
       const preflightTrades = forcedPortfolioRestoreData?.[0];
