@@ -65,3 +65,53 @@ jobs:
             diagnosticAvailable:statuses.length===1}));
           if(statuses.length!==1)process.exitCode=1;
           JS
+      - name: Verify KRX 37-code coverage and 11/02 KOSPI 200 independently (READ_ONLY)
+        if: always()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          import {runCoverage} from './scripts/diagnose-krx-held-coverage.mjs';
+          import {fetchOfficialDailyIndexes} from './scripts/krx-official-daily-index.mjs';
+          const date='2026-11-02',expectedK200=920.63;
+          const sanitize=x=>typeof x==='string'&&/^KRX_[A-Z_]+$/.test(x)
+            ?x:'KRX_READ_ONLY_UNVERIFIED';
+          if(!process.env.GAS_WEB_APP_URL||!process.env.GAS_ACCESS_TOKEN){
+            console.log(JSON.stringify({kind:'ISSUE734_KRX_PROOF',date,
+              status:'UNVERIFIED',reason:'GAS_CREDENTIALS_NOT_AVAILABLE'}));
+            process.exit(0);
+          }
+          try{
+            const official=await fetchOfficialDailyIndexes(date,{
+              url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+            });
+            const codes=official.map(row=>row.type).sort();
+            const k200=official.find(row=>row.type==='KOSPI200');
+            console.log(JSON.stringify({kind:'ISSUE734_OFFICIAL_INDEX_READBACK',
+              date,officialSeries:codes,
+              k200Confirmed:!!k200,
+              k200MatchesStoredReference:!!k200
+                &&Math.abs(k200.value-expectedK200)<0.005,
+              mode:'READ_ONLY'}));
+          }catch{
+            console.log(JSON.stringify({kind:'ISSUE734_OFFICIAL_INDEX_READBACK',
+              date,status:'UNVERIFIED',mode:'READ_ONLY'}));
+          }
+          try{
+            const coverage=await runCoverage({
+              url:process.env.GAS_WEB_APP_URL,
+              token:process.env.GAS_ACCESS_TOKEN,dates:date
+            });
+            const data=coverage?.results?.[0]||{};
+            console.log(JSON.stringify({kind:'ISSUE734_OFFICIAL_HELD_COVERAGE',
+              date,expected:data.expected??null,exact:data.exact??null,
+              missing:data.missing??null,stale:data.stale??null,
+              market:data.market||null,ready:data.ready===true,
+              mode:'READ_ONLY',financialWrites:0}));
+          }catch(error){
+            console.log(JSON.stringify({kind:'ISSUE734_OFFICIAL_HELD_COVERAGE',
+              date,status:'UNVERIFIED',reason:sanitize(error?.message),
+              mode:'READ_ONLY',financialWrites:0}));
+          }
+          JS
