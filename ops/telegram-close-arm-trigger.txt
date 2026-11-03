@@ -1,0 +1,6 @@
+# Main-only closing-briefing pre-arm trigger
+# Changing this single file on a KRX-open day between 16:20 and 17:00 KST
+# starts the EXISTING guarded telegram-close-punctual-arm workflow.
+# This is not a schedule, credential, approval, Telegram message or source value.
+# A dated claim and API SENT are still required for any message delivery.
+initialized=2026-11-03
