@@ -72,7 +72,7 @@ async function collect(request,tradingDate,options={}){
    const eligible=options.checkpoint==='MORNING'&&Array.isArray(points)?points.filter(point=>point&&point.date<=benchmarkTo):points;
    const point=latest(eligible);
    if(!point){if(type!=='NASDAQ')missing.push(type);continue;}
-   if(type==='NASDAQ'&&!verifiedNasdaqComposite(point,data?.seriesMeta?.NASDAQ))continue;
+   if(type==='NASDAQ'&&(point.date>=tradingDate||!verifiedNasdaqComposite(point,data?.seriesMeta?.NASDAQ)))continue;
    payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);
   }
   Object.assign(errors,(data&&data.errors)||{});
