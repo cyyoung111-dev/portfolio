@@ -19,8 +19,9 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  // KOSPI200은 NH 미지원이며 Yahoo 과거값도 확정 KRX 종가가 아닙니다.
  const isKrIndex=type==='KOSPI'||type==='KOSDAQ'||type==='KOSPI200';
  const krxCloseVerified=Boolean(source==='KRX_OFFICIAL'&&!delayed&&providerMeta&&providerMeta.confirmedClose===true
-  &&(point.sourceDate==null||point.sourceDate===sourceDate)
-  &&(type!=='KOSPI200'||providerMeta.officialDate===sourceDate)
+  &&(type==='KOSPI200'
+    ?point.sourceDate===sourceDate&&providerMeta.officialDate===sourceDate
+    :point.sourceDate==null||point.sourceDate===sourceDate)
   &&observedAt&&(!isCurrent||KRX_FINAL_CHECKPOINTS.includes(checkpoint)));
  const final=isKrIndex?krxCloseVerified:(!isCurrent||krxCloseVerified);
  // 공백 증거는 기준일과 확인된 CLOSED 날짜 모두를 포함해 MARKET_MASTER에 보존합니다.
