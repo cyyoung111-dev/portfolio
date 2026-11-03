@@ -74,7 +74,8 @@ function calcDividends() {
     // ★ 실제 배당 이벤트가 있으면 해당 배당 기준일 보유수량 × 실제 주당배당금으로 우선 계산
     //   아직 이벤트가 없는 미래 지급월은 기존 perShare 평균값으로 예상치를 채워 연간 전망을 유지합니다.
     let annualDiv = 0;
-    let actualDiv = 0;
+    let actualDiv = 0; // declared/event-confirmed payout, NOT proven cash receipt
+    let receivedDiv = 0; // only explicit manual payment confirmation
     const monthlyDiv = {}; // month → 실제+예상 배당금
     const actualMonths = new Set();
     events.forEach(ev => {
@@ -93,6 +94,8 @@ function calcDividends() {
       const div = amount * qty;
       actualMonths.add(month);
       actualDiv += div;
+      if (ev?.receivedConfirmed === true && /^\d{4}-\d{2}-\d{2}$/.test(payDate)
+          && payDate <= _kstTodayStr()) receivedDiv += div;
       annualDiv += div;
       monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
     });
@@ -114,7 +117,7 @@ function calcDividends() {
     const totalQty = currentQtyMap[name] || 0;
 
     if (annualDiv > 0 || totalQty > 0) {
-      result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv });
+      result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv, receivedDiv });
     }
   });
 
@@ -162,8 +165,9 @@ function renderDivView(area, skipFetch) {
   });
 
   // 올해 지난달까지 누적 수령액
-  const receivedSoFar = monthly.slice(0, nowMonth - 1).reduce((s,v)=>s+v, 0);
-  const remainingYear = monthly.slice(nowMonth - 1).reduce((s,v)=>s+v, 0);
+  // Forecast months are NOT evidence of a cash deposit, even after month-end.
+  const receivedSoFar = divRows.reduce((sum,r)=>sum+(r.receivedDiv||0),0);
+  const remainingYear = Math.max(0,totalAnnual-receivedSoFar);
   const selectedMonth = _divSelectedMonth;
   const selectedMonthTotal = selectedMonth ? monthly[selectedMonth - 1] : totalAnnual;
 
@@ -232,9 +236,9 @@ function renderDivView(area, skipFetch) {
       <div class="div-stat-sub">투자원금 대비 연간</div>
     </div>
     <div class="div-stat-card">
-      <div class="div-stat-label">✅ 올해 수령 (${nowMonth-1}월까지)</div>
+      <div class="div-stat-label">✅ 올해 입금 확인 (수동)</div>
       <div class="div-stat-value c-green">${fmtW(Math.round(receivedSoFar))}</div>
-      <div class="div-stat-sub">남은 예상 ${fmtW(Math.round(remainingYear))}</div>
+      <div class="div-stat-sub">미입금 확인·예상 ${fmtW(Math.round(remainingYear))} · 지급일 경과만으로 수령 확정하지 않음</div>
     </div>
   </div>
 
