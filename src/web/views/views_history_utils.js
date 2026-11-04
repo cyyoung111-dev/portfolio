@@ -4,11 +4,18 @@
 // ════════════════════════════════════════════════════════════════
 
 function _histDateKey(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
+  // Legacy transactions can predate the bulk-import ISO migration.
+  // Match trade-editor date semantics so their cash flows are not mistaken
+  // for investment performance when the graph uses ISO Snapshot dates.
+  const m = String(v || '').trim().match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})(?=$|[T\s])/);
   if (!m) return '';
-  // 날짜 input과 스냅샷 정규화 형식(YYYY-MM-DD)에 맞춘다.
-  // 점 형식으로 반환하면 같은 날짜도 input 값과 일치하지 않아 "스냅샷 없음"으로 오판한다.
-  return `${m[1]}-${m[2]}-${m[3]}`;
+  const [year, month, day] = m.slice(1).map(Number);
+  const stamp = Date.UTC(year, month - 1, day);
+  const check = new Date(stamp);
+  if (!Number.isFinite(stamp) || check.getUTCFullYear() !== year
+      || check.getUTCMonth() + 1 !== month || check.getUTCDate() !== day) return '';
+  return String(year).padStart(4, '0') + '-'
+    + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
 }
 
 function _fmtAxisKrw(v) {
