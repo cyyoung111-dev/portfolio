@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {CNN_FEAR_GREED_URL,readFearGreed,parseFearGreed,verifyFearGreed,formatFearGreed}
+import {CNN_FEAR_GREED_URL,readFearGreed,parseFearGreed,verifyFearGreed,formatFearGreed,sentFearGreedStatus}
   from './briefing-fear-greed.mjs';
 import {formatFullMorningBriefing,MORNING_SERIES,expectedMorningDate}
   from './telegram-morning-report.mjs';
-import {formatClose} from './telegram-close-workflow.mjs';
+import {formatClose,deliverClose} from './telegram-close-workflow.mjs';
+import {deliverPrepared} from './telegram-morning-workflow.mjs';
 
 const morning=new Date('2026-11-04T07:40:00+09:00');
 const close=new Date('2026-11-04T17:00:00+09:00');
@@ -79,4 +80,40 @@ const closeSource=fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8');
 assert.match(closeSource,/reportInputs:\{[^\n]*fearGreed/);
 assert.match(closeSource,/verifyFearGreed\(r\.fearGreed,\{now:now\(\)\}\)/,
   'SEND time must revalidate CNN provenance and age');
+// Proof logs are emitted AFTER a successful send and contain no numeric
+// reading or Telegram identifiers, only the final message classification.
+assert.equal(sentFearGreedStatus(morningReport),'VERIFIED');
+assert.equal(sentFearGreedStatus(closeReport),'VERIFIED');
+assert.equal(sentFearGreedStatus(formatFearGreed(null,{now:morning})),'UNAVAILABLE');
+assert.equal(sentFearGreedStatus('no CNN block'),'OMITTED');
+assert.equal(sentFearGreedStatus('CNN 미국주식 공포·탐욕: 999/100 (공포)'),'INVALID');
+assert.equal(sentFearGreedStatus(morningReport+'\\n'+formatFearGreed(valid,{now:morning})),'INVALID');
+const proofLogs=[];
+const originalInfo=console.info;
+try{
+  console.info=msg=>proofLogs.push(JSON.parse(msg));
+  const morningProof=await deliverPrepared({
+    date:'2026-11-04',artifactName:'telegram-morning-claim-2026-11-04',
+    message:morningReport
+  },{now:()=>morning,send:async()=>true});
+  assert.equal(morningProof.status,'SENT');
+  assert.deepEqual(proofLogs[0],{kind:'CNN_FEAR_GREED_SENT',
+    session:'MORNING',date:'2026-11-04',status:'VERIFIED'});
+  const closeProof=await deliverClose({
+    date:'2026-11-04',artifactName:'telegram-close-claim-2026-11-04',
+    nhConfirmed:1,domesticConfirmed:0,message:closeReport
+  },{now:()=>close,send:async()=>true});
+  assert.equal(closeProof.status,'SENT');
+  assert.deepEqual(proofLogs[1],{kind:'CNN_FEAR_GREED_SENT',
+    session:'CLOSE',date:'2026-11-04',status:'VERIFIED'});
+  await assert.rejects(()=>deliverPrepared({
+    date:'2026-11-04',artifactName:'telegram-morning-claim-2026-11-04',
+    message:morningReport
+  },{now:()=>morning,send:async()=>{throw Error('FAKE_SEND_FAILURE');}}),
+    /FAKE_SEND_FAILURE/);
+  assert.equal(proofLogs.length,2,'failed send must not log confirmed CNN receipt');
+}finally{
+  console.info=originalInfo;
+}
+
 console.log('BRIEFING_CNN_FEAR_GREED_PASS source validation, KST, fallback, AM/PM, payload budget');
