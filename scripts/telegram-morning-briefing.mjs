@@ -3,6 +3,8 @@ import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {readNhStoredMorningStocks} from './nh-morning-stock-history.mjs';
 import {readFearGreed} from './briefing-fear-greed.mjs';
+import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
+ formatMorningVkospi,formatMorningTurnover} from './telegram-morning-supplements.mjs';
 import {MORNING_SERIES, expectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 import {loadMorningMaster,mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
@@ -92,7 +94,7 @@ export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
 }
-export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram}={}) {
+export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram,onSourceDiagnostic=()=>{}}={}) {
   if(Number(attempt)!==1)throw new Error('TELEGRAM_RETRY_BLOCKED');
   if(event==='test') { await send(token,chatId,'텔레그램 브리핑 연결 시험입니다. 실제 시장 브리핑은 아닙니다.',{fetchImpl}); return {status:'TEST_SENT'}; }
   if(event!=='schedule')throw new Error('TELEGRAM_EVENT_INVALID');
@@ -110,15 +112,26 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     loadMorningMaster(first.date,{url:process.env.GAS_WEB_APP_URL,
       token:process.env.GAS_ACCESS_TOKEN,fetchImpl,now:now()}),
     readNhMorningIndexes(first.date,{url:process.env.GAS_WEB_APP_URL,
-      token:process.env.GAS_ACCESS_TOKEN,fetchImpl,now:now()}),
+      token:process.env.GAS_ACCESS_TOKEN,fetchImpl,now:now(),onDiagnostic:onSourceDiagnostic}),
     loadMorningDomesticDailyIndexes(first.date,{fetchImpl,now}),
     readNhStoredMorningStocks(first.date,{url:process.env.GAS_WEB_APP_URL,
       token:process.env.GAS_ACCESS_TOKEN,fetchImpl}),
     readFearGreed({fetchImpl,now}),
   ]);
-  const quotes=await collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,
-    now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200',...nhRows.map(row=>row.symbol),...nhStockRows.map(row=>row.symbol)])});
+  const [quotes,supplementRows]=await Promise.all([
+    collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,
+      now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200',...nhRows.map(row=>row.symbol),...nhStockRows.map(row=>row.symbol)])}),
+    readMorningSupplements(first.date,{fetchImpl,now,fetchDaily:fetchDatedDaily,nhRows}).catch(()=>({}))
+  ]);
   const values=mergeMorningSourceRows(quotes,masterRows,nhRows,domesticRows,nhStockRows);
+  const supplements={
+    usReferences:supplementRows.usReferences||[],
+    futures:formatMorningFutures(first.date,supplementRows.futures||[],now()),
+    treasury:formatMorningTreasury(first.date,supplementRows.treasury||[]),
+    vkospi:formatMorningVkospi(supplementRows.vkospi||[]),
+    turnover:formatMorningTurnover(supplementRows.turnoverDate||expectedMorningDate('KOSPI',first.date),
+      supplementRows.turnover||[])
+  };
   const last=allowLateTest?lateTestWindow(now()):scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
   const reference=candidate && candidate.source==='NH' && /^K[A-Z0-9]{8}$/.test(candidate.contract||'') && candidate.kind==='REFERENCE'
@@ -126,7 +139,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && Number.isFinite(candidate.value) && candidate.value>0
     && Number.isFinite(Date.parse(candidate.receivedAt)) && Date.parse(candidate.receivedAt)<=now().getTime()
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
-  const message=formatMorningBriefing(first.date,reference,values,{now:now(),fearGreed});
+  const message=formatMorningBriefing(first.date,reference,values,{now:now(),fearGreed,supplements});
   await send(token,chatId,message,{fetchImpl});
   return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,
     referenceSource:reference?.source||'NONE',referenceDate:reference?.tradingDate||null,
