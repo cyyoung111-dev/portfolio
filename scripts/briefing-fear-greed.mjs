@@ -58,3 +58,18 @@ export function formatFearGreed(input,{now=new Date()}={}){
   const week=row.weekAgo===null?'':` · 1주 ${row.score-row.weekAgo>=0?'+':''}${(row.score-row.weekAgo).toFixed(1)}p`;
   return `CNN 미국주식 공포·탐욕: ${row.score.toFixed(1)}/100 (${LABELS[row.rating]})${week} [${kstStamp(row.observedAt)} KST]`;
 }
+
+/**
+ * Classify only the final text passed to Telegram. Do not log public scores
+ * or the message body; a prepared score may be omitted by the 3,900-char cap.
+ */
+export function fearGreedDisplayStatus(message){
+  if(typeof message!=='string')return 'OMITTED';
+  const prefix='CNN 미국주식 공포·탐욕: ';
+  const lines=message.split('\n').filter(line=>line.startsWith(prefix));
+  if(!lines.length)return 'OMITTED';
+  if(lines.length!==1)return 'AMBIGUOUS';
+  if(lines[0]===prefix+'미확보 (원천·시각 미검증)')return 'UNAVAILABLE';
+  const scoreLine=/^CNN 미국주식 공포·탐욕: (?:100|[1-9]?\d)\.\d\/100 \((?:극단적 공포|공포|중립|탐욕|극단적 탐욕)\)(?: · 1주 [+-]?\d+\.\dp)? \[\d{2}\/\d{2} \d{2}:\d{2} KST\]$/;
+  return scoreLine.test(lines[0])?'DISPLAYED':'UNVERIFIED_FORMAT';
+}
