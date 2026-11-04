@@ -2,6 +2,7 @@ import { krxSessionStatus } from './krx-session-calendar.mjs';
 import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {readNhStoredMorningStocks} from './nh-morning-stock-history.mjs';
+import {readFearGreed} from './briefing-fear-greed.mjs';
 import {MORNING_SERIES, expectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 import {loadMorningMaster,mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
@@ -104,7 +105,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   // identifies missing inputs rather than inferring or reusing stale prices.
   // NH-supported indices never fall back to Yahoo or unverified GAS master.
   // Other independently labeled reference series retain their existing policy.
-  const [candidate,masterRows,nhRows,domesticRows,nhStockRows]=await Promise.all([
+  const [candidate,masterRows,nhRows,domesticRows,nhStockRows,fearGreed]=await Promise.all([
     referenceFetch(first.date,{fetchImpl,now}),
     loadMorningMaster(first.date,{url:process.env.GAS_WEB_APP_URL,
       token:process.env.GAS_ACCESS_TOKEN,fetchImpl,now:now()}),
@@ -113,6 +114,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     loadMorningDomesticDailyIndexes(first.date,{fetchImpl,now}),
     readNhStoredMorningStocks(first.date,{url:process.env.GAS_WEB_APP_URL,
       token:process.env.GAS_ACCESS_TOKEN,fetchImpl}),
+    readFearGreed({fetchImpl,now}),
   ]);
   const quotes=await collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,
     now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200',...nhRows.map(row=>row.symbol),...nhStockRows.map(row=>row.symbol)])});
@@ -124,7 +126,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && Number.isFinite(candidate.value) && candidate.value>0
     && Number.isFinite(Date.parse(candidate.receivedAt)) && Date.parse(candidate.receivedAt)<=now().getTime()
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
-  const message=formatMorningBriefing(first.date,reference,values,{now:now()});
+  const message=formatMorningBriefing(first.date,reference,values,{now:now(),fearGreed});
   await send(token,chatId,message,{fetchImpl});
   return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,
     referenceSource:reference?.source||'NONE',referenceDate:reference?.tradingDate||null,
