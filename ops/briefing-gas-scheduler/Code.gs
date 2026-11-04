@@ -16,6 +16,52 @@ var BC_KIND_ = {
   close:{workflow:'telegram-close-punctual-arm.yml',claim:'telegram-close-claim-',monitorFrom:1082,monitorUntil:1100}
 };
 
+// Extracted from src/gas/apps_script.gs KRX_CONFIRMED_CLOSED_DATES_*.
+// The CI test requires exact parity; UNKNOWN years fail closed until reviewed.
+var BC_KRX_CLOSED_DATES_ = {
+  "2026": [
+    "2026-01-01",
+    "2026-02-16",
+    "2026-02-17",
+    "2026-02-18",
+    "2026-03-02",
+    "2026-05-01",
+    "2026-05-05",
+    "2026-05-25",
+    "2026-06-03",
+    "2026-07-17",
+    "2026-08-17",
+    "2026-09-24",
+    "2026-09-25",
+    "2026-10-05",
+    "2026-10-09",
+    "2026-12-25",
+    "2026-12-31"
+  ],
+  "2027": [
+    "2027-01-01",
+    "2027-02-08",
+    "2027-02-09",
+    "2027-03-01",
+    "2027-05-03",
+    "2027-05-05",
+    "2027-05-13",
+    "2027-07-19",
+    "2027-08-16",
+    "2027-09-14",
+    "2027-09-15",
+    "2027-09-16",
+    "2027-10-04",
+    "2027-10-11",
+    "2027-12-27",
+    "2027-12-31"
+  ]
+};
+function bcMarketSession_(date) {
+  var year=date.slice(0,4);
+  if(!Object.prototype.hasOwnProperty.call(BC_KRX_CLOSED_DATES_,year))return 'UNKNOWN';
+  return BC_KRX_CLOSED_DATES_[year].indexOf(date)>=0?'CLOSED':'OPEN';
+}
 function bcClock_(now) {
   var stamp=Utilities.formatDate(now,BC_ZONE_,'yyyy-MM-dd HH:mm');
   if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(stamp))throw Error('BC_CLOCK_INVALID');
@@ -95,6 +141,9 @@ function bcTick_(now) {
     });
   }
   if(!slot&&!monitor)return 'OUTSIDE_WINDOW';
+  var session=bcMarketSession_(clock.date);
+  if(session==='CLOSED')return 'MARKET_CLOSED';
+  if(session!=='OPEN')throw Error('BC_MARKET_CALENDAR_UNVERIFIED');
   var props=PropertiesService.getScriptProperties();
   if(props.getProperty('BRIEFING_CLOCK_ENABLED')!=='true')return 'DISABLED';
   var token=bcToken_(props),lock=LockService.getScriptLock();
