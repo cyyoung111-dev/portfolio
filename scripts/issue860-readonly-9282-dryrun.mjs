@@ -42,7 +42,9 @@ export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
   // deploy() uses global fetch. Install the guard before any authenticated call.
   globalThis.fetch=guarded;
   process.env.GAS_EXPECTED_MAIN_SHA=process.env.GITHUB_SHA;
-  process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY='false';
+  // The existing diagnostic return precedes alreadyDeployed's web-app probes.
+  // Keep dryRun=true as an independent no-write boundary, even on this path.
+  process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY='true';
   try {
     await assertCurrentMainRelease({sha:process.env.GITHUB_SHA,
       repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,fetchImpl:guarded});
@@ -54,7 +56,11 @@ export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
         referenceFiles:loadTrackedRuntimeSources(),fetchImpl:guarded});
     } catch { failures.push('INVENTORY_UNVERIFIED'); }
     // A BLOCKED inventory must remain visible, but must not hide dry-run evidence.
-    try { dryRun=await deploy(); } catch { failures.push('DRY_RUN_UNVERIFIED'); }
+    try {
+      const releaseState=await deploy();
+      if(releaseState?.mode!=='READ_ONLY_GAS_RELEASE_STATE')throw Error('ISSUE860_STATE_INVALID');
+      dryRun={deployed:false,dryRun:true,version:'9.282',releaseState};
+    } catch { failures.push('DRY_RUN_UNVERIFIED'); }
     await assertCurrentMainRelease({sha:process.env.GITHUB_SHA,
       repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,fetchImpl:guarded});
     return {mode:'ISSUE860_READONLY_9282',sha:process.env.GITHUB_SHA,

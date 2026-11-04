@@ -32,7 +32,7 @@ Object.assign(process.env,{GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'ref
   GAS_DEPLOY_DRY_RUN:'true',GAS_9282_RELEASE_APPROVAL:'false',GAS_9283_RELEASE_APPROVAL:'false',
   CLASPRC_JSON:JSON.stringify({client_id:'FAKE_CLIENT',client_secret:'FAKE_SECRET',refresh_token:'FAKE_REFRESH'})});
 const calls=[],logs=[];
-let extra=true,stale=false,oauthFailure=false,reviewed=false;
+let extra=true,stale=false,oauthFailure=false,reviewed=false,headMatches=false;
 const item=(id,version=336)=>({deploymentId:id,deploymentConfig:version?{versionNumber:version}:{description:'GitHub 878709c0731d · GAS v9.280'},
   entryPoints:[{entryPointType:'WEB_APP',webApp:{entryPointConfig:{access:'MYSELF',executeAs:'USER_DEPLOYING'}}}]});
 const mock=async(url,options)=>{
@@ -45,7 +45,7 @@ const mock=async(url,options)=>{
     value={access_token:'PRIVATE_TEST_ACCESS_TOKEN_123456'};
   } else if(u.pathname.endsWith('/content'))value={scriptId,files:[
     {name:'appsscript',type:'JSON',source:'{}'},
-    {name:'Code',type:'SERVER_JS',source:reviewed&&u.searchParams.has('versionNumber')?candidate:legacy}]};
+    {name:'Code',type:'SERVER_JS',source:headMatches||(reviewed&&u.searchParams.has('versionNumber'))?candidate:legacy}]};
   else if(u.pathname.endsWith('/deployments'))value={deployments:extra?[item(deploymentId),item('ARCHIVED_UNKNOWN_123',0)]:[item(deploymentId)]};
   else if(u.pathname.endsWith('/'+deploymentId))value=item(deploymentId);
   else if(u.pathname.endsWith('/ARCHIVED_UNKNOWN_123'))value=item('ARCHIVED_UNKNOWN_123',0);
@@ -72,6 +72,15 @@ try {
   assert.equal(result.releaseAuthorized,false);
   // Repeated dispatch executes reads again, with no persistent writes.
   assert.equal((await runReadOnly9282({fetchImpl:mock})).dryRun.deployed,false);
+  headMatches=true;
+  const realTimeout=globalThis.setTimeout;
+  try {
+    globalThis.setTimeout=fn=>{queueMicrotask(fn);return 0;};
+    result=await runReadOnly9282({fetchImpl:mock});
+  } finally { globalThis.setTimeout=realTimeout; }
+  assert.equal(result.status,'READ_ONLY_CHECKS_PASSED','already published candidate must not call runtime');
+  assert.equal(result.dryRun.dryRun,true);
+  headMatches=false;
   stale=true;
   let before=calls.length;
   await assert.rejects(runReadOnly9282({fetchImpl:mock}),/GAS_RELEASE_STALE_COMMIT/);
