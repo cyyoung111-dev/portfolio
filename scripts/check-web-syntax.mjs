@@ -179,7 +179,7 @@ if (historyPipelineSource.indexOf('const resultHtml = repairResult') > historyPi
 
 const historyUtilsContext = { fmtDateDot: value => String(value || '') };
 vm.runInNewContext(`${historyUtilsSource}\n` +
-  `globalThis.__dateKey = _histDateKey; globalThis.__returnIndex = _buildCashflowAdjustedReturnIndex;`, historyUtilsContext);
+  `globalThis.__dateKey = _histDateKey; globalThis.__normalizeHistDate = _normalizeHistDate; globalThis.__returnIndex = _buildCashflowAdjustedReturnIndex;`, historyUtilsContext);
 if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
     || historyUtilsContext.__dateKey('2026-06-19') !== '2026-06-19'
     || historyUtilsContext.__dateKey('2026/6/19') !== '2026-06-19'
@@ -189,6 +189,34 @@ if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
     || historyUtilsContext.__dateKey('2026-02-31') !== ''
     || historyUtilsContext.__dateKey('2026-13-01') !== '') {
   console.error('❌ 과거 거래일/조회 날짜의 ISO 정규화·실제 달력 유효성 검사 실패');
+  process.exit(1);
+}
+// History Snapshot display dates must match canonical trade day across PC
+// and Android, not browser-local Date parsing or invalid calendar rollover.
+for (const [input, expected] of [
+  ['2026/1/2', '2026-01-02'],
+  ['2026.1.2', '2026-01-02'],
+  ['2026-01-02', '2026-01-02'],
+  ['2026-02-28', '2026-02-28'],
+  ['2026/02/30', ''],
+  ['2026-02-30', ''],
+  ['2026.2.30', ''],
+  ['2026-13-01', ''],
+  ['2026-04-31', ''],
+  ['2026-11-04T15:50:00Z', '2026-11-04'],
+  ['not-a-date', '']
+]) {
+  if (historyUtilsContext.__normalizeHistDate(input) !== expected) {
+    console.error('❌ 스냅샷/거래일 표기가 달력·ISO 규칙과 불일치:', input);
+    process.exit(1);
+  }
+}
+const kstDate = new Date('2026-11-04T15:50:00Z');
+const dayBeforeKst = new Date('2026-11-04T14:50:00Z');
+if (historyUtilsContext.__normalizeHistDate(kstDate) !== '2026-11-05'
+    || historyUtilsContext.__normalizeHistDate(dayBeforeKst) !== '2026-11-04'
+    || historyUtilsContext.__normalizeHistDate(new Date('invalid')) !== '') {
+  console.error('❌ Date 객체 조회는 PC·모바일 기기시간대가 아닌 KST 기준으로 정규화해야 합니다.');
   process.exit(1);
 }
 const cashflowAdjusted = historyUtilsContext.__returnIndex([
