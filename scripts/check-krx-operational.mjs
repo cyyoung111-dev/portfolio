@@ -578,6 +578,71 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   assert.equal(writes,0);
  }
 }
+// A real 2026-11-04 collector reported NAV_IMPORT_HTTP_UNVERIFIED while
+// the same NAV was visible in the source workbook. Never send a second
+// import for a lost ACK: prove the exact existing date+NAV via read-only
+// preview, then still repair/check derived prices and Snapshot.
+{
+ const {run}=await import('./collect-kb-fund-nav.mjs');
+ const makeFixture=({committed=true,badProof=false,bodyFailure=false}={})=>{
+  let stored=false,writes=0,refreshes=0,readback=0,repaired=false;
+  const calls=[];
+  const fetchImpl=async(u,o)=>{
+   if(!o.body)return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};
+   const p=Object.fromEntries(o.body);calls.push(p.action+(p.mode?':'+p.mode:''));
+   let response={status:'ok'};
+   if(p.accessToken==='NAV_AUTH_PROBE')response={status:'error',message:'인증 실패'};
+   else if(p.action==='getAutomationStatus')response={status:'ok',gasVersion:'9.281',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
+   else if(p.action==='previewFundNavImport'){
+     if(stored){readback++;response={status:'ok',candidates:[],updates:[],errors:[],
+       identical:[{date:'2026-10-23',uploadedNav:2116.98,existingNav:badProof?2116.97:2116.98}]};}
+     else response={status:'ok',candidates:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:[]};
+   } else if(p.action==='collectKbFundNav'&&p.mode==='import'){
+     writes++;if(committed)stored=true;
+     if(bodyFailure)return {ok:true,json:async()=>{throw Object.assign(Error('PRIVATE'),{name:'SyntaxError'});}};
+     return {ok:false,status:503};
+   } else if(p.action==='getFundValuationStatus')
+     response={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',
+       evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',
+       snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
+   else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){refreshes++;repaired=true;}
+   else throw Error('unexpected request in ACK-loss fixture: '+p.action);
+   return {ok:true,json:async()=>response};
+  };
+  return {fetchImpl,calls,get writes(){return writes},get readback(){return readback},get refreshes(){return refreshes}};
+ };
+ const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),apply:true};
+ for(const mode of [{bodyFailure:false},{bodyFailure:true}]){
+   const f=makeFixture(mode);
+   const result=await run({...args,fetchImpl:f.fetchImpl});
+   assert.equal(result.mode,'APPLY');
+   assert.equal(result.importAckRecovered,true,'uncertain import must be explicitly labeled');
+   assert.equal(result.derivedRepaired,1,'derived Snapshot is not proven by NAV alone');
+   assert.equal(f.writes,1,'lost ACK must never retry the write');
+   assert.equal(f.readback,1,'exact NAV must be proven via a separate read-only preview');
+   assert.equal(f.refreshes,1,'source-only commit needs derived reconciliation');
+ }
+ for(const problem of [{committed:false},{committed:true,badProof:true}]){
+   const f=makeFixture(problem);
+   await assert.rejects(()=>run({...args,fetchImpl:f.fetchImpl}),/NAV_READBACK_FAILED/);
+   assert.equal(f.writes,1,'unverified write must never be sent again');
+   assert.equal(f.refreshes,0,'unproved NAV cannot advance derived Snapshot');
+ }
+ // A structured partial write response is NOT a lost transport ACK:
+ // preserve the original fail-closed behavior without speculative readback.
+ let imports=0,readbacks=0;
+ await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>{
+   if(!o.body)return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};
+   const p=Object.fromEntries(o.body);
+   if(p.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+   if(p.action==='getAutomationStatus')return {ok:true,json:async()=>({status:'ok',gasVersion:'9.281',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}})};
+   if(p.action==='previewFundNavImport'){readbacks++;return {ok:true,json:async()=>({status:'ok',candidates:[{date:'2026-10-23',nav:2116.98}],identical:[],updates:[],errors:[],warnings:[]})};}
+   if(p.action==='collectKbFundNav'&&p.mode==='import'){imports++;return {ok:true,json:async()=>({status:'error',saveState:'partial'})};}
+   throw Error('unexpected partial handler');
+ }}),/NAV_IMPORT_UNVERIFIED/);
+ assert.equal(imports,1);
+ assert.equal(readbacks,1,'partial response cannot be certified by a second preview');
+}
 // An identical NAV after a partial import must still repair/recheck derived data.
 {
  const {run}=await import('./collect-kb-fund-nav.mjs');let repaired=false,repairs=0;
