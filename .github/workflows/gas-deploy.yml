@@ -20,6 +20,12 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      first_gate_phase:
+        description: '최초 gate 전환 전용: bootstrap=유지보수 게시, finalize=검증된 DRAINING 후보 게시. 일반 배포는 none'
+        required: true
+        default: none
+        type: choice
+        options: [none, bootstrap, finalize, abort]
       dry_run:
         description: 'Google API 인증·대상 확인만 하고 실제 배포하지 않음'
         required: true
@@ -107,6 +113,7 @@ jobs:
       GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
       GAS_DEPLOY_DRY_RUN: ${{ inputs.dry_run || false }}
+      GAS_FIRST_GATE_PHASE: ${{ inputs.first_gate_phase || 'none' }}
       GAS_9282_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9282 && 'true' || 'false' }}
       GAS_9283_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9283 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
@@ -122,18 +129,23 @@ jobs:
         with:
           node-version: '24'
       - name: Read-only release state before any deployment write
+        if: env.GAS_FIRST_GATE_PHASE == 'none'
         run: GAS_DEPLOY_DIAGNOSTIC_ONLY=true node scripts/deploy-gas.mjs
       # Real production changes are blocked when ANY other routed GAS
       # deployment is unverified, public or has an unreviewed version.
       # Exact current v9.281 inventory is BLOCKED: no deploy can start.
       # Dry-run remains available for no-write auth and source checks.
       - name: Require clean full GAS deployment inventory before real deploy
-        if: env.GAS_DEPLOY_DRY_RUN != 'true'
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Deploy GAS
+        if: env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/deploy-gas.mjs
+      - name: First writer gate maintenance cutover (never resumes writers)
+        if: env.GAS_FIRST_GATE_PHASE != 'none'
+        run: node scripts/issue860-first-cutover.mjs
       - name: Activate NH current prices after real GAS deployment
-        if: env.GAS_DEPLOY_DRY_RUN != 'true'
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         continue-on-error: true
         env:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
@@ -170,6 +182,6 @@ jobs:
         continue-on-error: true
         run: node scripts/krx-domestic-close-readback-20261030.mjs
       - name: Verify KRX 37-code source coverage after live GAS deployment
-        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run && env.GAS_FIRST_GATE_PHASE == 'none'
         continue-on-error: true
         run: node scripts/diagnose-krx-held-coverage.mjs --dates "2026-10-12,2026-10-13"
