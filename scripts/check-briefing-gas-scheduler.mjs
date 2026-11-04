@@ -147,8 +147,8 @@ function environment(){
   // Production GAS's KRX calendar is the source of truth, not generic public holidays.
   const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
   const actual={};
-  for(const match of gas.matchAll(/var KRX_CONFIRMED_CLOSED_DATES_(\\d{4})\\s*=\\s*\\{([\\s\\S]*?)\\};/g)){
-    actual[match[1]]=[...match[2].matchAll(/'(\\d{4}-\\d{2}-\\d{2})'\\s*:\\s*1/g)].map(x=>x[1]);
+  for(const match of gas.matchAll(/var KRX_CONFIRMED_CLOSED_DATES_(\d{4})\s*=\s*\{([\s\S]*?)\};/g)){
+    actual[match[1]]=[...match[2].matchAll(/'(\d{4}-\d{2}-\d{2})'\s*:\s*1/g)].map(x=>x[1]);
   }
   const e=environment();
   assert.deepEqual(Object.keys(e.context.BC_KRX_CLOSED_DATES_).sort(),Object.keys(actual).sort(),
