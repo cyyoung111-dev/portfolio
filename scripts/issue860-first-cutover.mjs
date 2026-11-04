@@ -100,6 +100,20 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
    current.deployment.deploymentConfig.versionNumber!==initial.deployment.deploymentConfig.versionNumber)
    error('CONCURRENT_CHANGE');
   await rpc.inventory(current);await checkMain();
+  // Read readiness again at the last bootstrap-visible point. Version creation
+  // and readback may have consumed the remaining attestation/barrier lifetime.
+  if(phase==='finalize'){
+   const latest=await gate();
+   if(latest.mode!=='DRAINING'||latest.activeCount!==0||latest.repairAuthorized!==false||latest.approvalPresent!==false)
+    error('DRAIN');
+   if(publishedBlob===BOOTSTRAP_BLOB&&(latest.releaseId!==RELEASE||latest.firstCutoverReady!==true))
+    error('BOOTSTRAP_NOT_READY');
+  }
+  if(phase==='bootstrap'&&publishedBlob===FINAL_BLOB){
+   const latest=await gate();
+   if(latest.mode!=='DRAINING'||latest.activeCount!==0||latest.approvalPresent!==false||latest.repairAuthorized!==false)
+    error('DRAIN');
+  }
   await rpc.publish({...initial.deployment.deploymentConfig,versionNumber:v,
    description:'Issue860 '+phase+' GAS v9.282'});
   await verifyDeploymentVersionWithRetry({readDeployment:rpc.readDeployment,

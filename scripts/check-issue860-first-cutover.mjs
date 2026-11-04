@@ -79,7 +79,9 @@ function fixture(head='legacy',published=head){
    deployment:{deploymentConfig:{versionNumber:v,manifestFileName:'appsscript'}}});},
   async inventory(){calls.push('inventory');if(fault.inventory)throw Error('inventory');},
   async writeContent(f){calls.push('content');currentHead=clone(f);},
-  async createVersion(){calls.push('version');const id=next++;versions.set(id,clone(currentHead));return id;},
+  async createVersion(){calls.push('version');const id=next++;versions.set(id,clone(currentHead));
+   if(fault.expireDuringVersion)gateState.firstCutoverReady=false;
+   return id;},
   async readVersion(id){return {files:fault.createdDrift?files('unreviewed'):clone(versions.get(id))};},
   async publish(config){calls.push('publish');if(fault.publishBefore)throw Error('publish lost');v=config.versionNumber;
    if(fault.publishAfter){fault.publishAfter=false;throw Error('publish response lost');}},
@@ -102,6 +104,9 @@ assert.deepEqual(f.calls.filter(x=>['content','version','publish'].includes(x)),
 assert.equal((await f.run('bootstrap')).alreadyDeployed,true);
 f=fixture('bootstrap');assert.equal((await f.run('finalize')).deployed,true);
 assert.equal(f.gateState.mode,'DRAINING');assert.equal((await f.run('finalize')).alreadyDeployed,true);
+f=fixture('bootstrap');f.fault.expireDuringVersion=true;
+await assert.rejects(f.run('finalize'),/FORWARD_RECOVERY_REQUIRED/);
+assert.ok(!f.calls.includes('publish'),'expired readiness must block publication after version creation');
 for(const change of [{mode:'OPEN'},{activeCount:1},{approvalPresent:true},{firstCutoverReady:false},{releaseId:'other'}]){
  f=fixture('bootstrap');Object.assign(f.gateState,change);
  await assert.rejects(f.run('finalize'),/DRAIN|BOOTSTRAP_NOT_READY/);assert.ok(!f.calls.includes('content'));
