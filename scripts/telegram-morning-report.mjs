@@ -2,6 +2,8 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 // Original multi-asset morning briefing structure, rendered in one Telegram message.
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
+import {formatFearGreed} from './briefing-fear-greed.mjs';
+
 export const MORNING_SERIES = Object.freeze([
   {id:'KOSPI',label:'KOSPI',symbol:'^KS11'},
   {id:'KOSDAQ',label:'KOSDAQ',symbol:'^KQ11'},
@@ -205,6 +207,12 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
    +' · 야간선물 '+(reference?'확보':'미확보'),
   '일봉은 각 항목 [날짜] 기준이며 현재가·KRX 공식 정산가와 다릅니다.',
   '미확보 항목은 원천 갱신 지연 또는 거래일 미검증으로 표기합니다.'];
+  // Keep sentiment optional: the original market report and 07:40 gate take priority.
+  const sentiment=formatFearGreed(options?.fearGreed,{now:options?.now||new Date()});
+  const insertAt=lines.indexOf('■ 6. 원자재 / 가상자산');
+  const baseline=lines.join('\n');
+  if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
+    lines.splice(insertAt,0,sentiment);
   const message=lines.join('\n');
   if(message.length>3900)throw Error('TELEGRAM_FULL_BRIEFING_TOO_LONG');
   return message;
