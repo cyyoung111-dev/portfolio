@@ -82,7 +82,7 @@ assert.match(closeSource,/verifyFearGreed\(r\.fearGreed,\{now:now\(\)\}\)/,
 
 // Only the final text, after a successful Telegram call, is observable.
 // Score/credential/message-body values are not emitted by the new production log.
-assert.equal(fearGreedDisplayStatus('HEAD\\n'+formatFearGreed(valid,{now:morning})),
+assert.equal(fearGreedDisplayStatus('HEAD\n'+formatFearGreed(valid,{now:morning})),
   'DISPLAYED','verified message line should be recognized');
 assert.equal(fearGreedDisplayStatus(formatFearGreed(null,{now:morning})),
   'UNAVAILABLE','failed CNN source should remain clearly unavailable');
@@ -91,7 +91,7 @@ assert.equal(fearGreedDisplayStatus(null), 'OMITTED');
 assert.equal(fearGreedDisplayStatus('CNN 미국주식 공포·탐욕: 101.0/100 (탐욕) [11/04 06:32 KST]'),
   'UNVERIFIED_FORMAT','invalid number should never appear as displayed');
 assert.equal(fearGreedDisplayStatus(
-  formatFearGreed(valid,{now:morning})+'\\n'+formatFearGreed(valid,{now:morning})),
+  formatFearGreed(valid,{now:morning})+'\n'+formatFearGreed(valid,{now:morning})),
   'AMBIGUOUS','multiple lines should not be treated as one verified reading');
 assert.equal(fearGreedDisplayStatus(formatFearGreed({...valid,score:0},{now:morning})), 'DISPLAYED');
 assert.equal(fearGreedDisplayStatus(formatFearGreed({...valid,score:100},{now:morning})), 'DISPLAYED');
@@ -100,7 +100,7 @@ assert.equal(fearGreedDisplayStatus(closeReport), 'DISPLAYED');
 for(const file of ['scripts/telegram-morning-workflow.mjs','scripts/telegram-close-workflow.mjs']){
   const source=fs.readFileSync(file,'utf8');
   assert.match(source,/kind:'CNN_FEAR_GREED_DELIVERY'/);
-  assert.match(source,/fearGreedDisplayStatus\\(/);
+  assert.match(source,/fearGreedDisplayStatus\(/);
   assert.ok(source.indexOf('await send(token,chatId,') < source.lastIndexOf("kind:'CNN_FEAR_GREED_DELIVERY'"),
     'CNN display log must happen after Telegram send succeeds: '+file);
 }
