@@ -74,7 +74,8 @@ const outage=await runTelegramMorning({
 });
 assert.equal(outage.status,'SENT_SOURCE_MISSING');
 assert.equal(new Set(requestedYahoo).size,22,'15 primary Yahoo daily series plus three US reference reads and four delayed futures');
-assert.ok(requestedYahoo.length<=30,'one primary and at most one backup per Yahoo-eligible series');
+assert.ok(requestedYahoo.length<=41,
+ '15 primary daily series (up to two hosts), 3 reference-only indices, 4 futures (up to two hosts)');
 assert.ok([...new Set(requestedYahoo)].every(symbol=>
  requestedYahoo.filter(x=>x===symbol).length<=2),'per-series bounded Yahoo retry');
 assert.ok(NH_ONLY_INDEX_SYMBOLS.every(symbol=>requestedYahoo.includes(symbol)),
