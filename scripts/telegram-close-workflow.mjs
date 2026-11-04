@@ -20,7 +20,7 @@ import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
-import {readFearGreed,verifyFearGreed,formatFearGreed} from './briefing-fear-greed.mjs';
+import {readFearGreed,verifyFearGreed,formatFearGreed,sentFearGreedStatus} from './briefing-fear-greed.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
@@ -304,7 +304,11 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed);
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
   }
-  await send(token,chatId,outgoing);return {status:'SENT',date:window.date};
+  await send(token,chatId,outgoing);
+  // Include the SEND-time re-render verdict; no CNN score or recipient leaked.
+  console.info(JSON.stringify({kind:'CNN_FEAR_GREED_SENT',session:'CLOSE',date:window.date,
+    status:sentFearGreedStatus(outgoing)}));
+  return {status:'SENT',date:window.date};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
