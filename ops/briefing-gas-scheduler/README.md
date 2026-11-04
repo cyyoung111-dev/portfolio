@@ -11,7 +11,7 @@
 - 복구 전에 GitHub Actions Artifact에서 당일 `-sent`, 원 Claim을 순서대로 조회합니다. `-sent`가 있으면 재기동하지 않고, Claim만 있으면 **전송 결과 불명으로 판정하고 재기동하지 않습니다.** 둘 다 없을 때만 복구 기동합니다.
 - 08:12–08:29 / 18:02–18:19에 `-sent`를 확인합니다. 없으면 당일 한 번 `BC_MORNING_SENT_NOT_CONFIRMED` / `BC_CLOSE_SENT_NOT_CONFIRMED` 예외로 기록합니다. GAS 자체의 실패 이메일 알림 설정이 켜져 있어야 사용자가 통지받을 수 있습니다.
 - GitHub API dispatch 204는 **발송 성공이 아닙니다.** 실제 성공은 기존 `Send` 단계와 `-sent` 증빙을 반드시 별도로 확인해야 합니다.
-- GitHub runner가 정시 실행되지 않는 상황까지 완전히 제거하지는 못합니다. GAS와 GitHub 중복 기동은 원래의 공통 concurrency, 거래일/시간 검사, 날짜별 Claim에 의해 차단됩니다. 한국 휴장일은 기존 GitHub 거래일 검사에 맡깁니다.
+- GitHub runner가 정시 실행되지 않는 상황까지 완전히 제거하지는 못합니다. GAS와 GitHub 중복 기동은 원래의 공통 concurrency, 거래일/시간 검사, 날짜별 Claim에 의해 차단됩니다. 한국 휴장일은 생산 GAS의 KRX 확정 휴장 달력(2026·2027년)을 동일하게 적용해 기동과 발송 누락 경보 모두 건너뜁니다. 달력 미확인 연도는 fail-closed로 차단합니다.
 
 ## 최초 1회 연결
 
@@ -33,7 +33,7 @@
 - GitHub 401/403/5xx, JSON 이상, 조회 실패에서는 **발송 여부 확인 불가로 fail-closed**입니다. 승인 여부가 불명확한 POST가 다시 시도되더라도 GitHub의 원 Claim은 재전송을 막습니다.
 - GAS 시간 트리거는 초 단위 정시성을 보장하지 않습니다. `everyMinutes(5)`는 분산 기동용으로만 사용합니다. <https://developers.google.com/apps-script/guides/triggers/installable>
 - GitHub Actions Write 최소권한과 `workflow_dispatch`: <https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event>
-- 수정 시 `node scripts/check-briefing-gas-scheduler.mjs`로 실제 생산 GAS 함수를 모의 서비스에서 회귀 실행합니다.
+- 수정 시 `node scripts/check-briefing-gas-scheduler.mjs`로 실제 생산 GAS 함수를 모의 서비스에서 회귀 실행하고, `src/gas/apps_script.gs`의 2026·2027 KRX 휴장 달력과 정확히 대조합니다. 생산 달력에 연도가 추가되면 이 독립 GAS 코드도 업데이트 및 재승인해야 합니다.
 
 ## 현재 운영 분리
 
