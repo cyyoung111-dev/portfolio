@@ -33,8 +33,8 @@ export function parseFearGreed(data,{now=new Date()}={}){
 export async function readFearGreed({fetchImpl=fetch,now=()=>new Date()}={}){
   try{
     const response=await fetchImpl(CNN_FEAR_GREED_URL,{
-      headers:{accept:'application/json',
-        referer:'https://www.cnn.com/markets/fear-and-greed',
+      headers:{accept:'application/json, text/plain, */*',
+        referer:'https://edition.cnn.com/markets/fear-and-greed',
         'user-agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
       redirect:'error',signal:AbortSignal.timeout(4500)
     });
