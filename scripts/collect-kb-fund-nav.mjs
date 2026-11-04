@@ -66,13 +66,32 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   const candidates=preview.candidates.map(({date,nav})=>({date,nav}));
   if(candidates.some(c=>!rows.some(row=>row.date===c.date&&row.nav===c.nav)))throw Error('NAV_PREVIEW_MISMATCH');
   if(!apply)return {mode:'DRY_RUN',sourceRows:rows.length,candidates:candidates.length,imported:0};
+  let importAckRecovered=false;
   if(candidates.length){
-  // One bounded import uses the existing production backup/manual-value guards.
-  // A timeout is unverified: do not blindly retry a possibly committed write.
-  const result=await request('collectKbFundNav',{mode:'import',data:JSON.stringify({...input,rows:candidates})});
-  if(result.status!=='ok'||result.saveState!=='success'||result.evaluation?.missingHoldings?.length)throw Error('NAV_IMPORT_UNVERIFIED');
-  const check=await request('previewFundNavImport',{data:JSON.stringify({...input,rows:candidates})});
-  if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
+    // One bounded import uses the existing production backup/manual-value guards.
+    // A failed transport response can happen AFTER the GAS write. Never retry
+    // the import; verify the exact persisted NAV with the existing read-only
+    // preview instead. All ambiguous/partial outcomes remain hard failures.
+    try {
+      const result=await request('collectKbFundNav',{mode:'import',data:JSON.stringify({...input,rows:candidates})});
+      if(result.status!=='ok'||result.saveState!=='success'||result.evaluation?.missingHoldings?.length)throw Error('NAV_IMPORT_UNVERIFIED');
+    } catch(error) {
+      if(!/^NAV_IMPORT_(?:HTTP|TIMEOUT|NETWORK|JSON)_UNVERIFIED$/.test(String(error?.message||'')))throw error;
+      importAckRecovered=true;
+    }
+    let check;
+    try {check=await request('previewFundNavImport',{data:JSON.stringify({...input,rows:candidates})});}
+    catch(error) {if(importAckRecovered)throw Error('NAV_IMPORT_UNVERIFIED');throw error;}
+    if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
+    if(importAckRecovered){
+      // A mere row count is insufficient to certify a lost ACK. Verify every
+      // requested date and NAV appears as EXACTLY the same stored value.
+      const verified=Array.isArray(check.identical)&&candidates.every(row=>
+        check.identical.some(item=>item.date===row.date
+          && Number(item.existingNav)===row.nav
+          && Number(item.uploadedNav)===row.nav));
+      if(!verified)throw Error('NAV_READBACK_FAILED');
+    }
   }
   const valuation=async()=>{
     const r=await request('getFundValuationStatus',{from,to:valuationTo,code:'F00002'});
@@ -88,7 +107,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   }
   const final=await valuation();
   if(final.some(d=>needsWrite(d)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))throw Error('NAV_DERIVED_PENDING');
-  return {mode:'APPLY',sourceRows:rows.length,candidates:candidates.length,imported:candidates.length,derivedRepaired:pending.length};
+  return {mode:'APPLY',sourceRows:rows.length,candidates:candidates.length,imported:candidates.length,derivedRepaired:pending.length,importAckRecovered};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
   try{console.log(JSON.stringify(await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')})));}
