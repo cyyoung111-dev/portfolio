@@ -111,6 +111,39 @@ assert.equal(expectedMissing.expectedDeploymentFound,true);
 assert.ok(!JSON.stringify(result).includes(expectedDeploymentId));
 assert.ok(!JSON.stringify(result).includes('PRIVATE_'));
 assert.ok(!JSON.stringify(result).includes(scriptId));
+// #860: v335 UI description is a non-authorizing, privacy-safe triage hint.
+// A matching LABEL, even with consistent LIST/DETAIL, never proves a URL
+// is archived or makes a stateful gate cutover safe.
+const archived335=item('ARCHIVED_335_ID_123');
+archived335.deploymentConfig={description:'GitHub 878709c0731d · GAS v9.280'};
+const archived335Audit=await setup(
+ {'':{deployments:[item(expectedDeploymentId),archived335]}},
+ {ARCHIVED_335_ID_123:archived335}
+).run({verifyDetails:true});
+assert.equal(archived335Audit.archivedV335DescriptionHintCount,1);
+assert.equal(archived335Audit.archivedV335IdentityVerified,false);
+assert.equal(archived335Audit.unverifiedVersionedDeploymentCount,1);
+assert.equal(archived335Audit.additionalRoutableDeploymentCount,1);
+assert.equal(archived335Audit.reason,'VERSION_METADATA_UNVERIFIED');
+assert.equal(archived335Audit.status,'BLOCKED');
+assert.equal(archived335Audit.releaseAuthorized,false);
+assert.equal(archived335Audit.gasWrites,0);
+assert.equal(archived335Audit.financeWrites,0);
+assert.ok(!JSON.stringify(archived335Audit).includes('878709c0731d'));
+assert.ok(!JSON.stringify(archived335Audit).includes('ARCHIVED_335_ID_123'));
+const changedArchiveLabel={...archived335,
+ deploymentConfig:{description:'Different archive description'}};
+const changedAudit=await setup(
+ {'':{deployments:[item(expectedDeploymentId),archived335]}},
+ {ARCHIVED_335_ID_123:changedArchiveLabel}
+).run({verifyDetails:true});
+assert.equal(changedAudit.archivedV335DescriptionHintCount,0);
+assert.equal(changedAudit.status,'BLOCKED');
+// Missing description, versioned records, and missing DETAIL are never hints.
+const unknown335=await setup({'':{deployments:[item(expectedDeploymentId),
+ {...archived335,deploymentConfig:{}}]}}).run();
+assert.equal(unknown335.archivedV335DescriptionHintCount,0);
+assert.equal(unknown335.releaseAuthorized,false);
 const second=setup({'':{deployments:[item(expectedDeploymentId)],
  nextPageToken:'SECOND'},SECOND:{deployments:[item('OLD_DEPLOYMENT_ID_123',['EXECUTION_API'])]}});
 result=await second.run();

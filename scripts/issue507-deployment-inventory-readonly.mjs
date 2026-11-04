@@ -13,6 +13,9 @@ const ID=/^[-A-Za-z0-9_]{8,160}$/;
 // Apps Script creates one special HEAD deployment, which does not refer
 // to an immutable positive versionNumber. It is not a release approval.
 const HEAD_ID='HEAD';
+// Archived v335 description observed in the owner's UI. A matching label is
+// only a triage hint; it NEVER establishes deployment identity or release safety.
+const UI_ARCHIVED_V335_DESCRIPTION='GitHub 878709c0731d';
 const MAX_PAGES=10;
 const PAGE_SIZE=50;
 const KNOWN_TYPES=new Set(['WEB_APP','EXECUTION_API','ADD_ON']);
@@ -96,7 +99,8 @@ export async function inspectGasDeploymentsReadOnly({
    const types=points.map(classify);
    // IDs and versions remain private in-memory; never return or log them.
    entries.push({id,expected:id===expectedDeploymentId,head,types,
-    versionVerified,versionNumber:versionVerified&&!head?config.versionNumber:null});
+    versionVerified,versionNumber:versionVerified&&!head?config.versionNumber:null,
+    listDescription:typeof config?.description==='string'?config.description:null});
   }
   pages++;
   if(payload.nextPageToken===undefined||payload.nextPageToken===''){
@@ -139,6 +143,8 @@ export async function inspectGasDeploymentsReadOnly({
    }
    detail.checked++;
    entry.detailChecked=true;
+   entry.detailDescription=typeof record.deploymentConfig?.description==='string'
+    ?record.deploymentConfig.description:null;
    const types=record.entryPoints.map(classify);
    entry.detailEntryPointMismatch=JSON.stringify([...types].sort())!==
     JSON.stringify([...entry.types].sort());
@@ -275,6 +281,13 @@ export async function inspectGasDeploymentsReadOnly({
  const unknown=entries.some(e=>(!e.head&&e.types.length===0)||e.types.includes('OTHER'));
  const extraRoutable=entries.filter(e=>!e.expected&&e.types.length>0).length;
  const unverifiedVersions=entries.filter(e=>!e.versionVerified).length;
+ // Exact LIST/DETAIL description agreement for the archived v335 UI label.
+ // Do NOT reclassify the deployment as HEAD or exclude it from quarantine.
+ const archivedV335LabelMatches=entries.filter(e=>!e.expected&&!e.head&&
+  !e.versionVerified&&e.detailChecked&&!e.detailEntryPointMismatch&&
+  typeof e.listDescription==='string'&&
+  e.listDescription.startsWith(UI_ARCHIVED_V335_DESCRIPTION)&&
+  e.detailDescription===e.listDescription).length;
  const sourceProblems=verifySource&&(sourceAudit.failed>0||
   sourceAudit.skippedUnversioned>0||sourceAudit.skippedOverLimit>0||
   sourceAudit.unreviewedSource>0||sourceAudit.knownLegacy9281>0);
@@ -295,6 +308,8 @@ export async function inspectGasDeploymentsReadOnly({
  return {mode:'GAS_DEPLOYMENT_INVENTORY_READ_ONLY',status,reason,
   deploymentCount:entries.length,headDeploymentCount:entries.filter(e=>e.head).length,
   unverifiedVersionedDeploymentCount:unverifiedVersions,
+  archivedV335DescriptionHintCount:archivedV335LabelMatches,
+  archivedV335IdentityVerified:false,
   webAppEntryCount:counts.WEB_APP,
   executionApiEntryCount:counts.EXECUTION_API,
   addonEntryCount:counts.ADD_ON,unknownEntryCount:counts.OTHER,
