@@ -114,6 +114,7 @@ if (!worldBig4Realized
       ||buy.date!=='2026/6/5')
     throw Error('historical buy price correction failed remaining cost / realized P&L');
 
+  context._normalizeSearchText=()=>'';
   context._tradeFilter={acct:'',name:'',type:''};
   context._tradeSort={key:'date',dir:1};
   const ordered=context._getFilteredTrades();
