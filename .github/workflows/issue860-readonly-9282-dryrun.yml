@@ -1,0 +1,49 @@
+name: Issue860 read-only re-audit and v9.282 dry-run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-dryrun:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Same lock as production writes and both existing audits. Repeated clicks
+    # cannot overlap; no existing run is cancelled. No workflow_call or schedule.
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout immutable dispatched main
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install offline test dependencies
+        run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+      - name: Verify read-only contracts offline
+        run: |
+          node scripts/check-issue860-readonly-9282-dryrun.mjs
+          node scripts/check-issue507-deployment-inventory-readonly.mjs
+          node scripts/check-published-gas-gate-readonly.mjs
+          node scripts/check-gas-deploy.mjs
+      - name: Re-audit and dry-run only (no runtime endpoint calls)
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_DEPLOY_DRY_RUN: 'true'
+          GAS_9282_RELEASE_APPROVAL: 'false'
+          GAS_9283_RELEASE_APPROVAL: 'false'
+        run: node scripts/issue860-readonly-9282-dryrun.mjs
