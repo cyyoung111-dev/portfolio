@@ -57,16 +57,34 @@ const sheet=rows=>({
   getRange:(r,c,count,width)=>({getValues:()=>rows.slice(r-2,r-2+count)
     .map(row=>row.slice(c-1,c-1+width))})
 });
+// The sandbox must use sheet names from the actual, audited v9.281 source.
+// A wrong hard-coded name could silently skip a source while tests pass.
+function productionSheetName(key){
+  const match=baseline.match(new RegExp('\\b'+key+'\\s*:\\s*\\x27([^\\x27]+)\\x27'));
+  assert.ok(match,'v9.281 CONFIG sheet name missing: '+key);
+  return match[1];
+}
+const navName=baseline.match(/^var FUND_NAV_SHEET\s*=\s*'([^']+)';$/m)?.[1];
+assert.ok(navName,'v9.281 fund NAV sheet source not found');
+const config={
+  SHEET_SNAPSHOT:productionSheetName('SHEET_SNAPSHOT'),
+  SHEET_PH:productionSheetName('SHEET_PH'),
+  SHEET_TRADES:productionSheetName('SHEET_TRADES'),
+  SHEET_ETF_DIVIDENDS:productionSheetName('SHEET_ETF_DIVIDENDS')
+};
+// Only NAV supplies Saturday; only ETF distribution history supplies Sunday.
+// The weekday synthesis cannot make this test pass by coincidence.
 const sheets={
-  '스냅샷':sheet([['2026-06-05'],['2026-06-09'],['2026-06-10']]),
-  '가격이력':sheet([['2026-06-05'],['2026-06-09']]),
-  '거래이력':sheet([['2026-06-05','buy','ISA','ETF','441800',10,100]]),
+  [config.SHEET_SNAPSHOT]:sheet([['2026-06-05'],['2026-06-09'],['2026-06-10']]),
+  [config.SHEET_PH]:sheet([['2026-06-05'],['2026-06-09']]),
+  [config.SHEET_TRADES]:sheet([['2026-06-05','buy','ISA','ETF','441800',10,100]]),
+  [navName]:sheet([['2026-06-06','','','','2026-06-05']]),
+  [config.SHEET_ETF_DIVIDENDS]:sheet([['','','','2026-06-07','2026-06-05']])
 };
 const context=vm.createContext({
   _normalizeDate:normalizeDate,_dateOffset:dateOffset,today:()=> '2026-06-10',
-  CONFIG:{SHEET_SNAPSHOT:'스냅샷',SHEET_PH:'가격이력',
-    SHEET_TRADES:'거래이력',SHEET_ETF_DIVIDENDS:'배당이력'},
-  FUND_NAV_SHEET:'펀드NAV',
+  CONFIG:config,
+  FUND_NAV_SHEET:navName,
   _readSettingsMap:()=>({DIVDATA:{}}),
   PropertiesService:{getScriptProperties:()=>({
     getProperty:k=>properties.get(k)||null,
@@ -103,10 +121,19 @@ assert.equal(context._latestConfirmedSnapshotDate({getSheetByName:n=>sheets[n]},
 assert.equal(context._latestConfirmedSnapshotDate({getSheetByName:n=>sheets[n]},true),'2026-06-10');
 const range={getSheetByName:n=>sheets[n]||null};
 assert.deepEqual(Object.keys(context._collectDailySnapshotDates(range,'2026-06-05','2026-06-10',{})).sort(),
-  ['2026-06-05','2026-06-08','2026-06-09'],
-  'source-gap weekday must be included, but current day is not confirmed');
+  ['2026-06-05','2026-06-06','2026-06-07','2026-06-08','2026-06-09'],
+  'NAV-only Saturday and dividend-only Sunday must survive, plus synthesized weekday; current day excluded');
 assert.deepEqual(Object.keys(context._collectDailySnapshotDates(range,'2026-06-05','2026-06-10',{includeToday:true})).sort(),
-  ['2026-06-05','2026-06-08','2026-06-09','2026-06-10']);
+  ['2026-06-05','2026-06-06','2026-06-07','2026-06-08','2026-06-09','2026-06-10']);
+
+assert.ok(!Object.keys(context._collectDailySnapshotDates(
+  {getSheetByName:n=>n===navName?null:sheets[n]||null},
+  '2026-06-05','2026-06-10',{})).includes('2026-06-06'),
+  'Saturday is NAV-only and must not be synthesized');
+assert.ok(!Object.keys(context._collectDailySnapshotDates(
+  {getSheetByName:n=>n===config.SHEET_ETF_DIVIDENDS?null:sheets[n]||null},
+  '2026-06-05','2026-06-10',{})).includes('2026-06-07'),
+  'Sunday is ETF-distribution-only and must not be synthesized');
 
 // Enforce checkpoint-write → verified ledger write → dated Snapshot rebuild
 // → fingerprint → pending clearance ordering on the actual v9.281 function.
