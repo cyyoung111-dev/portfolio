@@ -69,7 +69,22 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     try{onRecoveryDiagnostic({status:accepted?'VERIFIED':'NOT_VERIFIED',
       reason:accepted?null:reason});}catch{};
   }
-  const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
+  const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,
+    referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
+    onSourceDiagnostic:entry=>{
+      const allowed=['CONFIG_MISSING','ENDPOINT_INVALID','EXPECTED_DATE_INVALID','HTTP_UNAVAILABLE',
+        'GAS_RESPONSE_INVALID','ALL_VERIFIED','PARTIAL_OR_MISSING','NETWORK_OR_PARSE_FAILED'];
+      const reasons=['PROVENANCE_OR_SERIES_INVALID','SERIES_LENGTH_INVALID',
+        'ROW_SCHEMA_OR_DUPLICATE','EXPECTED_CLOSE_UNAVAILABLE','PRIOR_CLOSE_UNAVAILABLE'];
+      const ids=['SPX','NASDAQ','NDX'];
+      if(!entry||entry.kind!=='NH_MORNING_INDEX_READ'||!allowed.includes(entry.status))return;
+      const missing=Array.isArray(entry.missing)?entry.missing.filter(x=>ids.includes(x?.id)
+        &&reasons.includes(x?.reason)).map(x=>({id:x.id,reason:x.reason})):[];
+      const verified=Array.isArray(entry.verified)?entry.verified.filter(id=>ids.includes(id)):[];
+      console.log(JSON.stringify({kind:'NH_MORNING_INDEX_READ',status:entry.status,
+        missing,verified,expectedDate:entry.expectedDate||null}));
+    }});
+
   if(!message)return {ready:false,status:result.status,date:window.date};
   const source=['NH'].includes(result.referenceSource)?result.referenceSource:'NONE';
   if(lateTest){
