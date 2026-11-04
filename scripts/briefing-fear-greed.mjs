@@ -58,3 +58,17 @@ export function formatFearGreed(input,{now=new Date()}={}){
   const week=row.weekAgo===null?'':` · 1주 ${row.score-row.weekAgo>=0?'+':''}${(row.score-row.weekAgo).toFixed(1)}p`;
   return `CNN 미국주식 공포·탐욕: ${row.score.toFixed(1)}/100 (${LABELS[row.rating]})${week} [${kstStamp(row.observedAt)} KST]`;
 }
+
+// Sent receipt diagnostic, not a score/recipient/message log. Only use this
+// AFTER Telegram returns its API-confirmed success. 'VERIFIED' means the
+// validated CNN sentence was actually present in the outgoing payload.
+export function sentFearGreedStatus(message){
+  if(typeof message!=='string')return 'INVALID';
+  const lines=message.split('\n').filter(line=>line.startsWith('CNN 미국주식 공포·탐욕: '));
+  if(lines.length===0)return 'OMITTED';
+  if(lines.length!==1)return 'INVALID';
+  if(lines[0]==='CNN 미국주식 공포·탐욕: 미확보 (원천·시각 미검증)')
+    return 'UNAVAILABLE';
+  return /^CNN 미국주식 공포·탐욕: (?:100\.0|\d{1,2}\.\d)\/100 \((?:극단적 공포|공포|중립|탐욕|극단적 탐욕)\)(?: · 1주 [+-]?\d+(?:\.\d)?p)? \[\d{2}\/\d{2} \d{2}:\d{2} KST\]$/.test(lines[0])
+    ?'VERIFIED':'INVALID';
+}
