@@ -174,6 +174,8 @@ if (!worldBig4Realized
     throw Error('deleting last legacy trade lost earliest Snapshot rebuild date');
 }
 
+// Reset the independent scenario before the pre-existing all-sold regression.
+context.rawTrades.length = 0;
 context.rawHoldings.push({ acct: '기존', name: '잔존값', qty: 1 });
 context.rawTrades.push(
   { date: '2026-01-01', tradeType: 'buy', acct: '계좌1', name: '테스트', qty: 10, price: 1000, assetType: '주식' },
