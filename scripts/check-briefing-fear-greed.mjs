@@ -69,6 +69,8 @@ const denseRows=MORNING_SERIES.map(item=>({
 }));
 const denseMorning=formatFullMorningBriefing('2026-11-04',null,denseRows,{now:morning,fearGreed:valid});
 assert.ok(denseMorning.length<=3900);
+assert.match(denseMorning,/CNN 미국주식 공포·탐욕: 23\\.4\\/100/,
+  'all 21 morning series still need room for Fear & Greed');
 for(const file of ['scripts/telegram-morning-briefing.mjs','scripts/telegram-close-workflow.mjs']){
  const source=fs.readFileSync(file,'utf8');
  assert.match(source,/readFearGreed\(/,file+' must fetch optional CNN source');
