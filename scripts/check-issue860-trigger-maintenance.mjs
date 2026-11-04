@@ -14,7 +14,7 @@ const handlers=[
 ];
 const clone=x=>JSON.parse(JSON.stringify(x));
 // Fixture values are deliberately not a production schedule/restore manifest.
-const manifest={schema:1,operationId:'fixture-operation',uiEvidence:'fixture-ui-only',triggers:handlers.map((handler,i)=>{
+export const manifest={schema:1,operationId:'fixture-operation',uiEvidence:'fixture-ui-only',triggers:handlers.map((handler,i)=>{
  const sheet=handler.includes('Integrity');
  return {id:'old-'+i,handler,originalDeployment:i%2?'336':'HEAD',
   event:sheet?(handler.endsWith('Edit')?'ON_EDIT':'ON_CHANGE'):'CLOCK',
@@ -22,7 +22,7 @@ const manifest={schema:1,operationId:'fixture-operation',uiEvidence:'fixture-ui-
   schedule:sheet?null:{timezone:'Asia/Seoul',...(handler==='runPendingTradeSnapshotRebuild'
    ?{kind:'HOURLY',hours:1}:{kind:'DAILY',hour:i,minute:i===0?null:10})}};
 })};
-function fixture(code=source){
+export function fixture(code=source){
  let rows=clone(manifest.triggers),serial=0,locked=false;
  const properties=new Map(),calls=[],fault={};
  const p={getProperty:k=>properties.get(k)??null,setProperty(k,v){
@@ -32,7 +32,7 @@ function fixture(code=source){
  const trigger=r=>({getUniqueId:()=>r.id,getHandlerFunction:()=>r.handler,
   getEventType:()=>r.event,getTriggerSource:()=>r.source,getTriggerSourceId:()=>r.sourceId});
  const context=vm.createContext({PropertiesService:{getScriptProperties:()=>p},
-  LockService:{getScriptLock:()=>({waitLock(){assert.equal(locked,false);locked=true;},releaseLock(){locked=false;}})},
+  LockService:{getScriptLock:()=>({hasLock:()=>locked,waitLock(){assert.equal(locked,false);locked=true;},releaseLock(){locked=false;}})},
   ScriptApp:{getProjectTriggers:()=>rows.map(trigger),deleteTrigger(t){
    assert.ok(locked);calls.push(['delete',t.getUniqueId()]);
    if(fault.deleteAt===calls.filter(c=>c[0]==='delete').length)throw Error('delete');

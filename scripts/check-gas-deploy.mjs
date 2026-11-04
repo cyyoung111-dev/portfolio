@@ -948,7 +948,9 @@ function validateInventoryBeforeProductionDeploy(wf){
  assert.ok(gate>read&&publish>gate,'inventory must precede actual deployment');
  const step=steps[gate];
  assert.equal(step.run,'node scripts/issue507-deployment-inventory-readonly.mjs');
- assert.equal(step.if,"env.GAS_DEPLOY_DRY_RUN != 'true'");
+ assert.equal(step.if,"env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'");
+ assert.equal(steps[publish].if,"env.GAS_FIRST_GATE_PHASE == 'none'",
+  'the normal deployment and its full inventory must have the same phase boundary');
  assert.equal(step['continue-on-error'],undefined);
  assert.equal(job.environment,'portfolio-production-gas');
  assert.ok(String(job.env.CLASPRC_JSON||'').includes('secrets.CLASPRC_JSON'));
