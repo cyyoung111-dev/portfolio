@@ -87,7 +87,7 @@ assert.equal(sentFearGreedStatus(closeReport),'VERIFIED');
 assert.equal(sentFearGreedStatus(formatFearGreed(null,{now:morning})),'UNAVAILABLE');
 assert.equal(sentFearGreedStatus('no CNN block'),'OMITTED');
 assert.equal(sentFearGreedStatus('CNN 미국주식 공포·탐욕: 999/100 (공포)'),'INVALID');
-assert.equal(sentFearGreedStatus(morningReport+'\\n'+formatFearGreed(valid,{now:morning})),'INVALID');
+assert.equal(sentFearGreedStatus(morningReport+'\n'+formatFearGreed(valid,{now:morning})),'INVALID');
 const proofLogs=[];
 const originalInfo=console.info;
 try{
