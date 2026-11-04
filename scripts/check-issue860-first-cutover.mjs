@@ -93,7 +93,7 @@ function fixture(head='legacy',published=head){
   let checks=0;
   return runFirstCutover({phase,approved:true,dryRun:false,sources,rpc,checkMain:async()=>{
    calls.push('main');checks++;if(fault.mainAt===checks)throw Error('stale main');},
-   gate:async()=>gateState,...options});
+   gate:async()=>{if(fault.gateError)throw Error(fault.gateError);return gateState;},...options});
  }};
 }
 let f=fixture();assert.equal((await f.run('bootstrap',{dryRun:true,approved:false})).dryRun,true);
@@ -124,6 +124,14 @@ f=fixture('final');assert.equal((await f.run('bootstrap')).deployed,true);
 f=fixture('final');f.gateState.mode='OPEN';await assert.rejects(f.run('bootstrap'),/DRAIN/);assert.ok(!f.calls.includes('content'));
 f=fixture();f.fault.publishAfter=true;await assert.rejects(f.run('bootstrap'),/FORWARD_RECOVERY_REQUIRED/);
 assert.equal((await f.run('bootstrap')).alreadyDeployed,true);
+f=fixture();f.fault.gateError='ISSUE860_CUTOVER_GATE_AUTH_REJECTED';
+await assert.rejects(f.run('bootstrap'),e=>e.message==='ISSUE860_CUTOVER_FORWARD_RECOVERY_REQUIRED'&&
+ e.stage==='GATE_READBACK'&&e.causeCode==='ISSUE860_CUTOVER_GATE_AUTH_REJECTED'&&Number.isSafeInteger(e.createdVersion));
+f=fixture();f.fault.gateError='PRIVATE_UNTRUSTED_PROVIDER_SECRET';
+await assert.rejects(f.run('bootstrap'),e=>e.causeCode==='ISSUE860_CUTOVER_UNVERIFIED'&&!JSON.stringify(e).includes('PRIVATE_UNTRUSTED'));
+f=fixture('bootstrap');assert.equal((await f.run('inspect',{dryRun:true,approved:false})).readOnly,true);
+assert.ok(!f.calls.some(x=>['content','version','publish'].includes(x)));
+await assert.rejects(f.run('inspect'),/INSPECT_READ_ONLY/);
 f=fixture('bootstrap');Object.assign(f.gateState,{mode:'UNINITIALIZED',firstCutoverAbortReady:true});
 assert.equal((await f.run('abort')).abortedBeforeGate,true);assert.ok(!f.calls.includes('version'));
 for(const state of [{mode:'DRAINING',firstCutoverAbortReady:true},{mode:'UNINITIALIZED',firstCutoverAbortReady:false}]){
@@ -133,7 +141,7 @@ for(const state of [{mode:'DRAINING',firstCutoverAbortReady:true},{mode:'UNINITI
 
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 assert.equal(workflow.on.workflow_dispatch.inputs.first_gate_phase.default,'none');
-assert.deepEqual(workflow.on.workflow_dispatch.inputs.first_gate_phase.options,['none','bootstrap','finalize','abort']);
+assert.deepEqual(workflow.on.workflow_dispatch.inputs.first_gate_phase.options,['none','bootstrap','finalize','abort','inspect']);
 const steps=workflow.jobs.deploy.steps;
 const special=steps.find(s=>s.run==='node scripts/issue860-first-cutover.mjs');
 assert.equal(special.if,"env.GAS_FIRST_GATE_PHASE != 'none'");

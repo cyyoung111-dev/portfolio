@@ -25,7 +25,7 @@ on:
         required: true
         default: none
         type: choice
-        options: [none, bootstrap, finalize, abort]
+        options: [none, bootstrap, finalize, abort, inspect]
       dry_run:
         description: 'Google API 인증·대상 확인만 하고 실제 배포하지 않음'
         required: true

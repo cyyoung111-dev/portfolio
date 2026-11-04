@@ -43,11 +43,16 @@
 | bootstrap | 일반 진입점 전부 거부하는 유지보수 소스 게시 | dry_run=false, approve_9282=true |
 | finalize | 검증된 DRAINING 아래 기존 승인 v9.282 소스 게시 | dry_run=false, approve_9282=true |
 | abort | gate 초기화·트리거 삭제 **이전만** v336/v9.281 복원 | dry_run=false, approve_9282=true |
+| inspect | 정확한 유지보수/최종 소스·목록과 인증된 gate 상태만 조회 | dry_run=true, approve_9282=false |
 | none | 기존 일반 배포 | 최초 전환 차단 유지 |
 
 각 phase의 dry_run=true는 조회·계획만 수행한다. 기존 NH 활성화·과거 KRX 진단 등
 일반 배포 후 작업은 최초 전환 phase에서 실행하지 않는다. 새 버전 생성 후 그 불변 소스와
 전체 파일을 다시 읽고, 최신 main과 직전 상태를 재확인한 뒤 기존 배포 ID를 갱신한다.
+inspect는 dry_run=false를 거부하며 콘텐츠/버전/배포 쓰기를 호출하지 않는다.
+실패 출력은 고정 단계·고정 원인 코드·생성 버전 번호만 추가로 기록한다.
+인증값·응답 본문·공급자 오류 원문·URL은 출력하지 않는다. 공개되지 않은 원인 문자열은
+UNVERIFIED로 치환한다. 인증 거부와 버전 미검증을 구분하며 실패를 성공으로 바꾸지 않는다.
 
 ## 유지보수·초기화·복원
 
