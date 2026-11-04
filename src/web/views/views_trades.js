@@ -111,7 +111,10 @@ function _buildTradeDateRepairHTML() {
 function _buildTradeRealizedContext(trades) {
   const positions = {};
   const realizedByTrade = new Map();
-  const sorted = [...(trades || [])].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  // Match the portfolio holdings/realized reducer: historical trade imports
+  // may contain YYYY.M.D or YYYY/M/D and cannot be sorted as raw strings.
+  const sorted = [...(trades || [])].sort((a, b) =>
+    _portfolioTradeDateKey(a.date).localeCompare(_portfolioTradeDateKey(b.date)));
   sorted.forEach(t => {
     const key = String(t.acct || '') + '||' + String(t.name || '');
     if (!positions[key]) positions[key] = { qty: 0, totalCost: 0 };
@@ -119,6 +122,16 @@ function _buildTradeRealizedContext(trades) {
     if (t.tradeType === 'buy') {
       position.qty += Number(t.qty) || 0;
       position.totalCost += (Number(t.qty) || 0) * (Number(t.price) || 0);
+      return;
+    }
+    // Splits change the per-share acquisition basis but not total cost.
+    // Keep the trade-table reducer consistent with calcRealizedPnl() and
+    // syncHoldingsFromTrades() when a historical split is edited.
+    if (t.tradeType === 'split' || t.tradeType === 'reverse_split') {
+      const ratio = Number(t.ratio);
+      if (!(ratio > 0) || position.qty <= 0) return;
+      position.qty = t.tradeType === 'split'
+        ? position.qty * ratio : position.qty / ratio;
       return;
     }
     if (t.tradeType !== 'sell') return;
@@ -489,8 +502,9 @@ function deleteSelectedTrades() {
   const idSet  = new Set(ids);
   const before = rawTrades.length;
   const deletedFrom = rawTrades
-    .filter(t => t?.id != null && idSet.has(String(t.id)) && /^\d{4}-\d{2}-\d{2}$/.test(String(t.date || '')))
-    .map(t => String(t.date))
+    .filter(t => t?.id != null && idSet.has(String(t.id)))
+    .map(t => _portfolioTradeDateKey(t.date))
+    .filter(day => /^\d{4}-\d{2}-\d{2}$/.test(day))
     .sort()[0] || '';
   for (let i = rawTrades.length - 1; i >= 0; i--) {
     const rid = rawTrades[i].id != null ? String(rawTrades[i].id) : null;

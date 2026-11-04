@@ -66,7 +66,7 @@ function _getFilteredTrades() {
   const { key, dir } = _tradeSort;
   list.sort((a, b) => {
     let va, vb;
-    if (key === 'date')  { va = a.date || a.buyDate || ''; vb = b.date || b.buyDate || ''; return dir * va.localeCompare(vb); }
+    if (key === 'date')  { va = _portfolioTradeDateKey(a.date || a.buyDate || ''); vb = _portfolioTradeDateKey(b.date || b.buyDate || ''); return dir * va.localeCompare(vb); }
     if (key === 'name')  { va = a.name || ''; vb = b.name || ''; return dir * va.localeCompare(vb, 'ko'); }
     if (key === 'acct')  { va = a.acct || ''; vb = b.acct || ''; return dir * va.localeCompare(vb, 'ko'); }
     if (key === 'qty')   { return dir * ((a.qty || 0) - (b.qty || 0)); }

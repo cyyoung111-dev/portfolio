@@ -53,7 +53,8 @@ if (!fs.readFileSync('src/web/domain/portfolio/data.js', 'utf8').includes("edito
 }
 
 const tradesViewSource = fs.readFileSync('src/web/views/views_trades.js', 'utf8');
-const tradesViewContext = { console, Map, setTimeout, clearTimeout };
+const tradesViewContext = { console, Map, setTimeout, clearTimeout,
+  _portfolioTradeDateKey: context._portfolioTradeDateKey };
 vm.runInNewContext(tradesViewSource, tradesViewContext, { filename: 'src/web/views/views_trades.js' });
 const worldBig4Buy = {
   date: '2025-12-29', tradeType: 'buy', acct: '우리',
@@ -72,6 +73,109 @@ if (!worldBig4Realized
   process.exit(1);
 }
 
+// Historical trade edits must yield the same realized P&L and remaining
+// account-level cost in the trade tab and portfolio reducer. Real production
+// functions operate on synthetic, nonfinancial ledger rows only.
+{
+  const buy = { id:'old-buy', date:'2026/6/5', tradeType:'buy', acct:'ISA',
+    name:'Legacy ETF', qty:10, price:100, assetType:'ETF' };
+  const sell = { id:'old-sell', date:'2026.06.10', tradeType:'sell', acct:'ISA',
+    name:'Legacy ETF', qty:3, price:140, assetType:'ETF' };
+  const pensionBuy = { id:'pension-buy', date:'2026-06-02', tradeType:'buy', acct:'IRP',
+    name:'Legacy ETF', qty:5, price:80, assetType:'ETF' };
+  const pensionSell = { id:'pension-sell', date:'2026-06-11', tradeType:'sell', acct:'IRP',
+    name:'Legacy ETF', qty:1, price:100, assetType:'ETF' };
+  const input=[sell,pensionSell,buy,pensionBuy]; // reverse chronology is deliberate
+  context.rawTrades.length=0;
+  context.rawTrades.push(...input);
+  context.syncHoldingsFromTrades({clearWhenEmpty:true});
+  const isa=context.rawHoldings.find(x=>x.acct==='ISA');
+  const irp=context.rawHoldings.find(x=>x.acct==='IRP');
+  if(!isa||isa.qty!==7||isa.costAmt!==700
+      ||!irp||irp.qty!==4||irp.costAmt!==320
+      ||context.calcRealizedPnl().totalPnl!==140)
+    throw Error('legacy trade dates/account-aware holdings or realized P&L mismatch');
+  const before=tradesViewContext._buildTradeRealizedContext(input);
+  if(before.realizedByTrade.get(sell)?.pnl!==120
+      ||before.realizedByTrade.get(pensionSell)?.pnl!==20
+      ||before.currentAvgByKey['ISA||Legacy ETF']!==100)
+    throw Error('trade tab P&L sorted before historical buy or mixes ISA/IRP');
+
+  // Correct an earlier buy price; no other account or original trade day
+  // may change and both UI/reducer must recalculate from that old trade.
+  buy.price=110;
+  context.syncHoldingsFromTrades({clearWhenEmpty:true});
+  const corrected=tradesViewContext._buildTradeRealizedContext(input);
+  if(context.rawHoldings.find(x=>x.acct==='ISA')?.costAmt!==770
+      ||context.rawHoldings.find(x=>x.acct==='IRP')?.costAmt!==320
+      ||context.calcRealizedPnl().totalPnl!==110
+      ||corrected.realizedByTrade.get(sell)?.pnl!==90
+      ||corrected.realizedByTrade.get(pensionSell)?.pnl!==20
+      ||buy.date!=='2026/6/5')
+    throw Error('historical buy price correction failed remaining cost / realized P&L');
+
+  context._normalizeSearchText=()=>'';
+  context._tradeFilter={acct:'',name:'',type:''};
+  context._tradeSort={key:'date',dir:1};
+  const ordered=context._getFilteredTrades();
+  if(ordered[0]!==pensionBuy||ordered[1]!==buy
+      ||ordered[2]!==sell||ordered[3]!==pensionSell)
+    throw Error('trades display must sort legacy and ISO day formats chronologically');
+  context._tradeSort={key:'date',dir:-1};
+  if(context._getFilteredTrades()[0]!==pensionSell)
+    throw Error('descending trade history sort must use normalized trade dates');
+}
+{
+  const stockBuy={id:'split-buy', date:'2026-07-01',tradeType:'buy',
+    acct:'ISA',name:'Split test',qty:10,price:100,assetType:'주식'};
+  const split={id:'split',date:'2026.7.2',tradeType:'split',
+    acct:'ISA',name:'Split test',ratio:2,assetType:'주식'};
+  const sell={id:'split-sell',date:'2026/7/3',tradeType:'sell',
+    acct:'ISA',name:'Split test',qty:5,price:60,assetType:'주식'};
+  const trades=[sell,split,stockBuy];
+  context.rawTrades.length=0;context.rawTrades.push(...trades);
+  context.syncHoldingsFromTrades({clearWhenEmpty:true});
+  const chart=tradesViewContext._buildTradeRealizedContext(trades);
+  if(chart.realizedByTrade.get(sell)?.pnl!==50
+      ||chart.realizedByTrade.get(sell)?.avgCost!==50
+      ||context.calcRealizedPnl().totalPnl!==50
+      ||context.rawHoldings[0]?.qty!==15||context.rawHoldings[0]?.costAmt!==750)
+    throw Error('split-adjusted realized P&L must match the holdings reducer');
+  const reverse={id:'reverse',date:'2026-07-04',tradeType:'reverse_split',
+    acct:'ISA',name:'Split test',ratio:3,assetType:'주식'};
+  const postReverse={id:'after-reverse',date:'2026-07-05',tradeType:'sell',
+    acct:'ISA',name:'Split test',qty:1,price:175,assetType:'주식'};
+  const second=[postReverse,reverse,...trades];
+  context.rawTrades.length=0;context.rawTrades.push(...second);
+  context.syncHoldingsFromTrades({clearWhenEmpty:true});
+  const result=tradesViewContext._buildTradeRealizedContext(second);
+  // The reverse split follows the first sale: 15 shares at 50 become 5 at 150.
+  if(result.realizedByTrade.get(postReverse)?.avgCost!==150
+      ||result.realizedByTrade.get(postReverse)?.pnl!==25
+      ||context.calcRealizedPnl().totalPnl!==75
+      ||context.rawHoldings[0]?.qty!==4||context.rawHoldings[0]?.costAmt!==600)
+    throw Error('reverse split breaks chronological realized cost or remaining holdings');
+}
+// Deleting the last legacy-date transaction must inform the explicit-empty
+// remote sync of the original affected day, not an empty rebuildFrom.
+{
+  const lone={id:'legacy-only',date:'2026.6.5',tradeType:'buy',acct:'ISA',
+    name:'Old ETF',qty:2,price:100};
+  const commits=[];
+  tradesViewContext.rawTrades=[lone];
+  tradesViewContext.document={querySelectorAll:()=>[{dataset:{id:'legacy-only'}}]};
+  tradesViewContext.confirm=()=>true;
+  tradesViewContext.showToast=msg=>{throw Error('unexpected deletion error: '+msg);};
+  tradesViewContext._commitTrades=options=>commits.push(options);
+  tradesViewContext.deleteSelectedTrades();
+  if(tradesViewContext.rawTrades.length!==0||commits.length!==1
+    ||commits[0].allowEmptyTradeSync!==true
+    ||commits[0].emptyTradeSyncFrom!=='2026-06-05')
+    throw Error('deleting last legacy trade lost earliest Snapshot rebuild date');
+}
+
+// Reset the independent scenario before the pre-existing all-sold regression.
+context.rawTrades.length = 0;
 context.rawHoldings.push({ acct: '기존', name: '잔존값', qty: 1 });
 context.rawTrades.push(
   { date: '2026-01-01', tradeType: 'buy', acct: '계좌1', name: '테스트', qty: 10, price: 1000, assetType: '주식' },
