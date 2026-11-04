@@ -143,4 +143,27 @@ function environment(){
   assert.throws(()=>x.context.briefingClockInstall(),/BC_TOKEN_NOT_CONFIGURED/);
   assert.equal(x.triggers.length,0);
 }
+{
+  // Production GAS's KRX calendar is the source of truth, not generic public holidays.
+  const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+  const actual={};
+  for(const match of gas.matchAll(/var KRX_CONFIRMED_CLOSED_DATES_(\\d{4})\\s*=\\s*\\{([\\s\\S]*?)\\};/g)){
+    actual[match[1]]=[...match[2].matchAll(/'(\\d{4}-\\d{2}-\\d{2})'\\s*:\\s*1/g)].map(x=>x[1]);
+  }
+  const e=environment();
+  assert.deepEqual(Object.keys(e.context.BC_KRX_CLOSED_DATES_).sort(),Object.keys(actual).sort(),
+    'GAS clock must be refreshed when production KRX calendar adds a year');
+  for(const year of Object.keys(actual)){
+    assert.deepEqual(Array.from(e.context.BC_KRX_CLOSED_DATES_[year]).sort(),actual[year].sort(),
+      'holiday calendar drift for '+year);
+  }
+  assert.equal(e.tick('2026-12-25','07:25'),'MARKET_CLOSED');
+  assert.equal(e.tick('2026-12-25','08:16'),'MARKET_CLOSED');
+  assert.equal(e.tick('2026-12-25','17:08'),'MARKET_CLOSED');
+  assert.equal(e.tick('2026-12-25','18:08'),'MARKET_CLOSED');
+  assert.equal(e.tick('2027-01-01','07:25'),'MARKET_CLOSED');
+  assert.equal(e.calls.length,0,'holidays must never dispatch or raise missing-SENT alert');
+  assert.throws(()=>e.tick('2028-01-03','07:25'),/BC_MARKET_CALENDAR_UNVERIFIED/);
+  assert.equal(e.calls.length,0,'unknown calendar years must fail closed');
+}
 console.log('GAS independent 5-minute briefing clock: authorization, KST, weekends, retries, claims, SENT, alerts, install/disable PASS');
