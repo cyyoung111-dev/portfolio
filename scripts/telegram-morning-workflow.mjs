@@ -6,6 +6,7 @@ import {loadPrefetchedNight} from './telegram-morning-prefetch.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
+import {sentFearGreedStatus} from './briefing-fear-greed.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,
   loadPrefetch=loadPrefetchedNight,recoverReference=fetchNightReference,
@@ -93,6 +94,9 @@ export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,a
     ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000
     ||(lateTest&&!payload.message.startsWith(`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\n`)))throw Error('TELEGRAM_PREPARED_INVALID');
   await send(token,chatId,payload.message);
+  // Only after confirmed Telegram send; no market number or message text in logs.
+  console.info(JSON.stringify({kind:'CNN_FEAR_GREED_SENT',session:'MORNING',date:window.date,
+    status:sentFearGreedStatus(payload.message)}));
   return {status:'SENT',date:window.date};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
