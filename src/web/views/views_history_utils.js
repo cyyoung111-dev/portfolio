@@ -55,13 +55,20 @@ function _fmtHistDateShortMonth(v) {
 }
 
 function _normalizeHistDate(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  const d = new Date(v);
-  if (!isNaN(d.getTime())) {
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  return '';
+  // Snapshot and trade dates are calendar dates, not timezone-sensitive
+  // instants. Reuse the strict, validated ISO/legacy date parser.
+  const parsed = _histDateKey(v);
+  if (parsed) return parsed;
+
+  // Invalid date-like strings must not silently roll over (Feb 30 → Mar 2).
+  // The Date fallback is reserved for actual Date objects from Sheets/UI,
+  // and must use KST on both desktop and mobile regardless of device locale.
+  if (Object.prototype.toString.call(v) !== '[object Date]'
+      || !Number.isFinite(v.getTime())) return '';
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(v).map(part => [part.type, part.value]));
+  return parts.year + '-' + parts.month + '-' + parts.day;
 }
 
 // 매수는 외부 자금 유입(+), 매도는 외부 자금 회수(-)로 분리해 기간별 수익률을 연결합니다.
