@@ -73,12 +73,12 @@ const outage=await runTelegramMorning({
  send:async(_token,_chat,text)=>{sentMessage=text;}
 });
 assert.equal(outage.status,'SENT_SOURCE_MISSING');
-assert.equal(new Set(requestedYahoo).size,15,'15 Yahoo-eligible series; NH and three domestic indices remain excluded');
+assert.equal(new Set(requestedYahoo).size,22,'15 primary Yahoo daily series plus three US reference reads and four delayed futures');
 assert.ok(requestedYahoo.length<=30,'one primary and at most one backup per Yahoo-eligible series');
 assert.ok([...new Set(requestedYahoo)].every(symbol=>
  requestedYahoo.filter(x=>x===symbol).length<=2),'per-series bounded Yahoo retry');
-assert.ok(NH_ONLY_INDEX_SYMBOLS.every(symbol=>!requestedYahoo.includes(symbol)),
- 'the three NH operating indices are never queried via Yahoo when NH is missing');
+assert.ok(NH_ONLY_INDEX_SYMBOLS.every(symbol=>requestedYahoo.includes(symbol)),
+ 'missing NH indices may be queried only as separate reference-only candidates');
 assert.match(sentMessage,/S&P 500: 미확보/);
 assert.match(sentMessage,/NASDAQ: 미확보/);
 assert.match(sentMessage,/NASDAQ100: 미확보/);
