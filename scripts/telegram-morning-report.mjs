@@ -231,7 +231,21 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const baseline=lines.join('\n');
   if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
     lines.splice(insertAt,0,sentiment);
-  const message=lines.join('\n');
+  // Extra read-only indicators must never cancel the 07:40 briefing when
+  // all 21 dated core rows and the investment commentary are present.
+  // Remove optional supplemental lines only; never truncate a verified close,
+  // the session date, the delivery QC, or the 06:00 NH reference.
+  let message=lines.join('\n');
+  const optional=[
+    /^시장폭 A\/D:/,/^미국 선물 참고:/,/^미 국채 2Y /,
+    /^지수 구성종목 거래대금:/,/^VKOSPI:/
+  ];
+  for(const pattern of optional){
+    if(message.length<=3900)break;
+    const i=lines.findIndex(line=>pattern.test(line));
+    if(i>=0)lines.splice(i,1);
+    message=lines.join('\n');
+  }
   if(message.length>3900)throw Error('TELEGRAM_FULL_BRIEFING_TOO_LONG');
   return message;
 }
