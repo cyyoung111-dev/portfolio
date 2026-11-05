@@ -19,7 +19,8 @@ const canonical=files=>JSON.stringify(files.map(f=>({name:f.name,type:f.type,
  source:String(f.source).replace(/\r\n/g,'\n')})).sort((a,b)=>a.name.localeCompare(b.name)));
 
 export async function runFirstCutover({phase,approved=false,dryRun=true,sources,rpc,checkMain,gate}){
- if(!['bootstrap','finalize','abort'].includes(phase)||typeof dryRun!=='boolean'||typeof approved!=='boolean')error('INPUT');
+ if(!['bootstrap','finalize','abort','inspect'].includes(phase)||typeof dryRun!=='boolean'||typeof approved!=='boolean')error('INPUT');
+ if(phase==='inspect'&&!dryRun)error('INSPECT_READ_ONLY');
  if(!dryRun&&!approved)error('APPROVAL');
  if(gasSourceBlobSha(sources.finalSource)!==FINAL_BLOB||gasSourceBlobSha(sources.bootstrapSource)!==BOOTSTRAP_BLOB)
   error('SOURCE');
@@ -29,6 +30,13 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
  assertGasProjectFileSet(initial.head.files,target.name,initial.published.files);
  const headBlob=gasSourceBlobSha(target.source.replace(/\r\n/g,'\n'));
  const publishedBlob=gasSourceBlobSha(selectServerFile(initial.published.files,target.name).source.replace(/\r\n/g,'\n'));
+ if(phase==='inspect'){
+  if(![BOOTSTRAP_BLOB,FINAL_BLOB].includes(headBlob)||![BOOTSTRAP_BLOB,FINAL_BLOB].includes(publishedBlob))error('BEFORE_SOURCE');
+  await rpc.inventory(initial);const status=await gate();
+  return {phase,readOnly:true,deployed:false,gateMode:status.mode,
+   firstCutoverReady:status.firstCutoverReady===true,firstCutoverAbortReady:status.firstCutoverAbortReady===true,
+   financeWrites:0,telegramSends:0};
+ }
  if(phase==='abort'){
   // Only before the stateful gate AND before any trigger deletion. Once a
   // journal is PAUSING or a gate exists, forward recovery is mandatory.
@@ -87,10 +95,13 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
   again.deployment.deploymentConfig.versionNumber!==initial.deployment.deploymentConfig.versionNumber)
   error('CONCURRENT_CHANGE');
  await rpc.inventory(again);await checkMain();
+ let stage='CONTENT_WRITE',createdVersion=null;
  try{
   if(headBlob!==wanted)await rpc.writeContent(files);
+  stage='VERSION_CREATE';
   const v=await rpc.createVersion(phase);
   if(!Number.isSafeInteger(v)||v<1)error('VERSION');
+  createdVersion=v;stage='VERSION_READBACK';
   const created=await rpc.readVersion(v);
   assertGasProjectFileSet(created.files,target.name,initial.published.files);
   if(canonical(created.files)!==canonical(files))error('CREATED_SOURCE');
@@ -114,22 +125,27 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
    if(latest.mode!=='DRAINING'||latest.activeCount!==0||latest.approvalPresent!==false||latest.repairAuthorized!==false)
     error('DRAIN');
   }
+  stage='DEPLOYMENT_WRITE';
   await rpc.publish({...initial.deployment.deploymentConfig,versionNumber:v,
    description:'Issue860 '+phase+' GAS v9.282'});
+  stage='DEPLOYMENT_READBACK';
   await verifyDeploymentVersionWithRetry({readDeployment:rpc.readDeployment,
    expectedVersion:v,pause:rpc.pause||undefined});
   const after=await rpc.readState();
   if(canonical(after.head.files)!==canonical(files)||canonical(after.published.files)!==canonical(files))error('READBACK');
-  const status=await gate();
+  stage='GATE_READBACK';const status=await gate();
   if(phase==='bootstrap'&&!['UNINITIALIZED','DRAINING'].includes(status.mode))error('BOOTSTRAP_GATE');
   if(phase==='finalize'&&(status.mode!=='DRAINING'||status.activeCount!==0||status.approvalPresent!==false))error('FINAL_GATE');
   return {phase,deployed:true,version:'9.282',deploymentVersion:v,maintenance:true,
    writersResumed:false,financeWrites:0,telegramSends:0};
- }catch{
+ }catch(cause){
   // Never roll back to ungated legacy after a stateful installation. Re-run
   // the SAME phase from exact approved HEAD/published combinations instead.
   // Unknown created/published versions are not overwritten on a retry.
-  error('FORWARD_RECOVERY_REQUIRED');
+  const failure=new Error('ISSUE860_CUTOVER_FORWARD_RECOVERY_REQUIRED');
+  failure.stage=stage;failure.createdVersion=createdVersion;
+  failure.causeCode=/^ISSUE860_CUTOVER_[A-Z_]+$/.test(cause?.message||'')?cause.message:'ISSUE860_CUTOVER_UNVERIFIED';
+  throw failure;
  }
 }
 
@@ -193,6 +209,8 @@ async function cli(){
   const probe=new URL(url);probe.search=new URLSearchParams({action:'getWriterGateStatus',accessToken:token}).toString();
   const res=await fetch(probe,{method:'GET',redirect:'follow',signal:AbortSignal.timeout(30000)});
   const d=await res.json();
+  if(d.status==='error'&&d.message==='인증 실패')error('GATE_AUTH_REJECTED');
+  if(d.status==='ok'&&d.gasVersion!=='9.282')error('GATE_VERSION_UNVERIFIED');
   if(!res.ok||d.status!=='ok'||d.gasVersion!=='9.282'||!d.writerGate)error('GATE_READBACK');
   if(!['UNINITIALIZED','DRAINING','OPEN'].includes(d.writerGate.mode))error('GATE_READBACK');
   console.log(JSON.stringify({mode:'ISSUE860_CUTOVER_GATE',state:d.writerGate.mode,
@@ -209,5 +227,7 @@ async function cli(){
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  cli().catch(e=>{console.log(JSON.stringify({status:'BLOCKED',reason:/^ISSUE860_CUTOVER_[A-Z_]+$/.test(e?.message)?e.message:
-  'ISSUE860_CUTOVER_UNVERIFIED',writersResumed:false}));process.exitCode=2;});
+  'ISSUE860_CUTOVER_UNVERIFIED',stage:['CONTENT_WRITE','VERSION_CREATE','VERSION_READBACK','DEPLOYMENT_WRITE','DEPLOYMENT_READBACK','GATE_READBACK'].includes(e?.stage)?e.stage:'PREFLIGHT',
+  causeCode:/^ISSUE860_CUTOVER_[A-Z_]+$/.test(e?.causeCode||'')?e.causeCode:null,
+  createdVersion:Number.isSafeInteger(e?.createdVersion)?e.createdVersion:null,writersResumed:false}));process.exitCode=2;});
 }
