@@ -29,6 +29,53 @@ const request=async(target,options)=>{
    ?{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,diagnosticOnly:true,tokenIssued:false,reference:ref}
    :{status:'ok',provider:'NH',readOnly:true,bearerExposed:false,reference:ref}};
 };
+// Production-shaped GAS redirects can surface HTTP errors or HTML instead
+// of JSON. Classify by fixed facts only; never log the signed content URL,
+// payload, private body, credential or server-provided exception string.
+for(const fixture of [
+ {response:{ok:false,status:401,redirected:false,url,
+   headers:{get:()=> 'text/html; charset=utf-8'}},
+  expected:{kind:'NH_GAS_TRANSPORT',phase:'HTTP_REJECTED',httpStatus:401,
+   redirect:'NO',responseHost:'GAS_WEB_APP',contentType:'HTML'}},
+ {response:{ok:false,status:404,redirected:true,
+   url:'https://script.googleusercontent.com/macros/echo?user_content_key=PRIVATE_KEY',
+   headers:{get:()=> 'text/html'}},
+  expected:{kind:'NH_GAS_TRANSPORT',phase:'HTTP_REJECTED',httpStatus:404,
+   redirect:'YES',responseHost:'GOOGLE_CONTENT',contentType:'HTML'}},
+ {response:{ok:true,status:200,redirected:true,
+   url:'https://script.googleusercontent.com/macros/echo?user_content_key=PRIVATE_KEY',
+   headers:{get:()=> 'text/html'},json:async()=>{throw Error('PRIVATE_BODY');}},
+  expected:{kind:'NH_GAS_TRANSPORT',phase:'JSON_PARSE_FAILED',httpStatus:0,
+   redirect:'YES',responseHost:'GOOGLE_CONTENT',contentType:'HTML'}}
+]){
+ const seen=[];
+ await assert.rejects(
+  import('./nh-gas-proxy.mjs').then(mod=>mod.callNhGasProxy('getNhAuthStatusProxy',{
+    url,token,request:async()=>fixture.response,
+    onTransportDiagnostic:x=>seen.push(x)
+  })),/NH_PROXY_NETWORK_OR_RESPONSE/);
+ assert.deepEqual(seen,[fixture.expected]);
+ assert.doesNotMatch(JSON.stringify(seen),/PRIVATE_KEY|PRIVATE_BODY|TEST-GAS-ACCESS-TOKEN|\/exec/);
+}
+{
+ const seen=[];
+ await assert.rejects(
+  import('./nh-gas-proxy.mjs').then(mod=>mod.callNhGasProxy('getNhAuthStatusProxy',{
+    url,token,request:async()=>{throw Object.assign(Error('SECRET'),{name:'TimeoutError'});},
+    onTransportDiagnostic:x=>seen.push(x)
+  })),/NH_PROXY_NETWORK_OR_RESPONSE/);
+ assert.deepEqual(seen,[{kind:'NH_GAS_TRANSPORT',phase:'FETCH_TIMEOUT'}]);
+}
+{
+ const seen=[];
+ const status=await import('./nh-gas-proxy.mjs').then(mod=>mod.callNhGasProxy('getNhAuthStatusProxy',{
+  url,token,request:async()=>({ok:true,json:async()=>({status:'ok',provider:'NH',
+    readOnly:true,enabled:true,tokenCached:true,tokenIssued:false})}),
+  onTransportDiagnostic:x=>seen.push(x)
+ }));
+ assert.equal(status.tokenCached,true);
+ assert.deepEqual(seen,[{kind:'NH_GAS_TRANSPORT',phase:'STATUS_OK'}]);
+}
 const result=await fetchNhNightFromGas('2026-10-30',{now,url,token,request});
 assert.equal(result.value,351.5);assert.equal(result.officialClose,false);
 // Regression: a real GAS proxy / NH round-trip may take 7 seconds. Its
