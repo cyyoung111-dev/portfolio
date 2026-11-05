@@ -48,7 +48,22 @@ jobs:
             process.exitCode=1;
           }else{
             let state=null,statusCause='NONE';
-            try{state=await callNhGasProxy('getNhAuthStatusProxy',{url,token});}
+            let transport={phase:'UNVERIFIED',httpStatus:0,
+              responseHost:'UNKNOWN',redirect:'UNKNOWN',contentType:'UNKNOWN'};
+            try{state=await callNhGasProxy('getNhAuthStatusProxy',{
+              url,token,onTransportDiagnostic:details=>{
+                const phases=['STATUS_OK','FETCH_FAILED','FETCH_TIMEOUT','HTTP_REJECTED',
+                  'JSON_PARSE_FAILED','GAS_REJECTED','GAS_CONTRACT_REJECTED'];
+                if(details?.kind!=='NH_GAS_TRANSPORT'||!phases.includes(details.phase))return;
+                transport={phase:details.phase,
+                  httpStatus:Number.isSafeInteger(details.httpStatus)?details.httpStatus:0,
+                  responseHost:['GAS_WEB_APP','GOOGLE_CONTENT','OTHER'].includes(details.responseHost)
+                    ?details.responseHost:'UNKNOWN',
+                  redirect:['YES','NO'].includes(details.redirect)?details.redirect:'UNKNOWN',
+                  contentType:['JSON','HTML','PLAIN','OTHER'].includes(details.contentType)
+                    ?details.contentType:'UNKNOWN'};
+              }
+            });}
             catch(error){
               const reason=String(error?.message||'');
               statusCause=/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(reason)
@@ -69,7 +84,7 @@ jobs:
             console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_STATUS',date,
               gasVersion:version,tokenCached:state?.tokenCached===true?'YES'
                 :state?.tokenCached===false?'NO':'UNVERIFIED',
-              tokenIssuanceRequested:false,verified:authOk,statusCause,
+              tokenIssuanceRequested:false,verified:authOk,statusCause,transport,
               gasWrites:0,financeWrites:0}));
             if(!authOk){
               console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_READBACK',
