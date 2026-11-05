@@ -19609,26 +19609,9 @@ function fetchNhRegularCloses(items, requestedDate, options) {
 
 function fetchDomesticRegularCloses(items,date) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchDomesticRegularCloses', fetchDomesticRegularCloses, this, arguments);
-  // Each NH call has its own 55s budget and 1s vendor pacing. A single 37-code
-  // invocation can silently lose the tail; bound each chunk to 12 without
-  // changing source validation, authorization, cache keys or rate limiting.
-  var all=Array.isArray(items)?items:[],nh={},started=Date.now(),chunks=0;
-  for(var offset=0;offset<all.length;offset+=12){
-    if(Date.now()-started>150000)break;
-    try {
-      var observed=fetchNhRegularCloses(all.slice(offset,offset+12),date)||{};
-      Object.keys(observed).forEach(function(code){nh[code]=observed[code];});
-    }catch(ignoreNh){}
-    chunks++;
-  }
-  try {
-    if(typeof Logger!=='undefined'&&Logger&&typeof Logger.log==='function')
-      Logger.log('[NH_CLOSE_BATCH_COVERAGE] '+JSON.stringify({
-        date:date,expected:all.length,verified:Object.keys(nh).length,
-        batches:chunks,elapsedSeconds:Math.floor((Date.now()-started)/1000)
-      }));
-  }catch(ignoreDiagnostic){}
-  var missing=all.filter(function(item){return !nh[item.code];});
+  var nh={};
+  try {nh=fetchNhRegularCloses(items,date)||{};} catch(ignoreNh) {}
+  var missing=(items||[]).filter(function(item){return !nh[item.code];});
   if(!missing.length)return nh;
   var fallback={};
   try {fallback=fetchPricesKrx(missing,date)||{};}catch(error){if(!Object.keys(nh).length)throw error;}
