@@ -4,7 +4,7 @@ name: NH night read-only live verification 2026-11-05
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/nh-night-readback-20261105.yml']
+    paths: ['.github/workflows/nh-night-readback-20261105.yml', 'scripts/nh-gas-proxy.mjs']
 permissions:
   contents: read
 concurrency:
