@@ -47,8 +47,20 @@ jobs:
               date,nhCalls:0,gasWrites:0,financeWrites:0,telegramSends:0}));
             process.exitCode=1;
           }else{
-            let state=null;
-            try{state=await callNhGasProxy('getNhAuthStatusProxy',{url,token});}catch{}
+            let state=null,statusCause='NONE';
+            try{state=await callNhGasProxy('getNhAuthStatusProxy',{url,token});}
+            catch(error){
+              const reason=String(error?.message||'');
+              statusCause=/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(reason)
+                ?reason:'NH_PROXY_UNKNOWN_FAILURE';
+            }
+            if(state&&!['ok'].includes(state.status))
+              statusCause='GAS_STATUS_NOT_OK';
+            else if(state?.status==='ok'&&
+              (state.provider!=='NH'||state.readOnly!==true||state.enabled!==true))
+              statusCause='GAS_STATUS_CONTRACT_UNVERIFIED';
+            else if(state?.status==='ok'&&state.tokenCached===false)
+              statusCause='NH_TOKEN_NOT_CACHED';
             const version=/^9\.\d{3}$/.test(String(state?.gasVersion||''))
               ?state.gasVersion:'UNVERIFIED';
             const authOk=state?.status==='ok'&&state?.provider==='NH'
@@ -57,7 +69,8 @@ jobs:
             console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_STATUS',date,
               gasVersion:version,tokenCached:state?.tokenCached===true?'YES'
                 :state?.tokenCached===false?'NO':'UNVERIFIED',
-              tokenIssued:false,verified:authOk,gasWrites:0,financeWrites:0}));
+              tokenIssuanceRequested:false,verified:authOk,statusCause,
+              gasWrites:0,financeWrites:0}));
             if(!authOk){
               console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_READBACK',
                 status:'TOKEN_OR_GAS_STATUS_NOT_VERIFIED',date,nhCalls:0,
