@@ -4,7 +4,7 @@ import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {readNhStoredMorningStocks} from './nh-morning-stock-history.mjs';
 import {readFearGreed} from './briefing-fear-greed.mjs';
 import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
- formatMorningVkospi,formatMorningTurnover} from './telegram-morning-supplements.mjs';
+ formatMorningVkospi,formatMorningTurnover,formatMorningBreadth} from './telegram-morning-supplements.mjs';
 import {MORNING_SERIES, expectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 import {loadMorningMaster,mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
@@ -130,7 +130,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     treasury:formatMorningTreasury(first.date,supplementRows.treasury||[]),
     vkospi:formatMorningVkospi(supplementRows.vkospi||[]),
     turnover:formatMorningTurnover(supplementRows.turnoverDate||expectedMorningDate('KOSPI',first.date),
-      supplementRows.turnover||[])
+      supplementRows.turnover||[]),
+    breadth:formatMorningBreadth(first.date,supplementRows.breadth||[])
   };
   const last=allowLateTest?lateTestWindow(now()):scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');

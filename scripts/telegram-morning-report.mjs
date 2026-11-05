@@ -199,7 +199,9 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST · 기준일별 종가 / 외부 참고값만 출처 표시','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id,options)),
-  (options.supplements?.turnover||'거래대금: 미확보')+' · 외국인/기관·시장폭(A/D·ADR20): 미확보','',
+  (options.supplements?.turnover||'거래대금: 미확보'),
+  (options.supplements?.breadth||'시장폭 A/D: 미확보 · ADR20: 20거래일 시계열 미연결'),
+  '외국인/기관 수급: 미확보 (공식 확정 원천 미연결)','',
   '■ 3. 밤사이 미국장 / 반도체',
   ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id,options)),'',
   '■ 4. 코스피200 야간선물 (06:00)',
@@ -229,7 +231,21 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const baseline=lines.join('\n');
   if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
     lines.splice(insertAt,0,sentiment);
-  const message=lines.join('\n');
+  // Extra read-only indicators must never cancel the 07:40 briefing when
+  // all 21 dated core rows and the investment commentary are present.
+  // Remove optional supplemental lines only; never truncate a verified close,
+  // the session date, the delivery QC, or the 06:00 NH reference.
+  let message=lines.join('\n');
+  const optional=[
+    /^시장폭 A\/D:/,/^미국 선물 참고:/,/^미 국채 2Y /,
+    /^지수 구성종목 거래대금:/,/^VKOSPI:/
+  ];
+  for(const pattern of optional){
+    if(message.length<=3900)break;
+    const i=lines.findIndex(line=>pattern.test(line));
+    if(i>=0)lines.splice(i,1);
+    message=lines.join('\n');
+  }
   if(message.length>3900)throw Error('TELEGRAM_FULL_BRIEFING_TOO_LONG');
   return message;
 }

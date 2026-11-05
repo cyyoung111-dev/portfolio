@@ -6,6 +6,8 @@ import {FUTURES} from './closing-current-futures.mjs';
 import {selectClosingVkospi} from './closing-vkospi-reference.mjs';
 import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
 import {validateGasEndpoint} from './nh-gas-proxy.mjs';
+import {readMorningBreadth,formatMorningBreadth} from './telegram-morning-breadth.mjs';
+export {formatMorningBreadth};
 
 const US=Object.freeze(['SPX','NASDAQ','NDX']);
 const SESSION_MS=90*60000; // 07:40 KST overlaps CME's daily maintenance halt.
@@ -101,14 +103,14 @@ async function readGas(date,action,params,{url,token,fetchImpl}){
  }catch{return null;}
 }
 export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=fetch,
- fetchDaily,nhRows=[],url=process.env.GAS_WEB_APP_URL,
+ fetchDaily,nhRows=[],breadthKey=process.env.KRX_AUTH_KEY,url=process.env.GAS_WEB_APP_URL,
  token=process.env.GAS_ACCESS_TOKEN}={}){
  if(!validDay(date)||typeof fetchDaily!=='function')return {};
  const expectedUs=expectedMorningDate('SPX',date);
  const expectedKr=expectedMorningDate('KOSPI',date);
  const missing=US.filter(id=>!nhRows.some(r=>r?.symbol===MORNING_SERIES.find(x=>x.id===id)?.symbol
   &&r.date===expectedUs&&r.source==='NH_INDEX_DAILY'));
- const [usReferences,treasury,futures,vk,turnover]=await Promise.all([
+ const [usReferences,treasury,futures,vk,turnover,breadth]=await Promise.all([
   Promise.all(missing.map(async id=>{
    const info=MORNING_SERIES.find(x=>x.id===id);
    try{
@@ -127,7 +129,8 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
     if(data?.status!=='ok'||data.date!==expectedKr||data.readOnly!==true
      ||data.source!=='KRX_OFFICIAL_INDEX_DAILY'||!Array.isArray(data.rows))return [];
     return verifyOfficialKrxTurnover(expectedKr,data.rows);
-   }).catch(()=>[])
+   }).catch(()=>[]),
+  readMorningBreadth(date,{authKey:breadthKey,now,fetchImpl}).catch(()=>[])
  ]);
- return {usReferences,treasury,futures,vkospi:vk,turnover,turnoverDate:expectedKr};
+ return {usReferences,treasury,futures,vkospi:vk,turnover,breadth,turnoverDate:expectedKr};
 }
