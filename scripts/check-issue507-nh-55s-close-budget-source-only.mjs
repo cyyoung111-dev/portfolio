@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import {fileURLToPath} from 'node:url';
 import {pathToFileURL} from 'node:url';
 import {proposeNhDomesticCloseBatching} from './nh-domestic-close-batching-proposal.mjs';
+import {proposeNhDomesticCloseFullCoverage} from './nh-domestic-close-full-coverage-proposal.mjs';
 
 const CODE_COUNT=37,DATE='2026-10-30',BUDGET_MS=55000,WAIT_MS=1000;
 const target=Array.from({length:CODE_COUNT},(_,i)=>({code:String(i+1).padStart(6,'0'),
@@ -196,6 +197,55 @@ export function auditBudgetSources(){
  const missing=simulate(proposed.candidate,true);
  assert.equal(missing.nh,36);assert.equal(missing.krx,1);
  assert.deepEqual(missing.fallbacks,[1]);
+}
+
+
+{
+ const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const next=proposeNhDomesticCloseFullCoverage(original);
+ assert.equal(next.gasDeployed,false);
+ assert.equal(next.sourceOnly,true);
+ assert.equal(next.financialWritesAdded,false);
+ assert.equal(next.regularSessionRequiresFullCloseCoverage,true);
+ assert.equal(next.krxHolidayCarryPolicyUnchanged,true);
+ assert.notEqual(next.candidateSha,next.baseSha);
+ assert.deepEqual(next.modifiedFunctions,
+  ['fetchDomesticRegularCloses','saveDailyPriceHistory']);
+ assert.throws(()=>proposeNhDomesticCloseFullCoverage(original+' '),
+  /BASE_GAS_BLOB_MISMATCH/);
+ // Extract the real policy expression, not a separately reimplemented test.
+ function coverageRule(source) {
+  const marker='var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedCloseDate);';
+  const start=source.indexOf(marker);
+  const stopMarker="throw new Error('TARGET_EXACT_KRX_INCOMPLETE');";
+  const stop=source.indexOf(stopMarker,start);
+  assert.ok(start>=0&&stop>start&&stop-start<1200,'exact acceptance rule');
+  return source.slice(start,stop+stopMarker.length)
+    .replace(marker,'var closeVerification = report;');
+ }
+ const before=coverageRule(original),after=coverageRule(next.candidate);
+ function run(rule,{closed=false,expected=37,confirmed=37,required=true,
+   actualDate=DATE,requireAllKrx=false}={}) {
+  vm.runInNewContext(rule,{
+   report:{required,expected,confirmed,date:actualDate},
+   options:{requireAllKrx},
+   requestedCloseDate:DATE,
+   _krxCalendarStatus_:()=>closed?'CLOSED':'OPEN'
+  });
+ }
+ // Baseline can accept 36/37 under the 70% group threshold.
+ assert.doesNotThrow(()=>run(before,{confirmed:36}));
+ // The release candidate cannot declare normal-day success without 37/37.
+ assert.throws(()=>run(after,{confirmed:36}),/TARGET_EXACT_KRX_INCOMPLETE/);
+ assert.throws(()=>run(after,{confirmed:0}),/TARGET_EXACT_KRX_INCOMPLETE/);
+ assert.throws(()=>run(after,{actualDate:'2026-10-29'}),/TARGET_EXACT_KRX_INCOMPLETE/);
+ assert.doesNotThrow(()=>run(after,{confirmed:37}));
+ // No domestic holdings and Korean closed-day carried closes are not blocked.
+ assert.doesNotThrow(()=>run(after,{required:false,expected:0,confirmed:0}));
+ assert.doesNotThrow(()=>run(after,{closed:true,confirmed:36,actualDate:'2026-10-29'}));
+ // An explicit strict historical-recovery request remains strict on holidays.
+ assert.throws(()=>run(after,{closed:true,confirmed:36,
+   actualDate:'2026-10-29',requireAllKrx:true}),/TARGET_EXACT_KRX_INCOMPLETE/);
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
