@@ -181,6 +181,11 @@ for(const c of checks){
    assert.ok(String(signed).includes('steps.verify_sentinel.outputs.verified'));
    assert.equal(steps.find(s=>s.name?.startsWith('Prefetch verified 06:00 NH night'))
       .env.TELEGRAM_MORNING_SENTINEL_VERIFIED,signed);
+   assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_MORNING_SENTINEL_VERIFIED,signed,
+     'prepared message must receive the same exact signed push proof');
+   assert.equal(steps.find(s=>s.name?.includes('Send exactly one claimed'))
+     .env.TELEGRAM_MORNING_SENTINEL_VERIFIED,signed,
+     'send path must not forget source push authentication');
  }
  assert.deepEqual(y.on.schedule,[{cron:c.cron}]);
  assert.equal(y.concurrency.group,c.group,'share original dated claim concurrency group');
