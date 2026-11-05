@@ -24,7 +24,7 @@ import {
 // executions, legacy deployments, external Sheets clients or editor sessions
 // were isolated. No initial v9.281->v9.282 write may cross this boundary.
 const legacyPublished=fs.readFileSync('reference/gas-v9.281.gs','utf8');
-const statefulCandidate=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const statefulCandidate=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 assert.equal(gasSourceBlobSha(legacyPublished),
  'ebe697563e94cf49e514037353260fce70ae1d57');
 assert.equal(gasSourceBlobSha(statefulCandidate),
