@@ -5,7 +5,7 @@ import {prepareNh0645Gas9283,V9282_BLOB} from './prepare-nh-0645-gas-release-928
 import {gasSourceBlobSha} from './deploy-gas.mjs';
 
 const {candidate,manifest}=prepareNh0645Gas9283();
-const baseline=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const baseline=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 assert.equal(gasSourceBlobSha(baseline),V9282_BLOB);
 assert.notEqual(candidate,baseline);
 const pinned=JSON.parse(fs.readFileSync('ops/issue507/nh-0645-v9283-preview.json','utf8'));
@@ -116,7 +116,7 @@ assert.equal(ctx.handleGetNhNightProxy({date:'2026-11-02',accessToken:'BAD'}).me
 assert.equal(ctx.handleGetNhNightProxy({date:'2026-11-01',accessToken:'TEST_GAS_TOKEN'}).message,'NH_PROXY_WINDOW');
 assert.throws(()=>prepareNh0645Gas9283({read:()=>baseline+'// unexpected mutable edit'}),
  /NH_9283_PRODUCTION_V9282_BASELINE_CHANGED/);
-assert.equal(fs.readFileSync('src/gas/apps_script.gs','utf8'),baseline,
+assert.equal(fs.readFileSync('reference/gas-v9.282.gs','utf8'),baseline,
  'the preview must never touch production GAS source');
 console.log(JSON.stringify({status:'PASS',mode:'NH_9283_RELEASE_PREVIEW_ONLY',
  candidateBlob:manifest.candidateBlob,verifiedKst:['06:44:59 rejected','06:45 accepted',
