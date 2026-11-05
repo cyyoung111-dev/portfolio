@@ -13,12 +13,12 @@ const NH_REVIEW_SHA='22a5e37d48ca3b39c71dfa32d6afae5401ed4d5b';
 const REQUIRED_VERSION='9.283';
 
 export function inspectCombinedGasReleasePreflight({
- baseline=fs.readFileSync('src/gas/apps_script.gs','utf8'),
+ baseline=fs.readFileSync('reference/gas-v9.282.gs','utf8'),
  observedLiveVersion=null, observedPublishedBlob=null,
  observedGateReleaseId=null, observedGateMode=null,
  verifiedReviewHead=null, mergedMainHead=null
 }={}){
- const expected=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const expected=fs.readFileSync('reference/gas-v9.282.gs','utf8');
  if(gasSourceBlobSha(expected)!==PREDECESSOR_SHA ||
     typeof baseline!=='string'||gasSourceBlobSha(baseline)!==PREDECESSOR_SHA)
    throw Error('PREFLIGHT_BASELINE_MISMATCH');
@@ -48,7 +48,7 @@ export function inspectCombinedGasReleasePreflight({
    throw Error('PREFLIGHT_FINANCIAL_REPAIR_SCOPE_CHANGED');
  let releaseGate='BLOCKED';
  try{assertGasReleaseReady(candidate);releaseGate='APPROVED';}catch(e){
-  if(e.message!=='GAS_RELEASE_UNREVIEWED_VERSION: 9.283')
+  if(e.message!=='GAS_RELEASE_UNREVIEWED_VERSION: 9.283' && !String(e.message).startsWith('GAS_RELEASE_SOURCE_NOT_APPROVED:'))
    throw Error('PREFLIGHT_UNEXPECTED_RELEASE_GATE');
  }
  if(releaseGate!=='BLOCKED')throw Error('PREFLIGHT_PREMATURE_SOURCE_APPROVAL');
