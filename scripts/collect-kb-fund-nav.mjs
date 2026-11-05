@@ -19,7 +19,7 @@ export function parseNav(data,from,to) {
 // Public class NAV does not require the private GAS session. Persisting this
 // source independently lets a stalled writer catch up after the gate reopens.
 export async function readPublishedKbNav({from,to,fetchImpl=fetch}){
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(from||'')||!/^\\d{4}-\\d{2}-\\d{2}$/.test(to||'')||from>to)
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(from||'')||!/^\d{4}-\d{2}-\d{2}$/.test(to||'')||from>to)
     throw Error('NAV_SOURCE_RANGE');
   const source=new URL(sourceUrl);
   source.search=new URLSearchParams({fundCd:'KR5223AQ0185',gijunYmd:to.replaceAll('-',''),schNavMode:'',schNavStDt:from.replaceAll('-',''),schNavEdDt:to.replaceAll('-','')});
