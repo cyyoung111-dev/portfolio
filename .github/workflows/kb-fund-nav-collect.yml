@@ -4,12 +4,42 @@ on:
     - cron: '15 23 * * *' # 08:15 KST, before 08:45 KRX recovery
     - cron: '10 9 * * *'
   workflow_dispatch:
+  # One GET-only public source check on the merge that installs this workflow.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/kb-fund-nav-collect.yml'
 permissions:
   contents: read
 concurrency:
   group: kb-fund-nav-collect
   cancel-in-progress: false
 jobs:
+  # Public source has no GAS token, no private workbook or deployment access.
+  # Its failure must not falsely mark the protected import as successful.
+  source-public:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Collect public KB S-T NAV independently of GAS
+        id: public-nav
+        continue-on-error: true
+        run: node scripts/collect-kb-fund-nav.mjs --source-only > kb-public-nav.json
+      - name: Preserve public KB NAV source for reconciliation
+        if: steps.public-nav.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kb-public-nav-${{ github.run_id }}
+          path: kb-public-nav.json
+          retention-days: 7
+          if-no-files-found: error
+  # The private writer independently re-fetches and validates the public NAV.
+  # A failed public archive must NEVER skip an otherwise valid import/repair.
   collect:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     environment: portfolio-production-gas
