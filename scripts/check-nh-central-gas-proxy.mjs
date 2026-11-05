@@ -69,7 +69,9 @@ for(const fixture of [
 {
  const seen=[];
  const status=await import('./nh-gas-proxy.mjs').then(mod=>mod.callNhGasProxy('getNhAuthStatusProxy',{
-  url,token,request,onTransportDiagnostic:x=>seen.push(x)
+  url,token,request:async()=>({ok:true,json:async()=>({status:'ok',provider:'NH',
+    readOnly:true,enabled:true,tokenCached:true,tokenIssued:false})}),
+  onTransportDiagnostic:x=>seen.push(x)
  }));
  assert.equal(status.tokenCached,true);
  assert.deepEqual(seen,[{kind:'NH_GAS_TRANSPORT',phase:'STATUS_OK'}]);
