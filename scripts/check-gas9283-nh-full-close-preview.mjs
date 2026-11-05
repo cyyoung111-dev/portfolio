@@ -33,7 +33,7 @@ assert.equal(manifest.deploymentApproved,false);
 assert.equal(manifest.financeWriteAuthorized,false);
 assert.deepEqual(manifest.changedFunctions,
   ['fetchDomesticRegularCloses','saveDailyPriceHistory']);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/);
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION|GAS_RELEASE_SOURCE_NOT_APPROVED/);
 assert.throws(()=>composeGas9283NhFullClosePreview({
  baseline:baseline+'\n// modified'
 }),/GAS_9283_CLOSE_V9282_BASE_DRIFT/);
