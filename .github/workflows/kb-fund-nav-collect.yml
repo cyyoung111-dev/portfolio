@@ -20,6 +20,20 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      # Capture public NAV before touching the private GAS endpoint. On
+      # maintenance failures the 31-day source remains available for catch-up.
+      - name: Collect public KB S-T NAV independently of GAS
+        id: public-nav
+        continue-on-error: true
+        run: node scripts/collect-kb-fund-nav.mjs --source-only > kb-public-nav.json
+      - name: Preserve public KB NAV source for reconciliation
+        if: steps.public-nav.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kb-public-nav-${{ github.run_id }}
+          path: kb-public-nav.json
+          retention-days: 7
+          if-no-files-found: error
       - name: Collect exact KB S-T published NAV and verify import
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
