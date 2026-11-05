@@ -229,7 +229,7 @@ console.log('PASS: standalone GAS derived token, per-device opt-in, connection i
 // Execute the ACTUAL v9.282 doGet/doPost and authentication with the
 // proposed collector, but without changing production source or remote GAS.
 {
-  const approved=fs.readFileSync('src/gas/apps_script.gs','utf8');
+  const approved=fs.readFileSync('reference/gas-v9.282.gs','utf8');
   assert.equal(sourceSha(approved),APPROVED_GAS_V9282_BLOB);
   const proposal=composePerformanceGasCandidate(approved,gasCandidate);
   assert.equal(proposal.deployable,false);
