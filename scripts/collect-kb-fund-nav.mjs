@@ -16,6 +16,35 @@ export function parseNav(data,from,to) {
   }
   return [...seen].sort().map(([date,nav])=>({date,nav}));
 }
+// Public class NAV does not require the private GAS session. Persisting this
+// source independently lets a stalled writer catch up after the gate reopens.
+export async function readPublishedKbNav({from,to,fetchImpl=fetch}){
+  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(from||'')||!/^\\d{4}-\\d{2}-\\d{2}$/.test(to||'')||from>to)
+    throw Error('NAV_SOURCE_RANGE');
+  const source=new URL(sourceUrl);
+  source.search=new URLSearchParams({fundCd:'KR5223AQ0185',gijunYmd:to.replaceAll('-',''),schNavMode:'',schNavStDt:from.replaceAll('-',''),schNavEdDt:to.replaceAll('-','')});
+  let r;
+  try{
+    r=await fetchImpl(source,{headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.funetf.co.kr/product/fund/view/KR5223AQ0185'},signal:AbortSignal.timeout(60000)});
+  }catch{
+    throw Error('NAV_SOURCE_NETWORK_UNVERIFIED');
+  }
+  if(!r.ok)throw Error('NAV_SOURCE_HTTP_'+(Number.isInteger(r.status)?r.status:'UNKNOWN'));
+  let data;
+  try{data=await r.json();}
+  catch{throw Error('NAV_SOURCE_JSON_UNVERIFIED');}
+  const rows=parseNav(data,from,to);
+  return {rows,sourceHref:source.href};
+}
+
+export async function runPublicSourceOnly({now=new Date(),fetchImpl=fetch}={}){
+  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+  const offset=n=>new Date(Date.parse(today+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
+  const from=offset(-31),to=today;
+  const {rows}=await readPublishedKbNav({from,to,fetchImpl});
+  return {mode:'SOURCE_ONLY',writerInvoked:false,code:'F00002',classCode:'AQ018',
+    sourceRows:rows.length,from,to,latestDate:rows.at(-1).date,rows};
+}
 export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}){
   const endpoint=validateWebAppUrl(url);
   if(typeof token!=='string'||!token.trim())throw Error('NAV_AUTH_MISSING');
@@ -55,12 +84,8 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   if(['RUNNING','IN_PROGRESS'].includes(a.fundAttempt?.state))return {mode:'DEFERRED',complete:false,reason:'NAV_WRITER_BUSY',imported:0,derivedRepaired:0};
   const valuationTo=a.closeRun?.runDate;
   if(typeof valuationTo!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(valuationTo)||valuationTo<from||valuationTo>to)throw Error('NAV_CLOSE_DATE');
-  const source=new URL(sourceUrl);
-  source.search=new URLSearchParams({fundCd:'KR5223AQ0185',gijunYmd:to.replaceAll('-',''),schNavMode:'',schNavStDt:from.replaceAll('-',''),schNavEdDt:to.replaceAll('-','')});
-  const r=await fetchImpl(source,{headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.funetf.co.kr/product/fund/view/KR5223AQ0185'},signal:AbortSignal.timeout(60000)});
-  if(!r.ok)throw Error('NAV_SOURCE_HTTP_'+(Number.isInteger(r.status)?r.status:'UNKNOWN'));
-  const rows=parseNav(await r.json(),from,to);
-  const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+source.href,rows};
+  const {rows,sourceHref}=await readPublishedKbNav({from,to,fetchImpl});
+  const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+sourceHref,rows};
   const preview=await request('previewFundNavImport',{data:JSON.stringify(input)});
   if(preview.status!=='ok'||preview.errors?.length||preview.updates?.length||preview.warnings?.some(w=>w.reason!=='오늘 NAV는 공식 확정값인지 확인 필요'||w.date!==today)||!Array.isArray(preview.candidates))throw Error('NAV_PREVIEW_BLOCKED');
   const candidates=preview.candidates.map(({date,nav})=>({date,nav}));
@@ -110,6 +135,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   return {mode:'APPLY',sourceRows:rows.length,candidates:candidates.length,imported:candidates.length,derivedRepaired:pending.length,importAckRecovered};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
-  try{console.log(JSON.stringify(await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')})));}
+  try{console.log(JSON.stringify(process.argv.includes('--source-only')
+    ?await runPublicSourceOnly():await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')})));}
   catch(error){console.error(/^NAV_[A-Z_0-9]+$/.test(error?.message||'')?error.message:'KB_NAV_COLLECTION_FAILED');process.exitCode=1;}
 }
