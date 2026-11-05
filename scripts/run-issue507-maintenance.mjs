@@ -34,7 +34,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
     summaries.push({mode,status:'OK',applied:r.applied,...Object.fromEntries(keys.map(k=>[k,r[k]]))});
   }
   const after=await request('getAutomationStatus');
-  if(after.status!=='ok'||!['9.281','9.282'].includes(after.gasVersion))throw Error('MAINTENANCE_POSTCHECK');
+  if(after.status!=='ok'||!['9.281','9.282','9.283'].includes(after.gasVersion)||after.gasVersion!==before.gasVersion)throw Error('MAINTENANCE_POSTCHECK');
   const q=summaries.find(x=>x.mode==='reconcile');
   if(q.status==='OK'&&after.automation?.tradeSnapshotDeferredCount!==q.remaining)throw Error('MAINTENANCE_QUEUE_READBACK');
   const complete=summaries.every(r=>r.status==='OK' && (!apply || r.mode==='reconcile' || r.added===r.needed));
