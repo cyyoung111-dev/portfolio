@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.282
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.283
+//
+//  v9.283 변경사항 (2026.11.02):
+//  • NH 야간선물 06:00 기준값 조기 수집을 위한 06:45 조회 허용
+//  • 08:00 종전 종료 및 금융 writer gate/스냅샷 복구 범위 유지
 //
 //  v9.282 변경사항 (2026.10.31):
 //  • 전체 writer 진입/종료 gate, 무금융 OPEN bootstrap, 승인된 F00001 단건 복구
@@ -1331,6 +1335,7 @@ function doGet(e) {
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
   if (params.action === 'getKrxOfficialStockCloses')      return handleGetKrxOfficialStockCloses(params.date || '', params.codes || '');
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
+  if (params.action === 'getKrxMarketTurnover')            return handleGetKrxMarketTurnover(params.date || '');
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '', params.fresh === '1');
   if (params.action === 'getKrxK200NightClose')           return handleGetKrxK200NightClose(params.date || '');
   if (params.action === 'getKrxK200NightDiagnostics') return handleGetKrxK200NightDiagnostics(params.date || '');
@@ -1414,7 +1419,7 @@ function doPost(e) {
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
   if (params.action === 'reconcileCompletedKrxPending') return handleReconcileCompletedKrxPending(params.dates || '', params.apply || '');
   if (params.action === 'repairOct08FundSourceOnly') return handleRepairOct08FundSourceOnly();
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeListReadOnly', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeListReadOnly', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getKrxMarketTurnover', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
     return handleSyncCodesAppendOnly(params.codes, params.expectedCodes, params.expectedSourceId || '');
@@ -5067,6 +5072,92 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
   }
 }
 
+
+// KRX official daily representative-index turnover. Separate from the market-wide
+// turnover total; never persist readings or export AUTH_KEY/HTTP response bodies.
+function _krxMarketTurnoverKrw_(raw) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_krxMarketTurnoverKrw_', _krxMarketTurnoverKrw_, this, arguments);
+  if (typeof raw !== 'string' && (typeof raw !== 'number' || !isFinite(raw) || Math.floor(raw) !== raw)) return null;
+  var text = String(raw);
+  if (!/^(?:0|[1-9]\d*|[1-9]\d{0,2}(?:,\d{3})+)$/.test(text)) return null;
+  var value = Number(text.replace(/,/g, ''));
+  return isFinite(value) && value > 0 && value < 1000000000000000
+    && Math.floor(value) === value && value <= Number.MAX_SAFE_INTEGER ? value : null;
+}
+function _selectKrxMarketTurnover_(requestedDate, market, data) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_selectKrxMarketTurnover_', _selectKrxMarketTurnover_, this, arguments);
+  var name = market === 'KOSPI' ? '코스피' : market === 'KOSDAQ' ? '코스닥' : '';
+  if (!name || !data || !Array.isArray(data.OutBlock_1) || data.OutBlock_1.length > 250) return null;
+  var matches = data.OutBlock_1.filter(function(row) { return row && row.IDX_NM === name; });
+  if (matches.length !== 1) return null;
+  var row = matches[0], ymd = requestedDate.replace(/-/g, '');
+  if (row.BAS_DD !== ymd) return null;
+  var money = _krxMarketTurnoverKrw_(row.ACC_TRDVAL);
+  return money === null ? null : {id:'KRX_TURNOVER_'+market, market:market,
+    date:requestedDate,valueKrw:money,source:'KRX_OFFICIAL_INDEX_DAILY',
+    role:'NON_NH_REFERENCE_ONLY'};
+}
+function handleGetKrxMarketTurnover(dateStr) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetKrxMarketTurnover', handleGetKrxMarketTurnover, this, arguments);
+  var date = _normalizeDate(dateStr || '');
+  // 17:00 daily briefing is permitted to show only the actual requested session.
+  // A missing/unknown session or unpublished result remains explicitly missing.
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      _krxCalendarStatus_(date) !== 'OPEN' ||
+      !_isKrxOfficialCloseAvailableTime_(new Date(), date))
+    return jsonOk({date:date || '',source:'KRX_OFFICIAL_INDEX_DAILY',
+      readOnly:true,rows:[]});
+  var slots = _getKrxAuthKeySlots_();
+  if (!slots.key) return jsonOk({date:date,source:'KRX_OFFICIAL_INDEX_DAILY',
+    readOnly:true,rows:[]});
+  var markets = [
+    {id:'KOSPI',url:'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd'},
+    {id:'KOSDAQ',url:'https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd'}
+  ];
+  var ymd = date.replace(/-/g, '');
+  var requests = markets.map(function(market) {
+    return {url:market.url+'?basDd='+ymd,method:'get',
+      headers:{AUTH_KEY:slots.key},muteHttpExceptions:true};
+  });
+  var responses;
+  try { responses = UrlFetchApp.fetchAll(requests); }
+  catch(e) { responses = []; }
+  if (!Array.isArray(responses) || responses.length !== markets.length) responses = [];
+  var denied = [];
+  responses.forEach(function(resp,i) {
+    var status = resp && resp.getResponseCode();
+    if (status === 401 || status === 403) denied.push(i);
+  });
+  // Retry only authentications denied by KRX, never an empty successful day.
+  if (denied.length && slots.alternative) {
+    var retry = denied.map(function(i) {
+      return {url:requests[i].url,method:'get',headers:{AUTH_KEY:slots.alternative},
+        muteHttpExceptions:true};
+    });
+    try {
+      var replacements = UrlFetchApp.fetchAll(retry);
+      if (Array.isArray(replacements) && replacements.length === denied.length)
+        replacements.forEach(function(resp,i) {
+          if (resp && resp.getResponseCode() === 200) responses[denied[i]] = resp;
+        });
+    } catch(e) { /* unverified alternate: return no row */ }
+  }
+  var rows=[];
+  markets.forEach(function(market,i) {
+    var resp=responses[i], status=resp && resp.getResponseCode();
+    if (status !== 200) return;
+    try {
+      var body = resp.getContentText();
+      if (typeof body !== 'string' || body.length > 250000) return;
+      var parsed = JSON.parse(body);
+      var row = _selectKrxMarketTurnover_(date,market.id,parsed);
+      if (row) rows.push(row);
+    } catch(e) { /* rejected source; never log original body or credential */ }
+  });
+  return jsonOk({date:date,source:'KRX_OFFICIAL_INDEX_DAILY',
+    readOnly:true,rows:rows});
+}
+
 function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetBenchmarks', handleGetBenchmarks, this, arguments);
   try {
@@ -5750,7 +5841,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.282' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.283' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11554,6 +11645,17 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalO
   });
   if (acquired !== 'ACQUIRED') return {attempted:false, deferred:true, reason:acquired};
   try {
+    // A missed 19:00 Writer may leave yesterday missing and pending empty.
+    // Seed inside the already acquired backfill lease AND ScriptLock before
+    // selecting one pending date. A targeted manual recovery never seeds
+    // unrelated days; fromClose uses the existing main Writer's seed.
+    if (!fromClose && !targetDate) {
+      _portfolioFundAtomic_(function(sharedProps) {
+        var ss = getss();
+        _seedMissingKrxCloseDates_(ss, sharedProps, runDate, getCodeItems(ss));
+        _seedRecentMissingKrxSnapshotDays_(ss, sharedProps, runDate);
+      });
+    }
     if (targetDate) {
       // Recheck after owning the writer lease; never prune unrelated dates.
       var targetCheck = _targetedKrxRecoveryPreflight_(targetDate, runDate);
@@ -12077,7 +12179,8 @@ function saveDailyPriceHistory(targetDate, options) {
         var latestForeignCloseDate = _latestConfirmedForeignCloseDate_(items, gfPrev, requestedCloseDate);
         // 공식 실제 종가 날짜·시장별 커버리지를 먼저 검증해 오래된 데이터 저장을 차단합니다.
         var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedCloseDate);
-        if (options && options.requireAllKrx === true && (!closeVerification.required
+        if (((_krxCalendarStatus_(requestedCloseDate) !== 'CLOSED' && closeVerification.required)
+            || (options && options.requireAllKrx === true)) && (!closeVerification.required
             || closeVerification.date !== requestedCloseDate
             || closeVerification.confirmed !== closeVerification.expected))
           throw new Error('TARGET_EXACT_KRX_INCOMPLETE');
@@ -12130,7 +12233,6 @@ function saveDailyPriceHistory(targetDate, options) {
       Logger.log('[saveDailyPriceHistory] 확정 평가일(' + snapshotDate + '), KRX 종가 기준일('
         + String(closeVerification.date || '-') + '), 해외 최근 확정일(' + String(latestForeignCloseDate || '-') + ')');
       var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
-      var existingRows = _readSnapshotRowsByDate(ss, snapshotDate);
       var dailyRewritePlan = _snapshotRewritePlan(ss, snapshotDate, expected);
       if (dailyRewritePlan.unsafe.length) throw new Error('Snapshot 보호 충돌: ' + dailyRewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
       if (dailyRewritePlan.needsRewrite) {
@@ -13244,7 +13346,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.282',
+    gasVersion: '9.283',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13312,7 +13414,7 @@ function _getAutomationStatusData() {
 
 function handleGetAutomationStatus() {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetAutomationStatus', handleGetAutomationStatus, this, arguments);
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.282' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.283' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16452,7 +16554,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.282' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.283' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17300,7 +17402,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.282' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.283' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17332,7 +17434,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.282'
+      gasVersion: '9.283'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19609,9 +19711,26 @@ function fetchNhRegularCloses(items, requestedDate, options) {
 
 function fetchDomesticRegularCloses(items,date) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('fetchDomesticRegularCloses', fetchDomesticRegularCloses, this, arguments);
-  var nh={};
-  try {nh=fetchNhRegularCloses(items,date)||{};} catch(ignoreNh) {}
-  var missing=(items||[]).filter(function(item){return !nh[item.code];});
+  // Keep the vendor's one-second pacing and each collector's 55s deadline.
+  // A 37-code flat request can silently lose the tail; smaller calls reset
+  // the per-call budget without weakening close-date/source validation.
+  var all=Array.isArray(items)?items:[],nh={},started=Date.now(),chunks=0;
+  for(var offset=0;offset<all.length;offset+=12){
+    if(Date.now()-started>150000)break;
+    try {
+      var observed=fetchNhRegularCloses(all.slice(offset,offset+12),date)||{};
+      Object.keys(observed).forEach(function(code){nh[code]=observed[code];});
+    }catch(ignoreNh){}
+    chunks++;
+  }
+  try {
+    if(typeof Logger!=='undefined'&&Logger&&typeof Logger.log==='function')
+      Logger.log('[NH_CLOSE_BATCH_COVERAGE] '+JSON.stringify({
+        date:date,expected:all.length,verified:Object.keys(nh).length,
+        batches:chunks,elapsedSeconds:Math.floor((Date.now()-started)/1000)
+      }));
+  }catch(ignoreDiagnostic){}
+  var missing=all.filter(function(item){return !nh[item.code];});
   if(!missing.length)return nh;
   var fallback={};
   try {fallback=fetchPricesKrx(missing,date)||{};}catch(error){if(!Object.keys(nh).length)throw error;}
@@ -19627,7 +19746,7 @@ function handleDiagnoseNhMarketData(params) {
     var items=[{code:'005930',currency:'KRW',market:'KRX'},{code:'AAPL',currency:'USD',market:'NASDAQ'}];
     var meta={},quotes=fetchPricesNh(items,{},meta),date=today();
     var closes=fetchNhRegularCloses(items,date,{useMarketCloseCutoffs:true});
-    return jsonOk({gasVersion: '9.282',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
+    return jsonOk({gasVersion: '9.283',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
   }catch(error){return jsonError('NH_DIAGNOSTIC_FAILED');}
 }
 
@@ -19659,7 +19778,7 @@ function handleGetNhAuthStatusProxy(params) {
     PropertiesService.getScriptProperties().getProperty('NHPLUG_AUTH_RECORD_V1'),_nhTokenScope_(creds)):null;
   // Never issue a token or return its value for a status check.
   return jsonOk({provider:'NH',enabled:enabled,tokenCached:!!existing,tokenIssued:false,
-    gasVersion: '9.282',readOnly:true});
+    gasVersion: '9.283',readOnly:true});
 }
 function _nhProxyFutureCandidate_(today) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyFutureCandidate_', _nhProxyFutureCandidate_, this, arguments);
@@ -19699,7 +19818,7 @@ function _nhProxyNightReference_(today,now,diagnosticOnly) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyNightReference_', _nhProxyNightReference_, this, arguments);
   var kst=_nhProxyKst_(now);
   if(kst.date!==today
-    ||(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<450||kst.minutes>=480)))
+    ||(diagnosticOnly?(kst.minutes<480||kst.minutes>=780):(kst.minutes<405||kst.minutes>=480)))
     throw new Error('NH_PROXY_WINDOW');
   var props=PropertiesService.getScriptProperties();
   var creds=_nhCredentials_();
@@ -19758,7 +19877,7 @@ function handleGetNhNightProxy(params) {
   if(!_nhProxyAuthenticated_(params))return jsonError('NH_PROXY_AUTH_REQUIRED');
   var now=new Date(),kst=_nhProxyKst_(now);
   if(params.date!==kst.date||!/^\d{4}-\d{2}-\d{2}$/.test(params.date||'')
-    ||kst.minutes<450||kst.minutes>=480)return jsonError('NH_PROXY_WINDOW');
+    ||kst.minutes<405||kst.minutes>=480)return jsonError('NH_PROXY_WINDOW');
   try{
     return jsonOk({provider:'NH',reference:_nhProxyNightReference_(params.date,now),readOnly:true,
       bearerExposed:false});
@@ -19875,7 +19994,7 @@ function handleGetNhIndexProbe(params){
      if(stop){stopped=true;break;}
    }
  }
- return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.282',date:'2026-10-29',
+ return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.283',date:'2026-10-29',
    candidateOnly:true,mappingVerified:false,results:records,stopped:stopped});
 }
 
@@ -19956,7 +20075,7 @@ var ISSUE507_GATE_RELEASE_ID='257c26d1ad789d8f036e74d56418644385e8860dab8c5551fb
 // Original alias functions are private implementation details; direct editor
 // calls and other deployments must be disabled by the rollout operator.
 var _issue507GateInside_=false;
-var ISSUE507_GATE_API_VERSION='9.282';
+var ISSUE507_GATE_API_VERSION='9.283';
 function _issue507GateAtomic_(fn,quickCleanup) {
   var lock=LockService.getScriptLock(),owned=lock.hasLock();
   if(!owned){
@@ -20273,4 +20392,46 @@ function _issue507F00001Quiescence_(props) {
   if(q.httpIngressBlocked!==true || q.menuAndTriggersBlocked!==true ||
      q.inFlightExecutionsDrained!==true || q.externalWritersBlocked!==true ||
      !Number.isFinite(age) || age<0 || age>300000) throw new Error('APP_QUIESCENCE_REQUIRED');
+}
+
+function _seedRecentMissingKrxSnapshotDays_(ss, props, runDate) {
+  // Backfill worker only. A pending queue already has work and must not be
+  // expanded while the worker is trying to clear an older verified date.
+  if (_readPendingKrxCloseDates_(props).length) return {checked:false,reason:'PENDING_EXISTS'};
+  var lastChecked=String(props.getProperty('portfolio_recent_gap_scan_date_v1')||'');
+  if (lastChecked===runDate) return {checked:false,reason:'ALREADY_SCANNED'};
+  var sh=ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  if (!sh || sh.getLastRow()<2) return {checked:false,reason:'NO_HISTORY'};
+  // Date column only: no valuation, trade, or fund data read into this scan.
+  // A 7-calendar-day bound prevents historical onboarding from generating
+  // an open-ended replay queue. A row of any kind is enough to exclude a day
+  // from this *missing-day* scan; partial rows are handled by integrity checks.
+  var lastRow=sh.getLastRow(), lookbackStart=_fundDateOffset(runDate,-7);
+  var rowCount=Math.min(1000,lastRow-1);
+  var first=lastRow-rowCount+1;
+  var sample=sh.getRange(first,1,rowCount,1).getValues(),present={};
+  sample.forEach(function(row) {
+    var d=_normalizeDate(row[0]);
+    if(d>=lookbackStart&&d<runDate) present[d]=true;
+  });
+  var items=getCodeItems(ss), candidates=[];
+  for(var d=lookbackStart;d<runDate;d=_fundDateOffset(d,1)) {
+    if(_krxCalendarStatus_(d)!=='OPEN'||present[d]) continue;
+    if(!_hasKrxHoldingsForCloseDate_(ss,d,items)) continue;
+    candidates.push(d);
+  }
+  if(candidates.length) {
+    // If Snapshot rows were appended nonchronologically, the tail alone is
+    // not a proof of absence. Confirm candidates against the *entire* date
+    // column once, then queue only dates still fully absent.
+    var all=sh.getRange(2,1,lastRow-1,1).getValues(),allDates={};
+    all.forEach(function(row) { var d=_normalizeDate(row[0]);if(d)allDates[d]=true; });
+    candidates=candidates.filter(function(d) {return !allDates[d];});
+  }
+  var queued=[];
+  candidates.forEach(function(d) {
+    if(_enqueuePendingKrxCloseDate_(props,d)) queued.push(d);
+  });
+  props.setProperty('portfolio_recent_gap_scan_date_v1',runDate);
+  return {checked:true,candidateCount:candidates.length,queuedCount:queued.length};
 }
