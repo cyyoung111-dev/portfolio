@@ -31,6 +31,46 @@ const request=async(target,options)=>{
 };
 const result=await fetchNhNightFromGas('2026-10-30',{now,url,token,request});
 assert.equal(result.value,351.5);assert.equal(result.officialClose,false);
+// Regression: a real GAS proxy / NH round-trip may take 7 seconds. Its
+// receivedAt is after the request began but before the response completed.
+// The earlier PRE-request +2s check silently rejected this valid receipt.
+const startMs=Date.parse('2026-10-30T07:30:15+09:00');
+const makeClockTest=(probe=false,remoteOffsetMs=6000,elapsedMs=7000)=>{
+ let clientMs=probe?Date.parse('2026-10-30T10:50:00+09:00'):startMs;
+ const start=clientMs;
+ let queries=0,action='';
+ const fake={...ref,receivedAt:new Date(start+remoteOffsetMs).toISOString()};
+ const request=async(_target,opts)=>{
+   queries++;action=opts.body.get('action');
+   clientMs=start+elapsedMs;
+   return {ok:true,json:async()=>({
+     status:'ok',provider:'NH',readOnly:true,bearerExposed:false,
+     ...(probe?{diagnosticOnly:true,tokenIssued:false}:{}),
+     reference:fake
+   })};
+ };
+ const errors=[];
+ const options={url,token,now:()=>new Date(clientMs),request,onError:x=>errors.push(x)};
+ return {run:()=>probe?fetchNhNightProbeFromGas('2026-10-30',options)
+   :fetchNhNightFromGas('2026-10-30',options),
+  observed:()=>({queries,action,errors})};
+};
+for(const probe of [false,true]){
+ const valid=makeClockTest(probe,6000,7000);
+ const found=await valid.run();
+ assert.equal(found?.value,ref.value,'late GAS receipt inside response window must be accepted');
+ assert.equal(found?.officialClose,false);
+ assert.equal(valid.observed().queries,1,'exactly one protected GAS request');
+ assert.equal(valid.observed().action,probe?'getNhNightProbe':'getNhNightProxy');
+ assert.deepEqual(valid.observed().errors,[]);
+ const ahead=makeClockTest(probe,11000,7000);
+ assert.equal(await ahead.run(),null,'GAS receipt later than response completion +2s must be rejected');
+ assert.deepEqual(ahead.observed().errors,['NH_NIGHT_RECEIPT_AFTER_RESPONSE']);
+ const backwards=makeClockTest(probe,-10000,-1000);
+ assert.equal(await backwards.run(),null,'system clock reversal must fail closed');
+ assert.deepEqual(backwards.observed().errors,['NH_NIGHT_CLIENT_CLOCK_INVALID']);
+}
+
 assert.equal(await fetchNhNightFromGas('2026-10-29',{now,url,token,request}),null);
 assert.equal(calls,1);
 const invalid=await fetchNhNightFromGas('2026-10-30',{now,url,token,request:async()=>({
