@@ -871,6 +871,8 @@ function verifyBackfillLease(existing, fundLease) {
     Date:{now:()=>10000},
     _portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+    getss:()=>({}),getCodeItems:()=>[],
+    _seedMissingKrxCloseDates_:()=>{},_seedRecentMissingKrxSnapshotDays_:()=>{},
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     _retryOnePendingKrxClose_:()=>{runs++;return {attempted:true,ok:true,date:'2026-10-07'};}
@@ -908,6 +910,8 @@ function runCrossLeaseScenario(backfillFirst) {
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
     _portfolioFundAtomic_:cb=>cb(props),
     _portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
+    getss:()=>({}),getCodeItems:()=>[],
+    _seedMissingKrxCloseDates_:()=>{},_seedRecentMissingKrxSnapshotDays_:()=>{},
     _retryOnePendingKrxClose_:()=>{events.push('backfill');return {attempted:true,ok:true};},
     runDailyFundValuations:()=>{events.push('fund');return {lastDate:'2026-10-08'};}
   };
