@@ -7,7 +7,7 @@ import {PRIVATE_RUN_GAS_FUNCTION}
 import {FROZEN_GAS_BLOB}
   from './issue507-oct30-private-live-readonly-probe-proposal.mjs';
 
-const bytes=fs.readFileSync('src/gas/apps_script.gs');
+const bytes=fs.readFileSync('reference/gas-v9.282.gs');
 const blob=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 assert.equal(blob,FROZEN_GAS_BLOB);
 const gas=bytes.toString('utf8');
