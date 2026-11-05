@@ -551,6 +551,73 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
 }
 console.log('Incomplete close client: authentication, explicit schedule, bounded continuation, verified completion PASS');
 
+// The issuer's public C-RPe NAV must remain collectable without GAS or user
+// secrets. All rows and amounts in these fixtures are synthetic.
+{
+ const {parseHanwhaNav,runPublicHanwhaSource}=await import('./collect-hanwha-public-nav.mjs');
+ const from='2026-10-05',to='2026-11-05';
+ const sample={list:[
+  {wkdate:'2026-11-04',price:'2,155.40'},
+  {wkdate:'2026/11/03',price:'2241.43'},
+  {wkdate:'20261103',price:2241.43},
+  {wkdate:'2026-10-04',price:'2200.01'}]};
+ assert.deepEqual(parseHanwhaNav(sample,from,to),[
+  {date:'2026-11-03',nav:2241.43},{date:'2026-11-04',nav:2155.4}
+ ]);
+ let sourceCalls=0;
+ const fetchImpl=async(url,opts)=>{
+  sourceCalls++;
+  assert.equal(new URL(url).hostname,'www.hanwhafund.co.kr');
+  assert.equal(new URL(url).pathname,'/api/fund/dailyPrice');
+  assert.deepEqual(Object.fromEntries(new URL(url).searchParams),
+   {fundCd:'008942',period:'',startDate:from,endDate:to});
+  assert.equal(opts.method,'GET');
+  assert.ok(!('body' in opts));
+  assert.ok(!('Authorization' in opts.headers));
+  return {ok:true,json:async()=>sample};
+ };
+ const proof=await runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),fetchImpl});
+ assert.equal(sourceCalls,1,'source-only path must never touch GAS');
+ assert.deepEqual(
+  [proof.mode,proof.writerInvoked,proof.code,proof.lookupCode,proof.classCode,proof.latestDate,proof.sourceRows],
+  ['SOURCE_ONLY',false,'F00001','008942','C-RPe','2026-11-04',2]);
+ assert.equal(proof.rows.length,2);
+ const badData=[
+  {list:[]},
+  {list:[{wktDate:'2026-11-04',price:2200}]},
+  {list:[{wkdate:'2026-11-04',price:'INVALID'}]},
+  {list:[{wkdate:'2026-02-30',price:'2200'}]},
+  {list:[{wkdate:'2026-99-99',price:'2200'}]},
+  {list:[{wkdate:'2026-11-04',price:2200},{wkdate:'2026-11-04',price:2201}]},
+  {list:[{wkdate:'2026-10-01',price:2200}]}
+ ];
+ for(const bad of badData)assert.throws(()=>parseHanwhaNav(bad,from,to),/HANWHA_SOURCE_/);
+ await assert.rejects(()=>runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),
+  fetchImpl:async()=>{throw Error('PRIVATE_ACCOUNT_INFO');}}),e=>
+   e.message==='HANWHA_SOURCE_NETWORK_UNVERIFIED');
+ await assert.rejects(()=>runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),
+  fetchImpl:async()=>({ok:false,status:403})}),/HANWHA_SOURCE_HTTP_UNVERIFIED/);
+ await assert.rejects(()=>runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),
+  fetchImpl:async()=>({ok:true,json:async()=>{throw Error('PRIVATE_SESSION');}})}),/HANWHA_SOURCE_JSON_UNVERIFIED/);
+ const wf=YAML.parse(fs.readFileSync('.github/workflows/kb-fund-nav-collect.yml','utf8'));
+ const job=wf.jobs['source-public'],privateJob=wf.jobs.collect;
+ assert.ok(job&&!job.environment);
+ assert.equal(privateJob.environment,'portfolio-production-gas');
+ assert.ok(!Object.hasOwn(privateJob,'needs'));
+ assert.doesNotMatch(privateJob.if,/github.event_name == 'push'/);
+ const rawPublic=JSON.stringify(job);
+ assert.doesNotMatch(rawPublic,/GAS_ACCESS_TOKEN|CLASPRC_JSON|secrets\./);
+ assert.match(rawPublic,/collect-hanwha-public-nav\.mjs/);
+ assert.match(rawPublic,/hanwha-public-nav-/);
+ assert.match(rawPublic,/retention-days/);
+ const publicSteps=job.steps.filter(x=>x.id==='public-nav'||x.id==='hanwha-public');
+ assert.deepEqual(publicSteps.map(x=>[x.id,x['continue-on-error']]),[
+  ['public-nav',true],['hanwha-public',true]]);
+ const uploads=job.steps.filter(x=>x.uses?.startsWith('actions/upload-artifact'));
+ assert.equal(uploads.length,2);
+ assert.ok(uploads.every(x=>x['continue-on-error']===true));
+ assert.match(JSON.stringify(wf.on.push),/kb-fund-nav-collect\.yml/);
+}
 // The publicly published KB NAV must remain fetchable and archived even
 // while GAS maintenance rejects every normal private endpoint.
 {
