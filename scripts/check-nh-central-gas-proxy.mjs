@@ -17,6 +17,10 @@ assert.equal(classifyGasHtml('<html>You need access to this file SECRET123</html
  'GOOGLE_PERMISSION');
 assert.equal(classifyGasHtml('<html>Sorry, unable to open the file at this time</html>'),
  'GOOGLE_FILE_UNAVAILABLE');
+assert.equal(classifyGasHtml('<html><img alt="Google Apps Script">Script function not found: doGet</html>'),
+ 'GOOGLE_ROUTED_POST_TO_DOGET');
+assert.equal(classifyGasHtml('<html><img alt="Google Apps Script">Script function not found: doPost</html>'),
+ 'GOOGLE_DOPOST_NOT_FOUND');
 assert.equal(classifyGasHtml('<html>Google Apps Script</html>'),
  'GOOGLE_APPS_SCRIPT_PAGE');
 assert.equal(classifyGasHtml('<!DOCTYPE html><body>Custom 200</body>'),
