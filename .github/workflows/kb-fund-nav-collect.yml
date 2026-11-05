@@ -10,18 +10,17 @@ concurrency:
   group: kb-fund-nav-collect
   cancel-in-progress: false
 jobs:
-  collect:
+  # Public source has no GAS token, no private workbook or deployment access.
+  # Its failure must not falsely mark the protected import as successful.
+  source-public:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    environment: portfolio-production-gas
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      # Capture public NAV before touching the private GAS endpoint. On
-      # maintenance failures the 31-day source remains available for catch-up.
       - name: Collect public KB S-T NAV independently of GAS
         id: public-nav
         continue-on-error: true
@@ -34,6 +33,17 @@ jobs:
           path: kb-public-nav.json
           retention-days: 7
           if-no-files-found: error
+  collect:
+    needs: source-public
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - name: Collect exact KB S-T published NAV and verify import
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
