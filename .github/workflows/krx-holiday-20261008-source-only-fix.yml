@@ -4,12 +4,8 @@ name: krx-holiday-20261008-source-only-fix
 # are mandatory in the existing GAS rewriteSnapshotDate endpoint. Subsequent
 # pushes/edit/delete/re-add never auto-apply (immutable approved parent SHA).
 on:
-  # Runs only AFTER the entire GAS validation + production deployment job
-  # has completed for the exact reviewed main commit.
-  workflow_run:
-    workflows: [gas-deploy]
-    types: [completed]
-    branches: [main]
+  # Post-cutover: explicit manual recovery/diagnosis only. Never run on gas-deploy completion.
+  # Manual-only legacy source metadata repair; never fire after routine GAS deploy.
   workflow_dispatch:
     inputs:
       apply:
