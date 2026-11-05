@@ -25,14 +25,15 @@ export function authorizeArmedDelivery(kind,env,event,at){
  const dispatched=env?.GITHUB_EVENT_NAME==='workflow_dispatch'
    &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO
    &&(!event?.inputs||Object.keys(event.inputs).length===0);
- // A single changed, reviewed trigger file on main may pre-arm the closing runner
- // before 17:00 even when every GitHub cron was delayed or dropped.
- // Never accept a push for morning, arbitrary files, or a late direct send.
- const pushed=kind==='close' && env?.GITHUB_EVENT_NAME==='push'
+ // A single reviewed main-branch sentinel change may pre-arm either
+ // delivery runner when best-effort GitHub schedules fail. Each workflow
+ // checks its own one-file diff and KST date before setting the guard flag.
+ // No untrusted webhook file list or arbitrary push may authorize delivery.
+ const pushed=env?.GITHUB_EVENT_NAME==='push'
    && event?.ref==='refs/heads/main' && event?.repository?.full_name===REPO
-   // GitHub Actions push payload omits changed-file arrays: the guarded
-   // workflow step verifies a one-file commit with a local git diff first.
-   && env?.TELEGRAM_CLOSE_SENTINEL_VERIFIED==='true';
+   && (kind==='morning'
+     ?env?.TELEGRAM_MORNING_SENTINEL_VERIFIED==='true'
+     :kind==='close'&&env?.TELEGRAM_CLOSE_SENTINEL_VERIFIED==='true');
  // Reject user-supplied dates, arbitrary pushes and unrecognized cron events.
  // Dispatch is only an alternative independent trigger for the SAME
  // guarded KST source-date, claim and delivery path.
@@ -51,7 +52,7 @@ export async function waitUntilPunctualWindow(kind,{now=()=>new Date(),
  const first=authorizeArmedDelivery(kind,env,event,now());
  if(!first.allowed)return {ready:false,reason:first.reason,date:first.clock?.date||null};
  // An approved push must START before target, but remain authorized while
- // its already-running worker crosses 17:00 to the original send pipeline.
+ // its already-running worker crosses the target send time.
  // Otherwise the repeated loop check could cancel a perfectly punctual arm.
  if(env?.GITHUB_EVENT_NAME==='push' &&
     first.clock.minutes>=first.config.target)

@@ -14,6 +14,12 @@ export function deliveryTrigger(kind,env,event,withinWindow=false){
   ||env.GITHUB_REF!=='refs/heads/main'||Number(env.GITHUB_RUN_ATTEMPT)!==1)
   throw Error('TELEGRAM_TRIGGER_INVALID');
  if(['schedule','workflow_dispatch'].includes(env.GITHUB_EVENT_NAME))return true;
+ if(kind==='morning'&&env.GITHUB_EVENT_NAME==='push'
+  &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO
+  &&env.TELEGRAM_MORNING_SENTINEL_VERIFIED==='true')
+  // Only the one-file, current-KST-date validated pre-arm may reach the
+  // existing 07:40 prepare/claim/SENT pipeline. No other morning push.
+  return withinWindow===true;
  if(kind==='close'&&env.GITHUB_EVENT_NAME==='push'
   &&event?.ref==='refs/heads/main'&&event?.repository?.full_name===REPO)
   // A workflow-file push outside the 17:00–17:30 KST window is a no-op.
