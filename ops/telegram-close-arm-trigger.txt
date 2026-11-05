@@ -3,4 +3,5 @@
 # starts the EXISTING guarded telegram-close-punctual-arm workflow.
 # This is not a schedule, credential, approval, Telegram message or source value.
 # A dated claim and API SENT are still required for any message delivery.
-initialized=2026-11-03
+initialized=2026-11-05
+armed=2026-11-05T16:35:00+09:00
