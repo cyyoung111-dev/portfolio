@@ -129,6 +129,40 @@ assert.equal((await collectMorningPrefetch({
 })).status,'PREFETCH_TOO_LATE_OR_EARLY');
 assert.ok(!JSON.stringify(warming).includes('SYNTHETIC_GAS_TOKEN'));
 
+// Source verification and auth status are separate: an existing cached token
+// does NOT prove that the NH nightPeriod endpoint returned a 06:00 tick.
+let cacheChecks=0,failedWrites=0;
+const failedNight=await collectMorningPrefetch({
+ now:()=>clockAt('07:30:15'),env:warmEnv,event:morningEvent,
+ requestNight:async (_date,{onError})=>{
+  onError('NH_PROXY_0600_NOT_VERIFIED');return null;
+ },
+ readAuthStatus:async options=>{
+  cacheChecks++;
+  assert.equal(options.token,'SYNTHETIC_GAS_TOKEN');
+  return 'TOKEN_CACHED';
+ },
+ writeFile:()=>{failedWrites++;},
+ mkdir:()=>{failedWrites++;}
+});
+assert.equal(failedNight.status,'PREFETCH_NOT_VERIFIED');
+assert.equal(failedNight.reason,'NH_PROXY_0600_NOT_VERIFIED');
+assert.equal(failedNight.authStatus,'TOKEN_CACHED');
+assert.equal(cacheChecks,1);
+assert.equal(failedWrites,0);
+assert.ok(!JSON.stringify(failedNight).includes('SYNTHETIC_GAS_TOKEN'));
+const uncached=await collectMorningPrefetch({
+ now:()=>clockAt('07:30:15'),env:warmEnv,event:morningEvent,
+ requestNight:async()=>null,readAuthStatus:async()=> 'TOKEN_NOT_CACHED'
+});
+assert.equal(uncached.authStatus,'TOKEN_NOT_CACHED');
+// A malformed status cannot leak arbitrary provider text, key, or URL.
+const invalidStatus=await collectMorningPrefetch({
+ now:()=>clockAt('07:30:15'),env:warmEnv,event:morningEvent,
+ requestNight:async()=>null,readAuthStatus:async()=> 'PRIVATE_BEARER_EXPOSED'
+});
+assert.equal(invalidStatus.authStatus,'AUTH_STATUS_UNAVAILABLE');
+
 const withArtifact=simulated({artifact:ref});
 const art=await withArtifact.result;
 assert.equal(art.referenceOrigin,'CAPTURE_ARTIFACT');
