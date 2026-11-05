@@ -131,12 +131,8 @@ assert.equal(oneShot.env.GAS_ISSUE860_ONE_SHOT_INSPECT,'true');
 assert.equal(oneShot.env.GAS_DEPLOY_DRY_RUN,'true');
 assert.equal(oneShot.env.GAS_9282_RELEASE_APPROVAL,'false');
 assert.equal(oneShot.env.GAS_9283_RELEASE_APPROVAL,'false');
-assert.equal(oneShot.env.GAS_EXPECTED_MAIN_SHA,'\
-console.log('Issue860 actual inventory + deploy dry-run, network deny, stale/approval/error/repeat contracts: PASS');
-+'{{ github.sha }}');
-assert.equal(oneShot.env.GAS_ACCESS_TOKEN,'\
-console.log('Issue860 actual inventory + deploy dry-run, network deny, stale/approval/error/repeat contracts: PASS');
-+'{{ secrets.GAS_ACCESS_TOKEN }}');
+assert.equal(oneShot.env.GAS_EXPECTED_MAIN_SHA,'${{ github.sha }}');
+assert.equal(oneShot.env.GAS_ACCESS_TOKEN,'${{ secrets.GAS_ACCESS_TOKEN }}');
 assert.ok(job.if.includes("github.ref == 'refs/heads/main'"));
 assert.ok(job.if.includes("github.event_name == 'push'"));
 assert.doesNotMatch(JSON.stringify(workflow),/TELEGRAM|NHPLUG|continue-on-error/);
