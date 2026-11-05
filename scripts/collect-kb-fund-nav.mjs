@@ -133,18 +133,35 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   }
   const valuation=async()=>{
     const r=await request('getFundValuationStatus',{from,to:valuationTo,code:'F00002'});
-    const dates=r.fundResults?.F00002?.dates;
-    if(r.status!=='ok'||!Array.isArray(dates)||dates.length>32||dates.some(d=>typeof d.date!=='string'||d.date<from||d.date>valuationTo))throw Error('NAV_DERIVED_SCHEMA');
+    const dates=r.fundResults?.F00002?.dates,seen=new Set();
+    // A duplicate or out-of-window date is not permission to refresh twice.
+    if(r.status!=='ok'||!Array.isArray(dates)||dates.length>32||dates.some(d=>{
+      if(typeof d?.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d.date)
+          ||d.date<from||d.date>valuationTo||seen.has(d.date))return true;
+      seen.add(d.date);return false;
+    }))throw Error('NAV_DERIVED_SCHEMA');
     return dates;
   };
-  const needsWrite=d=>d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED';
+  // A missing row is a recovery target just like an outdated row, but only
+  // when a holding actually requires valuation on that date.
+  const needsWrite=d=>d.valuationRequired!==false&&(
+    ['WRITE_REQUIRED','NOT_CREATED'].includes(d.evaluationState)
+    ||['WRITE_REQUIRED','NOT_CREATED'].includes(d.snapshotState));
   const pending=(await valuation()).filter(needsWrite);
   for(const day of pending){
+    // Never write an unpublished/unknown NAV or a row without reconciled units.
+    if(!['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(day.navState)
+        ||day.unitsApplied!==true||day.reconciled!==true)
+      throw Error('NAV_DERIVED_SOURCE_UNVERIFIED');
     const r=await request('collectKbFundNav',{mode:'refresh',date:day.date});
     if(r.status!=='ok')throw Error('NAV_DERIVED_'+classifyFundError(r.message));
   }
   const final=await valuation();
-  if(final.some(d=>needsWrite(d)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))throw Error('NAV_DERIVED_PENDING');
+  if(final.some(d=>needsWrite(d)||(d.valuationRequired===false
+     ?d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED'
+     :!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
+      ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState))))
+    throw Error('NAV_DERIVED_PENDING');
   return {mode:'APPLY',sourceRows:rows.length,candidates:candidates.length,imported:candidates.length,derivedRepaired:pending.length,importAckRecovered};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
