@@ -6,8 +6,8 @@ import {fileURLToPath} from 'node:url';
 import {prepareIssue507ProposedRelease} from './prepare-issue507-proposed-release.mjs';
 import {assertGasReleaseReady} from './deploy-gas.mjs';
 
-export const BASE_VERSION='9.282';
-export const PROPOSED_VERSION='9.282';
+export const BASE_VERSION='9.283';
+export const PROPOSED_VERSION='9.283';
 export const REQUIRED_OPERATING_CONSUMERS=Object.freeze([
  'src/web/features/settings/settings_fetch.js',
  'scripts/collect-kb-fund-nav.mjs',
@@ -41,7 +41,8 @@ export function auditIssue507VersionConsumers({
  if(assertGasReleaseReady(source)!==BASE_VERSION)
    throw Error('ISSUE507_BASE_GAS_SOURCE_UNAPPROVED');
  const proposed=prepareIssue507ProposedRelease();
- if(proposed.manifest.proposedVersion!==PROPOSED_VERSION
+ // Historical 9.281 -> 9.282 source-only preview remains fixed, independent of the 9.283 release.
+ if(proposed.manifest.proposedVersion!=='9.282'
     || proposed.manifest.deployable!==false || proposed.manifest.webVersionChanged!==false)
    throw Error('ISSUE507_CANDIDATE_MUST_STAY_STAGED');
  const webFile='src/web/features/settings/settings_fetch.js';
@@ -68,11 +69,11 @@ export function auditIssue507VersionConsumers({
      const line=lines[i];
      // An observable consumer pin, not an arbitrary date or historical note.
      // Report location and class, never source contents or endpoint credentials.
-     const direct=/\b(?:gasVersion|EXPECTED_GAS_VERSION)\b[^\n]{0,220}['"]9\.282['"]|['"]9\.282['"][^\n]{0,220}\b(?:gasVersion|EXPECTED_GAS_VERSION)\b/.test(line);
+     const direct=/\b(?:gasVersion|EXPECTED_GAS_VERSION)\b[^\n]{0,220}['"]9\.283['"]|['"]9\.283['"][^\n]{0,220}\b(?:gasVersion|EXPECTED_GAS_VERSION)\b/.test(line);
      if(direct)addPin(file,i+1,'direct');
      // A standalone VERSION/GAS constant may reject the returned gasVersion,
      // even if the comparison lives far from its definition.
-     if(/\b[A-Za-z_$][\w$]*(?:GAS|VERSION)[\w$]*\s*=\s*['"]9\.282['"]/.test(line))
+     if(/\b[A-Za-z_$][\w$]*(?:GAS|VERSION)[\w$]*\s*=\s*['"]9\.283['"]/.test(line))
        addPin(file,i+1,'version_constant');
    }
    // Capture multi-line Set/Array version allowlists by their exact literal
@@ -84,7 +85,7 @@ export function auditIssue507VersionConsumers({
      if(!/(?:GAS|VERSION)/i.test(symbol))continue;
      const segment=match[2];
      const start=match.index+match[0].indexOf(segment);
-     for(const literal of segment.matchAll(/['"]9\.282['"]/g)){
+     for(const literal of segment.matchAll(/['"]9\.283['"]/g)){
        const offset=start+literal.index;
        const line=1+text.slice(0,offset).split('\n').length-1;
        addPin(file,line,'version_allowlist',symbol);
