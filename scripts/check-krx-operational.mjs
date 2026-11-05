@@ -616,6 +616,17 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  const uploads=job.steps.filter(x=>x.uses?.startsWith('actions/upload-artifact'));
  assert.equal(uploads.length,2);
  assert.ok(uploads.every(x=>x['continue-on-error']===true));
+ assert.deepEqual(uploads.map(x=>x.id),['kb-archive','hanwha-archive']);
+ const coverage=job.steps.find(x=>x.name==='Record public source coverage without blocking private writer');
+ assert.ok(coverage);
+ assert.equal(coverage.if,'always()');
+ assert.equal(coverage.env.KB_ARCHIVE_STATUS,'${{ steps.kb-archive.outcome }}');
+ assert.equal(coverage.env.HANWHA_ARCHIVE_STATUS,'${{ steps.hanwha-archive.outcome }}');
+ assert.match(coverage.run,/PUBLIC_KB_NAV_ARCHIVE_UNVERIFIED/);
+ assert.match(coverage.run,/PUBLIC_HANWHA_NAV_ARCHIVE_UNVERIFIED/);
+ assert.match(coverage.run,/KB_ARCHIVE_STATUS.*!=/);
+ assert.match(coverage.run,/HANWHA_ARCHIVE_STATUS.*!=/);
+ assert.match(coverage.run,/exit 1/);
  assert.match(JSON.stringify(wf.on.push),/kb-fund-nav-collect\.yml/);
 }
 // The publicly published KB NAV must remain fetchable and archived even
