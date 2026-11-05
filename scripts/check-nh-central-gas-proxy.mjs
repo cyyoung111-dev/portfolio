@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {validateGasEndpoint,fetchNhNightFromGas,fetchNhNightProbeFromGas} from './nh-gas-proxy.mjs';
+import {validateGasEndpoint,fetchNhNightFromGas,fetchNhNightProbeFromGas,classifyGasHtml} from './nh-gas-proxy.mjs';
 import {readbackOnce,centralProbeWindow} from './nh-central-probe-20261030.mjs';
 import {runCentralNhDiagnostic,isSupportedNhCentralStatus} from './nh-central-diagnostic.mjs';
 import {captureMorning} from './nh-morning-capture.mjs';
@@ -11,6 +11,18 @@ for(const bad of ['http://script.google.com/macros/s/TEST/exec',
  'https://script.google.com/macros/s/TEST/exec?token=abc'])
  assert.throws(()=>validateGasEndpoint(bad),/NH_PROXY_CONFIG/);
 assert.equal(validateGasEndpoint(url),url);
+assert.equal(classifyGasHtml('<html>Sign in - Google Accounts SECRET123</html>'),
+ 'GOOGLE_SIGN_IN');
+assert.equal(classifyGasHtml('<html>You need access to this file SECRET123</html>'),
+ 'GOOGLE_PERMISSION');
+assert.equal(classifyGasHtml('<html>Sorry, unable to open the file at this time</html>'),
+ 'GOOGLE_FILE_UNAVAILABLE');
+assert.equal(classifyGasHtml('<html>Google Apps Script</html>'),
+ 'GOOGLE_APPS_SCRIPT_PAGE');
+assert.equal(classifyGasHtml('<!DOCTYPE html><body>Custom 200</body>'),
+ 'OTHER_HTML');
+assert.equal(classifyGasHtml('{"status":"ok"}'),'HTML_UNVERIFIED');
+assert.equal(classifyGasHtml('x'.repeat(120001)),'HTML_UNVERIFIED');
 const now=()=>new Date('2026-10-30T07:35:00+09:00');
 const ref={source:'NH',kind:'REFERENCE',tradingDate:'2026-10-30',
  contract:'KA016C000',contractMonth:'2026-12',value:351.5,
