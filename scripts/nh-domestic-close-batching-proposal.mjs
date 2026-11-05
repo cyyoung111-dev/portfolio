@@ -41,7 +41,7 @@ const REPLACEMENT=`function fetchDomesticRegularCloses(items,date) {
   return fallback;
 }`;
 function gitBlobSha(source){
- return createHash('sha1').update('blob '+Buffer.byteLength(source,'utf8')+'\\0')
+ return createHash('sha1').update('blob '+Buffer.byteLength(source,'utf8')+String.fromCharCode(0))
    .update(source,'utf8').digest('hex');
 }
 export function proposeNhDomesticCloseBatching(source){
