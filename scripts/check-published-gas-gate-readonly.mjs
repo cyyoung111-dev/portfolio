@@ -36,7 +36,7 @@ for(const scenario of [
 }
 assert.match(wf,/node scripts\/audit-published-gas-gate-readonly\.mjs/);
 assert.doesNotMatch(wf,/deploy-gas\.mjs|GAS_DEPLOY_DRY_RUN|workflow_run:|push:|schedule:/);
-const real=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const real=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 assert.equal(gasSourceBlobSha(real),'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
 assert.equal(classifyPublishedGateSource(real).gateReadAllowed,true);
 assert.equal(classifyPublishedGateSource(real+'\n').gateReadAllowed,false);
