@@ -23,11 +23,11 @@ const PATCH=`  if (acquired !== 'ACQUIRED') return {attempted:false, deferred:tr
 
 function blobSha(source){
   const data=Buffer.from(source,'utf8');
-  return createHash('sha1').update('blob '+data.length+'\\0').update(data).digest('hex');
+  return createHash('sha1').update('blob '+data.length + String.fromCharCode(0)).update(data).digest('hex');
 }
 function extractOne(source,name){
   const target='function '+name+'(';
-  const i=source.indexOf(target),end=source.indexOf('\\n}',i);
+  const i=source.indexOf(target),end=source.indexOf(String.fromCharCode(10)+'}',i);
   if(i<0||end<=i||source.indexOf(target,i+target.length)>=0)
     throw Error('BACKFILL_QUEUE_FUNCTION_NOT_UNIQUE:'+name);
   return source.slice(i,end+2);
