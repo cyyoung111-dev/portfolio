@@ -10,10 +10,14 @@ export function parseNav(data,from,to) {
     if(!/^\d{8}$/.test(raw)||typeof row.gijunGa!=='number'||!Number.isFinite(row.gijunGa)||row.gijunGa<=0)throw Error('NAV_SOURCE_SCHEMA');
     const date=raw.slice(0,4)+'-'+raw.slice(4,6)+'-'+raw.slice(6);
     if(new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date)throw Error('NAV_SOURCE_DATE');
-    if(date<from||date>to)throw Error('NAV_SOURCE_RANGE');
+    // Published endpoints can return boundary rows beyond the requested window.
+    // Validate every row first, then ignore out-of-window dates without aborting
+    // the entire in-range NAV import.
+    if(date<from||date>to)continue;
     if(seen.has(date)&&seen.get(date)!==row.gijunGa)throw Error('NAV_SOURCE_CONFLICT');
     seen.set(date,row.gijunGa);
   }
+  if(!seen.size)throw Error('NAV_SOURCE_NO_RANGE_ROWS');
   return [...seen].sort().map(([date,nav])=>({date,nav}));
 }
 // Public class NAV does not require the private GAS session. Persisting this
