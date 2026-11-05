@@ -40,6 +40,36 @@ assert.equal(nh.length,3);
 assert.deepEqual(nh.map(r=>r.symbol),['^GSPC','^IXIC','^NDX']);
 assert.deepEqual(nh.map(r=>r.value),[7720.39,26184.72,29402.51]);
 assert.ok(nh.every(r=>r.date==='2026-10-29'&&r.source==='NH_INDEX_DAILY'&&Number.isFinite(r.changePercent)));
+// A stale saved sheet must not veto an independently dated, NH-confirmed
+// fresh getBenchmarks read. No Yahoo number becomes an NH observation.
+const attempts=[];
+const recovered=await readNhMorningIndexes(day,{
+ url,token:'TEST-GAS-ACCESS',onDiagnostic:()=>{},
+ fetchImpl:async(_target,{body})=>{
+  const fresh=new URLSearchParams(body).get('fresh');
+  attempts.push(fresh);
+  const payload=validPayload();
+  if(fresh==='0')payload.series.NASDAQ100.pop();
+  return {ok:true,json:async()=>payload};
+ }
+});
+assert.deepEqual(attempts,['0','1']);
+assert.equal(recovered.length,3);
+assert.ok(recovered.every(r=>r.source==='NH_INDEX_DAILY'&&r.date==='2026-10-29'));
+let partialModes=[];
+const partial=await readNhMorningIndexes(day,{
+ url,token:'TEST-GAS-ACCESS',onDiagnostic:()=>{},
+ fetchImpl:async(_target,{body})=>{
+  const mode=new URLSearchParams(body).get('fresh');
+  partialModes.push(mode);
+  const payload=validPayload();
+  payload.series.NASDAQ100.pop();
+  if(mode==='1')payload.series.SP500.pop();
+  return {ok:true,json:async()=>payload};
+ }
+});
+assert.deepEqual(partialModes,['0','1']);
+assert.equal(partial.length,2,'never lose accepted NH cached rows to an inferior refresh');
 let yahooCalls=0;
 const yahoo=await collectMorningSeries(day,{
  skipSymbols:new Set(nh.map(x=>x.symbol)),
