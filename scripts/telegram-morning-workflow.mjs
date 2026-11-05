@@ -31,7 +31,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   }
   let message;
   let reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
-  let referenceOrigin=reference?'CAPTURE_ARTIFACT':'NONE';
+  const hadCapture=Boolean(reference);
+  let referenceOrigin=reference?'CAPTURE_ARTIFACT':'NONE',recoveryDiagnostic='NOT_ATTEMPTED';
   if(!reference&&!lateTest){
     reference=await loadPrefetch(window.date,{now});
     if(reference)referenceOrigin='GAS_PREFETCH_0730';
@@ -45,6 +46,7 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   if(!reference&&!lateTest&&gasUrl&&gasToken
     &&recoveryAt>=recoveryStart&&recoveryAt<recoveryCutoff){
     let recovered=null,reason='RECOVERY_NO_VALID_REFERENCE';
+    recoveryDiagnostic='RECOVERY_NO_VALID_REFERENCE';
     try{
       recovered=await recoverReference(window.date,{
         now,url:gasUrl,token:gasToken,request:fetchImpl,
@@ -66,9 +68,20 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
       reference=recovered;
       referenceOrigin='GAS_RECOVERY';
     }else if(recovered){reason='RECOVERY_METADATA_REJECTED';}
+    recoveryDiagnostic=accepted?'RECOVERY_VERIFIED':(
+      /^NH_(?:NIGHT|PROXY)_[A-Z0-9_]{1,70}$/.test(reason)?reason
+      :['RECOVERY_NO_VALID_REFERENCE','RECOVERY_CALL_FAILED',
+        'RECOVERY_METADATA_REJECTED'].includes(reason)?reason:'RECOVERY_FAILED');
     try{onRecoveryDiagnostic({status:accepted?'VERIFIED':'NOT_VERIFIED',
-      reason:accepted?null:reason});}catch{};
+      reason:accepted?null:recoveryDiagnostic});}catch{};
   }
+  // The one-off punctual worker invokes prepareMorning directly and does not
+  // provide onRecoveryDiagnostic. Always log this restricted provenance
+  // summary so a missing 06:00 reference is not silently indistinguishable
+  // from a missing NH token. Never log price, contract, endpoint or credential.
+  if(!lateTest)console.log(JSON.stringify({kind:'NH_NIGHT_REFERENCE_CHAIN',
+    date:window.date,capture:hadCapture?'VERIFIED':'UNAVAILABLE',
+    source:referenceOrigin,recovery:recoveryDiagnostic}));
   const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,
     referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
     onSourceDiagnostic:entry=>{
