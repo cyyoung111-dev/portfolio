@@ -973,3 +973,35 @@ for(const [before,after] of [
  const alt=inventoryDeploymentWorkflow.replace(before,after);
  if(alt!==inventoryDeploymentWorkflow)assert.throws(()=>validateInventoryBeforeProductionDeploy(alt));
 }
+
+
+// Once-only 2026-10 repairs must not enqueue jobs on every manual deploy or
+// dry-run after the protected v9.282 cutover. Keep manual recovery available.
+const manualOnlyGasMaintenanceWorkflows=[
+ 'dividend-source-refresh.yml',
+ 'stock-dividend-diagnosis.yml',
+ 'issue-507-daily-finalize.yml',
+ 'issue-507-fund-close-resume.yml',
+ 'issue-507-backlog-reconcile.yml',
+ 'issue-507-approved-maintenance.yml',
+ 'historical-checkpoint-reconcile.yml',
+ 'krx-holiday-20261008-source-only-fix.yml'
+];
+for(const name of manualOnlyGasMaintenanceWorkflows){
+ const wf=YAML.parse(fs.readFileSync('.github/workflows/'+name,'utf8'));
+ assert.ok(Object.hasOwn(wf.on||{},'workflow_dispatch'),
+  name+' must remain available for manual diagnostics/recovery');
+ assert.ok(!Object.hasOwn(wf.on||{},'workflow_run'),
+  name+' may not run merely because routine gas-deploy completed');
+ assert.ok(!Object.hasOwn(wf.on||{},'schedule'),
+  name+' may not silently recur on a schedule');
+ assert.equal(wf.permissions.contents,'read',
+  name+' must not gain new repository write permissions');
+}
+for(const name of ['krx-holiday-september-readonly.yml',
+ 'gas-deployment-usage-metrics-readonly.yml']){
+ const wf=YAML.parse(fs.readFileSync('.github/workflows/'+name,'utf8'));
+ assert.ok(Object.hasOwn(wf.on||{},'workflow_run'),
+  name+' still needs its existing safe read-only post-deployment audit');
+}
+console.log('Post-cutover GAS: 8 obsolete one-shot runs manual-only; retained read-only audits PASS');
