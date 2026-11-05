@@ -146,6 +146,7 @@ const extract = name => {
     .replace('actualPriceDate !== requestedCloseDate','false'),true),
     /TARGET_CROSS_DATE_PRICE|WRITE_REACHED/,'cross-date write protection mutation must fail');
   assert.throws(()=>strictTargetWriter(extract('saveDailyPriceHistory')
+    .replace("(_krxCalendarStatus_(requestedCloseDate) !== 'CLOSED' && closeVerification.required)", 'false')
     .replace('options.requireAllKrx === true','options.requireAllKrx === false')),
     /TARGET_EXACT_KRX_INCOMPLETE|WRITE_REACHED/,'removing strict target coverage must fail the real writer test');
 }
