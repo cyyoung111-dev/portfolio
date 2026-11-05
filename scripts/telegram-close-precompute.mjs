@@ -5,7 +5,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {fetchDomesticCloseIndexes,verifiedDomesticCloseRows,verifiedNhCloseRows} from './telegram-close-workflow.mjs';
 import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {readNhClosingStocks,readClosingMacros,validateClosingMacro,closingStockSessions} from './closing-extra-daily-sources.mjs';
+import {readClosingStockSources,readClosingMacros,validateClosingMacro,closingStockSessions,validClosingStockReference} from './closing-extra-daily-sources.mjs';
 import {expectedMorningDate,MORNING_SERIES} from './telegram-morning-report.mjs';
 import {readClosingMarketReferences,validateClosingMarketReference} from './closing-market-references.mjs';
 
@@ -35,8 +35,7 @@ export function sanitizePreclose(date,source){
  const stocks=(Array.isArray(source.stocks)?source.stocks:[]).filter(x=>{
    const t=stockSymbols.get(x?.id),expected=['SAMSUNG','SKHYNIX'].includes(x?.id)?date:session.us;
    return t&&x.label===t.label&&x.symbol===t.symbol&&x.date===expected
-    &&x.source==='NH_REGULAR_CLOSE'&&Number.isFinite(x.value)&&x.value>0
-    &&(x.changePercent===null||Number.isFinite(x.changePercent));
+    &&validClosingStockReference(date,x);
  }).map(x=>({id:x.id,label:x.label,symbol:x.symbol,date:x.date,source:x.source,
    value:x.value,changePercent:x.changePercent}));
  const macros=(Array.isArray(source.macros)?source.macros:[]).flatMap(x=>{
@@ -57,7 +56,7 @@ export function sanitizePreclose(date,source){
 }
 export async function precomputeClose({now=()=>new Date(),
  fetchNh=readNhMorningIndexes,fetchDomestic=fetchDomesticCloseIndexes,
- fetchSecondary=fetchSecondaryIndexes,fetchStocks=readNhClosingStocks,
+ fetchSecondary=fetchSecondaryIndexes,fetchStocks=readClosingStockSources,
  fetchMacros=readClosingMacros,fetchMarkets=readClosingMarketReferences,fetchImpl=fetch,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
  const first=precloseWindow(now());
