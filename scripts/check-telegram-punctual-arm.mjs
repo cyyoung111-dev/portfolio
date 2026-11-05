@@ -72,6 +72,36 @@ for(const [kind,before,arm,target,last,cutoff] of [
    });
    assert.equal(latePush.ready,false,'a NEW push cannot start after target');
    assert.equal(latePush.reason,'ARM_PUSH_TOO_LATE');
+ }else{
+   const pushEnv={...env,GITHUB_EVENT_NAME:'push',
+     TELEGRAM_MORNING_SENTINEL_VERIFIED:'true'};
+   const pushEvent={ref:'refs/heads/main',repository:{full_name:repo}};
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,pushEvent,kst('07:20:00')).allowed,true,
+     'reviewed one-file morning push may pre-arm on a trading day');
+   for(const invalid of [
+    {...pushEnv,TELEGRAM_MORNING_SENTINEL_VERIFIED:'false'},
+    {...pushEnv,TELEGRAM_MORNING_SENTINEL_VERIFIED:undefined},
+    {...pushEnv,GITHUB_REPOSITORY:'other/portfolio'},
+    {...pushEnv,GITHUB_RUN_ATTEMPT:'2'}
+   ])assert.equal(authorizeArmedDelivery(kind,invalid,pushEvent,kst('07:20:00')).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,
+     {...pushEvent,ref:'refs/heads/feature'},kst('07:20:00')).allowed,false);
+   assert.equal(authorizeArmedDelivery(kind,pushEnv,
+     {...pushEvent,repository:{full_name:'other/repo'}},kst('07:20:00')).allowed,false);
+   let pushNow=kst('07:20:00').getTime(),ticks=0;
+   const checked=await waitUntilPunctualWindow('morning',{
+     now:()=>new Date(pushNow),env:pushEnv,event:pushEvent,
+     sleep:async ms=>{pushNow+=ms;ticks++;}
+   });
+   assert.equal(checked.ready,true);
+   assert.equal(checked.reason,'ARM_TARGET_REACHED');
+   assert.equal(pushNow,kst('07:40:00').getTime());
+   assert.ok(ticks>0&&ticks<=360);
+   const late=await waitUntilPunctualWindow('morning',{
+    now:()=>kst('07:40:00'),env:pushEnv,event:pushEvent
+   });
+   assert.equal(late.ready,false);
+   assert.equal(late.reason,'ARM_PUSH_TOO_LATE');
  }
 
  assert.equal(authorizeArmedDelivery(kind,env,event(kind),kst(arm,'2026-11-01')).allowed,false,
@@ -134,8 +164,24 @@ for(const c of checks){
    assert.ok(String(waiting.env.TELEGRAM_CLOSE_SENTINEL_VERIFIED||'')
      .includes('steps.verify_sentinel.outputs.verified'));
    assert.equal(steps.find(step=>step.uses==='actions/checkout@v7').with['fetch-depth'],2);
- }else assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch'],
-  'morning schedule/dispatch only; never push');
+ }else{
+   assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch','push'],
+      'morning retains both best-effort schedule and guarded independent push');
+   assert.deepEqual(y.on.push,{
+     branches:['main'],paths:['ops/telegram-morning-arm-trigger.txt']});
+   const verify=steps.find(s=>s.id==='verify_sentinel');
+   assert.equal(verify.if,"github.event_name == 'push'");
+   assert.ok(verify&&steps.indexOf(verify)<steps.findIndex(s=>s.name?.startsWith('Prefetch verified 06:00 NH night')));
+   assert.match(verify.run,/git diff --name-only HEAD\^ HEAD/);
+   assert.match(verify.run,/MORNING_SENTINEL_DENIED_/);
+   assert.match(verify.run,/armed_date=/);
+   assert.match(verify.run,/TZ=Asia\/Seoul date \+%F/);
+   assert.equal(steps.find(s=>s.uses==='actions/checkout@v7').with['fetch-depth'],2);
+   const signed=steps.find(s=>s.id==='arm').env.TELEGRAM_MORNING_SENTINEL_VERIFIED;
+   assert.ok(String(signed).includes('steps.verify_sentinel.outputs.verified'));
+   assert.equal(steps.find(s=>s.name?.startsWith('Prefetch verified 06:00 NH night'))
+      .env.TELEGRAM_MORNING_SENTINEL_VERIFIED,signed);
+ }
  assert.deepEqual(y.on.schedule,[{cron:c.cron}]);
  assert.equal(y.concurrency.group,c.group,'share original dated claim concurrency group');
  assert.equal(y.concurrency['cancel-in-progress'],false);
