@@ -105,7 +105,8 @@ try {
 }
 
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/issue860-readonly-9282-dryrun.yml','utf8'));
-assert.deepEqual(Object.keys(workflow.on),['workflow_dispatch']);
+assert.deepEqual(Object.keys(workflow.on),['workflow_dispatch','push']);
+assert.deepEqual(workflow.on.push,{branches:['main'],paths:['.github/workflows/issue860-readonly-9282-dryrun.yml']});
 assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.deepEqual(Object.keys(workflow.jobs),['audit-dryrun']);
 const job=workflow.jobs['audit-dryrun'];
@@ -113,11 +114,26 @@ assert.match(job.if,/github.ref == 'refs\/heads\/main'/);
 assert.match(job.if,/github.event_name == 'workflow_dispatch'/);
 assert.equal(job.environment,'portfolio-production-gas');
 assert.deepEqual(job.concurrency,{group:'gas-production-deploy','cancel-in-progress':false});
-const live=job.steps.at(-1);
+const live=job.steps.find(x=>x.name==='Re-audit and dry-run only (no runtime endpoint calls)');
+assert.ok(live);
+assert.equal(live.if,"github.event_name == 'workflow_dispatch'");
 assert.equal(live.run,'node scripts/issue860-readonly-9282-dryrun.mjs');
 assert.equal(live.env.GAS_DEPLOY_DRY_RUN,'true');
 assert.equal(live.env.GAS_9282_RELEASE_APPROVAL,'false');
 assert.equal(live.env.GAS_9283_RELEASE_APPROVAL,'false');
 assert.ok(!('GAS_ACCESS_TOKEN' in live.env));
-assert.doesNotMatch(JSON.stringify(workflow),/TELEGRAM|NHPLUG|GAS_ACCESS_TOKEN|continue-on-error/);
+const oneShot=job.steps.find(x=>x.name==='One-shot exact GAS deployment and authenticated gate inspect (GET only)');
+assert.ok(oneShot);
+assert.equal(oneShot.if,"github.event_name == 'push'");
+assert.equal(oneShot.run,'node scripts/issue860-first-cutover.mjs');
+assert.equal(oneShot.env.GAS_FIRST_GATE_PHASE,'inspect');
+assert.equal(oneShot.env.GAS_ISSUE860_ONE_SHOT_INSPECT,'true');
+assert.equal(oneShot.env.GAS_DEPLOY_DRY_RUN,'true');
+assert.equal(oneShot.env.GAS_9282_RELEASE_APPROVAL,'false');
+assert.equal(oneShot.env.GAS_9283_RELEASE_APPROVAL,'false');
+assert.equal(oneShot.env.GAS_EXPECTED_MAIN_SHA,'${{ github.sha }}');
+assert.equal(oneShot.env.GAS_ACCESS_TOKEN,'${{ secrets.GAS_ACCESS_TOKEN }}');
+assert.ok(job.if.includes("github.ref == 'refs/heads/main'"));
+assert.ok(job.if.includes("github.event_name == 'push'"));
+assert.doesNotMatch(JSON.stringify(workflow),/TELEGRAM|NHPLUG|continue-on-error/);
 console.log('Issue860 actual inventory + deploy dry-run, network deny, stale/approval/error/repeat contracts: PASS');
