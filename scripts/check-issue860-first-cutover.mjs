@@ -284,8 +284,14 @@ function fixture(head='legacy',published=head){
  }};
 }
 let f=fixture();assert.equal((await f.run('bootstrap',{dryRun:true,approved:false})).dryRun,true);
-f=fixture('previous');assert.equal((await f.run('inspect',{dryRun:true,approved:false})).readOnly,true);
+f=fixture('previous');f.fault.mainAt=1;
+assert.equal((await f.run('inspect',{dryRun:true,approved:false})).readOnly,true);
+assert.ok(!f.calls.includes('main'),'GET-only inspect must not be tied to an obsolete main SHA');
 assert.ok(!f.calls.some(x=>['content','version','publish'].includes(x)));
+f=fixture('previous');f.fault.mainAt=1;
+await assert.rejects(f.run('bootstrap',{dryRun:true,approved:false}),/stale main/);
+assert.ok(!f.calls.some(x=>['content','version','publish'].includes(x)),
+ 'mutating phases continue to pin the current main before any write');
 f=fixture('previous');await assert.rejects(f.run('finalize'),/BEFORE_SOURCE/);
 assert.ok(!f.calls.includes('content'));
 f=fixture('previous');assert.equal((await f.run('bootstrap')).deployed,true);

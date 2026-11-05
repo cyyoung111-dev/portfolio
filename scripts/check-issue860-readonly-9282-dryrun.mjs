@@ -106,7 +106,10 @@ try {
 
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/issue860-readonly-9282-dryrun.yml','utf8'));
 assert.deepEqual(Object.keys(workflow.on),['workflow_dispatch','push']);
-assert.deepEqual(workflow.on.push,{branches:['main'],paths:['.github/workflows/issue860-readonly-9282-dryrun.yml']});
+assert.deepEqual(workflow.on.push,{branches:['main'],paths:[
+ '.github/workflows/issue860-readonly-9282-dryrun.yml',
+ 'scripts/issue860-first-cutover.mjs'
+]});
 assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.deepEqual(Object.keys(workflow.jobs),['audit-dryrun']);
 const job=workflow.jobs['audit-dryrun'];

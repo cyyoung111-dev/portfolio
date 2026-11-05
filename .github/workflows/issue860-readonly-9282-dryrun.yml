@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/issue860-readonly-9282-dryrun.yml'
+      - 'scripts/issue860-first-cutover.mjs'
 
 permissions:
   contents: read

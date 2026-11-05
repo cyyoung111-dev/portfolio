@@ -27,7 +27,10 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
  if(!dryRun&&!approved)error('APPROVAL');
  if(gasSourceBlobSha(sources.finalSource)!==FINAL_BLOB||gasSourceBlobSha(sources.bootstrapSource)!==BOOTSTRAP_BLOB)
   error('SOURCE');
- await checkMain();
+ // Read-only inspection must survive an advancing main branch. The checked
+ // source/published blobs and deployment inventory are verified independently.
+ // Mutating bootstrap/finalize/abort still require the CURRENT main release.
+ if(phase!=='inspect')await checkMain();
  const initial=await rpc.readState();
  const target=selectServerFile(initial.head.files);
  assertGasProjectFileSet(initial.head.files,target.name,initial.published.files);
