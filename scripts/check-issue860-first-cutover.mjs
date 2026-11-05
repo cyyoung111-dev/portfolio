@@ -2,11 +2,21 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import YAML from 'yaml';
-import {loadCutoverSources,RELEASE} from './issue860-bootstrap-source.mjs';
-import {runFirstCutover,BOOTSTRAP_BLOB} from './issue860-first-cutover.mjs';
-import {gasSourceBlobSha} from './deploy-gas.mjs';
+import {loadCutoverSources,BASE_BLOB,FINAL_BLOB,RELEASE} from './issue860-bootstrap-source.mjs';
+import {runFirstCutover,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB} from './issue860-first-cutover.mjs';
+import {loadCutoverSources as loadPreviousSources} from '../reference/issue860-bootstrap-v1.mjs';
+import {gasSourceBlobSha,assertGasReleaseReady} from './deploy-gas.mjs';
 import {fixture as triggerFixture,manifest as triggerManifest} from './check-issue860-trigger-maintenance.mjs';
 const sources=loadCutoverSources();
+const previousSources=loadPreviousSources();
+assert.equal(gasSourceBlobSha(previousSources.bootstrapSource),PREVIOUS_BOOTSTRAP_BLOB);
+assert.equal(gasSourceBlobSha(previousSources.finalSource),BASE_BLOB);
+assert.equal(gasSourceBlobSha(sources.finalSource),FINAL_BLOB);
+assert.equal(assertGasReleaseReady(sources.finalSource),'9.282');
+assert.throws(()=>assertGasReleaseReady(sources.bootstrapSource),/NOT_APPROVED/);
+assert.ok(sources.finalSource.startsWith(previousSources.finalSource));
+const alias=sources.finalSource.slice(previousSources.finalSource.length);
+assert.equal(alias,'\n// Issue860 editor-only resume; existing drain validation is unchanged.\nfunction issue507ResumeWriters() {\n  return issue507ResumeWriters_();\n}\n');
 assert.equal(gasSourceBlobSha(sources.bootstrapSource),BOOTSTRAP_BLOB);
 // Execute ALL actual original entrypoints: even a pre-existing OPEN property
 // cannot admit one writer through the maintenance profile.
@@ -56,6 +66,99 @@ operational.rows.push({...operational.rows[0],id:'foreign'});assert.equal(g().fi
 // Re-running initialization never resets a barrier after restore.
 assert.throws(()=>oc.issue860BootstrapInitialize(),/NOT_PAUSED/);
 assert.equal(JSON.parse(operational.properties.get('issue507_writer_gate_v1')).mode,'DRAINING');
+// Reproduce the operational gap on the exact previously published source:
+// >50 properties made Settings read-only and no editor input function existed.
+const oldEditor=vm.createContext({});vm.runInContext(previousSources.bootstrapSource,oldEditor);
+assert.equal(typeof oldEditor.issue860BootstrapPreparePrompt,'undefined');
+assert.equal(typeof oldEditor.issue507ResumeWriters,'undefined');
+assert.equal(typeof oc.issue507ResumeWriters,'undefined','bootstrap must never expose resume alias');
+// Execute the exact final profile. Public alias must retain existing barrier,
+// active-receipt and repair-approval checks, without invoking financial APIs.
+const finalEditor=triggerFixture(sources.finalSource),fc=finalEditor.context;
+const finalProps=fc.PropertiesService.getScriptProperties();
+finalProps.getProperties=()=>Object.fromEntries(finalEditor.properties);
+let resumeNow=Date.now();fc.Date=class extends Date {static now(){return resumeNow;}};
+assert.throws(()=>fc.issue507ResumeWriters(),/GATE_UNINITIALIZED/);
+finalEditor.gate({barrierAt:resumeNow});
+finalEditor.properties.set('issue507_writer_gate_rollout_v1',JSON.stringify({releaseId:RELEASE,
+ oldDeploymentsDisabled:true,externalWritersBlocked:true,editorsBlocked:true,verifiedAt:resumeNow,
+ legacyDrainEvidence:{kind:'EXECUTIONS_UI',scope:'ALL_PROJECT_ACTORS_AND_VERSIONS',terminalOnly:true,reference:'fixture-only'}}));
+assert.throws(()=>fc.issue507ResumeWriters(),/GATE_NOT_DRAINED/);
+resumeNow+=420001;
+finalEditor.gate({barrierAt:resumeNow-420001,active:{fixture:{name:'writer',startedAt:resumeNow-1000}}});
+assert.throws(()=>fc.issue507ResumeWriters(),/GATE_NOT_DRAINED/);
+assert.equal(JSON.parse(finalEditor.properties.get('issue507_writer_gate_v1')).active.fixture.name,'writer');
+finalEditor.gate({barrierAt:resumeNow-420001});
+finalEditor.properties.set('issue507_f00001_approval_v1','fixture-active-approval');
+assert.throws(()=>fc.issue507ResumeWriters(),/GATE_APPROVAL_STILL_LIVE/);
+finalEditor.properties.delete('issue507_f00001_approval_v1');
+assert.equal(fc.issue507ResumeWriters().mode,'OPEN');
+assert.equal(finalEditor.calls.filter(x=>x[0]==='delete'||x[0]==='create').length,0);
+function promptFixture(code=sources.bootstrapSource){
+ const f=triggerFixture(code),ctx=f.context;let raw='',button='OK',held=false,atPrompt=null,atLock=null;
+ const realLocks=ctx.LockService;
+ ctx.LockService={getScriptLock:()=>{
+  const lock=realLocks.getScriptLock();return {hasLock:()=>held,
+   waitLock(){if(atLock){const action=atLock;atLock=null;action();}lock.waitLock();held=true;},releaseLock(){held=false;lock.releaseLock();}};
+ }};
+ ctx.Utilities={newBlob:s=>({getBytes:()=>Buffer.from(s)})};
+ ctx.SpreadsheetApp={getUi:()=>({Button:{OK:'OK'},ButtonSet:{OK_CANCEL:'OK_CANCEL'},prompt(){
+  assert.equal(held,false,'prompt must precede lock acquisition');
+  if(atPrompt)atPrompt();
+  return {getSelectedButton:()=>button,getResponseText:()=>raw};
+ }})};
+ // No arbitrary property setter, trigger creation or financial API is exposed.
+ for(let i=0;i<60;i++)f.properties.set('preserve-'+i,'existing-value-'+i);
+ const saved=new Map(f.properties);
+ return {f,ctx,saved,beforeLock(action){atLock=action;},input(value,selected='OK',duringPrompt=null){
+  raw=typeof value==='string'?value:JSON.stringify(value);button=selected;atPrompt=duringPrompt;
+ }};
+}
+let pf=promptFixture();pf.input(triggerManifest,'CANCEL');
+assert.equal(pf.ctx.issue860BootstrapPreparePrompt().cancelled,true);assert.equal(pf.f.calls.length,0);
+pf.input('{invalid');assert.throws(()=>pf.ctx.issue860BootstrapPreparePrompt(),/INPUT_JSON/);
+pf.input('x'.repeat(8001));assert.throws(()=>pf.ctx.issue860BootstrapPreparePrompt(),/INPUT_CAPACITY/);
+pf.input({...triggerManifest,triggers:[]});assert.throws(()=>pf.ctx.issue860BootstrapPreparePrompt(),/MANIFEST/);
+assert.equal(pf.f.calls.length,0);
+pf.input(triggerManifest,'OK',()=>pf.f.rows.push({...pf.f.rows[0],id:'concurrent-extra'}));
+assert.throws(()=>pf.ctx.issue860BootstrapPreparePrompt(),/UI_MANIFEST|INVENTORY_CHANGED/);
+assert.equal(pf.f.calls.length,0);
+pf=promptFixture();pf.input(triggerManifest);
+assert.equal(pf.ctx.issue860BootstrapPreparePrompt().phase,'PREPARED');
+assert.equal(pf.f.calls.filter(x=>x[0]==='delete').length,0);
+for(const [k,v]of pf.saved)assert.equal(pf.f.properties.get(k),v);
+assert.throws(()=>pf.ctx.issue860BootstrapPreparePrompt(),/JOURNAL_EXISTS/);
+const attestation=()=>({releaseId:RELEASE,oldDeploymentsDisabled:true,externalWritersBlocked:true,
+ editorsBlocked:true,verifiedAt:Date.now(),legacyDrainEvidence:{kind:'EXECUTIONS_UI',
+ scope:'ALL_PROJECT_ACTORS_AND_VERSIONS',terminalOnly:true,reference:'independent-fixture-evidence'}});
+pf.input(attestation());assert.throws(()=>pf.ctx.issue860BootstrapRolloutPrompt(),/NOT_PAUSED/);
+pf.ctx.issue860BootstrapPause();
+for(const change of [{externalWritersBlocked:false},{verifiedAt:Date.now()-300001},
+ {verifiedAt:Date.now()+3600000},{legacyDrainEvidence:{reference:'missing-kind'}}]){
+ pf.input({...attestation(),...change});assert.throws(()=>pf.ctx.issue860BootstrapRolloutPrompt(),/ROLLOUT/);
+ assert.equal(pf.f.properties.has('issue507_writer_gate_rollout_v1'),false);
+}
+pf.input(attestation(),'CANCEL');assert.equal(pf.ctx.issue860BootstrapRolloutPrompt().cancelled,true);
+pf.f.fault.save=true;pf.input(attestation());assert.throws(()=>pf.ctx.issue860BootstrapRolloutPrompt(),/save/);
+pf.f.fault.save=false;pf.input({...attestation(),unrelatedCredential:'must-not-persist'});
+assert.equal(pf.ctx.issue860BootstrapRolloutPrompt().rolloutRecorded,true);
+assert.ok(!pf.f.properties.get('issue507_writer_gate_rollout_v1').includes('must-not-persist'));
+assert.equal(pf.ctx.issue860BootstrapInitialize().initialized,true);
+assert.equal(pf.ctx.issue860BootstrapRestore().phase,'RESTORED');
+pf.input(attestation());assert.equal(pf.ctx.issue860BootstrapRolloutPrompt().rolloutRecorded,true);
+for(const [k,v]of pf.saved)assert.equal(pf.f.properties.get(k),v);
+pf.f.gate({mode:'OPEN'});pf.input(attestation());
+const beforeRejected=pf.f.properties.get('issue507_writer_gate_rollout_v1');
+assert.throws(()=>pf.ctx.issue860BootstrapRolloutPrompt(),/GATE/);
+assert.equal(pf.f.properties.get('issue507_writer_gate_rollout_v1'),beforeRejected);
+// A missing post-prompt inventory check must be detected by an actual run.
+const mutant=sources.bootstrapSource.replace("if(rows.length!==manifest.triggers.length||manifest.triggers.some(function(t){",
+ "if(false&&manifest.triggers.some(function(t){");
+const concurrent=promptFixture();concurrent.input(triggerManifest);concurrent.beforeLock(()=>concurrent.f.rows.pop());
+assert.throws(()=>concurrent.ctx.issue860BootstrapPreparePrompt(),/INVENTORY_CHANGED/);
+assert.equal(concurrent.f.calls.length,0);
+const mutation=promptFixture(mutant);mutation.input(triggerManifest);mutation.beforeLock(()=>mutation.f.rows.pop());
+assert.equal(mutation.ctx.issue860BootstrapPreparePrompt().phase,'PREPARED','mutant admits incomplete inventory');
 const state={releaseId:RELEASE,mode:'OPEN',active:{},completed:[],finished:0,barrierAt:Date.now()};
 props.set('issue507_writer_gate_v1',JSON.stringify(state));
 for(const name of names.filter(n=>!['jsonOk','jsonError','_isAuthorizedRequest'].includes(n)))
@@ -71,7 +174,7 @@ const manifest={name:'appsscript',type:'JSON',source:'{"runtimeVersion":"V8"}'};
 const files=source=>[{name:'Code',type:'SERVER_JS',source},manifest];
 function fixture(head='legacy',published=head){
  const code={legacy:fs.readFileSync('reference/gas-v9.281.gs','utf8').replace(/\r\n/g,'\n'),
-  bootstrap:sources.bootstrapSource,final:sources.finalSource};
+  bootstrap:sources.bootstrapSource,previous:previousSources.bootstrapSource,base:previousSources.finalSource,final:sources.finalSource};
  let currentHead=files(code[head]),v=published==='legacy'?336:337,next=338;
  const versions=new Map([[336,files(code.legacy)],[v,files(code[published])]]),calls=[],fault={};
  const rpc={
@@ -97,6 +200,18 @@ function fixture(head='legacy',published=head){
  }};
 }
 let f=fixture();assert.equal((await f.run('bootstrap',{dryRun:true,approved:false})).dryRun,true);
+f=fixture('previous');assert.equal((await f.run('inspect',{dryRun:true,approved:false})).readOnly,true);
+assert.ok(!f.calls.some(x=>['content','version','publish'].includes(x)));
+f=fixture('previous');await assert.rejects(f.run('finalize'),/BEFORE_SOURCE/);
+assert.ok(!f.calls.includes('content'));
+f=fixture('previous');assert.equal((await f.run('bootstrap')).deployed,true);
+assert.deepEqual(f.calls.filter(x=>['content','version','publish'].includes(x)),['content','version','publish']);
+f=fixture('previous');Object.assign(f.gateState,{mode:'UNINITIALIZED',firstCutoverAbortReady:true});
+assert.equal((await f.run('abort')).abortedBeforeGate,true);
+f=fixture('base');assert.equal((await f.run('finalize')).deployed,true);
+f=fixture('base');f.gateState.mode='OPEN';await assert.rejects(f.run('bootstrap'),/DRAIN/);
+assert.ok(!f.calls.includes('content'));
+f=fixture();
 assert.ok(!f.calls.includes('content'));
 f=fixture();await assert.rejects(f.run('bootstrap',{approved:false}),/APPROVAL/);assert.equal(f.calls.length,0);
 f=fixture();assert.equal((await f.run('bootstrap')).deployed,true);

@@ -6,16 +6,25 @@
 
 ## 배포하는 두 프로필
 
-- 최종 소스: 기존 `src/gas/apps_script.gs`의 정확한 승인 blob `9c1a5f31d1abc4b44f7da9af7a50fe3f15967134`.
+- 기반 소스: 기존 `src/gas/apps_script.gs`의 정확한 승인 blob `9c1a5f31d1abc4b44f7da9af7a50fe3f15967134`.
   금융 계산·웹 버전·응답 계약은 변경하지 않는다.
+- 최종 소스: 기반 소스 끝에 editor 전용 `issue507ResumeWriters`가 기존 private
+  `issue507ResumeWriters_`를 호출하는 별칭만 붙인 정확한 blob `edd6e79c885600767b8cfe9ab9c81576ec15fa69`.
+  끝이 underscore인 함수는 실제 editor 선택 목록에 나타나지 않아 재개할 수 없었던 경로를
+  보완한다. 기존 drain·receipt·승인 capability 검사를 그대로 거치며 새 HTTP 경로는 없다.
+  유지보수 프로필에는 재개 별칭이 없고, 기존 정상 배포·읽기 감사는 정확한 최종 blob도
+  인식한다. 기반 소스 및 기존 frozen preview/proposal pin은 변경하지 않는다.
 - 유지보수 소스: 위 소스의 gate 입구에 무조건 거부를 삽입하고 #923 editor 도구를
-  **같은 SERVER_JS 파일 안에** 합친 정확한 blob `0b2778afae5b1ffdeceb342c6d6e708ba919cc88`.
+  **같은 SERVER_JS 파일 안에** 합친 정확한 blob `a88919ab3fe15c9624b2096fc4dfe52041f7d6d2`.
   기존 555개 진입점은 기존 OPEN 속성이 있어도 실행되지 않는다. 인증된 GET
   `getWriterGateStatus`와 명시적 editor 도구만 사용한다. 일반 getSettings/화면/쓰기 서비스는
   유지보수 동안 이용할 수 없다. HEAD의 기존 트리거도 차단되지만, 구버전 고정 트리거는
   별도 중지 전까지 실행될 수 있으므로 전체 중지로 오인하지 않는다.
 - 추가 파일/manifest 변경/미승인 소스/알 수 없는 version은 게시하지 않는다.
   유지보수 프로필을 일반 릴리스 허용목록에 넣지 않는다.
+- 이전 유지보수 blob `0b2778afae5b1ffdeceb342c6d6e708ba919cc88`은 inspect와 gate 전 abort,
+  새 유지보수 프로필로의 bootstrap 전진 갱신에만 허용한다. 이전 프로필에서 직접 finalize는
+  거부한다. 일반 배포 허용목록에 유지보수 소스를 추가하지 않는다.
 
 ## 공통 사전 조건
 
@@ -67,6 +76,13 @@ UNVERIFIED로 치환한다. 인증 거부와 버전 미검증을 구분하며 �
    **중지 취소 가능 시점:** 저널 PREPARED, 원래 ID 11개 모두 그대로, gate 미초기화일 때
    abort dry-run/실행으로 v336·HEAD v9.281을 복원할 수 있다. 버전 336의 실제 소스와 manifest를
    재확인한다. 복원 저널은 감사 기록으로 보존하고 gate/수리/금융 속성을 지우지 않는다.
+
+   **설정이 50개를 넘어 UI가 읽기 전용일 때:** 같은 계정으로 프로젝트에 연결된 원본
+   스프레드시트를 열고 editor의 `issue860BootstrapPreparePrompt`를 실행한다. 원본 시트에
+   표시되는 입력창에 위 manifest JSON만 입력한다. id는 실제 Trigger API로 채운다.
+   별도 설정 속성을 쓰지 않고 기존 atomic prepare가 잠금 아래 실제 목록을 다시 확인한 뒤
+   복원 저널만 저장한다. 취소/잘못된 JSON/불일치/중복 실행은 트리거를 변경하지 않는다.
+   시트 셀·인증값은 읽거나 쓰지 않는다.
 4. editor에서 `issue860BootstrapPause` 실행. 저널 PAUSED 및 소유 계정 목록 0개 확인.
    타 계정 트리거·단순 트리거·편집기·타 프로젝트/직접 Sheets writer는 별도 통제가 필요하다.
 5. Google 실행 UI에서 **모든 actor와 모든 버전**의 기존 작업이 종료됐음을 확인한다.
@@ -77,6 +93,18 @@ UNVERIFIED로 치환한다. 인증 거부와 버전 미검증을 구분하며 �
    legacyDrainEvidence는 kind=EXECUTIONS_UI, scope=ALL_PROJECT_ACTORS_AND_VERSIONS,
    terminalOnly=true와 실제 근거 reference, verifiedAt은 실제 확인 시점의 UTC epoch milliseconds.
    도구가 이 사실을 자동으로 인증하지 않는다. 미확인 사실에 true를 입력하지 않는다.
+
+   UI가 읽기 전용이면 editor의 `issue860BootstrapRolloutPrompt`에서 같은 JSON을 입력한다.
+   모든 actor/버전 종료와 외부 writer·편집기 격리를 **실제로 확인한 후에만** 사용한다.
+   도구는 true/근거/확인 시각을 만들어주지 않으며 기존 gate 스키마·5분 이내 확인 시각,
+   PAUSED/0개 또는 RESTORED/정확한 새11개, 기존 gate가 있으면 DRAINING/active0을
+   다시 확인한다. 검증 후 해당 rollout 속성 하나만 저장·재조회한다. 갱신 뒤에는 기존
+   Initialize/RenewBarrier와 7분 관찰 절차를 따른다.
+
+   입력창은 잠금 획득 **전**에 열고 응답 후 상태를 다시 검사한다. Apps Script 입력창은
+   실행을 중단하며 기존 LockService 잠금은 유지되지 않기 때문이다.
+   [Google Ui 공식 문서](https://developers.google.com/apps-script/reference/base/ui).
+   입력 JSON·원본 ID·비밀값을 실행 로그/PR/이슈에 붙여넣지 않는다.
 7. editor에서 `issue860BootstrapInitialize` 실행. PAUSED·소유 트리거 0개·5분 이내 rollout 증빙일
    때만 DRAINING을 영속화한다. 기존 상태/영수증을 지우거나 OPEN으로 초기화하지 않는다.
 8. `issue860BootstrapRestore` 실행. 실제 후보의 gate 검증 함수를 사용해 동일 release/DRAINING/
@@ -91,14 +119,15 @@ UNVERIFIED로 치환한다. 인증 거부와 버전 미검증을 구분하며 �
 
 ## 최종 게시·재개·실제 검증
 
-1. finalize 실제 실행. 원래 승인된 v9.282 전체 소스의 불변 버전만 게시한다.
+1. finalize 실제 실행. 위 최종 v9.282 전체 소스의 불변 버전만 게시한다.
    HEAD/게시 소스 및 기존 배포 ID 재조회, 잘못된 인증 거부, 인증된 gate DRAINING 유지 확인.
    **이 실행은 writer를 재개하지 않는다.**
 2. gate OPEN 전에 모든 actor 격리·저널 RESTORED·새 HEAD 트리거 11개 및 후보 소스 일치를
    다시 확인한다. 원장·가격·Snapshot·NAV의 중지 후 기준과 재조회가 일치하는지 대조한다.
    metadata 복원 완료를 금융 데이터 정상화라고 주장하지 않는다.
-3. 별도 승인된 재개 범위 안에서 editor의 기존 `issue507ResumeWriters_` 실행.
-   이 함수도 기존 drain·완료 영수증·수리 승인 부재를 재검증한다. 실패하면 속성을 지워 우회하지 않는다.
+3. 별도 승인된 재개 범위 안에서 editor의 `issue507ResumeWriters` 실행.
+   기존 `issue507ResumeWriters_`의 drain·완료 영수증·수리 승인 부재를 재검증한다.
+   실패하면 속성을 지워 우회하지 않는다.
 4. 잘못된 인증 거부/올바른 인증, getSettings와 자동화 상태의 v9.282, gate OPEN,
    트리거 누락·중복 없음과 실제 새 버전 실행을 각각 확인한다. 설정·원장·Snapshot·가격·NAV의
    날짜/코드/수량/값은 읽기 전용으로 대조한다. 가격조회 self-heal/수리/재계산/Telegram 재발송 금지.

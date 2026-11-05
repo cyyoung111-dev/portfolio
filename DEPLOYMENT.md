@@ -1,6 +1,10 @@
 ## GAS v9.282 — writer gate 및 승인 단건 복구 (2026-10-31 KST)
 
-- 배포 상태: **릴리스 PR, 미병합·운영 미배포·금융 원본 쓰기 미실행**.
+- 배포 상태(2026-11-05): #923/#924 병합, 운영에는 bootstrap 유지보수 개정337 게시.
+  신규 inspect 41946366526에서 UNINITIALIZED/journal 없음 확인. 최종 게시·OPEN·재개는 미완료.
+- #860 후속: 설정 50개 초과 읽기 전용 UI를 위한 bound-editor 메타데이터 입력과 기존 검증을
+  그대로 호출하는 공개 editor 재개 별칭. 기반 소스·금융 계산·API 버전은 유지한다.
+  [최초 전환의 정확한 소스 pin과 검증 절차](docs/ISSUE860_FIRST_CUTOVER.md)를 따른다.
 - 운영 예약 22:10, 23:10, 00:30, 08:45 KST를 유지합니다. NH 토큰·Telegram 전송·트리거 설치는 실행하지 않습니다.
 - 555 기존 함수에 진입 guard, 종료 receipt, 기본 OPEN metadata bootstrap. bootstrap은 복구 승인/기존 실행 종료 증빙이 아님.
 - F00001 2026-10-30 기존 행 G:K만 승인 후 수정, 최신 39행/타 38행/F00002 경고와 NH·Telegram 생산 로직 보존.

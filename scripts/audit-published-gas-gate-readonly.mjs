@@ -8,7 +8,7 @@ import {parseClaspCredentials,gasSourceBlobSha,extractExpectedGasVersion,
 
 const API='https://script.googleapis.com/v1';
 const OAUTH='https://oauth2.googleapis.com/token';
-const APPROVED_GATE_BLOB='9c1a5f31d1abc4b44f7da9af7a50fe3f15967134';
+const APPROVED_GATE_BLOBS=['9c1a5f31d1abc4b44f7da9af7a50fe3f15967134','edd6e79c885600767b8cfe9ab9c81576ec15fa69'];
 // Historical production baseline; pinned identity is evidence, never authority
 // to invoke the v9.282-only getWriterGateStatus runtime route.
 const APPROVED_LEGACY_BLOB='ebe697563e94cf49e514037353260fce70ae1d57';
@@ -52,7 +52,7 @@ export function classifyPublishedGateSource(source){
   const blob=gasSourceBlobSha(source);
   if(!SHA.test(blob))throw Error('invalid');
   return {version,blob,gateReadAllowed:version==='9.282'
-   &&blob===APPROVED_GATE_BLOB,
+   &&APPROVED_GATE_BLOBS.includes(blob),
    knownLegacyBaseline:version==='9.281'&&blob===APPROVED_LEGACY_BLOB};
  }catch{
   return {version:'UNKNOWN',blob:'UNKNOWN',gateReadAllowed:false,knownLegacyBaseline:false};

@@ -1,12 +1,13 @@
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
-import {loadCutoverSources,FINAL_BLOB,LEGACY_BLOB,RELEASE} from './issue860-bootstrap-source.mjs';
+import {loadCutoverSources,BASE_BLOB,FINAL_BLOB,LEGACY_BLOB,RELEASE} from './issue860-bootstrap-source.mjs';
 import {gasSourceBlobSha,selectServerFile,assertGasProjectFileSet,buildUpdatedFiles,
  deploymentIdFromWebAppUrl,verifyDeploymentVersionWithRetry} from './deploy-gas.mjs';
 import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 import {assertCurrentMainRelease} from './gas-release-gate.mjs';
 
-export const BOOTSTRAP_BLOB='0b2778afae5b1ffdeceb342c6d6e708ba919cc88';
+export const BOOTSTRAP_BLOB='a88919ab3fe15c9624b2096fc4dfe52041f7d6d2';
+export const PREVIOUS_BOOTSTRAP_BLOB='0b2778afae5b1ffdeceb342c6d6e708ba919cc88';
 // Bound to the operator-observed /dev ID of this project; never exempt an
 // arbitrary unversioned or public entry by its missing version/description.
 const UI_HEAD_SHA256='4c41d2a953884746fe00f1cdbdb1782f57d36353a3a529d3c82c1370426888d3';
@@ -31,7 +32,7 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
  const headBlob=gasSourceBlobSha(target.source.replace(/\r\n/g,'\n'));
  const publishedBlob=gasSourceBlobSha(selectServerFile(initial.published.files,target.name).source.replace(/\r\n/g,'\n'));
  if(phase==='inspect'){
-  if(![BOOTSTRAP_BLOB,FINAL_BLOB].includes(headBlob)||![BOOTSTRAP_BLOB,FINAL_BLOB].includes(publishedBlob))error('BEFORE_SOURCE');
+  if(![BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB].includes(headBlob)||![BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB].includes(publishedBlob))error('BEFORE_SOURCE');
   await rpc.inventory(initial);const status=await gate();
   return {phase,readOnly:true,deployed:false,gateMode:status.mode,
    firstCutoverReady:status.firstCutoverReady===true,firstCutoverAbortReady:status.firstCutoverAbortReady===true,
@@ -40,7 +41,7 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
  if(phase==='abort'){
   // Only before the stateful gate AND before any trigger deletion. Once a
   // journal is PAUSING or a gate exists, forward recovery is mandatory.
-  if(![LEGACY_BLOB,BOOTSTRAP_BLOB].includes(headBlob)||publishedBlob!==BOOTSTRAP_BLOB)error('ABORT_SOURCE');
+  if(![LEGACY_BLOB,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB].includes(headBlob)||![BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB].includes(publishedBlob))error('ABORT_SOURCE');
   let status=await gate();
   if(status.mode!=='UNINITIALIZED'||status.firstCutoverAbortReady!==true)error('ABORT_NOT_SAFE');
   const legacy=await rpc.readVersion(336);
@@ -64,13 +65,13 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
   }catch{error('ABORT_RECOVERY_REQUIRED');}
  }
  const wanted=phase==='bootstrap'?BOOTSTRAP_BLOB:FINAL_BLOB;
- const allowed=phase==='bootstrap'?[LEGACY_BLOB,BOOTSTRAP_BLOB,FINAL_BLOB]:[BOOTSTRAP_BLOB,FINAL_BLOB];
+ const allowed=phase==='bootstrap'?[LEGACY_BLOB,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB]:[BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB];
  if(!allowed.includes(headBlob)||!allowed.includes(publishedBlob))error('BEFORE_SOURCE');
- if(publishedBlob===LEGACY_BLOB&&headBlob===FINAL_BLOB)error('BEFORE_SOURCE');
+ if(publishedBlob===LEGACY_BLOB&&[BASE_BLOB,FINAL_BLOB].includes(headBlob))error('BEFORE_SOURCE');
  // Reinstalling the maintenance profile is the forward recovery path if a
  // partial finalization removed editor helpers from HEAD. Never reenter from
  // an OPEN final deployment or discard active receipts/repair capabilities.
- if(phase==='bootstrap'&&publishedBlob===FINAL_BLOB){
+ if(phase==='bootstrap'&&[BASE_BLOB,FINAL_BLOB].includes(publishedBlob)){
   const before=await gate();
   if(before.mode!=='DRAINING'||before.activeCount!==0||before.approvalPresent!==false||before.repairAuthorized!==false)
    error('DRAIN');
@@ -120,7 +121,7 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
    if(publishedBlob===BOOTSTRAP_BLOB&&(latest.releaseId!==RELEASE||latest.firstCutoverReady!==true))
     error('BOOTSTRAP_NOT_READY');
   }
-  if(phase==='bootstrap'&&publishedBlob===FINAL_BLOB){
+  if(phase==='bootstrap'&&[BASE_BLOB,FINAL_BLOB].includes(publishedBlob)){
    const latest=await gate();
    if(latest.mode!=='DRAINING'||latest.activeCount!==0||latest.approvalPresent!==false||latest.repairAuthorized!==false)
     error('DRAIN');
