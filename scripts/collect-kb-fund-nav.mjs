@@ -150,9 +150,14 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   const pending=(await valuation()).filter(needsWrite);
   for(const day of pending){
     // Never write an unpublished/unknown NAV or a row without reconciled units.
-    if(!['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(day.navState)
-        ||day.unitsApplied!==true||day.reconciled!==true)
-      throw Error('NAV_DERIVED_SOURCE_UNVERIFIED');
+    // Fixed error enums reveal which admission check stopped the writer
+    // without logging NAV amounts, positions, dates or private GAS responses.
+    if(!['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(day.navState))
+      throw Error('NAV_DERIVED_NAV_STATE_UNVERIFIED');
+    if(day.unitsApplied!==true)
+      throw Error('NAV_DERIVED_UNITS_UNVERIFIED');
+    if(day.reconciled!==true)
+      throw Error('NAV_DERIVED_RECONCILIATION_UNVERIFIED');
     const r=await request('collectKbFundNav',{mode:'refresh',date:day.date});
     if(r.status!=='ok')throw Error('NAV_DERIVED_'+classifyFundError(r.message));
   }
