@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {armedKstClock,ARMED_DELIVERY,authorizeArmedDelivery,
  waitUntilPunctualWindow} from './telegram-punctual-arm.mjs';
 import {scheduledWindow} from './telegram-morning-briefing.mjs';
-import {closeWindow} from './telegram-close-workflow.mjs';
+import {closeWindow,prepareArmedCloseWithRetry} from './telegram-close-workflow.mjs';
 
 const repo='cyyoung111-dev/portfolio',date='2026-11-02';
 const env={GITHUB_EVENT_NAME:'schedule',GITHUB_REPOSITORY:repo,
@@ -208,7 +208,7 @@ for(const c of checks){
    assert.ok(!source.includes('GITHUB_OUTPUT'));
  }
  assert.equal(steps.find(s=>s.id==='arm').run,'node scripts/telegram-punctual-arm.mjs '+c.kind);
- assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
+ assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare'+(c.kind==='close'?' armed':''));
  assert.equal(steps.find(s=>s.id==='prepare').env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
  assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_BOT_TOKEN,undefined);
  const send=steps.find(s=>s.name?.includes('Send exactly one claimed'));
