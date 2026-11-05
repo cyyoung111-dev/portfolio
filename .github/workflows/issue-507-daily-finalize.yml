@@ -1,9 +1,6 @@
 name: issue-507-daily-finalize
 on:
-  workflow_run:
-    workflows: [gas-deploy]
-    types: [completed]
-    branches: [main]
+  # Post-cutover: explicit manual recovery/diagnosis only. Never run on gas-deploy completion.
   workflow_dispatch:
     inputs:
       apply:
