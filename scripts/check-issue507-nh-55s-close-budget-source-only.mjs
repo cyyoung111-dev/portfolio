@@ -154,7 +154,7 @@ export function auditBudgetSources(){
  }));
  function simulate(code,missOne=false){
    const start=code.indexOf('function fetchDomesticRegularCloses(');
-   const end=code.indexOf('\\n}',start);
+   const end=code.indexOf(String.fromCharCode(10)+'}',start);
    assert.ok(start>=0&&end>start,'domestic aggregator extraction');
    const calls=[],fallbacks=[],logs=[];
    const ctx=vm.createContext({
