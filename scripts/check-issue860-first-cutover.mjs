@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {createHash} from 'node:crypto';
 import YAML from 'yaml';
 import {loadCutoverSources,BASE_BLOB,FINAL_BLOB,RELEASE} from './issue860-bootstrap-source.mjs';
 import {runFirstCutover,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB} from './issue860-first-cutover.mjs';
@@ -159,6 +160,69 @@ assert.throws(()=>concurrent.ctx.issue860BootstrapPreparePrompt(),/INVENTORY_CHA
 assert.equal(concurrent.f.calls.length,0);
 const mutation=promptFixture(mutant);mutation.input(triggerManifest);mutation.beforeLock(()=>mutation.f.rows.pop());
 assert.equal(mutation.ctx.issue860BootstrapPreparePrompt().phase,'PREPARED','mutant admits incomplete inventory');
+// Actual incident: a deferred NAV retry is not part of the 11 permanent jobs.
+// Preserve its UID, schedule and business reservation instead of deleting or
+// recreating it; all routes are already hard-denied by the bootstrap source.
+const deferred={id:'deferred-fixture',handler:'runDeferredFundAfterPortfolioCloseFailure',
+ binding:'PRODUCTION',event:'CLOCK',source:'CLOCK',sourceId:null,
+ schedule:{kind:'MINUTELY',minutes:10,timezone:'Asia/Seoul'}};
+const productionBindingSha256=createHash('sha256').update('TEST_PRODUCTION_DEPLOYMENT').digest('hex');
+const preservedManifest=()=>({schema:1,releaseId:RELEASE,operationId:'preserved-fixture',
+ uiEvidence:'fixture UI bindings and schedules, not production attestation',productionVersion:337,productionBindingSha256,
+ triggers:[...JSON.parse(JSON.stringify(triggerManifest.triggers)).map(t=>({...t,
+ binding:t.originalDeployment==='HEAD'?'HEAD':'PRODUCTION'})),JSON.parse(JSON.stringify(deferred))]});
+const oldInventory=triggerFixture(previousSources.bootstrapSource);
+oldInventory.rows.push({...deferred});
+oldInventory.properties.set('issue860_ui_trigger_manifest_v1',JSON.stringify(triggerManifest));
+assert.throws(()=>oldInventory.context.issue860BootstrapPrepare(),/INVENTORY_CHANGED/);
+assert.equal(oldInventory.calls.length,0);
+let preserved=promptFixture();preserved.f.rows.push({...deferred});
+preserved.input(preservedManifest(),'CANCEL');
+assert.equal(preserved.ctx.issue860BootstrapPreservePrompt().cancelled,true);
+preserved.input(preservedManifest(),'OK',()=>preserved.f.rows.push({...deferred,id:'foreign-fixture',handler:'foreignWriter'}));
+assert.throws(()=>preserved.ctx.issue860BootstrapPreservePrompt(),/INVENTORY_CHANGED/);
+assert.equal(preserved.f.calls.length,0);
+preserved=promptFixture();preserved.f.rows.push({...deferred});
+let broken=preservedManifest();broken.triggers[11].schedule.minutes=5;
+preserved.input(broken);assert.throws(()=>preserved.ctx.issue860BootstrapPreservePrompt(),/PRESERVED_MANIFEST/);
+assert.equal(preserved.f.calls.length,0);
+const reservation='{"triggerId":"deferred-fixture","date":"2026-11-04","attempts":2,"owner":{"runId":"fixture-owner"}}';
+preserved.f.properties.set('portfolio_fund_deferred_schedule_v1',reservation);
+const originalRows=JSON.stringify(preserved.f.rows);
+preserved.input(preservedManifest());
+assert.equal(preserved.ctx.issue860BootstrapPreservePrompt().preservedCount,12);
+assert.throws(()=>preserved.ctx.issue860BootstrapPreservePrompt(),/PRESERVED_EXISTS/);
+assert.throws(()=>preserved.f.prepare(),/PRESERVED_MODE/);
+assert.throws(()=>preserved.ctx.issue860BootstrapPause(),/PRESERVED_MODE/);
+assert.throws(()=>preserved.ctx.issue860BootstrapRestore(),/PRESERVED_MODE/);
+preserved.ctx.jsonOk=x=>({status:'ok',...x});preserved.ctx.jsonError=message=>({status:'error',message});
+preserved.ctx._isAuthorizedRequest=()=>true;
+let preservedNow=Date.now();preserved.ctx.Date=class extends Date {static now(){return preservedNow;}};
+let pg=()=>preserved.ctx.doGet({parameter:{action:'getWriterGateStatus'}}).writerGate;
+assert.equal(pg().firstCutoverAbortReady,true);
+assert.equal(pg().preservedTriggers.inventoryUnchanged,true);
+assert.equal(pg().preservedTriggers.count,12);
+assert.throws(()=>preserved.ctx.issue860BootstrapInitialize(),/ROLLOUT_REQUIRED/);
+preserved.input({...attestation(),verifiedAt:preservedNow});
+assert.equal(preserved.ctx.issue860BootstrapRolloutPrompt().rolloutRecorded,true);
+assert.equal(preserved.ctx.issue860BootstrapInitialize().initialized,true);
+const barrier=JSON.parse(preserved.f.properties.get('issue507_writer_gate_v1')).barrierAt;
+assert.equal(preserved.ctx.issue860BootstrapInitialize().initialized,false);
+assert.equal(JSON.parse(preserved.f.properties.get('issue507_writer_gate_v1')).barrierAt,barrier);
+assert.equal(pg().firstCutoverAbortReady===true,false);assert.equal(pg().firstCutoverReady,false);
+preservedNow+=420001;assert.equal(pg().firstCutoverReady,true);
+assert.equal(preserved.f.properties.get('portfolio_fund_deferred_schedule_v1'),reservation);
+assert.equal(JSON.stringify(preserved.f.rows),originalRows);
+assert.equal(preserved.f.calls.filter(x=>x[0]==='delete'||x[0]==='create').length,0);
+preserved.f.rows[11].id='changed-uid';assert.equal(pg().firstCutoverReady,false);
+assert.throws(()=>preserved.ctx.issue860BootstrapInitialize(),/INVENTORY_CHANGED/);
+preserved.f.rows[11].id=deferred.id;
+preservedNow+=1800001;assert.equal(pg().firstCutoverReady,false);
+preserved.input({...attestation(),verifiedAt:preservedNow});
+assert.equal(preserved.ctx.issue860BootstrapRolloutPrompt().rolloutRecorded,true);
+assert.equal(preserved.ctx.issue860BootstrapRenewBarrier().barrierRenewed,true);
+assert.equal(pg().firstCutoverReady,false);preservedNow+=420001;assert.equal(pg().firstCutoverReady,true);
+assert.equal(preserved.f.properties.get('portfolio_fund_deferred_schedule_v1'),reservation);
 const state={releaseId:RELEASE,mode:'OPEN',active:{},completed:[],finished:0,barrierAt:Date.now()};
 props.set('issue507_writer_gate_v1',JSON.stringify(state));
 for(const name of names.filter(n=>!['jsonOk','jsonError','_isAuthorizedRequest'].includes(n)))
@@ -179,7 +243,7 @@ function fixture(head='legacy',published=head){
  const versions=new Map([[336,files(code.legacy)],[v,files(code[published])]]),calls=[],fault={};
  const rpc={
   async readState(){calls.push('read');return clone({head:{files:currentHead},published:{files:versions.get(v)},
-   deployment:{deploymentConfig:{versionNumber:v,manifestFileName:'appsscript'}}});},
+   deployment:{deploymentId:'TEST_PRODUCTION_DEPLOYMENT',deploymentConfig:{versionNumber:v,manifestFileName:'appsscript'}}});},
   async inventory(){calls.push('inventory');if(fault.inventory)throw Error('inventory');},
   async writeContent(f){calls.push('content');currentHead=clone(f);},
   async createVersion(){calls.push('version');const id=next++;versions.set(id,clone(currentHead));
@@ -211,6 +275,13 @@ assert.equal((await f.run('abort')).abortedBeforeGate,true);
 f=fixture('base');assert.equal((await f.run('finalize')).deployed,true);
 f=fixture('base');f.gateState.mode='OPEN';await assert.rejects(f.run('bootstrap'),/DRAIN/);
 assert.ok(!f.calls.includes('content'));
+f=fixture('bootstrap');f.gateState.preservedTriggers={count:12,productionVersion:336,productionBindingSha256,inventoryUnchanged:true};
+assert.equal((await f.run('finalize')).deployed,true);
+for(const preservedTriggers of [{count:12,productionBindingSha256:'0'.repeat(64),inventoryUnchanged:true},
+ {count:12,productionBindingSha256,inventoryUnchanged:false}]){
+ f=fixture('bootstrap');f.gateState.preservedTriggers=preservedTriggers;
+ await assert.rejects(f.run('finalize'),/PRESERVED_BINDING/);assert.ok(!f.calls.includes('content'));
+}
 f=fixture();
 assert.ok(!f.calls.includes('content'));
 f=fixture();await assert.rejects(f.run('bootstrap',{approved:false}),/APPROVAL/);assert.equal(f.calls.length,0);

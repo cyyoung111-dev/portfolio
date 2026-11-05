@@ -5,6 +5,9 @@
 - #860 후속: 설정 50개 초과 읽기 전용 UI를 위한 bound-editor 메타데이터 입력과 기존 검증을
   그대로 호출하는 공개 editor 재개 별칭. 기반 소스·금융 계산·API 버전은 유지한다.
   [최초 전환의 정확한 소스 pin과 검증 절차](docs/ISSUE860_FIRST_CUTOVER.md)를 따른다.
+- 2026-11-05 후속 실증: bootstrap 개정338 게시 후 재조회 실패, 동일 단계 재확인41948677235는
+  alreadyDeployed SUCCESS. 원본 시트에서 연 editor의 입력창은 동작했으나 실제 예약12개로
+  기존11개 절차가 변경 전 차단됨. 펀드 deferred UID/일정을 보존하는 전환 경로를 별도 검증한다.
 - 운영 예약 22:10, 23:10, 00:30, 08:45 KST를 유지합니다. NH 토큰·Telegram 전송·트리거 설치는 실행하지 않습니다.
 - 555 기존 함수에 진입 guard, 종료 receipt, 기본 OPEN metadata bootstrap. bootstrap은 복구 승인/기존 실행 종료 증빙이 아님.
 - F00001 2026-10-30 기존 행 G:K만 승인 후 수정, 최신 39행/타 38행/F00002 경고와 NH·Telegram 생산 로직 보존.
