@@ -25,13 +25,18 @@ export async function readNhMorningIndexes(date,{url,token,fetchImpl=fetch,
   const body=new URLSearchParams({action:'getBenchmarks',accessToken:token,
     benchmarks:'SP500,NASDAQ,NASDAQ100',
     from:from.toISOString().slice(0,10),to:expected,fresh:'0'});
-  try{
+  // Cached NH index history can lag the prior US close. Refresh only missing
+  // verified series; both responses pass identical source/date checks.
+  let best=[];
+  for(const freshMode of ['0','1']){
+   body.set('fresh',freshMode);
+   try{
     const response=await fetchImpl(endpoint,{method:'POST',
       headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
       body,redirect:'follow',signal:AbortSignal.timeout(17000)});
-    if(!response.ok){audit('HTTP_UNAVAILABLE');return [];}
+    if(!response.ok){audit('HTTP_UNAVAILABLE',{freshMode});continue;}
     const data=await response.json();
-    if(data?.status!=='ok'||!data.series||!data.seriesMeta){audit('GAS_RESPONSE_INVALID');return [];}
+    if(data?.status!=='ok'||!data.series||!data.seriesMeta){audit('GAS_RESPONSE_INVALID',{freshMode});continue;}
     const found=[],reasons=[];
     for(const {id,type,code} of VERIFIED){
       const info=MORNING_SERIES.find(x=>x.id===id),meta=data.seriesMeta[type],rows=data.series[type];
@@ -58,7 +63,10 @@ export async function readNhMorningIndexes(date,{url,token,fetchImpl=fetch,
     }
     audit(found.length===VERIFIED.length?'ALL_VERIFIED':'PARTIAL_OR_MISSING',
       {verified:found.map(x=>VERIFIED.find(v=>MORNING_SERIES.find(y=>y.id===v.id)?.symbol===x.symbol)?.id).filter(Boolean),
-       missing:reasons,expectedDate:expected});
-    return found;
-  }catch{audit('NETWORK_OR_PARSE_FAILED');return [];}
+       missing:reasons,expectedDate:expected,freshMode});
+    if(found.length>best.length)best=found;
+    if(found.length===VERIFIED.length)return found;
+   }catch{audit('NETWORK_OR_PARSE_FAILED',{freshMode});}
+  }
+  return best;
 }
