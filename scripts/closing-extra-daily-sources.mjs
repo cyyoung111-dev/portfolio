@@ -107,6 +107,80 @@ export async function readNhClosingStocks(date,{url=process.env.GAS_WEB_APP_URL,
  emit(describeClosingNhStockRead(date,data));
  return normalizeClosingNhStocks(date,data);
 }
+// Fixed public watch list only. These references never enter portfolio holdings,
+// price history, financial master or trade accounting.
+export function validClosingStockRow(date,row){
+ const session=closingStockSessions(date);
+ const item=STOCKS.find(x=>x.id===row?.id);
+ const config=item&&MORNING_SERIES.find(x=>x.id===item.id);
+ const expected=item?.market==='KR'?session?.day:session?.us;
+ if(!item||!config||row.label!==config.label||row.symbol!==config.symbol
+   ||row.date!==expected||!Number.isFinite(row.value)||row.value<=0
+   ||(row.changePercent!==null&&!Number.isFinite(row.changePercent)))return false;
+ if(row.source==='NH_REGULAR_CLOSE')return true;
+ if(item.market==='KR')return row.source==='KRX_OFFICIAL'
+    &&row.role==='NON_NH_REFERENCE_ONLY'
+    &&['KRX','KRX_OTP'].includes(row.providerSource);
+ return row.source==='YAHOO_DAILY_REFERENCE'&&row.role==='NON_NH_REFERENCE_ONLY';
+}
+export async function readClosingStockReferences(date,{
+ fetchImpl=fetch,now=()=>new Date(),gasUrl=process.env.GAS_WEB_APP_URL,
+ gasToken=process.env.GAS_ACCESS_TOKEN,fetchDaily=fetchDatedDaily,
+ onDiagnostic=()=>{}}={}){
+ const session=closingStockSessions(date);
+ if(!session)return [];
+ const rows=[];
+ const domestic=async()=>{
+  if(!gasUrl||!gasToken)return;
+  let endpoint;
+  try{endpoint=validateGasEndpoint(gasUrl);}catch{return;}
+  try{
+   const form=new URLSearchParams({action:'getKrxOfficialStockCloses',
+     accessToken:gasToken,date,codes:'005930,000660'});
+   const res=await fetchImpl(endpoint,{method:'POST',
+     headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+     body:form,redirect:'follow',signal:AbortSignal.timeout(17000)});
+   if(!res?.ok)return;
+   const data=await res.json();
+   if(data?.status!=='ok'||data.requestedDate!==date||!data.closes
+       ||typeof data.closes!=='object'||Array.isArray(data.closes))return;
+   for(const item of STOCKS.filter(x=>x.market==='KR')){
+    const price=data.closes[item.code],stamp=Date.parse(price?.receivedAt||'');
+    const closeTime=Date.parse(date+'T15:30:00+09:00');
+    if(price?.code!==item.code||price.requestedDate!==date
+      ||price.usedDate!==date||price.source!=='KRX_OFFICIAL'
+      ||!['KRX','KRX_OTP'].includes(price.providerSource)
+      ||!Number.isFinite(stamp)||stamp<closeTime||stamp>now().getTime()
+      ||!Number.isFinite(price.price)||price.price<=0)continue;
+    const info=MORNING_SERIES.find(x=>x.id===item.id);
+    rows.push({id:item.id,label:info.label,symbol:info.symbol,date,
+      value:price.price,changePercent:null,source:'KRX_OFFICIAL',
+      role:'NON_NH_REFERENCE_ONLY',providerSource:price.providerSource});
+   }
+  }catch{/* Unavailable official data stays missing. */}
+ };
+ const overseas=async item=>{
+  const info=MORNING_SERIES.find(x=>x.id===item.id);
+  for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
+   try{
+    const row=await fetchDaily(info.label,info.symbol,date,{fetchImpl,now:now(),host});
+    if(!row||row.label!==info.label||row.symbol!==info.symbol
+      ||row.source!=='Yahoo Finance 일봉'||row.date!==session.us
+      ||!Number.isFinite(row.value)||row.value<=0
+      ||(row.changePercent!==null&&!Number.isFinite(row.changePercent)))continue;
+    rows.push({id:item.id,label:info.label,symbol:info.symbol,date:session.us,
+      value:row.value,changePercent:row.changePercent,source:'YAHOO_DAILY_REFERENCE',
+      role:'NON_NH_REFERENCE_ONLY'});
+    return;
+   }catch{/* Try second public host only. */}
+  }
+ };
+ await Promise.all([domestic(),...STOCKS.filter(x=>x.market==='US').map(overseas)]);
+ const result=rows.filter(x=>validClosingStockRow(date,x));
+ try{onDiagnostic({kind:'CLOSE_STOCK_REFERENCES',date,verified:result.map(x=>x.id)});}
+ catch{/* telemetry optional */}
+ return result;
+}
 // Yahoo daily macro snapshots are annotated as prior completed US/FX sessions,
 // never as current 17:00 spot/interest-rate quotes. Fail closed on stale dates.
 export function validateClosingMacro(date,id,row){
