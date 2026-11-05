@@ -6,6 +6,11 @@ on:
     - cron: '20 22 * * 0-4' # 07:20 KST early-arm; target 07:40 KST
   # External independent scheduler may dispatch, but clock/date gates still apply.
   workflow_dispatch:
+  # Independent scheduler may update one dated file at 07:20 KST.
+  # A workflow-level commit/diff/date guard runs before NH or Telegram reads.
+  push:
+    branches: [main]
+    paths: ['ops/telegram-morning-arm-trigger.txt']
 permissions:
   contents: read
   actions: read
@@ -17,7 +22,7 @@ concurrency:
   queue: max
 jobs:
   armed:
-    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.run_attempt == 1
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: portfolio-production-gas
     timeout-minutes: 45
@@ -25,9 +30,81 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Verify exact dated main sentinel commit before reading NH
+        id: verify_sentinel
+        if: github.event_name == 'push'
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          sentinel='ops/telegram-morning-arm-trigger.txt'
+          today="$(TZ=Asia/Seoul date +%F)"
+          deny() {
+            echo "MORNING_SENTINEL_DENIED_$1"
+            echo 'verified=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          [[ "$PUSH_BEFORE" =~ ^[0-9a-f]{40}$ ]] || deny BEFORE_SHA
+          [[ "$PUSH_BEFORE" == "$(git rev-parse HEAD^)" ]] || deny MULTI_COMMIT
+          [[ "$(git diff --name-only HEAD^ HEAD)" == "$sentinel" ]] || deny NOT_EXACT_SINGLE_FILE
+          [[ "$(git ls-files --stage "$sentinel" | awk '{print $1}')" == '100644' ]] || deny FILE_MODE
+          [[ "$(wc -c < "$sentinel")" -lt 800 ]] || deny FILE_TOO_LARGE
+          [[ "$(grep -Ec '^armed_date=[0-9]{4}-[0-9]{2}-[0-9]{2}      # authenticated read of the 06:00 reference from 07:30 KST.
+      # A failed read MUST NOT cancel the original 07:40 recovery or send.
+      - name: Prefetch verified 06:00 NH night from existing 07:30 GAS proxy
+        env:
+          TELEGRAM_MORNING_SENTINEL_VERIFIED: ${{ github.event_name == 'push' && steps.verify_sentinel.outputs.verified || 'false' }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/telegram-morning-prefetch.mjs
+      - name: Wait for original 07:40 KST guarded delivery window
+        id: arm
+        env:
+          TELEGRAM_MORNING_SENTINEL_VERIFIED: ${{ github.event_name == 'push' && steps.verify_sentinel.outputs.verified || 'false' }}
+        run: node scripts/telegram-punctual-arm.mjs morning
+      - name: Prepare verified morning briefing through original claim and source rules
+        if: steps.arm.outputs.ready == 'true'
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          # Optional KRX EOD market breadth; no new key is issued automatically.
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          TELEGRAM_DISPATCH_MODE: ${{ github.event_name == 'workflow_dispatch' && 'rescue' || '' }}
+        run: node scripts/telegram-morning-workflow.mjs prepare
+      - name: Claim original dated briefing before contacting Telegram
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}
+          path: .telegram-runtime/claim.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Send exactly one claimed morning briefing
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_DISPATCH_MODE: ${{ github.event_name == 'workflow_dispatch' && 'rescue' || '' }}
+        run: node scripts/telegram-morning-workflow.mjs send
+      - name: Archive Telegram API-confirmed SENT proof
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}-sent
+          path: .telegram-runtime/sent.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+ "$sentinel" || true)" == '1' ]] || deny DATE_FORMAT
+          [[ "$(grep '^armed_date=' "$sentinel" | cut -d= -f2)" == "$today" ]] || deny WRONG_KST_DATE
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
       # The runner is already alive at 07:20. GAS v9.281 supports an
       # authenticated read of the 06:00 reference from 07:30 KST.
       # A failed read MUST NOT cancel the original 07:40 recovery or send.
