@@ -18,7 +18,7 @@ export function buildBootstrapSource(finalSource,maintenance){
  return code+'\n'+maintenance+'\n'+EDITOR_HELPERS;
 }
 export function loadCutoverSources(){
- const finalSource=fs.readFileSync('src/gas/apps_script.gs','utf8').replace(/\r\n/g,'\n');
+ const finalSource=fs.readFileSync('reference/gas-v9.282.gs','utf8').replace(/\r\n/g,'\n');
  const maintenance=fs.readFileSync('scripts/staged/issue860-trigger-maintenance.gs','utf8').replace(/\r\n/g,'\n');
  return {finalSource,bootstrapSource:buildBootstrapSource(finalSource,maintenance)};
 }
