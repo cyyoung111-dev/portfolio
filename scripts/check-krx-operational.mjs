@@ -1,6 +1,7 @@
 import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import YAML from 'yaml';
 import {
   parseDates, validateWebAppUrl, summarizeKrxSource,
   buildSafeRequest, readGasAction, runDiagnosis as rawRunDiagnosis, summarizeOfficialCloses,
@@ -591,6 +592,11 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  const noSecret=wf.slice(wf.indexOf('- name: Collect public KB S-T NAV independently of GAS'),
   wf.indexOf('- name: Preserve public KB NAV source for reconciliation'));
  assert.doesNotMatch(noSecret,/GAS_ACCESS_TOKEN|CLASPRC_JSON|secrets\./);
+ const parsed=YAML.parse(wf);
+ assert.equal(parsed.jobs['source-public'].environment,undefined,'public reads do not require production-GAS environment');
+ assert.equal(parsed.jobs.collect.environment,'portfolio-production-gas','private writes remain protected');
+ assert.equal(parsed.jobs.collect.needs,'source-public');
+ assert.ok(!JSON.stringify(parsed.jobs['source-public']).includes('secrets.'),'public source job has no private credentials');
 }
 // External KB collector uses the same production import contract; never overwrites confirmed NAV.
 {
