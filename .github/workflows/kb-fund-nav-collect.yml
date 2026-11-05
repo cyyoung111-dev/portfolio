@@ -31,6 +31,7 @@ jobs:
         continue-on-error: true
         run: node scripts/collect-kb-fund-nav.mjs --source-only > kb-public-nav.json
       - name: Preserve public KB NAV source for reconciliation
+        id: kb-archive
         if: steps.public-nav.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
@@ -38,6 +39,43 @@ jobs:
           path: kb-public-nav.json
           retention-days: 7
           if-no-files-found: error
+        continue-on-error: true
+      - name: Collect public Hanwha C-RPe NAV independently of GAS
+        id: hanwha-public
+        continue-on-error: true
+        run: node scripts/collect-hanwha-public-nav.mjs > hanwha-public-nav.json
+      - name: Preserve public Hanwha NAV source for reconciliation
+        id: hanwha-archive
+        if: steps.hanwha-public.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hanwha-public-nav-${{ github.run_id }}
+          path: hanwha-public-nav.json
+          retention-days: 7
+          if-no-files-found: error
+        continue-on-error: true
+      - name: Record public source coverage without blocking private writer
+        if: always()
+        env:
+          KB_SOURCE_STATUS: ${{ steps.public-nav.outcome }}
+          HANWHA_SOURCE_STATUS: ${{ steps.hanwha-public.outcome }}
+          KB_ARCHIVE_STATUS: ${{ steps.kb-archive.outcome }}
+          HANWHA_ARCHIVE_STATUS: ${{ steps.hanwha-archive.outcome }}
+        run: |
+          echo "KB public NAV: ${KB_SOURCE_STATUS} / archive: ${KB_ARCHIVE_STATUS}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Hanwha public NAV: ${HANWHA_SOURCE_STATUS} / archive: ${HANWHA_ARCHIVE_STATUS}" >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${KB_SOURCE_STATUS}" = "success" ] && [ "${KB_ARCHIVE_STATUS}" != "success" ]; then
+            echo "PUBLIC_KB_NAV_ARCHIVE_UNVERIFIED"
+            exit 1
+          fi
+          if [ "${HANWHA_SOURCE_STATUS}" = "success" ] && [ "${HANWHA_ARCHIVE_STATUS}" != "success" ]; then
+            echo "PUBLIC_HANWHA_NAV_ARCHIVE_UNVERIFIED"
+            exit 1
+          fi
+          if [ "${KB_SOURCE_STATUS}" != "success" ] && [ "${HANWHA_SOURCE_STATUS}" != "success" ]; then
+            echo "PUBLIC_NAV_ALL_SOURCES_UNAVAILABLE"
+            exit 1
+          fi
   # The private writer independently re-fetches and validates the public NAV.
   # A failed public archive must NEVER skip an otherwise valid import/repair.
   collect:
