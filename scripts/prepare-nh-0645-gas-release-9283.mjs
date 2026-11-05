@@ -23,7 +23,7 @@ function once(source,oldText,newText,tag){
   return source.replace(oldText,newText);
 }
 export function prepareNh0645Gas9283({read=fs.readFileSync}={}){
-  const source=read('src/gas/apps_script.gs','utf8');
+  const source=read('reference/gas-v9.282.gs','utf8');
   if(typeof source!=='string'||gasSourceBlobSha(source)!==V9282_BLOB)
     throw Error('NH_9283_PRODUCTION_V9282_BASELINE_CHANGED');
   const historical=buildIssue507LiveRelease();
