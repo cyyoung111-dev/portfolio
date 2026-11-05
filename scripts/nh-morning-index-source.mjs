@@ -9,7 +9,7 @@ const VERIFIED=Object.freeze([
   {id:'NDX',type:'NASDAQ100',code:'NDX'},
 ]);
 export async function readNhMorningIndexes(date,{url,token,fetchImpl=fetch,
- onDiagnostic=()=>{}}={}){
+ onDiagnostic=details=>console.log(JSON.stringify(details))}={}){
  // Emit only fixed enums and public index IDs. Never log response bodies,
  // request tokens, endpoint URLs, live prices or private GAS error strings.
  const audit=(status,details={})=>{
