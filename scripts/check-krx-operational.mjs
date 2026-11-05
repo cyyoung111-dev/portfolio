@@ -616,28 +616,78 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  const rawPublic=JSON.stringify(job);
  assert.doesNotMatch(rawPublic,/GAS_ACCESS_TOKEN|CLASPRC_JSON|secrets\./);
  assert.match(rawPublic,/collect-hanwha-public-nav\.mjs/);
+ assert.match(rawPublic,/collect-fidelity-public-nav\.mjs/);
  assert.match(rawPublic,/hanwha-public-nav-/);
+ assert.match(rawPublic,/fidelity-public-nav-/);
  assert.match(rawPublic,/retention-days/);
- const publicSteps=job.steps.filter(x=>x.id==='public-nav'||x.id==='hanwha-public');
+ const publicSteps=job.steps.filter(x=>['public-nav','hanwha-public','fidelity-public'].includes(x.id));
  assert.deepEqual(publicSteps.map(x=>[x.id,x['continue-on-error']]),[
-  ['public-nav',true],['hanwha-public',true]]);
+  ['public-nav',true],['hanwha-public',true],['fidelity-public',true]]);
  const uploads=job.steps.filter(x=>x.uses?.startsWith('actions/upload-artifact'));
- assert.equal(uploads.length,2);
+ assert.equal(uploads.length,3);
  assert.ok(uploads.every(x=>x['continue-on-error']===true));
- assert.deepEqual(uploads.map(x=>x.id),['kb-archive','hanwha-archive']);
+ assert.deepEqual(uploads.map(x=>x.id),['kb-archive','hanwha-archive','fidelity-archive']);
  const coverage=job.steps.find(x=>x.name==='Record public source coverage without blocking private writer');
  assert.ok(coverage);
  assert.equal(coverage.if,'always()');
  assert.equal(coverage.env.KB_ARCHIVE_STATUS,'${{ steps.kb-archive.outcome }}');
  assert.equal(coverage.env.HANWHA_ARCHIVE_STATUS,'${{ steps.hanwha-archive.outcome }}');
+ assert.equal(coverage.env.FIDELITY_ARCHIVE_STATUS,'${{ steps.fidelity-archive.outcome }}');
  assert.match(coverage.run,/PUBLIC_KB_NAV_UNAVAILABLE/);
  assert.match(coverage.run,/PUBLIC_HANWHA_NAV_UNAVAILABLE/);
+ assert.match(coverage.run,/PUBLIC_FIDELITY_NAV_UNAVAILABLE/);
  assert.match(coverage.run,/PUBLIC_NAV_ALL_SOURCES_UNAVAILABLE/);
  assert.match(coverage.run,/KB_SOURCE_STATUS.*!=/);
  assert.match(coverage.run,/HANWHA_SOURCE_STATUS.*!=/);
  assert.match(coverage.run,/incomplete=1/);
  assert.match(coverage.run,/exit 1/);
  assert.match(JSON.stringify(wf.on.push),/kb-fund-nav-collect\.yml/);
+}
+// Fidelity World Big4 Class S (AP399) public NAV is retrieved independently
+// of GAS and excludes the current (potentially provisional) KST date.
+{
+ const {runPublicFidelitySource,FUND_CD,CLASS_CODE}=
+   await import('./collect-fidelity-public-nav.mjs');
+ assert.equal(FUND_CD,'KR5235AP3996');
+ assert.equal(CLASS_CODE,'AP399');
+ let fetched=0;
+ const sample=[
+  {gijunYmd:'20261103',gijunGa:2430.12},
+  {gijunYmd:'20261104',gijunGa:2444.56},
+  {gijunYmd:'20261105',gijunGa:2455.67}
+ ];
+ const fake=async(u,opts)=>{
+  fetched++;
+  const url=new URL(u);
+  assert.equal(url.origin,'https://www.funetf.co.kr');
+  assert.equal(url.pathname,'/api/public/product/view/fundnav');
+  assert.equal(url.searchParams.get('fundCd'),FUND_CD);
+  assert.equal(url.searchParams.get('schNavStDt'),'20261005');
+  assert.equal(url.searchParams.get('schNavEdDt'),'20261105');
+  assert.equal(opts.method,'GET');
+  assert.equal(opts.body,undefined);
+  assert.ok(!JSON.stringify(opts.headers).includes('Authorization'));
+  return {ok:true,json:async()=>sample};
+ };
+ const p=await runPublicFidelitySource({now:new Date('2026-11-05T03:15:00Z'),fetchImpl:fake});
+ assert.equal(fetched,1);
+ assert.deepEqual([p.mode,p.writerInvoked,p.code,p.classCode,p.lookupCode],
+  ['SOURCE_ONLY',false,'F00003','AP399','KR5235AP3996']);
+ assert.deepEqual([p.sourceRows,p.sameDayExcluded,p.latestDate],[2,1,'2026-11-04']);
+ assert.equal(p.historicalCutoffExclusive,'2026-11-05');
+ assert.deepEqual(p.rows.map(row=>row.date),['2026-11-03','2026-11-04']);
+ await assert.rejects(()=>runPublicFidelitySource({now:new Date('2026-11-05T03:15:00Z'),
+  fetchImpl:async()=>({ok:true,json:async()=>sample.slice(2)})}),
+  /FIDELITY_SOURCE_NO_PRIOR_DAY_ROWS/);
+ await assert.rejects(()=>runPublicFidelitySource({fetchImpl:async()=>{throw Error('SECRET');}}),
+  /FIDELITY_SOURCE_NETWORK_UNVERIFIED/);
+ await assert.rejects(()=>runPublicFidelitySource({fetchImpl:async()=>({ok:false,status:403})}),
+  /FIDELITY_SOURCE_HTTP_UNVERIFIED/);
+ await assert.rejects(()=>runPublicFidelitySource({fetchImpl:async()=>({ok:true,json:async()=>{throw Error('SECRET');}})}),
+  /FIDELITY_SOURCE_JSON_UNVERIFIED/);
+ await assert.rejects(()=>runPublicFidelitySource({now:new Date('2026-11-05T03:15:00Z'),
+  fetchImpl:async()=>({ok:true,json:async()=>[{gijunYmd:'20261104',gijunGa:'N/A'}]})}),
+  /FIDELITY_SOURCE_SCHEMA_UNVERIFIED/);
 }
 // The publicly published KB NAV must remain fetchable and archived even
 // while GAS maintenance rejects every normal private endpoint.
@@ -694,7 +744,8 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.deepEqual(parsed.on.push,{branches:['main'],paths:[
   '.github/workflows/kb-fund-nav-collect.yml',
   'scripts/collect-kb-fund-nav.mjs',
-  'scripts/collect-hanwha-public-nav.mjs'
+  'scripts/collect-hanwha-public-nav.mjs',
+  'scripts/collect-fidelity-public-nav.mjs'
  ]});
  assert.match(parsed.jobs['source-public'].if,/github.event_name == 'push'/);
  assert.doesNotMatch(parsed.jobs.collect.if,/github.event_name == 'push'/,'no private GAS deployment or import from push');
