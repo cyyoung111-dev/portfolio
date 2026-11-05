@@ -31,8 +31,8 @@ export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
   if(process.env.GITHUB_EVENT_NAME!=='workflow_dispatch'||
      process.env.GAS_DEPLOY_DRY_RUN!=='true'||process.env.GAS_9282_RELEASE_APPROVAL!=='false'||
      process.env.GAS_9283_RELEASE_APPROVAL!=='false')throw Error('ISSUE860_MODE_INVALID');
-  if(assertGasReleaseReady(fs.readFileSync('src/gas/apps_script.gs','utf8'))!=='9.282')
-    throw Error('ISSUE860_CANDIDATE_INVALID');
+  const sourceVersion=assertGasReleaseReady(fs.readFileSync('src/gas/apps_script.gs','utf8'));
+  if(!['9.282','9.283'].includes(sourceVersion))throw Error('ISSUE860_CANDIDATE_INVALID');
   const guarded=readonlyTransport(process.env.GAS_SCRIPT_ID,fetchImpl);
   const originalFetch=globalThis.fetch;
   const originalExpected=process.env.GAS_EXPECTED_MAIN_SHA;
@@ -59,11 +59,11 @@ export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
     try {
       const releaseState=await deploy();
       if(releaseState?.mode!=='READ_ONLY_GAS_RELEASE_STATE')throw Error('ISSUE860_STATE_INVALID');
-      dryRun={deployed:false,dryRun:true,version:'9.282',releaseState};
+      dryRun={deployed:false,dryRun:true,version:sourceVersion,releaseState};
     } catch { failures.push('DRY_RUN_UNVERIFIED'); }
     await assertCurrentMainRelease({sha:process.env.GITHUB_SHA,
       repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,fetchImpl:guarded});
-    return {mode:'ISSUE860_READONLY_9282',sha:process.env.GITHUB_SHA,
+    return {mode:'ISSUE860_READONLY_GAS_RELEASE',sourceVersion,sha:process.env.GITHUB_SHA,
       status:failures.length?'UNVERIFIED':inventory?.status==='BLOCKED'?'BLOCKED':'READ_ONLY_CHECKS_PASSED',
       inventory:inventory||null,dryRun:dryRun?.dryRun===true?dryRun:null,failures,
       releaseAuthorized:false,firstWriterGateCutoverVerified:false,
