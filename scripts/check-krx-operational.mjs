@@ -596,6 +596,9 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.equal(parsed.jobs['source-public'].environment,undefined,'public reads do not require production-GAS environment');
  assert.equal(parsed.jobs.collect.environment,'portfolio-production-gas','private writes remain protected');
  assert.equal(parsed.jobs.collect.needs,'source-public');
+ assert.deepEqual(parsed.on.push,{branches:['main'],paths:['.github/workflows/kb-fund-nav-collect.yml']});
+ assert.match(parsed.jobs['source-public'].if,/github.event_name == 'push'/);
+ assert.doesNotMatch(parsed.jobs.collect.if,/github.event_name == 'push'/,'no private GAS deployment or import from push');
  assert.ok(!JSON.stringify(parsed.jobs['source-public']).includes('secrets.'),'public source job has no private credentials');
 }
 // External KB collector uses the same production import contract; never overwrites confirmed NAV.
