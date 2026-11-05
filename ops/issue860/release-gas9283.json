@@ -1,0 +1,40 @@
+{
+  "version": "9.283",
+  "candidateSourceGitBlob": "327f48785550a012eaf1ed533c24bf6289c01a71",
+  "parentVersion": "9.282",
+  "parentSourceGitBlob": "9c1a5f31d1abc4b44f7da9af7a50fe3f15967134",
+  "status": "DRAFT_NOT_DEPLOYED",
+  "predecessorReference": "reference/gas-v9.282.gs",
+  "stage": [
+    "NH_MORNING_0645",
+    "KRX_TURNOVER_READONLY",
+    "NH_DOMESTIC_CLOSE_BATCH12",
+    "KRX_EXACT37_STRICT",
+    "BACKFILL_SELFSEED",
+    "SNAPSHOT_REDUNDANT_READ_REMOVAL",
+    "RECENT_INTERNAL_GAP_SCAN"
+  ],
+  "observed20261105": {
+    "exactDomesticPrices": 37,
+    "snapshotRows": 39,
+    "backfillOkAt": "22:21:43 KST",
+    "missing20261104": true,
+    "f00002NavMismatchWon": 2027316
+  },
+  "unknowns": [
+    "2026-11-04 historical-backfill checkpoint and queue",
+    "F00001/02 newest NAV",
+    "GAS deployment v9.283 postread",
+    "PC/mobile parity"
+  ],
+  "approval": {
+    "merge": false,
+    "release": false,
+    "financeWrite": false
+  },
+  "recovery": {
+    "previousDeployedVersion": "v340 as observed 2026-11-05",
+    "sourceBlob": "9c1a5f31d1abc4b44f7da9af7a50fe3f15967134",
+    "writerGateReleaseIdMustMatch": true
+  }
+}

@@ -59,7 +59,7 @@ try {
   assert.equal(result.inventory.archivedV335DescriptionHintCount,1);
   assert.equal(result.inventory.archivedV335IdentityVerified,false);
   assert.equal(result.dryRun.dryRun,true,'blocked inventory must not suppress dry-run');
-  assert.equal(result.dryRun.version,'9.282');
+  assert.equal(result.dryRun.version,'9.283');
   assert.equal(result.releaseAuthorized,false);
   assert.deepEqual([result.gasWrites,result.financeWrites,result.telegramSends],[0,0,0]);
   assert.ok(calls.every(c=>c.method==='GET'||c.url==='https://oauth2.googleapis.com/token'));
@@ -68,7 +68,8 @@ try {
   assert.equal((await runReadOnly9282({fetchImpl:mock})).status,'BLOCKED','legacy source alone remains blocked');
   reviewed=true;
   result=await runReadOnly9282({fetchImpl:mock});
-  assert.equal(result.status,'READ_ONLY_CHECKS_PASSED');
+  assert.equal(result.status,'BLOCKED','9.283 cannot be mistaken for the reviewed live 9.282 source');
+  assert.ok(result.inventory.sourceUnreviewedCount>=1,'published inventory must reject the unreviewed 9.283 source');
   assert.equal(result.releaseAuthorized,false);
   // Repeated dispatch executes reads again, with no persistent writes.
   assert.equal((await runReadOnly9282({fetchImpl:mock})).dryRun.deployed,false);
@@ -78,7 +79,7 @@ try {
     globalThis.setTimeout=fn=>{queueMicrotask(fn);return 0;};
     result=await runReadOnly9282({fetchImpl:mock});
   } finally { globalThis.setTimeout=realTimeout; }
-  assert.equal(result.status,'READ_ONLY_CHECKS_PASSED','already published candidate must not call runtime');
+  assert.equal(result.status,'BLOCKED','synthetic published 9.283 is not the verified live writer-gate v9.282');
   assert.equal(result.dryRun.dryRun,true);
   headMatches=false;
   stale=true;

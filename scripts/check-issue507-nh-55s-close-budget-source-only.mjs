@@ -87,7 +87,7 @@ function emulate(fn,timezone,{requestLatencyMs=0,provider='OK',cacheHits=0,crede
 export function auditBudgetSources(){
  const sources=[
   '../reference/gas-v9.281.gs',
-  '../src/gas/apps_script.gs',
+  '../reference/gas-v9.282.gs',
  ];
  const output=[];
  for(const relative of sources){
@@ -143,7 +143,7 @@ export function auditBudgetSources(){
 }
 // Source-only candidate: the immutable GAS v9.282 blob remains unchanged.
 {
- const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const original=fs.readFileSync('reference/gas-v9.282.gs','utf8');
  const proposed=proposeNhDomesticCloseBatching(original);
  assert.notEqual(proposed.candidateSha,proposed.baseSha);
  assert.equal(proposed.changedFunction,'fetchDomesticRegularCloses');
@@ -201,7 +201,7 @@ export function auditBudgetSources(){
 
 
 {
- const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const original=fs.readFileSync('reference/gas-v9.282.gs','utf8');
  const next=proposeNhDomesticCloseFullCoverage(original);
  assert.equal(next.gasDeployed,false);
  assert.equal(next.sourceOnly,true);
@@ -252,7 +252,7 @@ export function auditBudgetSources(){
 {
  // P1 integration: execute the actual pinned/candidate GAS writer and close
  // assessor, not just the conditional snippet. All services are synthetic.
- const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const original=fs.readFileSync('reference/gas-v9.282.gs','utf8');
  const proposed=proposeNhDomesticCloseFullCoverage(original).candidate;
  function extractReal(source,name) {
    const token='function '+name+'(';

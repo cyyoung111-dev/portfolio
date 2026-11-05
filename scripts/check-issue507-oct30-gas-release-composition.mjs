@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {assembleOct30ReadOnlyReleaseDryRun,FROZEN_GAS_BLOB}
  from './issue507-oct30-private-gas-release-dryrun.mjs';
 
-const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const gas=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 const bundle=assembleOct30ReadOnlyReleaseDryRun(gas);
 assert.equal(bundle.summary.frozenSourceBlob,FROZEN_GAS_BLOB);
 assert.equal(bundle.summary.publicRouteAdded,false);

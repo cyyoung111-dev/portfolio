@@ -7,7 +7,7 @@ import {composeGasTurnoverProposal,TURNOVER_GAS_FUNCTIONS}
  from './compose-gas-krx-turnover-proposal.mjs';
 import {prepareGasNh9283WithKrxTurnoverPreview,REVIEWED_NH_PREVIEW_BLOB}
  from './compose-gas9283-turnover-preview.mjs';
-const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const original=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 const originalBlob=gasSourceBlobSha(original);
 assert.equal(originalBlob,'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
 const nh=prepareNh0645Gas9283();
@@ -49,7 +49,7 @@ const postOld="'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks',";
 let stripped=candidate.replace('\n'+getAdded,'')
  .replace(postNew,postOld).replace(TURNOVER_GAS_FUNCTIONS,'');
 assert.equal(stripped,nh.candidate,'combined release preview must not modify NH production contract');
-assert.equal(fs.readFileSync('src/gas/apps_script.gs','utf8'),original,'approved production source must not change');
+assert.equal(fs.readFileSync('reference/gas-v9.282.gs','utf8'),original,'approved production source must not change');
 assert.equal(gasSourceBlobSha(krx)!==originalBlob,true,'new KRX additions are only in preview');
 
 // Parse the entire combined production source; no mocks needed to parse.

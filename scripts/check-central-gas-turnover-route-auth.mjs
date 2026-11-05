@@ -6,7 +6,7 @@ import {composeGasTurnoverProposal} from './compose-gas-krx-turnover-proposal.mj
 // Execute real production GAS functions, including doGet/doPost and
 // _isAuthorizedRequest. Stub only GAS platform services and time/market data.
 // The approved apps_script.gs blob remains immutable.
-const approved=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const approved=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 const source=composeGasTurnoverProposal(approved);
 function extractFunction(name){
  const start=source.indexOf('function '+name+'(');

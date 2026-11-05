@@ -18,7 +18,7 @@ function extractOne(source,name){
   assert.equal(source.indexOf(token,start+token.length),-1,'function unique '+name);
   return source.slice(start,end+2);
 }
-const baseline=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const baseline=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 assert.equal(gasSourceBlobSha(baseline),EXACT_V9282_BASE_BLOB);
 const prior=prepareGasNh9283WithKrxTurnoverPreview().candidate;
 assert.equal(gasSourceBlobSha(prior),EXACT_9283_PRIOR_PREVIEW_BLOB);
@@ -33,7 +33,7 @@ assert.equal(manifest.deploymentApproved,false);
 assert.equal(manifest.financeWriteAuthorized,false);
 assert.deepEqual(manifest.changedFunctions,
   ['fetchDomesticRegularCloses','saveDailyPriceHistory']);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/);
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION|GAS_RELEASE_SOURCE_NOT_APPROVED/);
 assert.throws(()=>composeGas9283NhFullClosePreview({
  baseline:baseline+'\n// modified'
 }),/GAS_9283_CLOSE_V9282_BASE_DRIFT/);
@@ -48,7 +48,7 @@ for(const name of CLOSE_MODIFIED_FUNCTIONS){
   reconstructed=reconstructed.replace(after,before);
 }
 assert.equal(reconstructed,prior,'everything outside the two reviewed functions remains immutable');
-assert.equal(fs.readFileSync('src/gas/apps_script.gs','utf8'),baseline);
+assert.equal(fs.readFileSync('reference/gas-v9.282.gs','utf8'),baseline);
 assert.match(candidate,/var ISSUE507_GATE_API_VERSION='9.283'/);
 assert.match(candidate,/kst\.minutes<405\|\|kst\.minutes>=480/);
 assert.match(candidate,/TARGET_EXACT_KRX_INCOMPLETE/);

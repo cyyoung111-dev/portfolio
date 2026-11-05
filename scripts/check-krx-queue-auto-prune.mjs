@@ -43,7 +43,8 @@ function setup({proofs={},failPrune=false}={}) {
       if(proofs[date]==='throw')throw new Error('invalid proof');
       return proofs[date]||{ok:false,reason:'INCOMPLETE_COVERAGE'};
     },
-    getss:()=>({}),
+    getss:()=>({}), getCodeItems:()=>[],
+    _seedMissingKrxCloseDates_:()=>{}, _seedRecentMissingKrxSnapshotDays_:()=>{},
     _krxCalendarStatus_:date=>['2026-10-09','2026-10-10','2026-10-11'].includes(date)?'CLOSED':'OPEN',
     _retryOnePendingKrxClose_:(props,date,includeToday)=>{
       const active=JSON.parse(props.getProperty(queueKey)||'[]');

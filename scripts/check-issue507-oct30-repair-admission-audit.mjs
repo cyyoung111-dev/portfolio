@@ -6,7 +6,7 @@ import {inspectOct30RepairAdmission,simulateOct30PlannedRecovery,DAY,GAS_BLOB}
   from './issue507-oct30-repair-admission-audit.mjs';
 
 // Verify the immutable real production gate, not an invented gate behavior.
-const bytes=fs.readFileSync('src/gas/apps_script.gs');
+const bytes=fs.readFileSync('reference/gas-v9.282.gs');
 const sha=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 assert.equal(sha,GAS_BLOB);
 const gas=bytes.toString('utf8');

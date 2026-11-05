@@ -6,7 +6,7 @@ import {inspectCombinedGasReleasePreflight} from './preflight-gas9283-nh-krx-rel
 import {prepareGasNh9283WithKrxTurnoverPreview} from './compose-gas9283-turnover-preview.mjs';
 
 const {candidate}=prepareGasNh9283WithKrxTurnoverPreview();
-const baseline=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const baseline=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 const pinned=JSON.parse(fs.readFileSync('ops/issue507/nh-krx-9283-release-preflight.json','utf8'));
 const result=inspectCombinedGasReleasePreflight();
 assert.equal(pinned.status,'PREVIEW_NOT_APPROVED_FOR_PRODUCTION');
@@ -30,7 +30,7 @@ assert.equal(result.financialWrites,0);
 assert.equal(result.gasWrites,0);
 assert.equal(result.telegramSends,0);
 assert.equal(result.unresolved.length,6);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/);
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION|GAS_RELEASE_SOURCE_NOT_APPROVED/);
 assert.throws(()=>inspectCombinedGasReleasePreflight({baseline:baseline+'// tampered'}),/PREFLIGHT_BASELINE_MISMATCH/);
 const fakeSha='f'.repeat(40);
 const fakeLive=inspectCombinedGasReleasePreflight({
@@ -49,7 +49,7 @@ assert.equal(inspectCombinedGasReleasePreflight({
  observedPublishedBlob:'0'.repeat(40)
 }).observedProduction,'UNVERIFIED_OR_DIFFERENT');
 new vm.Script(candidate,{filename:'combined-9.283-candidate.gs'});
-assert.equal(fs.readFileSync('src/gas/apps_script.gs','utf8'),baseline);
+assert.equal(fs.readFileSync('reference/gas-v9.282.gs','utf8'),baseline);
 console.log('GAS_COMBINED_9283_RELEASE_PREFLIGHT_PASS '+JSON.stringify({
  candidateBlob:result.sourceBlob,
  predecessorBlob:result.predecessorBlob,

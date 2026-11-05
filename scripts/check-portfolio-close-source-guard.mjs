@@ -146,6 +146,7 @@ const extract = name => {
     .replace('actualPriceDate !== requestedCloseDate','false'),true),
     /TARGET_CROSS_DATE_PRICE|WRITE_REACHED/,'cross-date write protection mutation must fail');
   assert.throws(()=>strictTargetWriter(extract('saveDailyPriceHistory')
+    .replace("(_krxCalendarStatus_(requestedCloseDate) !== 'CLOSED' && closeVerification.required)", 'false')
     .replace('options.requireAllKrx === true','options.requireAllKrx === false')),
     /TARGET_EXACT_KRX_INCOMPLETE|WRITE_REACHED/,'removing strict target coverage must fail the real writer test');
 }
@@ -870,6 +871,8 @@ function verifyBackfillLease(existing, fundLease) {
     Date:{now:()=>10000},
     _portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+    getss:()=>({}),getCodeItems:()=>[],
+    _seedMissingKrxCloseDates_:()=>{},_seedRecentMissingKrxSnapshotDays_:()=>{},
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     _retryOnePendingKrxClose_:()=>{runs++;return {attempted:true,ok:true,date:'2026-10-07'};}
@@ -907,6 +910,8 @@ function runCrossLeaseScenario(backfillFirst) {
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
     _portfolioFundAtomic_:cb=>cb(props),
     _portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
+    getss:()=>({}),getCodeItems:()=>[],
+    _seedMissingKrxCloseDates_:()=>{},_seedRecentMissingKrxSnapshotDays_:()=>{},
     _retryOnePendingKrxClose_:()=>{events.push('backfill');return {attempted:true,ok:true};},
     runDailyFundValuations:()=>{events.push('fund');return {lastDate:'2026-10-08'};}
   };
@@ -1041,6 +1046,8 @@ function simulatePortfolioWriters(options={}) {
     LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
     _portfolioFundAtomic_:callback=>callback(p),
     _portfolioFundState_:(pr,key)=>JSON.parse(pr.getProperty(key)||'null'),
+    getss:()=>({}),getCodeItems:()=>[],
+    _seedMissingKrxCloseDates_:()=>{},_seedRecentMissingKrxSnapshotDays_:()=>{},
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',

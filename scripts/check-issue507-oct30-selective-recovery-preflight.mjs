@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import {evaluateOct30SelectiveRecovery,DATE} from './issue507-oct30-selective-recovery-preflight.mjs';
 
-const source=fs.readFileSync('src/gas/apps_script.gs');
+const source=fs.readFileSync('reference/gas-v9.282.gs');
 const blobHash=createHash('sha1').update('blob '+source.length+'\0').update(source).digest('hex');
 assert.equal(blobHash,'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134',
   'v9.281/v9.282 frozen GAS source must remain immutable');

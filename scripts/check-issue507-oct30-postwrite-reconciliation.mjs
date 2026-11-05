@@ -5,7 +5,7 @@ import {verifyIssue507Oct30PostState,DAY}
  from './issue507-oct30-postwrite-reconciliation.mjs';
 
 // Existing GAS stays exactly pinned. No production write functions are called.
-const bytes=fs.readFileSync('src/gas/apps_script.gs');
+const bytes=fs.readFileSync('reference/gas-v9.282.gs');
 const hash=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 assert.equal(hash,'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
 const gas=bytes.toString('utf8');

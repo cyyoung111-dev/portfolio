@@ -6,7 +6,7 @@ import {planIssue507Oct30ScopedRevaluation,TARGET_DATE}
   from './issue507-oct30-scoped-valuation-plan.mjs';
 
 // Real production formulas and frozen GAS source, not made-up valuation math.
-const b=fs.readFileSync('src/gas/apps_script.gs');
+const b=fs.readFileSync('reference/gas-v9.282.gs');
 const sha=createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');
 assert.equal(sha,'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
 const gas=b.toString('utf8'),i=gas.indexOf('function _buildSnapshotRowsFromTradeAndPriceHistory(');

@@ -1,3 +1,17 @@
+## GAS v9.283 — NH 종가/야간 백필/스냅샷 통합 릴리스 **검증 후보** (2026-11-05 KST)
+
+- **배포 상태:** v9.283은 소스 검증 후보입니다. main/운영 GAS는 v9.282 유지, 실배포 미승인·미수행. 운영 인증을 통한 `gasVersion=9.283` 및 Writer Gate/37종 종가·39행 Snapshot readback 증빙은 배포 후 확인할 별도 완료 조건입니다.
+> 이 항목은 `release/gas9283-full-source-20261105` 브랜치의 **미배포 초안**입니다. 운영 GAS v340 / v9.282, 원본 거래원장과 Google Sheets, 기존 트리거와 텔레그램은 변경하지 않았습니다. 실제 배포 승인 및 운영 실행 증빙이 없으므로 "정상화 완료"로 판정하지 않습니다.
+
+- **전체 GAS Git blob:** `327f48785550a012eaf1ed533c24bf6289c01a71`; 원본 v9.282 `9c1a5f31d1abc4b44f7da9af7a50fe3f15967134`은 `reference/gas-v9.282.gs`에 불변 보존. `scripts/deploy-gas.mjs` 승인 pin과 `src/web/features/settings/settings_fetch.js` 기대 버전 `9.283`이 동일한 릴리스 후보를 가리킵니다. 이전 웹 호환 버전 `9.281`·`9.282` 유지.
+- **통합 기능:** NH 장전 06:45~08:00 조회 허용, KRX 시장별 거래대금 GET-only, 국내 37종목 정규 종가 12/12/12/1 배치 및 정확일 전수 정책, 22:10/23:10 빈 대기열 자가 등록, 최신 Snapshot 뒤의 최근 7일 내부 누락 거래일 재탐지, 미사용 Snapshot 전체 조회 한 번 제거. 운영 writer gate releaseId와 lock/backfill lease 보존.
+- **트리거 확인 대상(KST):** 당일 백필 22:10, 과거 백필 23:10, 다음 날 과거 백필 00:30, 오전 KRX 재확인 08:45. 이 시간들은 기존 설정 검사 대상이며 이번 PR에서 실제 트리거 설치·변경은 하지 않습니다.
+- **기본 테스트:** 555 gate 진입점, 원본/후보 전체 바이트 diff 및 source hash, 9개 `gasVersion` 응답, 검증된 합성 후보와 실제 릴리스 코드의 byte equality, 가격37/Snapshot39 합성 저장, 부분보호/재시도/중복·시간제한, `npm run check:ci` 및 Codex 최신 HEAD 리뷰. 기존 테스트 중 "src/gas는 9.282" 가정은 역사적 `reference/gas-v9.282.gs`를 참조하도록 분리해야 합니다.
+- **수동 배포 순서(현재 미실행):** 정식 리뷰·필수 CI 전부 성공 및 사용자의 릴리스 승인 → `workflow_dispatch` `approve_9283=true`, 먼저 `dry_run=true`로 원격 HEAD/배포본·manifest 확인 → Writer 충돌 없는 시간에 `dry_run=false` 재승인 → GAS 배포 번호/readback·`getSettings`/자동화 상태/Web EXPECTED 계약 확인 → 다음 날 37종 종가/39행 Snapshot·보호된 11/04 과거 복구·F00001/02 최신 NAV·PC/모바일 동일성 실검증. 본 릴리스에서는 GAS 트리거를 자동 증식하지 않습니다.
+- **2026-11-05 실운영 참조:** 22:21:43 `BACKFILL_OK snapshotRows=39`, 11/05 종가 37/37·Snapshot 39/39 저장·산술 검증. 하지만 11/04 누락 계속, 11/03 F00002 NAV 과거 Snapshot 차이 2,027,316원 및 최신 펀드 공시 미확보. 23:10 과거 백필 Script Properties checkpoint·pendingDates는 직접 조회 불가. 자세한 불확실성은 `ops/issue860/release-gas9283.json` 참조.
+
+---
+
 ## GAS v9.282 — writer gate 및 승인 단건 복구 (2026-10-31 KST)
 
 - 배포 상태(2026-11-05): #923/#924 병합, 운영에는 bootstrap 유지보수 개정337 게시.

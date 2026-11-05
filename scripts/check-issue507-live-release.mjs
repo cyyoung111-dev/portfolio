@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {buildIssue507LiveRelease} from './build-issue507-live-release.mjs';
 import {assertGasReleaseReady,extractExpectedGasVersion,assertWriterGateReleaseTransition,gasSourceBlobSha} from './deploy-gas.mjs';
 import {setup} from './check-issue507-f00001-scoped-repair.mjs';
-const live=fs.readFileSync('src/gas/apps_script.gs','utf8'),build=buildIssue507LiveRelease();
+const live=fs.readFileSync('reference/gas-v9.282.gs','utf8'),build=buildIssue507LiveRelease();
 assert.equal(live,build.source);assert.equal(build.entrypointCount,555);
 assert.equal(assertGasReleaseReady(live),'9.282');assert.equal(extractExpectedGasVersion(live),'9.282');
 const releaseManifest=JSON.parse(fs.readFileSync('ops/issue507/release-9.282.json','utf8'));
