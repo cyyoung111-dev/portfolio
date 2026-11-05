@@ -1,5 +1,40 @@
 # v9.281 → v9.282 최초 gate 전환
 
+
+> **2026-11-05 사용자 최신 결정 — 전진 배포 전용.**
+> 현재 실제 운영 상태는 `bootstrap` 유지보수 배포 개정 **339**, Writer Gate `UNINITIALIZED`,
+> 기존 예약 11개 + deferred 펀드 재시도 1개 = **12개 보존 기록 완료**입니다.
+> **기존 v9.281/배포 336 복귀를 원하지 않습니다.** 이 문서에 과거 사고 대응용
+> `abort` 구현이 설명돼 있어도 현재 작업에서 **실행·제안하지 않습니다**.
+> 성공 조건은 최종 승인 v9.282 정확 소스 게시, Writer Gate `OPEN`,
+> 금융 원본과 트리거 UID/일정 불변, PC·모바일 및 브리핑 운영 확인입니다.
+> 실배포 상태는 각 작업 전 새로운 인증된 `inspect`로 재확인합니다.
+
+## 현재 남은 최초 전환 경로 (기존 예약 보존, rollback 없음)
+
+1. 신규 읽기 전용 `inspect`로 운영 bootstrap339 정확 소스/배포 ID·인증된 gate·
+   보존 기록과 실제 12개 트리거 목록을 확인합니다. 과거 실패 배포 job의 재실행으로
+   새 GAS 버전이 중복 생성되지 않도록 합니다.
+2. `GATE_ROLLOUT_REQUIRED`는 `_issue507GateRollout_`의 입력 스키마 검증 실패입니다.
+   실제 입력 JSON을 확보하지 못했으므로 원인 필드를 임의로 확정하지 않습니다.
+   `releaseId`는 현재 release와 정확히 일치, 세 격리 boolean은 실제 확인한 경우만
+   `true`, `legacyDrainEvidence`는 `kind: EXECUTIONS_UI`,
+   `scope: ALL_PROJECT_ACTORS_AND_VERSIONS`, `terminalOnly: true`,
+   실제 비공개 `reference`가 있어야 합니다. `verifiedAt`은
+   **독립 확인 순간의 UTC epoch milliseconds 숫자**이고 입력 시점 기준 5분 이내여야
+   합니다. ISO 날짜 문자열이나 초 단위 epoch 값은 허용하지 않습니다.
+   원본 JSON, 보존된 ID, credential, raw Script Properties를 이슈/PR/로그에 남기지 않습니다.
+3. 실제 독립 actor 종료·외부 writer·편집기 격리 확인 후에만
+   `issue860BootstrapRolloutPrompt`로 증빙을 저장하고
+   `issue860BootstrapInitialize` → `DRAINING`을 readback합니다.
+4. 기존 7분 barrier·30분 freshness·active0 및 실제 12개 UID/설정 불변을 확인하고
+   `finalize` dry-run을 통과한 뒤, 기승인 범위에서 최종 정확 소스를 게시합니다.
+   오류가 있으면 **유지보수 상태에서 원인 해결 후 전진 재시도**합니다.
+5. 최종 소스/배포 readback, 금융 기준 13개 범위와 예약 12개 대조 후
+   `issue507ResumeWriters` 실행으로 `OPEN` 재개, 실제 인증·조회/저장·PC/모바일
+   동등성 확인까지 완료합니다. #734 금융 수리와 #826 Telegram 재발송은 별도 범위입니다.
+
+
 사용자는 자동 수집·거래 저장의 일시 중지, 배포, 검증, 재개를 승인했다.
 이 절차는 금융 원본 수리·과거 백필·Telegram 재발송 승인이 아니다.
 일반 `deploy-gas.mjs`의 최초 gate 차단은 유지하며, 아래 명시적 수동 경로만 추가한다.
@@ -52,7 +87,7 @@
 |---|---|---|
 | bootstrap | 일반 진입점 전부 거부하는 유지보수 소스 게시 | dry_run=false, approve_9282=true |
 | finalize | 검증된 DRAINING 아래 기존 승인 v9.282 소스 게시 | dry_run=false, approve_9282=true |
-| abort | gate 초기화·트리거 삭제 **이전만** v336/v9.281 복원 | dry_run=false, approve_9282=true |
+| abort | **현재 사용자 명시 거부: 실행 금지.** 과거 비상 복구 구현 기록만 보존 | 현재 운영에서 실행하지 않음 |
 | inspect | 정확한 유지보수/최종 소스·목록과 인증된 gate 상태만 조회 | dry_run=true, approve_9282=false |
 | none | 기존 일반 배포 | 최초 전환 차단 유지 |
 
