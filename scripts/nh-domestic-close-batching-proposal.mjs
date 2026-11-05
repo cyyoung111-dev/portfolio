@@ -40,14 +40,18 @@ const REPLACEMENT=`function fetchDomesticRegularCloses(items,date) {
   Object.keys(nh).forEach(function(code){fallback[code]=nh[code];});
   return fallback;
 }`;
+function gitBlobSha(source){
+ return createHash('sha1').update('blob '+Buffer.byteLength(source,'utf8')+'\\0')
+   .update(source,'utf8').digest('hex');
+}
 export function proposeNhDomesticCloseBatching(source){
- if(typeof source!=='string'||createHash('sha1').update(source).digest('hex')!==APPROVED_GAS_BLOB)
+ if(typeof source!=='string'||gitBlobSha(source)!==APPROVED_GAS_BLOB)
   throw Error('NH_BATCH_BASE_GAS_BLOB_MISMATCH');
  if(source.split(TARGET).length!==2||source.includes('[NH_CLOSE_BATCH_COVERAGE]'))
   throw Error('NH_BATCH_TARGET_NOT_EXACT');
  const candidate=source.replace(TARGET,REPLACEMENT);
  return {candidate,baseSha:APPROVED_GAS_BLOB,
-  candidateSha:createHash('sha1').update(candidate).digest('hex'),
+  candidateSha:gitBlobSha(candidate),
   changedFunction:'fetchDomesticRegularCloses',
   financialWritesAdded:false,gasDeployed:false};
 }
