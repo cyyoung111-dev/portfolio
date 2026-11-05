@@ -7,7 +7,7 @@ import {runOct30TwoSheetInMemorySandbox}
  from './issue507-oct30-two-sheet-inmemory-sandbox.mjs';
 
 // Synthetic-only, checks source signature of frozen actual GAS.
-const bytes=fs.readFileSync('src/gas/apps_script.gs');
+const bytes=fs.readFileSync('reference/gas-v9.282.gs');
 const sha=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 assert.equal(sha,'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
 const date='2026-10-30';
