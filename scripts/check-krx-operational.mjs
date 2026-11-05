@@ -622,10 +622,12 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.equal(coverage.if,'always()');
  assert.equal(coverage.env.KB_ARCHIVE_STATUS,'${{ steps.kb-archive.outcome }}');
  assert.equal(coverage.env.HANWHA_ARCHIVE_STATUS,'${{ steps.hanwha-archive.outcome }}');
- assert.match(coverage.run,/PUBLIC_KB_NAV_ARCHIVE_UNVERIFIED/);
- assert.match(coverage.run,/PUBLIC_HANWHA_NAV_ARCHIVE_UNVERIFIED/);
- assert.match(coverage.run,/KB_ARCHIVE_STATUS.*!=/);
- assert.match(coverage.run,/HANWHA_ARCHIVE_STATUS.*!=/);
+ assert.match(coverage.run,/PUBLIC_KB_NAV_UNAVAILABLE/);
+ assert.match(coverage.run,/PUBLIC_HANWHA_NAV_UNAVAILABLE/);
+ assert.match(coverage.run,/PUBLIC_NAV_ALL_SOURCES_UNAVAILABLE/);
+ assert.match(coverage.run,/KB_SOURCE_STATUS.*!=/);
+ assert.match(coverage.run,/HANWHA_SOURCE_STATUS.*!=/);
+ assert.match(coverage.run,/incomplete=1/);
  assert.match(coverage.run,/exit 1/);
  assert.match(JSON.stringify(wf.on.push),/kb-fund-nav-collect\.yml/);
 }
@@ -675,7 +677,11 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.equal(parsed.jobs.collect.environment,'portfolio-production-gas','private writes remain protected');
  assert.ok(!Object.hasOwn(parsed.jobs.collect,'needs'),
   'public archival failure must not stop an independent authenticated NAV import and Snapshot reconciliation');
- assert.deepEqual(parsed.on.push,{branches:['main'],paths:['.github/workflows/kb-fund-nav-collect.yml']});
+ assert.deepEqual(parsed.on.push,{branches:['main'],paths:[
+  '.github/workflows/kb-fund-nav-collect.yml',
+  'scripts/collect-kb-fund-nav.mjs',
+  'scripts/collect-hanwha-public-nav.mjs'
+ ]});
  assert.match(parsed.jobs['source-public'].if,/github.event_name == 'push'/);
  assert.doesNotMatch(parsed.jobs.collect.if,/github.event_name == 'push'/,'no private GAS deployment or import from push');
  assert.ok(!JSON.stringify(parsed.jobs['source-public']).includes('secrets.'),'public source job has no private credentials');
@@ -684,6 +690,14 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
 {
  const {parseNav,run}=await import('./collect-kb-fund-nav.mjs');
  assert.deepEqual(parseNav([{gijunYmd:'20261023',gijunGa:2116.98}],'2026-10-01','2026-10-25'),[{date:'2026-10-23',nav:2116.98}]);
+ // A publisher may include extra dates at both boundaries; do not lose the valid NAV.
+ assert.deepEqual(parseNav([
+  {gijunYmd:'20261022',gijunGa:2100},
+  {gijunYmd:'20261023',gijunGa:2116.98},
+  {gijunYmd:'20261026',gijunGa:2200}
+ ],'2026-10-23','2026-10-25'),[{date:'2026-10-23',nav:2116.98}]);
+ assert.throws(()=>parseNav([{gijunYmd:'20261022',gijunGa:2100}],
+  '2026-10-23','2026-10-25'),/NAV_SOURCE_NO_RANGE_ROWS/);
  for(const payload of [[],[{gijunYmd:'20261023',gijunGa:0}],[{gijunYmd:'20261023',gijunGa:'2116.98'}],[{gijunYmd:'20261032',gijunGa:2116.98}],[{gijunYmd:'20261023',gijunGa:1},{gijunYmd:'20261023',gijunGa:2}]])assert.throws(()=>parseNav(payload,'2026-10-01','2026-10-25'));
  let writes=0;const calls=[];
  const fixture=async(u,o)=>{
