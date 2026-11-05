@@ -7,6 +7,7 @@ import {pathToFileURL} from 'node:url';
 import {armedKstClock,authorizeArmedDelivery} from './telegram-punctual-arm.mjs';
 import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {validateNhNight} from './nh-night-reference.mjs';
+import {nightAuthStatus} from './nh-morning-capture.mjs';
 
 export const PREFETCH_PATH='.telegram-runtime/nh-night-prefetch.json';
 const HOUR=60*60000;
@@ -45,7 +46,7 @@ export function loadPrefetchedNight(date,{path=PREFETCH_PATH,now=()=>new Date(),
 export async function collectMorningPrefetch({now=()=>new Date(),
  sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),
  env=process.env,event,requestNight=fetchNhNightFromGas,
- writeFile=fs.writeFileSync,mkdir=fs.mkdirSync,path=PREFETCH_PATH
+ readAuthStatus=nightAuthStatus,writeFile=fs.writeFileSync,mkdir=fs.mkdirSync,path=PREFETCH_PATH
 }={}){
  const admissible=prefetchAdmission({now:now(),env,event});
  if(!admissible.allowed)return {status:admissible.reason};
@@ -71,7 +72,18 @@ export async function collectMorningPrefetch({now=()=>new Date(),
     if(/^NH_(?:NIGHT|PROXY)_[A-Z0-9_]{1,70}$/.test(String(reason)))reasons.push(reason);
   }});
  }catch{reasons.push('NH_NIGHT_SOURCE_UNAVAILABLE');}
- if(!ref)return {status:'PREFETCH_NOT_VERIFIED',reason:reasons[0]||'NH_NIGHT_SOURCE_UNAVAILABLE'};
+ if(!ref){
+  // A separate status-only GAS read reports whether the central NH bearer is
+  // cached. No new NH OAuth, no price and no server error payload is logged.
+  let authStatus='AUTH_STATUS_UNAVAILABLE';
+  try{
+   const reply=await readAuthStatus({url:env.GAS_WEB_APP_URL,token:env.GAS_ACCESS_TOKEN});
+   if(['TOKEN_CACHED','TOKEN_NOT_CACHED','AUTH_STATUS_UNVERIFIED',
+        'AUTH_STATUS_UNAVAILABLE'].includes(reply))authStatus=reply;
+  }catch{}
+  return {status:'PREFETCH_NOT_VERIFIED',
+    reason:reasons[0]||'NH_NIGHT_SOURCE_UNAVAILABLE',authStatus};
+ }
  // Never persist a future/old/day-mismatched or pre-07:30 reference.
  const received=Date.parse(ref.receivedAt);
  if(ref.tradingDate!==date||ref.source!=='NH'
@@ -90,6 +102,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
   const r=await collectMorningPrefetch({event});
   console.log(JSON.stringify({kind:'NH_MORNING_PREFETCH',status:r.status,
-   reason:r.reason||null,date:r.date||null}));
+   reason:r.reason||null,authStatus:r.authStatus||null,date:r.date||null}));
  }catch{console.log(JSON.stringify({kind:'NH_MORNING_PREFETCH',status:'PREFETCH_EXECUTION_UNVERIFIED'}));}
 }
