@@ -1,5 +1,6 @@
 import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   parseDates, validateWebAppUrl, summarizeKrxSource,
   buildSafeRequest, readGasAction, runDiagnosis as rawRunDiagnosis, summarizeOfficialCloses,
@@ -549,6 +550,48 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
 }
 console.log('Incomplete close client: authentication, explicit schedule, bounded continuation, verified completion PASS');
 
+// The publicly published KB NAV must remain fetchable and archived even
+// while GAS maintenance rejects every normal private endpoint.
+{
+ const {runPublicSourceOnly,readPublishedKbNav}=await import('./collect-kb-fund-nav.mjs');
+ let publicCalls=0;
+ const publicOnly=async(url,options)=>{
+  publicCalls++;
+  assert.equal(new URL(url).hostname,'www.funetf.co.kr');
+  assert.equal(options.body,undefined,'source-only never sends a GAS credential');
+  assert.equal(new URL(url).searchParams.get('fundCd'),'KR5223AQ0185');
+  return {ok:true,json:async()=>[
+   {gijunYmd:'20261103',gijunGa:2241.43},
+   {gijunYmd:'20261104',gijunGa:2250.01},
+  ]};
+ };
+ const result=await runPublicSourceOnly({now:new Date('2026-11-05T03:15:00Z'),fetchImpl:publicOnly});
+ assert.equal(result.mode,'SOURCE_ONLY');
+ assert.equal(result.writerInvoked,false);
+ assert.equal(result.code,'F00002');
+ assert.equal(result.classCode,'AQ018');
+ assert.equal(result.to,'2026-11-05');
+ assert.equal(result.sourceRows,2);
+ assert.equal(result.latestDate,'2026-11-04');
+ assert.deepEqual(result.rows.map(x=>x.date),['2026-11-03','2026-11-04']);
+ assert.equal(publicCalls,1,'never calls GAS even when no token or endpoint exists');
+ await assert.rejects(readPublishedKbNav({from:'2026-11-05',to:'2026-11-04',fetchImpl:publicOnly}),/NAV_SOURCE_RANGE/);
+ await assert.rejects(readPublishedKbNav({from:'not-a-date',to:'2026-11-05',fetchImpl:publicOnly}),/NAV_SOURCE_RANGE/);
+ await assert.rejects(runPublicSourceOnly({now:new Date('2026-11-05T03:15:00Z'),fetchImpl:async()=>({
+  ok:true,json:async()=>[{gijunYmd:'20261104',gijunGa:'PRIVATE'}]})}),/NAV_SOURCE_SCHEMA/);
+ await assert.rejects(runPublicSourceOnly({now:new Date('2026-11-05T03:15:00Z'),fetchImpl:async()=>{throw Error('PRIVATE_API_TOKEN');}}),e=>
+  e.message==='NAV_SOURCE_NETWORK_UNVERIFIED');
+ const wf=fs.readFileSync('.github/workflows/kb-fund-nav-collect.yml','utf8');
+ const source=wf.indexOf('node scripts/collect-kb-fund-nav.mjs --source-only');
+ const apply=wf.indexOf('node scripts/collect-kb-fund-nav.mjs --apply');
+ assert.ok(source>0&&apply>source,'independent public fetch must precede private GAS import');
+ assert.match(wf,/continue-on-error: true/);
+ assert.match(wf,/retention-days: 7/);
+ assert.match(wf,/steps\.public-nav\.outcome == 'success'/);
+ const noSecret=wf.slice(wf.indexOf('- name: Collect public KB S-T NAV independently of GAS'),
+  wf.indexOf('- name: Preserve public KB NAV source for reconciliation'));
+ assert.doesNotMatch(noSecret,/GAS_ACCESS_TOKEN|CLASPRC_JSON|secrets\./);
+}
 // External KB collector uses the same production import contract; never overwrites confirmed NAV.
 {
  const {parseNav,run}=await import('./collect-kb-fund-nav.mjs');
