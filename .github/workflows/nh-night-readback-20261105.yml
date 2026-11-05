@@ -27,9 +27,10 @@ jobs:
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
         run: |
           node --input-type=module <<'NODE'
-          import {callNhGasProxy,fetchNhNightProbeFromGas} from './scripts/nh-gas-proxy.mjs';
+          import {callNhGasProxy,fetchNhNightProbeFromGas,classifyGasHtml} from './scripts/nh-gas-proxy.mjs';
           const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
             timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
             hour:'2-digit',minute:'2-digit',hourCycle:'h23'
@@ -47,11 +48,30 @@ jobs:
               date,nhCalls:0,gasWrites:0,financeWrites:0,telegramSends:0}));
             process.exitCode=1;
           }else{
+            // Never disclose the actual deployment ID or endpoint. This is a
+            // configuration parity check, not proof of production binding.
+            const supplied=String(process.env.GAS_DEPLOYMENT_ID||'');
+            const bound=/\/macros\/s\/([A-Za-z0-9_-]+)\/exec/.exec(url)?.[1]||'';
+            const deploymentBinding=!supplied?'DEPLOYMENT_ID_NOT_CONFIGURED'
+              :!bound?'ENDPOINT_INVALID':supplied===bound?'MATCH':'DIFFERENT';
+            let htmlClass='NOT_HTML',responseStatus=0;
+            const request=async(target,options)=>{
+              const res=await fetch(target,options);
+              if(res?.ok && Number.isInteger(res.status))responseStatus=res.status;
+              if(String(res?.headers?.get?.('content-type')||'').toLowerCase().startsWith('text/html')){
+                try{
+                  const size=Number(res.headers?.get?.('content-length')||0);
+                  htmlClass=size>120000?'HTML_TOO_LARGE'
+                    :classifyGasHtml(await res.clone().text());
+                }catch{htmlClass='HTML_CLASSIFICATION_FAILED';}
+              }
+              return res;
+            };
             let state=null,statusCause='NONE';
             let transport={phase:'UNVERIFIED',httpStatus:0,
               responseHost:'UNKNOWN',redirect:'UNKNOWN',contentType:'UNKNOWN'};
             try{state=await callNhGasProxy('getNhAuthStatusProxy',{
-              url,token,onTransportDiagnostic:details=>{
+              url,token,request,onTransportDiagnostic:details=>{
                 const phases=['STATUS_OK','FETCH_FAILED','FETCH_TIMEOUT','HTTP_REJECTED',
                   'JSON_PARSE_FAILED','GAS_REJECTED','GAS_CONTRACT_REJECTED'];
                 if(details?.kind!=='NH_GAS_TRANSPORT'||!phases.includes(details.phase))return;
@@ -85,6 +105,7 @@ jobs:
               gasVersion:version,tokenCached:state?.tokenCached===true?'YES'
                 :state?.tokenCached===false?'NO':'UNVERIFIED',
               tokenIssuanceRequested:false,verified:authOk,statusCause,transport,
+              deploymentBinding,htmlClass,responseStatus,
               gasWrites:0,financeWrites:0}));
             if(!authOk){
               console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_READBACK',
