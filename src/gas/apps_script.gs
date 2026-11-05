@@ -19621,10 +19621,13 @@ function fetchDomesticRegularCloses(items,date) {
     }catch(ignoreNh){}
     chunks++;
   }
-  Logger.log('[NH_CLOSE_BATCH_COVERAGE] '+JSON.stringify({
-    date:date,expected:all.length,verified:Object.keys(nh).length,
-    batches:chunks,elapsedSeconds:Math.floor((Date.now()-started)/1000)
-  }));
+  try {
+    if(typeof Logger!=='undefined'&&Logger&&typeof Logger.log==='function')
+      Logger.log('[NH_CLOSE_BATCH_COVERAGE] '+JSON.stringify({
+        date:date,expected:all.length,verified:Object.keys(nh).length,
+        batches:chunks,elapsedSeconds:Math.floor((Date.now()-started)/1000)
+      }));
+  }catch(ignoreDiagnostic){}
   var missing=all.filter(function(item){return !nh[item.code];});
   if(!missing.length)return nh;
   var fallback={};
