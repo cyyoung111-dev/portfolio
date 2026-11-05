@@ -27,7 +27,7 @@ function replaceOne(source,original,replacement,name){
 }
 
 export function composeGas9283NhFullClosePreview({
- baseline=fs.readFileSync('src/gas/apps_script.gs','utf8')
+ baseline=fs.readFileSync('reference/gas-v9.282.gs','utf8')
 }={}){
   if(typeof baseline!=='string'||gasSourceBlobSha(baseline)!==EXACT_V9282_BASE_BLOB)
     throw Error('GAS_9283_CLOSE_V9282_BASE_DRIFT');
