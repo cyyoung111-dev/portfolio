@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import {fileURLToPath} from 'node:url';
 import {pathToFileURL} from 'node:url';
 import {proposeNhDomesticCloseBatching} from './nh-domestic-close-batching-proposal.mjs';
+import {proposeNhDomesticCloseFullCoverage} from './nh-domestic-close-full-coverage-proposal.mjs';
 
 const CODE_COUNT=37,DATE='2026-10-30',BUDGET_MS=55000,WAIT_MS=1000;
 const target=Array.from({length:CODE_COUNT},(_,i)=>({code:String(i+1).padStart(6,'0'),
@@ -196,6 +197,183 @@ export function auditBudgetSources(){
  const missing=simulate(proposed.candidate,true);
  assert.equal(missing.nh,36);assert.equal(missing.krx,1);
  assert.deepEqual(missing.fallbacks,[1]);
+}
+
+
+{
+ const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const next=proposeNhDomesticCloseFullCoverage(original);
+ assert.equal(next.gasDeployed,false);
+ assert.equal(next.sourceOnly,true);
+ assert.equal(next.financialWritesAdded,false);
+ assert.equal(next.regularSessionRequiresFullCloseCoverage,true);
+ assert.equal(next.krxHolidayCarryPolicyUnchanged,true);
+ assert.notEqual(next.candidateSha,next.baseSha);
+ assert.deepEqual(next.modifiedFunctions,
+  ['fetchDomesticRegularCloses','saveDailyPriceHistory']);
+ assert.throws(()=>proposeNhDomesticCloseFullCoverage(original+' '),
+  /BASE_GAS_BLOB_MISMATCH/);
+ // Extract the real policy expression, not a separately reimplemented test.
+ function coverageRule(source) {
+  const marker='var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedCloseDate);';
+  const start=source.indexOf(marker);
+  const stopMarker="throw new Error('TARGET_EXACT_KRX_INCOMPLETE');";
+  const stop=source.indexOf(stopMarker,start);
+  assert.ok(start>=0&&stop>start&&stop-start<1200,'exact acceptance rule');
+  return source.slice(start,stop+stopMarker.length)
+    .replace(marker,'var closeVerification = report;');
+ }
+ const before=coverageRule(original),after=coverageRule(next.candidate);
+ function run(rule,{closed=false,expected=37,confirmed=37,required=true,
+   actualDate=DATE,requireAllKrx=false}={}) {
+  vm.runInNewContext(rule,{
+   report:{required,expected,confirmed,date:actualDate},
+   options:{requireAllKrx},
+   requestedCloseDate:DATE,
+   _krxCalendarStatus_:()=>closed?'CLOSED':'OPEN'
+  });
+ }
+ // Baseline can accept 36/37 under the 70% group threshold.
+ assert.doesNotThrow(()=>run(before,{confirmed:36}));
+ // The release candidate cannot declare normal-day success without 37/37.
+ assert.throws(()=>run(after,{confirmed:36}),/TARGET_EXACT_KRX_INCOMPLETE/);
+ assert.throws(()=>run(after,{confirmed:0}),/TARGET_EXACT_KRX_INCOMPLETE/);
+ assert.throws(()=>run(after,{actualDate:'2026-10-29'}),/TARGET_EXACT_KRX_INCOMPLETE/);
+ assert.doesNotThrow(()=>run(after,{confirmed:37}));
+ // No domestic holdings and Korean closed-day carried closes are not blocked.
+ assert.doesNotThrow(()=>run(after,{required:false,expected:0,confirmed:0}));
+ assert.doesNotThrow(()=>run(after,{closed:true,confirmed:36,actualDate:'2026-10-29'}));
+ // An explicit strict historical-recovery request remains strict on holidays.
+ assert.throws(()=>run(after,{closed:true,confirmed:36,
+   actualDate:'2026-10-29',requireAllKrx:true}),/TARGET_EXACT_KRX_INCOMPLETE/);
+}
+
+
+{
+ // P1 integration: execute the actual pinned/candidate GAS writer and close
+ // assessor, not just the conditional snippet. All services are synthetic.
+ const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const proposed=proposeNhDomesticCloseFullCoverage(original).candidate;
+ function extractReal(source,name) {
+   const token='function '+name+'(';
+   const first=source.indexOf(token);
+   assert.ok(first>=0&&source.indexOf(token,first+token.length)===-1,
+     name+' must be unique in the GAS source');
+   const end=source.indexOf('\n}',first);
+   assert.ok(end>first,name+' body must be extractable');
+   return source.slice(first,end+2);
+ }
+ function executeWriter(source,{nhCount=37,wrongDate=false}={}) {
+   const items=Array.from({length:37},(_,i)=>({
+     code:String(900000+i),name:'synthetic held ETF',market:'ETF',
+     currency:'KRW',type:'ETF'
+   }));
+   const requested='2026-10-30',pending='portfolio_close_pending_krx_dates';
+   const propsData=new Map([[pending,JSON.stringify(['2026-10-29'])]]);
+   const counters={priceWrites:0,snapshotWrites:0,successMarkers:0,
+     queued:0,flushes:0,acquire:0,release:0};
+   const nhChunks=[],fallbacks=[];
+   const props={
+     getProperty:k=>propsData.has(k)?propsData.get(k):null,
+     setProperty:(k,v)=>{
+       propsData.set(k,String(v));
+       if(k==='snapshot_last_success_date')counters.successMarkers++;
+       if(k===pending)counters.queued++;
+     },
+     deleteProperty:k=>propsData.delete(k)
+   };
+   const ctx=vm.createContext({
+     Date,JSON,Number,String,isFinite,
+     CONFIG:{TIMEZONE:'Asia/Seoul'},_snapshotBackupOperationId:'',
+     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:pending,
+     PropertiesService:{getScriptProperties:()=>props},
+     LockService:{getScriptLock:()=>({waitLock(){counters.acquire++;},
+       releaseLock(){counters.release++;}})},
+     SpreadsheetApp:{flush(){counters.flushes++;}},
+     Utilities:{formatDate:()=> '2026-10-30 19:33:30',getUuid:()=> 'synthetic-uuid'},
+     Logger:{log(){}},
+     today:()=>requested,getss:()=>({}),
+     _normalizeDate:v=>String(v||''),_cleanCode:v=>String(v||'').trim(),
+     _isFundCode:v=>/^F\d{5}$/.test(String(v||'')),
+     getCodeItems:()=>items,_getDailyHeldCodeItems:()=>items,
+     _seedMissingKrxCloseDates_:()=>{},
+     _krxCalendarStatus_:()=> 'OPEN',_countBusinessWeekdaysBetween:()=>0,
+     _verifyForeignDailyCloseCoverage_:()=>{},_latestConfirmedForeignCloseDate_:()=> '',
+     fetchNhRegularCloses:(chunk,date)=>{
+       nhChunks.push(chunk.length);
+       return Object.fromEntries(chunk.filter(item=>
+         Number(item.code)-900000<nhCount).map(item=>[item.code,{
+           price:100,usedDate:wrongDate?'2026-10-29':date,
+           marketDate:wrongDate?'2026-10-29':date,
+           source:'NH_REGULAR_CLOSE',priceType:'REGULAR_CLOSE',
+           status:'CONFIRMED',currency:'KRW'
+         }]));
+     },
+     fetchPricesKrx:(missing)=>{fallbacks.push(missing.length);return {};},
+     fetchPricesGoogleFinance:()=>({}),
+     _hasKrxHoldingsForCloseDate_:()=>true,
+     _buildSnapshotRowsFromTradeAndPriceHistory:()=>Array.from({length:39},
+       (_,i)=>[requested,i<37?items[i].code:'F'+String(i).padStart(5,'0')]),
+     _readSnapshotRowsByDate:()=>[],
+     _snapshotRewritePlan:()=>({unsafe:[],needsRewrite:true}),
+     writeSnapshotRows:()=>{counters.snapshotWrites++;},
+     _settleSnapshotBackupOperation:()=>{},
+     diagnoseSnapshotIntegrity:()=>({status:'VALID'}),
+     batchUpsertPriceHistory:()=>{counters.priceWrites++;}
+   });
+   for(const name of ['_isKrxDailyCloseTarget_',
+     '_assertSupportedDailyCloseMarkets_','_isConfirmedHistoryPrice_',
+     '_assessDailyKrxStockClose','_selectPortfolioCloseSnapshotDate_',
+     '_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_',
+     'fetchDomesticRegularCloses','saveDailyPriceHistory']) {
+     vm.runInContext(extractReal(source,name),ctx);
+   }
+   let result=null,error=null;
+   try {result=ctx.saveDailyPriceHistory(undefined,{deferQueueCompletion:true});}
+   catch(e){error=String(e.message||e);}
+   return {result,error,nhChunks,fallbacks,counters,
+     pendingDates:JSON.parse(propsData.get(pending)),failureMarker:propsData.has('snapshot_last_error'),
+     successDate:propsData.get('snapshot_last_success_date')||''};
+ }
+ const oldPartial=executeWriter(original,{nhCount:36});
+ assert.equal(oldPartial.error,null,'baseline 36/37 reaches false success path');
+ assert.equal(oldPartial.counters.priceWrites,1);
+ assert.equal(oldPartial.counters.snapshotWrites,1);
+ assert.equal(oldPartial.counters.successMarkers,1);
+ const partial=executeWriter(proposed,{nhCount:36});
+ assert.match(partial.error||'',/TARGET_EXACT_KRX_INCOMPLETE/);
+ assert.deepEqual(partial.nhChunks,[12,12,12,1]);
+ assert.deepEqual(partial.fallbacks,[1]);
+ assert.equal(partial.counters.priceWrites,0,'partial close cannot be persisted');
+ assert.equal(partial.counters.snapshotWrites,0,'partial close cannot rewrite Snapshot');
+ assert.equal(partial.counters.successMarkers,0,'partial close cannot set success receipt');
+ assert.equal(partial.failureMarker,true);
+ assert.deepEqual(partial.pendingDates,['2026-10-29','2026-10-30'],
+   'failed current day must be enqueued without dropping an older pending day');
+ assert.equal(partial.counters.acquire,1);
+ assert.equal(partial.counters.release,1);
+ for(const [name,settings] of [
+   ['empty',{nhCount:0}],['stale',{nhCount:37,wrongDate:true}]
+ ]) {
+   const failed=executeWriter(proposed,settings);
+   assert.ok(failed.error,name+' must not be accepted as exact date');
+   assert.equal(failed.counters.priceWrites,0);
+   assert.equal(failed.counters.snapshotWrites,0);
+   assert.equal(failed.counters.successMarkers,0);
+   assert.deepEqual(failed.pendingDates,['2026-10-29','2026-10-30']);
+ }
+ const full=executeWriter(proposed,{nhCount:37});
+ assert.equal(full.error,null,'complete 37/37 must still succeed');
+ assert.equal(full.result?.ok,true);
+ assert.equal(full.result?.rows,39);
+ assert.deepEqual(full.nhChunks,[12,12,12,1]);
+ assert.equal(full.counters.priceWrites,1);
+ assert.equal(full.counters.snapshotWrites,1);
+ assert.equal(full.counters.successMarkers,1);
+ assert.equal(full.successDate,'2026-10-30');
+ assert.equal(full.failureMarker,false);
+ assert.deepEqual(full.pendingDates,['2026-10-29'],
+   'a successful deferred writer must not erase historical queued dates');
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
