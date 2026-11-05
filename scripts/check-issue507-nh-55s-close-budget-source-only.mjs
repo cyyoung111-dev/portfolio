@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {fileURLToPath} from 'node:url';
 import {pathToFileURL} from 'node:url';
+import {proposeNhDomesticCloseBatching} from './nh-domestic-close-batching-proposal.mjs';
 
 const CODE_COUNT=37,DATE='2026-10-30',BUDGET_MS=55000,WAIT_MS=1000;
 const target=Array.from({length:CODE_COUNT},(_,i)=>({code:String(i+1).padStart(6,'0'),
@@ -139,6 +140,64 @@ export function auditBudgetSources(){
    historicalActualCause:'UNKNOWN',
    productionDataChanged:false};
 }
+// Source-only candidate: the immutable GAS v9.282 blob remains unchanged.
+{
+ const original=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const proposed=proposeNhDomesticCloseBatching(original);
+ assert.notEqual(proposed.candidateSha,proposed.baseSha);
+ assert.equal(proposed.changedFunction,'fetchDomesticRegularCloses');
+ assert.equal(proposed.gasDeployed,false);
+ assert.equal(proposed.financialWritesAdded,false);
+ assert.throws(()=>proposeNhDomesticCloseBatching(original+' '),/BASE_GAS_BLOB_MISMATCH/);
+ const held=Array.from({length:37},(_,i)=>({
+   code:String(900000+i),currency:'KRW',market:'KRX',type:i%2?'ETF':'주식'
+ }));
+ function simulate(code,missOne=false){
+   const start=code.indexOf('function fetchDomesticRegularCloses(');
+   const end=code.indexOf('\\n}',start);
+   assert.ok(start>=0&&end>start,'domestic aggregator extraction');
+   const calls=[],fallbacks=[],logs=[];
+   const ctx=vm.createContext({
+     Date:{now:()=>10000},Logger:{log:line=>logs.push(line)},
+     fetchNhRegularCloses:(items,date)=>{
+       calls.push(items.length);
+       // A single 37-code read can only return its first 32 NH bars
+       // within the synthetic 55-second/1-second-paced provider window.
+       const accepted=items.slice(0,32).filter(item=>!missOne||item.code!=='900012');
+       return Object.fromEntries(accepted.map(item=>[item.code,{
+         price:100,marketDate:date,usedDate:date,source:'NH_REGULAR_CLOSE',
+         currency:'KRW',priceType:'REGULAR_CLOSE',status:'CONFIRMED'
+       }]));
+     },
+     fetchPricesKrx:items=>{
+       fallbacks.push(items.length);
+       return Object.fromEntries(items.map(item=>[item.code,{
+         price:101,usedDate:'2026-10-30',source:'KRX_OTP'
+       }]));
+     }
+   });
+   vm.runInContext(code.slice(start,end+2),ctx);
+   const result=ctx.fetchDomesticRegularCloses(held,DATE);
+   return {calls,fallbacks,logs,
+     nh:Object.values(result).filter(x=>x.source==='NH_REGULAR_CLOSE').length,
+     krx:Object.values(result).filter(x=>x.source==='KRX_OTP').length};
+ }
+ const before=simulate(original);
+ assert.deepEqual(before.calls,[37]);
+ assert.equal(before.nh,32);assert.equal(before.krx,5);
+ const after=simulate(proposed.candidate);
+ assert.deepEqual(after.calls,[12,12,12,1]);
+ assert.equal(after.nh,37);assert.equal(after.krx,0);
+ assert.equal(after.fallbacks.length,0);
+ assert.equal(after.logs.length,1);
+ const receipt=JSON.parse(after.logs[0].slice('[NH_CLOSE_BATCH_COVERAGE] '.length));
+ assert.equal(receipt.verified,37);assert.equal(receipt.batches,4);
+ assert.ok(!after.logs[0].includes('900000'),'no held code in summary');
+ const missing=simulate(proposed.candidate,true);
+ assert.equal(missing.nh,36);assert.equal(missing.krx,1);
+ assert.deepEqual(missing.fallbacks,[1]);
+}
+
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  console.log(JSON.stringify(auditBudgetSources()));
 }
