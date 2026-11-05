@@ -445,6 +445,41 @@ assert.equal(c.ctx._verifyForeignDailyCloseCoverage_([us],c.ctx.fetchNhRegularCl
 assert.throws(()=>c.ctx._assessDailyKrxStockClose([kr],{'005930':{price:100,source:'NH',usedDate:'2026-10-29'}},'2026-10-29'));
 assert.throws(()=>c.ctx._verifyForeignDailyCloseCoverage_([us],{AAPL:{price:100,source:'NH',usedDate:'2026-10-29'}},new Date('2026-10-30T07:00:00+09:00')));
 console.log('Daily close production admission accepts NH confirmed bars and rejects NH indicative quotes');
+// Regression: provider's 55s per-invocation cap must not silently truncate a
+// 37-code held domestic universe even if each response takes 0.7 seconds.
+{
+ const items=Array.from({length:37},(_,i)=>({code:String(900000+i),market:'KRX',currency:'KRW'}));
+ const batches=[],krxCalls=[],observations=[];
+ const test=vm.createContext({
+  Date:{now:()=>10000},
+  Logger:{log:line=>observations.push(line)},
+  fetchNhRegularCloses:(chunk,date)=>{
+    assert.equal(date,'2026-10-29');
+    batches.push(chunk.length);
+    // One flat 37-code invocation supplies only 32 out of 37 after the
+    // synthetic 55-second ceiling; <=12-code chunks supply every row.
+    return Object.fromEntries(chunk.slice(0,32).map(item=>[item.code,{
+      price:10000,usedDate:date,marketDate:date,currency:'KRW',
+      source:'NH_REGULAR_CLOSE',status:'CONFIRMED',priceType:'REGULAR_CLOSE'
+    }]));
+  },
+  fetchPricesKrx:(missing)=>{krxCalls.push(missing.map(x=>x.code));return {};},
+  items
+ });
+ vm.runInContext(extract('fetchDomesticRegularCloses'),test);
+ const output=test.fetchDomesticRegularCloses(items,'2026-10-29');
+ assert.deepEqual(batches,[12,12,12,1],
+   '37 NH close codes must be split into fresh 55-second budget windows');
+ assert.equal(Object.keys(output).length,37);
+ assert.equal(krxCalls.length,0,'All NH closes confirmed, no KRX substitute required');
+ assert.ok(Object.values(output).every(row=>
+   row.source==='NH_REGULAR_CLOSE'&&row.marketDate==='2026-10-29'));
+ assert.equal(observations.length,1);
+ const metric=JSON.parse(observations[0].slice('[NH_CLOSE_BATCH_COVERAGE] '.length));
+ assert.equal(metric.verified,37);assert.equal(metric.batches,4);
+ assert.ok(!observations[0].includes('900000'),'diagnostic must not print a held code');
+}
+
 
 vm.runInContext(extract('_getOfficialKrxPriceHistoryLastDate'),c.ctx);
 const mixedHistory=[['2026-10-28','005930','','','','NH_REGULAR_CLOSE'],['2026-10-29','AAPL','','','','NH_REGULAR_CLOSE'],['2026-10-30','ABCDEF','','','','NH_REGULAR_CLOSE']];
