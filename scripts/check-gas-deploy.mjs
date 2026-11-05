@@ -998,10 +998,17 @@ for(const name of manualOnlyGasMaintenanceWorkflows){
  assert.equal(wf.permissions.contents,'read',
   name+' must not gain new repository write permissions');
 }
-for(const name of ['krx-holiday-september-readonly.yml',
- 'gas-deployment-usage-metrics-readonly.yml']){
- const wf=YAML.parse(fs.readFileSync('.github/workflows/'+name,'utf8'));
- assert.ok(Object.hasOwn(wf.on||{},'workflow_run'),
-  name+' still needs its existing safe read-only post-deployment audit');
-}
+// Preserve the existing two different kinds of read-only audit triggers:
+// KRX follows actual deployment completions; usage metrics follow audit-code
+// updates (not unrelated GAS deploys).
+const krxAudit=YAML.parse(fs.readFileSync(
+ '.github/workflows/krx-holiday-september-readonly.yml','utf8'));
+assert.ok(Object.hasOwn(krxAudit.on||{},'workflow_run'),
+ 'KRX read-only audit still follows its gated production deploy');
+const usageAudit=YAML.parse(fs.readFileSync(
+ '.github/workflows/gas-deployment-usage-metrics-readonly.yml','utf8'));
+assert.ok(Object.hasOwn(usageAudit.on||{},'push'));
+assert.ok(Object.hasOwn(usageAudit.on||{},'pull_request'));
+assert.ok(!Object.hasOwn(usageAudit.on||{},'workflow_run'),
+ 'usage metrics must not be enqueued by arbitrary GAS deploys');
 console.log('Post-cutover GAS: 8 obsolete one-shot runs manual-only; retained read-only audits PASS');
