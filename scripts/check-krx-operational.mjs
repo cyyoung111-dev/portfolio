@@ -723,6 +723,67 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   assert.equal(writes,0);
  }
 }
+// Missing Snapshot rows are eligible for source-verified repair; non-valuation
+// days and unpublished NAV must not trigger a financial write.
+{
+ const {run}=await import('./collect-kb-fund-nav.mjs');
+ const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',
+  now:new Date('2026-10-25T00:00:00Z'),apply:true};
+ const makeCase=(options={})=>{
+  let refreshes=0,checks=0;
+  const row=()=>({
+    date:'2026-10-23',code:'F00002',
+    navState:options.navState||'EXISTING_CONFIRMED',
+    unitsApplied:options.unitsApplied!==false,
+    reconciled:options.reconciled!==false,
+    valuationRequired:options.valuationRequired!==false,
+    evaluationState:options.evaluationState||'EXISTING_VALID',
+    snapshotState:options.snapshotState||'NOT_CREATED'
+  });
+  const fetchImpl=async(_url,o)=>{
+   if(!o.body)return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};
+   const p=Object.fromEntries(o.body);
+   if(p.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+   if(p.action==='getAutomationStatus')return {ok:true,json:async()=>({
+     status:'ok',gasVersion:'9.282',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}})};
+   if(p.action==='previewFundNavImport')return {ok:true,json:async()=>({
+     status:'ok',candidates:[],updates:[],warnings:[],errors:[],identical:[]})};
+   if(p.action==='getFundValuationStatus'){
+     checks++;
+     const first=row();
+     const dates=options.duplicate?[first,first]:
+       [{...first,...(refreshes?{evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}:{})}];
+     return {ok:true,json:async()=>({status:'ok',fundResults:{F00002:{dates}}})};
+   }
+   if(p.action==='collectKbFundNav'&&p.mode==='refresh'){
+     refreshes++;assert.equal(p.date,'2026-10-23');return {ok:true,json:async()=>({status:'ok'})};
+   }
+   throw Error('Unexpected NAV test request');
+  };
+  return {fetchImpl,get refreshes(){return refreshes},get checks(){return checks}};
+ };
+ for(const field of ['evaluationState','snapshotState']){
+  const f=makeCase({evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID',[field]:'NOT_CREATED'});
+  const result=await run({...args,fetchImpl:f.fetchImpl});
+  assert.equal(result.derivedRepaired,1,'missing '+field+' must be repaired exactly once');
+  assert.equal(f.refreshes,1);
+  assert.equal(f.checks,2,'fresh readback verifies derived rows after repair');
+ }
+ const noValuation=makeCase({valuationRequired:false,navState:'NON_PUBLICATION_CARRY'});
+ assert.equal((await run({...args,fetchImpl:noValuation.fetchImpl})).derivedRepaired,0);
+ assert.equal(noValuation.refreshes,0,'non-required carry rows are not created');
+ for(const options of [
+   {navState:'UNPUBLISHED'},{navState:'NAV_MISSING'},
+   {unitsApplied:false},{reconciled:false}
+ ]){
+  const f=makeCase(options);
+  await assert.rejects(()=>run({...args,fetchImpl:f.fetchImpl}),/NAV_DERIVED_SOURCE_UNVERIFIED/);
+  assert.equal(f.refreshes,0,'unverified source or units never initiate a write');
+ }
+ const duplicate=makeCase({duplicate:true});
+ await assert.rejects(()=>run({...args,fetchImpl:duplicate.fetchImpl}),/NAV_DERIVED_SCHEMA/);
+ assert.equal(duplicate.refreshes,0);
+}
 // A real 2026-11-04 collector reported NAV_IMPORT_HTTP_UNVERIFIED while
 // the same NAV was visible in the source workbook. Never send a second
 // import for a lost ACK: prove the exact existing date+NAV via read-only
@@ -748,6 +809,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
      return {ok:false,status:503};
    } else if(p.action==='getFundValuationStatus')
      response={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',
+       navState:'EXISTING_CONFIRMED',unitsApplied:true,reconciled:true,valuationRequired:true,
        evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',
        snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
    else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){refreshes++;repaired=true;}
@@ -797,7 +859,8 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   if(p.accessToken==='NAV_AUTH_PROBE')r={status:'error',message:'인증 실패'};
   else if(p.action==='getAutomationStatus')r={status:'ok',gasVersion:'9.282',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
   else if(p.action==='previewFundNavImport')r={...r,candidates:[],identical:[{}],updates:[],warnings:[],errors:[]};
-  else if(p.action==='getFundValuationStatus')r={...r,fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
+  else if(p.action==='getFundValuationStatus')r={...r,fundResults:{F00002:{dates:[{date:'2026-10-23',navState:'EXISTING_CONFIRMED',
+    unitsApplied:true,reconciled:true,valuationRequired:true,evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
   else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){repairs++;repaired=true;}
   else throw Error('unexpected write');
   return {ok:true,json:async()=>r};
