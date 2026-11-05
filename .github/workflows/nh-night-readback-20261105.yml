@@ -1,0 +1,91 @@
+name: NH night read-only live verification 2026-11-05
+# Single-use 08:00-13:00 KST diagnostic. No GAS deployment, NH OAuth issuance,
+# Sheets mutations, Telegram sends or raw quote/credential logging.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/nh-night-readback-20261105.yml']
+permissions:
+  contents: read
+concurrency:
+  group: nh-night-readonly-verification-20261105
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Inspect same-day NH night GAS cache and verified tick without issuing new OAuth
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {callNhGasProxy,fetchNhNightProbeFromGas} from './scripts/nh-gas-proxy.mjs';
+          const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+            timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
+            hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+          }).formatToParts(new Date()).map(x=>[x.type,x.value]));
+          const date=parts.year+'-'+parts.month+'-'+parts.day;
+          const minute=Number(parts.hour)*60+Number(parts.minute);
+          if(date!=='2026-11-05'||minute<480||minute>=780){
+            console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_READBACK',status:'OUTSIDE_VERIFIED_KST_WINDOW',
+              date,nhCalls:0,gasWrites:0,financeWrites:0,telegramSends:0}));
+            process.exit(0);
+          }
+          const url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN;
+          if(!url||!token){
+            console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_READBACK',status:'GAS_CONFIG_UNAVAILABLE',
+              date,nhCalls:0,gasWrites:0,financeWrites:0,telegramSends:0}));
+            process.exitCode=1;
+          }else{
+            let state=null;
+            try{state=await callNhGasProxy('getNhAuthStatusProxy',{url,token});}catch{}
+            const version=/^9\.\d{3}$/.test(String(state?.gasVersion||''))
+              ?state.gasVersion:'UNVERIFIED';
+            const authOk=state?.status==='ok'&&state?.provider==='NH'
+              &&state?.readOnly===true&&state?.enabled===true
+              &&state?.tokenIssued===false&&state?.tokenCached===true;
+            console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_STATUS',date,
+              gasVersion:version,tokenCached:state?.tokenCached===true?'YES'
+                :state?.tokenCached===false?'NO':'UNVERIFIED',
+              tokenIssued:false,verified:authOk,gasWrites:0,financeWrites:0}));
+            if(!authOk){
+              console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_READBACK',
+                status:'TOKEN_OR_GAS_STATUS_NOT_VERIFIED',date,nhCalls:0,
+                gasWrites:0,financeWrites:0,telegramSends:0}));
+              process.exitCode=1;
+            }else{
+              const reasons=[];
+              let reference=null;
+              try{reference=await fetchNhNightProbeFromGas(date,{
+                now:()=>new Date(),url,token,
+                onError:code=>{
+                  if(/^NH_(?:NIGHT|PROXY)_[A-Z0-9_]{1,70}$/.test(code))
+                    reasons.push(code);
+                }
+              });}catch{}
+              const valid=reference?.kind==='REFERENCE'&&reference?.source==='NH'
+                &&reference?.tradingDate===date&&reference?.clock==='06:00:00'
+                &&reference?.sourceUpdatedAt===date+'T06:00:00+09:00'
+                &&reference?.officialClose===false;
+              console.log(JSON.stringify({kind:'NH_NIGHT_LIVE_READBACK',date,
+                status:valid?'VERIFIED_READONLY_REFERENCE':'REFERENCE_UNVERIFIED',
+                errorCode:valid?null:reasons[0]||'NO_VALID_0600_REFERENCE',
+                source:valid?'NH':'UNVERIFIED',contractMonth:valid?reference.contractMonth:null,
+                tradingDate:valid?reference.tradingDate:null,
+                lastTickTime:valid?'06:00:00':null,
+                officialClose:false,tokenIssuanceRequested:false,
+                providerDirectCalls:false,gasWrites:0,financeWrites:0,telegramSends:0}));
+              if(!valid)process.exitCode=1;
+            }
+          }
+          NODE
