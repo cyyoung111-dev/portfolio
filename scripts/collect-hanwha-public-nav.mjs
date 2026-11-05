@@ -9,7 +9,8 @@ function parseDate(value){
  const normalized=/^\d{8}$/.test(raw)
    ?raw.slice(0,4)+'-'+raw.slice(4,6)+'-'+raw.slice(6)
    :raw.replaceAll(/[./]/g,'-');
- if(!iso.test(normalized)||new Date(normalized+'T00:00:00Z').toISOString().slice(0,10)!==normalized)
+ const epoch=Date.parse(normalized+'T00:00:00Z');
+ if(!iso.test(normalized)||!Number.isFinite(epoch)||new Date(epoch).toISOString().slice(0,10)!==normalized)
    throw Error('HANWHA_SOURCE_DATE');
  return normalized;
 }
