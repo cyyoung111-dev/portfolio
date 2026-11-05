@@ -27,7 +27,7 @@ const web='src/web/features/settings/settings_fetch.js';
 const real=fs.readFileSync(web,'utf8');
 assert.throws(()=>auditIssue507VersionConsumers({
  readText:file=>file===web?real.replace(
-  /(\bconst\s+EXPECTED_GAS_VERSION\s*=\s*['"])9\.282(?=['"])/,
+  /(\bconst\s+EXPECTED_GAS_VERSION\s*=\s*['"])9\.283(?=['"])/,
   (_whole,prefix)=>prefix+'9.999'
  ):fs.readFileSync(file,'utf8'),
 }),/ISSUE507_EXPECTED_WEB_VERSION_CHANGED/);
