@@ -129,7 +129,7 @@ export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,a
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
-  if(!['schedule','workflow_run','workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
+  if(!['schedule','workflow_run','workflow_dispatch','push'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
   // Manual workflow_dispatch must be a specifically selected guarded rescue.
   // Never let the connection-test mode (or an omitted mode) send market data.
   if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'
