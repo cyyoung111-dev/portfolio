@@ -158,11 +158,24 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
  }
 }
 
+// Existing manual first-cutover commands stay manual-only. This one-shot
+// main-push exception allows ONLY authenticated GET-based inspection, never a
+// bootstrap/finalize/abort or any deployment mutation.
+export function assertFirstCutoverCliContext(env){
+ const main=env.GITHUB_REF==='refs/heads/main'&&env.GITHUB_REPOSITORY==='cyyoung111-dev/portfolio';
+ const manual=env.GITHUB_EVENT_NAME==='workflow_dispatch';
+ const oneShot=env.GITHUB_EVENT_NAME==='push'&&env.GAS_ISSUE860_ONE_SHOT_INSPECT==='true'&&
+  env.GAS_FIRST_GATE_PHASE==='inspect'&&env.GAS_DEPLOY_DRY_RUN==='true'&&
+  env.GAS_9282_RELEASE_APPROVAL==='false'&&env.GAS_9283_RELEASE_APPROVAL==='false'&&
+  env.GAS_EXPECTED_MAIN_SHA===env.GITHUB_SHA&&/^[a-f0-9]{40}$/.test(env.GITHUB_SHA||'');
+ if(!main||(!manual&&!oneShot))error('MAIN_MANUAL_ONLY');
+ return oneShot?'one-shot-readonly-inspect':'manual';
+}
+
 async function cli(){
  const phase=process.env.GAS_FIRST_GATE_PHASE;
  const dryRun=process.env.GAS_DEPLOY_DRY_RUN==='true';
- if(process.env.GITHUB_EVENT_NAME!=='workflow_dispatch'||process.env.GITHUB_REF!=='refs/heads/main'||
-  process.env.GITHUB_REPOSITORY!=='cyyoung111-dev/portfolio')error('MAIN_MANUAL_ONLY');
+ assertFirstCutoverCliContext(process.env);
  if(!['true','false'].includes(process.env.GAS_DEPLOY_DRY_RUN))error('INPUT');
  if(!dryRun&&process.env.GAS_9282_RELEASE_APPROVAL!=='true')error('APPROVAL');
  const scriptId=process.env.GAS_SCRIPT_ID;
