@@ -32,6 +32,22 @@ function classifyTransportResponse(res){
   redirect:res?.redirected===true?'YES':res?.redirected===false?'NO':'UNKNOWN',
   responseHost:host,contentType:type};
 }
+// Classify (never persist) a bounded HTML response from Google's transport.
+// Only fixed classification labels leave this function; never forward body,
+// one-time content keys, cookies, access tokens or account identifiers.
+export function classifyGasHtml(html){
+ if(typeof html!=='string'||html.length>120000)return 'HTML_UNVERIFIED';
+ const text=html.slice(0,60000);
+ if(/accounts\.google\.com|Sign in - Google Accounts|to continue to Google/i.test(text))
+  return 'GOOGLE_SIGN_IN';
+ if(/you need access|request access|you need permission|access denied|권한이 없습니다|액세스 권한/i.test(text))
+  return 'GOOGLE_PERMISSION';
+ if(/sorry, unable to open the file|unable to open the file at this time|service temporarily unavailable/i.test(text))
+  return 'GOOGLE_FILE_UNAVAILABLE';
+ if(/Google Apps Script|Apps Script/i.test(text))return 'GOOGLE_APPS_SCRIPT_PAGE';
+ if(/<!doctype\s+html|<html\b/i.test(text))return 'OTHER_HTML';
+ return 'HTML_UNVERIFIED';
+}
 export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
   token=process.env.GAS_ACCESS_TOKEN,date,request=fetch,onTransportDiagnostic=()=>{}}={}){
  const report=(phase,meta={})=>{
