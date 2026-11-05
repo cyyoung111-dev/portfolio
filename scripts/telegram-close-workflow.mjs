@@ -271,6 +271,32 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,fearGreed},
     message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed)};
 }
+// Only the already-armed 16:35 runner uses this bounded wait when today's
+// core index closes are not yet published. Existing claim and SEND guards
+// remain unchanged; reference-only prices never authorize a delivery.
+export async function prepareArmedCloseWithRetry(prepare,{
+ now=()=>new Date(),sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),
+ retryMs=180000,maxAttempts=8}={}){
+ if(typeof prepare!=='function'||!Number.isSafeInteger(retryMs)||retryMs<1000||
+   !Number.isSafeInteger(maxAttempts)||maxAttempts<1||maxAttempts>8)
+   throw Error('TELEGRAM_CLOSE_RETRY_CONFIG');
+ const first=closeWindow(now());
+ if(!first.allowed)return {ready:false,status:'OUTSIDE_DELIVERY_WINDOW',date:first.date};
+ const deadline=Date.parse(first.date+'T17:22:00+09:00');
+ for(let attempt=1;attempt<=maxAttempts;attempt++){
+  const current=closeWindow(now());
+  if(!current.allowed||current.date!==first.date)
+    return {ready:false,status:'WINDOW_EXPIRED',date:first.date};
+  const result=await prepare();
+  if(result?.ready||result?.status!=='NO_VERIFIED_INDEX_CLOSE')return result;
+  const nextAt=now().getTime()+retryMs;
+  if(attempt>=maxAttempts||nextAt>=deadline)return result;
+  console.log(JSON.stringify({kind:'CLOSE_ARM_CORE_RETRY',date:first.date,
+    attempt,status:'NO_VERIFIED_INDEX_CLOSE'}));
+  await sleep(retryMs);
+ }
+ throw Error('TELEGRAM_CLOSE_RETRY_BOUND');
+}
 export async function deliverClose(payload,{now=()=>new Date(),token,chatId,attempt=1,send=sendTelegram}={}){
   const window=closeWindow(now());
   if(Number(attempt)!==1||!window.allowed||payload?.date!==window.date||payload?.artifactName!=='telegram-close-claim-'+window.date||!(Number.isSafeInteger(payload.nhConfirmed)&&payload.nhConfirmed>=0&&payload.nhConfirmed<=3)
@@ -321,7 +347,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       process.exit(0);
     }
     if(process.argv[2]==='prepare'){
-      const result=await prepareClose({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,loadPrepared:loadPreparedClose});
+      const args={githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,
+        attempt:process.env.GITHUB_RUN_ATTEMPT,loadPrepared:loadPreparedClose};
+      const armed=process.argv[3]==='armed';
+      if(armed&&process.env.GITHUB_WORKFLOW!=='Telegram close early-armed fallback')
+        throw Error('TELEGRAM_CLOSE_RETRY_CONFIG');
+      const result=armed
+        ?await prepareArmedCloseWithRetry(()=>prepareClose(args))
+        :await prepareClose(args);
       if(result.ready){fs.mkdirSync('.telegram-close-runtime',{recursive:true});fs.writeFileSync('.telegram-close-runtime/payload.json',JSON.stringify(result));fs.writeFileSync('.telegram-close-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));}
       fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
       console.log(JSON.stringify({status:result.status,date:result.date,

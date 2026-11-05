@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {armedKstClock,ARMED_DELIVERY,authorizeArmedDelivery,
  waitUntilPunctualWindow} from './telegram-punctual-arm.mjs';
 import {scheduledWindow} from './telegram-morning-briefing.mjs';
-import {closeWindow} from './telegram-close-workflow.mjs';
+import {closeWindow,prepareArmedCloseWithRetry} from './telegram-close-workflow.mjs';
 
 const repo='cyyoung111-dev/portfolio',date='2026-11-02';
 const env={GITHUB_EVENT_NAME:'schedule',GITHUB_REPOSITORY:repo,
@@ -139,6 +139,21 @@ assert.equal(closeWindow(kst('17:30:00')).allowed,true);
 assert.equal(closeWindow(kst('17:59:59')).allowed,true);
 assert.equal(closeWindow(kst('18:00:00')).allowed,false);
 
+// The armed close runner retries missing dated core rows without claiming or sending.
+{
+ let ms=kst('17:00:00').getTime(),calls=0;
+ const outcome=await prepareArmedCloseWithRetry(async()=>{
+   calls++;
+   return {ready:calls===3,status:calls===3?'PREPARED':'NO_VERIFIED_INDEX_CLOSE',date};
+ },{now:()=>new Date(ms),sleep:async delay=>{ms+=delay;}});
+ assert.equal(outcome.ready,true);
+ assert.equal(calls,3);
+ assert.equal(ms,kst('17:06:00').getTime());
+ const claimed=await prepareArmedCloseWithRetry(async()=>({ready:false,status:'ALREADY_CLAIMED',date}),
+   {now:()=>kst('17:01:00'),sleep:async()=>assert.fail('no retry after claim')});
+ assert.equal(claimed.status,'ALREADY_CLAIMED');
+}
+
 const checks=[
  {file:'telegram-morning-punctual-arm.yml',kind:'morning',cron:'20 22 * * 0-4',
   group:'telegram-morning-briefing',script:'telegram-morning-workflow.mjs',root:'.telegram-runtime'},
@@ -208,7 +223,7 @@ for(const c of checks){
    assert.ok(!source.includes('GITHUB_OUTPUT'));
  }
  assert.equal(steps.find(s=>s.id==='arm').run,'node scripts/telegram-punctual-arm.mjs '+c.kind);
- assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare');
+ assert.equal(steps.find(s=>s.id==='prepare').run,'node scripts/'+c.script+' prepare'+(c.kind==='close'?' armed':''));
  assert.equal(steps.find(s=>s.id==='prepare').env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
  assert.equal(steps.find(s=>s.id==='prepare').env.TELEGRAM_BOT_TOKEN,undefined);
  const send=steps.find(s=>s.name?.includes('Send exactly one claimed'));
