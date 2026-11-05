@@ -5,7 +5,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {fetchDomesticCloseIndexes,verifiedDomesticCloseRows,verifiedNhCloseRows} from './telegram-close-workflow.mjs';
 import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {readNhClosingStocks,readClosingMacros,validateClosingMacro,closingStockSessions} from './closing-extra-daily-sources.mjs';
+import {readNhClosingStocks,readClosingMacros,validateClosingMacro,closingStockSessions,validClosingStockRow} from './closing-extra-daily-sources.mjs';
 import {expectedMorningDate,MORNING_SERIES} from './telegram-morning-report.mjs';
 import {readClosingMarketReferences,validateClosingMarketReference} from './closing-market-references.mjs';
 
@@ -35,10 +35,10 @@ export function sanitizePreclose(date,source){
  const stocks=(Array.isArray(source.stocks)?source.stocks:[]).filter(x=>{
    const t=stockSymbols.get(x?.id),expected=['SAMSUNG','SKHYNIX'].includes(x?.id)?date:session.us;
    return t&&x.label===t.label&&x.symbol===t.symbol&&x.date===expected
-    &&x.source==='NH_REGULAR_CLOSE'&&Number.isFinite(x.value)&&x.value>0
-    &&(x.changePercent===null||Number.isFinite(x.changePercent));
+    &&validClosingStockRow(date,x);
  }).map(x=>({id:x.id,label:x.label,symbol:x.symbol,date:x.date,source:x.source,
-   value:x.value,changePercent:x.changePercent}));
+   value:x.value,changePercent:x.changePercent,
+   ...(x.role?{role:x.role}:{}),...(x.providerSource?{providerSource:x.providerSource}:{})}));
  const macros=(Array.isArray(source.macros)?source.macros:[]).flatMap(x=>{
   const info=macroSymbols.get(x?.id);
   if(!info||x.symbol!==info.symbol||x.label!==info.label||x.source!=='YAHOO_DAILY_REFERENCE')return [];
