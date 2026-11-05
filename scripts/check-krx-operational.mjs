@@ -560,9 +560,11 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   {wkdate:'2026-11-04',price:'2,155.40'},
   {wkdate:'2026/11/03',price:'2241.43'},
   {wkdate:'20261103',price:2241.43},
+  {wkdate:'2026-11-05',price:'1999.90'},
   {wkdate:'2026-10-04',price:'2200.01'}]};
  assert.deepEqual(parseHanwhaNav(sample,from,to),[
-  {date:'2026-11-03',nav:2241.43},{date:'2026-11-04',nav:2155.4}
+  {date:'2026-11-03',nav:2241.43},{date:'2026-11-04',nav:2155.4},
+  {date:'2026-11-05',nav:1999.9}
  ]);
  let sourceCalls=0;
  const fetchImpl=async(url,opts)=>{
@@ -582,6 +584,12 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   [proof.mode,proof.writerInvoked,proof.code,proof.lookupCode,proof.classCode,proof.latestDate,proof.sourceRows],
   ['SOURCE_ONLY',false,'F00001','008942','C-RPe','2026-11-04',2]);
  assert.equal(proof.rows.length,2);
+ assert.equal(proof.sameDayExcluded,1);
+ assert.equal(proof.historicalCutoffExclusive,'2026-11-05');
+ assert.deepEqual(proof.rows.map(r=>r.date),['2026-11-03','2026-11-04']);
+ await assert.rejects(()=>runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),
+   fetchImpl:async()=>({ok:true,json:async()=>({list:[{wkdate:'2026-11-05',price:'1999.90'}]})})}),
+   /HANWHA_SOURCE_NO_PRIOR_DAY_ROWS/);
  const badData=[
   {list:[]},
   {list:[{wktDate:'2026-11-04',price:2200}]},
@@ -644,6 +652,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   return {ok:true,json:async()=>[
    {gijunYmd:'20261103',gijunGa:2241.43},
    {gijunYmd:'20261104',gijunGa:2250.01},
+   {gijunYmd:'20261105',gijunGa:2290.01},
   ]};
  };
  const result=await runPublicSourceOnly({now:new Date('2026-11-05T03:15:00Z'),fetchImpl:publicOnly});
@@ -653,9 +662,14 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.equal(result.classCode,'AQ018');
  assert.equal(result.to,'2026-11-05');
  assert.equal(result.sourceRows,2);
+ assert.equal(result.sameDayExcluded,1);
+ assert.equal(result.historicalCutoffExclusive,'2026-11-05');
  assert.equal(result.latestDate,'2026-11-04');
  assert.deepEqual(result.rows.map(x=>x.date),['2026-11-03','2026-11-04']);
  assert.equal(publicCalls,1,'never calls GAS even when no token or endpoint exists');
+ await assert.rejects(()=>runPublicSourceOnly({now:new Date('2026-11-05T03:15:00Z'),
+  fetchImpl:async()=>({ok:true,json:async()=>[{gijunYmd:'20261105',gijunGa:2290.01}]})}),
+  /NAV_SOURCE_NO_PRIOR_DAY_ROWS/);
  await assert.rejects(readPublishedKbNav({from:'2026-11-05',to:'2026-11-04',fetchImpl:publicOnly}),/NAV_SOURCE_RANGE/);
  await assert.rejects(readPublishedKbNav({from:'not-a-date',to:'2026-11-05',fetchImpl:publicOnly}),/NAV_SOURCE_RANGE/);
  await assert.rejects(runPublicSourceOnly({now:new Date('2026-11-05T03:15:00Z'),fetchImpl:async()=>({
@@ -701,7 +715,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  for(const payload of [[],[{gijunYmd:'20261023',gijunGa:0}],[{gijunYmd:'20261023',gijunGa:'2116.98'}],[{gijunYmd:'20261032',gijunGa:2116.98}],[{gijunYmd:'20261023',gijunGa:1},{gijunYmd:'20261023',gijunGa:2}]])assert.throws(()=>parseNav(payload,'2026-10-01','2026-10-25'));
  let writes=0;const calls=[];
  const fixture=async(u,o)=>{
-  if(!o.body){assert.equal(new URL(u).searchParams.get('fundCd'),'KR5223AQ0185');return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};}
+  if(!o.body){assert.equal(new URL(u).searchParams.get('fundCd'),'KR5223AQ0185');return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98},{gijunYmd:'20261025',gijunGa:2222.22}]};}
   const params=Object.fromEntries(o.body);calls.push(params.action);
   if(params.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
   let result={status:'ok'};
@@ -709,7 +723,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   if(params.action==='previewFundNavImport')result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{}]:[]};
   if(params.action==='getFundValuationStatus'){assert.equal(params.to,'2026-10-24','do not repair unclosed current day');}
   if(params.action==='getFundValuationStatus')result={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}};
-  if(params.action==='collectKbFundNav'&&params.mode==='import'){assert.equal(JSON.parse(params.data).appendOnly,true);writes++;assert.equal(JSON.parse(params.data).rows.length,1);result={...result,saveState:'success',evaluation:{missingHoldings:[]}};}
+  if(params.action==='collectKbFundNav'&&params.mode==='import'){assert.equal(JSON.parse(params.data).appendOnly,true);writes++;assert.deepEqual(JSON.parse(params.data).rows.map(x=>x.date),['2026-10-23']);result={...result,saveState:'success',evaluation:{missingHoldings:[]}};}
   return {ok:true,json:async()=>result};
  };
  const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),fetchImpl:fixture,apply:true};

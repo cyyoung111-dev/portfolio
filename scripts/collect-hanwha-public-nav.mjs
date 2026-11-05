@@ -54,10 +54,16 @@ export async function runPublicHanwhaSource({now=new Date(),fetchImpl=fetch}={})
  let payload;
  try{payload=await response.json();}
  catch{throw Error('HANWHA_SOURCE_JSON_UNVERIFIED');}
- const rows=parseHanwhaNav(payload,from,to);
+ const received=parseHanwhaNav(payload,from,to);
+ // The provider can expose a dated quote before that day's final publication.
+ // Preserve only prior KST calendar dates as eligible history. This is a
+ // conservative eligibility rule, not an assertion of independent NAV audit.
+ const rows=received.filter(row=>row.date<to);
+ if(!rows.length)throw Error('HANWHA_SOURCE_NO_PRIOR_DAY_ROWS');
  return {mode:'SOURCE_ONLY',writerInvoked:false,code:'F00001',
   lookupCode:FUND_CD,classCode:'C-RPe',provider:'HANWHA_2045_CRPE',
-  sourceRows:rows.length,from,to,latestDate:rows.at(-1).date,rows};
+  sourceRows:rows.length,sameDayExcluded:received.length-rows.length,
+  historicalCutoffExclusive:to,from,to,latestDate:rows.at(-1).date,rows};
 }
 
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){

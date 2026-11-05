@@ -45,9 +45,14 @@ export async function runPublicSourceOnly({now=new Date(),fetchImpl=fetch}={}){
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
   const offset=n=>new Date(Date.parse(today+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
   const from=offset(-31),to=today;
-  const {rows}=await readPublishedKbNav({from,to,fetchImpl});
+  const {rows:received}=await readPublishedKbNav({from,to,fetchImpl});
+  // Publishing a dated quote is not proof of same-day final NAV. Keep
+  // current KST calendar-day quotes out of the archive's eligible history.
+  const rows=received.filter(row=>row.date<today);
+  if(!rows.length)throw Error('NAV_SOURCE_NO_PRIOR_DAY_ROWS');
   return {mode:'SOURCE_ONLY',writerInvoked:false,code:'F00002',classCode:'AQ018',
-    sourceRows:rows.length,from,to,latestDate:rows.at(-1).date,rows};
+    sourceRows:rows.length,sameDayExcluded:received.length-rows.length,
+    historicalCutoffExclusive:today,from,to,latestDate:rows.at(-1).date,rows};
 }
 export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}){
   const endpoint=validateWebAppUrl(url);
@@ -88,7 +93,11 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   if(['RUNNING','IN_PROGRESS'].includes(a.fundAttempt?.state))return {mode:'DEFERRED',complete:false,reason:'NAV_WRITER_BUSY',imported:0,derivedRepaired:0};
   const valuationTo=a.closeRun?.runDate;
   if(typeof valuationTo!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(valuationTo)||valuationTo<from||valuationTo>to)throw Error('NAV_CLOSE_DATE');
-  const {rows,sourceHref}=await readPublishedKbNav({from,to,fetchImpl});
+  const {rows:received,sourceHref}=await readPublishedKbNav({from,to,fetchImpl});
+  // Private import must apply the same conservative day boundary as the
+  // public archive; today's quote may change before official publication.
+  const rows=received.filter(row=>row.date<today);
+  if(!rows.length)throw Error('NAV_SOURCE_NO_PRIOR_DAY_ROWS');
   const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+sourceHref,rows};
   const preview=await request('previewFundNavImport',{data:JSON.stringify(input)});
   if(preview.status!=='ok'||preview.errors?.length||preview.updates?.length||preview.warnings?.some(w=>w.reason!=='오늘 NAV는 공식 확정값인지 확인 필요'||w.date!==today)||!Array.isArray(preview.candidates))throw Error('NAV_PREVIEW_BLOCKED');
