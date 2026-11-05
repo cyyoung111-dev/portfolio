@@ -15,7 +15,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
   const rejected=await request('getAutomationStatus',{},token==='ISSUE507_BAD_AUTH'?'ISSUE507_BAD_AUTH_ALT':'ISSUE507_BAD_AUTH');
   if(rejected.status!=='error'||rejected.message!=='인증 실패')throw Error('MAINTENANCE_AUTH_GUARD');
   const before=await request('getAutomationStatus');
-  if(before.status!=='ok'||!['9.281','9.282'].includes(before.gasVersion))throw Error('MAINTENANCE_VERSION');
+  if(before.status!=='ok'||!['9.281','9.282','9.283'].includes(before.gasVersion))throw Error('MAINTENANCE_VERSION');
   const summaries=[];
   for(const mode of ['reconcile','yearendPrices']) {
     let r;
