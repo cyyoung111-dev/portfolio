@@ -139,6 +139,21 @@ assert.equal(closeWindow(kst('17:30:00')).allowed,true);
 assert.equal(closeWindow(kst('17:59:59')).allowed,true);
 assert.equal(closeWindow(kst('18:00:00')).allowed,false);
 
+// The armed close runner retries missing dated core rows without claiming or sending.
+{
+ let ms=kst('17:00:00').getTime(),calls=0;
+ const outcome=await prepareArmedCloseWithRetry(async()=>{
+   calls++;
+   return {ready:calls===3,status:calls===3?'PREPARED':'NO_VERIFIED_INDEX_CLOSE',date};
+ },{now:()=>new Date(ms),sleep:async delay=>{ms+=delay;}});
+ assert.equal(outcome.ready,true);
+ assert.equal(calls,3);
+ assert.equal(ms,kst('17:06:00').getTime());
+ const claimed=await prepareArmedCloseWithRetry(async()=>({ready:false,status:'ALREADY_CLAIMED',date}),
+   {now:()=>kst('17:01:00'),sleep:async()=>assert.fail('no retry after claim')});
+ assert.equal(claimed.status,'ALREADY_CLAIMED');
+}
+
 const checks=[
  {file:'telegram-morning-punctual-arm.yml',kind:'morning',cron:'20 22 * * 0-4',
   group:'telegram-morning-briefing',script:'telegram-morning-workflow.mjs',root:'.telegram-runtime'},
