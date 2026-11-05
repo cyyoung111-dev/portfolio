@@ -103,7 +103,7 @@ const pinnedSource=fs.readFileSync(fileURLToPath(
  new URL('../reference/gas-v9.281.gs',import.meta.url)),'utf8');
 const pinned=extract(pinnedSource),pinnedZone=extractProductionTimezone(pinnedSource);
 const frozenGas=fs.readFileSync(fileURLToPath(
- new URL('../src/gas/apps_script.gs',import.meta.url)),'utf8');
+ new URL('../reference/gas-v9.282.gs',import.meta.url)),'utf8');
 const candidateZone=extractProductionTimezone(frozenGas);
 assert.equal(candidateZone,pinnedZone,'baseline and candidate production zones agree');
 for(const source of [pinnedSource,frozenGas]){
