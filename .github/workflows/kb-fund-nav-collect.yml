@@ -9,6 +9,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/kb-fund-nav-collect.yml'
+      - 'scripts/collect-kb-fund-nav.mjs'
+      - 'scripts/collect-hanwha-public-nav.mjs'
 permissions:
   contents: read
 concurrency:
@@ -64,16 +66,21 @@ jobs:
         run: |
           echo "KB public NAV: ${KB_SOURCE_STATUS} / archive: ${KB_ARCHIVE_STATUS}" >> "${GITHUB_STEP_SUMMARY}"
           echo "Hanwha public NAV: ${HANWHA_SOURCE_STATUS} / archive: ${HANWHA_ARCHIVE_STATUS}" >> "${GITHUB_STEP_SUMMARY}"
-          if [ "${KB_SOURCE_STATUS}" = "success" ] && [ "${KB_ARCHIVE_STATUS}" != "success" ]; then
-            echo "PUBLIC_KB_NAV_ARCHIVE_UNVERIFIED"
-            exit 1
+          # Both held funds must be sourced and archived. A partial source job
+          # is not green, but the independent private collector still runs.
+          incomplete=0
+          if [ "${KB_SOURCE_STATUS}" != "success" ] || [ "${KB_ARCHIVE_STATUS}" != "success" ]; then
+            echo "PUBLIC_KB_NAV_UNAVAILABLE"
+            incomplete=1
           fi
-          if [ "${HANWHA_SOURCE_STATUS}" = "success" ] && [ "${HANWHA_ARCHIVE_STATUS}" != "success" ]; then
-            echo "PUBLIC_HANWHA_NAV_ARCHIVE_UNVERIFIED"
-            exit 1
+          if [ "${HANWHA_SOURCE_STATUS}" != "success" ] || [ "${HANWHA_ARCHIVE_STATUS}" != "success" ]; then
+            echo "PUBLIC_HANWHA_NAV_UNAVAILABLE"
+            incomplete=1
           fi
           if [ "${KB_SOURCE_STATUS}" != "success" ] && [ "${HANWHA_SOURCE_STATUS}" != "success" ]; then
             echo "PUBLIC_NAV_ALL_SOURCES_UNAVAILABLE"
+          fi
+          if [ "$incomplete" -ne 0 ]; then
             exit 1
           fi
   # The private writer independently re-fetches and validates the public NAV.
