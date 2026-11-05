@@ -38,8 +38,9 @@ jobs:
           path: kb-public-nav.json
           retention-days: 7
           if-no-files-found: error
+  # The private writer independently re-fetches and validates the public NAV.
+  # A failed public archive must NEVER skip an otherwise valid import/repair.
   collect:
-    needs: source-public
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
