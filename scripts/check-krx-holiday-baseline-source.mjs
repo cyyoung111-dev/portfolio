@@ -140,10 +140,10 @@ await assert.rejects(()=>runSourceOnlyRepair({
 assert.deepEqual(staleActions,['diagnoseSnapshotIntegrity','getAutomationStatus']);
 import fs from 'node:fs';
 const workflow=fs.readFileSync('.github/workflows/krx-holiday-20261008-source-only-fix.yml','utf8');
-assert.match(workflow,/workflow_run:/);
-assert.match(workflow,/workflows: \[gas-deploy\]/);
-assert.match(workflow,/github\.event\.workflow_run\.conclusion == 'success'/);
-assert.match(workflow,/github\.event\.workflow_run\.head_sha/);
+assert.match(workflow,/workflow_dispatch:/);
+assert.doesNotMatch(workflow,/^\s+workflow_run:/m,
+ 'obsolete one-time source-only repair must not auto-run on routine GAS deploy');
+assert.doesNotMatch(workflow,/^\s+workflows: \['gas-deploy'\]/m); 
 assert.match(workflow,/REVIEWED_PARENT_SHA: b1122ab3d006c8695e42fbe0159e87acf1258ac4/);
 assert.doesNotMatch(workflow,/event_name == 'push' && steps\.one_time/);
 console.log('KRX Oct08 fund source-only guarded rewrite: authorization, numeric/data protection, backup capacity, idempotence PASS');
