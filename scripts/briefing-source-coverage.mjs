@@ -37,10 +37,15 @@ export const CLOSE_SOURCE_CATALOG=Object.freeze({
   volatility:Object.freeze([{id:'VKOSPI',label:'VKOSPI',role:'OPTIONAL_REFERENCE'}]),
   notConnected:Object.freeze([...unwired])
 });
+// Connected means formatter + validated read-only provider exist. It does
+// NOT imply that an authorized key or same-day observation is available.
+export const MORNING_OPTIONAL_CONNECTED=Object.freeze([
+  'US_INDEX_FUTURES','KRX_TURNOVER','MARKET_BREADTH',
+  'VKOSPI','UST2Y','UST3Y','YIELD_SPREAD'
+]);
 export const MORNING_NOT_CONNECTED=Object.freeze([
-  'US_INDEX_FUTURES','KRX_TURNOVER','FOREIGN_INSTITUTION_FLOW',
-  'MARKET_BREADTH','ADR20','VKOSPI','UST2Y','UST3Y','YIELD_SPREAD',
-  'INVESTOR_DEPOSITS','MARGIN_BALANCE'
+  'FOREIGN_INSTITUTION_FLOW','ADR20','INVESTOR_DEPOSITS','MARGIN_BALANCE',
+  'FEDWATCH','FINVIZ_HEATMAP','ECONOMIC_EVENTS'
 ]);
 
 const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY','STOCKS','MACROS','MARKETS','VKOSPI']);

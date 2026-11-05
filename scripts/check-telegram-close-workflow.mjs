@@ -294,6 +294,24 @@ const morningCompletion={...completion,workflow_run:{...completion.workflow_run,
 assert.equal(deliveryTrigger('morning',env,morningCompletion,true),true);
 assert.equal(deliveryTrigger('morning',env,morningCompletion,false),false);
 assert.throws(()=>deliveryTrigger('morning',env,completion,true),/TRIGGER_INVALID/);
+const approvedMorningPush={...env,GITHUB_EVENT_NAME:'push',
+ TELEGRAM_MORNING_SENTINEL_VERIFIED:'true'};
+const morningPushEvent={ref:'refs/heads/main',
+ repository:{full_name:env.GITHUB_REPOSITORY}};
+assert.equal(deliveryTrigger('morning',approvedMorningPush,morningPushEvent,true),true,
+ 'verified single-file morning push may prepare only inside the 07:40 window');
+assert.equal(deliveryTrigger('morning',approvedMorningPush,morningPushEvent,false),false,
+ 'pre-arm before the original window never initiates preparation');
+for(const badEnv of [
+ {...approvedMorningPush,TELEGRAM_MORNING_SENTINEL_VERIFIED:'false'},
+ {...approvedMorningPush,TELEGRAM_MORNING_SENTINEL_VERIFIED:undefined},
+ {...approvedMorningPush,GITHUB_RUN_ATTEMPT:'2'},
+ {...approvedMorningPush,GITHUB_REPOSITORY:'other/fork'}
+])assert.throws(()=>deliveryTrigger('morning',badEnv,morningPushEvent,true),/TRIGGER_INVALID/);
+for(const badEvent of [
+ {...morningPushEvent,ref:'refs/heads/feature'},
+ {...morningPushEvent,repository:{full_name:'attacker/fork'}}
+])assert.throws(()=>deliveryTrigger('morning',approvedMorningPush,badEvent,true),/TRIGGER_INVALID/);
 assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},
  {ref:'refs/heads/main',repository:{full_name:env.GITHUB_REPOSITORY}},true),true);
 assert.equal(deliveryTrigger('close',{...env,GITHUB_EVENT_NAME:'push'},

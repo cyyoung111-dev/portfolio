@@ -94,9 +94,23 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
 }
 
 function signal(row){return Number.isFinite(row?.changePercent)?Number(row.changePercent):null;}
-function entry(map,id){
+function entry(map,id,options={}){
   const info=MORNING_SERIES.find(x=>x.id===id), r=info?map.get(info.symbol):null;
-  if(!r || r.date==null || !Number.isFinite(Number(r.value)) || Number(r.value)<=0)return info?.label+': 미확보';
+  if(!r || r.date==null || !Number.isFinite(Number(r.value)) || Number(r.value)<=0){
+  // A separate completed Yahoo daily reference is not an NH operating close.
+  const refs=options?.supplements?.usReferences||[];
+  const dated=refs.filter(x=>x?.symbol===info?.symbol&&x?.label===info?.label
+    &&x?.date===expectedMorningDate(id,options?.reportDate||'',options?.now||null)
+    &&x?.source==='Yahoo Finance 일봉'&&x?.referenceOnly===true
+    &&Number.isFinite(x.value)&&x.value>0);
+  if(['SPX','NASDAQ','NDX'].includes(id)&&dated.length===1){
+    const x=dated[0],change=Number.isFinite(x.changePercent)
+      ?' ('+(x.changePercent>=0?'+':'')+x.changePercent.toFixed(2)+'%)':'';
+    return info.label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
+      +change+' ['+x.date+' · Yahoo 일봉 참고 / NH 미확보]';
+  }
+  return info?.label+': 미확보';
+ }
   let amount=Number(r.value);
   let unit='';
   // Yahoo chart ^TNX now delivers percent yields directly (e.g. 4.929).
@@ -176,6 +190,7 @@ function morningAiInvestorLens(map) {
   ];
 }
 export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
+  options={...options,reportDate:date};
   const map=new Map(rows.filter(x=>{const item=MORNING_SERIES.find(i=>i.symbol===x?.symbol);return item&&hasExpectedMorningDate(item,date,x,options?.now||null);}).map(x=>[x.symbol,x]));
   const verifiedDisplayed=MORNING_SERIES.filter(item=>{
    const r=map.get(item.symbol);
@@ -183,22 +198,25 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   }).length;
   const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST · 기준일별 종가 / 외부 참고값만 출처 표시','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
-  '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id)),
-  '거래대금·외국인/기관·시장폭(A/D·ADR20): 미확보','',
+  '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id,options)),
+  (options.supplements?.turnover||'거래대금: 미확보'),
+  (options.supplements?.breadth||'시장폭 A/D: 미확보 · ADR20: 20거래일 시계열 미연결'),
+  '외국인/기관 수급: 미확보 (공식 확정 원천 미연결)','',
   '■ 3. 밤사이 미국장 / 반도체',
-  ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id)),'',
+  ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id,options)),'',
   '■ 4. 코스피200 야간선물 (06:00)',
   reference && Number.isFinite(reference.value) && reference.value>0
     ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt [06:00 확인 · '+reference.tradingDate+'] · 마지막 체결값, 거래소 정산가 아님'
     :'코스피200 야간선물: 당일 참고값 미확보',
-  '미국 선물 ES/NQ/YM/RTY: 장전 실시간 검증값 미확보','',
+  (options.supplements?.futures||'미국 선물 ES/NQ/YM/RTY: 장전 실시간 검증값 미확보'),'',
   '■ 5. 환율 / 금리 / 변동성',
-  ...['USDKRW','DXY','UST10Y'].map(id=>entry(map,id)),
-  '미 2·3년물 / 장단기 스프레드 / VKOSPI: 미확보','',
+  ...['USDKRW','DXY','UST10Y'].map(id=>entry(map,id,options)),
+  (options.supplements?.treasury||'미 2·3년물 / 장단기 스프레드: 미확보'),
+  (options.supplements?.vkospi||'VKOSPI: 미확보'),'',
   '■ 6. 원자재 / 가상자산',
-  ...['WTI','BRENT','GOLD','COPPER','BTC'].map(id=>entry(map,id)),'',
+  ...['WTI','BRENT','GOLD','COPPER','BTC'].map(id=>entry(map,id,options)),'',
   '■ 7. 수급·유동성 / 체크포인트',
-  'KOSPI·KOSDAQ 거래대금, 고객예탁금, 신용잔고: 미확보',
+  '고객예탁금·신용잔고: 최신 확정치 미연결 (거래대금은 2항 참조)',
   'FedWatch·Finviz 히트맵·주요 이벤트: 별도 검증 필요','',
   ...morningAiInvestorLens(map),
   '■ 10. 오늘의 시나리오 (조건부, 확률 미산정)',
@@ -213,7 +231,21 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const baseline=lines.join('\n');
   if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
     lines.splice(insertAt,0,sentiment);
-  const message=lines.join('\n');
+  // Extra read-only indicators must never cancel the 07:40 briefing when
+  // all 21 dated core rows and the investment commentary are present.
+  // Remove optional supplemental lines only; never truncate a verified close,
+  // the session date, the delivery QC, or the 06:00 NH reference.
+  let message=lines.join('\n');
+  const optional=[
+    /^시장폭 A\/D:/,/^미국 선물 참고:/,/^미 국채 2Y /,
+    /^지수 구성종목 거래대금:/,/^VKOSPI:/
+  ];
+  for(const pattern of optional){
+    if(message.length<=3900)break;
+    const i=lines.findIndex(line=>pattern.test(line));
+    if(i>=0)lines.splice(i,1);
+    message=lines.join('\n');
+  }
   if(message.length>3900)throw Error('TELEGRAM_FULL_BRIEFING_TOO_LONG');
   return message;
 }

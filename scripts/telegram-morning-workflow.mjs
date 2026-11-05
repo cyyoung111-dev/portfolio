@@ -31,7 +31,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   }
   let message;
   let reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
-  let referenceOrigin=reference?'CAPTURE_ARTIFACT':'NONE';
+  const hadCapture=Boolean(reference);
+  let referenceOrigin=reference?'CAPTURE_ARTIFACT':'NONE',recoveryDiagnostic='NOT_ATTEMPTED';
   if(!reference&&!lateTest){
     reference=await loadPrefetch(window.date,{now});
     if(reference)referenceOrigin='GAS_PREFETCH_0730';
@@ -45,6 +46,7 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   if(!reference&&!lateTest&&gasUrl&&gasToken
     &&recoveryAt>=recoveryStart&&recoveryAt<recoveryCutoff){
     let recovered=null,reason='RECOVERY_NO_VALID_REFERENCE';
+    recoveryDiagnostic='RECOVERY_NO_VALID_REFERENCE';
     try{
       recovered=await recoverReference(window.date,{
         now,url:gasUrl,token:gasToken,request:fetchImpl,
@@ -66,10 +68,36 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
       reference=recovered;
       referenceOrigin='GAS_RECOVERY';
     }else if(recovered){reason='RECOVERY_METADATA_REJECTED';}
+    recoveryDiagnostic=accepted?'RECOVERY_VERIFIED':(
+      /^NH_(?:NIGHT|PROXY)_[A-Z0-9_]{1,70}$/.test(reason)?reason
+      :['RECOVERY_NO_VALID_REFERENCE','RECOVERY_CALL_FAILED',
+        'RECOVERY_METADATA_REJECTED'].includes(reason)?reason:'RECOVERY_FAILED');
     try{onRecoveryDiagnostic({status:accepted?'VERIFIED':'NOT_VERIFIED',
-      reason:accepted?null:reason});}catch{};
+      reason:accepted?null:recoveryDiagnostic});}catch{};
   }
-  const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;}});
+  // The one-off punctual worker invokes prepareMorning directly and does not
+  // provide onRecoveryDiagnostic. Always log this restricted provenance
+  // summary so a missing 06:00 reference is not silently indistinguishable
+  // from a missing NH token. Never log price, contract, endpoint or credential.
+  if(!lateTest)console.log(JSON.stringify({kind:'NH_NIGHT_REFERENCE_CHAIN',
+    date:window.date,capture:hadCapture?'VERIFIED':'UNAVAILABLE',
+    source:referenceOrigin,recovery:recoveryDiagnostic}));
+  const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,
+    referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
+    onSourceDiagnostic:entry=>{
+      const allowed=['CONFIG_MISSING','ENDPOINT_INVALID','EXPECTED_DATE_INVALID','HTTP_UNAVAILABLE',
+        'GAS_RESPONSE_INVALID','ALL_VERIFIED','PARTIAL_OR_MISSING','NETWORK_OR_PARSE_FAILED'];
+      const reasons=['PROVENANCE_OR_SERIES_INVALID','SERIES_LENGTH_INVALID',
+        'ROW_SCHEMA_OR_DUPLICATE','EXPECTED_CLOSE_UNAVAILABLE','PRIOR_CLOSE_UNAVAILABLE'];
+      const ids=['SPX','NASDAQ','NDX'];
+      if(!entry||entry.kind!=='NH_MORNING_INDEX_READ'||!allowed.includes(entry.status))return;
+      const missing=Array.isArray(entry.missing)?entry.missing.filter(x=>ids.includes(x?.id)
+        &&reasons.includes(x?.reason)).map(x=>({id:x.id,reason:x.reason})):[];
+      const verified=Array.isArray(entry.verified)?entry.verified.filter(id=>ids.includes(id)):[];
+      console.log(JSON.stringify({kind:'NH_MORNING_INDEX_READ',status:entry.status,
+        missing,verified,expectedDate:entry.expectedDate||null}));
+    }});
+
   if(!message)return {ready:false,status:result.status,date:window.date};
   const source=['NH'].includes(result.referenceSource)?result.referenceSource:'NONE';
   if(lateTest){
@@ -101,7 +129,7 @@ export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,a
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
-  if(!['schedule','workflow_run','workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
+  if(!['schedule','workflow_run','workflow_dispatch','push'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
   // Manual workflow_dispatch must be a specifically selected guarded rescue.
   // Never let the connection-test mode (or an omitted mode) send market data.
   if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'

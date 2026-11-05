@@ -44,6 +44,14 @@ export async function fetchNhNightFromGas(date,{now=()=>new Date(),
     onError(/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code)?code:'NH_NIGHT_SOURCE_UNAVAILABLE');
     return null;
   }
+  // Record the clock AFTER the response has been received. The server
+  // timestamps its receipt during a GAS/NH call that may legitimately take
+  // more than two seconds. Comparing that server timestamp to the PRE-request
+  // clock rejects valid data as a future-dated observation.
+  const completed=now(),completedMs=completed?.getTime?.();
+  if(!Number.isFinite(completedMs)||completedMs<instant.getTime()){
+    onError('NH_NIGHT_CLIENT_CLOCK_INVALID');return null;
+  }
   const ref=body.reference;
   // Fail closed if the server ever accidentally returns more than the
   // canonical reference schema. In particular, bearer/key/secret fields may
@@ -59,9 +67,11 @@ export async function fetchNhNightFromGas(date,{now=()=>new Date(),
   if(body.bearerExposed!==false||!ref||ref.source!=='NH'||ref.kind!=='REFERENCE'
     ||ref.tradingDate!==date||ref.officialClose!==false
     ||ref.sourceUpdatedAt!==date+'T06:00:00+09:00'
-    ||typeof ref.receivedAt!=='string'||!Number.isFinite(Date.parse(ref.receivedAt))
-    ||Date.parse(ref.receivedAt)>instant.getTime()+2000){
+    ||typeof ref.receivedAt!=='string'||!Number.isFinite(Date.parse(ref.receivedAt))){
     onError('NH_NIGHT_REFERENCE_INVALID');return null;
+  }
+  if(Date.parse(ref.receivedAt)>completedMs+2000){
+    onError('NH_NIGHT_RECEIPT_AFTER_RESPONSE');return null;
   }
   const validated=validateNhNight({date,clock:ref.clock,contract:ref.contract,
     contractMonth:ref.contractMonth,value:ref.value},date,ref.receivedAt);
@@ -84,6 +94,10 @@ export async function fetchNhNightProbeFromGas(date,{now=()=>new Date(),
    if(/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code))onError(code);
    return null;
  }
+ const completed=now(),completedMs=completed?.getTime?.();
+ if(!Number.isFinite(completedMs)||completedMs<instant.getTime()){
+   onError('NH_NIGHT_CLIENT_CLOCK_INVALID');return null;
+ }
  const ref=body.reference;
  const requiredOuter=['status','provider','readOnly','bearerExposed','diagnosticOnly','tokenIssued','reference'];
  const requiredRef=['source','kind','tradingDate','contract','contractMonth','value','clock',
@@ -95,8 +109,10 @@ export async function fetchNhNightProbeFromGas(date,{now=()=>new Date(),
   ||ref.source!=='NH'||ref.kind!=='REFERENCE'||ref.tradingDate!==date
   ||ref.officialClose!==false||ref.sourceUpdatedAt!==date+'T06:00:00+09:00'
   ||typeof ref.receivedAt!=='string'
-  ||!Number.isFinite(Date.parse(ref.receivedAt))
-  ||Date.parse(ref.receivedAt)>instant.getTime()+2000)return null;
+  ||!Number.isFinite(Date.parse(ref.receivedAt)))return null;
+ if(Date.parse(ref.receivedAt)>completedMs+2000){
+   onError('NH_NIGHT_RECEIPT_AFTER_RESPONSE');return null;
+ }
  return validateNhNight({date,clock:ref.clock,contract:ref.contract,
   contractMonth:ref.contractMonth,value:ref.value},date,ref.receivedAt);
 }
