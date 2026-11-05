@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {gasSourceBlobSha} from './deploy-gas.mjs';
+import {loadCutoverSources} from './issue860-bootstrap-source.mjs';
 import {classifyPublishedGateSource,inspectPublishedGasReadOnly,
  fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 
@@ -88,6 +89,15 @@ assert.equal(r.financeWrites,0);
 assert.equal(requests.length,4);
 assert.ok(!JSON.stringify(r).includes(secret));
 assert.ok(!JSON.stringify(r).includes(oauth));
+// The final cutover profile adds only an editor resume alias. Its exact pin
+// allows the same metadata-only gate GET; bootstrap still cannot pass here.
+requests=[];pub=head=loadCutoverSources().finalSource;
+r=await inspectPublishedGasReadOnly(args());
+assert.equal(r.status,'LIVE_V9282_GATE_OPEN_CONFIRMED');
+assert.equal(requests.length,4);assert.equal(r.financeWrites,0);
+assert.equal(classifyPublishedGateSource(pub+'\n').gateReadAllowed,false);
+assert.equal(classifyPublishedGateSource(loadCutoverSources().bootstrapSource).gateReadAllowed,false);
+pub=head=real;
 // Published 9.281 and proposed 9.283 are unknown route contracts: NO runtime GET.
 for(const source of [older,newer,real+'\n']){
  requests=[];pub=source;head=source;
