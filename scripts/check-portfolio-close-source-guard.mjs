@@ -1046,6 +1046,8 @@ function simulatePortfolioWriters(options={}) {
     LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
     _portfolioFundAtomic_:callback=>callback(p),
     _portfolioFundState_:(pr,key)=>JSON.parse(pr.getProperty(key)||'null'),
+    getss:()=>({}),getCodeItems:()=>[],
+    _seedMissingKrxCloseDates_:()=>{},_seedRecentMissingKrxSnapshotDays_:()=>{},
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
