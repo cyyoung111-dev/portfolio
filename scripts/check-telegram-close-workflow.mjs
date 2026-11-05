@@ -274,11 +274,15 @@ assert.ok(Object.hasOwn(workflow.on,'workflow_dispatch'),
 // closing run. Independent completions may recover only inside each window.
 const env={GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',GITHUB_REF:'refs/heads/main',
  GITHUB_RUN_ATTEMPT:'1',GITHUB_EVENT_NAME:'workflow_run'};
-const completion={action:'completed',workflow_run:{name:'gas-deploy',
- path:'.github/workflows/gas-deploy.yml',event:'workflow_run',head_branch:'main',
+const completion={action:'completed',workflow_run:{name:'market-briefing-headless',
+ path:'.github/workflows/market-briefing-headless.yml',event:'schedule',head_branch:'main',
  head_repository:{full_name:env.GITHUB_REPOSITORY},status:'completed',conclusion:'success',run_attempt:1}};
 assert.equal(deliveryTrigger('close',env,completion,true),true);
 assert.equal(deliveryTrigger('close',env,completion,false),false);
+assert.throws(()=>deliveryTrigger('close',env,{...completion,workflow_run:{
+ ...completion.workflow_run,name:'gas-deploy',path:'.github/workflows/gas-deploy.yml',
+ event:'workflow_run'}},true),/TELEGRAM_TRIGGER_INVALID/,
+ 'gas-deploy completion must never enqueue a closing briefing');
 for(const patch of [{event:'pull_request'},{head_branch:'feature'},
  {head_repository:{full_name:'other/fork'}},{path:'.github/workflows/other.yml'},
  {conclusion:'failure'},{run_attempt:2},{name:'quality-check'}]){
@@ -330,7 +334,7 @@ assert.throws(()=>assert.throws(()=>unsafe.deliveryTrigger('close',env,{...compl
  workflow_run:{...completion.workflow_run,head_repository:{full_name:'other/fork'}}},true)),
  'the fork rejection oracle must detect removal of the trust guard');
 assert.deepEqual(workflow.on.workflow_run.workflows,[
- 'market-briefing-headless','gas-deploy','Telegram closing data precompute']);
+ 'market-briefing-headless','Telegram closing data precompute']);
 const precomputeCompletion={...completion,workflow_run:{...completion.workflow_run,
  name:'Telegram closing data precompute',
  path:'.github/workflows/telegram-close-precompute.yml',event:'schedule'}};
