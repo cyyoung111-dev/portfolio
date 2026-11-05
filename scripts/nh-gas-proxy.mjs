@@ -11,8 +11,32 @@ export function validateGasEndpoint(url){
     throw Error('NH_PROXY_CONFIG');
   return parsed.href;
 }
+// Fixed, non-sensitive transport diagnostics. No URLs, redirects' signed
+// query strings, HTTP bodies, GAS access tokens or private error messages.
+const safeTransportStatus=value=>[400,401,403,404,405,408,409,429,500,502,503,504]
+ .includes(Number(value))?Number(value):0;
+function classifyTransportResponse(res){
+ let host='UNKNOWN';
+ try{
+  const name=new URL(res?.url).hostname;
+  host=name==='script.google.com'?'GAS_WEB_APP'
+   :name==='script.googleusercontent.com'?'GOOGLE_CONTENT':'OTHER';
+ }catch{}
+ let type='UNKNOWN';
+ try{
+  const mime=String(res?.headers?.get?.('content-type')||'').split(';')[0].trim().toLowerCase();
+  type=/^application\/(?:json|[a-z0-9.+-]+\+json)$/.test(mime)?'JSON'
+   :mime==='text/html'?'HTML':mime==='text/plain'?'PLAIN':'OTHER';
+ }catch{}
+ return {httpStatus:safeTransportStatus(res?.status),
+  redirect:res?.redirected===true?'YES':res?.redirected===false?'NO':'UNKNOWN',
+  responseHost:host,contentType:type};
+}
 export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
-  token=process.env.GAS_ACCESS_TOKEN,date,request=fetch}={}){
+  token=process.env.GAS_ACCESS_TOKEN,date,request=fetch,onTransportDiagnostic=()=>{}}={}){
+ const report=(phase,meta={})=>{
+  try{onTransportDiagnostic({kind:'NH_GAS_TRANSPORT',phase,...meta});}catch{}
+ };
   if(!['getNhNightProxy','getNhAuthStatusProxy','getNhNightProbe','bootstrapNhTokenOnce20261030'].includes(action)||!token||token.length<12)
     throw Error('NH_PROXY_CONFIG');
   const target=validateGasEndpoint(url);
@@ -22,14 +46,30 @@ export async function callNhGasProxy(action,{url=process.env.GAS_WEB_APP_URL,
     response=await request(target,{method:'POST',
       headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
       body:payload,redirect:'follow',signal:AbortSignal.timeout(25000)});
-    if(!response.ok)throw Error();
-    body=await response.json();
-  }catch{throw Error('NH_PROXY_NETWORK_OR_RESPONSE');}
+  }catch(error){
+    report(error?.name==='TimeoutError'||error?.name==='AbortError'
+      ?'FETCH_TIMEOUT':'FETCH_FAILED');
+    throw Error('NH_PROXY_NETWORK_OR_RESPONSE');
+  }
+  if(!response?.ok){
+    report('HTTP_REJECTED',classifyTransportResponse(response));
+    throw Error('NH_PROXY_NETWORK_OR_RESPONSE');
+  }
+  try{body=await response.json();}
+  catch{
+    report('JSON_PARSE_FAILED',classifyTransportResponse(response));
+    throw Error('NH_PROXY_NETWORK_OR_RESPONSE');
+  }
   if(body?.status!=='ok'||body?.provider!=='NH'||body.readOnly!==true) {
     const code=body?.message;
-    if(body?.status==='error'&&typeof code==='string'&&/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code))throw Error(code);
+    const known=body?.status==='error'&&typeof code==='string'
+      &&/^NH_PROXY_[A-Z0-9_]{1,70}$/.test(code)?code:null;
+    report(known?'GAS_REJECTED':'GAS_CONTRACT_REJECTED',
+      {errorCode:known||'UNVERIFIED'});
+    if(known)throw Error(known);
     throw Error('NH_PROXY_UNAVAILABLE');
   }
+  report('STATUS_OK');
   return body;
 }
 export async function fetchNhNightFromGas(date,{now=()=>new Date(),
