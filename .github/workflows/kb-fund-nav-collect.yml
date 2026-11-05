@@ -4,6 +4,11 @@ on:
     - cron: '15 23 * * *' # 08:15 KST, before 08:45 KRX recovery
     - cron: '10 9 * * *'
   workflow_dispatch:
+  # One GET-only public source check on the merge that installs this workflow.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/kb-fund-nav-collect.yml'
 permissions:
   contents: read
 concurrency:
@@ -13,7 +18,7 @@ jobs:
   # Public source has no GAS token, no private workbook or deployment access.
   # Its failure must not falsely mark the protected import as successful.
   source-public:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
