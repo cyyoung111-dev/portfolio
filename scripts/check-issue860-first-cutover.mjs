@@ -4,10 +4,30 @@ import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import YAML from 'yaml';
 import {loadCutoverSources,BASE_BLOB,FINAL_BLOB,RELEASE} from './issue860-bootstrap-source.mjs';
-import {runFirstCutover,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB} from './issue860-first-cutover.mjs';
+import {runFirstCutover,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,assertFirstCutoverCliContext} from './issue860-first-cutover.mjs';
 import {loadCutoverSources as loadPreviousSources} from '../reference/issue860-bootstrap-v1.mjs';
 import {gasSourceBlobSha,assertGasReleaseReady} from './deploy-gas.mjs';
 import {fixture as triggerFixture,manifest as triggerManifest} from './check-issue860-trigger-maintenance.mjs';
+// A narrowly scoped main-push inspection cannot become a deploy or
+// bypass the trusted main SHA and explicit no-approval contract.
+const readonlyContext={
+ GITHUB_EVENT_NAME:'push',GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',
+ GITHUB_SHA:'a'.repeat(40),GAS_EXPECTED_MAIN_SHA:'a'.repeat(40),
+ GAS_ISSUE860_ONE_SHOT_INSPECT:'true',GAS_FIRST_GATE_PHASE:'inspect',
+ GAS_DEPLOY_DRY_RUN:'true',GAS_9282_RELEASE_APPROVAL:'false',GAS_9283_RELEASE_APPROVAL:'false'
+};
+assert.equal(assertFirstCutoverCliContext(readonlyContext),'one-shot-readonly-inspect');
+assert.equal(assertFirstCutoverCliContext({...readonlyContext,GITHUB_EVENT_NAME:'workflow_dispatch'}),'manual');
+for(const altered of [
+ {GAS_ISSUE860_ONE_SHOT_INSPECT:'false'},{GAS_FIRST_GATE_PHASE:'finalize'},
+ {GAS_FIRST_GATE_PHASE:'bootstrap'},{GAS_FIRST_GATE_PHASE:'abort'},
+ {GAS_DEPLOY_DRY_RUN:'false'},{GAS_9282_RELEASE_APPROVAL:'true'},
+ {GAS_9283_RELEASE_APPROVAL:'true'},{GITHUB_REF:'refs/heads/pr'},
+ {GITHUB_REPOSITORY:'another/repo'},{GAS_EXPECTED_MAIN_SHA:'b'.repeat(40)},
+ {GITHUB_SHA:'invalid-sha'},{GITHUB_EVENT_NAME:'schedule'}
+]){
+ assert.throws(()=>assertFirstCutoverCliContext({...readonlyContext,...altered}),/MAIN_MANUAL_ONLY/);
+}
 const sources=loadCutoverSources();
 const previousSources=loadPreviousSources();
 assert.equal(gasSourceBlobSha(previousSources.bootstrapSource),PREVIOUS_BOOTSTRAP_BLOB);
