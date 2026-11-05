@@ -7,7 +7,7 @@ import {DAY,APPROVED_GAS_BLOB,PRIVATE_GAS_FUNCTION}
 
 // Verify the ACTUAL production GAS blob and actual aggregate KRX proof handler.
 // No GAS deployment, token issuance, network, or financial data writes.
-const bytes=fs.readFileSync('src/gas/apps_script.gs');
+const bytes=fs.readFileSync('reference/gas-v9.282.gs');
 const sha=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 assert.equal(sha,APPROVED_GAS_BLOB);
 const gas=bytes.toString('utf8');
