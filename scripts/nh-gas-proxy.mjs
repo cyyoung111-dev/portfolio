@@ -38,6 +38,10 @@ function classifyTransportResponse(res){
 export function classifyGasHtml(html){
  if(typeof html!=='string'||html.length>120000)return 'HTML_UNVERIFIED';
  const text=html.slice(0,60000);
+ // Google may return HTTP 200 HTML with a doGet routing error to a POST
+ // request, without executing the intended doPost action. Log only this enum.
+ if(/Script function not found:\s*doGet\b/i.test(text))return 'GOOGLE_ROUTED_POST_TO_DOGET';
+ if(/Script function not found:\s*doPost\b/i.test(text))return 'GOOGLE_DOPOST_NOT_FOUND';
  if(/accounts\.google\.com|Sign in - Google Accounts|to continue to Google/i.test(text))
   return 'GOOGLE_SIGN_IN';
  if(/you need access|request access|you need permission|access denied|권한이 없습니다|액세스 권한/i.test(text))
