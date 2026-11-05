@@ -1,0 +1,42 @@
+name: krx-20261105-held-source-preflight
+
+# One-time source-only audit before the 19:00 portfolio writer.
+# No schedules, GAS deployment, financial writes, workflow_dispatch or Telegram.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-20261105-held-source-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Reject late execution overlapping the 19 KST financial writer
+        shell: bash
+        run: |
+          day="$(TZ=Asia/Seoul date +%F)"
+          hm="$(TZ=Asia/Seoul date +%H%M)"
+          if [ "$day" != '2026-11-05' ] || [ "$hm" -ge '1840' ]; then
+            echo "KRX_SOURCE_PREFLIGHT_WINDOW_EXPIRED"
+            exit 2
+          fi
+          echo "KRX_SOURCE_PREFLIGHT_READ_ONLY_WINDOW"
+      - name: Read-only official held-code coverage for November 4 and 5
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node scripts/diagnose-krx-held-coverage.mjs --dates '2026-11-04,2026-11-05'
