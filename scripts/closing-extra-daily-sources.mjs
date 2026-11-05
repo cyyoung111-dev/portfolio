@@ -107,6 +107,117 @@ export async function readNhClosingStocks(date,{url=process.env.GAS_WEB_APP_URL,
  emit(describeClosingNhStockRead(date,data));
  return normalizeClosingNhStocks(date,data);
 }
+// Stock references are never written to the portfolio price/history sheets.
+// A KRX-published KR close or a completed US Yahoo daily bar can supplement
+// missing NH history; each keeps a distinct provenance label.
+export function validClosingStockReference(date,row){
+ const session=closingStockSessions(date);
+ const target=STOCKS.find(x=>x.id===row?.id);
+ const config=target?MORNING_SERIES.find(x=>x.id===target.id):null;
+ if(!session||!target||!config||row.label!==config.label||row.symbol!==config.symbol
+   ||row.date!==(target.market==='KR'?session.day:session.us)
+   ||!Number.isFinite(row.value)||row.value<=0
+   ||(row.changePercent!==null&&!Number.isFinite(row.changePercent)))return false;
+ return row.source==='NH_REGULAR_CLOSE'
+   ||(target.market==='KR'&&row.source==='KRX_OFFICIAL')
+   ||(target.market==='US'&&row.source==='YAHOO_DAILY_REFERENCE');
+}
+export function normalizeKrxOfficialClosingStocks(date,data,{instant=new Date()}={}){
+ if(!closingStockSessions(date)||data?.status!=='ok'||data.requestedDate!==date
+   ||!data.closes||typeof data.closes!=='object'||Array.isArray(data.closes)
+   ||!Number.isFinite(instant?.getTime?.()))return [];
+ const result=[];
+ for(const item of STOCKS.filter(x=>x.market==='KR')){
+  const row=data.closes[item.code],config=MORNING_SERIES.find(x=>x.id===item.id);
+  const stamp=Date.parse(row?.receivedAt||'');
+  if(!config||row?.code!==item.code||row?.requestedDate!==date
+    ||row.usedDate!==date||row.source!=='KRX_OFFICIAL'
+    ||!['KRX','KRX_OTP'].includes(row.providerSource)
+    ||!Number.isFinite(row.price)||row.price<=0
+    ||!Number.isFinite(stamp)||stamp>Date.parse(instant.toISOString())+2000
+    ||stamp<Date.parse(date+'T15:30:00+09:00'))continue;
+  result.push({id:item.id,label:config.label,symbol:config.symbol,date,
+    source:'KRX_OFFICIAL',value:row.price,changePercent:null});
+ }
+ return result;
+}
+export async function readKrxOfficialClosingStocks(date,{
+ url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,
+ fetchImpl=fetch,now=()=>new Date(),onDiagnostic=()=>{}
+}={}){
+ const emit=status=>{try{onDiagnostic({kind:'KRX_CLOSE_STOCK_READ',status});}catch{}};
+ if(!closingStockSessions(date)||!url||typeof token!=='string'||token.length<12){
+  emit('CONFIG_OR_SESSION_UNVERIFIED');return [];
+ }
+ let endpoint;
+ try{endpoint=validateGasEndpoint(url);}catch{emit('ENDPOINT_INVALID');return [];}
+ try{
+  const response=await fetchImpl(endpoint,{method:'POST',
+   headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+   body:new URLSearchParams({action:'getKrxOfficialStockCloses',accessToken:token,
+    date,codes:'005930,000660'}),redirect:'follow',signal:AbortSignal.timeout(20000)});
+  if(!response?.ok){emit('HTTP_UNAVAILABLE');return [];}
+  const body=await response.json();
+  const rows=normalizeKrxOfficialClosingStocks(date,body,{instant:now()});
+  emit(rows.length===2?'BOTH_VERIFIED':rows.length?'PARTIAL':'NO_DATED_OFFICIAL_CLOSE');
+  return rows;
+ }catch{emit('NETWORK_OR_PARSE_FAILED');return [];}
+}
+export async function readYahooClosingUsStocks(date,{
+ fetchImpl=fetch,now=()=>new Date(),fetchDaily=fetchDatedDaily,onDiagnostic=()=>{}
+}={}){
+ const session=closingStockSessions(date);
+ if(!session)return [];
+ const result=await Promise.all(STOCKS.filter(x=>x.market==='US').map(async item=>{
+  const config=MORNING_SERIES.find(x=>x.id===item.id);
+  if(!config)return null;
+  for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
+   try{
+    const row=await fetchDaily(config.label,config.symbol,date,
+      {fetchImpl,now:now(),host});
+    const candidate={id:item.id,label:config.label,symbol:config.symbol,
+      date:row?.date,value:row?.value,changePercent:row?.changePercent,
+      source:'YAHOO_DAILY_REFERENCE'};
+    if(row?.source==='Yahoo Finance 일봉'&&row.label===config.label
+      &&row.symbol===config.symbol&&validClosingStockReference(date,candidate))
+      return candidate;
+   }catch{}
+  }
+  return null;
+ }));
+ const accepted=result.filter(Boolean);
+ try{onDiagnostic({kind:'US_STOCK_DAILY_REFERENCE',status:accepted.length===2
+  ?'BOTH_VERIFIED':accepted.length?'PARTIAL':'NO_EXACT_COMPLETED_BAR',
+  verified:accepted.map(x=>x.id)});}catch{}
+ return accepted;
+}
+export async function readClosingStockSources(date,{
+ url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,
+ fetchImpl=fetch,now=()=>new Date(),onDiagnostic=()=>{},
+ fetchNh=readNhClosingStocks,fetchKrx=readKrxOfficialClosingStocks,
+ fetchUs=readYahooClosingUsStocks
+}={}){
+ if(!closingStockSessions(date))return [];
+ const options={url,token,fetchImpl,now};
+ const attempts=await Promise.allSettled([
+  fetchNh(date,{...options,onDiagnostic:details=>{
+   try{onDiagnostic({kind:'NH_CLOSE_STOCK_READ',...details});}catch{}}}),
+  fetchKrx(date,{...options,onDiagnostic}),
+  fetchUs(date,{...options,onDiagnostic})
+ ]);
+ const groups=attempts.map(x=>x.status==='fulfilled'&&Array.isArray(x.value)
+   ?x.value.filter(r=>validClosingStockReference(date,r)):[]);
+ const byId=new Map();
+ // Priority: confirmed NH, then official KRX / dated Yahoo reference.
+ for(const rows of groups)for(const row of rows)
+  if(!byId.has(row.id))byId.set(row.id,row);
+ const combined=STOCKS.flatMap(item=>byId.has(item.id)?[byId.get(item.id)]:[]);
+ try{onDiagnostic({kind:'CLOSE_STOCK_COVERAGE',status:'CHECKED',
+  verified:combined.map(x=>x.id),
+  sources:combined.map(x=>({id:x.id,source:x.source}))});}catch{}
+ return combined;
+}
+
 // Yahoo daily macro snapshots are annotated as prior completed US/FX sessions,
 // never as current 17:00 spot/interest-rate quotes. Fail closed on stale dates.
 export function validateClosingMacro(date,id,row){
@@ -138,14 +249,7 @@ export async function readClosingMacros(date,{fetchImpl=fetch,now=()=>new Date()
  return entries.filter(Boolean);
 }
 export function formatClosingExtra(date,stocks=[],macros=[],{omitUs10y=false}={}){
- const safeStocks=stocks.filter(x=>{
-   const sessions=closingStockSessions(date),target=STOCKS.find(s=>s.id===x?.id);
-   const expected=target?.market==='KR'?sessions?.day:sessions?.us;
-   return target&&x.source==='NH_REGULAR_CLOSE'&&x.date===expected
-     &&x.symbol===MORNING_SERIES.find(m=>m.id===target.id)?.symbol
-     &&x.label===MORNING_SERIES.find(m=>m.id===target.id)?.label
-     &&Number.isFinite(x.value)&&x.value>0;
- });
+ const safeStocks=stocks.filter(x=>validClosingStockReference(date,x));
  const safeMacros=macros.map(x=>validateClosingMacro(date,x?.id,
    x?.source==='YAHOO_DAILY_REFERENCE'?{...x,source:'Yahoo Finance 일봉'}:x)).filter(Boolean);
  const lines=['■ 주요 종목 (국내 당일 / 미국 직전 완료장)'];
@@ -157,7 +261,7 @@ export function formatClosingExtra(date,stocks=[],macros=[],{omitUs10y=false}={}
    lines.push(name+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
      +' '+unit+(Number.isFinite(x.changePercent)?' ('+(x.changePercent>=0?'+':'')
      +x.changePercent.toFixed(2)+'%)':'')
-     +' ['+x.date+']');
+     +' ['+x.date+(x.source==='NH_REGULAR_CLOSE'?'':x.source==='KRX_OFFICIAL'?' · KRX 공식 종가':' · Yahoo 일봉 참고')+']');
  }
  lines.push('','■ 환율·금리 (직전 완료 일봉, 실시간 아님)');
  for(const item of MACROS){

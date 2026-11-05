@@ -57,6 +57,18 @@ assert.equal(sanitizePreclose(date,{...all,nh:[...nh,nh[0]]}).nh.length,2,
 assert.equal(verifyPreparedClose(date,{...r.data,nh:[...nh,nh[0]]},now()),null,
  'ambiguous artifact must be rejected rather than silently pruning duplicates');
 assert.equal(sanitizePreclose(date,{...all,stocks:[{...stocks[0],source:'KRX_CARRY'}]}).stocks.length,0);
+const approvedAlternatives=[
+ {...stocks[0],source:'KRX_OFFICIAL',changePercent:null},
+ {...stocks[1],source:'KRX_OFFICIAL',changePercent:null},
+ {...stocks[2],source:'YAHOO_DAILY_REFERENCE'},
+ {...stocks[3],source:'YAHOO_DAILY_REFERENCE'}
+];
+assert.equal(sanitizePreclose(date,{...all,stocks:approvedAlternatives}).stocks.length,4);
+assert.equal(verifyPreparedClose(date,{...r.data,stocks:approvedAlternatives},now())?.stocks.length,4);
+assert.equal(sanitizePreclose(date,{...all,stocks:[
+ {...stocks[0],source:'YAHOO_DAILY_REFERENCE'},
+ {...stocks[2],source:'KRX_OFFICIAL'}
+]}).stocks.length,0,'a valid source for the wrong market cannot count');
 assert.equal((await precomputeClose({now:()=>new Date('2026-10-31T16:50:00+09:00'),
  fetchNh:async()=>assert.fail('weekend no fetch')})).status,'MARKET_NOT_OPEN');
 const run={id:7123,name:'Telegram closing data precompute',

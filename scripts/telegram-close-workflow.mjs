@@ -12,7 +12,7 @@ import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} from './briefing-source-coverage.mjs';
-import {readNhClosingStocks,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
+import {readClosingStockSources,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
@@ -189,7 +189,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
  fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
- fetchStocks=readNhClosingStocks,fetchMacros=readClosingMacros,
+ fetchStocks=readClosingStockSources,fetchMacros=readClosingMacros,
  fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
  fetchRates=readTreasuryCurve,fetchVkospi=readClosingVkospi,
  loadPrepared=async()=>null}={}){

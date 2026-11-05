@@ -1,4 +1,5 @@
 import {selectCurrentFuturesRows} from './closing-current-futures.mjs';
+import {validClosingStockReference} from './closing-extra-daily-sources.mjs';
 // Evidence-bounded AI value-chain commentary for the 17:00 closing briefing.
 // Market-price proxies are NOT direct evidence of hyperscaler CAPEX or AI ROI.
 // Keep unconnected operating indicators explicitly out of factual conclusions.
@@ -24,8 +25,7 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
   const rows=stocks.filter(x=>x?.id===id);
   return rows.length===1&&rows[0].date===expected
    &&rows[0].label===label&&rows[0].symbol===symbol
-   &&rows[0].source==='NH_REGULAR_CLOSE'
-   &&Number.isFinite(rows[0].value)&&rows[0].value>0;
+   &&validClosingStockReference(date,rows[0]);
  });
  const fresh=selectCurrentFuturesRows(date,futures,now);
  const kospi=domestic.filter(x=>x?.label==='KOSPI'&&x.date===date

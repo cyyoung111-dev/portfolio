@@ -4,6 +4,8 @@ import vm from 'node:vm';
 import {normalizeWatchOnlyCloses,PROPOSED_GAS_HANDLER,GAS_WATCH_ACTION} from './nh-briefing-watch-readonly-contract.mjs';
 import {
  closingStockSessions,normalizeClosingNhStocks,readNhClosingStocks,describeClosingNhStockRead,
+ validClosingStockReference,normalizeKrxOfficialClosingStocks,readKrxOfficialClosingStocks,
+ readYahooClosingUsStocks,readClosingStockSources,
  validateClosingMacro,readClosingMacros,formatClosingExtra
 } from './closing-extra-daily-sources.mjs';
 import {summarizeCloseCoverage} from './briefing-source-coverage.mjs';
@@ -100,6 +102,78 @@ assert.equal(stockCalls,1,'one read-only stored NH history batch');
 assert.equal(saved.length,4);
 assert.deepEqual(await readNhClosingStocks(date,{url:'http://evil.net/exec',
  token:'TEST_ACCESS_TOKEN_WITH_LENGTH',fetchImpl:()=>assert.fail('unsafe host')}),[]);
+// 17:00 briefing-only fallback: accept dated KRX official KR closes and a
+// completed US Yahoo daily reference, never a carry or unfinished candle.
+const kstClose=()=>new Date(date+'T17:05:00+09:00');
+const krxReply={status:'ok',requestedDate:date,closes:{
+ '005930':{code:'005930',requestedDate:date,usedDate:date,source:'KRX_OFFICIAL',
+   providerSource:'KRX',price:73500,receivedAt:date+'T16:05:00+09:00'},
+ '000660':{code:'000660',requestedDate:date,usedDate:date,source:'KRX_OFFICIAL',
+   providerSource:'KRX_OTP',price:179000,receivedAt:date+'T16:07:00+09:00'}
+}};
+const krxReference=normalizeKrxOfficialClosingStocks(date,krxReply,{instant:kstClose()});
+assert.deepEqual(krxReference.map(x=>x.id),['SAMSUNG','SKHYNIX']);
+assert.ok(krxReference.every(x=>x.source==='KRX_OFFICIAL'&&x.date===date));
+const staleReply=structuredClone(krxReply);
+staleReply.closes['005930'].usedDate='2026-10-30';
+staleReply.closes['000660'].providerSource='UNKNOWN';
+assert.deepEqual(normalizeKrxOfficialClosingStocks(date,staleReply,{instant:kstClose()}),[]);
+const futureReply=structuredClone(krxReply);
+futureReply.closes['005930'].receivedAt=date+'T19:30:00+09:00';
+assert.equal(normalizeKrxOfficialClosingStocks(date,futureReply,{instant:kstClose()}).length,1);
+let krxCalls=0;
+const official=await readKrxOfficialClosingStocks(date,{
+ url:'https://script.google.com/macros/s/EXAMPLE123/exec',
+ token:'TEST_ACCESS_TOKEN_WITH_LENGTH',now:kstClose,
+ fetchImpl:async(_url,request)=>{
+  krxCalls++;
+  assert.equal(request.body.get('action'),'getKrxOfficialStockCloses');
+  assert.equal(request.body.get('codes'),'005930,000660');
+  assert.equal(request.body.get('date'),date);
+  return {ok:true,json:async()=>krxReply};
+ }
+});
+assert.equal(krxCalls,1);assert.equal(official.length,2);
+const usCalls=[];
+const usReference=await readYahooClosingUsStocks(date,{
+ now:kstClose,fetchDaily:async(label,symbol,_date,{host})=>{
+  usCalls.push({symbol,host});
+  return {label,symbol,date:us,value:symbol==='NVDA'?215:105,
+    changePercent:symbol==='NVDA'?1.5:2,source:'Yahoo Finance 일봉'};
+ }
+});
+assert.deepEqual(usReference.map(x=>x.id),['NVDA','MU']);
+assert.ok(usReference.every(x=>x.source==='YAHOO_DAILY_REFERENCE'));
+assert.equal(usCalls.length,2);
+const noUs=await readYahooClosingUsStocks(date,{
+ now:kstClose,fetchDaily:async(label,symbol)=>({
+  label,symbol,date,source:'Yahoo Finance 일봉',value:999,changePercent:0
+ })
+});
+assert.deepEqual(noUs,[],'current/incomplete US daily bars cannot be used');
+const badUs=await readYahooClosingUsStocks(date,{
+ now:kstClose,fetchDaily:async(label,symbol)=>({
+  label,symbol,date:us,source:'WRONG_PROVIDER',value:999,changePercent:0
+ })
+});
+assert.deepEqual(badUs,[],'provider identity must be verified');
+const blended=await readClosingStockSources(date,{
+ fetchNh:async()=>[stocks[0]],fetchKrx:async()=>official,fetchUs:async()=>usReference
+});
+assert.deepEqual(blended.map(x=>x.id),['SAMSUNG','SKHYNIX','NVDA','MU']);
+assert.deepEqual(blended.map(x=>x.source),
+ ['NH_REGULAR_CLOSE','KRX_OFFICIAL','YAHOO_DAILY_REFERENCE','YAHOO_DAILY_REFERENCE']);
+const alternative=await readClosingStockSources(date,{
+ fetchNh:async()=>[],fetchKrx:async()=>official,fetchUs:async()=>usReference
+});
+assert.equal(alternative.length,4);
+assert.deepEqual(summarizeCloseCoverage(date,{stocks:alternative,expectedUsDate:us}).stocks,
+ {verified:4,total:4});
+assert.match(formatClosingExtra(date,alternative,[]),/삼성전자: 73,500 원.*KRX 공식 종가/);
+assert.match(formatClosingExtra(date,alternative,[]),/엔비디아: 215 USD.*Yahoo 일봉 참고/);
+assert.equal(validClosingStockReference(date,{...alternative[0],source:'KRX_CARRY'}),false);
+assert.equal(validClosingStockReference(date,{...alternative[0],id:'NVDA'}),false);
+
 const macrosPayload={
  USDKRW:{label:'원/달러',symbol:'KRW=X',date:us,value:1445.12,changePercent:0.12,source:'Yahoo Finance 일봉'},
  DXY:{label:'DXY',symbol:'DX-Y.NYB',date:us,value:104.5,changePercent:-0.4,source:'Yahoo Finance 일봉'},
