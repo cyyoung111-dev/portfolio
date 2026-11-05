@@ -6,7 +6,7 @@ import {gasSourceBlobSha} from './deploy-gas.mjs';
 // The published v9.281 source was read-only audited as deployment version 336
 // on 2026-11-03. This is an immutable source regression, NOT a live GAS check.
 const baseline=fs.readFileSync('reference/gas-v9.281.gs','utf8');
-const candidate=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const candidate=fs.readFileSync('reference/gas-v9.282.gs','utf8');
 assert.equal(gasSourceBlobSha(baseline),'ebe697563e94cf49e514037353260fce70ae1d57',
   'published v9.281 audited baseline has changed');
 
