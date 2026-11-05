@@ -1,3 +1,4 @@
+import {validClosingStockReference} from './closing-extra-daily-sources.mjs';
 // Read-only coverage inventory. "Connected" means that a production formatter
 // has a validated source path, NOT that the provider returned data today.
 // Never log raw provider bodies, credentials, prices or private portfolio rows.
@@ -78,9 +79,8 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
   }
   for(const entry of CLOSE_SOURCE_CATALOG.extraStocks){
     const rows=stocks.filter(x=>x?.id===entry.id&&x.label===entry.label
-      &&x.symbol===entry.symbol&&x.source==='NH_REGULAR_CLOSE'
-      &&x.date===(entry.id==='SAMSUNG'||entry.id==='SKHYNIX'?date:expectedUsDate)
-      &&validRow(x));
+      &&x.symbol===entry.symbol&&x.date===(entry.id==='SAMSUNG'||entry.id==='SKHYNIX'?date:expectedUsDate)
+      &&validClosingStockReference(date,x));
     statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('STOCKS'))});
   }
   for(const entry of CLOSE_SOURCE_CATALOG.extraMacros){
