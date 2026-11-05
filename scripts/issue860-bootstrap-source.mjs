@@ -13,10 +13,18 @@ export function buildBootstrapSource(finalSource,maintenance){
  if(finalSource.split(point).length!==2)throw Error('CUTOVER_LAYOUT');
  let code=finalSource.replace(point,point+"\n  throw new Error('ISSUE860_BOOTSTRAP_MAINTENANCE');");
  code=code.replace("if(!raw)return jsonOk({gasVersion:ISSUE507_GATE_API_VERSION,writerGate:{mode:'UNINITIALIZED',repairAuthorized:false}});",
-  "if(!raw)return jsonOk({gasVersion:ISSUE507_GATE_API_VERSION,writerGate:{mode:'UNINITIALIZED',repairAuthorized:false,firstCutoverReady:false,firstCutoverAbortReady:_issue860BootstrapAbortReady_(props),journalPresent:!!props.getProperty(ISSUE860_TRIGGER_JOURNAL)}});");
+  "if(!raw)return jsonOk({gasVersion:ISSUE507_GATE_API_VERSION,writerGate:{mode:'UNINITIALIZED',repairAuthorized:false,firstCutoverReady:false,firstCutoverAbortReady:_issue860BootstrapAbortReady_(props),journalPresent:!!props.getProperty(ISSUE860_TRIGGER_JOURNAL),preservedTriggers:_issue860PreservedStatus_(props)}});");
  code=code.replace('activeCount:Object.keys(s.active).length,finished:s.finished,',
-  'activeCount:Object.keys(s.active).length,finished:s.finished,releaseId:s.releaseId,firstCutoverReady:_issue860BootstrapReady_(props,s),journalPresent:!!props.getProperty(ISSUE860_TRIGGER_JOURNAL),');
- return code+'\n'+maintenance+'\n'+EDITOR_HELPERS;
+  'activeCount:Object.keys(s.active).length,finished:s.finished,releaseId:s.releaseId,firstCutoverReady:_issue860BootstrapReady_(props,s),journalPresent:!!props.getProperty(ISSUE860_TRIGGER_JOURNAL),preservedTriggers:_issue860PreservedStatus_(props),');
+ // Keep the staged legacy module unchanged while making both installation
+ // protocols mutually exclusive in this exact bootstrap profile.
+ const readPoint='function _issue860Read_(p){';
+ const preparePoint="if(p.getProperty(ISSUE860_TRIGGER_JOURNAL))_issue860Fail_('JOURNAL_EXISTS');";
+ if(maintenance.split(readPoint).length!==2||maintenance.split(preparePoint).length!==2)throw Error('CUTOVER_LAYOUT');
+ const preservedGuard="if(p.getProperty('issue860_preserved_triggers_v1'))_issue860Fail_('PRESERVED_MODE');";
+ const adapted=maintenance.replace(readPoint,readPoint+'\n  '+preservedGuard)
+  .replace(preparePoint,preservedGuard+'\n    '+preparePoint);
+ return code+'\n'+adapted+'\n'+EDITOR_HELPERS;
 }
 export function loadCutoverSources(){
  const baseSource=fs.readFileSync('src/gas/apps_script.gs','utf8').replace(/\r\n/g,'\n');
@@ -29,6 +37,75 @@ export function loadCutoverSources(){
 const FINAL_EDITOR_RESUME='\n// Issue860 editor-only resume; existing drain validation is unchanged.\nfunction issue507ResumeWriters() {\n  return issue507ResumeWriters_();\n}\n';
 const EDITOR_HELPERS=String.raw`
 // Editor-only metadata operations. No HTTP/menu/trigger routes are registered.
+var ISSUE860_PRESERVED_TRIGGERS='issue860_preserved_triggers_v1';
+function _issue860PreservedValidate_(m) {
+  if(!m||m.schema!==1||m.releaseId!==ISSUE860_TRIGGER_RELEASE||
+    !Number.isSafeInteger(m.productionVersion)||m.productionVersion<1||
+    !/^[a-f0-9]{64}$/.test(m.productionBindingSha256||'')||
+    !Array.isArray(m.triggers)||m.triggers.length<11||m.triggers.length>12)_issue860Fail_('PRESERVED_MANIFEST');
+  var base=[],extra=0,ids={};
+  m.triggers.forEach(function(t){
+    if(!t||!['HEAD','PRODUCTION'].includes(t.binding)||typeof t.id!=='string'||!t.id||ids[t.id])
+      _issue860Fail_('PRESERVED_MANIFEST');
+    ids[t.id]=true;
+    if(t.handler==='runDeferredFundAfterPortfolioCloseFailure'){
+      extra++;
+      if(extra>1||t.event!=='CLOCK'||t.source!=='CLOCK'||t.sourceId!==null||
+        !t.schedule||t.schedule.kind!=='MINUTELY'||t.schedule.minutes!==10||
+        t.schedule.timezone!=='Asia/Seoul')_issue860Fail_('PRESERVED_MANIFEST');
+    }else{
+      // Reuse schedule/event/source validation. This projection is validation
+      // only: the preserved record retains the actual UI binding role/version.
+      var copy=JSON.parse(JSON.stringify(t));
+      copy.originalDeployment=t.binding==='HEAD'?'HEAD':'336';base.push(copy);
+    }
+  });
+  _issue860ValidateManifest_({schema:1,operationId:m.operationId,uiEvidence:m.uiEvidence,triggers:base});
+}
+function _issue860PreservedRead_(p) {
+  var m;
+  try{m=JSON.parse(p.getProperty(ISSUE860_PRESERVED_TRIGGERS));}
+  catch(ignore){_issue860Fail_('PRESERVED_MANIFEST');}
+  _issue860PreservedValidate_(m);return m;
+}
+function _issue860PreservedMatches_(m) {
+  var rows=_issue860Rows_();
+  return rows.length===m.triggers.length&&m.triggers.every(function(t){
+    return rows.filter(function(r){return r.id===t.id&&_issue860Matches_(r,t);}).length===1;
+  });
+}
+function _issue860PreservedStatus_(p) {
+  if(!p.getProperty(ISSUE860_PRESERVED_TRIGGERS))return null;
+  var m=_issue860PreservedRead_(p);
+  return {count:m.triggers.length,productionVersion:m.productionVersion,
+    productionBindingSha256:m.productionBindingSha256,inventoryUnchanged:_issue860BootstrapInventoryReady_(p)};
+}
+function issue860BootstrapPreservePrompt() {
+  var m=_issue860BootstrapPromptJson_('Issue860 기존 ID·일정 보존 전환 기록');
+  if(m===null)return {cancelled:true,financeWrites:0};
+  m=_issue860BootstrapManifestIds_(m);_issue860PreservedValidate_(m);
+  return _issue507GateAtomic_(function(p){
+    if(p.getProperty(ISSUE860_TRIGGER_JOURNAL)||p.getProperty(ISSUE860_PRESERVED_TRIGGERS)||
+      p.getProperty('issue507_writer_gate_v1'))_issue860Fail_('PRESERVED_EXISTS');
+    if(!_issue860PreservedMatches_(m))_issue860Fail_('INVENTORY_CHANGED');
+    var raw=JSON.stringify(m);
+    if(Utilities.newBlob(raw).getBytes().length>8000)_issue860Fail_('INPUT_CAPACITY');
+    p.setProperty(ISSUE860_PRESERVED_TRIGGERS,raw);
+    if(p.getProperty(ISSUE860_PRESERVED_TRIGGERS)!==raw)_issue860Fail_('PRESERVED_READBACK');
+    return {preservedCount:m.triggers.length,triggersChanged:0,financeWrites:0};
+  });
+}
+function _issue860BootstrapInventoryReady_(p) {
+  if(p.getProperty(ISSUE860_PRESERVED_TRIGGERS)){
+    if(p.getProperty(ISSUE860_TRIGGER_JOURNAL))return false;
+    return _issue860PreservedMatches_(_issue860PreservedRead_(p));
+  }
+  var j=_issue860Read_(p),rows=_issue860Rows_();
+  return j.phase==='RESTORED'&&j.pending===null&&rows.length===11&&Object.keys(j.created).length===11&&
+    j.manifest.triggers.every(function(t){return rows.filter(function(r){
+      return r.id===j.created[t.handler]&&_issue860Matches_(r,t);
+    }).length===1;});
+}
 function issue860BootstrapPrepare() {
   var p=PropertiesService.getScriptProperties(),m;
   try{m=JSON.parse(p.getProperty('issue860_ui_trigger_manifest_v1'));}
@@ -69,8 +146,10 @@ function issue860BootstrapRolloutPrompt() {
   var q=_issue860BootstrapPromptJson_('Issue860 모든 actor 종료·격리 독립 증빙');
   if(q===null)return {cancelled:true,financeWrites:0};
   return _issue507GateAtomic_(function(p){
-    var j=_issue860Read_(p),rows=_issue860Rows_();
-    if(j.phase==='PAUSED'){
+    var preserved=!!p.getProperty(ISSUE860_PRESERVED_TRIGGERS),j=preserved?null:_issue860Read_(p),rows=_issue860Rows_();
+    if(preserved){
+      if(!_issue860BootstrapInventoryReady_(p))_issue860Fail_('INVENTORY_CHANGED');
+    }else if(j.phase==='PAUSED'){
       if(rows.length)_issue860Fail_('NOT_PAUSED');
     }else if(j.phase==='RESTORED'){
       if(j.pending!==null||rows.length!==11||Object.keys(j.created).length!==11||
@@ -79,7 +158,7 @@ function issue860BootstrapRolloutPrompt() {
         }).length===1;}))_issue860Fail_('RESTORE_UNVERIFIED');
     }else _issue860Fail_('NOT_PAUSED');
     if(p.getProperty('issue507_writer_gate_v1'))_issue860RequireDrainingGate_(p);
-    else if(j.phase!=='PAUSED')_issue860Fail_('GATE');
+    else if(!preserved&&j.phase!=='PAUSED')_issue860Fail_('GATE');
     // Do not manufacture booleans, evidence references, or verification time.
     // Preserve only the existing gate schema and validate it before persistence.
     var clean={releaseId:q.releaseId,oldDeploymentsDisabled:q.oldDeploymentsDisabled,
@@ -101,8 +180,13 @@ function issue860BootstrapPause() {
 }
 function issue860BootstrapInitialize() {
   return _issue507GateAtomic_(function(p){
-    var j=_issue860Read_(p);
-    if(j.phase!=='PAUSED'||_issue860Rows_().length)_issue860Fail_('NOT_PAUSED');
+    var preserved=!!p.getProperty(ISSUE860_PRESERVED_TRIGGERS);
+    if(preserved){
+      if(!_issue860BootstrapInventoryReady_(p))_issue860Fail_('INVENTORY_CHANGED');
+    }else{
+      var j=_issue860Read_(p);
+      if(j.phase!=='PAUSED'||_issue860Rows_().length)_issue860Fail_('NOT_PAUSED');
+    }
     var q=_issue507GateRollout_(p),raw=p.getProperty('issue507_writer_gate_v1');
     if(raw){
       var existing=_issue507GateRead_(p);
@@ -121,12 +205,9 @@ function issue860BootstrapRestore() {
 }
 function issue860BootstrapRenewBarrier() {
   return _issue507GateAtomic_(function(p){
-    var q=_issue507GateRollout_(p),s=_issue507GateRead_(p),j=_issue860Read_(p),rows=_issue860Rows_();
+    var q=_issue507GateRollout_(p),s=_issue507GateRead_(p);
     if(s.mode!=='DRAINING'||s.bootstrapMaintenance!==true||Object.keys(s.active).length||
-      j.phase!=='RESTORED'||j.pending!==null||rows.length!==11||Object.keys(j.created).length!==11||
-      !j.manifest.triggers.every(function(t){return rows.filter(function(r){
-        return r.id===j.created[t.handler]&&_issue860Matches_(r,t);
-      }).length===1;})||q.verifiedAt<=s.barrierAt||Date.now()-q.verifiedAt>300000)
+      !_issue860BootstrapInventoryReady_(p)||q.verifiedAt<=s.barrierAt||Date.now()-q.verifiedAt>300000)
       _issue860Fail_('RENEW_UNVERIFIED');
     s.barrierAt=Date.now();_issue507GateSave_(p,s);
     return {mode:'DRAINING',barrierRenewed:true,financeWrites:0};
@@ -134,19 +215,17 @@ function issue860BootstrapRenewBarrier() {
 }
 function _issue860BootstrapReady_(p,s) {
   try{
-    var q=_issue507GateRollout_(p),j=_issue860Read_(p),rows=_issue860Rows_();
+    var q=_issue507GateRollout_(p);
     return s.mode==='DRAINING'&&Object.keys(s.active).length===0&&
       s.bootstrapMaintenance===true&&q.verifiedAt<=s.barrierAt&&Date.now()-s.barrierAt>=420000&&
       Date.now()-q.verifiedAt<=1800000&&Date.now()-s.barrierAt<=1800000&&
-      j.phase==='RESTORED'&&j.pending===null&&rows.length===11&&Object.keys(j.created).length===11&&
-      j.manifest.triggers.every(function(t){return rows.filter(function(r){
-        return r.id===j.created[t.handler]&&_issue860Matches_(r,t);
-      }).length===1;});
+      _issue860BootstrapInventoryReady_(p);
   }catch(ignore){return false;}
 }
 function _issue860BootstrapAbortReady_(p) {
   try{
     if(p.getProperty('issue507_writer_gate_v1'))return false;
+    if(p.getProperty(ISSUE860_PRESERVED_TRIGGERS))return _issue860BootstrapInventoryReady_(p);
     var j=_issue860Read_(p),rows=_issue860Rows_();
     return j.phase==='PREPARED'&&j.pending===null&&Object.keys(j.created).length===0&&rows.length===11&&
       j.manifest.triggers.every(function(t){return rows.filter(function(r){

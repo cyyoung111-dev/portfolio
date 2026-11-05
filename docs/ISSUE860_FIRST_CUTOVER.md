@@ -15,14 +15,15 @@
   유지보수 프로필에는 재개 별칭이 없고, 기존 정상 배포·읽기 감사는 정확한 최종 blob도
   인식한다. 기반 소스 및 기존 frozen preview/proposal pin은 변경하지 않는다.
 - 유지보수 소스: 위 소스의 gate 입구에 무조건 거부를 삽입하고 #923 editor 도구를
-  **같은 SERVER_JS 파일 안에** 합친 정확한 blob `a88919ab3fe15c9624b2096fc4dfe52041f7d6d2`.
+  **같은 SERVER_JS 파일 안에** 합친 정확한 blob `5ba7f40aa5ee9236a69a2c4077874bc19f3a9156`.
   기존 555개 진입점은 기존 OPEN 속성이 있어도 실행되지 않는다. 인증된 GET
   `getWriterGateStatus`와 명시적 editor 도구만 사용한다. 일반 getSettings/화면/쓰기 서비스는
   유지보수 동안 이용할 수 없다. HEAD의 기존 트리거도 차단되지만, 구버전 고정 트리거는
   별도 중지 전까지 실행될 수 있으므로 전체 중지로 오인하지 않는다.
 - 추가 파일/manifest 변경/미승인 소스/알 수 없는 version은 게시하지 않는다.
   유지보수 프로필을 일반 릴리스 허용목록에 넣지 않는다.
-- 이전 유지보수 blob `0b2778afae5b1ffdeceb342c6d6e708ba919cc88`은 inspect와 gate 전 abort,
+- 이전 유지보수 blob `0b2778afae5b1ffdeceb342c6d6e708ba919cc88` 및
+  `a88919ab3fe15c9624b2096fc4dfe52041f7d6d2`는 inspect와 gate 전 abort,
   새 유지보수 프로필로의 bootstrap 전진 갱신에만 허용한다. 이전 프로필에서 직접 finalize는
   거부한다. 일반 배포 허용목록에 유지보수 소스를 추가하지 않는다.
 
@@ -63,7 +64,53 @@ inspect는 dry_run=false를 거부하며 콘텐츠/버전/배포 쓰기를 호�
 인증값·응답 본문·공급자 오류 원문·URL은 출력하지 않는다. 공개되지 않은 원인 문자열은
 UNVERIFIED로 치환한다. 인증 거부와 버전 미검증을 구분하며 실패를 성공으로 바꾸지 않는다.
 
-## 유지보수·초기화·복원
+## 현재 운영의 기본 경로: 기존 예약 ID·일정 보존
+
+2026-11-05 실조회에서 기존 예약의 배포가 게시 개정337→338을 따라가는 것을 확인했다.
+UI가 캐시한 11개와 달리 실제 Trigger API/새로고침 UI에는 **12개**가 있으며,
+추가 1개는 `runDeferredFundAfterPortfolioCloseFailure`, 10분 주기, 같은 운영 배포에 연결돼 있다.
+이는 사업일·소유 실행·UID를 가진 펀드 재시도 예약이다. 임의 삭제/재생성/UID 치환/큐 초기화는
+하지 않는다. 아래 방식은 모든 예약이 검증된 HEAD 또는 현재 운영 배포를 따를 때만 사용한다.
+알 수 없는 handler/다른 배포/타 계정/실행 중 작업이 있으면 통과시키지 않는다.
+
+1. 원본 시트의 **확장 프로그램 → Apps Script**로 editor를 연다. Apps Script 홈에서 직접 연
+   editor에서는 실제로 `getUi() from this context` 오류가 발생했다. 연결 경로에서 입력창의 실제
+   표시를 확인했다. source를 임의 편집하거나 macro/manifest/권한을 추가하지 않는다.
+2. 새 bootstrap을 dry-run/실행하고 exact HEAD/게시 pin·manifest·배포 목록을 확인한다.
+   원래 예약의 편집 대화상자에서 HEAD/운영 배포 연결과 일정·알림을 새로고침 UI로 확인한다.
+   모든 source가 hard-deny 유지보수 프로필이므로 일반 함수·HTTP·예약 쓰기는 차단된다.
+3. `issue860BootstrapPreservePrompt`에 schema=1, releaseId=현재 release, operationId,
+   uiEvidence, productionVersion=UI 관측 개정, productionBindingSha256=실제 운영 배포 ID의
+   SHA256, triggers를 입력한다. 각 항목은 handler, binding=HEAD/PRODUCTION, event,
+   source, sourceId, schedule을 기록한다. 실제 id는 Trigger API에서 채운다.
+   상시11개의 일정 스키마는 기존과 같고 추가 deferred만
+   `{kind:"MINUTELY",minutes:10,timezone:"Asia/Seoul"}`을 허용한다.
+4. 입력 후 잠금 안에서 ID·함수·이벤트·원본을 다시 대조하고
+   `issue860_preserved_triggers_v1` 기록만 저장·재조회한다. 기존 trigger와 펀드 예약 속성은
+   수정하지 않는다. 기존 삭제/복원 journal과 병용할 수 없으며 어느 모드든 섞이면 실패 폐쇄한다.
+5. 모든 actor/버전의 실행·일시중지·지연·알 수 없음 상태를 필터 조회한다. 원본/스크립트 ACL,
+   외부 writer/편집기/배포 경로를 독립 확인한다. 최근50개/단순 7분 경과로 대체하지 않는다.
+   실제 확인 후 기존 `issue860BootstrapRolloutPrompt`로 5분 이내 독립 증빙을 기록한다.
+6. `issue860BootstrapInitialize`는 실제 목록이 기록과 같고 독립 증빙이 유효할 때만 DRAINING을
+   초기화한다. 예약은 그대로 유지하고 restore를 실행하지 않는다. 기존 gate/receipt를 지우지 않는다.
+7. 7분 연속 관찰, 30분 freshness, active0, 승인 capability 부재를 확인한다.
+   최신 독립 증빙과 `issue860BootstrapRenewBarrier`로만 barrier를 명시 갱신한다.
+   gate 상태는 preservedTriggers.count/productionVersion/productionBindingSha256/
+   inventoryUnchanged를 제공하며 ID·원본·사업일·금융값은 로그로 출력하지 않는다.
+8. finalize dry-run/실행은 정확한 bootstrap/최종 소스·배포 inventory, readiness 및 보존 기록의
+   **운영 배포 ID 해시**를 현재 API 대상과 대조하고 게시 직전 다시 확인한다. 개정 번호와
+   배포 ID는 다르다. 개정이 바뀌어도 같은 배포의 예약 연결은 유지되므로 기록을 재작성하지 않는다.
+9. 최종 DRAINING 아래 금융 기준13개 범위와 기존 예약12개 ID/설정 보존을 대조하고,
+   승인된 `issue507ResumeWriters`로 OPEN 후 버전·인증·운영 상태를 독립 재조회한다.
+   새 수동 금융 재계산/Telegram 재발송을 실행하지 않는다.
+
+gate 전 취소는 보존 기록과 현재 목록이 정확히 같고 gate가 없을 때만 기존 abort로 허용한다.
+한 번 DRAINING이 영속화되면 기존 forward recovery 원칙을 따른다.
+
+## 기존 대체 경로: 명시적 삭제·복원
+
+아래 절차는 정확히 상시11개만 있고 추가 예약이 없다는 별도 조건에서만 적용한다.
+현재 운영의 deferred 예약이 있는 상황에서는 사용하지 않는다.
 
 1. bootstrap dry-run 후 실제 bootstrap을 실행한다. Summary/로그의 성공만 보지 말고
    HEAD·게시 소스 일치, 잘못된 인증 거부, 인증된 gate 상태 UNINITIALIZED를 확인한다.

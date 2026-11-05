@@ -6,8 +6,10 @@ import {gasSourceBlobSha,selectServerFile,assertGasProjectFileSet,buildUpdatedFi
 import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 import {assertCurrentMainRelease} from './gas-release-gate.mjs';
 
-export const BOOTSTRAP_BLOB='a88919ab3fe15c9624b2096fc4dfe52041f7d6d2';
+export const BOOTSTRAP_BLOB='5ba7f40aa5ee9236a69a2c4077874bc19f3a9156';
 export const PREVIOUS_BOOTSTRAP_BLOB='0b2778afae5b1ffdeceb342c6d6e708ba919cc88';
+export const INPUT_BOOTSTRAP_BLOB='a88919ab3fe15c9624b2096fc4dfe52041f7d6d2';
+const BOOTSTRAP_PROFILES=[BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,INPUT_BOOTSTRAP_BLOB];
 // Bound to the operator-observed /dev ID of this project; never exempt an
 // arbitrary unversioned or public entry by its missing version/description.
 const UI_HEAD_SHA256='4c41d2a953884746fe00f1cdbdb1782f57d36353a3a529d3c82c1370426888d3';
@@ -32,7 +34,7 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
  const headBlob=gasSourceBlobSha(target.source.replace(/\r\n/g,'\n'));
  const publishedBlob=gasSourceBlobSha(selectServerFile(initial.published.files,target.name).source.replace(/\r\n/g,'\n'));
  if(phase==='inspect'){
-  if(![BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB].includes(headBlob)||![BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB].includes(publishedBlob))error('BEFORE_SOURCE');
+  if(![...BOOTSTRAP_PROFILES,BASE_BLOB,FINAL_BLOB].includes(headBlob)||![...BOOTSTRAP_PROFILES,BASE_BLOB,FINAL_BLOB].includes(publishedBlob))error('BEFORE_SOURCE');
   await rpc.inventory(initial);const status=await gate();
   return {phase,readOnly:true,deployed:false,gateMode:status.mode,
    firstCutoverReady:status.firstCutoverReady===true,firstCutoverAbortReady:status.firstCutoverAbortReady===true,
@@ -41,7 +43,7 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
  if(phase==='abort'){
   // Only before the stateful gate AND before any trigger deletion. Once a
   // journal is PAUSING or a gate exists, forward recovery is mandatory.
-  if(![LEGACY_BLOB,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB].includes(headBlob)||![BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB].includes(publishedBlob))error('ABORT_SOURCE');
+  if(![LEGACY_BLOB,...BOOTSTRAP_PROFILES].includes(headBlob)||!BOOTSTRAP_PROFILES.includes(publishedBlob))error('ABORT_SOURCE');
   let status=await gate();
   if(status.mode!=='UNINITIALIZED'||status.firstCutoverAbortReady!==true)error('ABORT_NOT_SAFE');
   const legacy=await rpc.readVersion(336);
@@ -65,7 +67,7 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
   }catch{error('ABORT_RECOVERY_REQUIRED');}
  }
  const wanted=phase==='bootstrap'?BOOTSTRAP_BLOB:FINAL_BLOB;
- const allowed=phase==='bootstrap'?[LEGACY_BLOB,BOOTSTRAP_BLOB,PREVIOUS_BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB]:[BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB];
+ const allowed=phase==='bootstrap'?[LEGACY_BLOB,...BOOTSTRAP_PROFILES,BASE_BLOB,FINAL_BLOB]:[BOOTSTRAP_BLOB,BASE_BLOB,FINAL_BLOB];
  if(!allowed.includes(headBlob)||!allowed.includes(publishedBlob))error('BEFORE_SOURCE');
  if(publishedBlob===LEGACY_BLOB&&[BASE_BLOB,FINAL_BLOB].includes(headBlob))error('BEFORE_SOURCE');
  // Reinstalling the maintenance profile is the forward recovery path if a
@@ -82,6 +84,9 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
   if(before.mode!=='DRAINING'||before.activeCount!==0||before.repairAuthorized!==false||before.approvalPresent!==false)
    error('DRAIN');
   if(publishedBlob===BOOTSTRAP_BLOB&&(before.releaseId!==RELEASE||before.firstCutoverReady!==true))error('BOOTSTRAP_NOT_READY');
+  if(publishedBlob===BOOTSTRAP_BLOB&&before.preservedTriggers&&
+    (before.preservedTriggers.productionBindingSha256!==hash(initial.deployment.deploymentId||'')||
+     before.preservedTriggers.inventoryUnchanged!==true))error('PRESERVED_BINDING');
  }
  await rpc.inventory(initial);
  if(dryRun)return {phase,dryRun:true,deployed:false,financeWrites:0,telegramSends:0};
@@ -120,6 +125,9 @@ export async function runFirstCutover({phase,approved=false,dryRun=true,sources,
     error('DRAIN');
    if(publishedBlob===BOOTSTRAP_BLOB&&(latest.releaseId!==RELEASE||latest.firstCutoverReady!==true))
     error('BOOTSTRAP_NOT_READY');
+   if(publishedBlob===BOOTSTRAP_BLOB&&latest.preservedTriggers&&
+     (latest.preservedTriggers.productionBindingSha256!==hash(initial.deployment.deploymentId||'')||
+      latest.preservedTriggers.inventoryUnchanged!==true))error('PRESERVED_BINDING');
   }
   if(phase==='bootstrap'&&[BASE_BLOB,FINAL_BLOB].includes(publishedBlob)){
    const latest=await gate();
@@ -217,6 +225,11 @@ async function cli(){
   console.log(JSON.stringify({mode:'ISSUE860_CUTOVER_GATE',state:d.writerGate.mode,
    firstCutoverReady:d.writerGate.firstCutoverReady===true,firstCutoverAbortReady:d.writerGate.firstCutoverAbortReady===true,
    journalPresent:d.writerGate.journalPresent===true,
+   preservedTriggers:d.writerGate.preservedTriggers?{
+    count:[11,12].includes(d.writerGate.preservedTriggers.count)?d.writerGate.preservedTriggers.count:null,
+    productionVersion:Number.isSafeInteger(d.writerGate.preservedTriggers.productionVersion)?d.writerGate.preservedTriggers.productionVersion:null,
+    productionBindingSha256:/^[a-f0-9]{64}$/.test(d.writerGate.preservedTriggers.productionBindingSha256||'')?d.writerGate.preservedTriggers.productionBindingSha256:null,
+    inventoryUnchanged:d.writerGate.preservedTriggers.inventoryUnchanged===true}:null,
    activeCount:Number.isSafeInteger(d.writerGate.activeCount)?d.writerGate.activeCount:null}));
   return d.writerGate;
  };
