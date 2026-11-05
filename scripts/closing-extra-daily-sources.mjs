@@ -212,14 +212,7 @@ export async function readClosingMacros(date,{fetchImpl=fetch,now=()=>new Date()
  return entries.filter(Boolean);
 }
 export function formatClosingExtra(date,stocks=[],macros=[],{omitUs10y=false}={}){
- const safeStocks=stocks.filter(x=>{
-   const sessions=closingStockSessions(date),target=STOCKS.find(s=>s.id===x?.id);
-   const expected=target?.market==='KR'?sessions?.day:sessions?.us;
-   return target&&x.source==='NH_REGULAR_CLOSE'&&x.date===expected
-     &&x.symbol===MORNING_SERIES.find(m=>m.id===target.id)?.symbol
-     &&x.label===MORNING_SERIES.find(m=>m.id===target.id)?.label
-     &&Number.isFinite(x.value)&&x.value>0;
- });
+ const safeStocks=stocks.filter(x=>validClosingStockRow(date,x));
  const safeMacros=macros.map(x=>validateClosingMacro(date,x?.id,
    x?.source==='YAHOO_DAILY_REFERENCE'?{...x,source:'Yahoo Finance 일봉'}:x)).filter(Boolean);
  const lines=['■ 주요 종목 (국내 당일 / 미국 직전 완료장)'];
@@ -231,7 +224,8 @@ export function formatClosingExtra(date,stocks=[],macros=[],{omitUs10y=false}={}
    lines.push(name+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
      +' '+unit+(Number.isFinite(x.changePercent)?' ('+(x.changePercent>=0?'+':'')
      +x.changePercent.toFixed(2)+'%)':'')
-     +' ['+x.date+']');
+     +' ['+x.date+(x.source==='KRX_OFFICIAL'?' · KRX 공식'
+      :x.source==='YAHOO_DAILY_REFERENCE'?' · Yahoo 일봉 참고':'')+']');
  }
  lines.push('','■ 환율·금리 (직전 완료 일봉, 실시간 아님)');
  for(const item of MACROS){
