@@ -28,9 +28,12 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
         run: |
           node --input-type=module <<'NODE'
           import {callNhGasProxy,fetchNhNightProbeFromGas,classifyGasHtml} from './scripts/nh-gas-proxy.mjs';
+          import {fetchGoogleAuditToken} from './scripts/audit-published-gas-gate-readonly.mjs';
           const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
             timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
             hour:'2-digit',minute:'2-digit',hourCycle:'h23'
@@ -137,4 +140,52 @@ jobs:
               if(!valid)process.exitCode=1;
             }
           }
+          // Independent Apps Script metadata GET: no GAS deployments, files,
+          // triggers, tokens or finance rows are mutated. Do not disclose IDs.
+          let binding={kind:'NH_GAS_WEBAPP_BINDING_20261105',
+            status:'UNVERIFIED',entryPoint:'UNVERIFIED',access:'UNVERIFIED',
+            executeAs:'UNVERIFIED',urlMatches:'UNVERIFIED',
+            publishedVersion:'UNVERIFIED',
+            googleGetCalls:0,gasWrites:0,financeWrites:0,telegramSends:0};
+          try{
+            const script=String(process.env.GAS_SCRIPT_ID||'');
+            const dep=/\/macros\/s\/([A-Za-z0-9_-]+)\/exec/.exec(url||'')?.[1]||'';
+            if(!/^[A-Za-z0-9_-]{8,160}$/.test(script)||!dep
+              ||!process.env.CLASPRC_JSON)binding.status='METADATA_CONFIG_MISSING';
+            else{
+              const access=await fetchGoogleAuditToken({clasprc:process.env.CLASPRC_JSON});
+              const response=await fetch('https://script.googleapis.com/v1/projects/'
+                 +encodeURIComponent(script)+'/deployments/'+encodeURIComponent(dep),{
+                method:'GET',headers:{Authorization:'Bearer '+access,
+                  Accept:'application/json'},redirect:'error',
+                signal:AbortSignal.timeout(16000)});
+              binding.googleGetCalls=1;
+              if(!response.ok){
+                binding.status=[401,403,404,429,500,503].includes(response.status)
+                  ?'DEPLOYMENT_HTTP_'+response.status:'DEPLOYMENT_HTTP_OTHER';
+              }else{
+                const record=await response.json();
+                const points=Array.isArray(record?.entryPoints)
+                  ?record.entryPoints.filter(p=>p?.entryPointType==='WEB_APP'):[];
+                const verified=points.length===1
+                  &&record?.deploymentId===dep;
+                binding.entryPoint=verified?'WEB_APP':'UNVERIFIED';
+                const cfg=points[0]?.webApp?.entryPointConfig;
+                binding.access=['MYSELF','DOMAIN','ANYONE','ANYONE_ANONYMOUS']
+                  .includes(cfg?.access)?cfg.access:'UNVERIFIED';
+                binding.executeAs=['USER_DEPLOYING','USER_ACCESSING']
+                  .includes(cfg?.executeAs)?cfg.executeAs:'UNVERIFIED';
+                const target=points[0]?.webApp?.url;
+                binding.urlMatches=typeof target==='string'
+                  &&target===url?'YES':'UNVERIFIED_OR_DIFFERENT';
+                binding.publishedVersion=Number.isSafeInteger(record?.deploymentConfig?.versionNumber)
+                  &&record.deploymentConfig.versionNumber>0
+                  ?'VERSIONED':'VERSION_UNVERIFIED';
+                binding.status=verified?'METADATA_READ_OK':'METADATA_ID_OR_ENTRYPOINT_UNVERIFIED';
+              }
+            }
+          }catch{
+            binding.status='METADATA_READ_FAILED';
+          }
+          console.log(JSON.stringify(binding));
           NODE
