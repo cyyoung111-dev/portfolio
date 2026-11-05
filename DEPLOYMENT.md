@@ -1,5 +1,6 @@
 ## GAS v9.283 — NH 종가/야간 백필/스냅샷 통합 릴리스 **검증 후보** (2026-11-05 KST)
 
+- **배포 상태:** v9.283은 소스 검증 후보입니다. main/운영 GAS는 v9.282 유지, 실배포 미승인·미수행. 운영 인증을 통한 `gasVersion=9.283` 및 Writer Gate/37종 종가·39행 Snapshot readback 증빙은 배포 후 확인할 별도 완료 조건입니다.
 > 이 항목은 `release/gas9283-full-source-20261105` 브랜치의 **미배포 초안**입니다. 운영 GAS v340 / v9.282, 원본 거래원장과 Google Sheets, 기존 트리거와 텔레그램은 변경하지 않았습니다. 실제 배포 승인 및 운영 실행 증빙이 없으므로 "정상화 완료"로 판정하지 않습니다.
 
 - **전체 GAS Git blob:** `327f48785550a012eaf1ed533c24bf6289c01a71`; 원본 v9.282 `9c1a5f31d1abc4b44f7da9af7a50fe3f15967134`은 `reference/gas-v9.282.gs`에 불변 보존. `scripts/deploy-gas.mjs` 승인 pin과 `src/web/features/settings/settings_fetch.js` 기대 버전 `9.283`이 동일한 릴리스 후보를 가리킵니다. 이전 웹 호환 버전 `9.281`·`9.282` 유지.
