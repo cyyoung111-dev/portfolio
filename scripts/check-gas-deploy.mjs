@@ -230,7 +230,7 @@ assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a se
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
   'newest GAS release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.282') && latestReleaseNotes.includes('Snapshot'),
+assert.ok(latestReleaseNotes.includes('gasVersion='+activeGasVersion) && latestReleaseNotes.includes('Snapshot'),
   'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
