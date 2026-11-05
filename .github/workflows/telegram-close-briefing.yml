@@ -13,6 +13,8 @@ on:
     workflows: ['market-briefing-headless', 'Telegram closing data precompute']
     types: [completed]
     branches: [main]
+  # 2026-11-05 guarded rescue: a workflow-file push after the NH fresh-index
+  # fix reuses the same source-quality, date, claim and Telegram delivery path.
   # Deploy and validate this workflow through its normal, claimed send path.
   push:
     branches: [main]
