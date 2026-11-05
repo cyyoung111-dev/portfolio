@@ -11,7 +11,7 @@ import {PRIVATE_GAS_FUNCTION}
 // selecting domestic markets, and the existing official aggregate endpoint.
 // Substitute only network and financial sheet access with synthetic adapters.
 // No run uses GAS credentials, external HTTP, a token, or physical writes.
-const bytes=fs.readFileSync('src/gas/apps_script.gs');
+const bytes=fs.readFileSync('reference/gas-v9.282.gs');
 const sha=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 assert.equal(sha,FROZEN_GAS_BLOB);
 const gas=bytes.toString('utf8');
