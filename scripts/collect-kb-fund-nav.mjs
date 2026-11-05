@@ -127,7 +127,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
     const dates=r.fundResults?.F00002?.dates,seen=new Set();
     // A duplicate or out-of-window date is not permission to refresh twice.
     if(r.status!=='ok'||!Array.isArray(dates)||dates.length>32||dates.some(d=>{
-      if(typeof d?.date!=='string'||!/^\\d{4}-\\d{2}-\\d{2}$/.test(d.date)
+      if(typeof d?.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d.date)
           ||d.date<from||d.date>valuationTo||seen.has(d.date))return true;
       seen.add(d.date);return false;
     }))throw Error('NAV_DERIVED_SCHEMA');
