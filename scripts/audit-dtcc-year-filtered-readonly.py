@@ -22,7 +22,7 @@ spec=importlib.util.spec_from_file_location(
 audit=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit)
 
-MAX_ARCHIVES=370
+MAX_ARCHIVES=410
 MAX_IDENTIFIED_ROWS=60000
 MAX_POOL=4
 
@@ -33,25 +33,33 @@ def relevant_anchor(row):
                for code,company in audit.ISSUERS.values())
 
 def select_relevant_events(today_rows, prior_ids):
-    # Closure over future corrections that omit original entity identity.
-    captured={}
+    # Check *all* source IDs, including correction rows whose corporate name
+    # and RED fields are omitted; input order must never decide which correction
+    # survives. An exact redisclosure within a file is harmless.
+    unique={}
     for row in today_rows:
-        if not relevant_anchor(row): continue
         ident=audit.present(row,"Dissemination Identifier")
-        if not ident:continue
-        if ident in captured and captured[ident]!=row:
+        if not ident or not ident.isdecimal():
+            raise ValueError("DTCC_MISSING_OR_NONNUMERIC_ID")
+        if ident in unique and unique[ident]!=row:
             raise ValueError("DTCC_SAME_ID_CONFLICT_ON_DAY")
-        captured[ident]=row
+        unique[ident]=row
+
+    captured={ident:row for ident,row in unique.items()
+              if relevant_anchor(row)}
     all_known=set(prior_ids)|set(captured)
     for _ in range(24):
         found=0
-        for row in today_rows:
-            ident=audit.present(row,"Dissemination Identifier")
+        for ident,row in unique.items():
             orig=audit.present(row,"Original Dissemination Identifier")
-            if ident and orig in all_known and ident not in captured:
-                captured[ident]=row
-                all_known.add(ident)
-                found+=1
+            if orig not in all_known:continue
+            if ident in captured:
+                if captured[ident]!=row:
+                    raise ValueError("DTCC_CORRECTION_ID_CONFLICT")
+                continue
+            captured[ident]=row
+            all_known.add(ident)
+            found+=1
         if not found:break
     else:raise ValueError("DTCC_CORRECTION_CHAIN_TOO_DEEP")
     return captured
@@ -80,7 +88,19 @@ def process_history(named_row_sets):
     if not all_dates:
         raise ValueError("DTCC_ARCHIVES_EMPTY")
     observations={sym:[] for sym in audit.ALL}
-    for day in all_dates:
+    # Execution Timestamp, not reporting/archive date, determines an observed
+    # trade day. Late publication and weekend/holiday trades can otherwise be
+    # lost because there was no ZIP published on the execution date.
+    latest_file=dt.date.fromisoformat(all_dates[-1])
+    executed=set()
+    for row in rows:
+        if audit.present(row,"Action type")!="NEWT":
+            continue
+        if not relevant_anchor(row):continue
+        stamp=audit.parse_utc(audit.present(row,"Execution Timestamp"))
+        if stamp and stamp.date()<=latest_file:
+            executed.add(stamp.date().isoformat())
+    for day in sorted(executed):
         pairs=audit.get_candidates(rows,day)
         for symbol in audit.ALL:
             trades=pairs.get(symbol,[])
@@ -91,20 +111,32 @@ def process_history(named_row_sets):
                 "date":day,"count":len(levels),
                 "medianReportedContractBp":float(statistics.median(levels))
             })
+    first_archive=dt.date.fromisoformat(all_dates[0])
     summaries=[]
     for symbol in audit.ALL:
         points=observations[symbol]
+        year=audit.trade_median_comparison(points,365)
+        needed=(dt.date.fromisoformat(points[-1]["date"])
+                -dt.timedelta(days=368)) if points else None
+        coverage=bool(needed and first_archive<=needed)
         summaries.append({
             "symbol":symbol,"observedDays":len(points),
             "latest":points[-1] if points else None,
             "month1":audit.trade_median_comparison(points,30),
             "quarter3":audit.trade_median_comparison(points,91),
-            "year1":audit.trade_median_comparison(points,365)
+            "year1":year,
+            "year1CoverageStart":needed.isoformat() if needed else None,
+            "year1ArchiveWindowComplete":coverage,
+            "year1Status":("OBSERVED" if year is not None
+                           else "NO_OBSERVED_TRADE_SERIES" if not points
+                           else "ARCHIVE_WINDOW_INCOMPLETE" if not coverage
+                           else "NO_TRADE_NEAR_1Y_COMPARISON")
         })
     return {
         "mode":"DTCC_CDS_1Y_FILTERED_TRADE_HISTORY_READ_ONLY",
         "firstFileDate":all_dates[0],"lastFileDate":all_dates[-1],
         "archiveDays":len(all_dates),"allRowsScanned":raw_rows,
+        "observationDateBasis":"EXECUTION_TIMESTAMP_UTC",
         "relevantEventRows":len(rows),
         "summaries":summaries,
         "licensedRedReferenceMappingsVerified":0,
@@ -113,13 +145,7 @@ def process_history(named_row_sets):
         "financialSourceWrites":0,"telegramSends":0,"gasDeployments":0
     }
 
-def retrieve_index(as_of):
-    with urllib.request.urlopen(
-        "https://kgc0418-tdw-data-0.s3.amazonaws.com/dashboard/Cumulative.json",
-        timeout=20) as response:
-        body=response.read(4_000_001)
-    if len(body)>=4_000_001:raise ValueError("INDEX_TOO_LARGE")
-    index=json.loads(body)
+def select_archive_index(index,as_of):
     entries=index.get("SEC_CR") if isinstance(index,dict) else None
     if not isinstance(entries,list):raise ValueError("INDEX_SCHEMA_INVALID")
     dated={}
@@ -139,13 +165,24 @@ def retrieve_index(as_of):
             raise ValueError("DUPLICATE_INDEX_DATE")
         dated[day]=item["fullFilePath"]
     dates=sorted(dated)
-    earliest=(dt.date.fromisoformat(as_of)-dt.timedelta(days=365)).isoformat()
+    # 365-day comparison allows ±3 days and publication may be delayed.
+    # Fetch 14 additional calendar days of reported files to retain the
+    # full boundary and nearby late-reported executions when published.
+    earliest=(dt.date.fromisoformat(as_of)-dt.timedelta(days=382)).isoformat()
     selected=[(day,dated[day]) for day in dates if day>=earliest]
     if not selected or selected[-1][0]!=as_of:
         raise ValueError("ASOF_INDEX_NOT_PUBLISHED")
     if len(selected)>MAX_ARCHIVES:
         raise ValueError("YEAR_ARCHIVE_COUNT_EXCEEDS_LIMIT")
     return selected
+
+def retrieve_index(as_of):
+    with urllib.request.urlopen(
+        "https://kgc0418-tdw-data-0.s3.amazonaws.com/dashboard/Cumulative.json",
+        timeout=20) as response:
+        body=response.read(4_000_001)
+    if len(body)>=4_000_001:raise ValueError("INDEX_TOO_LARGE")
+    return select_archive_index(json.loads(body),as_of)
 
 def fetch_one(item):
     day,url=item
@@ -217,6 +254,50 @@ def selftest():
     assert still_history["summaries"][2]["year1"]["changeBp"]==0
     assert uncancelled["dealerParQuotesVerified"]==0
     assert uncancelled["licensedRedReferenceMappingsVerified"]==0
+
+    # A correction without issuer fields must not silently reuse a duplicate
+    # dissemination ID whose different parents produce order-dependent price.
+    a=mock_row("1001")
+    b=mock_row("1002")
+    c1=mock_row("2000",day="2025-11-06",action="CORR",original="1001")
+    c2=mock_row("2000",day="2025-11-06",action="CORR",original="1002")
+    for corrected in (c1,c2):
+        corrected["Underlying Asset Name"]=""
+        corrected["Underlier ID-Leg 1"]=""
+    for order in ([a,b,c1,c2],[b,a,c2,c1]):
+        try:
+            select_relevant_events(order,set())
+            raise AssertionError("contradictory same-ID corrections were accepted")
+        except ValueError as e:
+            assert str(e)=="DTCC_SAME_ID_CONFLICT_ON_DAY"
+
+    # Trade executed 11/06 but first disseminated in 11/07 archive; there is
+    # no 11/06 archive, yet 11/06 must still have a trade observation.
+    delayed=mock_row("7001",day="2025-11-06")
+    late_history=process_history([("2025-11-07",[delayed])])
+    assert late_history["summaries"][2]["observedDays"]==1
+    assert late_history["summaries"][2]["latest"]["date"]=="2025-11-06"
+    assert late_history["observationDateBasis"]=="EXECUTION_TIMESTAMP_UTC"
+
+    # The 1Y comparison ±3-day allowance requires archives *before*
+    # as_of-365. Preserve a synthetic eligible early archive and report
+    # incomplete window explicitly when its earlier side is not covered.
+    def item(day):
+        name="SEC_CUMULATIVE_CREDITS_"+day.replace("-","_")+".zip"
+        return {"fileName":name,"fullFilePath":audit.SOURCE_HOST+name}
+    indexed=select_archive_index({"SEC_CR":[
+        item("2025-11-02"),item("2025-11-03"),
+        item("2026-11-05")]}, "2026-11-05")
+    assert [d for d,_ in indexed]==[
+        "2025-11-02","2025-11-03","2026-11-05"]
+    incomplete=process_history([
+        ("2025-11-05",[old]),("2026-11-05",[newer])])
+    assert incomplete["summaries"][2]["year1Status"]=="OBSERVED"
+    early=process_history([
+        ("2025-11-05",[]),("2026-11-05",[newer])])
+    assert early["summaries"][2]["year1"] is None
+    assert early["summaries"][2]["year1Status"]=="ARCHIVE_WINDOW_INCOMPLETE"
+
     print("DTCC_CDS_YEAR_FILTERED_SELFTEST_PASS")
 
 if __name__=="__main__":
