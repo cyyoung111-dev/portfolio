@@ -174,7 +174,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
   secondary,stocks,macros,markets,rates:verifiedRates,vkospi:verifiedVkospi,
   expectedUsDate:expectedMorningDate('SPX',date)});
- lines.push('',formatClosingExtra(date,stocks,macros,{omitUs10y:verifiedRates.some(x=>x.id==='UST10Y_FRED')}),'',
+ lines.push('',formatClosingExtra(date,stocks,macros,{omitUs10y:verifiedRates.some(x=>x.id==='UST10Y_FRED'&&
+    x.date===expectedMorningDate('SPX',date))}),'',
   formatTreasuryCurve(date,verifiedRates),'',
   formatClosingMarketReferences(date,markets),'',formatCloseCoverageSummary(coverage),
   '※ 기본 가격·미국 지수: NH PLUG · 그 외 참고값 출처 별도 표기');
