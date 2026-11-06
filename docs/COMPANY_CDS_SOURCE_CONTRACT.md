@@ -37,3 +37,19 @@
 4. 수집률/오래된 관측/비연속 자료 상태를 문구화한 뒤, 기존 장전/마감 브리핑의 선택적 지표로만 통합
 
 현재 이 모듈은 검증 계약·대상 목록·상태 전용 함수만 존재하며 **실제 기업 CDS 스프레드 11개를 확보했다고 주장하지 않습니다.**
+
+
+## 2026-11-06 KST 실제 원천 확보 진단 (운영값 아님)
+
+읽기 전용 GitHub Actions 확인:
+
+- SEC 신용파생 공개 파일 목록: **359건** ([실행 #42210303397](https://github.com/cyyoung111-dev/portfolio/actions/runs/42210303397)).
+- 최신 확인 파일 `SEC_CUMULATIVE_CREDITS_2026_11_05.zip`: 공개 인덱스 `rowCount=2071`, 실제 CSV **2,071행**, ZIP **152,899 bytes**. 공개 URL은 [DTCC 원천 S3](https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/SEC_CUMULATIVE_CREDITS_2026_11_05.zip), [CSV 컬럼 확인 #42210597277](https://github.com/cyyoung111-dev/portfolio/actions/runs/42210597277).
+- 전체 2,071행 중 `Spread-Leg 1` 비어 있지 않은 행 **342**, `Fixed rate-Leg 1` 입력 **1,765**. 표기법 값은 `1`/ `3`/ `4` 등이므로 원시 숫자를 곧장 bp로 표시할 수 없음.
+- 발행사 **문자열**로만 검색한 후보는 MSFT 7, GOOGL 7, AMZN 11, META 13, NVDA 28, ORCL 25, SK하이닉스 1행; AAPL/MU/SNDK/삼성전자 0행. 이 후보 수는 유효한 CDS 거래 수가 **아님**.
+- 그중 `Spread-Leg 1` 존재, notation `3`/ `4`, 실행시각~만기잔존기간 약 **4.4–5.6년**까지 좁힌 1차 후보는 **GOOGL 1, META 1, NVDA 3, ORCL 4행**. 나머지 기업은 해당 날짜에 이 기준의 후보 0행. [원천 후보 필터 실행 #42210998333](https://github.com/cyyoung111-dev/portfolio/actions/runs/42210998333).
+- 필터 뒤에도 발행사 법인/계약 참조 ID, 원자료 `Action type` (`NEWT`, `CORR`, `EROR`, `MODI`, `TERM`), 계약 조항, 실제 보고 스프레드 의미/단위, 수정·취소를 재구성하지 않았으므로 **현재 11사 유효한 5년물 CDS bp 값은 0건 검증**.
+- DTCC의 **직접 보고된 거래**와 ICE/딜러의 5년물 **일별 파 스프레드 종가**는 별개입니다. 동일 날짜라도 거래가 없으면 결측이며, 근사치로 보충하지 않습니다.
+- Investing.com 일부 종목 CDS 히스토리 페이지의 존재는 확인했지만, 데이터의 저장·재배포·자동 활용에는 사이트의 저작권/이용제한이 있어 **무단 스크래핑 경로로 채택하지 않습니다**.
+
+**후속 파서의 입장 조건:** 공식 원천 스키마의 spread notation 확인 → corporate single-name UPI/참조법인 매핑 → 잔존 만기/통화·seniority 확인 → 원거래 ID와 정정·취소 이벤트 적용 → 동일일 거래의 검증된 스프레드 중앙값 산출 → 최소 1년 연속성/결측 비교. 이 조건 전에는 자동 발송에 CDS 수치 삽입 금지.
