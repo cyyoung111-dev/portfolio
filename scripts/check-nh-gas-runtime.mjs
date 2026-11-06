@@ -336,6 +336,7 @@ const domesticMaster=[registered[0],{code:'000660',currency:'KRW',type:'주식'}
 const domesticReadbackReports=[];
 const domesticReadback=await activateNhRuntime({
  url:'https://script.google.com/macros/s/TEST/exec',token:'admin',
+ key:'nh-key',secret:'nh-secret',
  report:row=>domesticReadbackReports.push(row),
  request:async(url,options)=>{
   const p=new URLSearchParams(options.body);
@@ -359,6 +360,7 @@ for(const variant of ['INCOMPLETE_COUNT','MISSING_PRICE','PROVIDER_DRIFT']){
  const reports=[];
  const run=activateNhRuntime({
   url:'https://script.google.com/macros/s/TEST/exec',token:'admin',
+  key:'nh-key',secret:'nh-secret',
   report:row=>reports.push(row),
   request:async(url,options)=>{
    const p=new URLSearchParams(options.body);
