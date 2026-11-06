@@ -53,8 +53,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
  const closeDate=a.closeRun?.runDate;
  if(!validDay(closeDate)||closeDate<from||closeDate>today)
    throw Error('HANWHA_CLOSE_DATE_UNVERIFIED');
+ // GAS explicitly rejects F00001 same-day refresh, and a same-day NAV may
+ // still be provisional. Bound both the import candidate and all derived
+ // valuation checks to the latest completed KST calendar day.
+ const valuationTo=closeDate<today?closeDate:shift(today,-1);
+ if(valuationTo<from)throw Error('HANWHA_CLOSE_DATE_UNVERIFIED');
  const source=await runPublicHanwhaSource({now,fetchImpl});
- const rows=source.rows.filter(r=>r.date>=from&&r.date<today&&r.date<=closeDate);
+ const rows=source.rows.filter(r=>r.date>=from&&r.date<=valuationTo);
  if(!rows.length||rows.length>8)throw Error('HANWHA_SOURCE_RANGE_UNVERIFIED');
  const data={code:CODE,provider:PROVIDER,classCode:CLASS,appendOnly:true,
    ackWarnings:false,sourceText:'008942 HANWHA C-RPe',rows};
@@ -70,11 +75,11 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
    ||candidates.some(c=>!validDay(c.date)||!Number.isFinite(c.nav)||c.nav<=0
      ||!rows.some(r=>r.date===c.date&&r.nav===c.nav)))
    throw Error('HANWHA_PREVIEW_MISMATCH');
- const proof=await request('getFundValuationStatus',{from,to:closeDate,code:CODE});
+ const proof=await request('getFundValuationStatus',{from,to:valuationTo,code:CODE});
  const dates=proof?.fundResults?.[CODE]?.dates,seen=new Set();
  if(proof.status!=='ok'||!Array.isArray(dates)||dates.length>8
    ||dates.some(d=>{
-     if(d?.code!==CODE||!validDay(d.date)||d.date<from||d.date>closeDate
+     if(d?.code!==CODE||!validDay(d.date)||d.date<from||d.date>valuationTo
        ||seen.has(d.date)||typeof d.valuationRequired!=='boolean'
        ||typeof d.unitsApplied!=='boolean'||typeof d.reconciled!=='boolean')
        return true;
@@ -118,14 +123,14 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
       throw Error('HANWHA_IMPORT_READBACK_UNVERIFIED');
  }
  const valuation=async()=>{
-   const result=await request('getFundValuationStatus',{from,to:closeDate,code:CODE});
+   const result=await request('getFundValuationStatus',{from,to:valuationTo,code:CODE});
    const items=result?.fundResults?.[CODE]?.dates;
    const seenDates=new Set();
    if(result?.status!=='ok'||!Array.isArray(items)||items.length>8)
      throw Error('HANWHA_VALUATION_SCHEMA_UNVERIFIED');
    for(const d of items){
      if(!d||d.code!==CODE||!validDay(d.date)
-       ||d.date<from||d.date>closeDate||seenDates.has(d.date)
+       ||d.date<from||d.date>valuationTo||seenDates.has(d.date)
        ||typeof d.valuationRequired!=='boolean'
        ||typeof d.unitsApplied!=='boolean'||typeof d.reconciled!=='boolean'
        ||!['EXISTING_VALID','NOT_REQUIRED','WRITE_REQUIRED','NOT_CREATED']
