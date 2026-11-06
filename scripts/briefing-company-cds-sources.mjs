@@ -60,6 +60,7 @@ export function validateCompanyCdsPoint(company,record,{
  if(record.source==='DTCC_SEC_EXPLICIT_SPREAD'
   &&(record.priceType!=='REPORTED'
    ||record.verifiedNotation!==true
+   ||!isNum(record.maturityYears)
    ||record.maturityYears<4.4||record.maturityYears>5.6))
   return {status:'CDS_UNITS_OR_TENOR_UNVERIFIED',point:null};
  if(record.source!=='DTCC_SEC_EXPLICIT_SPREAD'
@@ -108,14 +109,21 @@ export function computeCompanyCdsTrend(points,{asOf='2026-11-06'}={}){
  if(delta(asOf,last)>7)return null;
  const current=byDate.get(last);
  const windows={month1:30,month3:91,year1:365};
- const changes={};
+ const changes={},comparisonDates={};
  for(const [name,days] of Object.entries(windows)){
-  const candidates=dates.filter(d=>Math.abs(delta(last,d)-days)<=3);
-  if(candidates.length!==1){changes[name]=null;continue;}
-  const prior=byDate.get(candidates[0]);
-  changes[name]=fixed(current-prior); // bp change, never % change
+  const candidates=dates.filter(d=>d<last&&Math.abs(delta(last,d)-days)<=3)
+   .sort((a,b)=>{
+    // Exact target date first. Otherwise choose the nearest observation;
+    // tied distances choose the earlier one to avoid lookahead bias.
+    const da=Math.abs(delta(last,a)-days),db=Math.abs(delta(last,b)-days);
+    return da-db||a.localeCompare(b);
+   });
+  const picked=candidates[0]??null;
+  comparisonDates[name]=picked;
+  changes[name]=picked===null?null:fixed(current-byDate.get(picked));
  }
  return {date:last,spreadBp:current,changesBp:changes,
+  comparisonDates,
   source:group[0].source,referenceEntityId:group[0].referenceEntityId,
   observationCount:dates.length};
 }
