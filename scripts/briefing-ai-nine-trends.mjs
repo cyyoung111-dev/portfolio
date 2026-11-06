@@ -41,7 +41,14 @@ export function summarizeAiNineHistory(symbol,sessionDate,rows){
  const end=verified.at(-1),n=verified.length;
  const atOffset=k=>n>k?round(pct(end.close,verified.at(-1-k).close)):null;
  const range=verified.filter(x=>x.date>=before(sessionDate,365));
- const fullRange=range.length>=200 && verified[0].date<=before(sessionDate,350);
+ // Treat the 52-week window as complete only when the window ITSELF has
+ // coverage close to its first day, with no large gaps in between. A much
+ // older historical bar is not evidence of missing recent-month observations.
+ const boundary=Date.parse(before(sessionDate,365)+'T00:00:00Z');
+ const firstWithin=range.length?Date.parse(range[0].date+'T00:00:00Z'):NaN;
+ const maxGap=range.slice(1).reduce((max,row,i)=>Math.max(max,
+   (Date.parse(row.date+'T00:00:00Z')-Date.parse(range[i].date+'T00:00:00Z'))/DAY),0);
+ const fullRange=range.length>=200 && firstWithin-boundary<=8*DAY && maxGap<=11;
  const high=fullRange?Math.max(...range.map(x=>x.close)):null;
  const low=fullRange?Math.min(...range.map(x=>x.close)):null;
  const mean=k=>n>=k?round(verified.slice(-k).reduce((s,x)=>s+x.close,0)/k):null;
