@@ -6,11 +6,11 @@ import {composeGas9283RecentGapSelfHealPreview}
   from './compose-gas9283-recent-gap-selfheal-preview.mjs';
 
 const previous=fs.readFileSync('reference/gas-v9.282.gs','utf8');
-const actual=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const actual=composeGas9283RecentGapSelfHealPreview().candidate;
 const generated=composeGas9283RecentGapSelfHealPreview().candidate;
 const expectedSha='327f48785550a012eaf1ed533c24bf6289c01a71';
 assert.equal(gasSourceBlobSha(previous),'9c1a5f31d1abc4b44f7da9af7a50fe3f15967134');
-assert.equal(actual,generated,'actual v9.283 source MUST match entire reviewed stacked candidate byte-for-byte');
+assert.equal(actual,generated,'historical v9.283 predecessor remains byte-reproducible');
 assert.equal(gasSourceBlobSha(actual),expectedSha);
 assert.equal(extractExpectedGasVersion(actual),'9.283');
 assert.equal(assertGasReleaseReady(actual),'9.283');
@@ -26,8 +26,8 @@ assert.match(actual,/portfolio_recent_gap_scan_date_v1/);
 assert.match(actual,/kst\.minutes<405\|\|kst\.minutes>=480/);
 assert.doesNotMatch(actual,/var existingRows = _readSnapshotRowsByDate\(ss, snapshotDate\);/);
 const web=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
-assert.match(web,/const EXPECTED_GAS_VERSION = '9\.283';/);
-assert.match(web,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\['9\.281', '9\.282', EXPECTED_GAS_VERSION\]\);/);
+assert.match(web,/const EXPECTED_GAS_VERSION = '9\.284';/);
+assert.match(web,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\['9\.281', '9\.282', '9\.283', EXPECTED_GAS_VERSION\]\);/);
 const manifest=JSON.parse(fs.readFileSync('ops/issue860/release-gas9283.json','utf8'));
 assert.equal(manifest.candidateSourceGitBlob,expectedSha);
 assert.equal(manifest.parentSourceGitBlob,gasSourceBlobSha(previous));
