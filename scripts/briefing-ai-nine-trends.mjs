@@ -41,7 +41,7 @@ export function summarizeAiNineHistory(symbol,sessionDate,rows){
  const end=verified.at(-1),n=verified.length;
  const atOffset=k=>n>k?round(pct(end.close,verified.at(-1-k).close)):null;
  const range=verified.filter(x=>x.date>=before(sessionDate,365));
- const fullRange=range.length>=200;
+ const fullRange=range.length>=200 && verified[0].date<=before(sessionDate,350);
  const high=fullRange?Math.max(...range.map(x=>x.close)):null;
  const low=fullRange?Math.min(...range.map(x=>x.close)):null;
  const mean=k=>n>=k?round(verified.slice(-k).reduce((s,x)=>s+x.close,0)/k):null;
