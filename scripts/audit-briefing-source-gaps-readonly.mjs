@@ -14,7 +14,7 @@ const TREASURY_IDS=Object.freeze(['UST2Y','UST3Y','UST10Y_FRED']);
 const SAFE_STOCK_SOURCES=new Set(['NH_REGULAR_CLOSE','KRX_OFFICIAL','YAHOO_DAILY_REFERENCE']);
 const DIAGNOSTIC_KINDS=new Set([
  'NH_CLOSE_STOCK_READ','KRX_CLOSE_STOCK_READ','US_STOCK_DAILY_REFERENCE',
- 'CLOSE_STOCK_COVERAGE'
+ 'CLOSE_STOCK_COVERAGE','KRX_TURNOVER_READ','VKOSPI_READ','FRED_TREASURY_READ'
 ]);
 const VALID_STATUSES=new Set([
  'GAS_RESPONSE_OK','SESSION_UNVERIFIED','GAS_AUTH_REJECTED',
@@ -22,7 +22,9 @@ const VALID_STATUSES=new Set([
  'GAS_ENDPOINT_INVALID','GAS_TIMEOUT_30S','GAS_FETCH_FAILED',
  'GAS_HTTP_UNAVAILABLE','GAS_JSON_INVALID','BOTH_VERIFIED','PARTIAL',
  'NO_DATED_OFFICIAL_CLOSE','NETWORK_OR_PARSE_FAILED',
- 'NO_EXACT_COMPLETED_BAR','CHECKED'
+ 'NO_EXACT_COMPLETED_BAR','CHECKED','VERIFIED','HTTP_UNAVAILABLE',
+ 'ENDPOINT_INVALID','PAYLOAD_INVALID','NO_EXACT_VALID_ROWS',
+ 'NO_EXACT_VALID_ROW','CONTENT_TYPE_INVALID','NETWORK_OR_PARSE_FAILED'
 ]);
 
 export function kstAuditSession(instant){
@@ -49,6 +51,7 @@ export function kstAuditSession(instant){
 const safeDiagnostic=d=>{
  if(!d||!DIAGNOSTIC_KINDS.has(d.kind))return null;
  return {kind:d.kind,status:VALID_STATUSES.has(d.status)?d.status:'OTHER_UNVERIFIED',
+  ...(d.kind==='FRED_TREASURY_READ'&&TREASURY_IDS.includes(d.id)?{id:d.id}:{}),
   checked:Array.isArray(d.verified)?d.verified.filter(x=>STOCK_IDS.includes(x)):[],
   stocks:Array.isArray(d.stocks)?d.stocks.filter(x=>STOCK_IDS.includes(x.id))
     .map(x=>({id:x.id,status:/^[A-Z_]+$/.test(x.status)?x.status:'UNKNOWN'})):[]};
@@ -64,9 +67,9 @@ export async function runClosingGapAudit({
  const listen=d=>{const clean=safeDiagnostic(d);if(clean)diagnostics.push(clean);};
  const calls=await Promise.allSettled([
   stocks(session.date,{now,onDiagnostic:listen}),
-  turnover(session.date,{now}),
-  vkospi(session.date,{now}),
-  treasury(session.date)
+  turnover(session.date,{now,onDiagnostic:listen}),
+  vkospi(session.date,{now,onDiagnostic:listen}),
+  treasury(session.date,{onDiagnostic:listen})
  ]);
  const result=i=>calls[i].status==='fulfilled'&&Array.isArray(calls[i].value)
   ?calls[i].value:[];
