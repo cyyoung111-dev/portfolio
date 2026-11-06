@@ -957,6 +957,14 @@ const nearby=computeCompanyCdsTrend([
 assert.equal(nearby.comparisonDates.month1,'2026-10-05',
  'equal distance ties prefer earlier observed date, not an interpolation');
 assert.equal(nearby.changesBp.month1,-6);
+assert.equal(computeCompanyCdsTrend([
+ datedCds('2026-10-06',50),
+ {...datedCds('2026-11-05',45),source:'ICE_LICENSED_5Y_PAR_MID'}
+],{asOf:'2026-11-06'}),null,'mixed vendor quotes cannot become one trend');
+assert.equal(computeCompanyCdsTrend([
+ datedCds('2026-10-06',50),
+ {...datedCds('2026-11-05',45),referenceEntityId:'RED:DIFFERENT1'}
+],{asOf:'2026-11-06'}),null,'mixed reference legal entities cannot become one trend');
 assert.equal(oneYearTrend.changesBp.year1,5);
 assert.equal(oneYearTrend.changesBp.month3,2);
 assert.equal(computeCompanyCdsTrend([printed.point],{asOf:'2026-11-06'}),null);
