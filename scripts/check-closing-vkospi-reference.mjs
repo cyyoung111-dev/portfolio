@@ -65,6 +65,11 @@ assert.equal(calls.length,1,'untrusted host blocked');
 assert.deepEqual(await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCESS',
  now,fetchImpl:async()=>({ok:true,json:async()=>({...payload,points:[]})})}),[]);
 
+const vkReasons=[];
+assert.deepEqual(await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCESS',
+ now,fetchImpl:async()=>({ok:true,json:async()=>({...payload,points:[]})}),
+ onDiagnostic:r=>vkReasons.push(r)}),[]);
+assert.deepEqual(vkReasons,[{kind:'VKOSPI_READ',status:'NO_EXACT_VALID_ROW'}]);
 const coverage=summarizeCloseCoverage(date,{vkospi:row,expectedUsDate:us});
 assert.equal(coverage.volatility.verified,1);
 assert.equal(coverage.statuses.find(x=>x.id==='VKOSPI').status,'VERIFIED');
