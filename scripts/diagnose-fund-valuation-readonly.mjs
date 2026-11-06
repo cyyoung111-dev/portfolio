@@ -23,13 +23,14 @@ export function summarizeFundRows(payload,code,from,to) {
    throw Error('FUND_AUDIT_BAD_RESPONSE');
  const seen=new Set();
  const summary={code,from,to,activeDays:0,confirmedNavDays:0,
-   navMissingDates:[],unpublishedDates:[],evaluationPendingDates:[],snapshotPendingDates:[]};
+   navMissingDates:[],unpublishedDates:[],evaluationPendingDates:[],snapshotPendingDates:[],
+   unitsNotAppliedDates:[],unreconciledDates:[],writerBlockedDates:[]};
  for(const row of rows) {
   if(row?.code!==code||!validDate(row.date)||row.date<from||row.date>to
       ||seen.has(row.date)||!NAV_STATES.has(row.navState)
       ||!ROW_STATES.has(row.evaluationState)||!ROW_STATES.has(row.snapshotState)
       ||typeof row.publicationExpected!=='boolean'||typeof row.unitsApplied!=='boolean'
-      ||typeof row.valuationRequired!=='boolean'||row.reconciled!==true)
+      ||typeof row.valuationRequired!=='boolean'||typeof row.reconciled!=='boolean')
     throw Error('FUND_AUDIT_BAD_RESPONSE');
   seen.add(row.date);
   summary.activeDays++;
@@ -40,8 +41,16 @@ export function summarizeFundRows(payload,code,from,to) {
     summary.evaluationPendingDates.push(row.date);
   if(row.snapshotState==='WRITE_REQUIRED'||row.snapshotState==='NOT_CREATED')
     summary.snapshotPendingDates.push(row.date);
+  if(!row.unitsApplied)summary.unitsNotAppliedDates.push(row.date);
+  if(!row.reconciled)summary.unreconciledDates.push(row.date);
+  const needsWrite=row.valuationRequired&&(
+    ['WRITE_REQUIRED','NOT_CREATED'].includes(row.evaluationState)
+    ||['WRITE_REQUIRED','NOT_CREATED'].includes(row.snapshotState));
+  if(needsWrite&&(!['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(row.navState)
+      ||!row.unitsApplied||!row.reconciled))summary.writerBlockedDates.push(row.date);
  }
- for(const key of ['navMissingDates','unpublishedDates','evaluationPendingDates','snapshotPendingDates'])
+ for(const key of ['navMissingDates','unpublishedDates','evaluationPendingDates','snapshotPendingDates',
+  'unitsNotAppliedDates','unreconciledDates','writerBlockedDates'])
    summary[key].sort();
  return summary;
 }
