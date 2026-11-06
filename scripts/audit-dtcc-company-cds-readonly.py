@@ -198,8 +198,9 @@ def summarize(rows, date):
             "symbol": symbol, "candidateCount": len(matches),
             "preliminaryReportedContractMedianBp": float(midpoint) if midpoint is not None else None,
             "containsOtherPaymentAmount": any(x["hasOtherPaymentAmount"] for x in matches),
-            "status": "PROVISIONAL_TRANSACTION_SPREAD_NOT_PAR_QUOTE"
-                      if matches else "NO_CONFIRMED_REPORTED_TRANSACTION",
+            "status": "ISSUER_REFERENCE_UNMAPPED" if symbol not in ISSUERS
+                      else ("PROVISIONAL_TRANSACTION_SPREAD_NOT_PAR_QUOTE"
+                      if matches else "NO_QUALIFYING_REPORTED_TRANSACTION"),
             "parCdsCloseVerified": False,
             "correctionWindow": "SINGLE_DAILY_ARCHIVE_ONLY"
         })
@@ -361,6 +362,8 @@ def selftest():
     assert get_candidates([row("1010", notation="4", spread="87")], date)["GOOGL"][0]["reportedContractSpreadBp"] == 87
     assert get_candidates([row("1011", notation="4", spread="-87")], date)["GOOGL"] == []
     assert summarize([first], date)["dealerParQuotesVerified"] == 0
+    assert summarize([first], date)["issuers"][0]["status"] == "ISSUER_REFERENCE_UNMAPPED"
+    assert summarize([first], date)["issuers"][2]["status"] == "PROVISIONAL_TRANSACTION_SPREAD_NOT_PAR_QUOTE"
     # Public index selection rejects foreign hosts, duplicate dates and
     # refuses to imply a report exists before it is actually available.
     prefix = "SEC_CUMULATIVE_CREDITS_"
