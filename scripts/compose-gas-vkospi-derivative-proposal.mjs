@@ -9,14 +9,14 @@ export const PROPOSED_DERIVATIVE_ENDPOINT='https://data-dbg.krx.co.kr/svc/apis/i
 
 export function gitBlobSha(text){
  const bytes=Buffer.from(text,'utf8');
- const preamble=Buffer.from('blob '+bytes.byteLength+'\\0','utf8');
+ const preamble=Buffer.concat([Buffer.from('blob '+bytes.byteLength,'utf8'),Buffer.from([0])]);
  return createHash('sha1').update(preamble).update(bytes).digest('hex');
 }
 export function composeGASVkospiDerivativeProposal(source){
  if(typeof source!=='string'||gitBlobSha(source)!==REVIEWED_GAS_SOURCE_BLOB)
   throw Error('GAS_VKOSPI_REVIEWED_SOURCE_MISMATCH');
  const from=source.indexOf('function _readVkospiPointsFromKrx(');
- const end=source.indexOf('\\n}',from)+2;
+ const end=source.indexOf(String.fromCharCode(10)+'}',from)+2;
  if(from<0||end<=from)throw Error('GAS_VKOSPI_HANDLER_NOT_FOUND');
  const original=source.slice(from,end);
  const oldEndpoint="var endpoint = '"+CURRENT_INDEX_ENDPOINT+"';";
