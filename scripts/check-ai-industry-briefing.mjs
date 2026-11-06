@@ -351,6 +351,20 @@ assert.equal(annual.values.revenue.value,3000000000);
 assert.equal(annual.values.revenue.tag,'RevenueFromContractWithCustomerExcludingAssessedTax');
 assert.equal(annual.values.operatingCashFlow.value,800000000);
 assert.equal(annual.values.capex.value,400000000);
+const productiveAssetsPayload=structuredClone(secPayload);
+productiveAssetsPayload.facts['us-gaap'].PaymentsToAcquireProductiveAssets
+ =productiveAssetsPayload.facts['us-gaap'].PaymentsToAcquirePropertyPlantAndEquipment;
+delete productiveAssetsPayload.facts['us-gaap'].PaymentsToAcquirePropertyPlantAndEquipment;
+const productiveFallback=extractSecAnnualFacts(productiveAssetsPayload,'AAPL');
+assert.equal(productiveFallback.values.capex.value,400000000);
+assert.equal(productiveFallback.values.capex.tag,'PaymentsToAcquireProductiveAssets');
+assert.equal(productiveFallback.calculated.freeCashFlow,400000000);
+assert.equal(classifySecAnnualFacts(productiveFallback),'VERIFIED');
+const wrongFallbackAccn=structuredClone(productiveAssetsPayload);
+wrongFallbackAccn.facts['us-gaap'].PaymentsToAcquireProductiveAssets.units.USD
+ =[one(400000000,{accn:'0000320193-25-000001'})];
+assert.equal(extractSecAnnualFacts(wrongFallbackAccn,'AAPL').calculated.freeCashFlow,null,
+ 'productive assets tag from another SEC filing must not be mixed');
 assert.equal(annual.calculated.freeCashFlow,400000000);
 assert.equal(annual.calculated.operatingMarginPercent,25);
 assert.equal(annual.values.epsDiluted.unit,'USD/shares');
