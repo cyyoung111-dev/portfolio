@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.283
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.284
+//
+//  v9.284 변경사항 (2026.11.06):
+//  • F00001 C-RPe import/derived refresh를 기존 공유 FUND/backfill lease 경유로 제한
+//  • 클래스/appendOnly/공시일/경고 fail-closed 유지, 외부 수집과 배포는 별도 승인
 //
 //  v9.283 변경사항 (2026.11.02):
 //  • NH 야간선물 06:00 기준값 조기 수집을 위한 06:45 조회 허용
@@ -1411,6 +1415,7 @@ function doPost(e) {
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'previewFundNavImport') return handlePreviewFundNavImport(params.data || '{}');
   if (params.action === 'collectKbFundNav') return handleCollectKbFundNav(params.mode || '', params.data || '{}', params.date || '');
+  if (params.action === 'collectHanwhaFundNav') return handleCollectKbFundNav(params.mode || '', params.data || '{}', params.date || '', 'F00001');
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
@@ -5841,7 +5846,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.283' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.284' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8237,19 +8242,36 @@ function _applyFundNavImport(ss, inspected, diagnostic) {
 
 // All external collector writes enter through one shared writer owner before
 // any source read. Ordinary manual import/refresh contracts remain unchanged.
-function handleCollectKbFundNav(mode, dataJson, date) {
+function handleCollectKbFundNav(mode, dataJson, date, fundCode) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleCollectKbFundNav', handleCollectKbFundNav, this, arguments);
   var token = Utilities.getUuid(), owned = false;
   try {
+    var code = String(fundCode || 'F00002').trim().toUpperCase();
+    if (code !== 'F00001' && code !== 'F00002') throw new Error('request');
     if (mode !== 'import' && mode !== 'refresh') throw new Error('request');
     if (mode === 'import') {
       var input = JSON.parse(dataJson);
-      if (input.code !== 'F00002' || input.provider !== 'KB_VALUE_ST'
-          || input.classCode !== 'AQ018' || input.appendOnly !== true
-          || !Array.isArray(input.rows) || !input.rows.length || input.rows.length > 32) throw new Error('request');
+      var kbOk = code === 'F00002' && input.code === 'F00002'
+          && input.provider === 'KB_VALUE_ST' && input.classCode === 'AQ018';
+      var hanwhaOk = code === 'F00001' && input.code === 'F00001'
+          && input.provider === 'HANWHA_2045_CRPE' && input.classCode === 'C-RPe'
+          && input.ackWarnings === false;
+      if ((!kbOk && !hanwhaOk) || input.appendOnly !== true
+          || !Array.isArray(input.rows) || !input.rows.length
+          || input.rows.length > (hanwhaOk ? 8 : 32)) throw new Error('request');
+      if (hanwhaOk) {
+        var seenNavDates = {};
+        input.rows.forEach(function(row) {
+          var d = _fundDate(row && row.date);
+          if (d >= today() || d < _fundDateOffset(today(), -31)
+              || seenNavDates[d] || !isFinite(Number(row.nav)) || Number(row.nav) <= 0)
+            throw new Error('request');
+          seenNavDates[d] = true;
+        });
+      }
     } else {
       _fundDate(date);
-      if (date > today() || date < _fundDateOffset(today(), -31)) throw new Error('date');
+      if (date > today() || (code === 'F00001' && date === today()) || date < _fundDateOffset(today(), -31)) throw new Error('date');
     }
     _portfolioFundAtomic_(function(props) {
       var now = Date.now();
@@ -8262,13 +8284,13 @@ function handleCollectKbFundNav(mode, dataJson, date) {
       var started = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
       if ((stage === 'PRICE' || stage === 'FUND') && started && now-started >= 0 && now-started < 900000) throw new Error('busy');
       props.setProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,
-        JSON.stringify({token:token,origin:'KB_NAV_COLLECTOR',until:now+420000}));
+        JSON.stringify({token:token,origin:code === 'F00001' ? 'HANWHA_NAV_COLLECTOR' : 'KB_NAV_COLLECTOR',until:now+420000}));
       var current = _portfolioFundState_(props,PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
       if (!current || current.token !== token) throw new Error('lease');
       owned = true;
     });
     return mode === 'import' ? handleImportFundNav(dataJson)
-      : handleRefreshFundValuations(date,date,'F00002','',true);
+      : handleRefreshFundValuations(date,date,code,'',true);
   } catch(error) { return jsonError(error && error.message === 'busy' ? 'FUND_BUSY' : 'FUND_COLLECTOR_BLOCKED_OR_UNVERIFIED'); }
   finally {
     if (owned) _portfolioFundAtomic_(function(props) {
@@ -13346,7 +13368,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.283',
+    gasVersion: '9.284',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13414,7 +13436,7 @@ function _getAutomationStatusData() {
 
 function handleGetAutomationStatus() {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetAutomationStatus', handleGetAutomationStatus, this, arguments);
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.283' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.284' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16554,7 +16576,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.283' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.284' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17402,7 +17424,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.283' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.284' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17434,7 +17456,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.283'
+      gasVersion: '9.284'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19746,7 +19768,7 @@ function handleDiagnoseNhMarketData(params) {
     var items=[{code:'005930',currency:'KRW',market:'KRX'},{code:'AAPL',currency:'USD',market:'NASDAQ'}];
     var meta={},quotes=fetchPricesNh(items,{},meta),date=today();
     var closes=fetchNhRegularCloses(items,date,{useMarketCloseCutoffs:true});
-    return jsonOk({gasVersion: '9.283',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
+    return jsonOk({gasVersion: '9.284',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
   }catch(error){return jsonError('NH_DIAGNOSTIC_FAILED');}
 }
 
@@ -19778,7 +19800,7 @@ function handleGetNhAuthStatusProxy(params) {
     PropertiesService.getScriptProperties().getProperty('NHPLUG_AUTH_RECORD_V1'),_nhTokenScope_(creds)):null;
   // Never issue a token or return its value for a status check.
   return jsonOk({provider:'NH',enabled:enabled,tokenCached:!!existing,tokenIssued:false,
-    gasVersion: '9.283',readOnly:true});
+    gasVersion: '9.284',readOnly:true});
 }
 function _nhProxyFutureCandidate_(today) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyFutureCandidate_', _nhProxyFutureCandidate_, this, arguments);
@@ -19994,7 +20016,7 @@ function handleGetNhIndexProbe(params){
      if(stop){stopped=true;break;}
    }
  }
- return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.283',date:'2026-10-29',
+ return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.284',date:'2026-10-29',
    candidateOnly:true,mappingVerified:false,results:records,stopped:stopped});
 }
 
@@ -20075,7 +20097,7 @@ var ISSUE507_GATE_RELEASE_ID='257c26d1ad789d8f036e74d56418644385e8860dab8c5551fb
 // Original alias functions are private implementation details; direct editor
 // calls and other deployments must be disabled by the rollout operator.
 var _issue507GateInside_=false;
-var ISSUE507_GATE_API_VERSION='9.283';
+var ISSUE507_GATE_API_VERSION='9.284';
 function _issue507GateAtomic_(fn,quickCleanup) {
   var lock=LockService.getScriptLock(),owned=lock.hasLock();
   if(!owned){

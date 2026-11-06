@@ -76,6 +76,16 @@ for(const inputs of [
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.283',eventName:'workflow_dispatch',approved9283:true}));
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.283',eventName:'workflow_run',dryRun:true}));
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.283',eventName:'workflow_run',diagnosticOnly:true}));
+for(const inputs of [
+ {version:'9.284',eventName:'workflow_run',approved9284:false},
+ {version:'9.284',eventName:'workflow_run',approved9284:true},
+ {version:'9.284',eventName:'workflow_dispatch',approved9284:false},
+ {version:'9.284',eventName:'workflow_dispatch',approved9283:true,approved9284:false},
+ {version:'9.284',eventName:undefined,approved9284:true}
+])assert.throws(()=>assertIssue507ManualReleasePermission(inputs),/GAS_9284_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.284',eventName:'workflow_dispatch',approved9284:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.284',eventName:'workflow_run',dryRun:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.284',eventName:'workflow_run',diagnosticOnly:true}));
 
 let unsafeRollbackReads=0,unsafeRollbackWrites=0;
 await assert.rejects(()=>rollbackGasCode({
@@ -710,7 +720,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='327f48785550a012eaf1ed533c24bf6289c01a71';
+const approvedFullSourceBlob='b5b1c7fd5a27454419ddd6d12ecb20751c207c63';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -754,7 +764,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.283',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.284',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
@@ -900,6 +910,8 @@ assert.match(workflow, /GAS_WEB_APP_URL/);
 assert.match(workflow, /GAS_AUTO_DEPLOY_ENABLED/, 'automatic release must require administrator opt-in');
 assert.match(workflow,/approve_9283:\s*[\s\S]*?default: false/,'GAS 9.283 manual approval must default to false');
 assert.match(workflow,/GAS_9283_RELEASE_APPROVAL:/,'GAS 9.283 dispatch approval must be explicit');
+assert.match(workflow,/approve_9284:\s*[\s\S]*?default: false/,'GAS 9.284 manual approval must default to false');
+assert.match(workflow,/GAS_9284_RELEASE_APPROVAL:/,'GAS 9.284 dispatch approval must be explicit');
 assert.doesNotMatch(workflow, /github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED/, 'auto production deployment on push is forbidden');
 assert.match(workflow, /deploy:\s*[\s\S]*concurrency:/);
 assert.match(workflow, /gas-deploy-dry-run/);

@@ -1,0 +1,39 @@
+{
+  "version": "9.284",
+  "parentVersion": "9.283",
+  "parentSourceGitBlob": "327f48785550a012eaf1ed533c24bf6289c01a71",
+  "candidateSourceGitBlob": "b5b1c7fd5a27454419ddd6d12ecb20751c207c63",
+  "status": "REVIEW_PENDING_NOT_DEPLOYED",
+  "features": [
+    "F00001_HANWHA_2045_CRPE_CLASS_EXACT",
+    "SHARED_FUND_AND_KRX_BACKFILL_WRITER_LEASE",
+    "STORED_ONLY_F00001_DATE_REFRESH",
+    "PRIOR_9283_FULL_CLOSE_AND_SNAPSHOT"
+  ],
+  "sourceComposer": "scripts/compose-gas9284-hanwha-leased-preview.mjs",
+  "productionSource": "src/gas/apps_script.gs",
+  "approval": {
+    "merge": false,
+    "release": false,
+    "financeWrite": false
+  },
+  "preDeployBlockers": [
+    "2026-11-06T10:33:00+09:00 inventory BLOCKED: two WEB_APP deployments, one additional anonymous deployer-run and VERSION_METADATA_UNVERIFIED",
+    "F00001 collector remains READ_ONLY; --apply refused until later reviewed promotion",
+    "GAS 9.284 not yet deployed; latest verified production 9.282"
+  ],
+  "deploymentContract": {
+    "workflow": "gas-deploy.yml",
+    "firstGatePhase": "none",
+    "dryRun": true,
+    "approve9284": false,
+    "allowAutomatic": false
+  },
+  "nextValidation": [
+    "full source and exact release pin CI",
+    "Codex latest HEAD review",
+    "clean complete GAS inventory",
+    "new release production manual approval",
+    "post-deploy F00001/02 NAV and Snapshot readback"
+  ]
+}
