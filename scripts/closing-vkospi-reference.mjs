@@ -46,7 +46,11 @@ export async function readClosingVkospi(date,{
    body,redirect:'follow',signal:AbortSignal.timeout(17000)});
   if(!response?.ok){emit('HTTP_UNAVAILABLE');return [];}
   const payload=await response.json();
-  if(payload?.status!=='ok'){emit('GAS_RESPONSE_NOT_OK');return [];}
+  if(payload?.status!=='ok'){
+   emit(payload?.status==='error'&&payload?.message==='인증 실패'
+    ?'GAS_AUTH_REJECTED':payload?.status==='error'?'GAS_STATUS_ERROR'
+    :'GAS_RESPONSE_SCHEMA');return [];
+  }
   const rows=selectClosingVkospi(date,payload);
   emit(rows.length===1?'VERIFIED':'NO_EXACT_VALID_ROW');
   return rows;
