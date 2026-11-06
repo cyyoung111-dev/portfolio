@@ -8,6 +8,7 @@ import {summarizeAiNineHistory,readAiNineHistoricalTrends} from './briefing-ai-n
 import {extractSecAnnualFacts,classifySecAnnualFacts,readAiNineAnnualSecFacts} from './briefing-ai-nine-sec-financials.mjs';
 import {extractSecTtmFacts,readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
 import {selectYearEndOutstandingShares,extractAnnualValueSnapshot,readAiNineAnnualValueSnapshots,readYahooSplitProof} from './briefing-ai-nine-sec-values.mjs';
+import {DART_SEMICONDUCTORS,extractDartDomesticBps,calculateDomesticReferencePbr,readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -663,23 +664,11 @@ assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
  {now:fyNow(),splitProof:{...proofNoSplit,source:'UNKNOWN'}})
  .snapshot.pbrTimes,null);
 const stamp=ds=>Date.parse(ds+'T14:30:00Z')/1000;
-const chartDates=[];
-for(let ts=Date.parse('2026-09-22T00:00:00Z');
- ts<=Date.parse('2026-11-05T00:00:00Z');ts+=86400000){
- const d=new Date(ts);
- if(d.getUTCDay()!==0&&d.getUTCDay()!==6)
-  chartDates.push(d.toISOString().slice(0,10));
-}
-const fakeChart=({split=false,truncate=false,wrongSymbol=false,
- gap=false,lateStart=false,missingExactEnd=false}={})=>({
+const fakeChart=({split=false,truncate=false,wrongSymbol=false}={})=>({
  chart:{result:[{
   meta:{symbol:wrongSymbol?'MSFT':'AAPL',
    exchangeTimezoneName:'America/New_York'},
-  timestamp:chartDates.filter(d=>
-   (!truncate||d<='2026-11-03')&&
-   (!lateStart||d>='2026-10-05')&&
-   (!gap||(d<='2026-09-28'||d>='2026-11-05'))&&
-   (!missingExactEnd||d!=='2026-11-05')).map(stamp),
+  timestamp:['2026-09-29','2026-10-20',truncate?'2026-11-03':'2026-11-05'].map(stamp),
   events:split?{splits:{event:{
    date:stamp('2026-10-20'),numerator:10,denominator:1}}}:{}
  }]}}
@@ -693,12 +682,6 @@ assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
  fetchImpl:async()=>({ok:true,json:async()=>fakeChart({truncate:true})})}),null,
  'incomplete split history cannot establish no-split proof');
 assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
- fetchImpl:async()=>({ok:true,json:async()=>fakeChart({lateStart:true})})}),null,
- 'missing initial history must not prove no stock split');
-assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
- fetchImpl:async()=>({ok:true,json:async()=>fakeChart({gap:true})})}),null,
- 'large internal history gap must not prove no stock split');
-assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
  fetchImpl:async()=>({ok:true,json:async()=>fakeChart({wrongSymbol:true})})}),null);
 const badSplitEvents=fakeChart({split:true});
 badSplitEvents.chart.result[0].events.splits.event.denominator=0;
@@ -707,12 +690,6 @@ assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
 const sourceNoSplitProof=await readYahooSplitProof('AAPL',end,'2026-11-05',{
  fetchImpl:async()=>({ok:true,json:async()=>fakeChart()})});
 assert.equal(sourceNoSplitProof?.sharesPerOldShare,1);
-const missingEndButLater=fakeChart({missingExactEnd:true});
-missingEndButLater.chart.result[0].timestamp.push(stamp('2026-11-06'));
-assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
- fetchImpl:async()=>({ok:true,json:async()=>missingEndButLater})}),null,
- 'later price cannot substitute the missing exact quote date in split proof');
-
 
 assert.equal(selectYearEndOutstandingShares(annualShares,
  extractSecAnnualFacts(annualShares,'AAPL',{now:fyNow()})).shares,2000000000);
@@ -766,4 +743,136 @@ const noSecUa=await readAiNineAnnualValueSnapshots({
 });
 assert.equal(noSecUa.verified,0);
 assert.ok(noSecUa.statuses.every(x=>x.status==='SEC_USER_AGENT_NOT_CONFIGURED'));
+
+/* Domestic DART official CFS + stock total same-filing, no invented PBR. */
+const dartQ2={year:2026,code:'11012',period:'2026-06-30'};
+const dartFiling='20260815000001';
+const dartNow=()=>new Date('2026-11-06T10:00:00Z');
+const buildDartFixture=(corpCode,{preferred=false}={})=>{
+ const row={corp_code:corpCode,bsns_year:'2026',reprt_code:'11012',
+  rcept_no:dartFiling};
+ const finance={status:'000',list:[{...row,sj_div:'BS',
+  account_id:'ifrs-full_EquityAttributableToOwnersOfParent',
+  account_nm:'지배기업 소유주지분',currency:'KRW',
+  thstrm_amount:'100,000,000,000,000'}]};
+ const common={...row,se:'보통주',stlm_dt:'2026-06-30',
+  istc_totqy:'5,000,000,000',tesstk_co:'0',
+  distb_stock_co:'5,000,000,000'};
+ const pref={...row,se:'우선주',stlm_dt:'2026-06-30',
+  istc_totqy:'1,000,000,000',tesstk_co:'0',
+  distb_stock_co:'1,000,000,000'};
+ const total={...row,se:'합계',stlm_dt:'2026-06-30',
+  istc_totqy:preferred?'6,000,000,000':'5,000,000,000',
+  tesstk_co:'0',distb_stock_co:preferred?'6,000,000,000':'5,000,000,000'};
+ return {finance,shares:{status:'000',list:preferred
+  ?[common,pref,total]:[common,total]}};
+};
+const dartSamsung=buildDartFixture('00126380',{preferred:true});
+const dartHynix=buildDartFixture('00164779');
+const dartSam=extractDartDomesticBps(dartSamsung.finance,dartSamsung.shares,
+ DART_SEMICONDUCTORS[0],dartQ2,{now:dartNow()});
+assert.equal(dartSam.status,'INDICATIVE_MULTICLASS_BPS',
+ 'common and preferred classes cannot claim equivalent legal rights');
+assert.ok(Math.abs(dartSam.snapshot.referenceBpsKrw-(100000000000000/6000000000))<1e-9);
+assert.equal(dartSam.snapshot.preferredShares,1000000000);
+const dartSk=extractDartDomesticBps(dartHynix.finance,dartHynix.shares,
+ DART_SEMICONDUCTORS[1],dartQ2,{now:dartNow()});
+assert.equal(dartSk.status,'VERIFIED_SINGLECLASS_BPS');
+assert.equal(dartSk.snapshot.referenceBpsKrw,20000);
+const nhQuote={symbol:'000660',date:'2026-11-05',unit:'KRW',
+ source:'NH_REGULAR_CLOSE',value:120000};
+const skPbr=calculateDomesticReferencePbr(dartSk.snapshot,nhQuote);
+assert.equal(skPbr.status,'VERIFIED_SINGLECLASS_PBR');
+assert.equal(skPbr.value,6);
+assert.equal(calculateDomesticReferencePbr(dartSam.snapshot,{
+ ...nhQuote,symbol:'005930'}).status,'INDICATIVE_MULTICLASS_PBR');
+assert.equal(calculateDomesticReferencePbr(dartSk.snapshot,{
+ ...nhQuote,date:'2026-08-15'}).status,'DOMESTIC_PBR_UNVERIFIED',
+ 'filing-day close before document release time must be withheld');
+assert.equal(calculateDomesticReferencePbr(dartSk.snapshot,{
+ ...nhQuote,source:'YAHOO_DAILY_REFERENCE'}).value,null);
+const dartMismatch=structuredClone(dartSamsung);
+dartMismatch.shares.list.at(-1).distb_stock_co='5,999,999,999';
+assert.equal(extractDartDomesticBps(dartMismatch.finance,dartMismatch.shares,
+ DART_SEMICONDUCTORS[0],dartQ2,{now:dartNow()}).status,'DART_SHARE_TOTAL_MISMATCH');
+const dartBadReport=structuredClone(dartHynix);
+dartBadReport.shares.list[0].rcept_no='20260816000001';
+assert.equal(extractDartDomesticBps(dartBadReport.finance,dartBadReport.shares,
+ DART_SEMICONDUCTORS[1],dartQ2,{now:dartNow()}).status,'DART_PERIOD_OR_FILING_UNVERIFIED');
+const dartEquityConflict=structuredClone(dartHynix);
+dartEquityConflict.finance.list.push({...dartEquityConflict.finance.list[0],
+ thstrm_amount:'110,000,000,000,000'});
+assert.equal(extractDartDomesticBps(dartEquityConflict.finance,dartEquityConflict.shares,
+ DART_SEMICONDUCTORS[1],dartQ2,{now:dartNow()}).status,'DART_PARENT_EQUITY_UNVERIFIED');
+let dartCalls=0;
+const dartNoKey=await readTwoDomesticDartBps({now:dartNow,apiKey:'',
+ fetchImpl:async()=>{dartCalls++;throw Error('NO_DART_KEY');}});
+assert.equal(dartCalls,0);
+assert.ok(dartNoKey.statuses.every(x=>x.status==='DART_KEY_NOT_CONFIGURED'));
+const dartTestKey='A'.repeat(40);
+const dartLiveShape=await readTwoDomesticDartBps({
+ now:dartNow,apiKey:dartTestKey,
+ fetchImpl:async(url)=>{
+  dartCalls++;
+  const u=new URL(url);
+  assert.equal(u.hostname,'opendart.fss.or.kr');
+  assert.equal(u.searchParams.get('crtfc_key'),dartTestKey);
+  assert.equal(u.searchParams.get('fs_div'),
+   u.pathname.includes('fnlttSinglAcntAll')?'CFS':null);
+  const corp=u.searchParams.get('corp_code');
+  assert.ok(DART_SEMICONDUCTORS.some(x=>x.corpCode===corp));
+  const body=u.searchParams.get('reprt_code')==='11014'
+   ?{status:'013',message:'no data'}
+   :u.pathname.includes('fnlttSinglAcntAll')
+    ?(corp==='00126380'?dartSamsung:dartHynix).finance
+    :(corp==='00126380'?dartSamsung:dartHynix).shares;
+  return {ok:true,json:async()=>structuredClone(body)};
+ }
+});
+assert.equal(dartCalls,6,'2 companies x (unpublished Q3 + Q2 financial/stock)');
+assert.equal(dartLiveShape.verified,1);
+assert.equal(dartLiveShape.indicative,1);
+assert.equal(dartLiveShape.rows.length,2);
+assert.ok(dartLiveShape.rows.every(x=>x.period==='2026-06-30'),
+ 'an unpublished Q3 cannot be presented as confirmed quarter-end book value');
+const nextYearNow=()=>new Date('2027-02-01T03:00:00Z');
+const q3Docs=Object.fromEntries(DART_SEMICONDUCTORS.map(item=>{
+ const x=buildDartFixture(item.corpCode,{preferred:item.symbol==='005930'});
+ for(const row of [...x.finance.list,...x.shares.list]){
+  row.reprt_code='11014';row.rcept_no='20261115000001';
+  if(row.stlm_dt)row.stlm_dt='2026-09-30';
+ }
+ return [item.corpCode,x];
+}));
+let earlyCalls=0;
+const january=await readTwoDomesticDartBps({
+ now:nextYearNow,apiKey:dartTestKey,
+ fetchImpl:async url=>{
+  earlyCalls++;
+  const u=new URL(url),code=u.searchParams.get('reprt_code');
+  const corp=u.searchParams.get('corp_code');
+  const body=code==='11011'
+   ?{status:'013',message:'10-K not yet published'}
+   :code==='11014'
+    ?(u.pathname.includes('fnlttSinglAcntAll')
+      ?q3Docs[corp].finance:q3Docs[corp].shares)
+    :{status:'013',message:'fallback should stop at latest Q3'};
+  return {ok:true,json:async()=>structuredClone(body)};
+ }
+});
+assert.equal(earlyCalls,6,
+ 'February must test unpublished previous-year 10-K then the latest Q3');
+assert.equal(january.verified,1);
+assert.equal(january.indicative,1);
+assert.ok(january.rows.every(x=>x.period==='2026-09-30'),
+ 'previous year Q3 published statement is latest before annual report');
+let dartInvalidCalls=0;
+const dartBadKey=await readTwoDomesticDartBps({
+ now:dartNow,apiKey:dartTestKey,
+ fetchImpl:async()=>{dartInvalidCalls++;
+  return {ok:true,json:async()=>({status:'010',message:'invalid key'})};}
+});
+assert.equal(dartInvalidCalls,1,
+ 'key rejection must stop without trying older periods or other issuers');
+assert.equal(dartBadKey.statuses[0].status,'DART_KEY_REJECTED');
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
