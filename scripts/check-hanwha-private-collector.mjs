@@ -11,7 +11,7 @@ const sourceRows=[
 ];
 function fixture({busy=false,invalidAuth=false,conflict=false,
  lostImportAck=false,lostRefreshAck=false,uncommittedImportTimeout=false,
- wrongClass=false}={}){
+ closeDateToday=false}={}){
  let calls=0,mutations=0;
  const navStored=new Map(),refreshed=new Set(),actions=[];
  const fetchImpl=async (_url,opts)=>{
@@ -28,7 +28,8 @@ function fixture({busy=false,invalidAuth=false,conflict=false,
        ({status:'ok'}):({status:'error',message:'인증 실패'})};
    if(p.action==='getAutomationStatus')return {ok:true,json:async()=>({
      status:'ok',gasVersion:'9.284',automation:{
-       closeRun:{state:busy?'RUNNING':'ERROR',runDate:'2026-11-05'},
+       closeRun:{state:busy?'RUNNING':'ERROR',
+        runDate:closeDateToday?'2026-11-06':'2026-11-05'},
        tradeSnapshotWorkerLastResult:{status:'IDLE'},tradeSnapshotDeferredCount:0}})};
    if(p.action==='previewFundNavImport'){
      const input=JSON.parse(p.data);
@@ -100,7 +101,10 @@ const args=f=>({url:'https://script.google.com/macros/s/TEST/exec',
  assert.equal(f.mutations,0);
  assert.equal(f.actions.filter(x=>x==='collectHanwhaFundNav').length,0);
 }
-for(const options of [{},{lostImportAck:true},{lostRefreshAck:true}]){
+// Same-day close may be ERROR but the F00001 endpoint cannot refresh
+// provisional KST today. Its read-only proof and writer must stop yesterday.
+for(const options of [{},{lostImportAck:true},{lostRefreshAck:true},
+ {closeDateToday:true}]){
  const f=fixture(options),r=await run({...args(f),apply:true});
  assert.equal(r.mode,'APPLY');
  assert.equal(r.code,'F00001');
