@@ -62,3 +62,30 @@ jobs:
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: node scripts/audit-ai-nine-fy-values-readonly.mjs
+      - name: Diagnose Meta share-tag availability without values
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {extractSecAnnualFacts} from './scripts/briefing-ai-nine-sec-financials.mjs';
+          const r=await fetch('https://data.sec.gov/api/xbrl/companyfacts/CIK0001326801.json',{
+            headers:{accept:'application/json','user-agent':process.env.SEC_USER_AGENT},
+            signal:AbortSignal.timeout(25000)});
+          if(!r.ok)throw Error('SEC_META_HTTP_UNAVAILABLE');
+          const d=await r.json();
+          const a=extractSecAnnualFacts(d,'META');
+          if(!a)throw Error('SEC_META_ANNUAL_UNAVAILABLE');
+          const tags=[['us-gaap','CommonStockSharesOutstanding'],
+           ['dei','EntityCommonStockSharesOutstanding']];
+          const rows=tags.map(([ns,tag])=>{
+            const fs=d.facts?.[ns]?.[tag]?.units?.shares??[];
+            const same=fs.filter(x=>x.form==='10-K'&&x.accn===a.accessionNumber
+             &&x.filed===a.filedAt);
+            return {tag:ns+':'+tag,available:fs.length>0,
+             sameFiling:same.length,
+             exactPeriod:same.filter(x=>x.end===a.period&&!x.start).length,
+             distinctEndDates:[...new Set(same.map(x=>x.end))].sort()};
+          });
+          console.log('META_SHARE_TAG_COVERAGE '+JSON.stringify({
+           period:a.period,tags:rows}));
+          NODE
