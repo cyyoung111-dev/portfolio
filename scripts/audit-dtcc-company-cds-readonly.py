@@ -501,6 +501,28 @@ def selftest():
     assert delayed_history["reportedObservationDays"][2]["days"]==1
     assert delayed_history["history"]["GOOGL"][0]["date"]=="2025-11-06"
     assert delayed_history["observationDateBasis"]=="EXECUTION_TIMESTAMP_UTC"
+    # Cross-file collision on a CORR ID whose second disclosure relates to a
+    # non-watchlisted issuer must also fail in the rolling CLI.
+    relevant=row("5011")
+    irrelevant=row("5012",red="OTHERID")
+    irrelevant["Underlying Asset Name"]="Unrelated Issuer"
+    linked_a=row("6011",action="CORR",original="5011")
+    linked_b=row("6011",action="CORR",original="5012")
+    for linked in (linked_a,linked_b):
+        linked["Underlying Asset Name"]=""
+        linked["Underlier ID-Leg 1"]=""
+    for first_corr,second_corr in ((linked_a,linked_b),(linked_b,linked_a)):
+        conflicting_archives=[
+            ("2026-11-04",zipped("2026-11-04",[relevant,irrelevant])),
+            ("2026-11-05",zipped("2026-11-05",[first_corr])),
+            ("2026-11-06",zipped("2026-11-06",[second_corr]))
+        ]
+        try:
+            summarize_history(conflicting_archives,"2026-11-06")
+            raise AssertionError("cross-file unrelated CORR collision passed")
+        except ValueError as exc:
+            assert str(exc)=="DTCC_GLOBAL_ID_PAYLOAD_CONFLICT"
+
 
     # Both a cross-file duplicate of identical content and a conflicting
     # duplicate are tested at the pre-filter global-ID layer.
