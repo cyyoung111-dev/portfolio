@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {composeGASVkospiDerivativeProposal,gitBlobSha,
+ CURRENT_INDEX_ENDPOINT,PROPOSED_DERIVATIVE_ENDPOINT}
+ from './compose-gas-vkospi-derivative-proposal.mjs';
 import {selectClosingVkospi,verifyClosingVkospi,readClosingVkospi}
  from './closing-vkospi-reference.mjs';
 import {formatClose,prepareClose,deliverClose} from './telegram-close-workflow.mjs';
@@ -126,4 +129,59 @@ assert.match(sent,/VKOSPI: 25\.42/);
 await assert.rejects(deliverClose({...prepared,reportInputs:{...prepared.reportInputs,
  vkospi:[{...row[0],date:'2026-10-30'}]}},{now,send:async()=>assert.fail('stale value sent')}),
  /TELEGRAM_CLOSE_PAYLOAD_INVALID/);
+
+// Production source is read-only: create an in-memory preview changing exactly
+// one VKOSPI-specific API URL, never install/deploy the preview.
+const sourceGas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const proposal=composeGASVkospiDerivativeProposal(sourceGas);
+assert.notEqual(proposal.candidate,sourceGas);
+assert.equal(proposal.candidate.replace(PROPOSED_DERIVATIVE_ENDPOINT,
+ CURRENT_INDEX_ENDPOINT),sourceGas);
+assert.equal(proposal.reviewedBlob,gitBlobSha(sourceGas));
+assert.equal(proposal.financialWrites,0);
+assert.equal(proposal.gasDeployments,0);
+assert.equal(proposal.telegramSends,0);
+assert.equal(proposal.externalRequests,0);
+assert.throws(()=>composeGASVkospiDerivativeProposal(sourceGas+'\\n'),
+ /GAS_VKOSPI_REVIEWED_SOURCE_MISMATCH/);
+const i=proposal.candidate.indexOf('function _readVkospiPointsFromKrx(');
+const j=proposal.candidate.indexOf(String.fromCharCode(10)+'}',i)+2;
+assert.ok(i>=0&&j>i);
+const fn=proposal.candidate.slice(i,j);
+let dailyRows=[{IDX_NM:'코스피 200 변동성지수',BAS_DD:'20261105',
+ CLSPRC_IDX:'25.42'}],captured=[];
+const proofContext={
+ _issue507GateInside_:true,
+ _getKrxAuthKeySlots_:()=>({key:'SYNTHETIC_ONLY_KRX_KEY',alternative:''}),
+ CacheService:{getScriptCache:()=>({get:()=>null,getAll:()=>({}),
+  put:()=>{},putAll:()=>{}})},
+ _buildDateRangeYmd:()=>['20261105'],
+ _ymdToDate:()=>new Date('2026-11-05T00:00:00Z'),
+ _krxCalendarStatus_:()=> 'OPEN',
+ _normalizeYmd:x=>x,
+ UrlFetchApp:{fetchAll:reqs=>{
+  captured.push(...reqs.map(r=>({url:r.url,method:r.method,
+   hasApprovedHeader:r.headers.AUTH_KEY==='SYNTHETIC_ONLY_KRX_KEY'})));
+  return reqs.map(()=>({getResponseCode:()=>200,
+   getContentText:()=>JSON.stringify({OutBlock_1:dailyRows})}));
+ }},
+ Logger:{log:()=>{}}
+};
+const candidateFn=vm.runInNewContext(fn+String.fromCharCode(10)+
+ '_readVkospiPointsFromKrx;',proofContext);
+const officialRows=JSON.parse(JSON.stringify(
+ candidateFn('2026-11-05','2026-11-05')));
+assert.deepEqual(officialRows,[{date:'2026-11-05',value:25.42}]);
+assert.equal(captured.length,1);
+assert.match(captured[0].url,/\/svc\/apis\/idx\/drvprod_dd_trd\?basDd=20261105/);
+assert.equal(captured[0].hasApprovedHeader,true);
+dailyRows=[{IDX_NM:'코스피 200 변동성지수',BAS_DD:'20261104',
+ CLSPRC_IDX:'25.42'}];
+assert.deepEqual(JSON.parse(JSON.stringify(
+ candidateFn('2026-11-05','2026-11-05'))),[]);
+dailyRows=[{IDX_NM:'KOSPI 200',BAS_DD:'20261105',CLSPRC_IDX:'25.42'}];
+assert.deepEqual(JSON.parse(JSON.stringify(
+ candidateFn('2026-11-05','2026-11-05'))),[]);
+console.log('GAS_VKOSPI_DERIVATIVE_PROPOSAL_PASS only 1 URL, exact source/date, no deploy');
+
 console.log('CLOSING_VKOSPI_PASS exact KRX date, trusted GAS, QC, send-time protection');
