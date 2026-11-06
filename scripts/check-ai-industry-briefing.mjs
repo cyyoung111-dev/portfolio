@@ -652,11 +652,22 @@ assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
  {now:fyNow(),splitProof:{...proofNoSplit,source:'UNKNOWN'}})
  .snapshot.pbrTimes,null);
 const stamp=ds=>Date.parse(ds+'T14:30:00Z')/1000;
-const fakeChart=({split=false,truncate=false,wrongSymbol=false}={})=>({
+const chartDates=[];
+for(let ts=Date.parse('2026-09-22T00:00:00Z');
+ ts<=Date.parse('2026-11-05T00:00:00Z');ts+=86400000){
+ const d=new Date(ts);
+ if(d.getUTCDay()!==0&&d.getUTCDay()!==6)
+  chartDates.push(d.toISOString().slice(0,10));
+}
+const fakeChart=({split=false,truncate=false,wrongSymbol=false,
+ gap=false,lateStart=false}={})=>({
  chart:{result:[{
   meta:{symbol:wrongSymbol?'MSFT':'AAPL',
    exchangeTimezoneName:'America/New_York'},
-  timestamp:['2026-09-29','2026-10-20',truncate?'2026-11-03':'2026-11-05'].map(stamp),
+  timestamp:chartDates.filter(d=>
+   (!truncate||d<='2026-11-03')&&
+   (!lateStart||d>='2026-10-05')&&
+   (!gap||(d<='2026-09-28'||d>='2026-11-05'))).map(stamp),
   events:split?{splits:{event:{
    date:stamp('2026-10-20'),numerator:10,denominator:1}}}:{}
  }]}}
@@ -669,6 +680,12 @@ assert.equal(sourceSplitProof?.sharesPerOldShare,10);
 assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
  fetchImpl:async()=>({ok:true,json:async()=>fakeChart({truncate:true})})}),null,
  'incomplete split history cannot establish no-split proof');
+assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async()=>({ok:true,json:async()=>fakeChart({lateStart:true})})}),null,
+ 'missing initial history must not prove no stock split');
+assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async()=>({ok:true,json:async()=>fakeChart({gap:true})})}),null,
+ 'large internal history gap must not prove no stock split');
 assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
  fetchImpl:async()=>({ok:true,json:async()=>fakeChart({wrongSymbol:true})})}),null);
 const badSplitEvents=fakeChart({split:true});
