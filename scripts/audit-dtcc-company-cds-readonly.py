@@ -227,7 +227,7 @@ def run_live(date):
 def select_archive_history(index, as_of, max_files=15):
     if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", as_of):
         raise ValueError("INVALID_DATE")
-    if not isinstance(max_files, int) or not 1 <= max_files <= 95:
+    if not isinstance(max_files, int) or not 1 <= max_files <= 120:
         raise ValueError("INVALID_HISTORY_LIMIT")
     entries = index.get("SEC_CR") if isinstance(index, dict) else None
     if not isinstance(entries, list):
@@ -336,7 +336,9 @@ def summarize_history(named_archives, as_of):
         "reportedObservationDays": [
             {"symbol": ticker, "days": len(observed[ticker]),
              "lastObserved": observed[ticker][-1] if observed[ticker] else None,
-             "month1TradeMedianComparison": trade_median_comparison(observed[ticker])}
+             "month1TradeMedianComparison": trade_median_comparison(observed[ticker]),
+             "quarter3TradeMedianComparison": trade_median_comparison(observed[ticker],91),
+             "year1TradeMedianComparison": trade_median_comparison(observed[ticker],365)}
             for ticker in ALL
         ],
         "history": observed,
@@ -448,6 +450,11 @@ def selftest():
     assert comparison["sourceDate"] == "2026-10-06"
     assert comparison["changeBp"] == -13
     assert comparison["basis"] == "REPORTED_CONTRACT_TRADE_MEDIAN_NOT_PAR_EOD"
+    assert trade_median_comparison(dense,91) is None
+    assert trade_median_comparison(dense,365) is None
+    a_year_ago = [{"date":"2025-11-05","medianReportedContractBp":81},
+                  {"date":"2026-11-05","medianReportedContractBp":87}]
+    assert trade_median_comparison(a_year_ago,365)["changeBp"] == 6
 
 
     print("DTCC_SEC_TRADE_PARSER_SELFTEST_PASS")
