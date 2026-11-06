@@ -18,6 +18,61 @@ const kstDate=d=>new Intl.DateTimeFormat('en-CA',{
  timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
 }).format(d);
 const note=(fn,x)=>{try{fn(x);}catch{}};
+const utcDate=s=>new Date(s*1000).toISOString().slice(0,10);
+
+// Independent completed-history split proof. Absence of events is only
+// meaningful when the returned daily history demonstrably covers both ends.
+// The final quote is a contemporaneous unadjusted post-action daily close;
+// fiscal-year-end BPS must be restated into the quote's share units.
+export async function readYahooSplitProof(symbol,start,end,{fetchImpl=fetch}={}){
+ if(!AI_NINE.some(x=>x.symbol===symbol)||!goodDay(start)||!goodDay(end)
+  ||end<=start||ageDays(end,start)>550)return null;
+ const p1=Math.floor(Date.parse(start+'T00:00:00Z')/1000)-8*86400;
+ const p2=Math.floor(Date.parse(end+'T00:00:00Z')/1000)+3*86400;
+ try{
+  const url='https://query1.finance.yahoo.com/v8/finance/chart/'
+   +encodeURIComponent(symbol)+'?period1='+p1+'&period2='+p2
+   +'&interval=1d&events=split';
+  const response=await fetchImpl(url,{
+   method:'GET',redirect:'error',headers:{accept:'application/json'},
+   signal:AbortSignal.timeout(18000)});
+  if(!response?.ok)return null;
+  const json=await response.json();
+  const charts=json?.chart?.result;
+  if(!Array.isArray(charts)||charts.length!==1
+    ||charts[0]?.meta?.symbol!==symbol
+    ||charts[0]?.meta?.exchangeTimezoneName!=='America/New_York')return null;
+  const data=charts[0];
+  const ts=data.timestamp;
+  if(!Array.isArray(ts)||ts.length<3
+   ||ts.some(v=>!Number.isInteger(v)||v<0))return null;
+  const dates=ts.map(utcDate);
+  if(dates.some((d,i)=>!goodDay(d)||(i>0&&d<=dates[i-1])))return null;
+  // Validate that Yahoo provided the full calendar interval rather than
+  // silently truncating the first or last segment of corporate-action history.
+  if(ageDays(dates[0],start)>10||dates.at(-1)<end)return null;
+  const raw=data.events?.splits??{};
+  if(raw===null||typeof raw!=='object'||Array.isArray(raw))return null;
+  const events=Object.values(raw);
+  if(events.length>100)return null;
+  let ratio=1;
+  const seen=new Set();
+  for(const x of events){
+   if(!Number.isInteger(x?.date)||x.date<=0)return null;
+   const d=utcDate(x.date);
+   if(!goodDay(d)||seen.has(d))return null;
+   seen.add(d);
+   const n=Number(x.numerator),den=Number(x.denominator);
+   if(!Number.isFinite(n)||!Number.isFinite(den)||n<=0||den<=0)return null;
+   const factor=n/den;
+   if(!Number.isFinite(factor)||factor<=0||factor>10000)return null;
+   if(d>start&&d<=end)ratio*=factor;
+  }
+  if(!Number.isFinite(ratio)||ratio<=0||ratio>1e8)return null;
+  return {symbol,since:start,through:end,sharesPerOldShare:ratio,
+   source:'YAHOO_CHART_SPLIT_EVENTS',coverage:'COMPLETE'};
+ }catch{return null;}
+}
 
 // Require same 10-K accession, filed date and fiscal-year-end instant.
 // DEI cover-page shares dated AFTER year end are not valid BPS denominators.
@@ -42,7 +97,7 @@ export function selectYearEndOutstandingShares(doc,annual){
   end:annual.period,accessionNumber:annual.accessionNumber};
 }
 
-export function extractAnnualValueSnapshot(doc,symbol,quote,{now=new Date()}={}){
+export function extractAnnualValueSnapshot(doc,symbol,quote,{now=new Date(),splitProof=null}={}){
  const annual=extractSecAnnualFacts(doc,symbol,{now});
  if(!annual)return {symbol,status:'NO_REPORTED_FY',snapshot:null};
  const eps=annual.values?.epsDiluted?.value;
@@ -56,8 +111,16 @@ export function extractAnnualValueSnapshot(doc,symbol,quote,{now=new Date()}={})
   &&finite(price)&&price>0;
  const bookPerShare=finite(equity)&&equity>0&&denom?.shares>0
   ?equity/denom.shares:null;
- const pbr=goodQuote&&finite(bookPerShare)&&bookPerShare>0
-  ?price/bookPerShare:null;
+ const splitFactor=splitProof?.symbol===symbol
+  &&splitProof?.since===annual.period&&splitProof?.through===qDate
+  &&splitProof?.source==='YAHOO_CHART_SPLIT_EVENTS'
+  &&splitProof?.coverage==='COMPLETE'
+  &&finite(splitProof?.sharesPerOldShare)&&splitProof.sharesPerOldShare>0
+  ?splitProof.sharesPerOldShare:null;
+ const adjustedBookPerShare=finite(bookPerShare)&&bookPerShare>0
+  &&finite(splitFactor)&&splitFactor>0?bookPerShare/splitFactor:null;
+ const pbr=goodQuote&&finite(adjustedBookPerShare)&&adjustedBookPerShare>0
+  ?price/adjustedBookPerShare:null;
  const complete=finite(eps)&&finite(bookPerShare)&&bookPerShare>0
   &&finite(pbr)&&pbr>0;
  const snapshot={
@@ -71,18 +134,24 @@ export function extractAnnualValueSnapshot(doc,symbol,quote,{now=new Date()}={})
   yearEndOutstandingShares:denom?.shares??null,
   sharesTag:denom?.tag??null,
   bpsUsd:finite(bookPerShare)?bookPerShare:null,
+  splitAdjustedBpsUsd:finite(adjustedBookPerShare)?adjustedBookPerShare:null,
+  splitSharesPerOldShare:splitFactor,
   pbrTimes:finite(pbr)?pbr:null,
+  pbrUnavailableReason:!finite(pbr)
+   ?(!goodQuote?'QUOTE_UNVERIFIED':!finite(bookPerShare)
+      ?'FISCAL_END_BPS_UNAVAILABLE':'SPLIT_HISTORY_UNVERIFIED'):null,
   limitations:['BPS_FROM_EXACT_FISCAL_END_SHARES',
    'FY_BOOK_VALUE_NOT_LATEST_10Q',
    'EPS_10K_NOT_TRAILING_12_MONTHS',
-   'YAHOO_PRICE_NON_OFFICIAL_REFERENCE']
+   'YAHOO_PRICE_NON_OFFICIAL_REFERENCE',
+   'YAHOO_SPLIT_EVENTS_NON_OFFICIAL_REFERENCE']
  };
  return {symbol,status:complete?'VERIFIED_FY_BPS_PBR':'PARTIAL_FY_VALUE',snapshot};
 }
 
 export async function readAiNineAnnualValueSnapshots({
  fetchImpl=fetch,now=()=>new Date(),userAgent=process.env.SEC_USER_AGENT,
- readPrices=readAiNineDailyPrices,onDiagnostic=()=>{}
+ readPrices=readAiNineDailyPrices,readSplitProof=readYahooSplitProof,onDiagnostic=()=>{}
 }={}){
  if(!isValidSecUserAgent(userAgent)){
   return {total:AI_NINE.length,verified:0,
@@ -113,8 +182,16 @@ export async function readAiNineAnnualValueSnapshots({
      &&goodDay(expected)&&x.unit==='USD'
      &&x.source==='YAHOO_DAILY_REFERENCE'
      &&finite(x.value)&&x.value>0);
-    const result=extractAnnualValueSnapshot(await res.json(),item.symbol,
-     q.length===1?q[0]:null,{now:instant});
+    const doc=await res.json();
+    const annual=extractSecAnnualFacts(doc,item.symbol,{now:instant});
+    const quote=q.length===1?q[0]:null;
+    let proof=null;
+    if(annual&&quote){
+     try{proof=await readSplitProof(item.symbol,annual.period,quote.date);}
+     catch{}
+    }
+    const result=extractAnnualValueSnapshot(doc,item.symbol,
+     quote,{now:instant,splitProof:proof});
     status=result.status;snapshot=result.snapshot;
    }
   }catch{status='FETCH_FAILED';}
