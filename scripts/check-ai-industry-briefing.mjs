@@ -514,6 +514,29 @@ assert.equal(ttm1.report.fields.capex,410000000);
 assert.equal(ttm1.report.calculated.freeCashFlow,430000000);
 assert.equal(ttm1.report.unavailable.epsTtm,'WEIGHTED_AVERAGE_SHARES_NOT_DERIVED');
 assert.equal(ttm1.report.provenance.capex.quarterAccession,'0000320193-27-000012');
+const overlapStart=buildTtmFixture({ytdStart:'2026-09-20'});
+const overlap=extractSecTtmFacts(overlapStart,'AAPL',{now:later()});
+assert.equal(overlap.status,'PARTIAL_TTM',
+ 'a 7-day overlap with annual fiscal year must not pass as TTM');
+assert.equal(overlap.report.calculated.freeCashFlow,null);
+assert.ok(overlap.report.missing.includes('revenue'));
+const gapStart=buildTtmFixture({ytdStart:'2026-10-03'});
+assert.equal(extractSecTtmFacts(gapStart,'AAPL',{now:later()}).status,'PARTIAL_TTM',
+ 'a 6-day gap after annual year-end must not pass');
+const shiftedPrior=buildTtmFixture({priorStart:'2025-09-21'});
+const shiftedPriorResult=extractSecTtmFacts(shiftedPrior,'AAPL',{now:later()});
+assert.equal(shiftedPriorResult.status,'PARTIAL_TTM',
+ 'prior comparison YTD must begin at the annual fiscal year start');
+assert.equal(shiftedPriorResult.report.fields.capex,null);
+const duplicateQuarterAssets=structuredClone(q1);
+const matchingQuarterAssets=duplicateQuarterAssets.facts['us-gaap'].Assets.units.USD.at(-1);
+duplicateQuarterAssets.facts['us-gaap'].Assets.units.USD
+ .push({...matchingQuarterAssets,val:matchingQuarterAssets.val+1});
+const conflictingQuarter=extractSecTtmFacts(duplicateQuarterAssets,'AAPL',{now:later()});
+assert.equal(conflictingQuarter.status,'QUARTER_ANCHOR_CONFLICT');
+assert.equal(conflictingQuarter.report,null,
+ 'a newer conflicting quarter must not silently roll back to FY_ONLY');
+
 const ttmBefore=extractSecTtmFacts(q1,'AAPL',{
  now:new Date('2026-11-06T15:00:00Z')});
 assert.equal(ttmBefore.status,'FY_ONLY','future 10-Q may not enter a TTM');
@@ -567,6 +590,21 @@ assert.equal(ttmCalls,9);
 assert.equal(ttmAll.verified,9);
 assert.ok(ttmAll.statuses.every(x=>x.status==='VERIFIED_TTM'));
 assert.ok(ttmAll.reports.every(x=>x.calculated.freeCashFlow===430000000));
+const ttmConflicted=await readAiNineTtmSecFacts({
+ userAgent:'PortfolioResearch contact@example.org',now:later,
+ fetchImpl:async url=>{
+  const item=AI_NINE.find(x=>url==='https://data.sec.gov/api/xbrl/companyfacts/CIK'+x.cik+'.json');
+  assert.ok(item);
+  const doc=structuredClone(duplicateQuarterAssets);doc.cik=Number(item.cik);
+  return {ok:true,headers:{get:k=>k==='content-type'?'application/json':null},
+   json:async()=>doc};
+ }
+});
+assert.equal(ttmConflicted.verified,0);
+assert.equal(ttmConflicted.fyOnly,0,
+ 'conflicting 10-Q cannot be counted as a clean fiscal-year-only result');
+assert.ok(ttmConflicted.statuses.every(x=>x.status==='QUARTER_ANCHOR_CONFLICT'));
+
 const ttmDenied=await readAiNineTtmSecFacts({
  userAgent:'PortfolioResearch contact@example.org',
  fetchImpl:async()=>({ok:false,headers:{get:()=>null}})
