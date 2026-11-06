@@ -5,6 +5,7 @@ import {AI_NINE,readAiNineDailyPrices,readAiNineSecFilings,
  formatAiNineDailyPrices,completedUsRegularClose} from './briefing-ai-nine-sources.mjs';
 import {runAiNineSourceAudit} from './audit-ai-nine-readonly.mjs';
 import {summarizeAiNineHistory,readAiNineHistoricalTrends} from './briefing-ai-nine-trends.mjs';
+import {extractSecAnnualFacts,readAiNineAnnualSecFacts} from './briefing-ai-nine-sec-financials.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -312,5 +313,99 @@ const earlyHistory=await readAiNineHistoricalTrends('2026-11-03',{
 });
 assert.equal(earlyHistory.verified,0,'uncompleted US session must not read or accept trend');
 assert.ok(earlyHistory.statuses.every(x=>x.status==='US_CLOSE_UNVERIFIED'));
+
+
+/* SEC US-GAAP annual 10-K: strict same accession/year/unit provenance. */
+const filing='0000320193-26-000026',end='2026-09-26',filed='2026-11-03',
+  start='2025-09-28';
+const one=(value,{instant=false,unit='USD',accn=filing,form='10-K',
+ fp='FY',endDate=end}={})=>({
+  val:value,end:endDate,filed,accn,form,fp,...instant?{}:{start}
+});
+const secPayload={
+ cik:320193,entityName:'Apple Inc.',
+ facts:{'us-gaap':{
+  Assets:{units:{USD:[one(5000000000,{instant:true})]}},
+  RevenueFromContractWithCustomerExcludingAssessedTax:{units:{USD:[one(3000000000)]}},
+  OperatingIncomeLoss:{units:{USD:[one(750000000)]}},
+  NetIncomeLoss:{units:{USD:[one(650000000)]}},
+  NetCashProvidedByUsedInOperatingActivities:{units:{USD:[one(800000000)]}},
+  PaymentsToAcquirePropertyPlantAndEquipment:{units:{USD:[one(400000000)]}},
+  StockholdersEquity:{units:{USD:[one(1700000000,{instant:true})]}},
+  CashAndCashEquivalentsAtCarryingValue:{units:{USD:[one(200000000,{instant:true})]}},
+  EarningsPerShareDiluted:{units:{'USD/shares':[one(2.32,{unit:'USD/shares'})]}}
+ }}
+};
+const annual=extractSecAnnualFacts(secPayload,'AAPL',{
+ now:new Date('2026-11-06T15:00:00Z')
+});
+assert.equal(annual.symbol,'AAPL');
+assert.equal(annual.period,end);
+assert.equal(annual.accessionNumber,filing);
+assert.equal(annual.values.revenue.value,3000000000);
+assert.equal(annual.values.revenue.tag,'RevenueFromContractWithCustomerExcludingAssessedTax');
+assert.equal(annual.values.operatingCashFlow.value,800000000);
+assert.equal(annual.values.capex.value,400000000);
+assert.equal(annual.calculated.freeCashFlow,400000000);
+assert.equal(annual.calculated.operatingMarginPercent,25);
+assert.equal(annual.values.epsDiluted.unit,'USD/shares');
+assert.equal(annual.missing.includes('shareRepurchases'),true);
+assert.equal(Object.hasOwn(annual,'roic'),false);
+assert.equal(Object.hasOwn(annual,'bps'),false);
+const secWrongPeriod=structuredClone(secPayload);
+secWrongPeriod.facts['us-gaap'].NetCashProvidedByUsedInOperatingActivities.units.USD
+ =[one(999999999,{endDate:'2026-06-27'})];
+const wrongPeriod=extractSecAnnualFacts(secWrongPeriod,'AAPL',{now:new Date('2026-11-06T12:00:00Z')});
+assert.equal(wrongPeriod.values.operatingCashFlow,null);
+assert.equal(wrongPeriod.calculated.freeCashFlow,null);
+const secWrongAccn=structuredClone(secPayload);
+secWrongAccn.facts['us-gaap'].PaymentsToAcquirePropertyPlantAndEquipment.units.USD
+ =[one(100,{accn:'0000320193-25-000001'})];
+assert.equal(extractSecAnnualFacts(secWrongAccn,'AAPL').calculated.freeCashFlow,null,
+ 'cross-filing capex cannot be combined');
+const secDuplicates=structuredClone(secPayload);
+secDuplicates.facts['us-gaap'].Assets.units.USD.push(one(5000000001,{instant:true}));
+assert.equal(extractSecAnnualFacts(secDuplicates,'AAPL'),null,
+ 'contradictory assets in one filing disqualify annual anchor');
+const secOtherCik=structuredClone(secPayload);
+secOtherCik.cik=2023554;
+assert.equal(extractSecAnnualFacts(secOtherCik,'AAPL'),null);
+const secBeforeFiling=extractSecAnnualFacts(secPayload,'AAPL',{
+ now:new Date('2026-11-01T00:00:00Z')});
+assert.equal(secBeforeFiling,null,'future filing cannot be accepted');
+const secNoRevenue=structuredClone(secPayload);
+delete secNoRevenue.facts['us-gaap'].RevenueFromContractWithCustomerExcludingAssessedTax;
+assert.equal(extractSecAnnualFacts(secNoRevenue,'AAPL').calculated.fcfMarginPercent,null);
+let realCalls=0;
+const unconfiguredFacts=await readAiNineAnnualSecFacts({
+ userAgent:'',fetchImpl:async()=>{realCalls++;throw Error('NO_NETWORK');}
+});
+assert.equal(realCalls,0);
+assert.equal(unconfiguredFacts.verified,0);
+assert.ok(unconfiguredFacts.statuses.every(x=>x.status==='SEC_USER_AGENT_NOT_CONFIGURED'));
+const auditedSec=await readAiNineAnnualSecFacts({
+ now:()=>new Date('2026-11-06T15:00:00Z'),
+ userAgent:'ResearchMonitor contact@example.org',
+ fetchImpl:async(url,request)=>{
+  realCalls++;
+  const item=AI_NINE.find(x=>url==='https://data.sec.gov/api/xbrl/companyfacts/CIK'+x.cik+'.json');
+  assert.ok(item);
+  assert.equal(request.method,'GET');
+  assert.equal(request.headers['user-agent'],'ResearchMonitor contact@example.org');
+  const p=structuredClone(secPayload);
+  p.cik=Number(item.cik);
+  return {ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+   json:async()=>p};
+ }
+});
+assert.equal(realCalls,9);
+assert.equal(auditedSec.verified,9);
+assert.ok(auditedSec.reports.every(x=>x.source==='SEC_COMPANYFACTS_US_GAAP_10K'));
+const deniedSec=await readAiNineAnnualSecFacts({
+ userAgent:'ResearchMonitor contact@example.org',
+ fetchImpl:async()=>({ok:false,headers:{get:()=>null}})
+});
+assert.equal(deniedSec.verified,0);
+assert.ok(deniedSec.statuses.every(x=>x.status==='SEC_HTTP_UNAVAILABLE'));
 
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
