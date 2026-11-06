@@ -2,6 +2,7 @@
 // This intentionally does NOT prove that old deployments, processes or other
 // project accounts have stopped. No deployment/content/run/Sheet mutation.
 import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
 import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 import {deploymentIdFromWebAppUrl} from './deploy-gas.mjs';
 import {classifyPublishedGateSource} from './audit-published-gas-gate-readonly.mjs';
@@ -13,6 +14,28 @@ const ID=/^[-A-Za-z0-9_]{8,160}$/;
 // Apps Script creates one special HEAD deployment, which does not refer
 // to an immutable positive versionNumber. It is not a release approval.
 const HEAD_ID='HEAD';
+// Owner-confirmed by matching the Google API deployment and Test deployments UI.
+// SHA-256(scriptId + '/' + deploymentId) pins one test-only HEAD identity;
+// arbitrary versionless/epoch deployments remain quarantined.
+const VERIFIED_TEST_HEAD_FINGERPRINT='9bff55d4bbdcc13bc68404c2ff76f294677ae3f5df44b341d223f32376dc0635';
+function matchesVerifiedTestHead(d,scriptId,expectedId,approvedFingerprint){
+ const id=d?.deploymentId,config=d?.deploymentConfig,points=d?.entryPoints;
+ if(typeof id!=='string'||id===expectedId||
+    typeof approvedFingerprint!=='string'||!/^[0-9a-f]{64}$/.test(approvedFingerprint))
+  return false;
+ if(!config||config.scriptId!==scriptId||
+    Object.prototype.hasOwnProperty.call(config,'versionNumber')||
+    config.manifestFileName!=='appsscript'||
+    (config.description!==undefined&&config.description!=='')||
+    d.updateTime!=='1970-01-01T00:00:00Z'||
+    !Array.isArray(points)||points.length!==1||
+    points[0]?.entryPointType!=='WEB_APP'||
+    points[0]?.webApp?.url!=='https://script.google.com/macros/s/'+id+'/exec'||
+    points[0]?.webApp?.entryPointConfig?.access!=='ANYONE_ANONYMOUS'||
+    points[0]?.webApp?.entryPointConfig?.executeAs!=='USER_DEPLOYING')
+  return false;
+ return createHash('sha256').update(scriptId+'/'+id).digest('hex')===approvedFingerprint;
+}
 // Archived v335 description observed in the owner's UI. A matching label is
 // only a triage hint; it NEVER establishes deployment identity or release safety.
 const UI_ARCHIVED_V335_DESCRIPTION='GitHub 878709c0731d';
@@ -58,7 +81,8 @@ async function fetchPage(url,token,fetchImpl,maxChars=250000){
 }
 export async function inspectGasDeploymentsReadOnly({
  scriptId,expectedDeploymentId,googleAccessToken,fetchImpl=fetch,
- verifyDetails=false,verifySource=false,referenceFiles=null
+ verifyDetails=false,verifySource=false,referenceFiles=null,
+ verifiedHeadFingerprint=VERIFIED_TEST_HEAD_FINGERPRINT
 }={}){
  if(!validId(scriptId)||!validId(expectedDeploymentId)||
   typeof googleAccessToken!=='string'||googleAccessToken.length<20)
@@ -83,6 +107,8 @@ export async function inspectGasDeploymentsReadOnly({
     fail('SCHEMA_ID_UNVERIFIED');
    if(found.has(id))fail('SCHEMA_DUPLICATE_ID_UNVERIFIED');
    const head=id===HEAD_ID;
+   const testHeadListCandidate=!head&&matchesVerifiedTestHead(
+    d,scriptId,expectedDeploymentId,verifiedHeadFingerprint);
    // Google may omit a non-HEAD versionNumber in list metadata (e.g.
    // an archived/legacy deployment). Count it, but NEVER treat it as a
    // verified immutable version or as permission for a writer cutover.
@@ -100,6 +126,7 @@ export async function inspectGasDeploymentsReadOnly({
    // IDs and versions remain private in-memory; never return or log them.
    entries.push({id,expected:id===expectedDeploymentId,head,types,
     versionVerified,versionNumber:versionVerified&&!head?config.versionNumber:null,
+    testHeadListCandidate,testHeadVerified:false,
     listDescription:typeof config?.description==='string'?config.description:null});
   }
   pages++;
@@ -143,6 +170,10 @@ export async function inspectGasDeploymentsReadOnly({
    }
    detail.checked++;
    entry.detailChecked=true;
+   // Both LIST and independent DETAIL must match the pinned test HEAD.
+   // Any metadata drift keeps the deployment in the blocking population.
+   entry.testHeadVerified=entry.testHeadListCandidate&&matchesVerifiedTestHead(
+    record,scriptId,expectedDeploymentId,verifiedHeadFingerprint);
    entry.detailDescription=typeof record.deploymentConfig?.description==='string'
     ?record.deploymentConfig.description:null;
    const types=record.entryPoints.map(classify);
@@ -162,7 +193,7 @@ export async function inspectGasDeploymentsReadOnly({
     if(as==='USER_DEPLOYING')exposure.executingAsDeployer++;
     else if(as==='USER_ACCESSING')exposure.executingAsAccessing++;
     else exposure.unknownExecuteAs++;
-    if(!entry.expected){
+    if(!entry.expected&&!entry.testHeadVerified){
      if(access==='ANYONE_ANONYMOUS')exposure.additionalAnonymous++;
      if(access==='ANYONE')exposure.additionalSignedIn++;
      if(as==='USER_DEPLOYING')exposure.additionalRunsAsDeployer++;
@@ -175,7 +206,7 @@ export async function inspectGasDeploymentsReadOnly({
    entry.detailVersionVerified=Number.isSafeInteger(version)&&version>=1;
    entry.detailVersionConflict=entry.versionVerified&&
     entry.detailVersionVerified&&entry.versionNumber!==version;
-   if(!entry.detailVersionVerified)detail.stillUnversioned++;
+   if(!entry.detailVersionVerified&&!entry.testHeadVerified)detail.stillUnversioned++;
    else if(!entry.versionVerified)detail.recoveredVersion++;
    else if(entry.detailVersionConflict)detail.versionConflict++;
   }
@@ -199,7 +230,7 @@ export async function inspectGasDeploymentsReadOnly({
   if(!verifyDetails)fail('SOURCE_REQUIRES_DETAILS');
   sourceAudit.attempted=true;
   const uniq=new Set();
-  for(const entry of entries.filter(e=>!e.head)){
+  for(const entry of entries.filter(e=>!e.head&&!e.testHeadVerified)){
    if(!entry.versionVerified){sourceAudit.skippedUnversioned++;continue;}
    uniq.add(entry.versionNumber);
   }
@@ -265,7 +296,7 @@ export async function inspectGasDeploymentsReadOnly({
  const additionalRoleCounts={
   knownLegacy9281:0,reviewedGate9282:0,unreviewed:0,
   versionUnverified:0,getUnverified:0,limitUnverified:0,notInspected:0};
- for(const e of entries.filter(x=>!x.expected&&x.types.length>0)){
+ for(const e of entries.filter(x=>!x.expected&&!x.testHeadVerified&&x.types.length>0)){
   const role=getRole(e);
   if(role==='APPROVED_LEGACY_V9281')additionalRoleCounts.knownLegacy9281++;
   else if(role==='REVIEWED_GATE_V9282')additionalRoleCounts.reviewedGate9282++;
@@ -279,8 +310,9 @@ export async function inspectGasDeploymentsReadOnly({
  for(const e of entries)for(const type of e.types)counts[type]++;
  const expectedRows=entries.filter(e=>e.expected);
  const unknown=entries.some(e=>(!e.head&&e.types.length===0)||e.types.includes('OTHER'));
- const extraRoutable=entries.filter(e=>!e.expected&&e.types.length>0).length;
- const unverifiedVersions=entries.filter(e=>!e.versionVerified).length;
+ const extraRoutable=entries.filter(e=>!e.expected&&!e.testHeadVerified&&e.types.length>0).length;
+ const unverifiedVersions=entries.filter(e=>!e.versionVerified&&!e.testHeadVerified).length;
+ const headCount=entries.filter(e=>e.head||e.testHeadVerified).length;
  // Exact LIST/DETAIL description agreement for the archived v335 UI label.
  // Do NOT reclassify the deployment as HEAD or exclude it from quarantine.
  const archivedV335LabelMatches=entries.filter(e=>!e.expected&&!e.head&&
@@ -295,9 +327,10 @@ export async function inspectGasDeploymentsReadOnly({
   detail.lookupUnverified>0||detail.versionConflict>0||detail.entryPointMismatch>0||
   detail.stillUnversioned>0||detail.recoveredVersion>0||
   exposure.unknownAccess>0||exposure.unknownExecuteAs>0);
- const status=expectedRows.length!==1||unverifiedVersions>0||unknown||extraRoutable>0||detailProblems||sourceProblems
+ const status=expectedRows.length!==1||headCount>1||unverifiedVersions>0||unknown||extraRoutable>0||detailProblems||sourceProblems
   ?'BLOCKED':'INVENTORY_ONLY';
  const reason=expectedRows.length!==1?'EXPECTED_DEPLOYMENT_NOT_PROVEN':
+  headCount>1?'HEAD_IDENTITY_CONFLICT':
   unverifiedVersions>0?'VERSION_METADATA_UNVERIFIED':
   unknown?'UNKNOWN_ENTRY_POINTS':
   extraRoutable>0?'ADDITIONAL_DEPLOYMENTS_REQUIRE_ISOLATION':
@@ -306,7 +339,8 @@ export async function inspectGasDeploymentsReadOnly({
   'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED';
  // No deployment IDs, source, URL, principal or token may enter logs.
  return {mode:'GAS_DEPLOYMENT_INVENTORY_READ_ONLY',status,reason,
-  deploymentCount:entries.length,headDeploymentCount:entries.filter(e=>e.head).length,
+  deploymentCount:entries.length,headDeploymentCount:headCount,
+  verifiedTestHeadCount:entries.filter(e=>e.testHeadVerified).length,
   unverifiedVersionedDeploymentCount:unverifiedVersions,
   archivedV335DescriptionHintCount:archivedV335LabelMatches,
   archivedV335IdentityVerified:false,
