@@ -94,7 +94,7 @@ export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
 }
-export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram,onSourceDiagnostic=()=>{}}={}) {
+export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram,onSourceDiagnostic=()=>{},financialEvidence=null,financialEvidenceNow=null}={}) {
   if(Number(attempt)!==1)throw new Error('TELEGRAM_RETRY_BLOCKED');
   if(event==='test') { await send(token,chatId,'텔레그램 브리핑 연결 시험입니다. 실제 시장 브리핑은 아닙니다.',{fetchImpl}); return {status:'TEST_SENT'}; }
   if(event!=='schedule')throw new Error('TELEGRAM_EVENT_INVALID');
@@ -140,7 +140,10 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && Number.isFinite(candidate.value) && candidate.value>0
     && Number.isFinite(Date.parse(candidate.receivedAt)) && Date.parse(candidate.receivedAt)<=now().getTime()
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
-  const message=formatMorningBriefing(first.date,reference,values,{now:now(),fearGreed,supplements});
+  const currentEvidence=typeof financialEvidenceNow==='function'
+    ?financialEvidenceNow():financialEvidence;
+  const message=formatMorningBriefing(first.date,reference,values,{
+    now:now(),fearGreed,supplements,financialEvidence:currentEvidence});
   await send(token,chatId,message,{fetchImpl});
   return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,
     referenceSource:reference?.source||'NONE',referenceDate:reference?.tradingDate||null,

@@ -7,10 +7,11 @@ import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
 import {fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
+import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,
   loadPrefetch=loadPrefetchedNight,recoverReference=fetchNightReference,
-  onRecoveryDiagnostic=()=>{},gasUrl=process.env.GAS_WEB_APP_URL,
+  loadFinancialEvidence=async()=>null,onRecoveryDiagnostic=()=>{},gasUrl=process.env.GAS_WEB_APP_URL,
   gasToken=process.env.GAS_ACCESS_TOKEN}={}) {
   if(repository!=='cyyoung111-dev/portfolio'||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_WORKFLOW_CONFIG');
   if(!['rescue','late_test'].includes(mode))throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
@@ -29,6 +30,14 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     if(!data.artifacts.some(a=>a.name===artifactName))throw Error('TELEGRAM_CLAIM_SCHEMA');
     return {ready:false,status:'ALREADY_CLAIMED',date:window.date};
   }
+  // Start independent public evidence loading while NH reference recovery runs.
+  // Failure is optional and must not delay or cancel the core briefing.
+  const financialState={value:null};
+  // Never await optional finance before collecting market data: only use it
+  // if the independent request has resolved by the final render checkpoint.
+  if(!lateTest)void Promise.resolve().then(()=>loadFinancialEvidence(window.date,
+    {token:githubToken,repository,fetchImpl,now}))
+    .then(value=>{financialState.value=value??null;},()=>{});
   let message;
   let reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
   const hadCapture=Boolean(reference);
@@ -83,6 +92,7 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     date:window.date,capture:hadCapture?'VERIFIED':'UNAVAILABLE',
     source:referenceOrigin,recovery:recoveryDiagnostic}));
   const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,
+    financialEvidenceNow:()=>financialState.value,
     referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
     onSourceDiagnostic:entry=>{
       const allowed=['CONFIG_MISSING','ENDPOINT_INVALID','EXPECTED_DATE_INVALID','HTTP_UNAVAILABLE',
@@ -141,6 +151,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   }
   if(process.argv[2]==='prepare'){
    const result=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,mode:process.env.TELEGRAM_DISPATCH_MODE||'rescue',
+      loadFinancialEvidence:loadAiFinancialEvidenceArtifact,
       onRecoveryDiagnostic:details=>console.log(JSON.stringify({kind:'NH_MORNING_REFERENCE_RECOVERY',...details}))});
    if(result.ready){
     fs.mkdirSync('.telegram-runtime',{recursive:true});

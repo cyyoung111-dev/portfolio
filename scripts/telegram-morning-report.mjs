@@ -240,7 +240,9 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   // the session date, the delivery QC, or the 06:00 NH reference.
   // Read-only pre-fetched financial appendix is never allowed to delay the
   // punctual briefing or exceed the Telegram message length budget.
-  const financialLines=formatAiFinancialEvidence(options?.financialEvidence);
+  const financialLines=options?.financialEvidence?.asOfKst===date
+   &&options.financialEvidence.usSessionDate===expectedMorningDate('SPX',date)
+    ?formatAiFinancialEvidence(options.financialEvidence):[];
   const evidenceIndex=lines.indexOf('■ 10. 오늘의 시나리오 (조건부, 확률 미산정)');
   if(financialLines.length&&evidenceIndex>=0
    &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
