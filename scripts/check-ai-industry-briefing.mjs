@@ -4,6 +4,7 @@ import {formatClose} from './telegram-close-workflow.mjs';
 import {AI_NINE,readAiNineDailyPrices,readAiNineSecFilings,
  formatAiNineDailyPrices,completedUsRegularClose} from './briefing-ai-nine-sources.mjs';
 import {runAiNineSourceAudit} from './audit-ai-nine-readonly.mjs';
+import {summarizeAiNineHistory,readAiNineHistoricalTrends} from './briefing-ai-nine-trends.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -238,5 +239,68 @@ const auditErrors=await runAiNineSourceAudit({
 assert.equal(auditErrors.price.verified,0);
 assert.equal(auditErrors.price.statuses.every(x=>x.status==='UNVERIFIED'),true);
 assert.doesNotMatch(JSON.stringify(auditErrors),/PRIVATE_PROVIDER_ERROR/);
+
+
+/* 52-week closing extremes and 10-year price-only trend contract. */
+const sessions=[];
+for(let day=Date.parse('2015-10-26T00:00:00Z');
+ day<=Date.parse('2026-11-05T00:00:00Z'); day+=86400000){
+ const date=new Date(day).toISOString().slice(0,10);
+ if(![0,6].includes(new Date(day).getUTCDay()))sessions.push(date);
+}
+const fullBars=sessions.map((d,i)=>({date:d,close:100+i}));
+const stat=summarizeAiNineHistory('AAPL','2026-11-05',fullBars);
+assert.equal(stat.date,'2026-11-05');
+assert.equal(stat.week52.type,'CLOSING_HIGH_LOW');
+assert.ok(stat.week52.high>=stat.week52.low);
+assert.ok(stat.week52.sampleCount>=250);
+assert.ok(stat.returnsYears['10']!==null && stat.returnsYears['3']!==null);
+assert.ok(stat.returnsTradingDays['252']!==null);
+assert.ok(stat.sma['200']!==null);
+assert.equal(stat.scope,'PRICE_ONLY_EXCLUDES_DIVIDENDS');
+assert.equal(stat.week52.highDistancePct,0);
+assert.equal(summarizeAiNineHistory('AAPL','2026-11-05',fullBars.slice(-220)).week52,null,
+ 'ten-month partial listing is not a full 52-week close range');
+assert.equal(summarizeAiNineHistory('AAPL','2026-11-04',fullBars),null,
+ 'wrong final session must be rejected');
+const dupBars=[...fullBars.slice(-300)];
+dupBars.splice(2,0,dupBars[1]);
+assert.equal(summarizeAiNineHistory('AAPL','2026-11-05',dupBars),null,
+ 'duplicate trade dates rejected');
+const sandiskHistory=summarizeAiNineHistory('SNDK','2026-11-05',fullBars);
+assert.equal(sandiskHistory.returnsYears['3'],null,
+ 'SNDK before 2025-02-24 cannot have an independent three-year return');
+assert.equal(sandiskHistory.returnsYears['5'],null);
+assert.equal(sandiskHistory.returnsYears['10'],null);
+assert.ok(sandiskHistory.week52,'SNDK still has 52-week history as of 2026-11-05');
+const sampleBars=fullBars.slice(-300);
+const fakeYahooChart=url=>{
+ const symbol=decodeURIComponent(new URL(url).pathname.split('/').at(-1));
+ return {ok:true,json:async()=>({chart:{result:[{
+  meta:{symbol,exchangeTimezoneName:'America/New_York'},
+  timestamp:sampleBars.map(x=>Date.parse(x.date+'T14:30:00Z')/1000),
+  indicators:{quote:[{close:sampleBars.map(x=>x.close)}]}
+ }]}})};
+};
+const trends=await readAiNineHistoricalTrends('2026-11-06',{
+ now:()=>new Date('2026-11-06T08:50:00Z'),
+ fetchImpl:async url=>fakeYahooChart(url)
+});
+assert.equal(trends.verified,9);
+assert.equal(trends.sessionDate,'2026-11-05');
+assert.ok(trends.trends.every(x=>x.week52?.type==='CLOSING_HIGH_LOW'));
+assert.equal(trends.trends.find(x=>x.symbol==='SNDK').returnsYears['3'],null);
+const wrongSymbol=await readAiNineHistoricalTrends('2026-11-06',{
+ now:()=>new Date('2026-11-06T08:50:00Z'),
+ fetchImpl:async url=>{const r=fakeYahooChart(url);const raw=await r.json();
+ raw.chart.result[0].meta.symbol='EVIL';return {ok:true,json:async()=>raw};}
+});
+assert.equal(wrongSymbol.verified,0,'wrong source identity must fail closed');
+const earlyHistory=await readAiNineHistoricalTrends('2026-11-03',{
+ now:()=>new Date('2026-11-02T15:00:00Z'),
+ fetchImpl:async()=>{throw Error('NO_EARLY_NETWORK');}
+});
+assert.equal(earlyHistory.verified,0,'uncompleted US session must not read or accept trend');
+assert.ok(earlyHistory.statuses.every(x=>x.status==='US_CLOSE_UNVERIFIED'));
 
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
