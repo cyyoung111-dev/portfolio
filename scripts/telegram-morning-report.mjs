@@ -1,5 +1,6 @@
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {formatHowardMarksView} from './briefing-howard-marks-risk.mjs';
+import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 
 // Original multi-asset morning briefing structure, rendered in one Telegram message.
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
@@ -237,6 +238,13 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   // all 21 dated core rows and the investment commentary are present.
   // Remove optional supplemental lines only; never truncate a verified close,
   // the session date, the delivery QC, or the 06:00 NH reference.
+  // Read-only pre-fetched financial appendix is never allowed to delay the
+  // punctual briefing or exceed the Telegram message length budget.
+  const financialLines=formatAiFinancialEvidence(options?.financialEvidence);
+  const evidenceIndex=lines.indexOf('■ 10. 오늘의 시나리오 (조건부, 확률 미산정)');
+  if(financialLines.length&&evidenceIndex>=0
+   &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
+    lines.splice(evidenceIndex,0,...financialLines,'');
   let message=lines.join('\n');
   const optional=[
     /^시장폭 A\/D:/,/^미국 선물 참고:/,/^미 국채 2Y /,
