@@ -510,7 +510,13 @@ assert.ok(Object.hasOwn(doc.on||{},'workflow_dispatch'),
 assert.equal(Object.keys(doc.on).length,1,'no schedule, push or PR authenticated triggers');
 assert.equal(doc.permissions.contents,'read');
 assert.equal(doc.jobs.audit.environment,'portfolio-production-gas');
-assert.equal(doc.jobs.audit.if,"github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'");
+assert.deepEqual(Object.keys(doc.on).sort(),['push','workflow_dispatch']);
+assert.deepEqual(doc.on.push.branches,['main']);
+assert.deepEqual(doc.on.push.paths,['.github/workflows/issue507-deployment-inventory-readonly.yml']);
+assert.equal(doc.jobs.audit.if,
+ "github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))");
+assert.doesNotMatch(wf,/\n\s+schedule:|\n\s+workflow_run:|\n\s+pull_request:/,
+ 'inventory must not trigger from periodic or untrusted events');
 assert.equal(doc.jobs.audit.concurrency.group,'gas-production-deploy');
 assert.equal(doc.jobs.audit.concurrency['cancel-in-progress'],false);
 const yaml=JSON.stringify(doc.jobs.audit);
