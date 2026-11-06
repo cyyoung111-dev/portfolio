@@ -41,6 +41,11 @@ on:
         required: true
         default: false
         type: boolean
+      approve_9284:
+        description: 'GAS v9.284 전체 릴리스 수동 운영 배포 별도 명시 승인 (기본 false)'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -116,6 +121,7 @@ jobs:
       GAS_FIRST_GATE_PHASE: ${{ inputs.first_gate_phase || 'none' }}
       GAS_9282_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9282 && 'true' || 'false' }}
       GAS_9283_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9283 && 'true' || 'false' }}
+      GAS_9284_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9284 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
