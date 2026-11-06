@@ -133,4 +133,52 @@ jobs:
               'rows':len(rows),'nonempty':counts,'distinct':notation,
               'issuerNameCandidates':candidates,'verified5yIssuerSpreads':0},ensure_ascii=False))
           PY
+      - name: Check candidate issuer tenor, spread units and event types (counts only)
+        run: |
+          python3 - <<'PY'
+          import csv,io,json,re,urllib.request,zipfile,datetime,collections
+          url='https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/SEC_CUMULATIVE_CREDITS_2026_11_05.zip'
+          with urllib.request.urlopen(url,timeout=35) as response:
+              contents=response.read(8000001)
+          if len(contents)>=8000001: raise ValueError('archive size')
+          with zipfile.ZipFile(io.BytesIO(contents)) as z:
+              name=z.namelist()[0]
+              if len(z.namelist())!=1 or z.getinfo(name).file_size>20000000: raise ValueError('zip schema')
+              rows=list(csv.DictReader(io.TextIOWrapper(z.open(name),encoding='utf-8-sig',newline='')))
+          aliases={'MSFT':['MICROSOFT'],'AAPL':['APPLE INC'],'GOOGL':['ALPHABET','GOOGLE LLC'],
+            'AMZN':['AMAZON'],'META':['META PLATFORMS','FACEBOOK'],'NVDA':['NVIDIA'],
+            'MU':['MICRON'],'ORCL':['ORACLE'],'SNDK':['SANDISK'],
+            '005930':['SAMSUNG ELECTRONICS'],'000660':['SK HYNIX','SKHYINX']}
+          def tenor(row):
+              a=row.get('Execution Timestamp') or ''
+              b=row.get('Expiration Date') or ''
+              try:
+                  da=datetime.datetime.fromisoformat(a.replace('Z','+00:00'))
+                  db=datetime.datetime.fromisoformat(b.replace('Z','+00:00'))
+                  if da.tzinfo is None: da=da.replace(tzinfo=datetime.timezone.utc)
+                  if db.tzinfo is None: db=db.replace(tzinfo=datetime.timezone.utc)
+                  return (db-da).total_seconds()/86400/365.25
+              except: return None
+          counted={}
+          for sym,tokens in aliases.items():
+              matches=[]
+              for row in rows:
+                  context=' | '.join(str(row.get(k) or '').upper() for k in [
+                    'Underlying Asset Name','Underlier ID-Leg 1','UPI Underlier Name','UPI FISN'])
+                  if any(token in context for token in tokens):matches.append(row)
+              direct=[r for r in matches if (r.get('Spread-Leg 1') or '').strip()
+                and (r.get('Spread notation-Leg 1') or '').strip() in {'3','4'}]
+              five=[r for r in direct if tenor(r) is not None and 4.4<=tenor(r)<=5.6]
+              counted[sym]={
+                'nameMatches':len(matches),'anySpread':len(direct),
+                'near5y':len(five),
+                'notation':dict(collections.Counter((r.get('Spread notation-Leg 1') or 'none') for r in matches)),
+                'actions':dict(collections.Counter((r.get('Action type') or 'none') for r in matches)),
+                'productHints':sorted(set((r.get('UPI FISN') or '').strip()[:90] for r in matches))[:3]
+              }
+          print('DTCC_CDS_ISSUER_FILTER_STAGE '+json.dumps({
+            'date':'2026-11-05','preliminaryNameMatches':counted,
+            'verifiedSingleNameSenior5ySpreads':0},ensure_ascii=False))
+          PY
+
 
