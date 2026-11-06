@@ -83,6 +83,8 @@ jobs:
               try:
                 a=datetime.datetime.fromisoformat(r['Execution Timestamp'].replace('Z','+00:00'))
                 b=datetime.datetime.fromisoformat(r['Expiration Date'].replace('Z','+00:00'))
+                if a.tzinfo is None: a=a.replace(tzinfo=datetime.timezone.utc)
+                if b.tzinfo is None: b=b.replace(tzinfo=datetime.timezone.utc)
                 yrs=(b-a).total_seconds()/86400/365.25
               except:continue
               if not 4.4<=yrs<=5.6:continue
