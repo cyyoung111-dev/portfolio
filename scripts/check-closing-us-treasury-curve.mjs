@@ -110,7 +110,14 @@ let sent='';
 await deliverClose(prepared,{now:()=>new Date(date+'T17:42:00+09:00'),
  send:async(_t,_c,message)=>{sent=message;}});
 assert.match(sent,/장단기금리차.*\+40bp/);
+// Prior published H.15 observation is valid on SEND, with its actual date.
+const priorSentPayload={...prepared,reportInputs:{...prepared.reportInputs,
+ rates:prior}};
+let priorSent='';
+await deliverClose(priorSentPayload,{now:()=>new Date(date+'T17:42:00+09:00'),
+ send:async(_t,_c,message)=>{priorSent=message;}});
+assert.match(priorSent,/2026-10-29 · 발표 지연 자료/);
 await assert.rejects(deliverClose({...prepared,reportInputs:{...prepared.reportInputs,
- rates:[{...valid[0],date:'2026-10-29'}]}},{now:clock,send:async()=>assert.fail('unverified yield sent')}),
+ rates:[{...valid[0],date:'2026-10-28'}]}},{now:clock,send:async()=>assert.fail('unverified yield sent')}),
  /TELEGRAM_CLOSE_PAYLOAD_INVALID/);
 console.log('TREASURY_CLOSE_PASS H15 2Y/3Y/10Y exact day, spread BP, 17:42 send, no stale');
