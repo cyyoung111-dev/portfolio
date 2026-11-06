@@ -4,6 +4,7 @@
 - **개선:** 인증된 F00001 `collectHanwhaFundNav`는 F00002와 동일한 공유 FUND/backfill atomic lease를 사용합니다. 클래스 `HANWHA_2045_CRPE / C-RPe`와 append-only, 비공시 당일 제한 및 lease owner 조건부 해제를 검사합니다. v9.283 종가·야간·Snapshot 및 기존 KB 동작을 유지합니다.
 - **웹·배포 계약:** `getSettings`를 포함한 GAS 응답 9개는 v9.284, 웹 `EXPECTED_GAS_VERSION=9.284`이며 v9.281~9.283을 호환 지원합니다. 배포기 정확 SHA 승인 pin과 별도 `approve_9284=true` 수동 체크가 필수입니다. 기존 9.283 수동 승인 체크는 9.284를 승인하지 않습니다.
 - **운영 상태:** 이 항목은 **정식 소스 심사 후보이지 운영 배포가 아닙니다.** 2026-11-06 10:33 KST 실조회 GAS 인벤토리는 `BLOCKED/VERSION_METADATA_UNVERIFIED`: 웹앱 2개 중 추가 1개가 익명 접근·배포자 권한·버전 미확인입니다. 해당 추가 배포의 사용 여부 확인/격리 → 인벤토리 재검증 후에만 실배포 가능. 운영 버전은 마지막 인증 조회 v9.282입니다.
+- **배포 후 별도 실검증:** `getSettings`·`getAutomationStatus`의 `gasVersion=9.284` readback, 공유 Writer Gate/Lease 상태, F00001/02 공식 NAV 기준일·좌수·가격이력·Snapshot 39행 및 PC/모바일 일치성을 확인합니다. 실제 배포와 별도 조회 증거가 없으면 성공으로 표기하지 않습니다.
 - **NAV 저장은 별도 작업:** 현재 GitHub F00001 collector는 읽기 전용이며 `--apply` 차단을 유지합니다. 새 원자적 API를 정식 배포 및 readback한 뒤 수집기의 정확 클래스 preview→append-only import→stored-only refresh→가격이력/스냅샷 날짜별 증빙을 별도 리뷰·승인해야 합니다. F00002 11/05 스냅샷 불일치 3,207,834원은 원본 미수정 상태입니다.
 
 ## GAS v9.283 — NH 종가/야간 백필/스냅샷 통합 릴리스 **검증 후보** (2026-11-05 KST)
