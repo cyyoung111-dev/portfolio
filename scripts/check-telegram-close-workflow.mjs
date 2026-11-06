@@ -510,6 +510,9 @@ const injectedMorning=await prepareMorning({
   assert.equal(date,day);return financeProof;
  },
  run:async ({financialEvidenceNow,send})=>{
+  // Real market reads provide an event-loop opportunity for the independent
+  // optional artifact to finish; a fast path remains allowed to omit it.
+  await new Promise(resolve=>setImmediate(resolve));
   receivedFinance=financialEvidenceNow();
   await send('','','SYNTHETIC OPTIONAL MORNING REPORT');
   return {referenceSource:'NONE'};
