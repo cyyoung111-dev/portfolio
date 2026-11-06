@@ -55,8 +55,10 @@ function extractFact(facts,key,anchor){
     &&(key!=='capex'&&key!=='revenue'&&key!=='assets'&&key!=='equity'
      &&key!=='cash'&&key!=='shareRepurchases'||x.val>=0));
   if(!candidates.length)continue;
-  if(candidates.some(x=>x.val!==candidates[0].val))return null;
-  return {value:candidates[0].val,tag,unit,source:'SEC_US_GAAP_10K'};
+  if(candidates.some(x=>x.val!==candidates[0].val
+   ||(annual&&x.start!==candidates[0].start)))return null;
+  return {value:candidates[0].val,tag,unit,
+   ...annual?{periodStart:candidates[0].start}:{},source:'SEC_US_GAAP_10K'};
  }
  return null;
 }
@@ -73,8 +75,11 @@ const REQUIRED_ANNUAL=Object.freeze([
 ]);
 export function classifySecAnnualFacts(report){
  if(!report)return 'NO_SAME_FILING_ANNUAL_FACTS';
- return REQUIRED_ANNUAL.every(key=>Number.isFinite(report.values?.[key]?.value))
-  ?'VERIFIED':'PARTIAL_SEC_ANNUAL_FACTS';
+ return REQUIRED_ANNUAL.every(key=>{
+  const fact=report.values?.[key];
+  return Number.isFinite(fact?.value)
+   &&(BALANCE.has(key)||(goodDay(report.periodStart)&&fact.periodStart===report.periodStart));
+ })?'VERIFIED':'PARTIAL_SEC_ANNUAL_FACTS';
 }
 
 export function extractSecAnnualFacts(doc,symbol,{now=new Date()}={}){
@@ -86,12 +91,21 @@ export function extractSecAnnualFacts(doc,symbol,{now=new Date()}={}){
  if(!anchor)return null;
  const values=Object.fromEntries(Object.keys(TAGS)
   .map(key=>[key,extractFact(doc.facts,key,anchor)]));
+ // All duration facts must cover the SAME fiscal period, not merely share
+ // a 10-K accession/end date. A mismatched CAPEX must never create FCF.
+ const periodStart=['revenue','operatingIncome','netIncome','operatingCashFlow',
+  'epsDiluted','capex','shareRepurchases'].map(key=>values[key]?.periodStart)
+  .find(goodDay)??null;
+ for(const key of Object.keys(values)){
+  if(!BALANCE.has(key)&&values[key]&&values[key].periodStart!==periodStart)
+   values[key]=null;
+ }
  // FCF is operating cash flow minus reported cash productive-asset purchases; it
  // is NOT owner earnings and is not a statement on AI-only investment.
  const ocf=values.operatingCashFlow?.value,capex=values.capex?.value,
   revenue=values.revenue?.value,op=values.operatingIncome?.value;
  const freeCashFlow=Number.isFinite(ocf)&&Number.isFinite(capex)?ocf-capex:null;
- return {symbol,cik:item.cik,period:anchor.periodEnd,filedAt:anchor.filedAt,
+ return {symbol,cik:item.cik,period:anchor.periodEnd,periodStart,filedAt:anchor.filedAt,
   accessionNumber:anchor.accessionNumber,source:'SEC_COMPANYFACTS_US_GAAP_10K',
   periodType:'ANNUAL_REPORTED',currency:'USD',
   values,
