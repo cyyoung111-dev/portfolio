@@ -69,7 +69,6 @@ for(const changed of [
  {...financial,asOfKst:'2026-11-05'},
  {...financial,usSessionDate:'2026-11-04'},
  {...financial,kind:'UNVERIFIED'},
- {...financial,domestic:[financial.domestic[0],financial.domestic[0]]},
  {...financial,domestic:financial.domestic.map(x=>({...x,evidence:{...x.evidence,
   filingDate:'2026-11-06'}}))},
  {...financial,domestic:financial.domestic.map(x=>({...x,evidence:{...x.evidence,
@@ -78,16 +77,24 @@ for(const changed of [
  const result=evaluateSemiconductorCompanyViews({date,stocks:morningPrices,financialEvidence:changed});
  assert.ok(result.every(x=>x.book===null),'bad evidence cannot produce PBR');
 }
+const duplicateBook=evaluateSemiconductorCompanyViews({date,stocks:morningPrices,
+ financialEvidence:{...financial,domestic:[financial.domestic[0],financial.domestic[0],
+ financial.domestic[1]]}});
+assert.equal(duplicateBook[0].book,null,'Samsung repeated BPS must fail');
+assert.equal(duplicateBook[1].book.pbr,2,'independent SK BPS must survive duplicate Samsung');
 for(const corrupted of [
  morningPrices.map(x=>({...x,source:'Yahoo Finance 일봉'})),
  morningPrices.map(x=>({...x,date:'2026-11-04'})),
- [...morningPrices,morningPrices[0]],
  morningPrices.map(x=>({...x,label:'wrong'})),
  morningPrices.map(x=>({...x,value:0}))
  ]){
  const result=evaluateSemiconductorCompanyViews({date,stocks:corrupted,financialEvidence:financial});
  assert.ok(result.every(x=>x.book===null),'invalid close must never generate PBR');
 }
+const duplicatePrice=evaluateSemiconductorCompanyViews({date,
+ stocks:[...morningPrices,morningPrices[0]],financialEvidence:financial});
+assert.equal(duplicatePrice[0].book,null,'Samsung repeated close must fail');
+assert.equal(duplicatePrice[1].book.pbr,2,'independent SK quote must survive duplicate Samsung');
 const close=evaluateSemiconductorCompanyViews({date,period:'close',
  stocks:closingPrices,financialEvidence:financial});
 assert.equal(close[0].book.pbr,1.5);
