@@ -65,13 +65,22 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: |
           node --input-type=module <<'NODE'
-          import {readAiNineAnnualSecFacts} from './scripts/briefing-ai-nine-sec-financials.mjs';
-          const result=await readAiNineAnnualSecFacts();
-          const fields=new Set(['revenue','operatingIncome','netIncome','operatingCashFlow',
-            'capex','assets','equity','epsDiluted']);
-          console.log('SEC_ANNUAL_FIELD_COVERAGE '+JSON.stringify(result.statuses.map(item=>({
-            symbol:item.symbol,status:item.status,
-            missing:result.reports.find(r=>r.symbol===item.symbol)?.missing
-              .filter(key=>fields.has(key))??[]
-          }))));
+          import {AI_NINE} from './scripts/briefing-ai-nine-sources.mjs';
+          const ua=process.env.SEC_USER_AGENT;
+          for(const symbol of ['AMZN','NVDA']){
+            const item=AI_NINE.find(x=>x.symbol===symbol);
+            const resp=await fetch('https://data.sec.gov/api/xbrl/companyfacts/CIK'+item.cik+'.json',{
+              headers:{accept:'application/json','user-agent':ua},signal:AbortSignal.timeout(25000)
+            });
+            if(!resp.ok){console.log('CAPEX_TAG_AUDIT '+JSON.stringify({symbol,status:'HTTP_'+resp.status}));continue;}
+            const d=await resp.json();
+            const anchors=(d.facts?.['us-gaap']?.Assets?.units?.USD||[]).filter(x=>x.form==='10-K'&&x.fp==='FY'&&!x.start);
+            anchors.sort((a,b)=>b.end.localeCompare(a.end)||b.filed.localeCompare(a.filed));
+            const a=anchors[0];
+            const tags=Object.entries(d.facts?.['us-gaap']||{}).filter(([tag])=>
+              /PaymentsToAcquire|PaymentsForCapital|CapitalExpenditures|PropertyPlantAndEquipment|ProductiveAssets/i.test(tag)
+            ).map(([tag,fact])=>({tag,annual:(fact.units?.USD||[]).some(x=>x.form==='10-K'&&x.fp==='FY'&&x.end===a?.end&&x.accn===a?.accn),
+              matchedCount:(fact.units?.USD||[]).filter(x=>x.form==='10-K'&&x.fp==='FY'&&x.end===a?.end&&x.accn===a?.accn).length}));
+            console.log('CAPEX_TAG_AUDIT '+JSON.stringify({symbol,period:a?.end,accn:a?.accn,tags}));
+          }
           NODE
