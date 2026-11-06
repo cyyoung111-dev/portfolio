@@ -837,12 +837,16 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  const noValuation=makeCase({valuationRequired:false,navState:'NON_PUBLICATION_CARRY'});
  assert.equal((await run({...args,fetchImpl:noValuation.fetchImpl})).derivedRepaired,0);
  assert.equal(noValuation.refreshes,0,'non-required carry rows are not created');
- for(const options of [
-   {navState:'UNPUBLISHED'},{navState:'NAV_MISSING'},
-   {unitsApplied:false},{reconciled:false}
+ for(const [options,reason] of [
+   [{navState:'UNPUBLISHED'},'NAV_DERIVED_NAV_STATE_UNVERIFIED'],
+   [{navState:'NAV_MISSING'},'NAV_DERIVED_NAV_STATE_UNVERIFIED'],
+   [{unitsApplied:false},'NAV_DERIVED_UNITS_UNVERIFIED'],
+   [{reconciled:false},'NAV_DERIVED_RECONCILIATION_UNVERIFIED'],
+   [{navState:'UNPUBLISHED',unitsApplied:false,reconciled:false},'NAV_DERIVED_NAV_STATE_UNVERIFIED']
  ]){
   const f=makeCase(options);
-  await assert.rejects(()=>run({...args,fetchImpl:f.fetchImpl}),/NAV_DERIVED_SOURCE_UNVERIFIED/);
+  await assert.rejects(()=>run({...args,fetchImpl:f.fetchImpl}),
+    error=>error?.message===reason);
   assert.equal(f.refreshes,0,'unverified source or units never initiate a write');
  }
  const duplicate=makeCase({duplicate:true});
