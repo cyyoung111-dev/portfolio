@@ -59,4 +59,6 @@ jobs:
         with:
           node-version: '24'
       - name: Verify public DTCC SEC credit archive index only
-        run: node scripts/audit-dtcc-credit-index-readonly.mjs
+        run: |
+          node scripts/audit-dtcc-credit-index-readonly.mjs
+          echo 'DTCC_SOURCE_READ_ONLY_PROBE_FINISHED'
