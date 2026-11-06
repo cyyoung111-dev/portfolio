@@ -216,8 +216,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   if(data.total_count>0){if(!data.artifacts.some(a=>a.name===artifactName))throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');return {ready:false,status:'ALREADY_CLAIMED',date:window.date};}
   // Run the optional public-data loader alongside market collection; it must
   // never become a delivery claim, source gate or Telegram send authority.
-  const financialTask=Promise.resolve().then(()=>loadFinancialEvidence(window.date,
-    {token:githubToken,repository,fetchImpl,now})).catch(()=>null);
+  let optionalFinancialEvidence=null;
+  // No waiting for finance: core market data is authoritative for delivery.
+  void Promise.resolve().then(()=>loadFinancialEvidence(window.date,
+    {token:githubToken,repository,fetchImpl,now}))
+    .then(value=>{optionalFinancialEvidence=value??null;},()=>{});
   // US NH indices and Korean KRX/FDR EOD references are independently
   // eligible. A missing NH response must not block verified domestic closes.
   // FRED/CBOE secondary references alone NEVER authorize sending.
@@ -277,7 +280,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   if(!quality.currentDeliveryGateSatisfied)
     return {ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:window.date,coverage,quality};
-  const financialEvidence=await financialTask;
+  const financialEvidence=optionalFinancialEvidence;
   // Recheck after the optional read: a late archive must never arm a claim.
   const finalClock=closeWindow(now());
   if(!finalClock.allowed||finalClock.date!==window.date)
