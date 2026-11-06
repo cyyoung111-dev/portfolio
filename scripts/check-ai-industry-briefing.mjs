@@ -9,6 +9,7 @@ import {extractSecAnnualFacts,classifySecAnnualFacts,readAiNineAnnualSecFacts} f
 import {extractSecTtmFacts,readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
 import {selectYearEndOutstandingShares,extractAnnualValueSnapshot,readAiNineAnnualValueSnapshots,readYahooSplitProof} from './briefing-ai-nine-sec-values.mjs';
 import {DART_SEMICONDUCTORS,extractDartDomesticBps,calculateDomesticReferencePbr,readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs';
+import {COMPANY_CDS_WATCHLIST,validateCompanyCdsPoint,computeCompanyCdsTrend,buildCompanyCdsCoverage} from './briefing-company-cds-sources.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -864,4 +865,81 @@ const dartBadKey=await readTwoDomesticDartBps({
 assert.equal(dartInvalidCalls,1,
  'key rejection must stop without trying older periods or other issuers');
 assert.equal(dartBadKey.statuses[0].status,'DART_KEY_REJECTED');
+
+/* Corporate 5Y CDS credit risk source contract. Never substitute sovereign,
+   equity ticker, standard coupon, upfront amount or ICE EOD clean price. */
+assert.equal(COMPANY_CDS_WATCHLIST.length,11);
+assert.deepEqual(COMPANY_CDS_WATCHLIST.slice(-2).map(x=>x.symbol),['005930','000660']);
+const unmapped=buildCompanyCdsCoverage({asOf:'2026-11-06'});
+assert.equal(unmapped.total,11);
+assert.equal(unmapped.verifiedQuotes,0);
+assert.ok(unmapped.statuses.every(x=>x.status==='REFERENCE_ENTITY_NOT_MAPPED'));
+const msftCds=COMPANY_CDS_WATCHLIST.find(x=>x.symbol==='MSFT');
+const cdsId='RED:ABCDEF123';
+const dealer={symbol:'MSFT',referenceEntityId:cdsId,
+ referenceType:'SINGLE_NAME_CORPORATE',seniority:'SENIOR_UNSECURED',
+ currency:'USD',restructuringClause:'XR14',tenor:'5Y',unit:'bp',
+ field:'SPREAD',spreadDefinition:'RUNNING_MARKET_SPREAD',
+ priceType:'MID',source:'LSEG_5Y_PAR_MID',
+ spreadBp:45,date:'2026-11-05',sourceRecordId:'MOCK-01'};
+const checkedCds=validateCompanyCdsPoint(msftCds,dealer,{
+ asOf:'2026-11-06',approvedReferenceId:cdsId});
+assert.equal(checkedCds.status,'DEALER_PAR_QUOTE');
+assert.equal(checkedCds.point.spreadBp,45);
+assert.equal(validateCompanyCdsPoint(msftCds,dealer,{
+ approvedReferenceId:null}).status,'REFERENCE_ENTITY_NOT_MAPPED');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,referenceType:'SOVEREIGN'},{
+ approvedReferenceId:cdsId}).status,'CDS_CONTRACT_MISMATCH');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,referenceEntityId:'RED:DIFFERENT1'},{
+ approvedReferenceId:cdsId}).status,'REFERENCE_ENTITY_MISMATCH');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,source:'ICE_EOD_PRICE',spreadBp:101.2},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,field:'FIXED_COUPON'},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,field:'UPFRONT'},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,date:'2026-10-20'},{
+ approvedReferenceId:cdsId}).status,'CDS_STALE');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,currency:'EUR'},{
+ approvedReferenceId:cdsId}).status,'CDS_CONTRACT_MISMATCH');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,tenor:'3Y'},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+const printed=validateCompanyCdsPoint(msftCds,{...dealer,
+ source:'DTCC_SEC_EXPLICIT_SPREAD',priceType:'REPORTED',
+ verifiedNotation:true,maturityYears:5.2},{
+ approvedReferenceId:cdsId});
+assert.equal(printed.status,'REPORTED_TRADE_SPREAD');
+assert.equal(printed.point.comparableToDealerQuote,false);
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,
+ source:'DTCC_SEC_EXPLICIT_SPREAD',priceType:'REPORTED',
+ verifiedNotation:false,maturityYears:5.2},{
+ approvedReferenceId:cdsId}).status,'CDS_UNITS_OR_TENOR_UNVERIFIED');
+const withMappedOne=buildCompanyCdsCoverage({
+ approvedReferences:{MSFT:cdsId},asOf:'2026-11-06',sourceRows:[dealer]
+});
+assert.equal(withMappedOne.verifiedQuotes,1);
+assert.equal(withMappedOne.statuses.filter(x=>x.latest!==null).length,1);
+assert.equal(withMappedOne.statuses.filter(x=>x.latest===null).length,10);
+const duplicateCds=buildCompanyCdsCoverage({
+ approvedReferences:{MSFT:cdsId},sourceRows:[dealer,{...dealer,spreadBp:99}]
+});
+assert.equal(duplicateCds.verifiedQuotes,0);
+assert.equal(duplicateCds.statuses[0].status,'AMBIGUOUS_SOURCE_OBSERVATIONS');
+const datedCds=(date,spreadBp)=>({
+ ...checkedCds.point,date,spreadBp,category:'DEALER_PAR_QUOTE',
+ comparableToDealerQuote:true
+});
+const oneYearTrend=computeCompanyCdsTrend([
+ datedCds('2025-11-05',40),datedCds('2026-08-06',43),
+ datedCds('2026-10-06',50),datedCds('2026-11-05',45)
+],{asOf:'2026-11-06'});
+assert.equal(oneYearTrend.changesBp.month1,-5);
+assert.equal(oneYearTrend.changesBp.year1,5);
+assert.equal(oneYearTrend.changesBp.month3,2);
+assert.equal(computeCompanyCdsTrend([printed.point],{asOf:'2026-11-06'}),null);
+assert.equal(computeCompanyCdsTrend([datedCds('2026-10-01',30)],
+ {asOf:'2026-11-06'}),null);
+assert.equal(computeCompanyCdsTrend([datedCds('2026-11-05',40),
+ datedCds('2026-11-05',41)],{asOf:'2026-11-06'}),null);
+
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
