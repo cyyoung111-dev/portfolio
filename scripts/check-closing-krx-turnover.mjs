@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {selectOfficialKrxTurnover,verifyOfficialKrxTurnover,
- fetchOfficialKrxTurnover,formatKrxTurnover} from './closing-krx-turnover.mjs';
+ fetchOfficialKrxTurnover,formatKrxTurnover,readClosingKrxTurnoverFromGas} from './closing-krx-turnover.mjs';
 
 const date='2026-11-02',clock=()=>new Date(date+'T17:10:00+09:00');
 const payload={
@@ -52,4 +52,21 @@ const partial=await fetchOfficialKrxTurnover(date,{...args,fetchImpl:async url=>
  url.includes('kospi_dd_trd')?{ok:true,headers:{get:()=>null},json:async()=>payload.KOSPI}:{ok:false}});
 assert.deepEqual(partial,[k],'one confirmed market survives independent source failure');
 assert.equal(verifyOfficialKrxTurnover(date,[{...k,source:'YAHOO'}]).length,0);
+const gasReasons=[];
+const gasRows=await readClosingKrxTurnoverFromGas(date,{
+ url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_KRX_ACCESS_TOKEN',
+ now:clock,fetchImpl:async()=>({ok:true,json:async()=>({
+  status:'ok',date,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',rows:[k,d]
+ })}),onDiagnostic:r=>gasReasons.push(r)
+});
+assert.deepEqual(gasRows,[k,d]);
+assert.deepEqual(gasReasons,[{kind:'KRX_TURNOVER_READ',status:'BOTH_VERIFIED'}]);
+gasReasons.length=0;
+assert.deepEqual(await readClosingKrxTurnoverFromGas(date,{
+ url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_KRX_ACCESS_TOKEN',
+ now:clock,fetchImpl:async()=>({ok:true,json:async()=>({
+  status:'ok',date,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',rows:[]
+ })}),onDiagnostic:r=>gasReasons.push(r)
+}),[]);
+assert.deepEqual(gasReasons,[{kind:'KRX_TURNOVER_READ',status:'NO_EXACT_VALID_ROWS'}]);
 console.log('KRX_TURNOVER_PROVIDER_PASS official KOSPI/KOSDAQ, units, date, duplicates, auth, optional');
