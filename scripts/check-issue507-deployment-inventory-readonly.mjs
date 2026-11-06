@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import YAML from 'yaml';
 import {scanDeploymentReferences,loadTrackedRuntimeSources} from './issue507-deployment-reference-analysis.mjs';
 import {inspectGasDeploymentsReadOnly,
@@ -223,6 +224,65 @@ assert.equal(secureAudit.additionalWebAppExecuteAsDeployerCount,1);
 assert.equal(secureAudit.additionalWebAppAnonymousDeployerCount,1);
 assert.equal(secureAudit.additionalWebAppUnknownSecurityCount,0);
 assert.equal(secureAudit.releaseAuthorized,false);
+// A live Google UI Test deployments ID was independently matched to the API
+// versionless 1970 WEB_APP, and only its exact project+ID fingerprint is trusted.
+// These synthetic cases must never whitelist other versionless deployments.
+const syntheticHeadId='AKfySyntheticHead_0123456789abcdef';
+const testHeadFingerprint=createHash('sha256').update(
+ scriptId+'/'+syntheticHeadId).digest('hex');
+const syntheticHead={deploymentId:syntheticHeadId,
+ deploymentConfig:{scriptId,manifestFileName:'appsscript'},
+ updateTime:'1970-01-01T00:00:00Z',
+ entryPoints:[{entryPointType:'WEB_APP',webApp:{
+  url:'https://script.google.com/macros/s/'+syntheticHeadId+'/exec',
+  entryPointConfig:{access:'ANYONE_ANONYMOUS',executeAs:'USER_DEPLOYING'}}}]};
+const headProofSetup=(listedHead=syntheticHead,detailHead=listedHead)=>setup(
+ {'':{deployments:[item(expectedDeploymentId),listedHead]}},
+ {[expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING'),
+  [listedHead.deploymentId]:detailHead});
+const trustedProof=headProofSetup();
+const headProof=await trustedProof.run({
+ verifyDetails:true,verifiedHeadFingerprint:testHeadFingerprint});
+assert.equal(headProof.status,'INVENTORY_ONLY');
+assert.equal(headProof.headDeploymentCount,1);
+assert.equal(headProof.verifiedTestHeadCount,1);
+assert.equal(headProof.deploymentCount,2);
+assert.equal(headProof.webAppEntryCount,2);
+assert.equal(headProof.additionalRoutableDeploymentCount,0);
+assert.equal(headProof.unverifiedVersionedDeploymentCount,0);
+assert.equal(headProof.detailVersionStillUnverifiedCount,0);
+assert.equal(headProof.additionalWebAppAnonymousDeployerCount,0);
+assert.equal(headProof.releaseAuthorized,false);
+assert.equal(headProof.gasWrites,0);
+assert.equal(headProof.financeWrites,0);
+assert.equal(headProof.telegramSends,0);
+assert.equal(trustedProof.calls.length,3); // LIST + both DETAILS, no writes
+assert.ok(!JSON.stringify(headProof).includes(syntheticHeadId));
+assert.equal((await headProofSetup().run({
+ verifiedHeadFingerprint:testHeadFingerprint})).reason,
+ 'VERSION_METADATA_UNVERIFIED'); // Independent DETAIL mandatory
+const staleDetail={...syntheticHead,updateTime:'2026-11-06T00:00:00Z'};
+assert.equal((await headProofSetup(syntheticHead,staleDetail).run({
+ verifyDetails:true,verifiedHeadFingerprint:testHeadFingerprint})).status,'BLOCKED');
+const changedVersion={...syntheticHead,deploymentConfig:{
+ ...syntheticHead.deploymentConfig,versionNumber:335}};
+assert.equal((await headProofSetup(changedVersion).run({
+ verifyDetails:true,verifiedHeadFingerprint:testHeadFingerprint})).status,'BLOCKED');
+const impostorId='AKfyDifferentHead_1234567890';
+const impostor={...syntheticHead,deploymentId:impostorId,
+ entryPoints:[{entryPointType:'WEB_APP',webApp:{
+  url:'https://script.google.com/macros/s/'+impostorId+'/exec',
+  entryPointConfig:{access:'ANYONE_ANONYMOUS',executeAs:'USER_DEPLOYING'}}}]};
+assert.equal((await headProofSetup(impostor).run({
+ verifyDetails:true,verifiedHeadFingerprint:testHeadFingerprint})).status,'BLOCKED');
+const duplicateHead=setup({'':{deployments:[
+ item(expectedDeploymentId),{deploymentId:'HEAD'},syntheticHead]}},{
+ [expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING'),
+ [syntheticHeadId]:syntheticHead});
+const conflict=await duplicateHead.run({
+ verifyDetails:true,verifiedHeadFingerprint:testHeadFingerprint});
+assert.equal(conflict.status,'BLOCKED');
+assert.equal(conflict.reason,'HEAD_IDENTITY_CONFLICT');
 // Immutable published versions can be inspected without logging source,
 // version identifiers, deployment IDs or authenticating against /exec.
 const legacySource=fs.readFileSync('reference/gas-v9.281.gs','utf8');
