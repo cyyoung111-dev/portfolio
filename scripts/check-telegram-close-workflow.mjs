@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import YAML from 'yaml';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
+import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare}
  from './telegram-close-workflow.mjs';
@@ -463,6 +464,71 @@ try{
 }finally{fs.rmSync(sandbox,{recursive:true,force:true});}
 
 assert.equal(morningWorkflow.jobs.briefing.steps.find(s=>s.name==='Send claimed briefing once').env.GAS_ACCESS_TOKEN,undefined);
+
+
+// The production prepare/send route must carry only optional, same-day public
+// SEC/DART facts. No synthetic data should trigger a new Telegram claim.
+const financeProof=buildAiFinancialEvidence({asOfKst:day,usSessionDate:'2026-10-29',
+ ttm:{statuses:[{symbol:'MSFT',status:'VERIFIED_TTM'}],
+ reports:[{symbol:'MSFT',periodEnd:'2026-09-30',
+  quarterFiledAt:'2026-10-25',quarterAccession:'mock-q',annualAccession:'mock-k',
+  method:'FY_PLUS_CURRENT_YTD_MINUS_PRIOR_YTD',
+  fields:{operatingCashFlow:1e9,capex:3e8},calculated:{freeCashFlow:7e8}}]}});
+assert.equal(financeProof.coverage.ttm,1);
+let financialReads=0;
+const preparedFinancial=await prepareClose({...options,
+ loadFinancialEvidence:async (date,{repository})=>{
+  financialReads++;assert.equal(date,day);
+  assert.equal(repository,'cyyoung111-dev/portfolio');return financeProof;
+ }});
+assert.equal(financialReads,1);
+assert.equal(preparedFinancial.ready,true);
+assert.deepEqual(preparedFinancial.reportInputs.financialEvidence,financeProof);
+assert.ok(preparedFinancial.message.length<=4000);
+let deliveryText='';
+assert.equal((await deliverClose(preparedFinancial,{now,
+ send:async (_token,_chat,message)=>{deliveryText=message;}})).status,'SENT');
+assert.ok(deliveryText.length<=4000);
+assert.equal(deliveryText.includes('■ 공시 재무 근거'),
+ preparedFinancial.message.includes('■ 공시 재무 근거'),
+ 'SEND re-render must not silently strip verified finance if PREPARE included it');
+const noFinance=await prepareClose({...options,
+ loadFinancialEvidence:async()=>{throw Error('offline');}});
+assert.equal(noFinance.ready,true);
+assert.equal(noFinance.message,prepared.message,'finance failure must preserve baseline');
+assert.equal(noFinance.reportInputs.financialEvidence,undefined);
+const crossFinance=await prepareClose({...options,
+ loadFinancialEvidence:async()=>({...financeProof,asOfKst:'2026-10-29'})});
+assert.equal(crossFinance.ready,true);
+assert.equal(crossFinance.message,prepared.message,'cross-day facts must not display');
+
+let receivedFinance;
+const injectedMorning=await prepareMorning({
+ now:morningNow,githubToken:'SYNTHETIC_TEST_TOKEN',repository:env.GITHUB_REPOSITORY,
+ fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})}),
+ loadReference:async()=>null,loadFinancialEvidence:async(date)=>{
+  assert.equal(date,day);return financeProof;
+ },
+ run:async ({financialEvidence,send})=>{
+  receivedFinance=financialEvidence;
+  await send('','','SYNTHETIC OPTIONAL MORNING REPORT');
+  return {referenceSource:'NONE'};
+ }
+});
+assert.equal(injectedMorning.ready,true);
+assert.deepEqual(receivedFinance,financeProof);
+const omittedMorning=await prepareMorning({
+ now:morningNow,githubToken:'SYNTHETIC_TEST_TOKEN',repository:env.GITHUB_REPOSITORY,
+ fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})}),
+ loadReference:async()=>null,
+ loadFinancialEvidence:async()=>{throw Error('artifact unavailable');},
+ run:async ({financialEvidence,send})=>{
+  assert.equal(financialEvidence,null);
+  await send('','','SYNTHETIC BASELINE MORNING REPORT');
+  return {referenceSource:'NONE'};
+ }
+});
+assert.equal(omittedMorning.ready,true);
 
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
 console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');
