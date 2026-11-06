@@ -54,7 +54,7 @@ export async function readYahooSplitProof(symbol,start,end,{fetchImpl=fetch}={})
   // history. Require a pre-period trading bar and reject *every* prolonged
   // calendar gap (not merely a plausible first/last date).
   // Normal US holiday weekends are within six calendar days.
-  if(dates[0]>start||dates.at(-1)<end)return null;
+  if(dates[0]>start||!dates.includes(end))return null;
   if(dates.some((d,i)=>i>0&&ageDays(d,dates[i-1])>6))return null;
   const raw=data.events?.splits??{};
   if(raw===null||typeof raw!=='object'||Array.isArray(raw))return null;
