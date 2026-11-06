@@ -21,17 +21,19 @@ assert.equal(testWindow(new Date('2026-11-07T10:30:00+09:00')).allowed,false);
 assert.equal(testWindow(new Date('2026-11-08T06:18:00+09:00')).allowed,false);
 const route='.github/workflows/telegram-saturday-test-20261107.yml';
 const push={repository:{full_name:REPO},ref:'refs/heads/main',
- commits:[{added:[route],modified:[],removed:[]}]};
-assert.equal(authorizeSaturday('push',push,good()),true);
+ before:'a'.repeat(40),after:'b'.repeat(40)};
+assert.equal(authorizeSaturday('push',push,good(),true),true);
+assert.equal(authorizeSaturday('push',push,good()),false,
+ 'no git diff proof means deny, even if other push fields are valid');
 for(const input of [
  ['push',{...push,ref:'refs/heads/feature'}],
  ['push',{...push,repository:{full_name:'attacker/repo'}}],
- ['push',{...push,commits:[{added:[],modified:[route]}]}],
- ['push',{...push,commits:[{added:[route]},{added:[route]}]}],
+ ['push',{...push,before:'not-verified'}],
+ ['push',{...push,after:'a'.repeat(40)}],
  ['schedule',push],
  ['workflow_dispatch',push]
-])assert.equal(authorizeSaturday(...input,good()),false);
-assert.equal(authorizeSaturday('push',push,new Date('2026-11-08T06:18:00+09:00')),false);
+])assert.equal(authorizeSaturday(...input,good(),true),false);
+assert.equal(authorizeSaturday('push',push,new Date('2026-11-08T06:18:00+09:00'),true),false);
 
 const empty=await composeSaturday({now,gasUrl:'',gasToken:'',
  master:async()=>[],domestic:async()=>[],collect:async()=>[]});
@@ -106,7 +108,33 @@ assert.deepEqual(workflow.on.push.branches,['main']);
 assert.equal(workflow.jobs['saturday-test'].environment,'portfolio-production-gas');
 assert.equal(workflow.jobs['saturday-test']['timeout-minutes'],9);
 const steps=workflow.jobs['saturday-test'].steps;
+const verifyIndex=steps.findIndex(x=>x.id==='prove_addition');
 const pIndex=steps.findIndex(x=>x.id==='prepare');
+assert.ok(verifyIndex>=0&&verifyIndex<pIndex,
+ 'the actual checkout commit must be inspected BEFORE any secret access');
+assert.equal(steps.find(x=>x.uses==='actions/checkout@v7')?.with['fetch-depth'],2);
+assert.match(steps[verifyIndex].run,/git diff --name-status HEAD\^ HEAD/);
+assert.match(steps[verifyIndex].run,/git rev-parse HEAD\^/);
+assert.match(steps[verifyIndex].run,/\
+const cIndex=steps.findIndex(x=>x.name==='Claim unique Saturday test before Telegram');
+const sIndex=steps.findIndex(x=>x.name==='Send claimed Saturday test once');
+const aIndex=steps.findIndex(x=>x.name==='Archive Telegram API-confirmed Saturday SENT proof');
+assert.ok(pIndex>=0&&pIndex<cIndex&&cIndex<sIndex&&sIndex<aIndex);
+assert.equal(steps[pIndex].env.TELEGRAM_BOT_TOKEN,undefined);
+assert.equal(steps[pIndex].env.GAS_ACCESS_TOKEN,undefined);
+assert.equal(steps[pIndex].env.GAS_WEB_APP_URL,undefined);
+assert.equal(steps[sIndex].env.GAS_ACCESS_TOKEN,undefined);
+assert.equal(steps[cIndex].with['if-no-files-found'],'error');
+assert.equal(steps[aIndex].with['if-no-files-found'],'error');
+assert.equal(workflow.on.schedule,undefined,'not a recurrent Saturday cron');
+const script=fs.readFileSync('scripts/telegram-saturday-test-20261107.mjs','utf8');
+assert.doesNotMatch(script,/readNhMorningIndexes|readNhNightFromGas/);
+assert.match(script,/await deliverSaturday\(payload,opts\)/);
+assert.match(script,/await deliverAndRecordSaturday\(payload,/);
+console.log('SATURDAY_20261107_MORNING_TEST_PASS pastDay_only=true uniqueClaim=true confirmedSENT=true noWrites=true');
+A\\t/);
+assert.equal(steps[pIndex].env.SATURDAY_WORKFLOW_ADDITION_VERIFIED,
+ '${{ steps.prove_addition.outputs.verified }}');
 const cIndex=steps.findIndex(x=>x.name==='Claim unique Saturday test before Telegram');
 const sIndex=steps.findIndex(x=>x.name==='Send claimed Saturday test once');
 const aIndex=steps.findIndex(x=>x.name==='Archive Telegram API-confirmed Saturday SENT proof');
