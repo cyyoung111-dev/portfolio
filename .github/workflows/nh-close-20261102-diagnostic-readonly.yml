@@ -22,7 +22,7 @@ jobs:
        github.event_name == 'workflow_dispatch')
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
         with:
@@ -60,4 +60,5 @@ jobs:
           python3 scripts/audit-dtcc-history-readiness-readonly.py --selftest
           python3 scripts/audit-dtcc-history-readiness-readonly.py 2026-11-05
           python3 scripts/audit-dtcc-company-cds-readonly.py --selftest
-          python3 scripts/audit-dtcc-company-cds-readonly.py --history 2026-11-05 120
+          python3 scripts/audit-dtcc-year-filtered-readonly.py --selftest
+          python3 scripts/audit-dtcc-year-filtered-readonly.py 2026-11-05
