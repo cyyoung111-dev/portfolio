@@ -7,7 +7,7 @@ import {runAiNineSourceAudit} from './audit-ai-nine-readonly.mjs';
 import {summarizeAiNineHistory,readAiNineHistoricalTrends} from './briefing-ai-nine-trends.mjs';
 import {extractSecAnnualFacts,classifySecAnnualFacts,readAiNineAnnualSecFacts} from './briefing-ai-nine-sec-financials.mjs';
 import {extractSecTtmFacts,readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
-import {selectYearEndOutstandingShares,extractAnnualValueSnapshot,readAiNineAnnualValueSnapshots} from './briefing-ai-nine-sec-values.mjs';
+import {selectYearEndOutstandingShares,extractAnnualValueSnapshot,readAiNineAnnualValueSnapshots,readYahooSplitProof} from './briefing-ai-nine-sec-values.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -623,13 +623,62 @@ annualShares.facts['us-gaap'].CommonStockSharesOutstanding={
 const fyQuote={symbol:'AAPL',label:'Apple',value:85,unit:'USD',
  date:'2026-11-05',source:'YAHOO_DAILY_REFERENCE'};
 const fyNow=()=>new Date('2026-11-06T12:00:00Z');
-const fiscalSnapshot=extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,{now:fyNow()});
+const proofNoSplit={symbol:'AAPL',since:end,through:'2026-11-05',
+ sharesPerOldShare:1,source:'YAHOO_CHART_SPLIT_EVENTS',coverage:'COMPLETE'};
+const fiscalSnapshot=extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
+ {now:fyNow(),splitProof:proofNoSplit});
 assert.equal(fiscalSnapshot.status,'VERIFIED_FY_BPS_PBR');
 assert.equal(fiscalSnapshot.snapshot.dilutedAnnualEpsUsd,2.32);
 assert.equal(fiscalSnapshot.snapshot.bpsUsd,0.85);
 assert.equal(fiscalSnapshot.snapshot.pbrTimes,100);
 assert.equal(fiscalSnapshot.snapshot.asOf,end);
 assert.equal(fiscalSnapshot.snapshot.epsPeriodType,'FY_REPORTED_NOT_TTM');
+assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
+ {now:fyNow()}).status,'PARTIAL_FY_VALUE',
+ 'unknown corporate actions must not be presented as verified PBR');
+assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
+ {now:fyNow()}).snapshot.pbrUnavailableReason,'SPLIT_HISTORY_UNVERIFIED');
+const split10=extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
+ {now:fyNow(),splitProof:{...proofNoSplit,sharesPerOldShare:10}});
+assert.equal(split10.status,'VERIFIED_FY_BPS_PBR');
+assert.equal(split10.snapshot.bpsUsd,0.85,'fiscal year-end BPS stays unadjusted');
+assert.equal(split10.snapshot.splitAdjustedBpsUsd,0.085);
+assert.equal(split10.snapshot.pbrTimes,1000,
+ '10-for-1 split requires adjusting the price/share unit');
+assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
+ {now:fyNow(),splitProof:{...proofNoSplit,through:'2026-11-04'}})
+ .snapshot.pbrTimes,null,'split proof must cover exact quote date');
+assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
+ {now:fyNow(),splitProof:{...proofNoSplit,source:'UNKNOWN'}})
+ .snapshot.pbrTimes,null);
+const stamp=ds=>Date.parse(ds+'T14:30:00Z')/1000;
+const fakeChart=({split=false,truncate=false,wrongSymbol=false}={})=>({
+ chart:{result:[{
+  meta:{symbol:wrongSymbol?'MSFT':'AAPL',
+   exchangeTimezoneName:'America/New_York'},
+  timestamp:['2026-09-29','2026-10-20',truncate?'2026-11-03':'2026-11-05'].map(stamp),
+  events:split?{splits:{event:{
+   date:stamp('2026-10-20'),numerator:10,denominator:1}}}:{}
+ }]}}
+);
+const sourceSplitProof=await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async(url)=>{assert.ok(url.includes('events=split'));
+  return {ok:true,json:async()=>fakeChart({split:true})};}
+});
+assert.equal(sourceSplitProof?.sharesPerOldShare,10);
+assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async()=>({ok:true,json:async()=>fakeChart({truncate:true})})}),null,
+ 'incomplete split history cannot establish no-split proof');
+assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async()=>({ok:true,json:async()=>fakeChart({wrongSymbol:true})})}),null);
+const badSplitEvents=fakeChart({split:true});
+badSplitEvents.chart.result[0].events.splits.event.denominator=0;
+assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async()=>({ok:true,json:async()=>badSplitEvents})}),null);
+const sourceNoSplitProof=await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async()=>({ok:true,json:async()=>fakeChart()})});
+assert.equal(sourceNoSplitProof?.sharesPerOldShare,1);
+
 assert.equal(selectYearEndOutstandingShares(annualShares,
  extractSecAnnualFacts(annualShares,'AAPL',{now:fyNow()})).shares,2000000000);
 const shareAfterFiscal=structuredClone(annualShares);
@@ -662,6 +711,8 @@ const valueSource=async(_date,_options)=>({
 });
 const snapshotBatch=await readAiNineAnnualValueSnapshots({
  now:fyNow,userAgent:'PortfolioResearch contact@example.org',readPrices:valueSource,
+ readSplitProof:async (symbol,since,through)=>({symbol,since,through,
+  sharesPerOldShare:1,source:'YAHOO_CHART_SPLIT_EVENTS',coverage:'COMPLETE'}),
  fetchImpl:async url=>{
   annualValueCalls++;
   const item=AI_NINE.find(x=>url==='https://data.sec.gov/api/xbrl/companyfacts/CIK'+x.cik+'.json');
