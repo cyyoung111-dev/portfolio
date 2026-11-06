@@ -50,7 +50,12 @@ export async function readYahooSplitProof(symbol,start,end,{fetchImpl=fetch}={})
   if(dates.some((d,i)=>!goodDay(d)||(i>0&&d<=dates[i-1])))return null;
   // Validate that Yahoo provided the full calendar interval rather than
   // silently truncating the first or last segment of corporate-action history.
-  if(ageDays(dates[0],start)>10||dates.at(-1)<end)return null;
+  // A split event may be absent if the data provider silently drops daily
+  // history. Require a pre-period trading bar and reject *every* prolonged
+  // calendar gap (not merely a plausible first/last date).
+  // Normal US holiday weekends are within six calendar days.
+  if(dates[0]>start||dates.at(-1)<end)return null;
+  if(dates.some((d,i)=>i>0&&ageDays(d,dates[i-1])>6))return null;
   const raw=data.events?.splits??{};
   if(raw===null||typeof raw!=='object'||Array.isArray(raw))return null;
   const events=Object.values(raw);
