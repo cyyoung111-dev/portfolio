@@ -642,7 +642,7 @@ const split10=extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
  {now:fyNow(),splitProof:{...proofNoSplit,sharesPerOldShare:10}});
 assert.equal(split10.status,'VERIFIED_FY_BPS_PBR');
 assert.equal(split10.snapshot.bpsUsd,0.85,'fiscal year-end BPS stays unadjusted');
-assert.equal(split10.snapshot.splitAdjustedBpsUsd,0.085);
+assert.ok(Math.abs(split10.snapshot.splitAdjustedBpsUsd-0.085)<1e-12);
 assert.equal(split10.snapshot.pbrTimes,1000,
  '10-for-1 split requires adjusting the price/share unit');
 assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,
