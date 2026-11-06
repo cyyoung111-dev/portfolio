@@ -70,6 +70,34 @@ assert.deepEqual(await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCE
  now,fetchImpl:async()=>({ok:true,json:async()=>({...payload,points:[]})}),
  onDiagnostic:r=>vkReasons.push(r)}),[]);
 assert.deepEqual(vkReasons,[{kind:'VKOSPI_READ',status:'NO_EXACT_VALID_ROW'}]);
+vkReasons.length=0;
+assert.deepEqual(await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCESS',
+ now,fetchImpl:async()=>({ok:true,json:async()=>({
+  status:'error',message:'TEST_SECRET_NOT_TO_LOG'})}),
+ onDiagnostic:r=>vkReasons.push(r)}),[]);
+assert.deepEqual(vkReasons,[{kind:'VKOSPI_READ',status:'GAS_STATUS_ERROR'}]);
+assert.doesNotMatch(JSON.stringify(vkReasons),/TEST_SECRET_NOT_TO_LOG/);
+
+const reviewedVkErrors=[
+ ['선택 기간의 VKOSPI 데이터를 조회하지 못했습니다.','KRX_NO_DATED_VKOSPI_POINT'],
+ ['getBenchmark 실패: VKOSPI 조회에는 KRX AUTH_KEY가 필요합니다. 설정에서 KRX 인증키를 등록하세요.','KRX_KEY_NOT_CONFIGURED'],
+ ['getBenchmark 실패: KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.','KRX_KEY_OR_INDEX_PERMISSION_DENIED'],
+ ['getBenchmark 실패: VKOSPI 날짜 배치 네트워크 오류','KRX_VKOSPI_BATCH_NETWORK_FAILURE'],
+ ['인증 실패','GAS_AUTH_REJECTED']
+];
+for(const [message,expectedStatus] of reviewedVkErrors){
+ const reason=[];
+ const rows=await readClosingVkospi(date,{
+  url:endpoint,token:'TEST-GAS-ACCESS',now,
+  fetchImpl:async()=>({ok:true,json:async()=>({status:'error',message})}),
+  onDiagnostic:x=>reason.push(x)
+ });
+ assert.deepEqual(rows,[]);
+ assert.deepEqual(reason,[{kind:'VKOSPI_READ',status:expectedStatus}]);
+ assert.ok(!JSON.stringify(reason).includes(message),
+  'raw provider message must never be emitted');
+}
+
 const coverage=summarizeCloseCoverage(date,{vkospi:row,expectedUsDate:us});
 assert.equal(coverage.volatility.verified,1);
 assert.equal(coverage.statuses.find(x=>x.id==='VKOSPI').status,'VERIFIED');

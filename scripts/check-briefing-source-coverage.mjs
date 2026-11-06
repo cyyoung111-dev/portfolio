@@ -6,6 +6,8 @@ import {CLOSE_SOURCE_CATALOG,MORNING_NOT_CONNECTED,
   closeQualityDecision} from './briefing-source-coverage.mjs';
 import {formatClose,prepareClose} from './telegram-close-workflow.mjs';
 import {runClosingGapAudit,kstAuditSession} from './audit-briefing-source-gaps-readonly.mjs';
+import {compareKrxPriorSession,previousOpenKrxDay}
+ from './compare-briefing-krx-prior-readonly.mjs';
 
 const date='2026-10-30',prev='2026-10-29',now=()=>new Date(date+'T17:00:00+09:00');
 const nh=[
@@ -181,6 +183,65 @@ assert.deepEqual(reasonAudit.diagnostics.map(d=>[d.kind,d.status,d.id||null]),[
  ['FRED_TREASURY_READ','OTHER_UNVERIFIED',null]
 ]);
 assert.doesNotMatch(JSON.stringify(reasonAudit),/NEVER_LOG|123456|SECRET/);
+
+// Exact-current-vs-prior KRX proof is read-only and never treats the
+// previous verified row as a valid current close.
+const krxToday='2026-11-06',krxYesterday='2026-11-05';
+assert.equal(previousOpenKrxDay(krxToday),krxYesterday);
+const compareNow=()=>new Date('2026-11-06T16:49:00+09:00');
+const compareCalls=[],published=[];
+const priorStockRows=[
+ {id:'SAMSUNG',label:'삼성전자',symbol:'005930.KS',date:krxYesterday,
+  value:85000,changePercent:null,source:'KRX_OFFICIAL'},
+ {id:'SKHYNIX',label:'SK하이닉스',symbol:'000660.KS',date:krxYesterday,
+  value:200000,changePercent:null,source:'KRX_OFFICIAL'}
+];
+const priorTurnover=['KOSPI','KOSDAQ'].map((market,i)=>({
+ id:'KRX_TURNOVER_'+market,market,date:krxYesterday,
+ valueKrw:10000000000000+i*1000000000000,
+ source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'
+}));
+const priorVkospi={id:'VKOSPI',label:'VKOSPI',date:krxYesterday,
+ value:25.42,source:'KRX_OFFICIAL',role:'NON_NH_REFERENCE_ONLY'};
+const compareResult=await compareKrxPriorSession({
+ now:compareNow,
+ stocks:async(date,{onDiagnostic})=>{
+  compareCalls.push('stocks/'+date);
+  onDiagnostic({status:date===krxYesterday?'BOTH_VERIFIED':'GAS_EMPTY_ROWS',
+   rawResponse:'NEVER_LOG'});
+  return date===krxYesterday?priorStockRows:[];},
+ turnover:async(date,{onDiagnostic})=>{
+  compareCalls.push('turnover/'+date);
+  onDiagnostic({status:date===krxYesterday?'BOTH_VERIFIED':'GAS_EMPTY_ROWS'});
+  return date===krxYesterday?priorTurnover:[];},
+ vkospi:async(date,{onDiagnostic})=>{
+  compareCalls.push('vkospi/'+date);
+  onDiagnostic({status:date===krxYesterday?'VERIFIED':'GAS_STATUS_ERROR'});
+  return date===krxYesterday?[priorVkospi]:[];},
+ report:x=>published.push(x)
+});
+assert.equal(compareCalls.length,6);
+assert.deepEqual(published,[compareResult]);
+assert.equal(compareResult.currentDate,krxToday);
+assert.equal(compareResult.previousDate,krxYesterday);
+assert.equal(compareResult.results.length,5);
+assert.ok(compareResult.results.every(x=>
+ x.current==='NO_VERIFIED_ROW'&&x.previous==='VERIFIED'
+ &&x.comparison==='PREVIOUS_ONLY_VERIFIED'));
+assert.equal(compareResult.financialWrites,0);
+assert.equal(compareResult.telegramSends,0);
+assert.doesNotMatch(JSON.stringify(compareResult),/85000|200000|NEVER_LOG|https:\/\//);
+const staleComparator=await compareKrxPriorSession({
+ now:compareNow,stocks:async()=>priorStockRows,
+ turnover:async()=>priorTurnover,
+ vkospi:async()=>[{...priorVkospi,date:'2026-11-04'}]
+});
+assert.equal(staleComparator.results.find(x=>x.id==='VKOSPI').previous,
+ 'NO_VERIFIED_ROW','stale prior row must not count as previous session');
+await assert.rejects(compareKrxPriorSession({
+ now:()=>new Date('2026-11-06T15:40:00+09:00'),
+ stocks:async()=>assert.fail('preclose external fetch')}),
+ /KRX_COMPARISON_BEFORE_CLOSE_WINDOW/);
 
 const auditWorkflow=fs.readFileSync(
  '.github/workflows/nh-close-20261102-diagnostic-readonly.yml','utf8');

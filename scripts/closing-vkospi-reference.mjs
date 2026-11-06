@@ -46,7 +46,22 @@ export async function readClosingVkospi(date,{
    body,redirect:'follow',signal:AbortSignal.timeout(17000)});
   if(!response?.ok){emit('HTTP_UNAVAILABLE');return [];}
   const payload=await response.json();
-  if(payload?.status!=='ok'){emit('GAS_RESPONSE_NOT_OK');return [];}
+  if(payload?.status!=='ok'){
+   // Only fixed, reviewed responses from the existing GAS handler are
+   // classified; never echo provider text, errors, credentials or URLs.
+   const message=payload?.message;
+   const status=payload?.status!=='error'?'GAS_RESPONSE_SCHEMA'
+    :message==='인증 실패'?'GAS_AUTH_REJECTED'
+    :message==='선택 기간의 VKOSPI 데이터를 조회하지 못했습니다.'
+      ?'KRX_NO_DATED_VKOSPI_POINT'
+    :message==='getBenchmark 실패: VKOSPI 조회에는 KRX AUTH_KEY가 필요합니다. 설정에서 KRX 인증키를 등록하세요.'
+      ?'KRX_KEY_NOT_CONFIGURED'
+    :message==='getBenchmark 실패: KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.'
+      ?'KRX_KEY_OR_INDEX_PERMISSION_DENIED'
+    :message==='getBenchmark 실패: VKOSPI 날짜 배치 네트워크 오류'
+      ?'KRX_VKOSPI_BATCH_NETWORK_FAILURE':'GAS_STATUS_ERROR';
+   emit(status);return [];
+  }
   const rows=selectClosingVkospi(date,payload);
   emit(rows.length===1?'VERIFIED':'NO_EXACT_VALID_ROW');
   return rows;

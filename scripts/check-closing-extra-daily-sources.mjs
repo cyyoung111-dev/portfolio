@@ -134,6 +134,16 @@ const official=await readKrxOfficialClosingStocks(date,{
  }
 });
 assert.equal(krxCalls,1);assert.equal(official.length,2);
+const krxBadReasons=[];
+assert.deepEqual(await readKrxOfficialClosingStocks(date,{
+ url:'https://script.google.com/macros/s/EXAMPLE123/exec',
+ token:'TEST_ACCESS_TOKEN_WITH_LENGTH',now:kstClose,
+ fetchImpl:async()=>({ok:true,json:async()=>({
+  status:'ok',requestedDate:date,closes:{}
+ })}),onDiagnostic:r=>krxBadReasons.push(r)
+}),[]);
+assert.deepEqual(krxBadReasons,[{kind:'KRX_CLOSE_STOCK_READ',
+ status:'GAS_EMPTY_ROWS'}]);
 const usCalls=[];
 const usReference=await readYahooClosingUsStocks(date,{
  now:kstClose,fetchDaily:async(label,symbol,_date,{host})=>{

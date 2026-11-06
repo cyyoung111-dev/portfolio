@@ -68,5 +68,5 @@ assert.deepEqual(await readClosingKrxTurnoverFromGas(date,{
   status:'ok',date,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',rows:[]
  })}),onDiagnostic:r=>gasReasons.push(r)
 }),[]);
-assert.deepEqual(gasReasons,[{kind:'KRX_TURNOVER_READ',status:'NO_EXACT_VALID_ROWS'}]);
+assert.deepEqual(gasReasons,[{kind:'KRX_TURNOVER_READ',status:'GAS_EMPTY_ROWS'}]);
 console.log('KRX_TURNOVER_PROVIDER_PASS official KOSPI/KOSDAQ, units, date, duplicates, auth, optional');

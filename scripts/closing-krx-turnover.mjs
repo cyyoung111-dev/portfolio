@@ -101,6 +101,7 @@ export async function readClosingKrxTurnoverFromGas(date,{
     ||data.source!=='KRX_OFFICIAL_INDEX_DAILY'||!Array.isArray(data.rows)
     ||data.rows.length>2){emit('PAYLOAD_INVALID');return [];}
   const verified=verifyOfficialKrxTurnover(date,data.rows);
+  if(data.rows.length===0){emit('GAS_EMPTY_ROWS');return [];}
   if(verified.length!==data.rows.length){emit('NO_EXACT_VALID_ROWS');return [];}
   emit(verified.length===2?'BOTH_VERIFIED':verified.length?'PARTIAL':'NO_EXACT_VALID_ROWS');
   return verified;
