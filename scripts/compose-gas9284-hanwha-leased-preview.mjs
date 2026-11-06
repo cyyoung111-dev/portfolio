@@ -65,6 +65,8 @@ export function composeGas9284HanwhaLeasedPreview(){
   const route="  if (params.action === 'collectKbFundNav') return handleCollectKbFundNav(params.mode || '', params.data || '{}', params.date || '');";
   const added=route+"\n  if (params.action === 'collectHanwhaFundNav') return handleCollectKbFundNav(params.mode || '', params.data || '{}', params.date || '', 'F00001');";
   src=replaceOne(src,route,added,'POST_ROUTE');
+  src=replaceOne(src,"//  📊 포트폴리오 대시보드 — Google Apps Script  v9.283",
+    "//  📊 포트폴리오 대시보드 — Google Apps Script  v9.284",'VERSION_HEADER');
   src=replaceOne(src,"//  v9.283 변경사항 (2026.11.02):",
     "//  v9.284 변경사항 (2026.11.06):\n//  • F00001 C-RPe import/derived refresh를 기존 공유 FUND/backfill lease 경유로 제한\n//  • 클래스/appendOnly/공시일/경고 fail-closed 유지, 외부 수집과 배포는 별도 승인\n//\n//  v9.283 변경사항 (2026.11.02):",
     'VERSION_CHANGELOG');
