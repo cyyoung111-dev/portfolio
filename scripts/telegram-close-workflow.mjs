@@ -347,9 +347,23 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
     date:window.date,status:sentimentStatus}));
   return {status:'SENT',date:window.date};
 }
+// Late GitHub cron enqueue is expected occasionally. Do not report a false
+// delivery failure when PREPARE starts after the guarded 17:00 window.
+// SEND is deliberately excluded: if a claim exists but the send is too late,
+// preserve the original hard failure and missing-SENT signal.
+export function skipLateClosePrepare(mode,event,instant){
+ return mode==='prepare'
+  &&['schedule','workflow_dispatch'].includes(event)
+  &&!closeWindow(instant).allowed;
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
-    if(!deliveryTrigger('close',process.env,JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),closeWindow(new Date()).allowed)){
+    const invokedAt=new Date();
+    const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
+    const eligible=deliveryTrigger('close',process.env,event,
+      closeWindow(invokedAt).allowed);
+    if(!eligible||skipLateClosePrepare(process.argv[2],
+      process.env.GITHUB_EVENT_NAME,invokedAt)){
       if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
       console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW'}));
       process.exit(0);
