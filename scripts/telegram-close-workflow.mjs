@@ -278,6 +278,10 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   if(!quality.currentDeliveryGateSatisfied)
     return {ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:window.date,coverage,quality};
   const financialEvidence=await financialTask;
+  // Recheck after the optional read: a late archive must never arm a claim.
+  const finalClock=closeWindow(now());
+  if(!finalClock.allowed||finalClock.date!==window.date)
+    throw Error('TELEGRAM_CLOSE_LATE');
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
