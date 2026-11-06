@@ -5,7 +5,7 @@ name: Briefing optional source availability audit (read-only)
 # 2026-11-06 16:4x KST: confirm FRED published-session fallback post-#977 (read only).
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/issue826-company-cds-readonly-20261106']
     paths: ['.github/workflows/nh-close-20261102-diagnostic-readonly.yml']
   workflow_dispatch:
 permissions:
@@ -42,3 +42,21 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/compare-briefing-krx-prior-readonly.mjs
+
+  cds_common_ingest_359_readonly:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/feat/issue826-company-cds-readonly-20261106' &&
+      github.event_name == 'push' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Self-test common ID integrity and execution date then re-read full official year
+        run: |
+          python3 scripts/audit-dtcc-company-cds-readonly.py --selftest
+          python3 scripts/audit-dtcc-year-filtered-readonly.py --selftest
+          python3 scripts/audit-dtcc-year-filtered-readonly.py 2026-11-05
