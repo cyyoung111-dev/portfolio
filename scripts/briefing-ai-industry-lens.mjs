@@ -75,7 +75,10 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
  const companyViews=formatSemiconductorCompanyFiveViews({
   date,period:'close',stocks,financialEvidence
  });
- if(companyViews.length)lines.push(...companyViews);
+ if(companyViews.length){
+  lines.push(...companyViews);
+  lines.push(formatHowardMarksView({vix,expectedDate:usDate}));
+ }
  else{
   lines.push('■ 투자 판단 — 5인 투자 원칙 적용 (인물의 당일 의견이 아님)');
   lines.push('• 버핏: ROIC·소유주 FCF, 애크먼: 재무여력·배당·재투자 확인.');
