@@ -112,7 +112,7 @@ export function formatSemiconductorCompanyFiveViews(input={}){
     +[1,1.5,2].map(y=>num(x.book.bps*y)).join('/')+'원, 적정가 아님)'
   :'PBR·DCF 유보(BPS/FCF 미확보)';
  return [
-  '■ 삼성전자·SK하이닉스 5인 정량 관점 (해당 인물 실제 발언 아님)',
+  '■ 삼성전자·SK하이닉스 5인 정량 관점 (당일 실제 발언 아님)',
   '• '+metric(s),
   '• '+metric(h),
   '• 버핏: 삼전 DS 영업익 '+pct(s.operatingProfitTrillion
