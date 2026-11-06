@@ -28,8 +28,23 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           RESUME_READ_ONLY: '1'
         run: node scripts/run-incomplete-close-resume.mjs
+      # 2026-11-06 v9.284/341 reconciliation: independent probes all run,
+      # even if the first reports a blocked close; none may write financial data.
       - name: Inspect stored fund NAV, price-history and Snapshot states (read only)
+        if: always()
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/diagnose-fund-valuation-readonly.mjs
+      - name: Verify KB AQ018 exact source and pending import (preview only)
+        if: always()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/collect-kb-fund-nav.mjs
+      - name: Verify Hanwha C-RPe exact source and shared-writer readiness (preview only)
+        if: always()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/collect-hanwha-fund-nav.mjs

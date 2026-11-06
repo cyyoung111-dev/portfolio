@@ -66,6 +66,19 @@ assert.match(workflow,/github\.run_attempt == 1/);
 assert.doesNotMatch(workflow,/^  schedule:|^  workflow_run:|--apply|confirm_recovery:/m);
 assert.match(workflow,/node scripts\/diagnose-fund-valuation-readonly\.mjs/);
 assert.match(workflow,/RESUME_READ_ONLY: '1'/);
+assert.match(workflow,/name: Verify KB AQ018 exact source and pending import \(preview only\)/);
+assert.match(workflow,/name: Verify Hanwha C-RPe exact source and shared-writer readiness \(preview only\)/);
+assert.match(workflow,/run: node scripts\/collect-kb-fund-nav\.mjs\s*(?:\n|$)/);
+assert.match(workflow,/run: node scripts\/collect-hanwha-fund-nav\.mjs\s*(?:\n|$)/);
+assert.doesNotMatch(workflow,/run:\s*node\s+scripts\/(?:collect-kb-fund-nav|collect-hanwha-fund-nav)\.mjs\s+--apply/);
+for(const marker of ['Inspect stored fund NAV, price-history and Snapshot states',
+ 'Verify KB AQ018 exact source','Verify Hanwha C-RPe exact source']){
+ const idx=workflow.indexOf('      - name: '+marker);
+ assert.notEqual(idx,-1);
+ assert.match(workflow.slice(idx,idx+180),/if: always\(\)/,
+  marker+': after previous blocked diagnostic still independently execute');
+}
+
 const script=fs.readFileSync('scripts/diagnose-fund-valuation-readonly.mjs','utf8');
 assert.ok(script.includes("action:'getFundValuationStatus'"));
 assert.doesNotMatch(script,/action:\s*'(?:collectKbFundNav|resumeIncompletePortfolioClose|saveSnapshot|importFundNav)'/);
