@@ -8,6 +8,7 @@ treat a reported contract leg spread as a daily dealer mid quote.
 """
 import csv
 import datetime as dt
+import hashlib
 import io
 import json
 import re
@@ -122,6 +123,63 @@ def root_id(row_id, by_id):
             return None
         current = parent
     return None
+
+
+
+def register_source_ids(rows, fingerprints):
+    """Fail closed on conflicting report IDs BEFORE any company/RED filtering.
+
+    Uses only a SHA-256 fingerprint of canonical decoded public CSV rows.
+    The registry is deliberately shared across all archives in a series.
+    """
+    added=0
+    for row in rows:
+        ident=present(row, "Dissemination Identifier")
+        if not ident or not ident.isdecimal():
+            raise ValueError("DTCC_GLOBAL_ID_MISSING_OR_INVALID")
+        payload=json.dumps(row, sort_keys=True, ensure_ascii=False,
+                           separators=(",",":")).encode("utf-8")
+        digest=hashlib.sha256(payload).digest()
+        existing=fingerprints.get(ident)
+        if existing is not None and existing!=digest:
+            raise ValueError("DTCC_GLOBAL_ID_PAYLOAD_CONFLICT")
+        if existing is None:
+            fingerprints[ident]=digest
+            added+=1
+    return added
+
+
+def execution_observations(rows, latest_archive_date):
+    """Shared execution-date oracle for both rolling and yearly pipelines."""
+    try:
+        last=dt.date.fromisoformat(latest_archive_date)
+    except (ValueError, TypeError):
+        raise ValueError("DTCC_INVALID_LATEST_ARCHIVE_DATE")
+    candidate_days=set()
+    reference_ids={red for red,_ in ISSUERS.values()}
+    for row in rows:
+        if present(row,"Action type")!="NEWT":
+            continue
+        if present(row,"Underlier ID-Leg 1") not in reference_ids:
+            continue
+        stamp=parse_utc(present(row,"Execution Timestamp"))
+        if stamp is not None and stamp.date()<=last:
+            candidate_days.add(stamp.date().isoformat())
+    observed={symbol:[] for symbol in ALL}
+    for day in sorted(candidate_days):
+        trades_by_company=get_candidates(rows,day)
+        for symbol in ALL:
+            trades=trades_by_company.get(symbol,[])
+            if not trades:
+                continue
+            median=statistics.median(sorted(
+                x["reportedContractSpreadBp"] for x in trades
+            ))
+            observed[symbol].append({
+                "date":day,"count":len(trades),
+                "medianReportedContractBp":float(median)
+            })
+    return observed
 
 
 def get_candidates(rows, trade_date):
@@ -267,17 +325,15 @@ def assemble_history_archives(named_archives):
     # Identical report re-dissemination may appear across days. But the same
     # dissemination ID with conflicting data is a hard failure.
     seen = {}
+    fingerprints = {}
     for _day, archive in named_archives:
-        for row in read_archive(archive):
-            ident = present(row, "Dissemination Identifier")
-            if not ident or not ident.isdecimal():
-                raise ValueError("DTCC_ID_UNVERIFIED")
-            if ident in seen:
-                if row != seen[ident]:
-                    raise ValueError("DTCC_CONFLICTING_REPORT_REDISSEMINATION")
-            else:
-                seen[ident] = row
-        if len(seen) > 350_000:
+        rows=read_archive(archive)
+        register_source_ids(rows,fingerprints)
+        for row in rows:
+            ident=present(row,"Dissemination Identifier")
+            if ident not in seen:
+                seen[ident]=row
+        if len(seen)>350_000:
             raise ValueError("DTCC_TOO_MANY_COMBINED_RECORDS")
     return list(seen.values())
 
@@ -318,24 +374,12 @@ def summarize_history(named_archives, as_of):
         raise ValueError("NO_ARCHIVES")
     rows = assemble_history_archives(named_archives)
     days = [x[0] for x in named_archives]
-    observed = {ticker: [] for ticker in ALL}
-    for day in days:
-        daily = get_candidates(rows, day)
-        for ticker in ALL:
-            accepted = daily.get(ticker, [])
-            if not accepted:
-                continue
-            median = statistics.median(
-                sorted(x["reportedContractSpreadBp"] for x in accepted)
-            )
-            observed[ticker].append({
-                "date": day, "count": len(accepted),
-                "medianReportedContractBp": float(median)
-            })
+    observed = execution_observations(rows, days[-1])
     return {
         "mode": "DTCC_SEC_CDS_ROLLING_TRADE_HISTORY_READ_ONLY",
         "sourceArchiveDays": len(days), "firstArchiveDate": days[0],
         "lastArchiveDate": days[-1], "recordsDedupedById": len(rows),
+        "observationDateBasis":"EXECUTION_TIMESTAMP_UTC",
         "reportedObservationDays": [
             {"symbol": ticker, "days": len(observed[ticker]),
              "lastObserved": observed[ticker][-1] if observed[ticker] else None,
@@ -446,6 +490,32 @@ def selftest():
     assert alphabet[0]["medianReportedContractBp"] == 87
     assert hist["futureCorrectionsNotYetKnown"] is True
     assert hist["dealerParQuotesVerified"] == 0
+    # Late publication without an archive on the execution day must still
+    # create an observation on the actual execution date.
+    delayed=row("9001")
+    delayed["Execution Timestamp"]="2025-11-06T12:22:48Z"
+    delayed["Expiration Date"]="2030-12-20"
+    delayed_history=summarize_history([
+        ("2025-11-07",zipped("2025-11-07",[delayed]))
+    ],"2025-11-07")
+    assert delayed_history["reportedObservationDays"][2]["days"]==1
+    assert delayed_history["history"]["GOOGL"][0]["date"]=="2025-11-06"
+    assert delayed_history["observationDateBasis"]=="EXECUTION_TIMESTAMP_UTC"
+
+    # Both a cross-file duplicate of identical content and a conflicting
+    # duplicate are tested at the pre-filter global-ID layer.
+    registry={}
+    neutral=row("9002",red="UNRELATED")
+    assert register_source_ids([neutral],registry)==1
+    assert register_source_ids([neutral],registry)==0
+    conflicting=dict(neutral)
+    conflicting["Original Dissemination Identifier"]="9001"
+    try:
+        register_source_ids([conflicting],registry)
+        raise AssertionError("conflicting irrelevant issuer ID accepted")
+    except ValueError as exc:
+        assert str(exc)=="DTCC_GLOBAL_ID_PAYLOAD_CONFLICT"
+
     assert hist["reportedObservationDays"][2]["month1TradeMedianComparison"] is None
     dense = [{"date": "2026-10-05", "medianReportedContractBp": 94},
              {"date": "2026-10-06", "medianReportedContractBp": 100},
