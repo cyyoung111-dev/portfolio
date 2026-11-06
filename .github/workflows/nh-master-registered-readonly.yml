@@ -1,0 +1,31 @@
+name: NH registered quote read-only operational audit
+# One-shot proof after the workflow is merged; can also be dispatched manually.
+# No price-history, Snapshot, NAV writes, Telegram, or GAS deployment.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/nh-master-registered-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: nh-master-registered-readonly
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read-only registered NH quotes and aggregate counters
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/nh-master-registered-readonly.mjs
