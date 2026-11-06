@@ -13,8 +13,21 @@ const sample=summarizeFundRows(payload('F00001',[
 ]),'F00001',FROM,TO);
 assert.deepEqual(sample,{
  code:'F00001',from:FROM,to:TO,activeDays:2,confirmedNavDays:1,
- navMissingDates:[],unpublishedDates:[TO],evaluationPendingDates:[TO],snapshotPendingDates:[TO]
+ navMissingDates:[],unpublishedDates:[TO],evaluationPendingDates:[TO],snapshotPendingDates:[TO],
+ unitsNotAppliedDates:[],unreconciledDates:[],writerBlockedDates:[TO]
 });
+const failed=()=>({...row('F00002',DATE,'NAV_MISSING','WRITE_REQUIRED','NOT_CREATED'),
+ unitsApplied:false,reconciled:false});
+const blocker=summarizeFundRows(payload('F00002',[failed()]),'F00002',FROM,TO);
+assert.deepEqual(blocker.unitsNotAppliedDates,[DATE]);
+assert.deepEqual(blocker.unreconciledDates,[DATE]);
+assert.deepEqual(blocker.writerBlockedDates,[DATE]);
+assert.deepEqual(blocker.navMissingDates,[DATE]);
+const noWriteRequired=summarizeFundRows(payload('F00002',[
+ {...failed(),evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}
+]),'F00002',FROM,TO);
+assert.deepEqual(noWriteRequired.writerBlockedDates,[],
+ 'read-only audit must not flag a write blocker when no write is pending');
 for(const bad of [
  payload('F00001',[row('F00001','2026-10-99')]),
  payload('F00001',[row('F00001',DATE),row('F00001',DATE)]),
