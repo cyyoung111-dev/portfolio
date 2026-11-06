@@ -46,6 +46,14 @@ assert.equal(requests.length,3);
 assert.deepEqual(fetched,valid);
 const failed=await readTreasuryCurve(date,{fetchImpl:async()=>({ok:false})});
 assert.deepEqual(failed,[]);
+const fredReasons=[];
+assert.deepEqual(await readTreasuryCurve(date,{
+ fetchImpl:async()=>({ok:false}),
+ onDiagnostic:r=>fredReasons.push(r)
+}),[]);
+assert.deepEqual(fredReasons,ids.map(id=>({
+ kind:'FRED_TREASURY_READ',id,status:'HTTP_UNAVAILABLE'
+})));
 const partial=await readTreasuryCurve(date,{fetchImpl:async url=>{
  const code=new URL(url).searchParams.get('id');
  return code==='DGS3'?{ok:false}:{ok:true,headers:{get:()=> 'text/csv'},

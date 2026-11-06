@@ -81,22 +81,28 @@ export function formatKrxTurnover(date,rows=[]){
 // Script Properties. GitHub sends only its existing GAS access token.
 export async function readClosingKrxTurnoverFromGas(date,{
  url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,
- now=()=>new Date(),fetchImpl=fetch}={}){
+ now=()=>new Date(),fetchImpl=fetch,onDiagnostic=()=>{}
+}={}){
+ const emit=status=>{try{onDiagnostic({kind:'KRX_TURNOVER_READ',status});}catch{}};
  if(!isOfficialCloseWindow(date,now())||!url
-   ||typeof token!=='string'||token.length<12)return [];
+   ||typeof token!=='string'||token.length<12){
+  emit('CONFIG_OR_SESSION_UNVERIFIED');return [];
+ }
  let endpoint;
- try{endpoint=validateGasEndpoint(url);}catch{return [];}
+ try{endpoint=validateGasEndpoint(url);}catch{emit('ENDPOINT_INVALID');return [];}
  try{
   const response=await fetchImpl(endpoint,{method:'POST',
    headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
    body:new URLSearchParams({action:'getKrxMarketTurnover',accessToken:token,date}),
    redirect:'follow',signal:AbortSignal.timeout(17000)});
-  if(!response?.ok)return [];
+  if(!response?.ok){emit('HTTP_UNAVAILABLE');return [];}
   const data=await response.json();
   if(data?.status!=='ok'||data.date!==date||data.readOnly!==true
     ||data.source!=='KRX_OFFICIAL_INDEX_DAILY'||!Array.isArray(data.rows)
-    ||data.rows.length>2)return [];
+    ||data.rows.length>2){emit('PAYLOAD_INVALID');return [];}
   const verified=verifyOfficialKrxTurnover(date,data.rows);
-  return verified.length===data.rows.length?verified:[];
- }catch{return [];}
+  if(verified.length!==data.rows.length){emit('NO_EXACT_VALID_ROWS');return [];}
+  emit(verified.length===2?'BOTH_VERIFIED':verified.length?'PARTIAL':'NO_EXACT_VALID_ROWS');
+  return verified;
+ }catch{emit('NETWORK_OR_PARSE_FAILED');return [];}
 }
