@@ -425,6 +425,73 @@ await assert.rejects(activateNhRuntime({url:'https://script.google.com/macros/s/
   token:'admin',request:versionRequest('9.282','9.281'),skipReadbackIfActive:false}),
   /NH_RUNTIME_CODE_MASTER_UNCONFIRMED/);
 
+// Financially read-only live-probe contract: only registered master + getPrices(persist=0).
+const {runRegisteredNhReadOnly}=await import('./nh-master-registered-readonly.mjs');
+const nhProbeCalls=[],nhProbeReports=[];
+const masterOnly=[{code:'005930',currency:'KRW',type:'주식'},
+ {code:'000660',currency:'KRW',type:'주식'},{code:'F00001',currency:'KRW',type:'펀드'}];
+const nhProbeFetch=async(_url,options)=>{
+ const p=new URLSearchParams(options.body);
+ const action=p.get('action');
+ nhProbeCalls.push({action,persist:p.get('persist')});
+ assert.equal(p.get('accessToken'),'private-token');
+ if(action==='getCodeListReadOnly')return {ok:true,json:async()=>({
+  status:'ok',readOnly:true,gasVersion:'9.284',codes:masterOnly})};
+ if(action==='getPrices'){
+  assert.equal(p.get('codes'),'005930,000660');
+  assert.equal(p.get('persist'),'0');
+  return {ok:true,json:async()=>({status:'ok',
+   prices:{'005930':232000,'000660':260000},
+   priceLookup:{currentProvider:'NH',tossResultCount:2}})};
+ }
+ throw Error('PROBE_MUST_NOT_CALL_OTHER_GAS_ACTIONS');
+};
+const nhProbe=await runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+ fetchImpl:nhProbeFetch,report:row=>nhProbeReports.push(row)});
+assert.equal(nhProbe.status,'SAMPLE_CONFIRMED');
+assert.equal(nhProbe.gasVersion,'9.284');
+assert.equal(nhProbe.requested,2);
+assert.equal(nhProbe.masterRows,3);
+assert.equal(nhProbe.krwRows,3);
+assert.equal(nhProbe.usdRows,0);
+assert.equal(nhProbe.fullCoverageVerified,false);
+assert.equal(nhProbe.financialWrites,0);
+assert.deepEqual(nhProbeCalls,[{action:'getCodeListReadOnly',persist:null},
+ {action:'getPrices',persist:'0'}]);
+assert.equal(nhProbeReports.length,1);
+assert.doesNotMatch(JSON.stringify(nhProbeReports),/005930|000660|F00001|private-token|232000|260000/);
+await assert.rejects(runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+ expectedGasVersion:'9.283',fetchImpl:nhProbeFetch}),/MASTER_UNVERIFIED/);
+await assert.rejects(runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'',
+ fetchImpl:nhProbeFetch}),/AUTH_MISSING/);
+for(const scenario of ['COUNT_MISSING','PRICE_MISSING','WRONG_PROVIDER']){
+ const summaries=[];
+ const fixture=async(url,options)=>{
+  const p=new URLSearchParams(options.body);
+  if(p.get('action')!=='getPrices')return nhProbeFetch(url,options);
+  assert.equal(p.get('persist'),'0');
+  return {ok:true,json:async()=>({status:'ok',
+   prices:scenario==='PRICE_MISSING'?{'005930':232000}
+     :{'005930':232000,'000660':260000},
+   priceLookup:{currentProvider:scenario==='WRONG_PROVIDER'?'OTHER':'NH',
+    tossResultCount:scenario==='COUNT_MISSING'?1:2}})};
+ };
+ await assert.rejects(runRegisteredNhReadOnly({
+  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+  fetchImpl:fixture,report:row=>summaries.push(row)}),
+  scenario==='COUNT_MISSING'?/COUNT_UNVERIFIED/:
+    scenario==='PRICE_MISSING'?/PRICES_UNVERIFIED/:/PROVIDER_UNVERIFIED/);
+ assert.equal(summaries.length,1);
+ assert.doesNotMatch(JSON.stringify(summaries),/005930|000660|private-token|232000|260000/);
+}
+const nhProbeWorkflow=fs.readFileSync('.github/workflows/nh-master-registered-readonly.yml','utf8');
+assert.match(nhProbeWorkflow,/paths: \['\.github\/workflows\/nh-master-registered-readonly\.yml'\]/);
+assert.match(nhProbeWorkflow,/run: node scripts\/nh-master-registered-readonly\.mjs/);
+assert.doesNotMatch(nhProbeWorkflow,/GAS_DEPLOY_DRY_RUN|--apply|telegram|saveNhConfig|retireLegacyMarketData/i);
+
 // Reproduce the reviewed valuation defect using the actual fetch normalization
 // and actual production computeRows, with independent KRW expectations.
 const web=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
