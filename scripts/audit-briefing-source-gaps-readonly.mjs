@@ -3,7 +3,7 @@
 // Never log prices, private positions, access tokens or raw network responses.
 import {pathToFileURL} from 'node:url';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
-import {readClosingStockSources} from './closing-extra-daily-sources.mjs';
+import {readClosingStockSources,validClosingStockReference} from './closing-extra-daily-sources.mjs';
 import {readClosingKrxTurnoverFromGas} from './closing-krx-turnover.mjs';
 import {readClosingVkospi} from './closing-vkospi-reference.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve} from './closing-us-treasury-curve.mjs';
@@ -74,7 +74,7 @@ export async function runClosingGapAudit({
   observedVkospi=result(2),observedTreasury=verifyTreasuryCurve(session.date,result(3));
  const stockRows=STOCK_IDS.map(id=>{
    const rows=observedStocks.filter(x=>x?.id===id&&SAFE_STOCK_SOURCES.has(x.source)
-     &&x.date===(id==='SAMSUNG'||id==='SKHYNIX'?session.date:x.date));
+     &&validClosingStockReference(session.date,x));
    return {id,status:rows.length===1?'VERIFIED':'NO_VERIFIED_ROW',
     source:rows.length===1?rows[0].source:null};
  });
