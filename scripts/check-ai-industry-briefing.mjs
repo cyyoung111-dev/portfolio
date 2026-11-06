@@ -3,6 +3,7 @@ import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
 import {AI_NINE,readAiNineDailyPrices,readAiNineSecFilings,
  formatAiNineDailyPrices,completedUsRegularClose} from './briefing-ai-nine-sources.mjs';
+import {runAiNineSourceAudit} from './audit-ai-nine-readonly.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -209,5 +210,33 @@ const secMismatch=await readAiNineSecFilings({
 assert.equal(secMismatch.verified,1,'CIK and ticker both match, not just ticker');
 assert.equal(secMismatch.statuses.find(x=>x.symbol==='SNDK').status,
  'SEC_FILING_SCHEMA_OR_DATE_INVALID');
+
+
+const auditResult=await runAiNineSourceAudit({
+ now:()=>new Date('2026-11-06T17:10:00+09:00'),
+ readPrices:async()=>({expectedUsDate:'2026-11-05',
+  prices:[{symbol:'MSFT',value:999999,secret:'DO_NOT_PRINT'}],
+  statuses:AI_NINE.map((x,i)=>({symbol:x.symbol,status:i<6?'VERIFIED':'BAD_STATUS',
+   secret:'DO_NOT_PRINT'}))}),
+ readFilings:async()=>({filings:[{symbol:'AAPL',rawBody:'DO_NOT_PRINT'}],
+  statuses:AI_NINE.map((x,i)=>({symbol:x.symbol,status:i<3?'VERIFIED':
+   'SEC_USER_AGENT_NOT_CONFIGURED',secret:'DO_NOT_PRINT'}))})
+});
+assert.equal(auditResult.dateKst,'2026-11-06');
+assert.equal(auditResult.usSessionDate,'2026-11-05');
+assert.deepEqual(auditResult.price.verified,6);
+assert.deepEqual(auditResult.sec.verified,3);
+assert.equal(auditResult.price.statuses.find(x=>x.symbol==='SNDK').status,'UNVERIFIED');
+assert.equal(auditResult.portfolioWrites+auditResult.telegramSends+auditResult.gasDeployments,0);
+assert.doesNotMatch(JSON.stringify(auditResult),/DO_NOT_PRINT|999999|rawBody/);
+assert.deepEqual(auditResult.price.statuses.map(x=>x.symbol),AI_NINE.map(x=>x.symbol));
+const auditErrors=await runAiNineSourceAudit({
+ now:()=>new Date('2026-11-06T07:40:00+09:00'),
+ readPrices:async()=>{throw Error('PRIVATE_PROVIDER_ERROR');},
+ readFilings:async()=>({statuses:AI_NINE.map(x=>({symbol:x.symbol,status:'FETCH_FAILED'}))})
+});
+assert.equal(auditErrors.price.verified,0);
+assert.equal(auditErrors.price.statuses.every(x=>x.status==='UNVERIFIED'),true);
+assert.doesNotMatch(JSON.stringify(auditErrors),/PRIVATE_PROVIDER_ERROR/);
 
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
