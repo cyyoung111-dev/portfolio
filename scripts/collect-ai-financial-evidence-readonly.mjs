@@ -8,7 +8,8 @@ import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 export async function collectAiFinancialEvidence({
  now=()=>new Date(),readTtm=readAiNineTtmSecFacts,
  readValues=readAiNineAnnualValueSnapshots,
- readDart=readTwoDomesticDartBps,usSessionDate,domesticQuotes=[]
+ readDart=readTwoDomesticDartBps,usSessionDate,
+ domesticSessionDate=null,domesticQuotes=[]
 }={}){
  const instant=now();
  if(!(instant instanceof Date)||!Number.isFinite(instant.getTime()))
@@ -19,5 +20,5 @@ export async function collectAiFinancialEvidence({
  const fyValues=await readValues({now});
  const dart=await readDart({now});
  return buildAiFinancialEvidence({
-  asOfKst:date,usSessionDate,ttm,fyValues,dart,domesticQuotes});
+  asOfKst:date,usSessionDate,domesticSessionDate,ttm,fyValues,dart,domesticQuotes});
 }
