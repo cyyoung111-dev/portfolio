@@ -1,7 +1,7 @@
 name: kb-fund-nav-collect
 on:
   schedule:
-    - cron: '15 23 * * *' # 08:15 KST, before 08:45 KRX recovery
+    - cron: '30 0 * * 1-5' # 09:30 KST on weekdays, after previous-day KB NAV becomes public
     - cron: '10 9 * * *'
   workflow_dispatch:
   # One GET-only public source check on the merge that installs this workflow.

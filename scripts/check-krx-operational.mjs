@@ -1089,7 +1089,8 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
  assert.ok(resume.includes('RESUME_READ_ONLY:'));
  assert.ok(!nav.includes('workflow_run:'),'failed/skipped fund resume cannot trigger NAV');
  assert.ok(nav.includes('workflow_dispatch:'));
- assert.ok(nav.includes("cron: '15 23 * * *'"));
+ assert.ok(nav.includes("cron: '30 0 * * 1-5'"), '09:30 KST post-publication schedule');
+ assert.ok(!nav.includes("cron: '15 23 * * *'"), 'early 08:15 slot removed');
  assert.ok(nav.includes("cron: '10 9 * * *'"));
  assert.ok(nav.includes("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"));
 }
