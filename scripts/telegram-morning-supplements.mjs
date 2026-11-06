@@ -76,9 +76,10 @@ export function formatMorningTreasury(date,rows=[]){
  const pct=x=>x?x.value.toFixed(2)+'%':'미확보';
  return '미 국채 2Y '+pct(a)+' · 3Y '+pct(b)
    +' · 10Y '+pct(c)+' · 10Y-2Y '
-   +(a&&c?(Math.round((c.value-a.value)*100)>=0?'+':'')
+   +(a&&c&&a.date===c.date?(Math.round((c.value-a.value)*100)>=0?'+':'')
      +Math.round((c.value-a.value)*100)+'bp':'미확보')
-   +' [FRED H.15 참고 · '+((a||b||c)?.date||expectedMorningDate('SPX',date))+']';
+   +' [FRED H.15 참고 · '+((a||b||c)?.date||expectedMorningDate('SPX',date))
+   +((a||b||c)?.date!==expectedMorningDate('SPX',date)?' · 발표 지연':'')+']';
 }
 export function formatMorningVkospi(rows=[]){
  const x=rows.length===1?rows[0]:null;
