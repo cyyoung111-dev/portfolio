@@ -7,6 +7,8 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {expectedMorningDate} from './telegram-morning-report.mjs';
 import {collectAiFinancialEvidence} from './collect-ai-financial-evidence-readonly.mjs';
 import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
+import {isFinancialSourceCoverageStatus}
+ from './briefing-financial-source-status.mjs';
 
 export const FINANCIAL_PREFETCH_WORKFLOW='AI financial evidence prefetch (read-only)';
 export const FINANCIAL_PREFETCH_PATH='.github/workflows/ai-financial-evidence-prefetch.yml';
@@ -122,11 +124,15 @@ export async function prefetchAiFinancialEvidence({
  const expectedUsDate=expectedMorningDate('SPX',first.date);
  if(!strictDay(expectedUsDate))return {
   ready:false,status:'US_COMPLETED_DAY_UNVERIFIED',date:first.date};
- let evidence;
+ let evidence,sourceStatus=null;
  try{
   evidence=await collector({now,usSessionDate:expectedUsDate,
-   domesticSessionDate:null,domesticQuotes:[]});
- }catch{return {ready:false,status:'PUBLIC_SOURCE_UNAVAILABLE',date:first.date};}
+   domesticSessionDate:null,domesticQuotes:[],
+   onSourceStatus:status=>{
+    if(isFinancialSourceCoverageStatus(status))sourceStatus=status;
+   }});
+ }catch{return {ready:false,status:'PUBLIC_SOURCE_UNAVAILABLE',
+   date:first.date,sourceStatus};}
  const last=financialPrefetchWindow(now());
  if(!last.allowed||last.date!==first.date)return {
   ready:false,status:'PREFETCH_TOO_LATE',date:first.date};
@@ -135,10 +141,11 @@ export async function prefetchAiFinancialEvidence({
   repository:FINANCIAL_PREFETCH_REPO,evidence};
  const checked=verifyFinancialPrefetchArtifact(first.date,payload,{now:now(),
   expectedUsDate});
- if(!checked)return {ready:false,status:'PUBLIC_EVIDENCE_UNVERIFIED',date:first.date};
+ if(!checked)return {ready:false,status:'PUBLIC_EVIDENCE_UNVERIFIED',
+  date:first.date,sourceStatus};
  return {ready:true,status:'PREFETCH_VERIFIED',date:first.date,
   artifactName:'ai-financial-evidence-'+first.date,
-  data:payload,coverage:checked.coverage};
+  data:payload,coverage:checked.coverage,sourceStatus};
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
@@ -161,6 +168,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   // prices, API tokens, account information, or individual source requests.
   console.log(JSON.stringify({kind:'FINANCIAL_PREFETCH_STATUS',
    status:result.status,date:result.date,coverage:result.coverage??null,
+   sourceStatus:result.sourceStatus??null,
    financialWrites:0,telegramSends:0,gasDeployments:0}));
  }catch{console.error('FINANCIAL_PREFETCH_FAILED');process.exitCode=1;}
 }
