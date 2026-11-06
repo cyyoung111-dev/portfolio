@@ -1010,4 +1010,8 @@ const dtccIndexCalendarTest=execFileSync('python3',
  ['scripts/audit-dtcc-history-readiness-readonly.py','--selftest'],
  {encoding:'utf8',timeout:10000});
 assert.match(dtccIndexCalendarTest,/DTCC_CREDIT_INDEX_CALENDAR_SELFTEST_PASS/);
+const dtccYearFilteredTest=execFileSync('python3',
+ ['scripts/audit-dtcc-year-filtered-readonly.py','--selftest'],
+ {encoding:'utf8',timeout:16000});
+assert.match(dtccYearFilteredTest,/DTCC_CDS_YEAR_FILTERED_SELFTEST_PASS/);
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
