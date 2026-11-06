@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
 import {AI_NINE,readAiNineDailyPrices,readAiNineSecFilings,
@@ -1001,4 +1002,8 @@ const tooLargeDtcc=await auditDtccCreditIndex({fetchImpl:async()=>({
  text:async()=>{throw Error('must not parse oversized source');}
 })});
 assert.equal(tooLargeDtcc.status,'DTCC_INDEX_TOO_LARGE');
+const dtccPythonParserTest=execFileSync('python3',
+ ['scripts/audit-dtcc-company-cds-readonly.py','--selftest'],
+ {encoding:'utf8',timeout:15000});
+assert.match(dtccPythonParserTest,/DTCC_SEC_TRADE_PARSER_SELFTEST_PASS/);
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
