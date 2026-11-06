@@ -60,7 +60,8 @@ const domesticQuotes=[
  {symbol:'000660',source:'NH_REGULAR_CLOSE',unit:'KRW',
   date:'2026-11-06',value:225000}
 ];
-const args={asOfKst,usSessionDate,ttm,fyValues,dart,domesticQuotes};
+const domesticSessionDate='2026-11-06';
+const args={asOfKst,usSessionDate,domesticSessionDate,ttm,fyValues,dart,domesticQuotes};
 const verified=buildAiFinancialEvidence(args);
 assert.equal(verified.kind,'AI_FINANCIAL_EVIDENCE_READ_ONLY');
 assert.deepEqual(verified.coverage,{
@@ -105,6 +106,23 @@ const futureDart=buildAiFinancialEvidence({...args,domesticQuotes:
  domesticQuotes.map(x=>({...x,date:'2026-11-09'}))});
 assert.equal(futureDart.domestic[0].evidence.pbrTimes,null);
 assert.equal(futureDart.domestic[1].evidence.pbrTimes,null);
+const staleDomesticClose=buildAiFinancialEvidence({...args,
+ domesticQuotes:domesticQuotes.map(x=>({...x,date:'2026-09-01'}))});
+assert.equal(staleDomesticClose.domestic[0].evidence.bpsKrw,55000,
+ 'verified DART BPS stays visible despite stale close');
+assert.equal(staleDomesticClose.domestic[0].evidence.pbrTimes,null,
+ 'stale NH close must never produce a current PBR');
+assert.equal(staleDomesticClose.domestic[1].evidence.pbrTimes,null);
+const noExpectedDomesticDate=buildAiFinancialEvidence({
+ ...args,domesticSessionDate:null});
+assert.equal(noExpectedDomesticDate.domestic[0].evidence.pbrTimes,null,
+ 'absent expected Korean session must fail closed');
+const previousSessionEvidence=buildAiFinancialEvidence({
+ ...args,domesticSessionDate:'2026-11-05',
+ domesticQuotes:domesticQuotes.map(x=>({...x,date:'2026-11-05'}))});
+assert.equal(previousSessionEvidence.domestic[1].evidence.pbrTimes,2.5,
+ 'morning may explicitly declare preceding completed domestic session');
+
 const missingDart=buildAiFinancialEvidence({...args,dart:{statuses:[
  {symbol:'005930',status:'DART_KEY_NOT_CONFIGURED'},
  {symbol:'000660',status:'DART_KEY_NOT_CONFIGURED'}],rows:[]}});
@@ -145,6 +163,7 @@ assert.ok(closeWithEvidence.length<=3900 || closeWithEvidence===closeNoEvidence,
 let ordered=[];
 const asyncResult=await collectAiFinancialEvidence({
  now:()=>new Date('2026-11-06T01:00:00Z'),usSessionDate,
+ domesticSessionDate,
  readTtm:async()=>{ordered.push('TTM');return ttm;},
  readValues:async()=>{ordered.push('FY');return fyValues;},
  readDart:async()=>{ordered.push('DART');return dart;},
