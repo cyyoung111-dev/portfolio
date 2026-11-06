@@ -28,14 +28,14 @@ jobs:
       - name: Fetch public SEC and DART evidence with exact date and filing checks
         id: evidence
         env:
-          SEC_USER_AGENT: \${{ secrets.SEC_USER_AGENT }}
-          DART_API_KEY: \${{ secrets.DART_API_KEY }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: node scripts/prefetch-ai-financial-evidence-readonly.mjs
       - name: Retain immutable public data for a bounded day only
         if: steps.evidence.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: \${{ steps.evidence.outputs.artifact_name }}
+          name: ${{ steps.evidence.outputs.artifact_name }}
           path: .ai-financial-evidence/financial-evidence.json
           retention-days: 2
           if-no-files-found: error
