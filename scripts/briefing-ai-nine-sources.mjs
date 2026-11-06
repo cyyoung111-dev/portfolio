@@ -96,6 +96,11 @@ export function formatAiNineDailyPrices(result){
  return lines.join('\n');
 }
 
+export const isValidSecUserAgent=userAgent=>
+ typeof userAgent==='string'&&userAgent.length>=12&&userAgent.length<=160
+ &&/^[\x20-\x7e]+$/.test(userAgent)
+ &&/\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(userAgent);
+
 function validateSecFiling(doc,item,now){
  if(!doc||Number(doc.cik)!==Number(item.cik)
   ||!Array.isArray(doc.tickers)||!doc.tickers.includes(item.symbol))return null;
@@ -123,8 +128,7 @@ export async function readAiNineSecFilings({
  fetchImpl=fetch,now=()=>new Date(),userAgent=process.env.SEC_USER_AGENT,
  onDiagnostic=()=>{}
 }={}){
- const validAgent=typeof userAgent==='string'&&userAgent.length>=12&&userAgent.length<=160
-  &&/^[\x20-\x7e]+$/.test(userAgent)&&/\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(userAgent);
+ const validAgent=isValidSecUserAgent(userAgent);
  if(!validAgent){
   const statuses=AI_NINE.map(item=>({symbol:item.symbol,status:'SEC_USER_AGENT_NOT_CONFIGURED'}));
   emitSafe(onDiagnostic,{kind:'AI9_SEC_FILINGS_READ',verified:0,total:9,
