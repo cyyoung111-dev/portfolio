@@ -120,11 +120,11 @@ export function formatSemiconductorCompanyFiveViews(input={}){
     +' 집중; 하닉 영업률 '+pct(h.operatingMarginPercent)
     +' → 양사 ROIC·소유주 FCF 미확보',
   '• 애크먼: 삼전 연 CAPEX계획 84.4조(실집행 아님); 하닉 순현금 98.7조·LTA 50% 초과',
-  '• 린치: 삼전 분기 EPS 11,462원(PER 아님); 하닉 영업익 YoY +'
+  '• 피터 린치: 삼전 분기 EPS 11,462원(PER 아님); 하닉 영업익 YoY +'
     +pct((h.operatingProfitTrillion/SEMI_ISSUER_RELEASES[1].priorYearQuarterOperatingProfitTrillion-1)*100)
     +'(TTM PER 미확보)',
   '• 다모다란: 삼전 '+pbr(s)+'; 하닉 '+pbr(h),
-  '• 막스: 삼전 DS 이익집중·메모리 정상화; 하닉 '+pct(h.operatingMarginPercent)
+  '• 하워드 막스: 삼전 DS 이익집중·메모리 정상화; 하닉 '+pct(h.operatingMarginPercent)
     +' 고마진 정상화·증설 위험',
   '※ 3Q26 기업 잠정 발표(10/28~29). TTM EPS/FCF/ROIC·장기 PBR 분포 미확보.'
  ];
