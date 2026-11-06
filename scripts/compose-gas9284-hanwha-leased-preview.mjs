@@ -59,6 +59,10 @@ export function composeGas9284HanwhaLeasedPreview(){
     "origin:code === 'F00001' ? 'HANWHA_NAV_COLLECTOR' : 'KB_NAV_COLLECTOR',until:now+420000",
     'LEASE_OWNER_PROVENANCE');
   src=replaceOne(src,
+    "if (date > today() || date < _fundDateOffset(today(), -31)) throw new Error('date');",
+    "if (date > today() || (code === 'F00001' && date === today()) || date < _fundDateOffset(today(), -31)) throw new Error('date');",
+    'HANWHA_NO_UNCONFIRMED_TODAY_REFRESH');
+  src=replaceOne(src,
     "handleRefreshFundValuations(date,date,'F00002','',true)",
     "handleRefreshFundValuations(date,date,code,'',true)",
     'REFRESH_EXACT_FUND');
