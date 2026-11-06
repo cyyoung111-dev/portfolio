@@ -29,7 +29,10 @@ ISSUERS = {
 }
 ALL = ("MSFT", "AAPL", "GOOGL", "AMZN", "META", "NVDA", "MU",
        "ORCL", "SNDK", "005930", "000660")
-LINK_ACTIONS = {"CORR", "EROR", "MODI", "TERM", "NOVA", "AMND"}
+# Error and correction events can invalidate a previously disseminated price.
+# A later contractual termination or routine lifecycle modification does NOT
+# erase the historical fact that the original trade took place.
+INVALIDATING_ACTIONS = {"CORR", "EROR"}
 TRUTHY = {"TRUE", "Y", "YES", "1"}
 MAX_BP = Decimal("5000")
 
@@ -132,7 +135,7 @@ def get_candidates(rows, trade_date):
         by_id[current] = row
     affected = set()
     for row in rows:
-        if present(row, "Action type") in LINK_ACTIONS:
+        if present(row, "Action type") in INVALIDATING_ACTIONS:
             parent = present(row, "Original Dissemination Identifier")
             if parent:
                 affected.add(root_id(parent, by_id))
@@ -391,7 +394,9 @@ def selftest():
     assert get_candidates([row("1005", action="MODI")], date)["GOOGL"] == []
     assert get_candidates([first, row("1006", action="CORR", original="1001")], date)["GOOGL"] == []
     assert get_candidates([first, row("1007", action="EROR", original="1001")], date)["GOOGL"] == []
-    assert get_candidates([first, row("1008", action="MODI", original="1001")], date)["GOOGL"] == []
+    assert len(get_candidates([first, row("1008", action="MODI", original="1001")], date)["GOOGL"]) == 1
+    assert len(get_candidates([first, row("1012", action="TERM", original="1001")], date)["GOOGL"]) == 1
+    assert len(get_candidates([first, row("1013", action="CORR", original="1001")], date)["GOOGL"]) == 0
     assert get_candidates([row("1009", red="WRONG1")], date)["GOOGL"] == []
     assert get_candidates([row("1010", notation="4", spread="87")], date)["GOOGL"][0]["reportedContractSpreadBp"] == 87
     assert get_candidates([row("1011", notation="4", spread="-87")], date)["GOOGL"] == []
