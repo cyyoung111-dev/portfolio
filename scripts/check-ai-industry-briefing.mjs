@@ -10,6 +10,7 @@ import {extractSecTtmFacts,readAiNineTtmSecFacts} from './briefing-ai-nine-sec-t
 import {selectYearEndOutstandingShares,extractAnnualValueSnapshot,readAiNineAnnualValueSnapshots,readYahooSplitProof} from './briefing-ai-nine-sec-values.mjs';
 import {DART_SEMICONDUCTORS,extractDartDomesticBps,calculateDomesticReferencePbr,readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs';
 import {COMPANY_CDS_WATCHLIST,validateCompanyCdsPoint,computeCompanyCdsTrend,buildCompanyCdsCoverage} from './briefing-company-cds-sources.mjs';
+import {auditDtccCreditIndex} from './audit-dtcc-credit-index-readonly.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -964,4 +965,32 @@ assert.equal(computeCompanyCdsTrend([datedCds('2026-10-01',30)],
 assert.equal(computeCompanyCdsTrend([datedCds('2026-11-05',40),
  datedCds('2026-11-05',41)],{asOf:'2026-11-06'}),null);
 
+
+const officialIndexFixture={SEC_CR:[
+ {file:'SEC_CUMULATIVE_CREDITS_2026_11_04.zip',count:2400}
+]};
+const fileIndexGood=await auditDtccCreditIndex({fetchImpl:async url=>{
+ assert.equal(new URL(url).hostname,'kgc0418-tdw-data-0.s3.amazonaws.com');
+ return {ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+  text:async()=>JSON.stringify(officialIndexFixture)};
+}});
+assert.equal(fileIndexGood.status,'DTCC_CREDIT_ARCHIVE_INDEX_AVAILABLE');
+assert.equal(fileIndexGood.creditArchiveCount,1);
+assert.equal(fileIndexGood.companyCdsVerified,0,'index alone never verifies any issuer');
+assert.equal(fileIndexGood.exact5ySpreadsVerified,0);
+const emptyIndex=await auditDtccCreditIndex({fetchImpl:async()=>({
+ ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+ text:async()=>JSON.stringify({SEC_CR:[]})
+})});
+assert.equal(emptyIndex.status,'DTCC_CREDIT_INDEX_EMPTY');
+const schemaDrift=await auditDtccCreditIndex({fetchImpl:async()=>({
+ ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+ text:async()=>JSON.stringify({UNKNOWN:[]})
+})});
+assert.equal(schemaDrift.status,'DTCC_SEC_CREDIT_INDEX_SCHEMA_UNVERIFIED');
+const tooLargeDtcc=await auditDtccCreditIndex({fetchImpl:async()=>({
+ ok:true,headers:{get:key=>key==='content-length'?'5000001':'application/json'},
+ text:async()=>{throw Error('must not parse oversized source');}
+})});
+assert.equal(tooLargeDtcc.status,'DTCC_INDEX_TOO_LARGE');
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
