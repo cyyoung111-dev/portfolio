@@ -156,6 +156,32 @@ assert.deepEqual(stale.stockRows.map(x=>x.status),
  Array(4).fill('NO_VERIFIED_ROW'));
 assert.deepEqual(stale.failedSourceGroups,['TURNOVER']);
 assert.doesNotMatch(JSON.stringify(stale),/SECRET_NEVER_LOG/);
+// Provider diagnostics must identify transport/schema/exact-date failures without
+// leaking any response body, rate, private identifier or credential.
+const reasonAudit=await runClosingGapAudit({
+ now:()=>auditTime,
+ stocks:async()=>[],
+ turnover:async(_day,{onDiagnostic})=>{
+  onDiagnostic({kind:'KRX_TURNOVER_READ',status:'NO_EXACT_VALID_ROWS',secret:'NEVER_LOG'});
+  return [];},
+ vkospi:async(_day,{onDiagnostic})=>{
+  onDiagnostic({kind:'VKOSPI_READ',status:'HTTP_UNAVAILABLE',secret:'NEVER_LOG'});
+  return [];},
+ treasury:async(_day,{onDiagnostic})=>{
+  onDiagnostic({kind:'FRED_TREASURY_READ',id:'UST2Y',status:'NO_EXACT_VALID_ROW',value:123456});
+  onDiagnostic({kind:'FRED_TREASURY_READ',id:'UST3Y',status:'CONTENT_TYPE_INVALID'});
+  onDiagnostic({kind:'FRED_TREASURY_READ',id:'SECRET',status:'SECRET'});
+  return [];}
+});
+assert.deepEqual(reasonAudit.diagnostics.map(d=>[d.kind,d.status,d.id||null]),[
+ ['KRX_TURNOVER_READ','NO_EXACT_VALID_ROWS',null],
+ ['VKOSPI_READ','HTTP_UNAVAILABLE',null],
+ ['FRED_TREASURY_READ','NO_EXACT_VALID_ROW','UST2Y'],
+ ['FRED_TREASURY_READ','CONTENT_TYPE_INVALID','UST3Y'],
+ ['FRED_TREASURY_READ','OTHER_UNVERIFIED',null]
+]);
+assert.doesNotMatch(JSON.stringify(reasonAudit),/NEVER_LOG|123456|SECRET/);
+
 const auditWorkflow=fs.readFileSync(
  '.github/workflows/nh-close-20261102-diagnostic-readonly.yml','utf8');
 assert.match(auditWorkflow,/name: Briefing optional source availability audit/);
