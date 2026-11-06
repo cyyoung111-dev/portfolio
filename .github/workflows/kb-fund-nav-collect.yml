@@ -122,3 +122,23 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/collect-kb-fund-nav.mjs --apply
+  # Process F00001 independently even when the KB private collector fails.
+  # The existing workflow-level concurrency serializes the two private jobs.
+  # The GAS ScriptLock, production writer gate and append-only NAV preview
+  # remain authoritative. No private writes run on source-only push events.
+  hanwha-collect:
+    needs: [collect]
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Import verified Hanwha C-RPe NAV into existing class-exact GAS writer
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/collect-hanwha-fund-nav.mjs --apply
