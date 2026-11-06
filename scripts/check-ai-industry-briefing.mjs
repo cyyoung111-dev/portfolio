@@ -95,10 +95,10 @@ const afterEarningsExpiry=formatAiIndustryCloseLens({
  date:futureDate,usDate:futureUsDate,
  secondary:[{label:'VIX',role:'NON_NH_REFERENCE_ONLY',source:'CBOE_VIX_DAILY',
   date:futureUsDate,value:30,changePercent:20}]
-}).join('\\n');
-assert.match(afterEarningsExpiry,/하워드 막스: VIX 30\\.00 \\(전일 \\+20\\.00%, 변동성 상승\\)/);
+}).join('\n');
+assert.match(afterEarningsExpiry,/하워드 막스: VIX 30\.00 \(전일 \+20\.00%, 변동성 상승\)/);
 assert.match(afterEarningsExpiry,/5년 CDS·차입만기 미검증/);
-assert.doesNotMatch(afterEarningsExpiry,/3Q26\\]|삼성전자·SK하이닉스 5인 정량 관점/,
+assert.doesNotMatch(afterEarningsExpiry,/3Q26\]|삼성전자·SK하이닉스 5인 정량 관점/,
  'do not show expired Q3 issuer metrics as current');
 
 assert.doesNotMatch(wrongDayVixClose,/VIX 19\.42 \(전일/);
