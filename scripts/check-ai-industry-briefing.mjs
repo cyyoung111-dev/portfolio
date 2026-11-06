@@ -910,6 +910,13 @@ const printed=validateCompanyCdsPoint(msftCds,{...dealer,
  approvedReferenceId:cdsId});
 assert.equal(printed.status,'REPORTED_TRADE_SPREAD');
 assert.equal(printed.point.comparableToDealerQuote,false);
+for(const maturityYears of [undefined,null,NaN,Infinity,'unknown','5']){
+ assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,
+  source:'DTCC_SEC_EXPLICIT_SPREAD',priceType:'REPORTED',
+  verifiedNotation:true,maturityYears},{
+  approvedReferenceId:cdsId}).status,'CDS_UNITS_OR_TENOR_UNVERIFIED',
+ 'DTCC missing/nonfinite/untyped maturity must never enter 5Y bucket');
+}
 assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,
  source:'DTCC_SEC_EXPLICIT_SPREAD',priceType:'REPORTED',
  verifiedNotation:false,maturityYears:5.2},{
@@ -934,6 +941,21 @@ const oneYearTrend=computeCompanyCdsTrend([
  datedCds('2026-10-06',50),datedCds('2026-11-05',45)
 ],{asOf:'2026-11-06'});
 assert.equal(oneYearTrend.changesBp.month1,-5);
+assert.equal(oneYearTrend.comparisonDates.month1,'2026-10-06');
+const crowded=computeCompanyCdsTrend([
+ datedCds('2026-10-04',52),datedCds('2026-10-05',51),
+ datedCds('2026-10-06',50),datedCds('2026-10-07',49),
+ datedCds('2026-10-08',47),datedCds('2026-11-05',45)
+],{asOf:'2026-11-06'});
+assert.equal(crowded.changesBp.month1,-5,'daily observations must not erase monthly change');
+assert.equal(crowded.comparisonDates.month1,'2026-10-06');
+const nearby=computeCompanyCdsTrend([
+ datedCds('2026-10-05',51),datedCds('2026-10-07',49),
+ datedCds('2026-11-05',45)
+],{asOf:'2026-11-06'});
+assert.equal(nearby.comparisonDates.month1,'2026-10-05',
+ 'equal distance ties prefer earlier observed date, not an interpolation');
+assert.equal(nearby.changesBp.month1,-6);
 assert.equal(oneYearTrend.changesBp.year1,5);
 assert.equal(oneYearTrend.changesBp.month3,2);
 assert.equal(computeCompanyCdsTrend([printed.point],{asOf:'2026-11-06'}),null);
