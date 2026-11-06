@@ -149,10 +149,24 @@ if(morningWithEvidence.includes('■ 공시 재무 근거'))
 else assert.equal(morningWithEvidence,morningNoEvidence,
  'optional evidence must be dropped entirely if length budget is full');
 
+// Optional renderer refuses a complete-looking but wrong-day artifact.
+assert.equal(formatFullMorningBriefing(asOfKst,null,[],{
+ now:new Date('2026-11-05T22:40:00Z'),
+ financialEvidence:{...verified,asOfKst:'2026-11-05'}}),
+ morningNoEvidence);
+assert.equal(formatFullMorningBriefing(asOfKst,null,[],{
+ now:new Date('2026-11-05T22:40:00Z'),
+ financialEvidence:{...verified,usSessionDate:'2026-11-04'}}),
+ morningNoEvidence);
+
 const closedAt=new Date('2026-11-06T17:00:00+09:00');
 const closeArgs=[asOfKst,[],[],[],[],[],[],[],closedAt,[],[],null];
 const closeNoEvidence=formatClose(...closeArgs);
 const closeWithEvidence=formatClose(...closeArgs,verified);
+assert.equal(formatClose(...closeArgs,{...verified,asOfKst:'2026-11-05'}),
+ closeNoEvidence);
+assert.equal(formatClose(...closeArgs,{...verified,usSessionDate:'2026-11-04'}),
+ closeNoEvidence);
 assert.match(closeWithEvidence,/하워드 막스/);
 if(closeWithEvidence.includes('■ 공시 재무 근거'))
  assert.match(closeWithEvidence,/미국 TTM 2\/9/);
