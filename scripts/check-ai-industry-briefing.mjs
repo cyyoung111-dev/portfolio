@@ -523,7 +523,7 @@ assert.ok(overlap.report.missing.includes('revenue'));
 const gapStart=buildTtmFixture({ytdStart:'2026-10-03'});
 assert.equal(extractSecTtmFacts(gapStart,'AAPL',{now:later()}).status,'PARTIAL_TTM',
  'a 6-day gap after annual year-end must not pass');
-const shiftedPrior=buildTtmFixture({priorStart:'2025-09-21'});
+const shiftedPrior=buildTtmFixture({priorStart:'2025-09-25'});
 const shiftedPriorResult=extractSecTtmFacts(shiftedPrior,'AAPL',{now:later()});
 assert.equal(shiftedPriorResult.status,'PARTIAL_TTM',
  'prior comparison YTD must begin at the annual fiscal year start');
