@@ -26,7 +26,15 @@ assert.equal(parseTreasuryFredCsv('UST2Y',us,'observation_date,DGS2\n2026-10-30,
 assert.equal(parseTreasuryFredCsv('UST2Y',us,'observation_date,DGS10\n2026-10-30,4.2\n'),null,'series mismatch');
 assert.deepEqual(verifyTreasuryCurve(date,valid),valid);
 assert.equal(verifyTreasuryCurve(date,[valid[0],valid[0]]).length,0);
-assert.equal(verifyTreasuryCurve(date,valid.map(x=>({...x,date:'2026-10-29'}))).length,0);
+// A one-US-business-session older *published* H.15 observation remains
+// valid but retains its true date; anything older is rejected.
+assert.equal(verifyTreasuryCurve(date,valid.map(x=>({...x,date:'2026-10-29'}))).length,3);
+assert.equal(verifyTreasuryCurve(date,valid.map(x=>({...x,date:'2026-10-28'}))).length,0);
+const prior=valid.map(x=>({...x,date:'2026-10-29'}));
+assert.match(formatTreasuryCurve(date,prior),/2026-10-29 · 발표 지연 자료/);
+assert.match(formatTreasuryCurve(date,prior),/10Y–2Y.*\+40bp/);
+const mismatched=[{...valid[0],date:'2026-10-29'},valid[1],valid[2]];
+assert.match(formatTreasuryCurve(date,mismatched),/장단기금리차.*자료 미확보/);
 assert.match(formatTreasuryCurve(date,valid),/미 국채 2년: 4.20% \[2026-10-30\]/);
 assert.match(formatTreasuryCurve(date,valid),/미 국채 3년: 4.30% \[2026-10-30\]/);
 assert.match(formatTreasuryCurve(date,valid),/미 국채 10년: 4.60% \[2026-10-30\]/);
@@ -44,6 +52,20 @@ const fetched=await readTreasuryCurve(date,{fetchImpl:async(url,options)=>{
 }});
 assert.equal(requests.length,3);
 assert.deepEqual(fetched,valid);
+const priorCsv={
+ UST2Y:'observation_date,DGS2\n2026-10-29,4.20\n',
+ UST3Y:'observation_date,DGS3\n2026-10-29,4.30\n',
+ UST10Y_FRED:'observation_date,DGS10\n2026-10-29,4.60\n'
+};
+const publishedReasons=[];
+const published=await readTreasuryCurve(date,{fetchImpl:async url=>{
+ const id=new URL(url).searchParams.get('id');
+ const key=id==='DGS2'?'UST2Y':id==='DGS3'?'UST3Y':'UST10Y_FRED';
+ return {ok:true,headers:{get:()=> 'text/csv'},text:async()=>priorCsv[key]};
+},onDiagnostic:r=>publishedReasons.push(r)});
+assert.deepEqual(published,prior);
+assert.deepEqual(publishedReasons.map(r=>r.status),Array(3).fill('PUBLISHED_PRIOR_SESSION'));
+
 const failed=await readTreasuryCurve(date,{fetchImpl:async()=>({ok:false})});
 assert.deepEqual(failed,[]);
 const fredReasons=[];
@@ -88,7 +110,14 @@ let sent='';
 await deliverClose(prepared,{now:()=>new Date(date+'T17:42:00+09:00'),
  send:async(_t,_c,message)=>{sent=message;}});
 assert.match(sent,/장단기금리차.*\+40bp/);
+// Prior published H.15 observation is valid on SEND, with its actual date.
+const priorSentPayload={...prepared,reportInputs:{...prepared.reportInputs,
+ rates:prior}};
+let priorSent='';
+await deliverClose(priorSentPayload,{now:()=>new Date(date+'T17:42:00+09:00'),
+ send:async(_t,_c,message)=>{priorSent=message;}});
+assert.match(priorSent,/2026-10-29 · 발표 지연 자료/);
 await assert.rejects(deliverClose({...prepared,reportInputs:{...prepared.reportInputs,
- rates:[{...valid[0],date:'2026-10-29'}]}},{now:clock,send:async()=>assert.fail('unverified yield sent')}),
+ rates:[{...valid[0],date:'2026-10-28'}]}},{now:clock,send:async()=>assert.fail('unverified yield sent')}),
  /TELEGRAM_CLOSE_PAYLOAD_INVALID/);
 console.log('TREASURY_CLOSE_PASS H15 2Y/3Y/10Y exact day, spread BP, 17:42 send, no stale');

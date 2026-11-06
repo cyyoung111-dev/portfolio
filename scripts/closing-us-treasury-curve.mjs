@@ -31,20 +31,29 @@ export function parseTreasuryFredCsv(id,expected,source){
  }
  return matching===1?found:null;
 }
-export function verifyTreasuryCurve(date,rows=[]){
+// H.15 rates are published one US business day after their observation.
+// Accept only the requested completed session or its immediately preceding
+// US weekday; retain the observed date and never call the older row current.
+export function treasuryPublishedDates(date){
  const expected=expectedMorningDate('SPX',date);
- if(!expected||!Array.isArray(rows)||rows.length>3)return [];
+ if(!expected)return [];
+ const prior=expectedMorningDate('SPX',expected);
+ return prior?[expected,prior]:[expected];
+}
+export function verifyTreasuryCurve(date,rows=[]){
+ const allowed=treasuryPublishedDates(date);
+ if(!allowed.length||!Array.isArray(rows)||rows.length>3)return [];
  return RATES.flatMap(entry=>{
   const matching=rows.filter(r=>r?.id===entry.id);
   if(matching.length!==1)return [];
   const x=matching[0];
-  if(x.label!==entry.label||x.date!==expected||x.source!=='FRED_H15_DAILY'
+  if(x.label!==entry.label||!allowed.includes(x.date)||x.source!=='FRED_H15_DAILY'
     ||!Number.isFinite(x.value)||x.value<=0||x.value>=30)return [];
   return [{id:x.id,label:x.label,date:x.date,value:x.value,source:x.source}];
  });
 }
 export async function readTreasuryCurve(date,{fetchImpl=fetch,onDiagnostic=()=>{}}={}){
- const expected=expectedMorningDate('SPX',date);
+ const permitted=treasuryPublishedDates(date),expected=permitted[0];
  const emit=(id,status)=>{try{onDiagnostic({kind:'FRED_TREASURY_READ',id,status});}catch{}};
  if(!expected){
   for(const rate of RATES)emit(rate.id,'SESSION_UNVERIFIED');
@@ -64,8 +73,11 @@ export async function readTreasuryCurve(date,{fetchImpl=fetch,onDiagnostic=()=>{
    if(type&&!/csv|plain|octet-stream/i.test(type)){
     emit(entry.id,'CONTENT_TYPE_INVALID');return null;
    }
-   const row=parseTreasuryFredCsv(entry.id,expected,await response.text());
-   emit(entry.id,row?'VERIFIED':'NO_EXACT_VALID_ROW');
+   const csv=await response.text();
+   const row=permitted.map(day=>parseTreasuryFredCsv(entry.id,day,csv))
+    .find(Boolean)||null;
+   emit(entry.id,!row?'NO_EXACT_VALID_ROW'
+    :row.date===expected?'VERIFIED':'PUBLISHED_PRIOR_SESSION');
    return row;
   }catch{emit(entry.id,'NETWORK_OR_PARSE_FAILED');return null;}
  }));
@@ -73,10 +85,12 @@ export async function readTreasuryCurve(date,{fetchImpl=fetch,onDiagnostic=()=>{
 }
 export function formatTreasuryCurve(date,rows=[]){
  const safe=verifyTreasuryCurve(date,rows);
- const lines=['■ 미국 국채금리 (FRED H.15 · 직전 미국 거래일)'];
+ const expected=treasuryPublishedDates(date)[0];
+ const lines=['■ 미국 국채금리 (FRED H.15 · 최근 발표 관측일)'];
  for(const entry of RATES){
   const x=safe.find(r=>r.id===entry.id);
-  lines.push(entry.label+': '+(x?x.value.toFixed(2)+'% ['+x.date+']':'동일 기준일 확정치 미확보'));
+  lines.push(entry.label+': '+(x?x.value.toFixed(2)+'% ['+x.date
+    +(x.date===expected?'':' · 발표 지연 자료')+']':'최근 허용 관측일 자료 미확보'));
  }
  const d2=safe.find(x=>x.id==='UST2Y'),d10=safe.find(x=>x.id==='UST10Y_FRED');
  if(d2&&d10&&d2.date===d10.date){

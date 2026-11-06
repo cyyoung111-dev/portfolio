@@ -74,6 +74,20 @@ assert.equal(extras.turnover.length,1);
 assert.match(formatMorningFutures(date,extras.futures,now),/ES 7,000/);
 assert.match(formatMorningTreasury(date,extras.treasury),/10Y-2Y \+40bp/);
 assert.match(formatMorningVkospi(extras.vkospi),/24\.20/);
+const mixedFRED=[
+ {id:'UST2Y',label:'미 국채 2년',date:'2026-11-03',value:4.01,source:'FRED_H15_DAILY'},
+ {id:'UST3Y',label:'미 국채 3년',date:'2026-11-04',value:4.12,source:'FRED_H15_DAILY'},
+ {id:'UST10Y_FRED',label:'미 국채 10년',date:'2026-11-03',value:4.45,source:'FRED_H15_DAILY'}
+];
+const mixedText=formatMorningTreasury('2026-11-05',mixedFRED);
+assert.match(mixedText,/2Y 4\.01% \[2026-11-03 · 발표 지연\]/);
+assert.match(mixedText,/3Y 4\.12% \[2026-11-04\]/);
+assert.match(mixedText,/10Y 4\.45% \[2026-11-03 · 발표 지연\]/);
+assert.match(mixedText,/10Y-2Y \+44bp \[2026-11-03\]/);
+const conflictingText=formatMorningTreasury('2026-11-05',
+ mixedFRED.map(x=>x.id==='UST10Y_FRED'?{...x,date:'2026-11-04'}:x));
+assert.match(conflictingText,/10Y-2Y 기준일 불일치 또는 미확보/);
+
 assert.match(formatMorningTurnover(extras.turnoverDate,extras.turnover),/35\.00조원/);
 const opts={now,supplements:{
  usReferences:extras.usReferences,
