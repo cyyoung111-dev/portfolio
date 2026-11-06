@@ -7,6 +7,7 @@ import {runAiNineSourceAudit} from './audit-ai-nine-readonly.mjs';
 import {summarizeAiNineHistory,readAiNineHistoricalTrends} from './briefing-ai-nine-trends.mjs';
 import {extractSecAnnualFacts,classifySecAnnualFacts,readAiNineAnnualSecFacts} from './briefing-ai-nine-sec-financials.mjs';
 import {extractSecTtmFacts,readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
+import {selectYearEndOutstandingShares,extractAnnualValueSnapshot,readAiNineAnnualValueSnapshots} from './briefing-ai-nine-sec-values.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -612,4 +613,71 @@ const ttmDenied=await readAiNineTtmSecFacts({
 assert.equal(ttmDenied.verified,0);
 assert.ok(ttmDenied.statuses.every(x=>x.status==='SEC_HTTP_UNAVAILABLE'));
 
+
+/* Issue #826: strict FY annual EPS / BPS / PBR source-only valuation. */
+const annualShares=structuredClone(secPayload);
+annualShares.facts['us-gaap'].CommonStockSharesOutstanding={
+ units:{shares:[{val:2000000000,form:'10-K',fp:'FY',end,filed,
+  accn:filing}]}
+};
+const fyQuote={symbol:'AAPL',label:'Apple',value:85,unit:'USD',
+ date:'2026-11-05',source:'YAHOO_DAILY_REFERENCE'};
+const fyNow=()=>new Date('2026-11-06T12:00:00Z');
+const fiscalSnapshot=extractAnnualValueSnapshot(annualShares,'AAPL',fyQuote,{now:fyNow()});
+assert.equal(fiscalSnapshot.status,'VERIFIED_FY_BPS_PBR');
+assert.equal(fiscalSnapshot.snapshot.dilutedAnnualEpsUsd,2.32);
+assert.equal(fiscalSnapshot.snapshot.bpsUsd,0.85);
+assert.equal(fiscalSnapshot.snapshot.pbrTimes,100);
+assert.equal(fiscalSnapshot.snapshot.asOf,end);
+assert.equal(fiscalSnapshot.snapshot.epsPeriodType,'FY_REPORTED_NOT_TTM');
+assert.equal(selectYearEndOutstandingShares(annualShares,
+ extractSecAnnualFacts(annualShares,'AAPL',{now:fyNow()})).shares,2000000000);
+const shareAfterFiscal=structuredClone(annualShares);
+shareAfterFiscal.facts['us-gaap'].CommonStockSharesOutstanding.units.shares[0].end='2026-11-01';
+assert.equal(extractAnnualValueSnapshot(shareAfterFiscal,'AAPL',fyQuote,{now:fyNow()}).status,
+ 'PARTIAL_FY_VALUE','cover-page share count after fiscal end is not book-value divisor');
+const splitShareFacts=structuredClone(annualShares);
+splitShareFacts.facts.dei={EntityCommonStockSharesOutstanding:{units:{shares:[
+ {val:1000000000,form:'10-K',fp:'FY',end,filed,accn:filing}
+]}}};
+assert.equal(extractAnnualValueSnapshot(splitShareFacts,'AAPL',fyQuote,{now:fyNow()})
+ .snapshot.pbrTimes,null,'conflicting classes/share totals cannot be combined');
+const wrongShareAccn=structuredClone(annualShares);
+wrongShareAccn.facts['us-gaap'].CommonStockSharesOutstanding.units.shares[0].accn
+ ='0000320193-25-000001';
+assert.equal(extractAnnualValueSnapshot(wrongShareAccn,'AAPL',fyQuote,{now:fyNow()})
+ .snapshot.bpsUsd,null);
+const fyStalePrice={...fyQuote,date:'2026-11-02'};
+assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',fyStalePrice,{now:fyNow()})
+ .snapshot.pbrTimes,null,'price before publication must never create PBR');
+const wrongCurrencyPrice={...fyQuote,unit:'KRW'};
+assert.equal(extractAnnualValueSnapshot(annualShares,'AAPL',wrongCurrencyPrice,{now:fyNow()})
+ .snapshot.pbrTimes,null);
+const badMultiplePrices=AI_NINE.map(x=>({symbol:x.symbol,label:x.label,
+ date:'2026-11-05',unit:'USD',source:'YAHOO_DAILY_REFERENCE',value:85}));
+badMultiplePrices.push({...badMultiplePrices[0]});
+let annualValueCalls=0;
+const valueSource=async(_date,_options)=>({
+ expectedUsDate:'2026-11-05',prices:badMultiplePrices
+});
+const snapshotBatch=await readAiNineAnnualValueSnapshots({
+ now:fyNow,userAgent:'PortfolioResearch contact@example.org',readPrices:valueSource,
+ fetchImpl:async url=>{
+  annualValueCalls++;
+  const item=AI_NINE.find(x=>url==='https://data.sec.gov/api/xbrl/companyfacts/CIK'+x.cik+'.json');
+  assert.ok(item);
+  const doc=structuredClone(annualShares);doc.cik=Number(item.cik);
+  return {ok:true,headers:{get:k=>k==='content-type'?'application/json':null},
+   json:async()=>doc};
+ }
+});
+assert.equal(annualValueCalls,9);
+assert.equal(snapshotBatch.verified,8,'ambiguous duplicate price for MSFT is rejected');
+assert.equal(snapshotBatch.statuses[0].status,'PARTIAL_FY_VALUE');
+const noSecUa=await readAiNineAnnualValueSnapshots({
+ userAgent:'',fetchImpl:async()=>{throw Error('NEVER_CALL');},
+ readPrices:async()=>{throw Error('NEVER_CALL');}
+});
+assert.equal(noSecUa.verified,0);
+assert.ok(noSecUa.statuses.every(x=>x.status==='SEC_USER_AGENT_NOT_CONFIGURED'));
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
