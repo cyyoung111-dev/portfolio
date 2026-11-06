@@ -18,6 +18,7 @@ import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures.mjs';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
+import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
 import {readFearGreed,verifyFearGreed,formatFearGreed,fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
@@ -125,7 +126,7 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null,financialEvidence=null){
  const valid=verifiedNhCloseRows(date,rows);
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const verifiedRates=verifyTreasuryCurve(date,rates);
@@ -185,6 +186,12 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  // A supplementary feed must not exceed Telegram's payload budget or block 17:00.
  if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
    lines.splice(insertAt+1,0,sentiment);
+ // Precomputed SEC/DART evidence only. Never fetch in the 17:00 critical path.
+ const financialLines=formatAiFinancialEvidence(financialEvidence);
+ const index=lines.indexOf('■ 국내 시장 (당일 종가)');
+ if(financialLines.length&&index>=0
+  &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
+   lines.splice(index,0,...financialLines,'');
  return lines.join('\n');
 }
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
