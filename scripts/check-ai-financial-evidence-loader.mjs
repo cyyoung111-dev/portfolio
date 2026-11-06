@@ -97,9 +97,9 @@ sys.stdout.buffer.write(out.getvalue())`;
 }
 assert.deepEqual(decodeFinancialEvidenceZip(zip({'financial-evidence.json':JSON.stringify(payload)})),
  payload,'real ZIP must decode');
-assert.equal((await load(mock(list,run,payload),{decode:async()=>decodeFinancialEvidenceZip(
- zip({'financial-evidence.json':JSON.stringify(payload)})}))).kind,
- 'AI_FINANCIAL_EVIDENCE_READ_ONLY');
+const loadedZip=await load(mock(),{decode:async()=>decodeFinancialEvidenceZip(
+ zip({'financial-evidence.json':JSON.stringify(payload)}))});
+assert.equal(loadedZip?.kind,'AI_FINANCIAL_EVIDENCE_READ_ONLY');
 for(const members of [
  {'../financial-evidence.json':JSON.stringify(payload)},
  {'wrong.json':JSON.stringify(payload)},
