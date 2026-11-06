@@ -76,11 +76,11 @@ const domesticAnalysis=formatAiIndustryCloseLens({date,usDate,nh,domestic,second
 assert.match(domesticAnalysis,/KOSPI \+2\.24% \/ KOSDAQ \+1\.38% → 양 시장 상승/);
 for(const name of ['버핏','다모다란','애크먼','피터 린치','하워드 막스'])
  assert.ok(domesticAnalysis.includes(name),'investor lens: '+name);
-assert.match(domesticAnalysis,/ROIC.*현금흐름/);
-assert.match(domesticAnalysis,/시장가격이 요구하는 성장 가정/);
-assert.match(domesticAnalysis,/계좌별 중복 노출/);
-assert.match(domesticAnalysis,/메모리 업황 최고점/);
-assert.match(domesticAnalysis,/투자 판단 — 5인 투자 원칙 적용/);
+assert.match(domesticAnalysis,/ROIC.*FCF/);
+assert.match(domesticAnalysis,/PBR·DCF 유보/);
+assert.match(domesticAnalysis,/순현금 98.7조/);
+assert.match(domesticAnalysis,/영업익 YoY/);
+assert.match(domesticAnalysis,/삼성전자·SK하이닉스 5인 정량 관점/);
 assert.match(domesticAnalysis,/하워드 막스: VIX 19\.42 \(전일 \+5\.00%, 변동성 상승\)/);
 assert.match(domesticAnalysis,/5년 CDS·차입만기 미검증/);
 const noVixClose=formatAiIndustryCloseLens({date,usDate,nh,domestic,
