@@ -124,3 +124,14 @@ DTCC 공식 인덱스에서 최근 **15개 공개 파일(2026-10-22 ~ 2026-11-05
 - P2 ③ **365일 비교 ±3일 범위:** 공개 파일 탐색 시작을 `as_of-382일`로 확장(365+3+14일의 허용/지연신고 여유), 최대 다운로드 410건을 제한. 실제 `year1CoverageStart=2025-11-02`인데 최초 공개 아카이브가 `2025-11-05`라면 `year1Status=ARCHIVE_WINDOW_INCOMPLETE`; 이는 **거래 미관측 확정과 다릅니다.**
 - 수정 후 [359개 공개 파일 재검증 #42223515244](https://github.com/cyyoung111-dev/portfolio/actions/runs/42223515244): 491,599행·기업 관련 2,966행, 관측일 GOOGL 51/META 61/NVDA 46/ORCL 83, 3개월 원시 계약 중앙값 비교 +29/+28/+59/+111bp. **1년 비교 모두 null, 사유 `ARCHIVE_WINDOW_INCOMPLETE`**, 공식 5Y par CDS 호가 0건.
 - P2 생산함수 회귀 및 [전체 CI #42223358210](https://github.com/cyyoung111-dev/portfolio/actions/runs/42223358210) 성공. 정식 RED 독립검증 0/11, CDS dealer par quote 0/11, 금융 원본/Telegram/GAS 변경 없음. 최신 독립 재리뷰 및 병합 승인은 별도 단계.
+
+## 2026-11-06 KST — 거래 ID 전역 검증·UTC 체결일 집계 공통 구조
+
+이전 Codex P2의 **파일 간 상충 거래보고 ID**와 **rolling 분석의 ZIP 날짜 집계**는 각각의 국소 패치가 아니라 양쪽 파이프라인에 재사용되는 공통 함수로 변경했습니다.
+
+- **전역 ID 검사:** `audit-dtcc-company-cds-readonly.py`의 `register_source_ids(rows, fingerprints)`가 기업명/RED 관계 추출 **이전**, 원천 CSV의 모든 `Dissemination Identifier`와 정규화 행 내용에 대한 SHA-256 지문을 기록합니다. 파일 내부 및 **서로 다른 파일에 같은 ID·다른 내용**이 나오면 `DTCC_GLOBAL_ID_PAYLOAD_CONFLICT`로 중단하며, 완전히 같은 행의 재공시는 중복 제거합니다. 365일 스트리밍 파서는 전체 원천 약 49만 행의 지문만 유지하고 기업/연결 정정 행 2,966개를 별도 저장하므로 원천 전체 CSV 행을 연간 메모리에 적재하지 않습니다.
+- **공통 관측 오라클:** `execution_observations(rows, latest_archive_date)`는 실제 `Execution Timestamp`(UTC)로 날짜를 생성합니다. 기존 `--history`(15~120개)와 `audit-dtcc-year-filtered-readonly.py`(연간)는 이 함수를 공유합니다. ZIP 파일 공개일은 다운로드 커버리지 표시에만 사용합니다.
+- **회귀 테스트:** 원거래 `1001` 및 별도 비대상 `3002`의 상충 `CORR ID=4000`이 서로 다른 날짜 ZIP에 분산되고 회사명/RED가 누락된 사례를 상반된 입력 순서 모두 거부합니다. 별도의 11/06 체결 거래가 11/07 ZIP에만 있는 사례는 두 경로에서 11/06 관측값으로 유지합니다.
+- **실제 독립 재검증:** [GitHub Actions #42225950861](https://github.com/cyyoung111-dev/portfolio/actions/runs/42225950861)에서 공개 ZIP **359개·491,599행**을 수정한 전역 ID 체크와 공통 관측 오라클로 재수신해 성공했습니다. 관련 이벤트 **2,966개**, GOOGL/META/NVDA/ORCL 관측일 **51/61/46/83일**, 3개월 원시 계약 스프레드 거래 중앙값 변화 **+29/+28/+59/+111bp** 유지. 1년 변화는 공개 파일 시작일 제약으로 네 기업 모두 `year1Status=ARCHIVE_WINDOW_INCOMPLETE`입니다.
+- `dealerParQuotesVerified=0`, `licensedRedReferenceMappingsVerified=0` 유지. 해당 값은 시장 5년물 CDS 종가가 아니며, 장전·마감 운영 브리핑 또는 금융 원본에 자동 반영되지 않습니다.
+- 단기 및 연간 원천 검증 작업의 일시적 GitHub Actions 경로는 검증 후 **main과 같은 workflow blob으로 원복**했습니다. 본 PR은 상위 PR #983에 의존하는 Draft 상태이며 main 병합·GAS·Telegram·시트 변경은 없습니다.
