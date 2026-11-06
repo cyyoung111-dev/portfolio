@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import YAML from 'yaml';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose}
+import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare}
  from './telegram-close-workflow.mjs';
 import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 const day='2026-10-30',now=()=>new Date(day+'T17:00:00+09:00');
@@ -18,6 +18,19 @@ assert.equal(closeWindow(new Date(day+'T17:29:59+09:00')).allowed,true);
 assert.equal(closeWindow(new Date(day+'T17:30:00+09:00')).allowed,true);
 assert.equal(closeWindow(new Date(day+'T17:59:59+09:00')).allowed,true);
 assert.equal(closeWindow(new Date(day+'T18:00:00+09:00')).allowed,false);
+const lateClose=new Date('2026-11-07T01:20:00+09:00');
+assert.equal(skipLateClosePrepare('prepare','schedule',lateClose),true,
+ 'a delayed post-cutoff scheduler must no-op without a false red run');
+assert.equal(skipLateClosePrepare('prepare','workflow_dispatch',lateClose),true);
+assert.equal(skipLateClosePrepare('prepare','schedule',new Date('2026-11-06T17:00:00+09:00')),false,
+ 'the actual 17:00 scheduled briefing must still prepare');
+assert.equal(skipLateClosePrepare('send','schedule',lateClose),false,
+ 'a claimed send after cutoff must still fail and expose missing SENT');
+assert.equal(skipLateClosePrepare('prepare','workflow_run',lateClose),false,
+ 'workflow_run authority remains in deliveryTrigger');
+assert.equal(skipLateClosePrepare('prepare','push',lateClose),false,
+ 'sentinel/workflow-file pushes retain their own trust and time gates');
+
 assert.equal(closeWindow(new Date(day+'T18:14:00+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T19:17:00+09:00')).allowed,false);
 const rows=[
