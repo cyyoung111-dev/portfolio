@@ -824,6 +824,37 @@ assert.equal(dartLiveShape.indicative,1);
 assert.equal(dartLiveShape.rows.length,2);
 assert.ok(dartLiveShape.rows.every(x=>x.period==='2026-06-30'),
  'an unpublished Q3 cannot be presented as confirmed quarter-end book value');
+const nextYearNow=()=>new Date('2027-02-01T03:00:00Z');
+const q3Docs=Object.fromEntries(DART_SEMICONDUCTORS.map(item=>{
+ const x=buildDartFixture(item.corpCode,{preferred:item.symbol==='005930'});
+ for(const row of [...x.finance.list,...x.shares.list]){
+  row.reprt_code='11014';row.rcept_no='20261115000001';
+  if(row.stlm_dt)row.stlm_dt='2026-09-30';
+ }
+ return [item.corpCode,x];
+}));
+let earlyCalls=0;
+const january=await readTwoDomesticDartBps({
+ now:nextYearNow,apiKey:dartTestKey,
+ fetchImpl:async url=>{
+  earlyCalls++;
+  const u=new URL(url),code=u.searchParams.get('reprt_code');
+  const corp=u.searchParams.get('corp_code');
+  const body=code==='11011'
+   ?{status:'013',message:'10-K not yet published'}
+   :code==='11014'
+    ?(u.pathname.includes('fnlttSinglAcntAll')
+      ?q3Docs[corp].finance:q3Docs[corp].shares)
+    :{status:'013',message:'fallback should stop at latest Q3'};
+  return {ok:true,json:async()=>structuredClone(body)};
+ }
+});
+assert.equal(earlyCalls,6,
+ 'February must test unpublished previous-year 10-K then the latest Q3');
+assert.equal(january.verified,1);
+assert.equal(january.indicative,1);
+assert.ok(january.rows.every(x=>x.period==='2026-09-30'),
+ 'previous year Q3 published statement is latest before annual report');
 let dartInvalidCalls=0;
 const dartBadKey=await readTwoDomesticDartBps({
  now:dartNow,apiKey:dartTestKey,
