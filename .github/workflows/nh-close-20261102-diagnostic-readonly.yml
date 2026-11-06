@@ -62,3 +62,22 @@ jobs:
         run: |
           node scripts/audit-dtcc-credit-index-readonly.mjs
           echo 'DTCC_SOURCE_READ_ONLY_PROBE_FINISHED'
+          node --input-type=module <<'NODE'
+          const u='https://kgc0418-tdw-data-0.s3.amazonaws.com/dashboard/Cumulative.json';
+          const r=await fetch(u,{signal:AbortSignal.timeout(18000)});
+          if(!r.ok)throw Error('DTCC_FILE_INDEX_HTTP_'+r.status);
+          const d=await r.json();
+          const files=(d.SEC_CR||[]).filter(x=>x.fileName&&x.fullFilePath)
+            .sort((a,b)=>String(b.dissemDTM||'').localeCompare(String(a.dissemDTM||'')));
+          const x=files[0];
+          if(!x)throw Error('DTCC_CREDIT_FILE_METADATA_MISSING');
+          console.log('DTCC_CREDIT_FILE_METADATA '+JSON.stringify({
+            count:files.length,
+            fileName:String(x.fileName).slice(0,130),
+            path:String(x.fullFilePath).slice(0,200),
+            rowCount:x.rowCount,
+            dissemDTM:x.dissemDTM,
+            startTs:x.startTs,
+            endTs:x.endTs
+          }));
+          NODE
