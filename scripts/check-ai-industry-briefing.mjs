@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
+import {AI_EIGHT,readAiEightDailyPrices,readAiEightSecFilings,
+ formatAiEightDailyPrices} from './briefing-ai-eight-sources.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -81,4 +83,100 @@ assert.ok(msg.startsWith('['+date+' 장후 시장 브리핑]'));
 assert.ok(msg.indexOf('■ 먼저 보는 시장 해석')<msg.indexOf('■ 국내 시장'));
 assert.match(msg,/■ 데이터 확인/);
 assert.ok(msg.length<4000, 'AI commentary must not exceed Telegram 4000-char payload gate');
+
+/* Issue #826: SEC eight issuers + exact-date read-only US daily references.
+   No real network, Telegram, GAS or portfolio writes. */
+assert.deepEqual(AI_EIGHT.map(x=>x.symbol),
+ ['MSFT','GOOGL','AMZN','META','NVDA','MU','ORCL','SNDK']);
+assert.equal(AI_EIGHT.find(x=>x.symbol==='SNDK').cik,'0002023554');
+assert.equal(AI_EIGHT.find(x=>x.symbol==='SNDK').firstIndependentTradingDay,'2025-02-24');
+assert.equal(new Set(AI_EIGHT.map(x=>x.cik)).size,8);
+const quoteNow=()=>new Date('2026-11-02T17:00:00+09:00');
+const quoteCalls=[],quoteDiagnostics=[];
+const quotes=await readAiEightDailyPrices(date,{
+ now:quoteNow,onDiagnostic:x=>quoteDiagnostics.push(x),
+ fetchDaily:async(label,symbol,day,{host})=>{
+  quoteCalls.push([symbol,host]);
+  if(symbol==='ORCL')return {label,symbol,date:'2026-10-29',
+   source:'Yahoo Finance 일봉',value:100,changePercent:1};
+  if(symbol==='SNDK'&&host==='query1.finance.yahoo.com')
+   return {label,symbol,date:'2026-10-29',source:'Yahoo Finance 일봉',value:500,
+    changePercent:5};
+  return {label,symbol,date:usDate,source:'Yahoo Finance 일봉',
+   value:200,changePercent:-2.5};
+ }
+});
+assert.equal(quotes.expectedUsDate,usDate);
+assert.equal(quotes.total,8);
+assert.equal(quotes.verified,7);
+assert.ok(quoteCalls.some(x=>x[0]==='SNDK'&&x[1]==='query2.finance.yahoo.com'));
+assert.equal(quotes.prices.find(x=>x.symbol==='SNDK')?.source,'YAHOO_DAILY_REFERENCE');
+assert.equal(quotes.statuses.find(x=>x.symbol==='ORCL')?.status,'NO_EXACT_COMPLETED_US_BAR');
+assert.equal(quoteDiagnostics.length,1);
+assert.ok(!JSON.stringify(quoteDiagnostics).includes('200'));
+const quoteText=formatAiEightDailyPrices(quotes);
+assert.match(quoteText,/SNDK: 200 USD \(-2\.50%\) \[2026-10-30\]/);
+assert.match(quoteText,/ORCL: 완료 일봉 미확보/);
+assert.doesNotMatch(quoteText,/2026-10-29/);
+const stale=await readAiEightDailyPrices(date,{
+ now:quoteNow,fetchDaily:async(label,symbol)=>({label,symbol,date:usDate,
+  value:100,changePercent:0,source:'UNVERIFIED_PROVIDER'})
+});
+assert.equal(stale.verified,0,'invalid provider must fail closed');
+const holiday=await readAiEightDailyPrices('2026-11-01',{fetchDaily:async()=>{throw Error('must-not-fetch');}});
+assert.equal(holiday.verified,0,'unknown/closed KR session must not be accepted');
+
+let secCalls=0;
+const secUnconfigured=await readAiEightSecFilings({
+ userAgent:'',fetchImpl:async()=>{secCalls++;throw Error('must-not-fetch');}
+});
+assert.equal(secCalls,0);
+assert.equal(secUnconfigured.verified,0);
+assert.equal(secUnconfigured.statuses[7].status,'SEC_USER_AGENT_NOT_CONFIGURED');
+const secDiagnostics=[];
+const sec=await readAiEightSecFilings({
+ userAgent:'PortfolioMonitor contact@example.org',now:quoteNow,
+ onDiagnostic:x=>secDiagnostics.push(x),
+ fetchImpl:async(url,init)=>{
+  secCalls++;
+  const item=AI_EIGHT.find(x=>url==='https://data.sec.gov/submissions/CIK'+x.cik+'.json');
+  assert.ok(item,'only pinned SEC CIK hosts/paths');
+  assert.equal(init.method,'GET');
+  assert.equal(init.headers['user-agent'],'PortfolioMonitor contact@example.org');
+  return {ok:true,headers:{get:()=> 'application/json'},
+   json:async()=>({
+    cik:Number(item.cik),tickers:[item.symbol],
+    filings:{recent:{
+     form:['8-K','10-Q','10-K'],
+     filingDate:['2026-10-31','2026-10-30','2026-08-17'],
+     reportDate:['2026-10-31','2026-10-02','2026-07-03'],
+     accessionNumber:['0001628280-26-068602','0001628280-26-068601','0001628280-26-040000']
+    }}
+   })};
+ }
+});
+assert.equal(secCalls,8);
+assert.equal(sec.verified,8);
+assert.ok(sec.filings.every(x=>x.latest.form==='10-Q'
+ &&x.latest.filedAt==='2026-10-30'&&x.latest.periodEnd==='2026-10-02'));
+assert.equal(sec.filings.find(x=>x.symbol==='SNDK')?.cik,'0002023554');
+assert.equal(secDiagnostics[0].verified,8);
+assert.ok(!JSON.stringify(secDiagnostics).includes('contact@example.org'),
+ 'never log user agent or raw filings');
+const secMismatch=await readAiEightSecFilings({
+ userAgent:'PortfolioMonitor contact@example.org',now:quoteNow,
+ fetchImpl:async(url)=>({
+  ok:true,headers:{get:()=> 'application/json'},
+  json:async()=>({
+   cik:url.includes('2023554')?123456:789019,
+   tickers:[url.includes('2023554')?'SNDK':'MSFT'],
+   filings:{recent:{form:['10-K'],filingDate:['2026-08-17'],
+    reportDate:['2026-07-03'],accessionNumber:['0001628280-26-040000']}}
+  })
+ })
+});
+assert.equal(secMismatch.verified,1,'CIK and ticker both match, not just ticker');
+assert.equal(secMismatch.statuses.find(x=>x.symbol==='SNDK').status,
+ 'SEC_FILING_SCHEMA_OR_DATE_INVALID');
+
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
