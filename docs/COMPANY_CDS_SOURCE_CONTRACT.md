@@ -114,3 +114,5 @@ DTCC 공식 인덱스에서 최근 **15개 공개 파일(2026-10-22 ~ 2026-11-05
 - **1년(365일) 전후 ±3일 거래가 4개 기업 모두 관측되지 않아 `year1=null`.** 공개 ZIP 359개가 존재해도 비교 가능한 거래 관측치가 확인되지 않는 기간은 결측으로 둡니다.
 - 읽기 전용 경량 파서 `scripts/audit-dtcc-year-filtered-readonly.py`는 최대 4개 공개 ZIP만 동시 요청하며 수집 각 날짜의 연결 사건만 보관합니다. 공개 파일의 중복 원천 ID 충돌·정정/오류 연쇄를 실패로 처리하는 자체 테스트를 전체 CI에 연결했습니다. **원천 파일 이후에 도착할 정정 이벤트는 아직 반영할 수 없음**을 명시합니다.
 - 독립 RED 매핑·법인 승계의 권위 있는 S&P Global RED 서비스 접근은 아직 확보되지 않았으며, 기관별 공식 5년물 par CDS 종가도 **0/11** 확인 상태입니다. 완전한 라이선스 기반 RED/호가가 확보되기 전에는 *CDS 확정치*를 장전·마감 브리핑에 자동 삽입하지 않습니다.
+
+- 생명주기 검증 강화: 보고 오류·정정(`EROR`·`CORR`)은 과거 잘못 보고된 가격을 보수적으로 제외할 수 있지만, **계약 종료(`TERM`) 또는 일반 계약 변경(`MODI`)만으로 유효하게 체결된 과거 거래 자체를 소급 삭제하지 않습니다.** 공식 SEC/DTCC 보고 이벤트 정의와 자체 회귀 테스트로 구분했습니다. [359개 파일 재검증 #42219210778](https://github.com/cyyoung111-dev/portfolio/actions/runs/42219210778)에서 집계 결과가 그대로 유지됐습니다. [SEC Regulation SBSR 관련 FAQ](https://www.sec.gov/rules-regulations/staff-guidance/trading-markets-frequently-asked-questions/frequently-asked-questions-regulation-sbsr).
