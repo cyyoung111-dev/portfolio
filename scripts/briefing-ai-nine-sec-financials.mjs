@@ -8,7 +8,7 @@ const TAGS=Object.freeze({
  operatingIncome:['OperatingIncomeLoss'],
  netIncome:['NetIncomeLoss'],
  operatingCashFlow:['NetCashProvidedByUsedInOperatingActivities'],
- capex:['PaymentsToAcquirePropertyPlantAndEquipment'],
+ capex:['PaymentsToAcquirePropertyPlantAndEquipment','PaymentsToAcquireProductiveAssets'],
  assets:['Assets'],
  equity:['StockholdersEquity'],
  cash:['CashAndCashEquivalentsAtCarryingValue'],
@@ -86,7 +86,7 @@ export function extractSecAnnualFacts(doc,symbol,{now=new Date()}={}){
  if(!anchor)return null;
  const values=Object.fromEntries(Object.keys(TAGS)
   .map(key=>[key,extractFact(doc.facts,key,anchor)]));
- // FCF is operating cash flow minus actual cash PP&E acquisitions; it
+ // FCF is operating cash flow minus reported cash productive-asset purchases; it
  // is NOT owner earnings and is not a statement on AI-only investment.
  const ocf=values.operatingCashFlow?.value,capex=values.capex?.value,
   revenue=values.revenue?.value,op=values.operatingIncome?.value;
@@ -100,7 +100,7 @@ export function extractSecAnnualFacts(doc,symbol,{now=new Date()}={}){
    operatingMarginPercent:rate(op,revenue)
   },
   missing:Object.keys(TAGS).filter(key=>values[key]===null),
-  disclaimer:'FCF=reported OCF minus reported PP&E cash payments; not owner earnings or AI CAPEX'
+  disclaimer:'FCF=reported OCF minus reported cash PP&E/productive-asset acquisitions; not owner earnings or AI-only CAPEX'
  };
 }
 
