@@ -94,3 +94,43 @@ jobs:
           case "$entries" in SEC_CUMULATIVE_CREDITS_*.csv) ;; *) exit 6;; esac
           unzip -p /tmp/dtcc_public_sec_credit.zip "$entries" | head -n 1 | cut -c 1-7000 | sed 's/^/DTCC_PUBLIC_CREDIT_HEADERS=/'
           rm -f /tmp/dtcc_public_sec_credit.zip
+      - name: Count DTCC SEC candidate issuers and populated CDS price fields only
+        run: |
+          python3 - <<'PY'
+          import csv,io,json,re,urllib.request,zipfile
+          url='https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/SEC_CUMULATIVE_CREDITS_2026_11_05.zip'
+          with urllib.request.urlopen(url,timeout=35) as response:
+              data=response.read(8000001)
+          if len(data)>=8000001:
+              raise ValueError('DTCC_ARCHIVE_EXCEEDS_SIZE_LIMIT')
+          with zipfile.ZipFile(io.BytesIO(data)) as z:
+              names=z.namelist()
+              if len(names)!=1 or not re.fullmatch(r'SEC_CUMULATIVE_CREDITS_\d{4}_\d{2}_\d{2}\.csv',names[0]):
+                  raise ValueError('DTCC_ARCHIVE_SCHEMA_INVALID')
+              if z.getinfo(names[0]).file_size>20000000:
+                  raise ValueError('DTCC_UNCOMPRESSED_SIZE_TOO_LARGE')
+              text=io.TextIOWrapper(z.open(names[0]),encoding='utf-8-sig',newline='')
+              rows=list(csv.DictReader(text))
+          fields=['Underlying Asset Name','Underlier ID-Leg 1','UPI Underlier Name','UPI FISN']
+          keys={'MSFT':['MICROSOFT'],'AAPL':['APPLE INC'],'GOOGL':['ALPHABET','GOOGLE LLC'],'AMZN':['AMAZON'],
+            'META':['META PLATFORMS','FACEBOOK'],'NVDA':['NVIDIA'],'MU':['MICRON'],'ORCL':['ORACLE'],
+            'SNDK':['SANDISK','SANDISK CORPORATION'],'005930':['SAMSUNG ELECTRONICS'],
+            '000660':['SK HYNIX','SKHYINX']}
+          candidates={k:0 for k in keys}
+          for row in rows:
+              context=' | '.join(str(row.get(k) or '').upper() for k in fields)
+              for key,tokens in keys.items():
+                  if any(token in context for token in tokens):
+                      candidates[key]+=1
+          checked=['Price','Price notation','Spread-Leg 1','Spread notation-Leg 1',
+              'Spread-Leg 2','Spread notation-Leg 2','Fixed rate-Leg 1',
+              'Expiration Date','Action type','Underlying Asset Name','Underlier ID-Leg 1']
+          counts={key:sum(bool(str(r.get(key) or '').strip()) for r in rows) for key in checked}
+          notation={key:sorted({str(r.get(key) or '').strip()[:40] for r in rows if r.get(key)})[:20]
+              for key in ['Asset Class','Product name','Price notation','Spread notation-Leg 1',
+                'Underlier ID source-Leg 1']}
+          print('DTCC_CDS_COLUMN_COVERAGE '+json.dumps({'date':'2026-11-05',
+              'rows':len(rows),'nonempty':counts,'distinct':notation,
+              'issuerNameCandidates':candidates,'verified5yIssuerSpreads':0},ensure_ascii=False))
+          PY
+
