@@ -131,7 +131,8 @@ const compact=x=>{
   if(num(x.ttm.capexToOcfPercent))
    parts.push('CAPEX/OCF '+x.ttm.capexToOcfPercent.toFixed(0)+'%');
  }
- if(x.value)parts.push('FY BPS 
+ if(x.value)parts.push('FY BPS $'+x.value.bpsUsd.toFixed(2)
+  +' / 조정 PBR '+x.value.pbrTimes.toFixed(1)+'배');
  return x.symbol+' '+parts.join(' · ');
 };
 export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
