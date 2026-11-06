@@ -383,7 +383,7 @@ export async function selfTest(){
     +'\n'+extract('_krxClosePublicationState_','_getAutomationStatusData')
     +'\n'+extract('_getAutomationStatusData','handleGetAutomationStatus'),ctx);
   const production=vm.runInContext('_getAutomationStatusData()',ctx);
-  assert.equal(production.gasVersion,'9.283');
+  assert.equal(production.gasVersion,'9.284');
   assert.equal(JSON.stringify(production.tradeSnapshotDeferredDates),JSON.stringify(dates));
   assert.equal(production.tradeSnapshotDeferredCursor,'2026-01-01');
   assert.equal(production.tradeSnapshotDeferredCount,dates.length);
