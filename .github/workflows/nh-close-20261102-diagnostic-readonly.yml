@@ -102,4 +102,5 @@ jobs:
         run: |
           python3 scripts/audit-dtcc-company-cds-readonly.py --selftest
           python3 scripts/audit-dtcc-company-cds-readonly.py 2026-11-05
+          python3 scripts/audit-dtcc-company-cds-readonly.py --history 2026-11-05 15
 
