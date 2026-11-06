@@ -94,11 +94,14 @@ export function computeCompanyCdsTrend(points,{asOf='2026-11-06'}={}){
   &&x?.comparableToDealerQuote===true&&validDate(x.date)
   &&isNum(x.spreadBp)&&x.spreadBp>0&&x.date<=asOf);
  if(!valid.length)return null;
- const group=valid.filter(x=>x.source===valid[0].source
-  &&x.referenceEntityId===valid[0].referenceEntityId
-  &&x.currency===valid[0].currency
-  &&x.tenor===valid[0].tenor
-  &&x.restructuringClause===valid[0].restructuringClause);
+ // Do not quietly use the first provider in an input containing mixed
+ // contracts/sources; the caller must select one homogeneous series.
+ const first=valid[0];
+ if(valid.some(x=>x.source!==first.source
+  ||x.referenceEntityId!==first.referenceEntityId
+  ||x.currency!==first.currency||x.tenor!==first.tenor
+  ||x.restructuringClause!==first.restructuringClause))return null;
+ const group=valid;
  const byDate=new Map();
  for(const v of group){
   if(byDate.has(v.date)&&byDate.get(v.date)!==v.spreadBp)return null;
