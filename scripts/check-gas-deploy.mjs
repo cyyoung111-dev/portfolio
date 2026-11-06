@@ -990,7 +990,6 @@ for(const [before,after] of [
 // Once-only 2026-10 repairs must not enqueue jobs on every manual deploy or
 // dry-run after the protected v9.282 cutover. Keep manual recovery available.
 const manualOnlyGasMaintenanceWorkflows=[
- 'dividend-source-refresh.yml',
  'stock-dividend-diagnosis.yml',
  'issue-507-daily-finalize.yml',
  'issue-507-fund-close-resume.yml',
@@ -1010,6 +1009,23 @@ for(const name of manualOnlyGasMaintenanceWorkflows){
  assert.equal(wf.permissions.contents,'read',
   name+' must not gain new repository write permissions');
 }
+// Monthly public ETF dividends are intentionally scheduled; other recovery
+// workflows must remain manual-only. Validate this distinct contract.
+const recurringDividend=YAML.parse(fs.readFileSync(
+ '.github/workflows/dividend-source-refresh.yml','utf8'));
+assert.deepEqual(recurringDividend.on.schedule,[{cron:'30 0 5,10 * *'}]);
+assert.ok(Object.hasOwn(recurringDividend.on,'workflow_dispatch'));
+assert.ok(!Object.hasOwn(recurringDividend.on,'workflow_run'));
+assert.ok(!Object.hasOwn(recurringDividend.on,'push'));
+assert.ok(!Object.hasOwn(recurringDividend.on,'pull_request'));
+assert.equal(recurringDividend.permissions.contents,'read');
+assert.equal(recurringDividend.jobs.refresh.environment,'portfolio-production-gas');
+assert.match(recurringDividend.jobs.refresh.if,/github\.repository == 'cyyoung111-dev\/portfolio'/);
+assert.match(recurringDividend.jobs.refresh.if,/github\.ref == 'refs\/heads\/main'/);
+const dividendApproval=recurringDividend.jobs.refresh.steps.find(s=>
+ s.name==='Require explicit approval for manual dividend refresh');
+assert.ok(dividendApproval&&dividendApproval.run.includes("!= 'REFRESH'"),
+ 'manual dividend refresh must fail without explicit approval');
 // Preserve the existing two different kinds of read-only audit triggers:
 // KRX follows actual deployment completions; usage metrics follow audit-code
 // updates (not unrelated GAS deploys).
