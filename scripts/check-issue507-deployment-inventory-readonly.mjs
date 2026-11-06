@@ -251,6 +251,7 @@ assert.equal(headProof.webAppEntryCount,2);
 assert.equal(headProof.additionalRoutableDeploymentCount,0);
 assert.equal(headProof.unverifiedVersionedDeploymentCount,0);
 assert.equal(headProof.detailVersionStillUnverifiedCount,0);
+assert.equal(headProof.detailVersionRecoveredCount,0);
 assert.equal(headProof.additionalWebAppAnonymousDeployerCount,0);
 assert.equal(headProof.releaseAuthorized,false);
 assert.equal(headProof.gasWrites,0);
