@@ -158,6 +158,12 @@ export async function readKrxOfficialClosingStocks(date,{
     date,codes:'005930,000660'}),redirect:'follow',signal:AbortSignal.timeout(20000)});
   if(!response?.ok){emit('HTTP_UNAVAILABLE');return [];}
   const body=await response.json();
+  if(body?.status!=='ok'){
+   emit(body?.status==='error'?'GAS_STATUS_ERROR':'GAS_RESPONSE_SCHEMA');return [];
+  }
+  if(body.requestedDate!==date||!body.closes||typeof body.closes!=='object'
+    ||Array.isArray(body.closes)) {emit('PAYLOAD_INVALID');return [];}
+  if(!Object.keys(body.closes).length){emit('GAS_EMPTY_ROWS');return [];}
   const rows=normalizeKrxOfficialClosingStocks(date,body,{instant:now()});
   emit(rows.length===2?'BOTH_VERIFIED':rows.length?'PARTIAL':'NO_DATED_OFFICIAL_CLOSE');
   return rows;
