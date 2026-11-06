@@ -222,12 +222,15 @@ const auditResult=await runAiNineSourceAudit({
    secret:'DO_NOT_PRINT'}))}),
  readFilings:async()=>({filings:[{symbol:'AAPL',rawBody:'DO_NOT_PRINT'}],
   statuses:AI_NINE.map((x,i)=>({symbol:x.symbol,status:i<3?'VERIFIED':
-   'SEC_USER_AGENT_NOT_CONFIGURED',secret:'DO_NOT_PRINT'}))})
+   'SEC_USER_AGENT_NOT_CONFIGURED',secret:'DO_NOT_PRINT'}))}),
+ readAnnualFacts:async()=>({statuses:AI_NINE.map((x,i)=>({symbol:x.symbol,
+  status:i<2?'VERIFIED':'NO_SAME_FILING_ANNUAL_FACTS',cash:999999}))})
 });
 assert.equal(auditResult.dateKst,'2026-11-06');
 assert.equal(auditResult.usSessionDate,'2026-11-05');
 assert.deepEqual(auditResult.price.verified,6);
 assert.deepEqual(auditResult.sec.verified,3);
+assert.equal(auditResult.annualFinancials.verified,2);
 assert.equal(auditResult.price.statuses.find(x=>x.symbol==='SNDK').status,'UNVERIFIED');
 assert.equal(auditResult.portfolioWrites+auditResult.telegramSends+auditResult.gasDeployments,0);
 assert.doesNotMatch(JSON.stringify(auditResult),/DO_NOT_PRINT|999999|rawBody/);
@@ -235,9 +238,11 @@ assert.deepEqual(auditResult.price.statuses.map(x=>x.symbol),AI_NINE.map(x=>x.sy
 const auditErrors=await runAiNineSourceAudit({
  now:()=>new Date('2026-11-06T07:40:00+09:00'),
  readPrices:async()=>{throw Error('PRIVATE_PROVIDER_ERROR');},
- readFilings:async()=>({statuses:AI_NINE.map(x=>({symbol:x.symbol,status:'FETCH_FAILED'}))})
+ readFilings:async()=>({statuses:AI_NINE.map(x=>({symbol:x.symbol,status:'FETCH_FAILED'}))}),
+ readAnnualFacts:async()=>{throw Error('DO_NOT_LOG_PRIVATE_SEC_FACTS');}
 });
 assert.equal(auditErrors.price.verified,0);
+assert.equal(auditErrors.annualFinancials.verified,0);
 assert.equal(auditErrors.price.statuses.every(x=>x.status==='UNVERIFIED'),true);
 assert.doesNotMatch(JSON.stringify(auditErrors),/PRIVATE_PROVIDER_ERROR/);
 
