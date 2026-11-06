@@ -284,7 +284,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     futuresCount:futures.length,ratesCount:rates.length,vkospiCount:vkospi.length,
     // Market-only public rows; no tokens, accounts or GAS ledger data. The
     // send step re-renders AI/US futures at the actual transmission time.
-    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,fearGreed,financialEvidence},
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,fearGreed,...(financialEvidence?{financialEvidence}:{})},
     message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence)};
 }
 // Only the already-armed 16:35 runner uses this bounded wait when today's
