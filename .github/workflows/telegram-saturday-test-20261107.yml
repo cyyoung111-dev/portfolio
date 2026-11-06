@@ -32,8 +32,7 @@ jobs:
         id: prepare
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          # Weekend public-data-only test: no GAS/NH credential access.
         run: node scripts/telegram-saturday-test-20261107.mjs prepare
       - name: Claim unique Saturday test before Telegram
         if: steps.prepare.outputs.ready == 'true'
