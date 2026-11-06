@@ -86,7 +86,7 @@ assert.match(report,/AI 산업·반도체 종합평가/);
 for(const name of ['버핏','애크먼','피터 린치','다모다란','하워드 막스'])
   assert.ok(report.includes(name),'morning investor lens: '+name);
 assert.match(report,/당일 실제 발언 아님/);
-assert.match(report,/■ 9\. 5인 투자 철학 적용/);
+assert.match(report,/■ 삼성전자·SK하이닉스 5인 정량 관점/);
 assert.match(report,/하워드 막스: VIX 18\.00 \(전일 -2\.30%, 변동성 하락\)/);
 assert.match(report,/5년 CDS·차입만기 미검증/);
 assert.doesNotMatch(report,/막스가 오늘|CDS 부도 확정/);
