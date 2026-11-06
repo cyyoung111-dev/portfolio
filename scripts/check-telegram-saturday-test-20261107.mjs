@@ -112,6 +112,8 @@ const sIndex=steps.findIndex(x=>x.name==='Send claimed Saturday test once');
 const aIndex=steps.findIndex(x=>x.name==='Archive Telegram API-confirmed Saturday SENT proof');
 assert.ok(pIndex>=0&&pIndex<cIndex&&cIndex<sIndex&&sIndex<aIndex);
 assert.equal(steps[pIndex].env.TELEGRAM_BOT_TOKEN,undefined);
+assert.equal(steps[pIndex].env.GAS_ACCESS_TOKEN,undefined);
+assert.equal(steps[pIndex].env.GAS_WEB_APP_URL,undefined);
 assert.equal(steps[sIndex].env.GAS_ACCESS_TOKEN,undefined);
 assert.equal(steps[cIndex].with['if-no-files-found'],'error');
 assert.equal(steps[aIndex].with['if-no-files-found'],'error');
