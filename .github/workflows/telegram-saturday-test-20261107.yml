@@ -1,0 +1,61 @@
+name: Telegram Saturday one-day morning briefing test 2026-11-07
+# Exactly one Saturday morning test after a reviewed workflow-file merge.
+# It is NOT the weekday 07:40 delivery owner and never creates a weekday claim.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/telegram-saturday-test-20261107.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: telegram-saturday-20261107-morning-once
+  cancel-in-progress: false
+jobs:
+  saturday-test:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prepare exact-day public Friday-close Saturday briefing
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/telegram-saturday-test-20261107.mjs prepare
+      - name: Claim unique Saturday test before Telegram
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.claim }}
+          path: .saturday-test-runtime/claim.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Send claimed Saturday test once
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/telegram-saturday-test-20261107.mjs send
+      - name: Archive Telegram API-confirmed Saturday SENT proof
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.claim }}-sent
+          path: .saturday-test-runtime/sent.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
