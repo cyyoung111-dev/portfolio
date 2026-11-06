@@ -28,6 +28,8 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           RESUME_READ_ONLY: '1'
         run: node scripts/run-incomplete-close-resume.mjs
+      # 2026-11-06 C-RPe collector promotion: self-file push reruns
+      # independent protected READ_ONLY source/NAV/lease preflight before use.
       # 2026-11-06 v9.284/341 reconciliation: independent probes all run,
       # even if the first reports a blocked close; none may write financial data.
       - name: Inspect stored fund NAV, price-history and Snapshot states (read only)
