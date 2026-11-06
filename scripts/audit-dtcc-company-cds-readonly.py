@@ -279,6 +279,37 @@ def assemble_history_archives(named_archives):
     return list(seen.values())
 
 
+def trade_median_comparison(observations, target_days=30):
+    # Comparison of actual reported contract-spread medians, never a dealer
+    # market close or fully standardized CDS par spread. Sparse days are null.
+    if not observations:
+        return None
+    current = observations[-1]
+    latest = dt.date.fromisoformat(current["date"])
+    target = latest - dt.timedelta(days=target_days)
+    alternatives = []
+    for obs in observations[:-1]:
+        day = dt.date.fromisoformat(obs["date"])
+        distance = abs((day - target).days)
+        if distance <= 3:
+            alternatives.append((distance, day, obs))
+    if not alternatives:
+        return None
+    # Exact target first, closest date next, earlier date on ties.
+    alternatives.sort(key=lambda x: (x[0], x[1]))
+    prior = alternatives[0][2]
+    return {
+        "basis": "REPORTED_CONTRACT_TRADE_MEDIAN_NOT_PAR_EOD",
+        "targetDays": target_days,
+        "sourceDate": prior["date"],
+        "targetDate": target.isoformat(),
+        "asOfDate": current["date"],
+        "changeBp": round(
+            current["medianReportedContractBp"] - prior["medianReportedContractBp"], 2
+        )
+    }
+
+
 def summarize_history(named_archives, as_of):
     if not named_archives:
         raise ValueError("NO_ARCHIVES")
@@ -304,7 +335,8 @@ def summarize_history(named_archives, as_of):
         "lastArchiveDate": days[-1], "recordsDedupedById": len(rows),
         "reportedObservationDays": [
             {"symbol": ticker, "days": len(observed[ticker]),
-             "lastObserved": observed[ticker][-1] if observed[ticker] else None}
+             "lastObserved": observed[ticker][-1] if observed[ticker] else None,
+             "month1TradeMedianComparison": trade_median_comparison(observed[ticker])}
             for ticker in ALL
         ],
         "history": observed,
@@ -407,6 +439,16 @@ def selftest():
     assert alphabet[0]["medianReportedContractBp"] == 87
     assert hist["futureCorrectionsNotYetKnown"] is True
     assert hist["dealerParQuotesVerified"] == 0
+    assert hist["reportedObservationDays"][2]["month1TradeMedianComparison"] is None
+    dense = [{"date": "2026-10-05", "medianReportedContractBp": 94},
+             {"date": "2026-10-06", "medianReportedContractBp": 100},
+             {"date": "2026-10-07", "medianReportedContractBp": 95},
+             {"date": "2026-11-05", "medianReportedContractBp": 87}]
+    comparison = trade_median_comparison(dense)
+    assert comparison["sourceDate"] == "2026-10-06"
+    assert comparison["changeBp"] == -13
+    assert comparison["basis"] == "REPORTED_CONTRACT_TRADE_MEDIAN_NOT_PAR_EOD"
+
 
     print("DTCC_SEC_TRADE_PARSER_SELFTEST_PASS")
 
