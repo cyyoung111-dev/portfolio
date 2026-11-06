@@ -5,7 +5,7 @@ name: Briefing optional source availability audit (read-only)
 # 2026-11-06 16:4x KST: confirm FRED published-session fallback post-#977 (read only).
 on:
   push:
-    branches: [main, 'feat/issue826-company-cds-readonly-20261106']
+    branches: [main]
     paths: ['.github/workflows/nh-close-20261102-diagnostic-readonly.yml']
   workflow_dispatch:
 permissions:
@@ -42,65 +42,3 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/compare-briefing-krx-prior-readonly.mjs
-
-
-  cds_dtcc_candidate_detail:
-    if: >-
-      github.repository == 'cyyoung111-dev/portfolio' &&
-      github.ref == 'refs/heads/feat/issue826-company-cds-readonly-20261106' &&
-      github.event_name == 'push' &&
-      github.run_attempt == 1
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Inspect public credit transaction identifiers only
-        run: |
-          python3 - <<'PY'
-          import csv,io,json,re,urllib.request,zipfile,datetime
-          u='https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/SEC_CUMULATIVE_CREDITS_2026_11_05.zip'
-          with urllib.request.urlopen(u,timeout=25) as f: raw=f.read(5000001)
-          assert len(raw)<5000001
-          with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            names=z.namelist()
-            assert len(names)==1 and z.getinfo(names[0]).file_size<15000000
-            rows=list(csv.DictReader(io.TextIOWrapper(z.open(names[0]),encoding='utf-8-sig',newline='')))
-          names={'GOOGL':['ALPHABET','GOOGLE LLC'],'META':['META PLATFORMS','FACEBOOK'],
-            'NVDA':['NVIDIA'],'ORCL':['ORACLE']}
-          fields=['Dissemination Identifier','Original Dissemination Identifier','Action type',
-            'Event type','Execution Timestamp','Effective Date','Expiration Date',
-            'Spread-Leg 1','Spread notation-Leg 1','Spread currency-Leg 1',
-            'Fixed rate-Leg 1','Notional currency-Leg 1',
-            'Underlier ID-Leg 1','Underlier ID source-Leg 1',
-            'Underlying Asset Name','UPI FISN','Unique Product Identifier','UPI Underlier Name',
-            'Package indicator','Non-standardized term indicator','Custom basket indicator',
-            'Cleared','Other payment amount','Amendment indicator','Spread-Leg 2',
-            'Spread notation-Leg 2','Price','Price notation']
-          for symbol,tokens in names.items():
-            hits=[]
-            for r in rows:
-              context=' | '.join(str(r.get(k) or '').upper() for k in [
-                'Underlying Asset Name','Underlier ID-Leg 1','UPI Underlier Name','UPI FISN'])
-              if not any(tok in context for tok in tokens): continue
-              if str(r.get('Spread notation-Leg 1') or '').strip() not in {'3','4'}:continue
-              if not str(r.get('Spread-Leg 1') or '').strip():continue
-              try:
-                a=datetime.datetime.fromisoformat(r['Execution Timestamp'].replace('Z','+00:00'))
-                b=datetime.datetime.fromisoformat(r['Expiration Date'].replace('Z','+00:00'))
-                if a.tzinfo is None: a=a.replace(tzinfo=datetime.timezone.utc)
-                if b.tzinfo is None: b=b.replace(tzinfo=datetime.timezone.utc)
-                yrs=(b-a).total_seconds()/86400/365.25
-              except:continue
-              if not 4.4<=yrs<=5.6:continue
-              hits.append({k:str(r.get(k) or '')[:110] for k in fields})
-            print('DTCC_FOUR_ISSUER_RAW_CANDIDATES '+json.dumps(
-              {'symbol':symbol,'count':len(hits),'rows':hits[:10]},ensure_ascii=False))
-          PY
-      - name: Verify standalone CDS trade parser and real official tape
-        run: |
-          python3 scripts/audit-dtcc-company-cds-readonly.py --selftest
-          python3 scripts/audit-dtcc-company-cds-readonly.py 2026-11-05
-          python3 scripts/audit-dtcc-company-cds-readonly.py --history 2026-11-05 15
-
