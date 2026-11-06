@@ -4,12 +4,14 @@ import {readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
 import {readAiNineAnnualValueSnapshots} from './briefing-ai-nine-sec-values.mjs';
 import {readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs';
 import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
+import {financialSourceCoverageStatus}
+ from './briefing-financial-source-status.mjs';
 
 export async function collectAiFinancialEvidence({
  now=()=>new Date(),readTtm=readAiNineTtmSecFacts,
  readValues=readAiNineAnnualValueSnapshots,
  readDart=readTwoDomesticDartBps,usSessionDate,
- domesticSessionDate=null,domesticQuotes=[]
+ domesticSessionDate=null,domesticQuotes=[],onSourceStatus=()=>{}
 }={}){
  const instant=now();
  if(!(instant instanceof Date)||!Number.isFinite(instant.getTime()))
@@ -19,6 +21,8 @@ export async function collectAiFinancialEvidence({
  const ttm=await readTtm({now});
  const fyValues=await readValues({now});
  const dart=await readDart({now});
+ // Nonblocking, status-only diagnostics are out-of-band: artifact unchanged.
+ try{onSourceStatus(financialSourceCoverageStatus({ttm,fy:fyValues,dart}));}catch{}
  return buildAiFinancialEvidence({
   asOfKst:date,usSessionDate,domesticSessionDate,ttm,fyValues,dart,domesticQuotes});
 }
