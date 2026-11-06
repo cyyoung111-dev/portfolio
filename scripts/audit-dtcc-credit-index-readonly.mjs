@@ -13,9 +13,13 @@ export async function auditDtccCreditIndex({fetchImpl=fetch}={}){
    signal:AbortSignal.timeout(15000)
   });
   if(!response?.ok)return {status:'DTCC_INDEX_HTTP_UNAVAILABLE',creditArchiveCount:null};
-  if(!String(response.headers?.get?.('content-type')||'')
-   .toLowerCase().includes('json'))
-   return {status:'DTCC_INDEX_CONTENT_TYPE_UNVERIFIED',creditArchiveCount:null};
+  const mime=String(response.headers?.get?.('content-type')||'').toLowerCase();
+  // DTCC's S3-hosted JSON can be labelled as generic binary. The fixed
+  // official archive index URL and strict JSON schema are required either way.
+  if(!mime.includes('json')&&!mime.includes('octet-stream')
+   &&!mime.includes('text/plain'))
+   return {status:'DTCC_INDEX_CONTENT_TYPE_UNVERIFIED',
+    observedMime:mime.slice(0,60),creditArchiveCount:null};
   const length=Number(response.headers?.get?.('content-length'));
   if(Number.isFinite(length)&&length>MAX_BYTES)
    return {status:'DTCC_INDEX_TOO_LARGE',creditArchiveCount:null};
