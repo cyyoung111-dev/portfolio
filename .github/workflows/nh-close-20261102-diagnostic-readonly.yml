@@ -71,7 +71,10 @@ jobs:
             'Spread-Leg 1','Spread notation-Leg 1','Spread currency-Leg 1',
             'Fixed rate-Leg 1','Notional currency-Leg 1',
             'Underlier ID-Leg 1','Underlier ID source-Leg 1',
-            'Underlying Asset Name','UPI FISN','Unique Product Identifier','UPI Underlier Name']
+            'Underlying Asset Name','UPI FISN','Unique Product Identifier','UPI Underlier Name',
+            'Package indicator','Non-standardized term indicator','Custom basket indicator',
+            'Cleared','Other payment amount','Amendment indicator','Spread-Leg 2',
+            'Spread notation-Leg 2','Price','Price notation']
           for symbol,tokens in names.items():
             hits=[]
             for r in rows:
