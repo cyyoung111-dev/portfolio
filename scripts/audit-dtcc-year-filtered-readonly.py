@@ -12,6 +12,7 @@ import datetime as dt
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 import urllib.request
 
@@ -33,9 +34,14 @@ def relevant_anchor(row):
 
 def select_relevant_events(today_rows, prior_ids):
     # Closure over future corrections that omit original entity identity.
-    captured={audit.present(r,"Dissemination Identifier"):r
-              for r in today_rows if relevant_anchor(r)
-              and audit.present(r,"Dissemination Identifier")}
+    captured={}
+    for row in today_rows:
+        if not relevant_anchor(row): continue
+        ident=audit.present(row,"Dissemination Identifier")
+        if not ident:continue
+        if ident in captured and captured[ident]!=row:
+            raise ValueError("DTCC_SAME_ID_CONFLICT_ON_DAY")
+        captured[ident]=row
     all_known=set(prior_ids)|set(captured)
     for _ in range(24):
         found=0
@@ -53,7 +59,11 @@ def select_relevant_events(today_rows, prior_ids):
 def combine_relevant_archives(named_row_sets):
     held={}
     raw_rows=0
+    days=[]
     for day,rows in named_row_sets:
+        if days and day<=days[-1]:
+            raise ValueError("DTCC_DATES_NOT_ASCENDING")
+        days.append(day)
         raw_rows+=len(rows)
         found=select_relevant_events(rows,held)
         for ident,row in found.items():
@@ -62,13 +72,13 @@ def combine_relevant_archives(named_row_sets):
             held[ident]=row
         if len(held)>MAX_IDENTIFIED_ROWS:
             raise ValueError("DTCC_RELEVANT_ROWS_TOO_LARGE")
-    return list(held.values()),raw_rows
+    return list(held.values()),raw_rows,days
 
 def process_history(named_row_sets):
-    all_dates=[day for day,_rows in named_row_sets]
-    if not all_dates or all_dates!=sorted(set(all_dates)):
-        raise ValueError("DTCC_ARCHIVES_NOT_UNIQUE_CHRONOLOGICAL")
-    rows,raw_rows=combine_relevant_archives(named_row_sets)
+    # Consume a bounded chronological iterator, not 359 CSV files at once.
+    rows,raw_rows,all_dates=combine_relevant_archives(named_row_sets)
+    if not all_dates:
+        raise ValueError("DTCC_ARCHIVES_EMPTY")
     observations={sym:[] for sym in audit.ALL}
     for day in all_dates:
         pairs=audit.get_candidates(rows,day)
@@ -116,7 +126,8 @@ def retrieve_index(as_of):
     for item in entries:
         if not isinstance(item,dict):continue
         name=item.get("fileName")
-        if not isinstance(name,str) or not name.startswith("SEC_CUMULATIVE_CREDITS_"):
+        if not isinstance(name,str) or not re.fullmatch(
+            r"SEC_CUMULATIVE_CREDITS_20\d{2}_\d{2}_\d{2}\.zip",name):
             continue
         if item.get("fullFilePath")!=audit.SOURCE_HOST+name:continue
         day=name.removeprefix("SEC_CUMULATIVE_CREDITS_").removesuffix(".zip").replace("_","-")
@@ -143,13 +154,24 @@ def fetch_one(item):
     rows=audit.read_archive(buf)
     return day,rows
 
+def iter_downloads(selected):
+    # Limit pending future results to four archives. Executor.map can otherwise
+    # retain hundreds of expanded CSVs until the earliest slow job completes.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_POOL) as executor:
+        pending={}
+        pos=0
+        for index,item in enumerate(selected):
+            pending[index]=executor.submit(fetch_one,item)
+            if len(pending)>=MAX_POOL:
+                yield pending.pop(pos).result()
+                pos+=1
+        while pos<len(selected):
+            yield pending.pop(pos).result()
+            pos+=1
+
 def run_live(as_of):
     selected=retrieve_index(as_of)
-    # Four connections maximum. executor.map preserves chronological order,
-    # so later corrections can always link to prior included records.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_POOL) as executor:
-        results=list(executor.map(fetch_one,selected))
-    return process_history(results)
+    return process_history(iter_downloads(selected))
 
 def mock_row(ident,day="2025-11-05",action="NEWT",original=""):
     return {
@@ -158,7 +180,7 @@ def mock_row(ident,day="2025-11-05",action="NEWT",original=""):
         "Event type":"TRAD",
         "Execution Timestamp":day+"T12:00:00Z",
         "Effective Date":day,
-        "Expiration Date":"2030-12-20",
+        "Expiration Date":("2030-12-20" if day.startswith("2025") else "2031-12-20"),
         "Spread-Leg 1":"0.0087","Spread notation-Leg 1":"3",
         "Notional currency-Leg 1":"USD","Underlier ID source-Leg 1":"REDID",
         "Underlier ID-Leg 1":"0C27GT","Underlying Asset Name":"Alphabet Inc.",
@@ -172,9 +194,9 @@ def selftest():
     # Later correction omits RED/name; linked original remains invalidated.
     late["Underlying Asset Name"]=""
     late["Underlier ID-Leg 1"]=""
-    rows,ct=combine_relevant_archives([
+    rows,ct,days=combine_relevant_archives([
         ("2025-11-05",[old]),("2026-11-05",[late])])
-    assert ct==2 and len(rows)==2
+    assert ct==2 and len(rows)==2 and days==["2025-11-05","2026-11-05"]
     assert audit.get_candidates(rows,"2025-11-05")["GOOGL"]==[]
     year=process_history([
         ("2025-11-05",[old]),("2026-11-05",[late])])
