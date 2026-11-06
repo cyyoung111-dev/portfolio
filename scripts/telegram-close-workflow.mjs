@@ -19,6 +19,7 @@ import {readClosingMarketReferences,formatClosingMarketReferences} from './closi
 import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures.mjs';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
+import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
 import {readFearGreed,verifyFearGreed,formatFearGreed,fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
@@ -187,7 +188,9 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
    lines.splice(insertAt+1,0,sentiment);
  // Precomputed SEC/DART evidence only. Never fetch in the 17:00 critical path.
- const financialLines=formatAiFinancialEvidence(financialEvidence);
+ const financialLines=financialEvidence?.asOfKst===date
+  &&financialEvidence.usSessionDate===expectedMorningDate('SPX',date)
+   ?formatAiFinancialEvidence(financialEvidence):[];
  const index=lines.indexOf('■ 국내 시장 (당일 종가)');
  if(financialLines.length&&index>=0
   &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
@@ -200,7 +203,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  fetchStocks=readClosingStockSources,fetchMacros=readClosingMacros,
  fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
  fetchRates=readTreasuryCurve,fetchVkospi=readClosingVkospi,
- loadPrepared=async()=>null}={}){
+ loadPrepared=async()=>null,loadFinancialEvidence=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
   const session=krxSessionStatus(window.date);
@@ -211,6 +214,10 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   try{response=await fetchImpl(`https://api.github.com/repos/${REPO}/actions/artifacts?name=${artifactName}&per_page=100`,{headers:{authorization:'Bearer '+githubToken,accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error();data=await response.json();}catch{throw Error('TELEGRAM_CLOSE_CLAIM_FAILED');}
   if(!Number.isSafeInteger(data.total_count)||data.total_count<0||!Array.isArray(data.artifacts)||data.total_count===0&&data.artifacts.length)throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');
   if(data.total_count>0){if(!data.artifacts.some(a=>a.name===artifactName))throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');return {ready:false,status:'ALREADY_CLAIMED',date:window.date};}
+  // Run the optional public-data loader alongside market collection; it must
+  // never become a delivery claim, source gate or Telegram send authority.
+  const financialTask=Promise.resolve().then(()=>loadFinancialEvidence(window.date,
+    {token:githubToken,repository,fetchImpl,now})).catch(()=>null);
   // US NH indices and Korean KRX/FDR EOD references are independently
   // eligible. A missing NH response must not block verified domestic closes.
   // FRED/CBOE secondary references alone NEVER authorize sending.
@@ -270,14 +277,15 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   if(!quality.currentDeliveryGateSatisfied)
     return {ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:window.date,coverage,quality};
+  const financialEvidence=await financialTask;
   return {ready:true,status:'PREPARED',date:window.date,artifactName,
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
     futuresCount:futures.length,ratesCount:rates.length,vkospiCount:vkospi.length,
     // Market-only public rows; no tokens, accounts or GAS ledger data. The
     // send step re-renders AI/US futures at the actual transmission time.
-    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,fearGreed},
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed)};
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,fearGreed,financialEvidence},
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence)};
 }
 // Only the already-armed 16:35 runner uses this bounded wait when today's
 // core index closes are not yet published. Existing claim and SEND guards
@@ -334,8 +342,11 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     // Recheck CNN reading at SEND time; stale inputs simply show 'unavailable'.
     const fearGreed=verifyFearGreed(r.fearGreed,{now:now()});
+    const evidence=r.financialEvidence?.asOfKst===window.date
+      &&r.financialEvidence.usSessionDate===expectedMorningDate('SPX',window.date)
+       ?r.financialEvidence:null;
     outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
-      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed);
+      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence);
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
   }
   await send(token,chatId,outgoing);
@@ -370,7 +381,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     }
     if(process.argv[2]==='prepare'){
       const args={githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,
-        attempt:process.env.GITHUB_RUN_ATTEMPT,loadPrepared:loadPreparedClose};
+        attempt:process.env.GITHUB_RUN_ATTEMPT,loadPrepared:loadPreparedClose,
+        loadFinancialEvidence:loadAiFinancialEvidenceArtifact};
       const armed=process.argv[3]==='armed';
       if(armed&&process.env.GITHUB_WORKFLOW!=='Telegram close early-armed fallback')
         throw Error('TELEGRAM_CLOSE_RETRY_CONFIG');
