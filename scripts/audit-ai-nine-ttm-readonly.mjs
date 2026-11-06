@@ -7,7 +7,7 @@ import {readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
 export async function runAiNineTtmAudit({reader=readAiNineTtmSecFacts}={}){
  const raw=await reader();
  const trusted=new Set(['VERIFIED_TTM','PARTIAL_TTM','FY_ONLY',
-  'NO_REPORTED_ANNUAL_ANCHOR','SEC_USER_AGENT_NOT_CONFIGURED',
+  'NO_REPORTED_ANNUAL_ANCHOR','QUARTER_ANCHOR_CONFLICT','SEC_USER_AGENT_NOT_CONFIGURED',
   'SEC_HTTP_UNAVAILABLE','SEC_CONTENT_TYPE_INVALID',
   'SEC_BODY_TOO_LARGE','FETCH_FAILED']);
  const rows=AI_NINE.map(x=>{
