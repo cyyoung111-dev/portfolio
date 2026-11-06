@@ -29,12 +29,12 @@ function latestQuarter(doc,annual,now){
   &&/^\d{10}-\d{2}-\d{6}$/.test(x.accn||'')&&finite(x.val)&&x.val>0)
   .sort((a,b)=>b.end.localeCompare(a.end)||b.filed.localeCompare(a.filed)
    ||b.accn.localeCompare(a.accn));
- if(!options.length)return null;
+ if(!options.length)return {kind:'FY_ONLY'};
  const a=options[0];
  if(options.some(x=>x.end===a.end&&x.filed===a.filed&&x.accn===a.accn
-  &&x.val!==a.val))return null;
- return {end:a.end,form:a.form,fp:a.fp,filed:a.filed,accn:a.accn,
-  expectedStart:nextDay(annual.period)};
+  &&(x.val!==a.val||x.fp!==a.fp)))return {kind:'QUARTER_ANCHOR_CONFLICT'};
+ return {kind:'QUARTER',end:a.end,form:a.form,fp:a.fp,filed:a.filed,accn:a.accn,
+  expectedStart:nextDay(annual.period),priorStart:annual.periodStart};
 }
 
 function matchingUnique(entries){
@@ -53,13 +53,14 @@ function comparableYtd(doc,tag,anchor){
  const current=matchingUnique(entries.filter(x=>x.form==='10-Q'
   &&x.accn===anchor.accn&&x.filed===anchor.filed
   &&x.end===anchor.end&&day(x.start)&&finite(x.val)
-  &&diff(x.start,anchor.expectedStart)>=-7&&diff(x.start,anchor.expectedStart)<=7
+  &&x.start===anchor.expectedStart
   &&diff(x.end,x.start)>=min&&diff(x.end,x.start)<=max
   &&!(tag.startsWith('PaymentsToAcquire')&&x.val<0)));
  if(!current)return null;
  const previous=matchingUnique(entries.filter(x=>x.form==='10-Q'
   &&x.accn===anchor.accn&&x.filed===anchor.filed
   &&day(x.start)&&day(x.end)&&finite(x.val)
+  &&x.start===anchor.priorStart
   &&diff(current.start,x.start)>=355&&diff(current.start,x.start)<=374
   &&diff(current.end,x.end)>=355&&diff(current.end,x.end)<=374
   &&Math.abs(diff(x.end,x.start)-diff(current.end,current.start))<=7
@@ -74,7 +75,9 @@ export function extractSecTtmFacts(doc,symbol,{now=new Date()}={}){
  const annual=extractSecAnnualFacts(doc,symbol,{now});
  if(!annual)return {symbol,status:'NO_REPORTED_ANNUAL_ANCHOR',report:null};
  const anchor=latestQuarter(doc,annual,now);
- if(!anchor){
+ if(anchor.kind==='QUARTER_ANCHOR_CONFLICT')
+  return {symbol,status:'QUARTER_ANCHOR_CONFLICT',report:null};
+ if(anchor.kind==='FY_ONLY'){
   // Latest 10-K is already as recent as the most recently reported quarter.
   // Annual figures are valid for its fiscal year end, but not a newer TTM.
   return {symbol,status:'FY_ONLY',report:{
