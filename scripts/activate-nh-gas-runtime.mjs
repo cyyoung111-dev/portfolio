@@ -11,8 +11,20 @@ export function selectNhReadbackCodes(codes){
     if(item.currency==='KRW'&&/^[A-Z0-9]{6}$/.test(code))domestic.push(code);
     if(item.currency==='USD'&&/^[A-Z][A-Z0-9.\-]{0,11}$/.test(code))overseas.push(code);
   }
-  // These public fallbacks check feed connectivity, never account coverage.
-  return [domestic.includes('005930')?'005930':domestic[0]||'005930',overseas.includes('AAPL')?'AAPL':overseas[0]||'AAPL'];
+  // Use ONLY registered quoteable codes. Inventing an AAPL fallback for
+  // a domestic-only master makes 2/2 success impossible for some accounts.
+  const primaryDomestic=domestic.includes('005930')?'005930':domestic[0];
+  const primaryOverseas=overseas.includes('AAPL')?'AAPL':overseas[0];
+  const selected=[];
+  if(primaryDomestic)selected.push(primaryDomestic);
+  if(primaryOverseas)selected.push(primaryOverseas);
+  if(selected.length===1){
+    const sameMarket=primaryDomestic?domestic:overseas;
+    const next=sameMarket.find(code=>code!==selected[0]);
+    if(next)selected.push(next);
+  }
+  if(selected.length===0)throw Error('NH_RUNTIME_CODE_MASTER_NO_QUOTE_TARGET');
+  return selected;
 }
 // Only the validated NH-central contract introduced in GAS 9.281+ is supported.
 // The exact deployed version must also match the read-only code-master reply.
@@ -53,16 +65,28 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   if(master?.status!=='ok'||master.readOnly!==true||master.gasVersion!==before.gasVersion||!Array.isArray(master.codes))throw Error('NH_RUNTIME_CODE_MASTER_UNCONFIRMED');
   report({status:'NH_RUNTIME_CODE_MASTER_COUNTS',rows:Array.isArray(master.codes)?master.codes.length:0,krwRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='KRW').length:0,usdRows:Array.isArray(master.codes)?master.codes.filter(row=>row?.currency==='USD').length:0});
   const codes=selectNhReadbackCodes(master.codes);
+  const registeredUsTarget=codes.some(code=>master.codes.some(row=>
+    row?.currency==='USD'&&String(row.code||'').trim().toUpperCase()===code));
   // No price-history / Snapshot write. Confirm the live web lookup is NH.
   let prices;
   try{const response=await request(endpoint.href,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action:'getPrices',accessToken:token,codes:codes.join(','),persist:'0'}),redirect:'follow',signal:AbortSignal.timeout(90000)});if(!response.ok)throw Error();prices=await response.json();}catch{throw Error('NH_RUNTIME_READBACK_FAILED');}
   if(prices?.status!=='ok')throw Error('NH_RUNTIME_READBACK_RESPONSE_ERROR');
-  if(prices.priceLookup?.currentProvider!=='NH')throw Error('NH_RUNTIME_READBACK_PROVIDER_MISMATCH');
-  if(Number(prices.priceLookup.tossResultCount)<codes.length)throw Error('NH_RUNTIME_READBACK_NH_PRICES_MISSING');
-  if(codes.some(code=>!(Number(prices.prices?.[code])>0)))throw Error('NH_RUNTIME_READBACK_PRICE_MISSING');
+  const providerConfirmed=prices.priceLookup?.currentProvider==='NH';
+  const reportedCount=Number(prices.priceLookup?.tossResultCount);
+  const positiveReturned=codes.filter(code=>Number.isFinite(Number(prices.prices?.[code]))
+    &&Number(prices.prices?.[code])>0).length;
+  // Aggregate-only diagnostic: no codes, quotes, tokens or raw replies in logs.
+  report({status:'NH_RUNTIME_PRICE_READBACK_COUNTS',requested:codes.length,
+    registeredUsTarget,providerConfirmed,
+    reportedCount:Number.isSafeInteger(reportedCount)&&reportedCount>=0?reportedCount:null,
+    positiveReturned});
+  if(!providerConfirmed)throw Error('NH_RUNTIME_READBACK_PROVIDER_MISMATCH');
+  if(!Number.isSafeInteger(reportedCount)||reportedCount<codes.length)
+    throw Error('NH_RUNTIME_READBACK_NH_PRICES_MISSING');
+  if(positiveReturned!==codes.length)throw Error('NH_RUNTIME_READBACK_PRICE_MISSING');
   const diagnostic=await call('diagnoseNhMarketData');
   report({status:'NH_REGULAR_CLOSE_SAMPLE_READBACK',readOnly:diagnostic?.readOnly===true,quotesConnected:diagnostic?.quotesConnected===true,closes:diagnostic?.closes||{},closeSampleComplete:diagnostic?.closeSampleComplete===true,fullCoverageVerified:false});
-  return {status:'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED',sampleCount:2,legacyProviderRemoved:true,gasVersion:before.gasVersion,registeredUsTarget:master.codes.some(row=>row?.currency==='USD'&&String(row.code||'').trim().toUpperCase()===codes[1]),fullCoverageVerified:false,closeVerified:false};
+  return {status:'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED',sampleCount:codes.length,legacyProviderRemoved:true,gasVersion:before.gasVersion,registeredUsTarget,fullCoverageVerified:false,closeVerified:false};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
