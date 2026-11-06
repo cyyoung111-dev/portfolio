@@ -523,10 +523,10 @@ const ttmMissing=extractSecTtmFacts(noCompare,'AAPL',{now:later()});
 assert.equal(ttmMissing.status,'PARTIAL_TTM');
 assert.equal(ttmMissing.report.fields.capex,null);
 assert.equal(ttmMissing.report.calculated.freeCashFlow,null);
-const wrongPeriod=structuredClone(q1);
-wrongPeriod.facts['us-gaap'].NetCashProvidedByUsedInOperatingActivities.units.USD
+const ttmWrongPeriod=structuredClone(q1);
+ttmWrongPeriod.facts['us-gaap'].NetCashProvidedByUsedInOperatingActivities.units.USD
  .at(-1).start='2025-10-20';
-assert.equal(extractSecTtmFacts(wrongPeriod,'AAPL',{now:later()})
+assert.equal(extractSecTtmFacts(ttmWrongPeriod,'AAPL',{now:later()})
  .report.fields.operatingCashFlow,null);
 const wrongAccn=structuredClone(q1);
 wrongAccn.facts['us-gaap'].RevenueFromContractWithCustomerExcludingAssessedTax.units.USD
