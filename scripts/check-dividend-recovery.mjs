@@ -1,4 +1,5 @@
 import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
+import YAML from 'yaml';
 import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import {execFileSync} from 'node:child_process';
 const baseline=process.argv.includes('--baseline');
 const read=p=>baseline?execFileSync('git',['show',`origin/main:${p}`],{encoding:'utf8',maxBuffer:4000000}):fs.readFileSync(p,'utf8');
@@ -107,3 +108,32 @@ for(const manual of [false,true]) {
 console.log('PASS: actual normalizer→positive-amount warning→actual payout calculation; inactive/no-target ETF readback scope');
 
 {const f=await collectorFixture('no-events'),r=await f.run();assert.equal(r.stockNoEvents,1);assert.equal(r.stockManual,1);assert.equal(r.stockUpdated,0);assert.equal(r.stockUnverified,0);assert.ok(!f.calls.includes('saveDividendSettings'));assert.equal(f.cache['333333'].perShare,7);}
+
+
+// Verify the production schedule/manual approval policy rather than only a
+// successful mocked GAS refresh. This should never silently mark a skipped
+// manual run as a successful dividend update.
+const dividendWorkflow=YAML.parse(fs.readFileSync('.github/workflows/dividend-source-refresh.yml','utf8'));
+assert.equal(dividendWorkflow.name,'dividend-source-refresh');
+assert.deepEqual(dividendWorkflow.on.schedule,[{cron:'30 0 5,10 * *'}]);
+assert.equal(dividendWorkflow.on.workflow_dispatch.inputs.confirm_refresh.type,'string');
+assert.equal(dividendWorkflow.on.workflow_dispatch.inputs.confirm_refresh.default,'');
+assert.equal(dividendWorkflow.permissions.contents,'read');
+assert.equal(dividendWorkflow.concurrency['cancel-in-progress'],false);
+const dividendJob=dividendWorkflow.jobs.refresh;
+assert.equal(dividendJob.environment,'portfolio-production-gas');
+assert.match(dividendJob.if,/github\.repository == 'cyyoung111-dev\/portfolio'/);
+assert.match(dividendJob.if,/github\.ref == 'refs\/heads\/main'/);
+assert.match(dividendJob.if,/github\.event_name == 'schedule'/);
+assert.match(dividendJob.if,/github\.event_name == 'workflow_dispatch'/);
+assert.doesNotMatch(dividendJob.if,/workflow_run|pull_request|push/);
+const approveStep=dividendJob.steps.find(s=>s.name==='Require explicit approval for manual dividend refresh');
+assert.ok(approveStep,'manual runs must not mutate DIVDATA unless explicitly approved');
+assert.equal(approveStep.if,"github.event_name == 'workflow_dispatch'");
+assert.match(approveStep.run,/\[ "\$CONFIRM_REFRESH" != 'REFRESH' \]/);
+assert.match(approveStep.run,/exit 1/);
+assert.ok(dividendJob.steps.some(s=>s.run==='node scripts/run-dividend-source-refresh.mjs'));
+assert.ok(dividendJob.steps.some(s=>s.uses==='actions/checkout@v7'
+ && s.with?.['persist-credentials']===false));
+assert.equal(dividendJob.steps.filter(s=>s.run==='node scripts/run-dividend-source-refresh.mjs').length,1);
+console.log('PASS: monthly official ETF dividend refresh requires protected environment; manual REFRESH approval; source readback');
