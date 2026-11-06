@@ -63,6 +63,20 @@ function extractFact(facts,key,anchor){
 const rate=(numer,denom)=>Number.isFinite(numer)&&Number.isFinite(denom)&&denom>0
  ?Math.round(numer/denom*1e6)/1e4:null;
 
+// A valid 10-K anchor alone is NOT a verified financial statement. Require
+// every field needed for sales/profit, reported FCF and annual diluted EPS.
+// Optional cash and repurchases remain visible as missing, without turning
+// a fully comparable report into a failure.
+const REQUIRED_ANNUAL=Object.freeze([
+ 'revenue','operatingIncome','netIncome','operatingCashFlow',
+ 'capex','assets','equity','epsDiluted'
+]);
+export function classifySecAnnualFacts(report){
+ if(!report)return 'NO_SAME_FILING_ANNUAL_FACTS';
+ return REQUIRED_ANNUAL.every(key=>Number.isFinite(report.values?.[key]?.value))
+  ?'VERIFIED':'PARTIAL_SEC_ANNUAL_FACTS';
+}
+
 export function extractSecAnnualFacts(doc,symbol,{now=new Date()}={}){
  const item=AI_NINE.find(x=>x.symbol===symbol);
  if(!item||!(now instanceof Date)||!Number.isFinite(now.getTime())
@@ -118,14 +132,14 @@ export async function readAiNineAnnualSecFacts({
     if(Number.isFinite(len)&&len>12000000)status='SEC_BODY_TOO_LARGE';
     else{
      report=extractSecAnnualFacts(await response.json(),item.symbol,{now:now()});
-     status=report?'VERIFIED':'NO_SAME_FILING_ANNUAL_FACTS';
+     status=classifySecAnnualFacts(report);
     }
    }
   }catch{status='FETCH_FAILED';}
   reports[i]=report;statuses[i]={symbol:item.symbol,status};
   if(i<AI_NINE.length-1)await new Promise(resolve=>setTimeout(resolve,250));
  }
- const result={verified:reports.filter(Boolean).length,total:9,
+ const result={verified:statuses.filter(x=>x.status==='VERIFIED').length,total:9,
   reports:reports.filter(Boolean),statuses};
  notify(onDiagnostic,{kind:'AI9_ANNUAL_SEC_READ',verified:result.verified,total:9,
   statuses:statuses.map(x=>({symbol:x.symbol,status:x.status}))});
