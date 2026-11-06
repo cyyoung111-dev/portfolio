@@ -32,9 +32,12 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   }
   // Start independent public evidence loading while NH reference recovery runs.
   // Failure is optional and must not delay or cancel the core briefing.
-  const financialTask=lateTest?Promise.resolve(null)
-    :Promise.resolve().then(()=>loadFinancialEvidence(window.date,
-      {token:githubToken,repository,fetchImpl,now})).catch(()=>null);
+  const financialState={value:null};
+  // Never await optional finance before collecting market data: only use it
+  // if the independent request has resolved by the final render checkpoint.
+  if(!lateTest)void Promise.resolve().then(()=>loadFinancialEvidence(window.date,
+    {token:githubToken,repository,fetchImpl,now}))
+    .then(value=>{financialState.value=value??null;},()=>{});
   let message;
   let reference=await loadReference(window.date,{token:githubToken,repository,fetchImpl,now});
   const hadCapture=Boolean(reference);
@@ -88,8 +91,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
   if(!lateTest)console.log(JSON.stringify({kind:'NH_NIGHT_REFERENCE_CHAIN',
     date:window.date,capture:hadCapture?'VERIFIED':'UNAVAILABLE',
     source:referenceOrigin,recovery:recoveryDiagnostic}));
-  const financialEvidence=await financialTask;
-  const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,financialEvidence,
+  const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,
+    financialEvidenceNow:()=>financialState.value,
     referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
     onSourceDiagnostic:entry=>{
       const allowed=['CONFIG_MISSING','ENDPOINT_INVALID','EXPECTED_DATE_INVALID','HTTP_UNAVAILABLE',
