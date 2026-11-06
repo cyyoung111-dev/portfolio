@@ -27,13 +27,16 @@ export function testWindow(instant){
  return {allowed:!!p&&p.date===DATE&&p.minute>=360&&p.minute<630,
   date:p?.date||null};
 }
-export function authorizeSaturday(eventName,event,instant){
+export function authorizeSaturday(eventName,event,instant,additionVerified=false){
  if(eventName!=='push'||event?.repository?.full_name!==REPO
   ||event?.ref!=='refs/heads/main'||!testWindow(instant).allowed)return false;
- // Only the one-use workflow-file push authorizes a Saturday send. GitHub's
- // paths filter enforces this, while the exact-file check narrows further.
- return Array.isArray(event?.commits)&&event.commits.length===1
-  &&event.commits[0]?.added?.includes(ROUTE)===true;
+ // Actions push payload does not contain the commit added/modified arrays.
+ // The trusted workflow verifies HEAD^/before, HEAD/after and the exact
+ // workflow-file 'A' diff from the checked-out immutable commit.
+ return additionVerified===true
+  &&typeof event.before==='string'&&/^[0-9a-f]{40}$/.test(event.before)
+  &&typeof event.after==='string'&&/^[0-9a-f]{40}$/.test(event.after)
+  &&event.before!==event.after;
 }
 export function countVerified(date,rows=[],now=new Date()){
  return MORNING_SERIES.filter(item=>
@@ -125,7 +128,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   if(process.env.GITHUB_REPOSITORY!==REPO
    ||process.env.GITHUB_REF!=='refs/heads/main'
    ||process.env.GITHUB_RUN_ATTEMPT!=='1'
-   ||!authorizeSaturday(process.env.GITHUB_EVENT_NAME,event,new Date()))
+   ||!authorizeSaturday(process.env.GITHUB_EVENT_NAME,event,new Date(),
+       process.env.SATURDAY_WORKFLOW_ADDITION_VERIFIED==='true'))
    throw Error('SATURDAY_TEST_EVENT_DENIED');
   if(process.argv[2]==='prepare'){
    const prepared=await prepareSaturday({repository:REPO,gitToken:process.env.GITHUB_TOKEN});
