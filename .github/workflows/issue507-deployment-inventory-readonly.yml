@@ -2,13 +2,18 @@ name: issue507 GAS deployment inventory — read only
 
 on:
   workflow_dispatch:
+  # An inventory read can be triggered exactly once by promotion of this
+  # audited workflow itself; other main pushes remain excluded.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/issue507-deployment-inventory-readonly.yml']
 
 permissions:
   contents: read
 
 jobs:
   audit:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 5
