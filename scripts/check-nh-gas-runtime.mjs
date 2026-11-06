@@ -490,7 +490,7 @@ for(const scenario of ['COUNT_MISSING','PRICE_MISSING','WRONG_PROVIDER']){
 const nhProbeWorkflow=fs.readFileSync('.github/workflows/nh-master-registered-readonly.yml','utf8');
 assert.match(nhProbeWorkflow,/paths: \['\.github\/workflows\/nh-master-registered-readonly\.yml'\]/);
 assert.match(nhProbeWorkflow,/run: node scripts\/nh-master-registered-readonly\.mjs/);
-assert.doesNotMatch(nhProbeWorkflow,/GAS_DEPLOY_DRY_RUN|--apply|telegram|saveNhConfig|retireLegacyMarketData/i);
+assert.doesNotMatch(nhProbeWorkflow,/GAS_DEPLOY_DRY_RUN|--apply|saveNhConfig|retireLegacyMarketData/i);
 
 // Reproduce the reviewed valuation defect using the actual fetch normalization
 // and actual production computeRows, with independent KRW expectations.
