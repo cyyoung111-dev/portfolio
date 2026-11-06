@@ -660,14 +660,15 @@ for(let ts=Date.parse('2026-09-22T00:00:00Z');
   chartDates.push(d.toISOString().slice(0,10));
 }
 const fakeChart=({split=false,truncate=false,wrongSymbol=false,
- gap=false,lateStart=false}={})=>({
+ gap=false,lateStart=false,missingExactEnd=false}={})=>({
  chart:{result:[{
   meta:{symbol:wrongSymbol?'MSFT':'AAPL',
    exchangeTimezoneName:'America/New_York'},
   timestamp:chartDates.filter(d=>
    (!truncate||d<='2026-11-03')&&
    (!lateStart||d>='2026-10-05')&&
-   (!gap||(d<='2026-09-28'||d>='2026-11-05'))).map(stamp),
+   (!gap||(d<='2026-09-28'||d>='2026-11-05'))&&
+   (!missingExactEnd||d!=='2026-11-05')).map(stamp),
   events:split?{splits:{event:{
    date:stamp('2026-10-20'),numerator:10,denominator:1}}}:{}
  }]}}
@@ -695,6 +696,12 @@ assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
 const sourceNoSplitProof=await readYahooSplitProof('AAPL',end,'2026-11-05',{
  fetchImpl:async()=>({ok:true,json:async()=>fakeChart()})});
 assert.equal(sourceNoSplitProof?.sharesPerOldShare,1);
+const missingEndButLater=fakeChart({missingExactEnd:true});
+missingEndButLater.chart.result[0].timestamp.push(stamp('2026-11-06'));
+assert.equal(await readYahooSplitProof('AAPL',end,'2026-11-05',{
+ fetchImpl:async()=>({ok:true,json:async()=>missingEndButLater})}),null,
+ 'later price cannot substitute the missing exact quote date in split proof');
+
 
 assert.equal(selectYearEndOutstandingShares(annualShares,
  extractSecAnnualFacts(annualShares,'AAPL',{now:fyNow()})).shares,2000000000);
