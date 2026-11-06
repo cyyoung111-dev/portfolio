@@ -206,9 +206,11 @@ export async function inspectGasDeploymentsReadOnly({
    entry.detailVersionVerified=Number.isSafeInteger(version)&&version>=1;
    entry.detailVersionConflict=entry.versionVerified&&
     entry.detailVersionVerified&&entry.versionNumber!==version;
-   if(!entry.detailVersionVerified&&!entry.testHeadVerified)detail.stillUnversioned++;
-   else if(!entry.versionVerified)detail.recoveredVersion++;
-   else if(entry.detailVersionConflict)detail.versionConflict++;
+   if(!entry.testHeadVerified){
+    if(!entry.detailVersionVerified)detail.stillUnversioned++;
+    else if(!entry.versionVerified)detail.recoveredVersion++;
+    else if(entry.detailVersionConflict)detail.versionConflict++;
+   }
   }
  }
  // Immutable version source is inspected only in memory. Never print source,
