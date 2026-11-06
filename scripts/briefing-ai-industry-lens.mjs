@@ -1,4 +1,5 @@
 import {selectCurrentFuturesRows} from './closing-current-futures.mjs';
+import {formatHowardMarksView} from './briefing-howard-marks-risk.mjs';
 import {validClosingStockReference} from './closing-extra-daily-sources.mjs';
 // Evidence-bounded AI value-chain commentary for the 17:00 closing briefing.
 // Market-price proxies are NOT direct evidence of hyperscaler CAPEX or AI ROI.
@@ -15,6 +16,11 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
  const soxMatches=secondary.filter(x=>x?.label==='SOX'&&x.role==='NON_NH_REFERENCE_ONLY'
    &&(valid(x,usDate,'FRED_NASDAQSOX')||valid(x,usDate,'YAHOO_SOX_DAILY_REFERENCE')));
  const sox=soxMatches.length===1?soxMatches[0]:null;
+ const vixMatches=secondary.filter(x=>x?.label==='VIX'
+  &&x.role==='NON_NH_REFERENCE_ONLY'
+  &&['CBOE_VIX_DAILY','FRED_VIXCLS','YAHOO_VIX_DAILY_REFERENCE'].includes(x.source)
+  &&valid(x,usDate,x.source));
+ const vix=vixMatches.length===1?vixMatches[0]:null;
  const contracts=[
   ['SAMSUNG',date,'삼성전자','005930.KS'],
   ['SKHYNIX',date,'SK하이닉스','000660.KS'],
@@ -65,7 +71,7 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
    +(confirmed.length<4?' 개별주 반응을 업황 확정 근거로 사용하지 않습니다.':' 기업별 실적·수주 확인은 별도 필요합니다.'));
  lines.push('• AI 수요 검증: 빅테크 CAPEX·클라우드 매출·GPU 주문 데이터 미연결.'
    +' AI 설비투자 → HBM/GPU 수요 → 네트워크·광통신·전력·냉각 → AI 소프트웨어 수익화의 연결이 핵심.');
- lines.push('■ 투자 판단 — 4가지 원칙 적용 (인물의 당일 의견이 아님)');
+ lines.push('■ 투자 판단 — 5인 투자 원칙 적용 (인물의 당일 의견이 아님)');
  lines.push('• 버핏: GPU/HBM의 점유율보다 경쟁우위·투하자본수익률(ROIC)·유지 CAPEX 차감 후 소유주 현금흐름을 확인.');
  lines.push('• 다모다란: AI 매출 성장률과 재투자·영업마진을 현금흐름으로 환산해 할인율로 평가.'
    +' 시장가격이 요구하는 성장 가정과 비교.');
@@ -73,6 +79,7 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
    +' 실제 계좌별 중복 노출은 별도 검산.');
  lines.push('• 피터 린치: 수요·이익 성장과 지불하는 PER을 함께 비교.'
    +' 메모리 업황 최고점의 일시적 EPS로 PEG·저평가를 단정하지 않음.');
+ lines.push(formatHowardMarksView({vix,expectedDate:usDate}));
  lines.push('■ 조건부 시나리오 · 다음 확인');
  lines.push('• 긍정: 빅테크 CAPEX 대비 AI 매출·FCF가 개선되고 HBM 수주·마진이 유지되면'
    +' 반도체 이익 지속성에 우호적.');
