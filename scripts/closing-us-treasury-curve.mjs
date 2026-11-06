@@ -43,9 +43,13 @@ export function verifyTreasuryCurve(date,rows=[]){
   return [{id:x.id,label:x.label,date:x.date,value:x.value,source:x.source}];
  });
 }
-export async function readTreasuryCurve(date,{fetchImpl=fetch}={}){
+export async function readTreasuryCurve(date,{fetchImpl=fetch,onDiagnostic=()=>{}}={}){
  const expected=expectedMorningDate('SPX',date);
- if(!expected)return [];
+ const emit=(id,status)=>{try{onDiagnostic({kind:'FRED_TREASURY_READ',id,status});}catch{}};
+ if(!expected){
+  for(const rate of RATES)emit(rate.id,'SESSION_UNVERIFIED');
+  return [];
+ }
  const from=new Date(Date.parse(expected+'T00:00:00Z')-21*86400000).toISOString().slice(0,10);
  const found=await Promise.all(RATES.map(async entry=>{
   const url=new URL('https://fred.stlouisfed.org/graph/fredgraph.csv');
@@ -55,11 +59,15 @@ export async function readTreasuryCurve(date,{fetchImpl=fetch}={}){
   try{
    const response=await fetchImpl(url.href,{redirect:'error',
     headers:{accept:'text/csv'},signal:AbortSignal.timeout(6500)});
-   if(!response?.ok)return null;
+   if(!response?.ok){emit(entry.id,'HTTP_UNAVAILABLE');return null;}
    const type=response.headers?.get?.('content-type')||'';
-   if(type&&!/csv|plain|octet-stream/i.test(type))return null;
-   return parseTreasuryFredCsv(entry.id,expected,await response.text());
-  }catch{return null;}
+   if(type&&!/csv|plain|octet-stream/i.test(type)){
+    emit(entry.id,'CONTENT_TYPE_INVALID');return null;
+   }
+   const row=parseTreasuryFredCsv(entry.id,expected,await response.text());
+   emit(entry.id,row?'VERIFIED':'NO_EXACT_VALID_ROW');
+   return row;
+  }catch{emit(entry.id,'NETWORK_OR_PARSE_FAILED');return null;}
  }));
  return found.filter(Boolean);
 }
