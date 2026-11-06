@@ -75,15 +75,13 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
  const companyViews=formatSemiconductorCompanyFiveViews({
   date,period:'close',stocks,financialEvidence
  });
- if(companyViews.length){
-  lines.push(...companyViews);
-  lines.push(formatHowardMarksView({vix,expectedDate:usDate}));
- }
+ if(companyViews.length)lines.push(...companyViews);
  else{
   lines.push('■ 투자 판단 — 5인 투자 원칙 적용 (인물의 당일 의견이 아님)');
   lines.push('• 버핏: ROIC·소유주 FCF, 애크먼: 재무여력·배당·재투자 확인.');
   lines.push('• 린치: TTM EPS/PER, 다모다란: DCF·PBR, 막스: 반도체 업황·손실 위험 검증 유보.');
  }
+ lines.push(formatHowardMarksView({vix,expectedDate:usDate}));
  lines.push('■ 조건부 시나리오 · 다음 확인');
  lines.push('• 긍정: 빅테크 CAPEX 대비 AI 매출·FCF가 개선되고 HBM 수주·마진이 유지되면'
    +' 반도체 이익 지속성에 우호적.');
