@@ -80,7 +80,7 @@ const prose=panel.join('\n');
 assert.match(prose,/미국 TTM 2\/9·FY만 1\/9·FY PBR 2\/9/);
 assert.match(prose,/MSFT TTM FCF \$40\.0B · CAPEX\/OCF 60%/);
 assert.match(prose,/NVDA TTM FCF \$33\.0B/);
-assert.match(prose,/FY PBR 75\.0배/);
+assert.match(prose,/FY BPS \$10\.00 \/ 조정 PBR 75\.0배/);
 assert.doesNotMatch(prose,/META FY PBR/);
 assert.ok(prose.length<=680);
 
