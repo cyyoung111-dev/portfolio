@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import {buildAiFinancialEvidence,formatAiFinancialEvidence,collectAiFinancialEvidence}
+import {buildAiFinancialEvidence,formatAiFinancialEvidence}
  from './briefing-financial-evidence.mjs';
+import {collectAiFinancialEvidence}
+ from './collect-ai-financial-evidence-readonly.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
 
