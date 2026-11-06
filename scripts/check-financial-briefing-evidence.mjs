@@ -143,7 +143,7 @@ const morningWithEvidence=formatFullMorningBriefing(asOfKst,null,[],{
  now:new Date('2026-11-05T22:40:00Z'),financialEvidence:verified});
 assert.ok(morningWithEvidence.length<=3900);
 assert.match(morningWithEvidence,/삼성전자·SK하이닉스 5인 정량 관점/);
-assert.match(morningWithEvidence,/• 막스:/);
+assert.match(morningWithEvidence,/• 하워드 막스:/);
 if(morningWithEvidence.includes('■ 공시 재무 근거'))
  assert.match(morningWithEvidence,/미국 TTM 2\/9/);
 else assert.equal(morningWithEvidence,morningNoEvidence,
@@ -167,7 +167,7 @@ assert.equal(formatClose(...closeArgs,{...verified,asOfKst:'2026-11-05'}),
  closeNoEvidence);
 assert.equal(formatClose(...closeArgs,{...verified,usSessionDate:'2026-11-04'}),
  closeNoEvidence);
-assert.match(closeWithEvidence,/• 막스:/);
+assert.match(closeWithEvidence,/• 하워드 막스:/);
 if(closeWithEvidence.includes('■ 공시 재무 근거'))
  assert.match(closeWithEvidence,/미국 TTM 2\/9/);
 else assert.equal(closeWithEvidence,closeNoEvidence);
