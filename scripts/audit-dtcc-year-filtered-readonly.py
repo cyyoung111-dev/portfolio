@@ -66,6 +66,7 @@ def select_relevant_events(today_rows, prior_ids):
 
 def combine_relevant_archives(named_row_sets):
     held={}
+    global_fingerprints={}
     raw_rows=0
     days=[]
     for day,rows in named_row_sets:
@@ -73,6 +74,9 @@ def combine_relevant_archives(named_row_sets):
             raise ValueError("DTCC_DATES_NOT_ASCENDING")
         days.append(day)
         raw_rows+=len(rows)
+        # Verify every public record ID across EVERY archive before applying
+        # the issuer/RED relevance filter. Identical redisclosures are fine.
+        audit.register_source_ids(rows,global_fingerprints)
         found=select_relevant_events(rows,held)
         for ident,row in found.items():
             if ident in held and held[ident]!=row:
@@ -87,30 +91,8 @@ def process_history(named_row_sets):
     rows,raw_rows,all_dates=combine_relevant_archives(named_row_sets)
     if not all_dates:
         raise ValueError("DTCC_ARCHIVES_EMPTY")
-    observations={sym:[] for sym in audit.ALL}
-    # Execution Timestamp, not reporting/archive date, determines an observed
-    # trade day. Late publication and weekend/holiday trades can otherwise be
-    # lost because there was no ZIP published on the execution date.
-    latest_file=dt.date.fromisoformat(all_dates[-1])
-    executed=set()
-    for row in rows:
-        if audit.present(row,"Action type")!="NEWT":
-            continue
-        if not relevant_anchor(row):continue
-        stamp=audit.parse_utc(audit.present(row,"Execution Timestamp"))
-        if stamp and stamp.date()<=latest_file:
-            executed.add(stamp.date().isoformat())
-    for day in sorted(executed):
-        pairs=audit.get_candidates(rows,day)
-        for symbol in audit.ALL:
-            trades=pairs.get(symbol,[])
-            if not trades:continue
-            levels=sorted(t["reportedContractSpreadBp"] for t in trades)
-            import statistics
-            observations[symbol].append({
-                "date":day,"count":len(levels),
-                "medianReportedContractBp":float(statistics.median(levels))
-            })
+    # The very same tested oracle powers rolling (15-120 archive) history.
+    observations=audit.execution_observations(rows,all_dates[-1])
     first_archive=dt.date.fromisoformat(all_dates[0])
     summaries=[]
     for symbol in audit.ALL:
@@ -270,6 +252,29 @@ def selftest():
             raise AssertionError("contradictory same-ID corrections were accepted")
         except ValueError as e:
             assert str(e)=="DTCC_SAME_ID_CONFLICT_ON_DAY"
+    # Cross-file duplicate correction ID referencing two different roots:
+    # one related and one not on the CDS watchlist. The global registry must
+    # reject both orderings before the issuer relevance filter is reached.
+    unrelated=mock_row("3002")
+    unrelated["Underlier ID-Leg 1"]="NOT_A_WATCHED_RED"
+    unrelated["Underlying Asset Name"]="Other Issuer Inc."
+    cr1=mock_row("4000",day="2025-11-06",
+                 action="CORR",original="1001")
+    cr2=mock_row("4000",day="2025-11-07",
+                 action="CORR",original="3002")
+    for item in (cr1,cr2):
+        item["Underlier ID-Leg 1"]=""
+        item["Underlying Asset Name"]=""
+    for d1,d2 in ((cr1,cr2),(cr2,cr1)):
+        try:
+            process_history([
+                ("2025-11-05",[a,unrelated]),
+                ("2025-11-06",[d1]),
+                ("2025-11-07",[d2])])
+            raise AssertionError("conflicting cross-file report ID accepted")
+        except ValueError as exc:
+            assert str(exc)=="DTCC_GLOBAL_ID_PAYLOAD_CONFLICT"
+
 
     # Trade executed 11/06 but first disseminated in 11/07 archive; there is
     # no 11/06 archive, yet 11/06 must still have a trade observation.
