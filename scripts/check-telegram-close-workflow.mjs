@@ -509,8 +509,8 @@ const injectedMorning=await prepareMorning({
  loadReference:async()=>null,loadFinancialEvidence:async(date)=>{
   assert.equal(date,day);return financeProof;
  },
- run:async ({financialEvidence,send})=>{
-  receivedFinance=financialEvidence;
+ run:async ({financialEvidenceNow,send})=>{
+  receivedFinance=financialEvidenceNow();
   await send('','','SYNTHETIC OPTIONAL MORNING REPORT');
   return {referenceSource:'NONE'};
  }
@@ -522,13 +522,33 @@ const omittedMorning=await prepareMorning({
  fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})}),
  loadReference:async()=>null,
  loadFinancialEvidence:async()=>{throw Error('artifact unavailable');},
- run:async ({financialEvidence,send})=>{
-  assert.equal(financialEvidence,null);
+ run:async ({financialEvidenceNow,send})=>{
+  assert.equal(financialEvidenceNow(),null);
   await send('','','SYNTHETIC BASELINE MORNING REPORT');
   return {referenceSource:'NONE'};
  }
 });
 assert.equal(omittedMorning.ready,true);
+// A never-resolving optional loader must not postpone the market send path.
+const neverFinance=()=>new Promise(()=>{});
+const blocked=()=>new Promise(resolve=>setTimeout(()=>resolve('BLOCKED'),1500));
+const quickClose=await Promise.race([
+ prepareClose({...options,loadFinancialEvidence:neverFinance}),blocked()]);
+assert.equal(quickClose.ready,true,'17:00 market prepare must never await finance');
+assert.equal(quickClose.reportInputs.financialEvidence,undefined);
+const quickMorning=await Promise.race([
+ prepareMorning({
+  now:morningNow,githubToken:'SYNTHETIC_TEST_TOKEN',
+  repository:env.GITHUB_REPOSITORY,
+  fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})}),
+  loadReference:async()=>null,loadFinancialEvidence:neverFinance,
+  run:async ({financialEvidenceNow,send})=>{
+   assert.equal(financialEvidenceNow(),null);
+   await send('','','SYNTHETIC NONBLOCKING MORNING REPORT');
+   return {referenceSource:'NONE'};
+  }
+ }),blocked()]);
+assert.equal(quickMorning.ready,true,'07:40 market prepare must never await finance');
 
 assert.doesNotMatch(fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8'),/query1[.]finance[.]yahoo[.]com/);
 console.log('Closing Telegram: independent NH/domestic EOD gates, manual-rescue cron and claim guard PASS');
