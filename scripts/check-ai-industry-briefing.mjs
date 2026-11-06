@@ -6,6 +6,7 @@ import {AI_NINE,readAiNineDailyPrices,readAiNineSecFilings,
 import {runAiNineSourceAudit} from './audit-ai-nine-readonly.mjs';
 import {summarizeAiNineHistory,readAiNineHistoricalTrends} from './briefing-ai-nine-trends.mjs';
 import {extractSecAnnualFacts,classifySecAnnualFacts,readAiNineAnnualSecFacts} from './briefing-ai-nine-sec-financials.mjs';
+import {extractSecTtmFacts,readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -477,5 +478,100 @@ const deniedSec=await readAiNineAnnualSecFacts({
 });
 assert.equal(deniedSec.verified,0);
 assert.ok(deniedSec.statuses.every(x=>x.status==='SEC_HTTP_UNAVAILABLE'));
+
+
+/* Issue #826: SEC 10-Q / TTM source-only invariants. */
+const later=()=>new Date('2027-02-01T12:00:00Z');
+const buildTtmFixture=({fp='Q1',end='2026-12-26',ytdStart='2026-09-27',
+ priorEnd='2025-12-27',priorStart='2025-09-28',quarterAccn='0000320193-27-000012'}={})=>{
+ const doc=structuredClone(secPayload),filed='2027-01-30';
+ const add=(value,opts={})=>({
+  val:value,form:'10-Q',fp,accn:opts.accn??quarterAccn,
+  end:opts.end??end,filed:opts.filed??filed,
+  ...opts.instant?{}:{start:opts.start??ytdStart}
+ });
+ doc.facts['us-gaap'].Assets.units.USD.push(add(5500000000,{instant:true}));
+ const names={
+  revenue:['RevenueFromContractWithCustomerExcludingAssessedTax',850000000,700000000],
+  operatingIncome:['OperatingIncomeLoss',210000000,180000000],
+  netIncome:['NetIncomeLoss',170000000,160000000],
+  operatingCashFlow:['NetCashProvidedByUsedInOperatingActivities',230000000,190000000],
+  capex:['PaymentsToAcquirePropertyPlantAndEquipment',90000000,80000000]
+ };
+ for(const [tag,cur,prev] of Object.values(names)){
+  doc.facts['us-gaap'][tag].units.USD.push(add(cur));
+  doc.facts['us-gaap'][tag].units.USD.push(add(prev,{start:priorStart,end:priorEnd}));
+ }
+ return doc;
+};
+const q1=buildTtmFixture();
+const ttm1=extractSecTtmFacts(q1,'AAPL',{now:later()});
+assert.equal(ttm1.status,'VERIFIED_TTM');
+assert.equal(ttm1.report.periodEnd,'2026-12-26');
+assert.equal(ttm1.report.fields.revenue,3150000000);
+assert.equal(ttm1.report.fields.operatingCashFlow,840000000);
+assert.equal(ttm1.report.fields.capex,410000000);
+assert.equal(ttm1.report.calculated.freeCashFlow,430000000);
+assert.equal(ttm1.report.unavailable.epsTtm,'WEIGHTED_AVERAGE_SHARES_NOT_DERIVED');
+assert.equal(ttm1.report.provenance.capex.quarterAccession,'0000320193-27-000012');
+const ttmBefore=extractSecTtmFacts(q1,'AAPL',{
+ now:new Date('2026-11-06T15:00:00Z')});
+assert.equal(ttmBefore.status,'FY_ONLY','future 10-Q may not enter a TTM');
+const noCompare=structuredClone(q1);
+noCompare.facts['us-gaap'].PaymentsToAcquirePropertyPlantAndEquipment.units.USD.pop();
+const ttmMissing=extractSecTtmFacts(noCompare,'AAPL',{now:later()});
+assert.equal(ttmMissing.status,'PARTIAL_TTM');
+assert.equal(ttmMissing.report.fields.capex,null);
+assert.equal(ttmMissing.report.calculated.freeCashFlow,null);
+const wrongPeriod=structuredClone(q1);
+wrongPeriod.facts['us-gaap'].NetCashProvidedByUsedInOperatingActivities.units.USD
+ .at(-1).start='2025-10-20';
+assert.equal(extractSecTtmFacts(wrongPeriod,'AAPL',{now:later()})
+ .report.fields.operatingCashFlow,null);
+const wrongAccn=structuredClone(q1);
+wrongAccn.facts['us-gaap'].RevenueFromContractWithCustomerExcludingAssessedTax.units.USD
+ .at(-1).accn='0000320193-25-000001';
+assert.equal(extractSecTtmFacts(wrongAccn,'AAPL',{now:later()}).report.fields.revenue,null);
+const duplicateCurrent=structuredClone(q1);
+duplicateCurrent.facts['us-gaap'].PaymentsToAcquirePropertyPlantAndEquipment.units.USD
+ .push({...duplicateCurrent.facts['us-gaap'].PaymentsToAcquirePropertyPlantAndEquipment.units.USD.at(-2),
+ val:99000000});
+assert.equal(extractSecTtmFacts(duplicateCurrent,'AAPL',{now:later()}).report.fields.capex,null,
+ 'contradictory same-quarter values must fail closed');
+const baseAnnualOnly=extractSecTtmFacts(secPayload,'AAPL',{now:later()});
+assert.equal(baseAnnualOnly.status,'FY_ONLY');
+const futureFilings=extractSecTtmFacts(q1,'AAPL',{
+ now:new Date('2026-11-02T12:00:00Z')});
+assert.equal(futureFilings.status,'NO_REPORTED_ANNUAL_ANCHOR');
+const q3=buildTtmFixture({fp:'Q3',end:'2027-06-26',ytdStart:'2026-09-27',
+ priorEnd:'2026-06-27',priorStart:'2025-09-28',quarterAccn:'0000320193-27-000041'});
+assert.equal(extractSecTtmFacts(q3,'AAPL',{now:new Date('2027-08-01T12:00:00Z')}).status,
+ 'VERIFIED_TTM','Q3 uses nine-month YTD, not just 3-month quarter');
+let ttmCalls=0;
+const ttmNoSecret=await readAiNineTtmSecFacts({userAgent:'',fetchImpl:async()=>{ttmCalls++;throw Error('NO_NETWORK');}});
+assert.equal(ttmCalls,0);
+assert.equal(ttmNoSecret.verified,0);
+const ttmAll=await readAiNineTtmSecFacts({
+ userAgent:'PortfolioResearch contact@example.org',now:later,
+ fetchImpl:async(url,req)=>{
+  ttmCalls++;
+  const item=AI_NINE.find(x=>url==='https://data.sec.gov/api/xbrl/companyfacts/CIK'+x.cik+'.json');
+  assert.ok(item);
+  assert.equal(req.headers['user-agent'],'PortfolioResearch contact@example.org');
+  const doc=buildTtmFixture();doc.cik=Number(item.cik);
+  return {ok:true,headers:{get:k=>k==='content-type'?'application/json':null},
+   json:async()=>doc};
+ }
+});
+assert.equal(ttmCalls,9);
+assert.equal(ttmAll.verified,9);
+assert.ok(ttmAll.statuses.every(x=>x.status==='VERIFIED_TTM'));
+assert.ok(ttmAll.reports.every(x=>x.calculated.freeCashFlow===430000000));
+const ttmDenied=await readAiNineTtmSecFacts({
+ userAgent:'PortfolioResearch contact@example.org',
+ fetchImpl:async()=>({ok:false,headers:{get:()=>null}})
+});
+assert.equal(ttmDenied.verified,0);
+assert.ok(ttmDenied.statuses.every(x=>x.status==='SEC_HTTP_UNAVAILABLE'));
 
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
