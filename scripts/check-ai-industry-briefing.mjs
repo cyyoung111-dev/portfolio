@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
 import {AI_NINE,readAiNineDailyPrices,readAiNineSecFilings,
@@ -9,6 +10,8 @@ import {extractSecAnnualFacts,classifySecAnnualFacts,readAiNineAnnualSecFacts} f
 import {extractSecTtmFacts,readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
 import {selectYearEndOutstandingShares,extractAnnualValueSnapshot,readAiNineAnnualValueSnapshots,readYahooSplitProof} from './briefing-ai-nine-sec-values.mjs';
 import {DART_SEMICONDUCTORS,extractDartDomesticBps,calculateDomesticReferencePbr,readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs';
+import {COMPANY_CDS_WATCHLIST,validateCompanyCdsPoint,computeCompanyCdsTrend,buildCompanyCdsCoverage} from './briefing-company-cds-sources.mjs';
+import {auditDtccCreditIndex} from './audit-dtcc-credit-index-readonly.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -875,4 +878,151 @@ const dartBadKey=await readTwoDomesticDartBps({
 assert.equal(dartInvalidCalls,1,
  'key rejection must stop without trying older periods or other issuers');
 assert.equal(dartBadKey.statuses[0].status,'DART_KEY_REJECTED');
+
+/* Corporate 5Y CDS credit risk source contract. Never substitute sovereign,
+   equity ticker, standard coupon, upfront amount or ICE EOD clean price. */
+assert.equal(COMPANY_CDS_WATCHLIST.length,11);
+assert.deepEqual(COMPANY_CDS_WATCHLIST.slice(-2).map(x=>x.symbol),['005930','000660']);
+const unmapped=buildCompanyCdsCoverage({asOf:'2026-11-06'});
+assert.equal(unmapped.total,11);
+assert.equal(unmapped.verifiedQuotes,0);
+assert.ok(unmapped.statuses.every(x=>x.status==='REFERENCE_ENTITY_NOT_MAPPED'));
+const msftCds=COMPANY_CDS_WATCHLIST.find(x=>x.symbol==='MSFT');
+const cdsId='RED:ABCDEF123';
+const dealer={symbol:'MSFT',referenceEntityId:cdsId,
+ referenceType:'SINGLE_NAME_CORPORATE',seniority:'SENIOR_UNSECURED',
+ currency:'USD',restructuringClause:'XR14',tenor:'5Y',unit:'bp',
+ field:'SPREAD',spreadDefinition:'RUNNING_MARKET_SPREAD',
+ priceType:'MID',source:'LSEG_5Y_PAR_MID',
+ spreadBp:45,date:'2026-11-05',sourceRecordId:'MOCK-01'};
+const checkedCds=validateCompanyCdsPoint(msftCds,dealer,{
+ asOf:'2026-11-06',approvedReferenceId:cdsId});
+assert.equal(checkedCds.status,'DEALER_PAR_QUOTE');
+assert.equal(checkedCds.point.spreadBp,45);
+assert.equal(validateCompanyCdsPoint(msftCds,dealer,{
+ approvedReferenceId:null}).status,'REFERENCE_ENTITY_NOT_MAPPED');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,referenceType:'SOVEREIGN'},{
+ approvedReferenceId:cdsId}).status,'CDS_CONTRACT_MISMATCH');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,referenceEntityId:'RED:DIFFERENT1'},{
+ approvedReferenceId:cdsId}).status,'REFERENCE_ENTITY_MISMATCH');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,source:'ICE_EOD_PRICE',spreadBp:101.2},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,field:'FIXED_COUPON'},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,field:'UPFRONT'},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,date:'2026-10-20'},{
+ approvedReferenceId:cdsId}).status,'CDS_STALE');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,currency:'EUR'},{
+ approvedReferenceId:cdsId}).status,'CDS_CONTRACT_MISMATCH');
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,tenor:'3Y'},{
+ approvedReferenceId:cdsId}).status,'NOT_COMPARABLE_5Y_SPREAD');
+const printed=validateCompanyCdsPoint(msftCds,{...dealer,
+ source:'DTCC_SEC_EXPLICIT_SPREAD',priceType:'REPORTED',
+ verifiedNotation:true,maturityYears:5.2},{
+ approvedReferenceId:cdsId});
+assert.equal(printed.status,'REPORTED_TRADE_SPREAD');
+assert.equal(printed.point.comparableToDealerQuote,false);
+for(const maturityYears of [undefined,null,NaN,Infinity,'unknown','5']){
+ assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,
+  source:'DTCC_SEC_EXPLICIT_SPREAD',priceType:'REPORTED',
+  verifiedNotation:true,maturityYears},{
+  approvedReferenceId:cdsId}).status,'CDS_UNITS_OR_TENOR_UNVERIFIED',
+ 'DTCC missing/nonfinite/untyped maturity must never enter 5Y bucket');
+}
+assert.equal(validateCompanyCdsPoint(msftCds,{...dealer,
+ source:'DTCC_SEC_EXPLICIT_SPREAD',priceType:'REPORTED',
+ verifiedNotation:false,maturityYears:5.2},{
+ approvedReferenceId:cdsId}).status,'CDS_UNITS_OR_TENOR_UNVERIFIED');
+const withMappedOne=buildCompanyCdsCoverage({
+ approvedReferences:{MSFT:cdsId},asOf:'2026-11-06',sourceRows:[dealer]
+});
+assert.equal(withMappedOne.verifiedQuotes,1);
+assert.equal(withMappedOne.statuses.filter(x=>x.latest!==null).length,1);
+assert.equal(withMappedOne.statuses.filter(x=>x.latest===null).length,10);
+const duplicateCds=buildCompanyCdsCoverage({
+ approvedReferences:{MSFT:cdsId},sourceRows:[dealer,{...dealer,spreadBp:99}]
+});
+assert.equal(duplicateCds.verifiedQuotes,0);
+assert.equal(duplicateCds.statuses[0].status,'AMBIGUOUS_SOURCE_OBSERVATIONS');
+const datedCds=(date,spreadBp)=>({
+ ...checkedCds.point,date,spreadBp,category:'DEALER_PAR_QUOTE',
+ comparableToDealerQuote:true
+});
+const oneYearTrend=computeCompanyCdsTrend([
+ datedCds('2025-11-05',40),datedCds('2026-08-06',43),
+ datedCds('2026-10-06',50),datedCds('2026-11-05',45)
+],{asOf:'2026-11-06'});
+assert.equal(oneYearTrend.changesBp.month1,-5);
+assert.equal(oneYearTrend.comparisonDates.month1,'2026-10-06');
+const crowded=computeCompanyCdsTrend([
+ datedCds('2026-10-04',52),datedCds('2026-10-05',51),
+ datedCds('2026-10-06',50),datedCds('2026-10-07',49),
+ datedCds('2026-10-08',47),datedCds('2026-11-05',45)
+],{asOf:'2026-11-06'});
+assert.equal(crowded.changesBp.month1,-5,'daily observations must not erase monthly change');
+assert.equal(crowded.comparisonDates.month1,'2026-10-06');
+const nearby=computeCompanyCdsTrend([
+ datedCds('2026-10-05',51),datedCds('2026-10-07',49),
+ datedCds('2026-11-05',45)
+],{asOf:'2026-11-06'});
+assert.equal(nearby.comparisonDates.month1,'2026-10-05',
+ 'equal distance ties prefer earlier observed date, not an interpolation');
+assert.equal(nearby.changesBp.month1,-6);
+assert.equal(computeCompanyCdsTrend([
+ datedCds('2026-10-06',50),
+ {...datedCds('2026-11-05',45),source:'ICE_LICENSED_5Y_PAR_MID'}
+],{asOf:'2026-11-06'}),null,'mixed vendor quotes cannot become one trend');
+assert.equal(computeCompanyCdsTrend([
+ datedCds('2026-10-06',50),
+ {...datedCds('2026-11-05',45),referenceEntityId:'RED:DIFFERENT1'}
+],{asOf:'2026-11-06'}),null,'mixed reference legal entities cannot become one trend');
+assert.equal(oneYearTrend.changesBp.year1,5);
+assert.equal(oneYearTrend.changesBp.month3,2);
+assert.equal(computeCompanyCdsTrend([printed.point],{asOf:'2026-11-06'}),null);
+assert.equal(computeCompanyCdsTrend([datedCds('2026-10-01',30)],
+ {asOf:'2026-11-06'}),null);
+assert.equal(computeCompanyCdsTrend([datedCds('2026-11-05',40),
+ datedCds('2026-11-05',41)],{asOf:'2026-11-06'}),null);
+
+
+const officialIndexFixture={SEC_CR:[
+ {file:'SEC_CUMULATIVE_CREDITS_2026_11_04.zip',count:2400}
+]};
+const fileIndexGood=await auditDtccCreditIndex({fetchImpl:async url=>{
+ assert.equal(new URL(url).hostname,'kgc0418-tdw-data-0.s3.amazonaws.com');
+ return {ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+  text:async()=>JSON.stringify(officialIndexFixture)};
+}});
+assert.equal(fileIndexGood.status,'DTCC_CREDIT_ARCHIVE_INDEX_AVAILABLE');
+assert.equal(fileIndexGood.creditArchiveCount,1);
+assert.equal(fileIndexGood.companyCdsVerified,0,'index alone never verifies any issuer');
+assert.equal(fileIndexGood.exact5ySpreadsVerified,0);
+const emptyIndex=await auditDtccCreditIndex({fetchImpl:async()=>({
+ ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+ text:async()=>JSON.stringify({SEC_CR:[]})
+})});
+assert.equal(emptyIndex.status,'DTCC_CREDIT_INDEX_EMPTY');
+const schemaDrift=await auditDtccCreditIndex({fetchImpl:async()=>({
+ ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+ text:async()=>JSON.stringify({UNKNOWN:[]})
+})});
+assert.equal(schemaDrift.status,'DTCC_SEC_CREDIT_INDEX_SCHEMA_UNVERIFIED');
+const tooLargeDtcc=await auditDtccCreditIndex({fetchImpl:async()=>({
+ ok:true,headers:{get:key=>key==='content-length'?'5000001':'application/json'},
+ text:async()=>{throw Error('must not parse oversized source');}
+})});
+assert.equal(tooLargeDtcc.status,'DTCC_INDEX_TOO_LARGE');
+const dtccPythonParserTest=execFileSync('python3',
+ ['scripts/audit-dtcc-company-cds-readonly.py','--selftest'],
+ {encoding:'utf8',timeout:15000});
+assert.match(dtccPythonParserTest,/DTCC_SEC_TRADE_PARSER_SELFTEST_PASS/);
+const dtccIndexCalendarTest=execFileSync('python3',
+ ['scripts/audit-dtcc-history-readiness-readonly.py','--selftest'],
+ {encoding:'utf8',timeout:10000});
+assert.match(dtccIndexCalendarTest,/DTCC_CREDIT_INDEX_CALENDAR_SELFTEST_PASS/);
+const dtccYearFilteredTest=execFileSync('python3',
+ ['scripts/audit-dtcc-year-filtered-readonly.py','--selftest'],
+ {encoding:'utf8',timeout:16000});
+assert.match(dtccYearFilteredTest,/DTCC_CDS_YEAR_FILTERED_SELFTEST_PASS/);
 console.log('AI_BRIEFING_LENS_PASS verified/absent dates, value-chain, Telegram length');
