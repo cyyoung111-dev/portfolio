@@ -9,6 +9,7 @@ import {readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs'
 
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const day=d=>typeof d==='string'&&DAY.test(d)
+ &&Number.isFinite(Date.parse(d+'T00:00:00Z'))
  &&new Date(d+'T00:00:00Z').toISOString().slice(0,10)===d;
 const num=x=>typeof x==='number'&&Number.isFinite(x)&&Math.abs(x)<1e16;
 const positive=x=>num(x)&&x>0;
@@ -74,7 +75,7 @@ function domesticRow(item,source,asOf,domesticQuotes=[]){
   ||!validDate(snap.period,asOf)||!validDate(snap.filingDate,asOf)
   ||snap.period>snap.filingDate||!positive(snap.referenceBpsKrw))return null;
  const q=exact(domesticQuotes,item.symbol);
- const pbr=q?calculateDomesticReferencePbr(snap,q):null;
+ const pbr=q&&validDate(q.date,asOf)?calculateDomesticReferencePbr(snap,q):null;
  return {period:snap.period,filingDate:snap.filingDate,
   bpsKrw:snap.referenceBpsKrw,
   status:st.status,priceDate:pbr?.sourceDate??null,
@@ -140,6 +141,10 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
   ||!Array.isArray(evidence.domestic)||evidence.domestic.length!==2
   ||!Number.isInteger(maxLength)||maxLength<100||maxLength>1200)return [];
  const coverage=evidence.coverage;
+ if(!coverage||!['ttm','fyOnly','referencePbr','domestic'].every(k=>
+  Number.isInteger(coverage[k])&&coverage[k]>=0&&coverage[k]<=9)
+  ||new Set(evidence.items.map(x=>x?.symbol)).size!==9
+  ||new Set(evidence.domestic.map(x=>x?.symbol)).size!==2)return [];
  const header='■ 공시 재무 근거 (미국 '+evidence.usSessionDate+' 종가 참고)';
  const count='• 검증 범위: 미국 TTM '+coverage.ttm+'/9·FY만 '+coverage.fyOnly
   +'/9·FY PBR '+coverage.referencePbr+'/9, 국내 DART BPS '+coverage.domestic+'/2';
