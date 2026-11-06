@@ -227,7 +227,7 @@ def run_live(date):
 def select_archive_history(index, as_of, max_files=15):
     if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", as_of):
         raise ValueError("INVALID_DATE")
-    if not isinstance(max_files, int) or not 1 <= max_files <= 45:
+    if not isinstance(max_files, int) or not 1 <= max_files <= 95:
         raise ValueError("INVALID_HISTORY_LIMIT")
     entries = index.get("SEC_CR") if isinstance(index, dict) else None
     if not isinstance(entries, list):
@@ -274,7 +274,7 @@ def assemble_history_archives(named_archives):
                     raise ValueError("DTCC_CONFLICTING_REPORT_REDISSEMINATION")
             else:
                 seen[ident] = row
-        if len(seen) > MAX_ROWS * 2:
+        if len(seen) > 350_000:
             raise ValueError("DTCC_TOO_MANY_COMBINED_RECORDS")
     return list(seen.values())
 
