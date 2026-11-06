@@ -95,3 +95,8 @@ jobs:
             print('DTCC_FOUR_ISSUER_RAW_CANDIDATES '+json.dumps(
               {'symbol':symbol,'count':len(hits),'rows':hits[:10]},ensure_ascii=False))
           PY
+      - name: Verify standalone CDS trade parser and real official tape
+        run: |
+          python3 scripts/audit-dtcc-company-cds-readonly.py --selftest
+          python3 scripts/audit-dtcc-company-cds-readonly.py 2026-11-05
+
