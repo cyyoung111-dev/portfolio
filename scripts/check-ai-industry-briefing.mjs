@@ -273,6 +273,16 @@ assert.equal(sandiskHistory.returnsYears['3'],null,
 assert.equal(sandiskHistory.returnsYears['5'],null);
 assert.equal(sandiskHistory.returnsYears['10'],null);
 assert.ok(sandiskHistory.week52,'SNDK still has 52-week history as of 2026-11-05');
+
+const misleading=fullBars.filter(x=>x.date==='2025-01-02'
+  ||x.date>='2026-01-02');
+assert.ok(misleading.length>=200,'independent negative sample has enough close prices');
+assert.equal(summarizeAiNineHistory('AAPL','2026-11-05',misleading).week52,null,
+ 'old pre-window price must not mask a missing 52-week window start');
+const brokenMid=fullBars.filter(x=>x.date<'2026-03-01'||x.date>'2026-04-15');
+assert.equal(summarizeAiNineHistory('AAPL','2026-11-05',brokenMid).week52,null,
+ 'a prolonged gap inside the 52-week window cannot yield reliable extremes');
+
 const sampleBars=fullBars.slice(-300);
 const fakeYahooChart=url=>{
  const symbol=decodeURIComponent(new URL(url).pathname.split('/').at(-1));
