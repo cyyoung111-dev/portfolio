@@ -104,18 +104,28 @@ export function formatSemiconductorCompanyFiveViews(input={}){
  const a=evaluateSemiconductorCompanyViews(input);
  if(a.length!==2)return [];
  const s=a.find(x=>x.id==='SAMSUNG'),h=a.find(x=>x.id==='SKHYNIX');
- const metric=x=>x.name+'[3Q26 기업 발표] 매출 '+x.revenueTrillion.toFixed(1)
-  +'조/영업익 '+x.operatingProfitTrillion.toFixed(1)+'조/이익률 '
+ const metric=x=>x.name+'[3Q26] 매출 '+x.revenueTrillion.toFixed(1)
+  +'조/영업익 '+x.operatingProfitTrillion.toFixed(1)+'조/영업률 '
   +pct(x.operatingMarginPercent)+'; '+x.valueLine;
+ const pbr=x=>x.book
+  ?(x.book.indicative?'참고 ':'')+'PBR '+round(x.book.pbr)+'배 (BPS×1/1.5/2='
+    +[1,1.5,2].map(y=>num(x.book.bps*y)).join('/')+'원, 적정가 아님)'
+  :'PBR·DCF 유보(BPS/FCF 미확보)';
  return [
-  '■ 삼성전자·SK하이닉스: 실적 기반 5인 평가 (실제 인물 발언 아님)',
+  '■ 삼성전자·SK하이닉스 5인 정량 관점 (해당 인물 실제 발언 아님)',
   '• '+metric(s),
   '• '+metric(h),
-  '• 버핏 | 삼전 '+s.views.buffett+' / 하닉 '+h.views.buffett,
-  '• 애크먼 | 삼전 '+s.views.ackman+' / 하닉 '+h.views.ackman,
-  '• 린치 | 삼전 '+s.views.lynch+' / 하닉 '+h.views.lynch,
-  '• 다모다란 | 삼전 '+s.views.damodaran+' / 하닉 '+h.views.damodaran,
-  '• 막스 | 삼전 '+s.views.marks+' / 하닉 '+h.views.marks,
-  '※ 3Q26 발표는 잠정/미감사일 수 있음. FY/TTM FCF·EPS·ROIC·내재가치, 52주 비교 별도 미확보.'
+  '• 버핏: 삼전 DS 영업익 '+pct(s.operatingProfitTrillion
+    ?SEMI_ISSUER_RELEASES[0].dsProfitTrillion/s.operatingProfitTrillion*100:0)
+    +' 집중; 하닉 영업률 '+pct(h.operatingMarginPercent)
+    +' → 양사 ROIC·소유주 FCF 미확보',
+  '• 애크먼: 삼전 연 CAPEX계획 84.4조(실집행 아님); 하닉 순현금 98.7조·LTA 50% 초과',
+  '• 린치: 삼전 분기 EPS 11,462원(PER 아님); 하닉 영업익 YoY +'
+    +pct((h.operatingProfitTrillion/SEMI_ISSUER_RELEASES[1].priorYearQuarterOperatingProfitTrillion-1)*100)
+    +'(TTM PER 미확보)',
+  '• 다모다란: 삼전 '+pbr(s)+'; 하닉 '+pbr(h),
+  '• 막스: 삼전 DS 이익집중·메모리 정상화; 하닉 '+pct(h.operatingMarginPercent)
+    +' 고마진 정상화·증설 위험',
+  '※ 3Q26 기업 잠정 발표(10/28~29). TTM EPS/FCF/ROIC·장기 PBR 분포 미확보.'
  ];
 }
