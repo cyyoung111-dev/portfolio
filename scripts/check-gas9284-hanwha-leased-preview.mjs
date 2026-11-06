@@ -91,6 +91,15 @@ setup();
 assert.equal(ctx.handleCollectKbFundNav('refresh','{}','2026-11-05','F00001').status,'ok');
 assert.equal(called,1);assert.equal(origin,'HANWHA_NAV_COLLECTOR');
 assert.equal(JSON.stringify(refreshCalls),JSON.stringify([{from:'2026-11-05',to:'2026-11-05',code:'F00001'}]));
+// Same-day Hanwha NAV may still be provisional; refuse stored-only refresh.
+setup();
+assert.equal(ctx.handleCollectKbFundNav('refresh','{}','2026-11-06','F00001').status,'error');
+assert.equal(called,0);
+assert.equal(propsData.has(keys.backfill),false);
+// Existing KB collector keeps its unchanged same-day acceptance semantics.
+setup();
+assert.equal(ctx.handleCollectKbFundNav('refresh','{}','2026-11-06').status,'ok');
+assert.equal(called,1);
 // No unauthorized class crossovers or live write attempt on a bad NAV row.
 for(const changed of [
  {...hanwhaInput,code:'F00002'},
