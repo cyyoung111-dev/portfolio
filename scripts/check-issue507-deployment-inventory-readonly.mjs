@@ -507,7 +507,7 @@ const wf=fs.readFileSync('.github/workflows/issue507-deployment-inventory-readon
 const doc=YAML.parse(wf);
 assert.ok(Object.hasOwn(doc.on||{},'workflow_dispatch'),
  'YAML workflow_dispatch without inputs is intentionally null');
-assert.equal(Object.keys(doc.on).length,1,'no schedule, push or PR authenticated triggers');
+assert.equal(Object.keys(doc.on).length,2,'only manual dispatch and self-file main push are allowed');
 assert.equal(doc.permissions.contents,'read');
 assert.equal(doc.jobs.audit.environment,'portfolio-production-gas');
 assert.deepEqual(Object.keys(doc.on).sort(),['push','workflow_dispatch']);
