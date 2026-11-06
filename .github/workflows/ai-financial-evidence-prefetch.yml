@@ -1,0 +1,42 @@
+name: AI financial evidence prefetch (read-only)
+# Only publicly filed SEC/DART issuer facts. This NEVER sends Telegram,
+# updates GAS, edits portfolio sheets or publishes user account data.
+on:
+  schedule:
+    - cron: '20 21 * * 0-4' # 06:20 KST Monday–Friday; after US regular close
+permissions:
+  contents: read
+concurrency:
+  group: ai-financial-evidence-prefetch
+  cancel-in-progress: false
+jobs:
+  collect:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'schedule' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Fetch public SEC and DART evidence with exact date and filing checks
+        id: evidence
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: node scripts/prefetch-ai-financial-evidence-readonly.mjs
+      - name: Retain immutable public data for a bounded day only
+        if: steps.evidence.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.evidence.outputs.artifact_name }}
+          path: .ai-financial-evidence/financial-evidence.json
+          retention-days: 2
+          if-no-files-found: error
+          include-hidden-files: true
