@@ -206,6 +206,15 @@ def selftest():
         ("2025-11-05",[old]),("2026-11-05",[newer])])
     assert uncancelled["summaries"][2]["observedDays"]==2
     assert uncancelled["summaries"][2]["year1"]["changeBp"]==0
+    terminated=mock_row("3457",day="2026-11-05",
+                         action="TERM",original="1234")
+    terminated["Underlying Asset Name"]=""
+    terminated["Underlier ID-Leg 1"]=""
+    still_history=process_history([
+        ("2025-11-05",[old]),
+        ("2026-11-05",[newer,terminated])])
+    assert still_history["summaries"][2]["observedDays"]==2
+    assert still_history["summaries"][2]["year1"]["changeBp"]==0
     assert uncancelled["dealerParQuotesVerified"]==0
     assert uncancelled["licensedRedReferenceMappingsVerified"]==0
     print("DTCC_CDS_YEAR_FILTERED_SELFTEST_PASS")
