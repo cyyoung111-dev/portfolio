@@ -30,12 +30,18 @@ const cleanInt=value=>{
 const unique=x=>x.length&&x.every(v=>v===x[0])?x[0]:null;
 const reportOptions=now=>{
  const today=dateKst(now),y=Number(today.slice(0,4));
- return [
-  {year:y,code:'11014',period:y+'-09-30'},
-  {year:y,code:'11012',period:y+'-06-30'},
-  {year:y,code:'11013',period:y+'-03-31'},
-  {year:y-1,code:'11011',period:(y-1)+'-12-31'}
- ].filter(x=>today>x.period);
+ const result=[];
+ // At the beginning of a new year the immediately preceding 10-K may
+ // not have been filed yet. Preserve the last published Q3/Q2/Q1 instead.
+ for(const year of [y,y-1,y-2]){
+  for(const [code,monthDay] of [
+   ['11011','12-31'],['11014','09-30'],
+   ['11012','06-30'],['11013','03-31']]){
+   const period=year+'-'+monthDay;
+   if(today>period)result.push({year,code,period});
+  }
+ }
+ return result.sort((a,b)=>b.period.localeCompare(a.period));
 };
 
 // The DART API does not publish before the actual filing. A missing Q3 does
