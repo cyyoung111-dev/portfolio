@@ -60,6 +60,9 @@ await assert.rejects(
 );
 const workflow=fs.readFileSync('.github/workflows/issue-507-fund-status-readonly.yml','utf8');
 assert.match(workflow,/workflow_dispatch:/);
+assert.match(workflow,/paths: \['\.github\/workflows\/issue-507-fund-status-readonly\.yml'\]/,
+ 'privileged read-only push audit must be limited to its own workflow');
+assert.match(workflow,/github\.run_attempt == 1/);
 assert.doesNotMatch(workflow,/^  schedule:|^  workflow_run:|--apply|confirm_recovery:/m);
 assert.match(workflow,/node scripts\/diagnose-fund-valuation-readonly\.mjs/);
 assert.match(workflow,/RESUME_READ_ONLY: '1'/);
