@@ -1,12 +1,10 @@
 // Optional read-only evidence adapter for the five-investor market briefings.
 // It does not fetch on the punctual Telegram path and NEVER sends or writes.
-import {AI_NINE} from './briefing-ai-nine-sources.mjs';
 import {DART_SEMICONDUCTORS,calculateDomesticReferencePbr}
  from './briefing-dart-semiconductor-sources.mjs';
-import {readAiNineTtmSecFacts} from './briefing-ai-nine-sec-ttm.mjs';
-import {readAiNineAnnualValueSnapshots} from './briefing-ai-nine-sec-values.mjs';
-import {readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs';
 
+const AI_NINE=Object.freeze(['MSFT','AAPL','GOOGL','AMZN','META','NVDA','MU','ORCL','SNDK']
+ .map(symbol=>Object.freeze({symbol})));
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const day=d=>typeof d==='string'&&DAY.test(d)
  &&Number.isFinite(Date.parse(d+'T00:00:00Z'))
@@ -105,23 +103,6 @@ export function buildAiFinancialEvidence({
 
 // Explicitly opt in to this collector in a separate prefetch job only.
 // Sequential SEC readers respect source fair-access and never block 07:40/17:00.
-export async function collectAiFinancialEvidence({
- now=()=>new Date(),readTtm=readAiNineTtmSecFacts,
- readValues=readAiNineAnnualValueSnapshots,
- readDart=readTwoDomesticDartBps,usSessionDate,domesticQuotes=[]
-}={}){
- const instant=now();
- if(!(instant instanceof Date)||!Number.isFinite(instant.getTime()))
-  throw Error('FINANCIAL_EVIDENCE_CLOCK_INVALID');
- const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',
-  year:'numeric',month:'2-digit',day:'2-digit'}).format(instant);
- const ttm=await readTtm({now});
- const fyValues=await readValues({now});
- const dart=await readDart({now});
- return buildAiFinancialEvidence({
-  asOfKst:date,usSessionDate,ttm,fyValues,dart,domesticQuotes});
-}
-
 const preferred=['NVDA','MSFT','GOOGL','AMZN','META','ORCL','MU','SNDK','AAPL'];
 const compact=x=>{
  if(!x?.ttm&&!x?.value)return null;
