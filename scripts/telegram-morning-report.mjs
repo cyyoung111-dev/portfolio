@@ -1,4 +1,5 @@
 import {krxSessionStatus} from './krx-session-calendar.mjs';
+import {formatHowardMarksView} from './briefing-howard-marks-risk.mjs';
 
 // Original multi-asset morning briefing structure, rendered in one Telegram message.
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
@@ -156,10 +157,10 @@ function outlook(map) {
     'Bull: 한국 장초반 상승 확산·외국인 수급 동반 시',
     'Bear: VIX 반등·원화 약세·반도체 상대약세 시'];
 }
-// AI value-chain and four-investor frameworks applied to verified previous-session
+// AI value-chain and five-investor frameworks applied to verified previous-session
 // market prices. This is our scenario analysis, never a claim that the investors
 // commented on today's market. CAPEX/orders/valuations are not in this feed.
-function morningAiInvestorLens(map) {
+function morningAiInvestorLens(map,reportDate,now=null) {
   const ndx=evidence(map,'NDX'), sox=evidence(map,'SOX'), vix=evidence(map,'VIX');
   const pct=x=>(x>=0?'+':'')+x.toFixed(2)+'%';
   let relative='SOX·NASDAQ100 동시 확정 일봉 부족 → 반도체 상대강도 판단 보류';
@@ -181,11 +182,12 @@ function morningAiInvestorLens(map) {
     '• 종합: '+trend,
     '• 실수요: 빅테크 CAPEX·GPU/HBM 주문·AI 수익화·재고 실측 미연결 → 업황 확정 불가.',
     '',
-    '■ 9. 4인 투자 철학 적용 (당일 실제 발언 아님)',
+    '■ 9. 5인 투자 철학 적용 (당일 실제 발언 아님)',
     '• 버핏: 해자·ROIC·유지 CAPEX 차감 소유주 FCF로 이익의 질 확인.',
     '• 애크먼: 반복 FCF·재무건전성 확인 전 집중·영구손실 위험 경계.',
     '• 피터 린치: 이익성장 대비 PER 점검; 반도체 최고점 EPS 착시 주의.',
     '• 다모다란: AI 성장·마진·재투자·할인율로 내재가치와 가격의 기대치 비교.',
+    formatHowardMarksView({vix,expectedDate:expectedMorningDate('VIX',reportDate,now)}),
     ''
   ];
 }
@@ -218,7 +220,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   '■ 7. 수급·유동성 / 체크포인트',
   '고객예탁금·신용잔고: 최신 확정치 미연결 (거래대금은 2항 참조)',
   'FedWatch·Finviz 히트맵·주요 이벤트: 별도 검증 필요','',
-  ...morningAiInvestorLens(map),
+  ...morningAiInvestorLens(map,date,options?.now||null),
   '■ 10. 오늘의 시나리오 (조건부, 확률 미산정)',
   ...outlook(map),'',
   '■ QC: 기준 거래일과 일치한 일봉 '+verifiedDisplayed+'/'+MORNING_SERIES.length
