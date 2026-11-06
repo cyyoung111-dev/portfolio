@@ -81,3 +81,16 @@ jobs:
             endTs:x.endTs
           }));
           NODE
+      - name: Inspect only published DTCC SEC credit CSV column names
+        run: |
+          set -euo pipefail
+          url='https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/SEC_CUMULATIVE_CREDITS_2026_11_05.zip'
+          curl --fail --silent --show-error --location --max-time 35 "$url" -o /tmp/dtcc_public_sec_credit.zip
+          size=$(stat -c%s /tmp/dtcc_public_sec_credit.zip)
+          test "$size" -gt 100 && test "$size" -lt 8000000
+          echo "DTCC_PUBLIC_CREDIT_ARCHIVE_BYTES=$size"
+          entries=$(unzip -Z -1 /tmp/dtcc_public_sec_credit.zip)
+          test "$(printf '%s\n' "$entries" | wc -l)" -eq 1
+          case "$entries" in SEC_CUMULATIVE_CREDITS_*.csv) ;; *) exit 6;; esac
+          unzip -p /tmp/dtcc_public_sec_credit.zip "$entries" | head -n 1 | cut -c 1-7000 | sed 's/^/DTCC_PUBLIC_CREDIT_HEADERS=/'
+          rm -f /tmp/dtcc_public_sec_credit.zip
