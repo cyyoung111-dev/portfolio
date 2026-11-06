@@ -52,8 +52,13 @@ export function extractDartDomesticBps(finance,shares,item,report,{now=new Date(
   return {status:'DART_SCHEMA_UNVERIFIED',snapshot:null};
  const fs=finance.list,st=shares.list,year=String(report.year);
  const allRows=[...fs,...st];
- if(!allRows.length||allRows.some(r=>r.corp_code!==item.corpCode
-  ||r.reprt_code!==report.code||r.bsns_year!==year))
+ // The stock-total response omits bsns_year/reprt_code on some official
+ // versions; only the financial list guarantees those response fields.
+ if(!allRows.length||fs.some(r=>r.corp_code!==item.corpCode
+  ||r.reprt_code!==report.code||r.bsns_year!==year)
+  ||st.some(r=>r.corp_code!==item.corpCode
+   ||(r.reprt_code!=null&&r.reprt_code!==report.code)
+   ||(r.bsns_year!=null&&r.bsns_year!==year)))
   return {status:'DART_IDENTITY_MISMATCH',snapshot:null};
  const accession=unique(allRows.map(r=>r.rcept_no));
  const receiptDate=dayOfReceipt(accession);
@@ -159,7 +164,13 @@ export async function readTwoDomesticDartBps({
   }
   statuses.push({symbol:item.symbol,status});
   if(snapshot)rows.push(snapshot);
+  // One invalid key is a global credential error, not a company-specific
+  // missing filing. Stop further requests without leaking the key.
+  if(status==='DART_KEY_REJECTED')break;
  }
+ if(statuses.length<DART_SEMICONDUCTORS.length)
+  for(const item of DART_SEMICONDUCTORS.slice(statuses.length))
+   statuses.push({symbol:item.symbol,status:'DART_KEY_REJECTED'});
  return {total:2,verified:statuses.filter(x=>x.status==='VERIFIED_SINGLECLASS_BPS').length,
   indicative:statuses.filter(x=>x.status==='INDICATIVE_MULTICLASS_BPS').length,
   rows,statuses,source:'OPENDART_READ_ONLY',portfolioWrites:0,telegramSends:0};
