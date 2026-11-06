@@ -30,17 +30,25 @@ export function verifyClosingVkospi(date,rows=[]){
 }
 export async function readClosingVkospi(date,{
  url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,
- now=()=>new Date(),fetchImpl=fetch}={}){
- if(!isOfficialCloseWindow(date,now())||!url||typeof token!=='string'||token.length<12)
-  return [];
+ now=()=>new Date(),fetchImpl=fetch,onDiagnostic=()=>{}
+}={}){
+ const emit=status=>{try{onDiagnostic({kind:'VKOSPI_READ',status});}catch{}};
+ if(!isOfficialCloseWindow(date,now())||!url||typeof token!=='string'||token.length<12){
+  emit('CONFIG_OR_SESSION_UNVERIFIED');return [];
+ }
+ let endpoint;
+ try{endpoint=validateGasEndpoint(url);}catch{emit('ENDPOINT_INVALID');return [];}
  try{
-  const endpoint=validateGasEndpoint(url);
   const body=new URLSearchParams({action:'getBenchmark',accessToken:token,
    benchmark:'VKOSPI',from:date,to:date});
   const response=await fetchImpl(endpoint,{method:'POST',
    headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
    body,redirect:'follow',signal:AbortSignal.timeout(17000)});
-  if(!response?.ok)return [];
-  return selectClosingVkospi(date,await response.json());
- }catch{return [];}
+  if(!response?.ok){emit('HTTP_UNAVAILABLE');return [];}
+  const payload=await response.json();
+  if(payload?.status!=='ok'){emit('GAS_RESPONSE_NOT_OK');return [];}
+  const rows=selectClosingVkospi(date,payload);
+  emit(rows.length===1?'VERIFIED':'NO_EXACT_VALID_ROW');
+  return rows;
+ }catch{emit('NETWORK_OR_PARSE_FAILED');return [];}
 }
