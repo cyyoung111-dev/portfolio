@@ -73,13 +73,14 @@ export function formatMorningTreasury(date,rows=[]){
  const safe=verifyTreasuryCurve(date,rows);
  const pick=id=>safe.find(x=>x.id===id);
  const a=pick('UST2Y'),b=pick('UST3Y'),c=pick('UST10Y_FRED');
- const pct=x=>x?x.value.toFixed(2)+'%':'미확보';
+ const expected=expectedMorningDate('SPX',date);
+ const pct=x=>!x?'미확보':x.value.toFixed(2)+'% ['+x.date
+   +(x.date===expected?'':' · 발표 지연')+']';
  return '미 국채 2Y '+pct(a)+' · 3Y '+pct(b)
    +' · 10Y '+pct(c)+' · 10Y-2Y '
    +(a&&c&&a.date===c.date?(Math.round((c.value-a.value)*100)>=0?'+':'')
-     +Math.round((c.value-a.value)*100)+'bp':'미확보')
-   +' [FRED H.15 참고 · '+((a||b||c)?.date||expectedMorningDate('SPX',date))
-   +((a||b||c)?.date!==expectedMorningDate('SPX',date)?' · 발표 지연':'')+']';
+     +Math.round((c.value-a.value)*100)+'bp ['+a.date+']':'기준일 불일치 또는 미확보')
+   +' [FRED H.15 참고]';
 }
 export function formatMorningVkospi(rows=[]){
  const x=rows.length===1?rows[0]:null;
