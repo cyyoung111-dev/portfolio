@@ -365,6 +365,19 @@ wrongFallbackAccn.facts['us-gaap'].PaymentsToAcquireProductiveAssets.units.USD
  =[one(400000000,{accn:'0000320193-25-000001'})];
 assert.equal(extractSecAnnualFacts(wrongFallbackAccn,'AAPL').calculated.freeCashFlow,null,
  'productive assets tag from another SEC filing must not be mixed');
+const differentFiscalStart=structuredClone(secPayload);
+differentFiscalStart.facts['us-gaap'].PaymentsToAcquirePropertyPlantAndEquipment.units.USD
+ =[({...one(400000000),start:'2025-11-01'})];
+const mismatched=extractSecAnnualFacts(differentFiscalStart,'AAPL');
+assert.equal(mismatched.periodStart,start);
+assert.equal(mismatched.values.capex,null,'mismatched annual start date is not a valid CAPEX');
+assert.equal(mismatched.calculated.freeCashFlow,null,'must not subtract different periods');
+assert.equal(classifySecAnnualFacts(mismatched),'PARTIAL_SEC_ANNUAL_FACTS');
+const duplicatePeriodStarts=structuredClone(secPayload);
+duplicatePeriodStarts.facts['us-gaap'].NetCashProvidedByUsedInOperatingActivities.units.USD
+ .push({...one(800000000),start:'2025-11-01'});
+assert.equal(extractSecAnnualFacts(duplicatePeriodStarts,'AAPL').values.operatingCashFlow,null,
+ 'ambiguous duplicates from two durations cannot be accepted');
 assert.equal(annual.calculated.freeCashFlow,400000000);
 assert.equal(annual.calculated.operatingMarginPercent,25);
 assert.equal(annual.values.epsDiluted.unit,'USD/shares');
@@ -443,6 +456,21 @@ const partialSec=await readAiNineAnnualSecFacts({
 assert.equal(partialSec.verified,0,'incomplete payload must not count as 9/9 verified');
 assert.equal(partialSec.reports.length,9,'partial source data stays available for diagnosis');
 assert.ok(partialSec.statuses.every(x=>x.status==='PARTIAL_SEC_ANNUAL_FACTS'));
+const mixedPeriods=await readAiNineAnnualSecFacts({
+ now:()=>new Date('2026-11-06T15:00:00Z'),
+ userAgent:'ResearchMonitor contact@example.org',
+ fetchImpl:async url=>{
+  const item=AI_NINE.find(x=>url==='https://data.sec.gov/api/xbrl/companyfacts/CIK'+x.cik+'.json');
+  assert.ok(item);
+  const p=structuredClone(differentFiscalStart);
+  p.cik=Number(item.cik);
+  return {ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+   json:async()=>p};
+ }
+});
+assert.equal(mixedPeriods.verified,0,'production reader must reject mismatched periods for all issuers');
+assert.ok(mixedPeriods.statuses.every(x=>x.status==='PARTIAL_SEC_ANNUAL_FACTS'));
+assert.ok(mixedPeriods.reports.every(x=>x.calculated.freeCashFlow===null));
 const deniedSec=await readAiNineAnnualSecFacts({
  userAgent:'ResearchMonitor contact@example.org',
  fetchImpl:async()=>({ok:false,headers:{get:()=>null}})
