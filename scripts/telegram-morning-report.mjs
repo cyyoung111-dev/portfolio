@@ -187,6 +187,7 @@ function morningAiInvestorLens(map,reportDate,now=null,financialEvidence=null) {
     ...formatSemiconductorCompanyFiveViews({
       date:reportDate,period:'morning',stocks:[...map.values()],financialEvidence
     }),
+    formatHowardMarksView({vix,expectedDate:expectedMorningDate('VIX',reportDate,now)}),
     ''
   ];
 }
