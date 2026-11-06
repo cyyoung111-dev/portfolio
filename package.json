@@ -68,7 +68,7 @@
     "check:gas-menu": "node scripts/check-gas-menu.mjs",
     "check:ci-coverage": "node scripts/check-ci-coverage.mjs",
     "check:briefing-gas-scheduler": "node scripts/check-briefing-gas-scheduler.mjs",
-    "check:krx-operational": "node scripts/check-krx-operational.mjs",
+    "check:krx-operational": "node scripts/check-krx-operational.mjs && node scripts/check-hanwha-private-collector.mjs",
     "check:krx-readonly-coverage": "node scripts/check-krx-readonly-coverage.mjs",
     "check:krx-session-index": "node scripts/check-krx-session-index.mjs",
     "check:stock-master-recovery": "node scripts/check-stock-master-recovery.mjs",
