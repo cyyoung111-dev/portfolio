@@ -83,9 +83,13 @@ assert.equal(formatMorningBriefing(date,ref,rows),report);
 for (const part of ['오늘의 결론','전일 한국장','밤사이 미국장','코스피200 야간선물','환율 / 금리','원자재','수급·유동성','오늘의 시나리오','QC'])assert.ok(report.includes(part),part);
 assert.match(report,/위험선호 신호 우세/);
 assert.match(report,/AI 산업·반도체 종합평가/);
-for(const name of ['버핏','애크먼','피터 린치','다모다란'])
+for(const name of ['버핏','애크먼','피터 린치','다모다란','하워드 막스'])
   assert.ok(report.includes(name),'morning investor lens: '+name);
 assert.match(report,/당일 실제 발언 아님/);
+assert.match(report,/■ 9\. 5인 투자 철학 적용/);
+assert.match(report,/하워드 막스: VIX 18\.00 \(전일 -2\.30%, 변동성 하락\)/);
+assert.match(report,/5년 CDS·차입만기 미검증/);
+assert.doesNotMatch(report,/막스가 오늘|CDS 부도 확정/);
 assert.match(report,/CAPEX.*GPU\/HBM 주문.*미연결/);
 assert.match(report,/상대강도 판단 보류/,'missing NDX must not fabricate relative strength');
 const ndxItem=MORNING_SERIES.find(x=>x.id==='NDX');
@@ -131,6 +135,8 @@ assert.doesNotMatch(report,/NaN|undefined|null/);
 const missing=formatFullMorningBriefing(date,null,[]);
 assert.match(missing,/당일 참고값 미확보/);
 assert.match(missing,/판단 보류/);
+assert.match(missing,/하워드 막스: VIX 동일 거래일 확정치 미확보/);
+assert.match(missing,/신용사이클 판단 유보/);
 assert.ok(!missing.includes('900.05'));
 let active=0,max=0,calls=0;
 const all=await collectMorningSeries(date,{concurrency:4,fetchDaily:async(label,symbol)=>{
