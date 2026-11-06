@@ -223,6 +223,112 @@ def run_live(date):
     return summarize(read_archive(source), date)
 
 
+def select_archive_history(index, as_of, max_files=15):
+    if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", as_of):
+        raise ValueError("INVALID_DATE")
+    if not isinstance(max_files, int) or not 1 <= max_files <= 45:
+        raise ValueError("INVALID_HISTORY_LIMIT")
+    entries = index.get("SEC_CR") if isinstance(index, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("DTCC_INDEX_SCHEMA_UNVERIFIED")
+    dated = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("fileName")
+        full = entry.get("fullFilePath")
+        if not isinstance(name, str) or not re.fullmatch(
+            r"SEC_CUMULATIVE_CREDITS_20\d{2}_\d{2}_\d{2}\.zip", name
+        ):
+            continue
+        if full != SOURCE_HOST + name:
+            continue
+        day = name[-14:-4].replace("_", "-")
+        try:
+            dt.date.fromisoformat(day)
+        except ValueError:
+            continue
+        if day > as_of:
+            continue
+        if day in dated and dated[day] != full:
+            raise ValueError("DTCC_INDEX_DUPLICATE_DATE")
+        dated[day] = full
+    dates = sorted(dated, reverse=True)[:max_files]
+    if not dates or dates[0] != as_of:
+        raise ValueError("DTCC_ASOF_ARCHIVE_NOT_PUBLISHED")
+    return [(day, dated[day]) for day in reversed(dates)]
+
+
+def assemble_history_archives(named_archives):
+    # Identical report re-dissemination may appear across days. But the same
+    # dissemination ID with conflicting data is a hard failure.
+    seen = {}
+    for _day, archive in named_archives:
+        for row in read_archive(archive):
+            ident = present(row, "Dissemination Identifier")
+            if not ident or not ident.isdecimal():
+                raise ValueError("DTCC_ID_UNVERIFIED")
+            if ident in seen:
+                if row != seen[ident]:
+                    raise ValueError("DTCC_CONFLICTING_REPORT_REDISSEMINATION")
+            else:
+                seen[ident] = row
+        if len(seen) > MAX_ROWS * 2:
+            raise ValueError("DTCC_TOO_MANY_COMBINED_RECORDS")
+    return list(seen.values())
+
+
+def summarize_history(named_archives, as_of):
+    if not named_archives:
+        raise ValueError("NO_ARCHIVES")
+    rows = assemble_history_archives(named_archives)
+    days = [x[0] for x in named_archives]
+    observed = {ticker: [] for ticker in ALL}
+    for day in days:
+        daily = get_candidates(rows, day)
+        for ticker in ALL:
+            accepted = daily.get(ticker, [])
+            if not accepted:
+                continue
+            median = statistics.median(
+                sorted(x["reportedContractSpreadBp"] for x in accepted)
+            )
+            observed[ticker].append({
+                "date": day, "count": len(accepted),
+                "medianReportedContractBp": float(median)
+            })
+    return {
+        "mode": "DTCC_SEC_CDS_ROLLING_TRADE_HISTORY_READ_ONLY",
+        "sourceArchiveDays": len(days), "firstArchiveDate": days[0],
+        "lastArchiveDate": days[-1], "recordsDedupedById": len(rows),
+        "reportedObservationDays": [
+            {"symbol": ticker, "days": len(observed[ticker]),
+             "lastObserved": observed[ticker][-1] if observed[ticker] else None}
+            for ticker in ALL
+        ],
+        "history": observed,
+        "dealerParQuotesVerified": 0,
+        "futureCorrectionsNotYetKnown": True,
+        "portfolioWrites": 0, "telegramSends": 0, "gasDeployments": 0
+    }
+
+
+def run_history(as_of, max_files=15):
+    url = "https://kgc0418-tdw-data-0.s3.amazonaws.com/dashboard/Cumulative.json"
+    with urllib.request.urlopen(url, timeout=20) as response:
+        index_text = response.read(4_000_001)
+    if len(index_text) >= 4_000_001:
+        raise ValueError("DTCC_INDEX_TOO_LARGE")
+    index = json.loads(index_text)
+    selected = select_archive_history(index, as_of, max_files)
+    archives = []
+    for date, path in selected:
+        with urllib.request.urlopen(path, timeout=25) as response:
+            contents = response.read(MAX_DOWNLOAD)
+        archives.append((date, contents))
+    return summarize_history(archives, as_of)
+
+
 def selftest():
     # Do not use real Yahoo/Bloomberg quotes or user account information.
     date = "2026-11-05"
@@ -255,6 +361,50 @@ def selftest():
     assert get_candidates([row("1010", notation="4", spread="87")], date)["GOOGL"][0]["reportedContractSpreadBp"] == 87
     assert get_candidates([row("1011", notation="4", spread="-87")], date)["GOOGL"] == []
     assert summarize([first], date)["dealerParQuotesVerified"] == 0
+    # Public index selection rejects foreign hosts, duplicate dates and
+    # refuses to imply a report exists before it is actually available.
+    prefix = "SEC_CUMULATIVE_CREDITS_"
+    index = {"SEC_CR": [
+        {"fileName": prefix+"2026_11_04.zip",
+         "fullFilePath": SOURCE_HOST+prefix+"2026_11_04.zip"},
+        {"fileName": prefix+"2026_11_05.zip",
+         "fullFilePath": SOURCE_HOST+prefix+"2026_11_05.zip"},
+        {"fileName": prefix+"2026_11_06.zip",
+         "fullFilePath": "https://untrusted.example/"+prefix+"2026_11_06.zip"}
+    ]}
+    selected = select_archive_history(index, date, 5)
+    assert [day for day, _ in selected] == ["2026-11-04", "2026-11-05"]
+    try:
+        select_archive_history(index, "2026-11-06", 5)
+        raise AssertionError("unpublished date was accepted")
+    except ValueError:
+        pass
+
+    def zipped(day, rows):
+        csv_buffer = io.StringIO()
+        fieldnames = list(row("1981"))
+        writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("SEC_CUMULATIVE_CREDITS_"+day.replace("-", "_")+".csv",
+                       csv_buffer.getvalue())
+        return payload.getvalue()
+    prior = row("2001")
+    prior["Execution Timestamp"] = "2026-11-04T12:22:48Z"
+    prior["Spread-Leg 1"] = "0.0075"
+    current = row("2002")
+    correction = row("2003", action="CORR", original="2001")
+    archives = [("2026-11-04", zipped("2026-11-04", [prior])),
+                ("2026-11-05", zipped("2026-11-05", [current, correction]))]
+    hist = summarize_history(archives, date)
+    alphabet = hist["history"]["GOOGL"]
+    assert len(alphabet) == 1 and alphabet[0]["date"] == date
+    assert alphabet[0]["medianReportedContractBp"] == 87
+    assert hist["futureCorrectionsNotYetKnown"] is True
+    assert hist["dealerParQuotesVerified"] == 0
+
     print("DTCC_SEC_TRADE_PARSER_SELFTEST_PASS")
 
 
@@ -264,8 +414,11 @@ if __name__ == "__main__":
             selftest()
         elif len(sys.argv) == 2:
             print(json.dumps(run_live(sys.argv[1]), ensure_ascii=False, separators=(",", ":")))
+        elif len(sys.argv) == 4 and sys.argv[1] == "--history":
+            print(json.dumps(run_history(sys.argv[2], int(sys.argv[3])),
+                             ensure_ascii=False, separators=(",", ":")))
         else:
-            raise ValueError("USAGE: audit-dtcc-company-cds-readonly.py YYYY-MM-DD|--selftest")
+            raise ValueError("USAGE: YYYY-MM-DD|--selftest|--history YYYY-MM-DD LIMIT")
     except Exception as exc:
         # Do not log URLs with secret tokens (this fixed-source module has none).
         print("DTCC_SEC_TRADE_AUDIT_UNVERIFIED:" + type(exc).__name__)
