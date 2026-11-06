@@ -2,6 +2,7 @@ name: Briefing optional source availability audit (read-only)
 # Reuse the existing protected audit route. Source availability is measured
 # only; never send Telegram or write Sheets, GAS, pricing history or NAV.
 # 2026-11-06 16:31 KST: one-shot read-only post-#976 source reason verification.
+# 2026-11-06 16:4x KST: confirm FRED published-session fallback post-#977 (read only).
 on:
   push:
     branches: [main]
