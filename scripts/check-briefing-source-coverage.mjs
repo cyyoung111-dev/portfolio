@@ -5,6 +5,7 @@ import {CLOSE_SOURCE_CATALOG,MORNING_NOT_CONNECTED,
   summarizeCloseCoverage,formatCloseCoverageSummary,
   closeQualityDecision} from './briefing-source-coverage.mjs';
 import {formatClose,prepareClose} from './telegram-close-workflow.mjs';
+import {runClosingGapAudit,kstAuditSession} from './audit-briefing-source-gaps-readonly.mjs';
 
 const date='2026-10-30',prev='2026-10-29',now=()=>new Date(date+'T17:00:00+09:00');
 const nh=[
@@ -101,6 +102,67 @@ assert.equal(none.status,'NO_VERIFIED_INDEX_CLOSE');
 assert.equal(none.coverage.core.verified,0);
 assert.ok(Array.isArray(none.coverage.statuses),'missing all sources must still have diagnostics');
 assert.ok(!('message' in none),'zero verified sources must never create sendable message');
+
+// Real audit is exclusively GET/POST read-only access to existing source
+// adapters. Test mocks supply no credentials, financial mutations or quotes
+// in the emitted report.
+const auditDate='2026-11-06',auditTime=new Date(auditDate+'T17:02:00+09:00');
+assert.deepEqual(kstAuditSession(auditTime),{
+ date:auditDate,asOfKst:'2026-11-06 17:02',currentSession:true});
+const stockRows=[
+ {id:'SAMSUNG',label:'삼성전자',symbol:'005930.KS',date:auditDate,
+  value:80000,changePercent:0,source:'NH_REGULAR_CLOSE'},
+ {id:'SKHYNIX',label:'SK하이닉스',symbol:'000660.KS',date:auditDate,
+  value:210000,changePercent:0,source:'KRX_OFFICIAL'},
+ {id:'NVDA',label:'엔비디아',symbol:'NVDA',date:'2026-11-05',
+  value:200,changePercent:0,source:'YAHOO_DAILY_REFERENCE'},
+ {id:'MU',label:'마이크론',symbol:'MU',date:'2026-11-05',
+  value:110,changePercent:0,source:'YAHOO_DAILY_REFERENCE'}
+];
+const treasuryRows=[
+ {id:'UST2Y',label:'미 국채 2년',date:'2026-11-05',source:'FRED_H15_DAILY',value:3.8},
+ {id:'UST3Y',label:'미 국채 3년',date:'2026-11-05',source:'FRED_H15_DAILY',value:3.9},
+ {id:'UST10Y_FRED',label:'미 국채 10년',date:'2026-11-05',source:'FRED_H15_DAILY',value:4.2}
+];
+const auditMessages=[];
+const audit=await runClosingGapAudit({
+ now:()=>auditTime,
+ stocks:async(_date,{onDiagnostic})=>{
+  onDiagnostic({kind:'NH_CLOSE_STOCK_READ',status:'GAS_RESPONSE_OK',
+    stocks:[{id:'NVDA',status:'CODE_NOT_RETURNED'}]});
+  return stockRows;},
+ turnover:async()=>[{market:'KOSPI'},{market:'KOSDAQ'}],
+ vkospi:async()=>[{id:'VKOSPI'}],treasury:async()=>treasuryRows,
+ report:x=>auditMessages.push(x)
+});
+assert.deepEqual(audit.stockRows.map(x=>x.status),Array(4).fill('VERIFIED'));
+assert.deepEqual(audit.turnoverRows.map(x=>x.status),['VERIFIED','VERIFIED']);
+assert.equal(audit.vkospiStatus,'VERIFIED');
+assert.deepEqual(audit.treasuryRows.map(x=>x.status),Array(3).fill('VERIFIED'));
+assert.deepEqual(audit.failedSourceGroups,[]);
+assert.deepEqual(auditMessages,[audit]);
+assert.equal(audit.financialWrites,0);
+assert.equal(audit.telegramSends,0);
+assert.equal(audit.gasDeployments,0);
+assert.doesNotMatch(JSON.stringify(audit),/80000|210000|PRIVATE_TOKEN|200000|https:\/\//);
+const stale=await runClosingGapAudit({
+ now:()=>auditTime,stocks:async()=>[
+  {...stockRows[0],date:'2026-11-05'},
+  {...stockRows[2],date:'2026-11-04'}],
+ turnover:async()=>{throw Error('SECRET_NEVER_LOG');},
+ vkospi:async()=>[],treasury:async()=>[]
+});
+assert.deepEqual(stale.stockRows.map(x=>x.status),
+ Array(4).fill('NO_VERIFIED_ROW'));
+assert.deepEqual(stale.failedSourceGroups,['TURNOVER']);
+assert.doesNotMatch(JSON.stringify(stale),/SECRET_NEVER_LOG/);
+const auditWorkflow=fs.readFileSync(
+ '.github/workflows/nh-close-20261102-diagnostic-readonly.yml','utf8');
+assert.match(auditWorkflow,/name: Briefing optional source availability audit/);
+assert.match(auditWorkflow,/environment: portfolio-production-gas/);
+assert.match(auditWorkflow,/run: node scripts\/audit-briefing-source-gaps-readonly.mjs/);
+assert.match(auditWorkflow,/github.ref == 'refs\/heads\/main'/);
+assert.doesNotMatch(auditWorkflow,/sendTelegram\(|--apply|price-history\.write|GAS_DEPLOY_DRY_RUN/);
 
 console.log('BRIEFING_SOURCE_COVERAGE_PASS core=6 optional=3 unconnected='
  +CLOSE_SOURCE_CATALOG.notConnected.length+' morningSeries=21 reasonEnums=VERIFIED/FETCH_FAILED/NO_VERIFIED_ROW/NOT_CONNECTED');
