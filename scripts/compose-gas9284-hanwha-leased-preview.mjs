@@ -1,7 +1,7 @@
 // Read-only v9.284 candidate builder. Produces a complete in-memory GAS source
 // from the pinned reviewed v9.283 source. NO deployment or finance writes.
-import fs from 'node:fs';
 import {createHash} from 'node:crypto';
+import {composeGas9283RecentGapSelfHealPreview} from './compose-gas9283-recent-gap-selfheal-preview.mjs';
 
 const BASE_BLOB='327f48785550a012eaf1ed533c24bf6289c01a71';
 const sha=s=>{
@@ -14,7 +14,9 @@ function replaceOne(s,needle,replacement,label){
 }
 
 export function composeGas9284HanwhaLeasedPreview(){
-  const base=fs.readFileSync('src/gas/apps_script.gs','utf8');
+  // The immutable reviewed predecessor must remain reproducible after the
+  // production source is promoted to v9.284; never read the moving HEAD.
+  const base=composeGas9283RecentGapSelfHealPreview().candidate;
   if(sha(base)!==BASE_BLOB)throw Error('GAS9284_BASE_SOURCE_UNREVIEWED');
   let src=base;
   // Existing KB lease code is deliberately reused, NOT duplicated. This
