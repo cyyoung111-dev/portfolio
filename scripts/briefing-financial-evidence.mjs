@@ -64,7 +64,7 @@ function valueRow(item,source,expectedUsDate,asOf){
   note:'FY_BPS_YAHOO_PRICE_REFERENCE_SPLIT_ADJUSTED_NOT_CURRENT_QUARTER'};
 }
 
-function domesticRow(item,source,asOf,domesticQuotes=[]){
+function domesticRow(item,source,asOf,domesticSessionDate,domesticQuotes=[]){
  const st=exact(source?.statuses,item.symbol);
  const snap=exact(source?.rows,item.symbol);
  if(!st||!snap||!['VERIFIED_SINGLECLASS_BPS','INDICATIVE_MULTICLASS_BPS'].includes(st.status)
@@ -73,7 +73,11 @@ function domesticRow(item,source,asOf,domesticQuotes=[]){
   ||!validDate(snap.period,asOf)||!validDate(snap.filingDate,asOf)
   ||snap.period>snap.filingDate||!positive(snap.referenceBpsKrw))return null;
  const q=exact(domesticQuotes,item.symbol);
- const pbr=q&&validDate(q.date,asOf)?calculateDomesticReferencePbr(snap,q):null;
+ // A stale but historically valid NH close cannot price today's BPS.
+ // The caller must supply the exact *completed Korean trading session* date.
+ const exactClose=day(domesticSessionDate)&&domesticSessionDate<=asOf
+  &&q?.date===domesticSessionDate;
+ const pbr=exactClose?calculateDomesticReferencePbr(snap,q):null;
  return {period:snap.period,filingDate:snap.filingDate,
   bpsKrw:snap.referenceBpsKrw,
   status:st.status,priceDate:pbr?.sourceDate??null,
@@ -83,7 +87,8 @@ function domesticRow(item,source,asOf,domesticQuotes=[]){
 }
 
 export function buildAiFinancialEvidence({
- asOfKst,usSessionDate,ttm={},fyValues={},dart={},domesticQuotes=[]
+ asOfKst,usSessionDate,domesticSessionDate=null,
+ ttm={},fyValues={},dart={},domesticQuotes=[]
 }={}){
  if(!day(asOfKst)||!day(usSessionDate)||usSessionDate>asOfKst)
   return {kind:'AI_FINANCIAL_EVIDENCE_UNVERIFIED',items:[],domestic:[]};
@@ -91,8 +96,11 @@ export function buildAiFinancialEvidence({
   ttm:ttmRow(item,ttm,asOfKst),
   value:valueRow(item,fyValues,usSessionDate,asOfKst)}));
  const domestic=DART_SEMICONDUCTORS.map(item=>({symbol:item.symbol,
-  name:item.name,evidence:domesticRow(item,dart,asOfKst,domesticQuotes)}));
+  name:item.name,evidence:domesticRow(item,dart,asOfKst,
+   domesticSessionDate,domesticQuotes)}));
  return {kind:'AI_FINANCIAL_EVIDENCE_READ_ONLY',asOfKst,usSessionDate,
+  domesticSessionDate:day(domesticSessionDate)&&domesticSessionDate<=asOfKst
+   ?domesticSessionDate:null,
   items,domestic,
   coverage:{ttm:items.filter(x=>x.ttm?.basis==='TTM').length,
    fyOnly:items.filter(x=>x.ttm?.basis==='FY').length,
@@ -143,7 +151,9 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
   const r=x.evidence;
   if(!r)return x.name+' 미확보';
   return x.name+' '+(r.indicative?'참고':'확인')+' BPS '+Math.round(r.bpsKrw).toLocaleString('en-US')+'원'
-   +(positive(r.pbrTimes)?' / '+r.pbrTimes.toFixed(2)+'배':' / PBR 미확보');
+   +(positive(r.pbrTimes)&&day(r.priceDate)
+    ?' / '+r.pbrTimes.toFixed(2)+'배('+r.priceDate.slice(5)+' NH 종가)'
+    :' / PBR 미확보');
  }).join('; ');
  const dLine='• 국내: '+d;
  if([...lines,dLine].join('\n').length<=maxLength)lines.push(dLine);
