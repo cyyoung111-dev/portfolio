@@ -5,7 +5,7 @@ import {AI_NINE,readAiNineDailyPrices,readAiNineSecFilings,
  formatAiNineDailyPrices,completedUsRegularClose} from './briefing-ai-nine-sources.mjs';
 import {runAiNineSourceAudit} from './audit-ai-nine-readonly.mjs';
 import {summarizeAiNineHistory,readAiNineHistoricalTrends} from './briefing-ai-nine-trends.mjs';
-import {extractSecAnnualFacts,readAiNineAnnualSecFacts} from './briefing-ai-nine-sec-financials.mjs';
+import {extractSecAnnualFacts,classifySecAnnualFacts,readAiNineAnnualSecFacts} from './briefing-ai-nine-sec-financials.mjs';
 
 const date='2026-11-02',usDate='2026-10-30';
 const nh=[
@@ -355,6 +355,7 @@ assert.equal(annual.calculated.freeCashFlow,400000000);
 assert.equal(annual.calculated.operatingMarginPercent,25);
 assert.equal(annual.values.epsDiluted.unit,'USD/shares');
 assert.equal(annual.missing.includes('shareRepurchases'),true);
+assert.equal(classifySecAnnualFacts(annual),'VERIFIED');
 assert.equal(Object.hasOwn(annual,'roic'),false);
 assert.equal(Object.hasOwn(annual,'bps'),false);
 const secWrongPeriod=structuredClone(secPayload);
@@ -381,6 +382,13 @@ assert.equal(secBeforeFiling,null,'future filing cannot be accepted');
 const secNoRevenue=structuredClone(secPayload);
 delete secNoRevenue.facts['us-gaap'].RevenueFromContractWithCustomerExcludingAssessedTax;
 assert.equal(extractSecAnnualFacts(secNoRevenue,'AAPL').calculated.fcfMarginPercent,null);
+assert.equal(classifySecAnnualFacts(extractSecAnnualFacts(secNoRevenue,'AAPL')),
+ 'PARTIAL_SEC_ANNUAL_FACTS','a balance-sheet anchor cannot verify missing revenue');
+const assetsOnly=structuredClone(secPayload);
+assetsOnly.facts['us-gaap']={Assets:assetsOnly.facts['us-gaap'].Assets};
+assert.equal(classifySecAnnualFacts(extractSecAnnualFacts(assetsOnly,'AAPL')),
+ 'PARTIAL_SEC_ANNUAL_FACTS','a lone asset fact is not full SEC financial coverage');
+assert.equal(classifySecAnnualFacts(null),'NO_SAME_FILING_ANNUAL_FACTS');
 let realCalls=0;
 const unconfiguredFacts=await readAiNineAnnualSecFacts({
  userAgent:'',fetchImpl:async()=>{realCalls++;throw Error('NO_NETWORK');}
@@ -406,6 +414,21 @@ const auditedSec=await readAiNineAnnualSecFacts({
 assert.equal(realCalls,9);
 assert.equal(auditedSec.verified,9);
 assert.ok(auditedSec.reports.every(x=>x.source==='SEC_COMPANYFACTS_US_GAAP_10K'));
+const partialSec=await readAiNineAnnualSecFacts({
+ now:()=>new Date('2026-11-06T15:00:00Z'),
+ userAgent:'ResearchMonitor contact@example.org',
+ fetchImpl:async(url)=>{
+  const item=AI_NINE.find(x=>url==='https://data.sec.gov/api/xbrl/companyfacts/CIK'+x.cik+'.json');
+  assert.ok(item);
+  const p=structuredClone(assetsOnly);
+  p.cik=Number(item.cik);
+  return {ok:true,headers:{get:key=>key==='content-type'?'application/json':null},
+   json:async()=>p};
+ }
+});
+assert.equal(partialSec.verified,0,'incomplete payload must not count as 9/9 verified');
+assert.equal(partialSec.reports.length,9,'partial source data stays available for diagnosis');
+assert.ok(partialSec.statuses.every(x=>x.status==='PARTIAL_SEC_ANNUAL_FACTS'));
 const deniedSec=await readAiNineAnnualSecFacts({
  userAgent:'ResearchMonitor contact@example.org',
  fetchImpl:async()=>({ok:false,headers:{get:()=>null}})
