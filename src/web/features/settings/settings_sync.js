@@ -265,6 +265,27 @@ async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) 
   return {ok:true,baseline,consumedDeleteIds};
 }
 
+// Single read-only/replay-safe gate shared by direct trade sync and
+// target-serialized dirty recovery. The GAS receipt owns the operation's
+// durable status; the browser journal only pins the original CAS preimage.
+async function _preflightTradeV2Receipt(targetUrl,generation,baselineOverride) {
+  const record=typeof _readPortfolioRecoveryReceipts==='function'
+    ?_readPortfolioRecoveryReceipts()?.[targetUrl]?.syncTradesV2:null;
+  const baseline=baselineOverride||
+    (typeof _tradeV2PinnedBaseline==='function'
+      ?_tradeV2PinnedBaseline(targetUrl,generation):null);
+  if(!record?.attempted || record.readbackConfirmedRevision)
+    return {ok:true,baseline,consumedDeleteIds:[]};
+  if(!baseline)return {ok:false,errorCode:'TRADE_V2_BASELINE_REQUIRED'};
+  if(typeof _recoverOutstandingTradeV2Receipt!=='function')
+    return {ok:false,errorCode:'TRADE_V2_RECOVERY_UNAVAILABLE'};
+  try {
+    return await _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline);
+  }catch(ignore){
+    return {ok:false,errorCode:'TRADE_V2_PREFLIGHT_UNAVAILABLE'};
+  }
+}
+
 function _readPortfolioRecoveryReceipts() {
   const value = lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, {});
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -1750,7 +1771,7 @@ async function syncTradesToGsheet(options) {
       return {status:'error',errorCode:'TRADE_V2_BASELINE_REQUIRED',
         saveState:'failed'};
     if(v2Baseline){
-      const recovered=await _recoverOutstandingTradeV2Receipt(
+      const recovered=await _preflightTradeV2Receipt(
         targetUrl,v2Generation,v2Baseline);
       if(!recovered.ok)return {status:'error',
         errorCode:recovered.errorCode,saveState:'partial',
