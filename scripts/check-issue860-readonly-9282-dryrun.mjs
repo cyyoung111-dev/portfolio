@@ -105,7 +105,7 @@ try {
   assert.ok(calls.slice(beforePush).every(c=>c.method==='GET'
     ||c.url==='https://oauth2.googleapis.com/token'));
   process.env.GAS_ISSUE860_ONE_SHOT_DRYRUN='false';
-  let before=calls.length;
+  before=calls.length;
   await assert.rejects(runReadOnly9282({fetchImpl:mock}),/ISSUE860_MODE_INVALID/);
   assert.equal(calls.length,before,'unflagged push must stop before network');
   process.env.GITHUB_EVENT_NAME='workflow_dispatch';
