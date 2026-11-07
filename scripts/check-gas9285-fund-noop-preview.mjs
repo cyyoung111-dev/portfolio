@@ -18,8 +18,8 @@ assert.equal(manifest.status,'SOURCE_PREVIEW_NOT_DEPLOYABLE');
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
-assert.equal((candidate.match(/gasVersion: '9\\.285'/g)||[]).length,9);
-assert.match(candidate,/var ISSUE507_GATE_API_VERSION='9\\.285'/);
+assert.equal((candidate.match(/gasVersion: '9\.285'/g)||[]).length,9);
+assert.match(candidate,/var ISSUE507_GATE_API_VERSION='9\.285'/);
 new vm.Script(candidate,{filename:'gas-9285-fund-noop-preview.gs'});
 
 const source=isolateGasBusinessLogic(candidate);
