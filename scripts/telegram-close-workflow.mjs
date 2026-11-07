@@ -22,6 +22,8 @@ import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
+import {readClosingKrxTurnoverFromGas,verifyOfficialKrxTurnover,formatKrxTurnover}
+ from './closing-krx-turnover.mjs';
 import {readFearGreed,verifyFearGreed,formatFearGreed,fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
@@ -127,11 +129,12 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null,financialEvidence=null){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null,financialEvidence=null,turnover=[]){
  const valid=verifiedNhCloseRows(date,rows);
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const verifiedRates=verifyTreasuryCurve(date,rates);
  const verifiedVkospi=verifyClosingVkospi(date,vkospi);
+ const verifiedTurnover=verifyOfficialKrxTurnover(date,turnover);
  const lines=['['+date+' 장후 시장 브리핑]',
   '기준: 국내 당일 마감 · 17시 해외 선물 · 미국 현물 직전 완료장','',
   ...formatAiIndustryCloseLens({date,usDate:expectedMorningDate('SPX',date),
@@ -175,7 +178,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  }
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
   secondary,stocks,macros,markets,rates:verifiedRates,vkospi:verifiedVkospi,
-  expectedUsDate:expectedMorningDate('SPX',date)});
+  turnover:verifiedTurnover,expectedUsDate:expectedMorningDate('SPX',date)});
  lines.push('',formatClosingExtra(date,stocks,macros,{omitUs10y:verifiedRates.some(x=>x.id==='UST10Y_FRED'&&
     x.date===expectedMorningDate('SPX',date))}),'',
   formatTreasuryCurve(date,verifiedRates),'',
@@ -195,6 +198,15 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  if(financialLines.length&&index>=0
   &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
    lines.splice(index,0,...financialLines,'');
+ // Give the 06:20 SEC/DART financial evidence its existing payload priority.
+ // Optional KRX cash turnover must never push an otherwise valid SEND over
+ // the 4,000-character Telegram guard; confirmed official dated rows only.
+ if(verifiedTurnover.length){
+   const detail=formatKrxTurnover(date,verifiedTurnover);
+   const pos=lines.findIndex(x=>x.startsWith('VKOSPI:'));
+   if(pos>=0&&lines.join('\n').length+detail.length+2<=3900)
+     lines.splice(pos+1,0,detail);
+ }
  return lines.join('\n');
 }
 // Wait only briefly for the already-running 06:20 SEC/DART artifact read.
@@ -224,6 +236,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  fetchStocks=readClosingStockSources,fetchMacros=readClosingMacros,
  fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
  fetchRates=readTreasuryCurve,fetchVkospi=readClosingVkospi,
+ fetchTurnover=readClosingKrxTurnoverFromGas,
  loadPrepared=async()=>null,loadFinancialEvidence=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
@@ -253,7 +266,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
   let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[]}=cached||{};
   // Latest 17:00 overseas quotes must never come from the 16:50 EOD artifact.
-  let futures=[],rates=[],vkospi=[],fearGreed=null;
+  let futures=[],rates=[],vkospi=[],turnover=[],fearGreed=null;
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
   const combine=(oldRows,liveRows,key)=>{
@@ -289,12 +302,15 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
    (async()=>{try{vkospi=verifyClosingVkospi(window.date,
      await fetchVkospi(window.date,{url:gasUrl,token:gasToken,fetchImpl,now}));}
     catch{failedGroups.push('VKOSPI');}})(),
+   (async()=>{try{turnover=verifyOfficialKrxTurnover(window.date,
+     await fetchTurnover(window.date,{url:gasUrl,token:gasToken,fetchImpl,now}));}
+    catch{turnover=[];failedGroups.push('TURNOVER');}})(),
     (async()=>{fearGreed=await readFearGreed({fetchImpl,now});})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const coverage=summarizeCloseCoverage(window.date,{nh:verified,domestic:domesticVerified,
-   secondary,stocks,macros,markets,rates,vkospi,
+   secondary,stocks,macros,markets,rates,vkospi,turnover,
    expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
   const quality=closeQualityDecision(coverage);
   const after=closeWindow(now());
@@ -314,10 +330,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     nhConfirmed:verified.length,domesticConfirmed:domesticVerified.length,
     coverage,quality,cacheSource:usedCache?'VERIFIED_1650_ARTIFACT':'LIVE_ONLY',
     futuresCount:futures.length,ratesCount:rates.length,vkospiCount:vkospi.length,
+    turnoverCount:turnover.length,
     // Market-only public rows; no tokens, accounts or GAS ledger data. The
     // send step re-renders AI/US futures at the actual transmission time.
-    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,fearGreed,...(financialEvidence?{financialEvidence}:{})},
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence)};
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,turnover,fearGreed,...(financialEvidence?{financialEvidence}:{})},
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence,turnover)};
 }
 // Only the already-armed 16:35 runner uses this bounded wait when today's
 // core index closes are not yet published. Existing claim and SEND guards
@@ -372,13 +389,20 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       ||(Array.isArray(r.vkospi)&&r.vkospi.length!==vkospi.length)
       ||(payload.vkospiCount!==undefined&&payload.vkospiCount!==vkospi.length))
       throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+    // The public exact-date KRX turnover rows are optional. Do not allow a
+    // forged/duplicated, stale or changed-count PREPARE payload to reach SEND.
+    const turnover=Array.isArray(r.turnover)?verifyOfficialKrxTurnover(window.date,r.turnover):[];
+    if((r.turnover!==undefined&&!Array.isArray(r.turnover))
+      ||(Array.isArray(r.turnover)&&r.turnover.length!==turnover.length)
+      ||(payload.turnoverCount!==undefined&&payload.turnoverCount!==turnover.length))
+      throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     // Recheck CNN reading at SEND time; stale inputs simply show 'unavailable'.
     const fearGreed=verifyFearGreed(r.fearGreed,{now:now()});
     const evidence=r.financialEvidence?.asOfKst===window.date
       &&r.financialEvidence.usSessionDate===expectedMorningDate('SPX',window.date)
        ?r.financialEvidence:null;
     outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
-      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence);
+      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover);
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
   }
   await send(token,chatId,outgoing);
