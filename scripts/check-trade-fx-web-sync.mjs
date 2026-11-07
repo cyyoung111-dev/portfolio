@@ -8,7 +8,8 @@ const legacy=fs.readFileSync('src/web/features/settings/settings_legacy_recovery
 const extract=(text,name)=>{
  const at=text.indexOf('function '+name+'(');
  assert.ok(at>=0,'missing production function '+name);
- const tail=text.slice(at),end=tail.indexOf('\n}');
+ const asyncPrefix=text.slice(Math.max(0,at-6),at)==='async ';
+ const tail=text.slice(asyncPrefix?at-6:at),end=tail.indexOf('\n}');
  assert.ok(end>=0,'unclosed function '+name);
  return tail.slice(0,end+2);
 };
