@@ -118,11 +118,17 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
       token:process.env.GAS_ACCESS_TOKEN,fetchImpl}),
     readFearGreed({fetchImpl,now}),
   ]);
+  const dailyReadStatuses=[];
   const [quotes,supplementRows]=await Promise.all([
     collectMorningSeries(first.date,{fetchDaily:fetchDatedDaily,
-      now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200',...nhRows.map(row=>row.symbol),...nhStockRows.map(row=>row.symbol)])}),
+      now:now(),fetchImpl,skipSymbols:new Set([...NH_ONLY_INDEX_SYMBOLS,'^KS11','^KQ11','^KS200',...nhRows.map(row=>row.symbol),...nhStockRows.map(row=>row.symbol)]),
+      onDiagnostic:entry=>dailyReadStatuses.push(entry)}),
     readMorningSupplements(first.date,{fetchImpl,now,fetchDaily:fetchDatedDaily,nhRows}).catch(()=>({}))
   ]);
+  // Status-only data from attempted Yahoo rows, never the quote body.
+  // External telemetry errors may not delay the actual Telegram delivery.
+  try{onSourceDiagnostic({kind:'YAHOO_MORNING_DAILY_COVERAGE',
+    statuses:dailyReadStatuses});}catch{}
   const values=mergeMorningSourceRows(quotes,masterRows,nhRows,domesticRows,nhStockRows);
   const supplements={
     usReferences:supplementRows.usReferences||[],
