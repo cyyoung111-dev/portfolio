@@ -89,14 +89,14 @@ let locked=false,backupStatus='',rebuilds=0,cleanup=0,stored=[],mutation=null,co
 const lock={waitLock:()=>{assert.equal(locked,false);locked=true;},releaseLock:()=>{locked=false;}};
 ctx.LockService={getScriptLock:()=>lock};
 const ss={getSpreadsheetTimeZone:()=> 'America/Los_Angeles',getSheetByName:()=>sheet};
-const sheet={getParent:()=>ss,getLastRow:()=>2,getLastColumn:()=>columns,getMaxRows:()=>100,
+const sheet={getParent:()=>ss,getLastRow:()=>Math.max(2,stored.length+1),getLastColumn:()=>columns,getMaxRows:()=>100,
   clearContents:()=>{stored=[];},getRange:(row,column,n,m)=>{
     const range={setNumberFormat:()=>range,setBackground:()=>range,setFontColor:()=>range,setFontWeight:()=>range,
       setValues:values=>{if(row===1)columns=values[0].length;if(row===2)stored=values.map(r=>[...r]);return range;},
       getValues:()=>{
         const rows=stored.length?stored.map(r=>[...r]):[['2021-05-11','buy','계좌','테스트','005930',1,100,'주식','','','']];
         if(stored.length){rows[0][0]=new Date('2021-05-11T07:00:00Z');if(mutation)mutation(rows);}
-        return rows.map(r=>r.slice(0,m));
+        return rows.slice(0,n).map(r=>r.slice(0,m));
       }};
     return range;
   }};
@@ -197,6 +197,34 @@ const modernIncompleteResult=ctx.handleSyncTrades(JSON.stringify([modernIncomple
 assert.equal(modernIncompleteResult.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
  'even an upgraded client cannot erase prior FX evidence on a price or memo correction');
 assert.equal(stored[0][11],155.5);
+// A deliberate FX trade deletion must not be confused with a modified
+// FX trade dropping its source metadata. The other existing ordinary trade
+// remains exactly unchanged; preserving it is a valid subset of old rows.
+const plainTrade={...trade,date:'2021-05-10',qty:2,price:100,
+ tradeFxSchemaVersion:1};
+stored=[
+ ['2021-05-10','buy','계좌','테스트','005930',2,100,'주식','','','', '', ''],
+ ['2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350]
+];
+const afterFxDeletion=ctx.handleSyncTrades(JSON.stringify([plainTrade]),'',false);
+assert.equal(afterFxDeletion.status,'ok',
+ 'explicit removal of only FX row must retain unchanged ordinary trade');
+assert.equal(stored.length,1);
+assert.equal(stored[0][6],100);
+assert.equal(stored[0][11],'');
+stored=[
+ ['2021-05-10','buy','계좌','테스트','005930',2,100,'주식','','','', '', ''],
+ ['2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350]
+];
+const changedFxNoMetadata={
+ ...fxTrade,tradeFxSchemaVersion:1,priceRaw:undefined,
+ fxRateAtBuy:undefined,memo:'edited but no FX'
+};
+const rejectedFxLoss=ctx.handleSyncTrades(
+ JSON.stringify([plainTrade,changedFxNoMetadata]),'',false);
+assert.equal(rejectedFxLoss.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
+ 'simultaneous ordinary trade and edited FX trade without metadata must fail closed');
+assert.equal(stored[1][11],155.5);
 console.log('GAS_TRADE_FX_ROUNDTRIP_PASS 13-cols legacy11 receipt-codec readback/anti-downgrade');
 // Restore the original 11-column mock before unrelated legacy DATE/rebuild
 // regression cases. Those tests intentionally send a plain buy, not an
