@@ -65,6 +65,14 @@ export function composeGas9285TradeV2Preview(){
   "...(fx.length ? {priceRaw:fx[0],fxRateAtBuy:fx[1]} : {})",
   "...(fx.length ? {priceRaw:fx[0],fxRateAtBuy:fx[1]} : {}),\n          ...(r[13] ? {id:String(r[13])} : {})",
   'READ_ID');
+ // Source and Snapshot are verified before pending is cleared.
+ // Persist a v2-specific receipt proof here so a hard stop between pending
+ // clear and outer receipt COMPLETE cannot strand STARTED forever. This is
+ // inside the existing trade writer, never a separate unguarded write path.
+ candidate=once(candidate,
+  "    if (affectedFrom || pendingSnapshotRebuild) {\n      _recordTradeLedgerFingerprint_(ss);\n      _clearPendingTradeSnapshotRebuild();\n    } else {\n      _recordTradeLedgerFingerprint_(ss);\n    }",
+  "    if (affectedFrom || pendingSnapshotRebuild) {\n      _recordTradeLedgerFingerprint_(ss);\n      _tradeV2CheckpointVerified_(tradeV2Meta,ss,affectedFrom,affectedTo);\n      _clearPendingTradeSnapshotRebuild();\n    } else {\n      _recordTradeLedgerFingerprint_(ss);\n      _tradeV2CheckpointVerified_(tradeV2Meta,ss,affectedFrom,affectedTo);\n    }",
+  'V2_DURABLE_AFTER_SNAPSHOT_CHECKPOINT');
  // A legitimate last-trade deletion leaves an N-column header and zero
  // data rows. Still return the empty-ledger revision so receipt/CAS can
  // acknowledge deletion and the next create.
