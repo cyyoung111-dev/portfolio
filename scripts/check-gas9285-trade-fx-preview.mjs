@@ -95,7 +95,7 @@ const sheet={getParent:()=>ss,getLastRow:()=>Math.max(2,stored.length+1),getLast
       setValues:values=>{if(row===1)columns=values[0].length;if(row===2)stored=values.map(r=>[...r]);return range;},
       getValues:()=>{
         const rows=stored.length?stored.map(r=>[...r]):[['2021-05-11','buy','계좌','테스트','005930',1,100,'주식','','','']];
-        if(stored.length){rows[0][0]=new Date('2021-05-11T07:00:00Z');if(mutation)mutation(rows);}
+        if(stored.length){rows[0][0]=new Date(String(rows[0][0]).slice(0,10)+'T07:00:00Z');if(mutation)mutation(rows);}
         return rows.slice(0,n).map(r=>r.slice(0,m));
       }};
     return range;
