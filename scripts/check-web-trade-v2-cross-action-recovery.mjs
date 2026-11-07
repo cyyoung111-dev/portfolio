@@ -30,11 +30,13 @@ const params={tradeLedgerProtocolVersion:'2',expectedLedgerRevision:oldRev,
 const receipt={action:'syncTradesV2',id:originalId,scope:'trade-v2:'+oldRev,
  attempted:true,completed:false,params};
 const records={[url]:{syncTradesV2:receipt}};
+let v2ReceiptStateOverride=null;
 const dirtyMap={[url]:{target:url,epoch:1,receiptProtocol:1,
  legacyUntracked:false,receiptScope:'task_recovery_fixture',
  trades:[after],holdings:[{code:'005930',qty:3}],fundDirect:{},
  tradeV2DeleteIds:[],tradeV2Baseline:{
  targetUrl:url,protocol:2,revision:oldRev,trades:[before]}}};
+const initialDirty=JSON.parse(JSON.stringify(dirtyMap[url]));
 let remote=[before],holds=0,trades=0,settings=0,originalWrites=0,
  receiptQueries=0,events=[],persisted=0;
 const browser={_tradeLedgerV2BaselineTargets:{[url]:baseline},
@@ -63,7 +65,7 @@ const ctx=vm.createContext({console,Math,Date,JSON,Array,Set,Map,
      receiptQueries++;
      if(p.operationId===originalId)return {status:'ok',
       kind:'syncTradesV2',operationId:originalId,
-      receiptState:originalWrites?'COMPLETE':'NOT_FOUND'};
+      receiptState:v2ReceiptStateOverride || (originalWrites?'COMPLETE':'NOT_FOUND')};
      return {status:'ok',kind:p.kind,operationId:p.operationId,
        receiptState:'NOT_FOUND'};
    }
@@ -122,6 +124,35 @@ assert.ok(events.indexOf('v2-original-resume')<events.indexOf('holdings-write'),
 assert.equal(receipt.readbackConfirmedRevision,newRev);
 assert.equal(browser._tradeLedgerV2BaselineTargets[url].revision,newRev);
 assert.equal(Object.keys(dirtyMap).length,0,'fully confirmed dirty cleared');
+// Fail-closed: PARTIAL/UNKNOWN cannot trigger a holdings write and cannot
+// replay the already-attempted trading operation.
+Object.assign(records[url],{syncTradesV2:receipt});
+Object.assign(dirtyMap,{[url]:JSON.parse(JSON.stringify(initialDirty))});
+receipt.attempted=true;receipt.completed=false;
+delete receipt.readbackConfirmedRevision;
+browser._tradeLedgerV2BaselineTargets[url]=baseline;
+remote=[before];originalWrites=0;v2ReceiptStateOverride='PARTIAL';
+const countBefore={holds,trades,settings};
+const refused=[];
+const refusal=await ctx._retryPortfolioRemoteDirtySync({
+ targetUrl:url,allowDuringRestore:true,onFailure:c=>refused.push(c)
+});
+assert.equal(refusal,false);
+assert.equal(refused[0],'TRADE_V2_RECEIPT_PARTIAL');
+assert.deepEqual({holds,trades,settings},countBefore,
+ 'uncertain trading receipt must block all unrelated writes');
+assert.equal(originalWrites,0);
+// Missing exact-target provenance: never manufacture or silently infer the
+// original revision from a different device's Bootstrap.
+delete browser._tradeLedgerV2BaselineTargets[url];
+const missing=[];
+const missingResult=await ctx._retryPortfolioRemoteDirtySync({
+ targetUrl:url,allowDuringRestore:true,onFailure:c=>missing.push(c)
+});
+assert.equal(missingResult,false);
+assert.equal(missing[0],'TRADE_V2_BASELINE_REQUIRED');
+assert.deepEqual({holds,trades,settings},countBefore);
+assert.equal(originalWrites,0);
 console.log('TRADE_V2_CROSS_ACTION_PREFLIGHT_PASS '+JSON.stringify({
  originalOperationReplayed:1,holdingsAfterRecovery:true,
  crossActionFailures:0,privateSheetWrites:0,productionDeployment:false,
