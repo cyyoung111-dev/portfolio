@@ -74,28 +74,44 @@ export function composeGas9285TradeFxPreview(){
  candidate=replaceOnce(candidate,
    "    var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(13, sh.getLastColumn())).getValues() : [];\n    if (!sh) {",
    "    var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(13, sh.getLastColumn())).getValues() : [];\n    var existingFx=previousRows.some(function(row){return row[11]!=='' && row[11]!=null;});\n    if (existingFx && !(explicitEmpty===true && trades.length===0)\n        && trades.some(function(row){return row.tradeFxSchemaVersion!==1;}))\n      return jsonError('이전 외화 원단가를 보존하지 않는 구 클라이언트 거래 덮어쓰기 차단',\n        {errorCode:'TRADE_FX_LEGACY_CLIENT_BLOCKED',saveState:'failed'});\n    if (!sh) {");
- // A recent client also must not omit FX evidence for a still-present
- // security/account when it changes memo, unit-price or row order. The
- // ledger does not store stable trade IDs, so compare source-FX coverage by
- // account/name/code group rather than relying on identical 11-column rows.
+ // An explicit trade deletion may remove an old FX row while leaving
+ // ordinary (non-FX) trades from the same account/security untouched.
+ // Compare the multiset of *surviving no-FX rows* to old non-FX rows.
+ // If a new request converts a former FX row to an untagged row (even with
+ // changed memo/price), it introduces an unmatched no-FX row and is denied.
+ // An exact subset of the old non-FX rows safely proves an FX deletion.
  candidate=replaceOnce(candidate,
    "    var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;",
-   `    var oldFxGroups={};
+   `    var previousFxGroups={};
     previousRows.forEach(function(row) {
       if (row[11]==='' || row[11]==null) return;
-      var key=JSON.stringify([String(row[2]||''),String(row[3]||''),_cleanCode(row[4])]);
-      oldFxGroups[key]=(oldFxGroups[key]||0)+1;
+      previousFxGroups[JSON.stringify([
+        String(row[2]||''),String(row[3]||''),_cleanCode(row[4])
+      ])]=true;
     });
-    for (var oldFxKey in oldFxGroups) {
-      var matchingRows=intendedRows.filter(function(row) {
-        return JSON.stringify([String(row[2]||''),String(row[3]||''),_cleanCode(row[4])])===oldFxKey;
-      });
-      var retainedFx=matchingRows.filter(function(row) {
-        return row[11]!=='' && row[11]!=null && row[12]!=='' && row[12]!=null;
-      }).length;
-      if (retainedFx < Math.min(oldFxGroups[oldFxKey],matchingRows.length))
-        return jsonError('동일 계좌·종목의 기존 외화원단가·환율 삭제 차단',
-          {errorCode:'TRADE_FX_METADATA_LOSS_RISK',saveState:'failed'});
+    var oldOrdinaryCounts={};
+    previousRows.forEach(function(row) {
+      if (row[11]!=='' && row[11]!=null) return;
+      var group=JSON.stringify([
+        String(row[2]||''),String(row[3]||''),_cleanCode(row[4])
+      ]);
+      if (!previousFxGroups[group]) return;
+      var oldRow=row.slice(0,11);
+      oldRow[0]=_normalizeDate(oldRow[0]);
+      var key=JSON.stringify([group,oldRow]);
+      oldOrdinaryCounts[key]=(oldOrdinaryCounts[key]||0)+1;
+    });
+    for (var j=0;j<intendedRows.length;j++) {
+      var candidateRow=intendedRows[j];
+      var group=JSON.stringify([
+        String(candidateRow[2]||''),String(candidateRow[3]||''),_cleanCode(candidateRow[4])
+      ]);
+      if (!previousFxGroups[group] || (candidateRow[11]!=='' && candidateRow[11]!=null))continue;
+      var key=JSON.stringify([group,candidateRow.slice(0,11)]);
+      if (!oldOrdinaryCounts[key]) return jsonError(
+        '기존 외화거래 원천값 누락으로 인한 원장 갱신 차단',
+        {errorCode:'TRADE_FX_METADATA_LOSS_RISK',saveState:'failed'});
+      oldOrdinaryCounts[key]--;
     }
     var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;`);
  // Receipt replay and the receipt read-only inquiry must also attest the
