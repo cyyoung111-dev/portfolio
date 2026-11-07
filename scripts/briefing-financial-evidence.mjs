@@ -147,7 +147,7 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
  const d=evidence.domestic.map(x=>{
   const r=x.evidence;
   if(!r)return x.name+' 미확보';
-  return x.name+' '+(r.indicative?'참고':'확인')+' BPS '+Math.round(r.bpsKrw).toLocaleString('en-US')+'원'
+  return x.name+' '+(r.indicative?'보통·우선 합산 참고':'단일종류 확인')+' BPS '+Math.round(r.bpsKrw).toLocaleString('en-US')+'원'
    +' ['+r.period+' 연결]'
    +(positive(r.pbrTimes)&&day(r.priceDate)
     ?' / '+r.pbrTimes.toFixed(2)+'배('+r.priceDate.slice(5)+' NH 종가)'
