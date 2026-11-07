@@ -72,6 +72,29 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/diagnose-fund-valuation-readonly.mjs
+      - name: Inspect 32-day fund NAV and Snapshot backlog (read only)
+        if: always()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {auditFundRows} from './scripts/diagnose-fund-valuation-readonly.mjs';
+          const rows=await auditFundRows({
+            url:process.env.GAS_WEB_APP_URL,
+            token:process.env.GAS_ACCESS_TOKEN,
+            days:32,emit:row=>console.log(JSON.stringify({
+              kind:'FUND_32DAY_READONLY',...row,
+              financeWrites:0,gasDeployments:0,telegramSends:0
+            }))
+          });
+          console.log(JSON.stringify({kind:'FUND_32DAY_BACKLOG_VERDICT',
+            pending:rows.some(x=>x.evaluationPendingDates.length>0
+              ||x.snapshotPendingDates.length>0||x.writerBlockedDates.length>0),
+            pendingFunds:rows.filter(x=>x.evaluationPendingDates.length
+              ||x.snapshotPendingDates.length||x.writerBlockedDates.length).map(x=>x.code),
+            writerInvoked:false}));
+          NODE
       - name: Verify KB AQ018 exact source and pending import (preview only)
         if: always()
         env:
