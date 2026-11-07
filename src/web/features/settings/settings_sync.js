@@ -28,9 +28,12 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
       kind:record.action,operationId:record.id,...record.params
     }, {targetUrl,timeoutMs:15000,retry:0,preserveError:true});
     if (!current()) return 'CONNECTION_CHANGED';
-    return response?.status === 'ok' && (response.receiptState === 'BUSY'
-      || (response.operationId === record.id && response.kind === record.action))
-      ? response.receiptState : 'UNAVAILABLE';
+    const valid=response?.status === 'ok' && (response.receiptState === 'BUSY'
+      || (response.operationId === record.id && response.kind === record.action));
+    if (valid && record.action === 'syncTrades'
+        && response.tradeFxMetadataVersion === 1)
+      record.tradeFxMetadataVersion=1;
+    return valid ? response.receiptState : 'UNAVAILABLE';
   };
   // 다른 단계의 이전 요청도 먼저 확인한다. 확인 전에는 새 원장 쓰기를 시작하지 않는다.
   for (const previous of Object.values(target)) {
@@ -44,7 +47,8 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
   const signature = JSON.stringify(params);
   if (record?.attempted && JSON.stringify(record.params) === signature) {
     if (!_savePortfolioRecoveryReceipts(records)) return fail('LOCAL_BACKUP_FAILED');
-    return {status:'ok',saveState:'success',receiptState:'COMPLETE',replayed:true};
+    return {status:'ok',saveState:'success',receiptState:'COMPLETE',replayed:true,
+      ...(record.tradeFxMetadataVersion === 1 ? {tradeFxMetadataVersion:1} : {})};
   }
   record = {action,scope,completed:false,id:'pr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_'+Math.random().toString(36).slice(2),params,attempted:false};
   target = {...target,[action]:record};
@@ -67,7 +71,9 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
   if (after !== 'COMPLETE') return fail(after || 'UNKNOWN');
   record.completed = true;
   return _savePortfolioRecoveryReceipts(records)
-    ? {status:'ok',saveState:'success',receiptState:after,replayed:true} : fail('LOCAL_BACKUP_FAILED');
+    ? {status:'ok',saveState:'success',receiptState:after,replayed:true,
+      ...(record.tradeFxMetadataVersion === 1 ? {tradeFxMetadataVersion:1} : {})}
+    : fail('LOCAL_BACKUP_FAILED');
 }
 
 // ════════════════════════════════════════════════════════════════
