@@ -55,8 +55,8 @@ assert.equal(onlyDomestic.data.evidence.domesticSessionDate,null,
  'pre-open DART snapshot must not invent the current Korean closing price');
 assert.ok(onlyDomestic.data.evidence.domestic.every(x=>x.evidence.pbrTimes===null));
 const short=formatAiFinancialEvidence(onlyDomestic.data.evidence).join('\n');
-assert.match(short,/삼성전자 참고 BPS 80,000원 \[2026-06-30 연결\]/);
-assert.match(short,/SK하이닉스 확인 BPS 100,000원 \[2026-06-30 연결\]/);
+assert.match(short,/삼성전자 보통·우선 합산 참고 BPS 80,000원 \[2026-06-30 연결\]/);
+assert.match(short,/SK하이닉스 단일종류 확인 BPS 100,000원 \[2026-06-30 연결\]/);
 assert.match(short,/PBR 미확보/);
 assert.ok(short.length<=680);
 
