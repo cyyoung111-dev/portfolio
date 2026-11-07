@@ -6,11 +6,12 @@ import {readTwoDomesticDartBps} from './briefing-dart-semiconductor-sources.mjs'
 import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {financialSourceCoverageStatus}
  from './briefing-financial-source-status.mjs';
+import {sharedSecCompanyFactsFetch} from './shared-sec-companyfacts-prefetch.mjs';
 
 export async function collectAiFinancialEvidence({
  now=()=>new Date(),readTtm=readAiNineTtmSecFacts,
  readValues=readAiNineAnnualValueSnapshots,
- readDart=readTwoDomesticDartBps,usSessionDate,
+ readDart=readTwoDomesticDartBps,usSessionDate,fetchImpl=fetch,
  domesticSessionDate=null,domesticQuotes=[],onSourceStatus=()=>{}
 }={}){
  const instant=now();
@@ -24,9 +25,10 @@ export async function collectAiFinancialEvidence({
  // SEC collectors remain sequential to respect public-source fair access.
  // Every source has an independent fail-closed boundary; no stale fallback.
  let dart={},ttm={},fyValues={};
+ const sharedFetch=sharedSecCompanyFactsFetch(fetchImpl);
  try{dart=await readDart({now});}catch{}
- try{ttm=await readTtm({now});}catch{}
- try{fyValues=await readValues({now});}catch{}
+ try{ttm=await readTtm({now,fetchImpl:sharedFetch});}catch{}
+ try{fyValues=await readValues({now,fetchImpl:sharedFetch});}catch{}
  // Nonblocking, status-only diagnostics are out-of-band: artifact unchanged.
  try{onSourceStatus(financialSourceCoverageStatus({ttm,fy:fyValues,dart}));}catch{}
  return buildAiFinancialEvidence({
