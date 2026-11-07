@@ -89,6 +89,31 @@ export function composeGas9285TradeFxPreview(){
         String(row[2]||''),String(row[3]||''),_cleanCode(row[4])
       ])]=true;
     });
+    // Existing FX rows are all still present: ordinary trades may be edited,
+    // added or split without risking removal of the original FX evidence.
+    // Use a multiset to protect duplicate FX trades, including their row link.
+    var preservedFxCounts={};
+    var fxRowKey=function(row){
+      return JSON.stringify([_normalizeDate(row[0]),String(row[1]||''),
+        String(row[2]||''),String(row[3]||''),_cleanCode(row[4]),
+        Number(row[5]||0),Number(row[6]||0),String(row[7]||'주식'),
+        String(row[8]||''),Number(row[9]||0),Number(row[10]||0),
+        Number(row[11]),Number(row[12])]);
+    };
+    intendedRows.forEach(function(row){
+      if(row[11]==='' || row[11]==null)return;
+      var key=fxRowKey(row);
+      preservedFxCounts[key]=(preservedFxCounts[key]||0)+1;
+    });
+    var fxRowsFullyPreserved=previousRows.every(function(row){
+      if(row[11]==='' || row[11]==null)return true;
+      var key=fxRowKey(row);
+      if(!preservedFxCounts[key])return false;
+      preservedFxCounts[key]--;return true;
+    });
+    // If FX rows were removed/changed, keep the conservative deletion
+    // discriminator: only unchanged, surviving ordinary rows are allowed.
+    if(!fxRowsFullyPreserved){
     var oldOrdinaryCounts={};
     previousRows.forEach(function(row) {
       if (row[11]!=='' && row[11]!=null) return;
@@ -112,6 +137,7 @@ export function composeGas9285TradeFxPreview(){
         '기존 외화거래 원천값 누락으로 인한 원장 갱신 차단',
         {errorCode:'TRADE_FX_METADATA_LOSS_RISK',saveState:'failed'});
       oldOrdinaryCounts[key]--;
+    }
     }
     var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;`);
  // Receipt replay and the receipt read-only inquiry must also attest the
