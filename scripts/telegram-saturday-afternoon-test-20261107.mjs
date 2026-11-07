@@ -54,8 +54,7 @@ export async function prepare({now=()=>new Date(),githubToken,fetchImpl=fetch,
    return {ready:false,status:'ALREADY_CLAIMED'};
  }
  if(found.artifacts.length!==0)throw Error('EXTRA_TEST_CLAIM_INVALID');
- const data=await compose({now,gasUrl:process.env.GAS_WEB_APP_URL,
-   gasToken:process.env.GAS_ACCESS_TOKEN});
+ const data=await compose({now});
  if(typeof data?.text!=='string'||!Number.isInteger(data.sourceCount)
     ||data.sourceCount<0||data.sourceCount>21)throw Error('EXTRA_TEST_PAYLOAD_INVALID');
  const message=data.text.replace(/^\[[^\n]+\]/,PREFIX);
