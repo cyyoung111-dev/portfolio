@@ -32,9 +32,18 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today}) {
    &&fundRow?.reconciled===true
    &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.evaluationState)
    &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.snapshotState);
- const closeComplete=close.state==='COMPLETE'&&close.priceOk===true&&close.fundOk===true;
+ // A prior successful close is not evidence that the most recent KRX
+ // session closed. Require GAS's independent stale/date checks before
+ // considering either the NAV or the overall postflight current.
+ const closeDateVerified=close.runStale===false&&close.snapshotStale===false
+   &&isDay(close.expectedRunDate)&&close.expectedRunDate===date
+   &&isDay(close.expectedSnapshotDate)&&close.expectedSnapshotDate===date;
+ const closeComplete=closeDateVerified&&close.state==='COMPLETE'
+   &&close.priceOk===true&&close.fundOk===true;
  let verdict,pass;
- if(!officiallyPublished) {
+ if(!closeDateVerified) {
+   verdict='CLOSE_DATE_STALE_OR_UNVERIFIED';pass=false;
+ } else if(!officiallyPublished) {
    // Do not pretend an as-yet unpublished NAV should have been imported.
    // The close may still be pending; report that separately.
    verdict='OFFICIAL_NAV_NOT_YET_PUBLISHED';pass=true;
@@ -50,7 +59,10 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today}) {
  return {kind:'KB_NAV_CLOSE_POSTFLIGHT_READ_ONLY',asOfKst:today,
    closeDate:date,latestPublishedDate,officiallyPublished,
    storedNavConfirmed,derivedConfirmed,closeState:close.state,
-   priceOk:close.priceOk,fundOk:close.fundOk,closeComplete,
+   expectedRunDate:close.expectedRunDate||'-',
+   expectedSnapshotDate:close.expectedSnapshotDate||'-',
+   runStale:close.runStale,snapshotStale:close.snapshotStale,
+   closeDateVerified,priceOk:close.priceOk,fundOk:close.fundOk,closeComplete,
    verdict,pass,financialWrites:0,gasDeployments:0,telegramSends:0};
 }
 
