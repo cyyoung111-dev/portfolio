@@ -7,6 +7,11 @@ import {composeGas9285TradeV2Preview} from './compose-gas9285-trade-v2-preview.m
 const {base,candidate,manifest}=composeGas9285TradeV2Preview();
 assert.equal(manifest.baseSourceGitBlob,'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
 assert.equal(manifest.columns,14);
+assert.equal(manifest.legacy13ColumnWriterExcluded,true);
+assert.equal(manifest.finalWriterRequiresIdCas,true);
+const tradeWriter=candidate.slice(candidate.indexOf('function handleSyncTrades('),candidate.indexOf('\n}',candidate.indexOf('function handleSyncTrades('))+2);
+assert.doesNotMatch(tradeWriter,/previousFxGroups|oldOrdinaryCounts|TRADE_FX_GROUP_/);
+assert.match(tradeWriter,/_tradeV2ValidateMutation_/);
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.requiresReceiptImplementation,false);
 assert.equal(manifest.financeWrites,0);
