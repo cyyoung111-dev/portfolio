@@ -6,6 +6,7 @@ import {loadPrefetchedNight} from './telegram-morning-prefetch.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
+import {MORNING_SERIES,expectedMorningDate} from './telegram-morning-report.mjs';
 import {fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 
@@ -95,6 +96,27 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     financialEvidenceNow:()=>financialState.value,
     referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
     onSourceDiagnostic:entry=>{
+      if(entry?.kind==='YAHOO_MORNING_DAILY_COVERAGE'){
+        const statuses=['PRIMARY_VERIFIED','BACKUP_VERIFIED','BOTH_UNVERIFIED'];
+        const reasons=['NO_ROW','UNVERIFIED_DATE_OR_VALUE','REQUEST_THROWN'];
+        const seen=new Set();
+        const safe=Array.isArray(entry.statuses)?entry.statuses.slice(0,MORNING_SERIES.length)
+          .filter(x=>{
+            if(x?.kind!=='YAHOO_MORNING_DAILY_READ'
+              ||!MORNING_SERIES.some(y=>y.id===x.id)||seen.has(x.id)
+              ||!statuses.includes(x.status)
+              ||(x.primaryReason!==null&&!reasons.includes(x.primaryReason))
+              ||(x.backupReason!==null&&!reasons.includes(x.backupReason)))return false;
+            seen.add(x.id);return true;
+          }).map(x=>({
+            id:x.id,status:x.status,
+            primary:x.primaryReason,backup:x.backupReason,
+            expectedDate:expectedMorningDate(x.id,window.date,now())
+          })):[];
+        console.log(JSON.stringify({kind:'YAHOO_MORNING_DAILY_COVERAGE',
+          checked:safe.length,results:safe}));
+        return;
+      }
       const allowed=['CONFIG_MISSING','ENDPOINT_INVALID','EXPECTED_DATE_INVALID','HTTP_UNAVAILABLE',
         'GAS_RESPONSE_INVALID','ALL_VERIFIED','PARTIAL_OR_MISSING','NETWORK_OR_PARSE_FAILED'];
       const reasons=['PROVENANCE_OR_SERIES_INVALID','SERIES_LENGTH_INVALID',

@@ -68,32 +68,47 @@ export function hasExpectedMorningDate(item,date,row,now=null){
     && typeof row.date==='string' && row.date===expectedMorningDate(item.id,date,now)
     && Number.isFinite(row.value) && row.value>0;
 }
-export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetchImpl=fetch,concurrency=4,skipSymbols=new Set()}={}) {
-  if(typeof fetchDaily!=='function')throw Error('MORNING_FETCHER_REQUIRED');
-  const list=Array(MORNING_SERIES.length).fill(null);
-  let index=0;
-  async function worker(){
-    while(index<MORNING_SERIES.length) {
-      const i=index++;
-      const item=MORNING_SERIES[i];
-      if(skipSymbols.has(item.symbol))continue;
-      try {
-        const row=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
-        if(hasExpectedMorningDate(item,date,row,now)){list[i]={...row};continue;}
-        // Retry once using Yahoo's alternate host on a missing response or
-        // an outdated candle. Accept only the expected COMPLETED session;
-        // do not broaden date gates or backfill with a stale close.
-        if(row==null || (row?.date && row.date<date
-          && !hasExpectedMorningDate(item,date,row,now)
-          && row.source==='Yahoo Finance 일봉')){
-          const retry=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl,host:'query2.finance.yahoo.com'});
-          if(hasExpectedMorningDate(item,date,retry,now))list[i]={...retry};
-        }
-      } catch { /* failed source is explicitly reported as unavailable */ }
+export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetchImpl=fetch,
+ concurrency=4,skipSymbols=new Set(),onDiagnostic=()=>{}}={}) {
+ if(typeof fetchDaily!=='function')throw Error('MORNING_FETCHER_REQUIRED');
+ const list=Array(MORNING_SERIES.length).fill(null);
+ let index=0;
+ // Status-only diagnostics: emit fixed IDs/reasons, never quotes or responses.
+ const emit=(item,status,primaryReason=null,backupReason=null)=>{
+  try{onDiagnostic({kind:'YAHOO_MORNING_DAILY_READ',id:item.id,
+   status,primaryReason,backupReason});}catch{}
+ };
+ async function worker(){
+  while(index<MORNING_SERIES.length){
+   const i=index++;
+   const item=MORNING_SERIES[i];
+   if(skipSymbols.has(item.symbol))continue;
+   let primary=null,primaryReason='NO_ROW';
+   try{
+    primary=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
+    if(hasExpectedMorningDate(item,date,primary,now)){
+     list[i]={...primary};emit(item,'PRIMARY_VERIFIED');continue;
     }
+    if(primary!==null&&primary!==undefined)primaryReason='UNVERIFIED_DATE_OR_VALUE';
+   }catch{primaryReason='REQUEST_THROWN';}
+   // The original outer try/catch skipped the backup altogether on a thrown
+   // primary request. Retry once even when primary throws/has malformed data,
+   // without broadening the exact completed-session date gate.
+   let backup=null,backupReason='NO_ROW';
+   try{
+    backup=await fetchDaily(item.label,item.symbol,date,
+     {now,fetchImpl,host:'query2.finance.yahoo.com'});
+    if(hasExpectedMorningDate(item,date,backup,now)){
+     list[i]={...backup};
+     emit(item,'BACKUP_VERIFIED',primaryReason);continue;
+    }
+    if(backup!==null&&backup!==undefined)backupReason='UNVERIFIED_DATE_OR_VALUE';
+   }catch{backupReason='REQUEST_THROWN';}
+   emit(item,'BOTH_UNVERIFIED',primaryReason,backupReason);
   }
-  await Promise.all(Array.from({length:Math.min(Math.max(1,concurrency),4)},()=>worker()));
-  return list.filter(Boolean);
+ }
+ await Promise.all(Array.from({length:Math.min(Math.max(1,concurrency),4)},()=>worker()));
+ return list.filter(Boolean);
 }
 
 function signal(row){return Number.isFinite(row?.changePercent)?Number(row.changePercent):null;}
