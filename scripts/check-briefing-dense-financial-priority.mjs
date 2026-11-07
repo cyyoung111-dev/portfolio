@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import {MORNING_SERIES,expectedMorningDate,formatFullMorningBriefing}
  from './telegram-morning-report.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
-import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
+import {formatAiFinancialEvidence,fitAiFinancialEvidenceForBudget}
+ from './briefing-financial-evidence.mjs';
 
 const date='2026-11-09',us='2026-11-06';
 const morningClock=new Date(date+'T07:45:00+09:00');
@@ -30,6 +31,14 @@ const financial={
 };
 assert.match(formatAiFinancialEvidence(financial).join('\n'),
  /국내 DART BPS 2\/2/);
+const requiredPanel=formatAiFinancialEvidence(financial).slice(0,3);
+const exactPanel=requiredPanel.join('\n').length;
+assert.deepEqual(fitAiFinancialEvidenceForBudget(financial,exactPanel),requiredPanel,
+ 'exact header+coverage+DART budget must prioritize both Korean BPS');
+assert.deepEqual(fitAiFinancialEvidenceForBudget(financial,exactPanel-1),[],
+ 'partial DART line must never be truncated');
+assert.deepEqual(fitAiFinancialEvidenceForBudget(financial,-1),[]);
+assert.ok(fitAiFinancialEvidenceForBudget(financial,680).join('\n').length<=680);
 const morningRows=MORNING_SERIES.map((item,i)=>({
  label:item.label,symbol:item.symbol,
  date:expectedMorningDate(item.id,date,morningClock),
