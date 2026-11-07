@@ -157,6 +157,28 @@ const weekendAudit=await auditKbNavPostflight({...mocks,
 assert.equal(weekendAudit.officialReferenceDate,date);
 assert.equal(weekendAudit.verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
 assert.equal(weekendAudit.pass,false);
+// Real postflight must explain a failed GAS FUND stage without exposing
+// request IDs, account information, raw exceptions, or changing pass/fail.
+const stagedAudit=await auditKbNavPostflight({...mocks,
+ statusReader:async()=>({
+   close:{...close,stage:'FUND_PENDING',fundState:'TIMEOUT_SUSPECTED',
+     fundErrorCode:'TIMEOUT'},
+   fundResumeCheckpoint:{lastWorkStage:'snapshotWrite',
+     requestId:'private-request-id',rawError:'PRIVATE_FINANCE_DETAIL'}
+ })
+});
+assert.deepEqual(stagedAudit.fundCloseCheckpointEvidence,{
+ level:'GAS_SAVED_CHECKPOINT_ONLY',processApiExecutionVerified:false,
+ closeState:'INCOMPLETE',closeStage:'FUND_PENDING',closeRunDate:date,
+ priceOk:true,fundOk:false,fundAttemptState:'TIMEOUT_SUSPECTED',
+ fundFailureClass:'TIMEOUT',fundWorkStage:'snapshotWrite',
+ fundResumeCheckpointPresent:true
+});
+assert.equal(stagedAudit.pass,false);
+assert.equal(stagedAudit.verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
+assert.ok(!JSON.stringify(stagedAudit).includes('PRIVATE_FINANCE_DETAIL'));
+assert.ok(!JSON.stringify(stagedAudit).includes('private-request-id'));
+
 assert.ok(!JSON.stringify(weekendAudit).includes('2100.55'));
 
 const mismatch=await auditKbNavPostflight({...mocks,
