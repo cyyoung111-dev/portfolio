@@ -31,10 +31,15 @@ function _refreshTeAcctList(selectedAcct) {
   if (!inp || !grp) return;
   // '전체' 제외한 실제 계좌만
   const realAccts = acctList.filter(a => a !== '전체');
-  const active = selectedAcct && realAccts.includes(selectedAcct)
-    ? selectedAcct : (realAccts[0] || '');
+  // An old trade may belong to an archived account no longer returned by
+  // getAcctList(). Never silently reassign that ledger row on a price edit.
+  const oldAcct = selectedAcct && selectedAcct !== '전체'
+    && !realAccts.includes(selectedAcct) ? selectedAcct : '';
+  const selectable = oldAcct ? [oldAcct, ...realAccts] : realAccts;
+  const active = selectedAcct && selectable.includes(selectedAcct)
+    ? selectedAcct : (selectable[0] || '');
   inp.value = active;
-  _renderTeAcctBtns(active, realAccts);
+  _renderTeAcctBtns(active, selectable);
 }
 
 function _renderTeAcctBtns(active, acctList) {
@@ -277,14 +282,8 @@ function _tePickName(name) {
     const curRate = exchangeRates[currency] || 0;
     const fxRateEl = $el('te-fx-rate');
     if (fxRateEl && curRate > 0 && !fxRateEl.value) fxRateEl.value = curRate;
-    // 미리보기 이벤트 등록 (중복 방지)
-    const fxPriceEl = $el('te-price-fx');
-    if (fxPriceEl && !fxPriceEl._fxBound) {
-      fxPriceEl._fxBound = true;
-      const updatePreview = () => _teUpdateFxPreview(currency);
-      fxPriceEl.addEventListener('input', updatePreview);
-      if (fxRateEl) fxRateEl.addEventListener('input', updatePreview);
-    }
+    // FX inputs are handled by one delegated listener on the overlay.
+    // That listener is also active when opening an existing trade directly.
   }
 
   // 선택된 종목명 표시 업데이트
@@ -579,6 +578,14 @@ function buildTradeEditOverlayHTML() {
 function _bindTradeEditEvents(el) {
   if (!el || el._tradeEditDelegatedBound) return;
   el._tradeEditDelegatedBound = true;
+  // Delegate once: directly opening an existing foreign trade does not call
+  // _tePickName(), so per-input listeners registered there were missing.
+  el.addEventListener('input', function(e) {
+    if (!['te-price-fx', 'te-fx-rate'].includes(e.target?.id)) return;
+    const name = $el('te-name')?.value || '';
+    const currency = (getEP(normName(name) || name)?.currency || 'KRW').toUpperCase();
+    if (currency !== 'KRW') _teUpdateFxPreview(currency);
+  });
   el.addEventListener('click', function(e) {
     if (e.target === el) { closeTradeEdit(); return; }
     const actionEl = e.target.closest('[data-te-action]');
@@ -611,8 +618,9 @@ function _teUpdateFxPreview(currency) {
   const preview = $el('te-fx-preview');
   const hidden  = $el('te-price-fx-krw');
   if (!preview) return;
-  if (fxPrice > 0 && fxRate > 0) {
-    const krw = Math.round(fxPrice * fxRate);
+  const krw = Math.round(fxPrice * fxRate);
+  if (Number.isFinite(fxPrice) && Number.isFinite(fxRate)
+      && fxPrice > 0 && fxRate > 0 && Number.isFinite(krw) && krw > 0) {
     preview.textContent = `→ 원화 단가: ${krw.toLocaleString()}원 (${currency} ${fxPrice} × ${fxRate})`;
     if (hidden) hidden.value = krw;
   } else {
@@ -692,8 +700,11 @@ function saveTrade() {
   const date      = f('te-date').value;
   // ★ [환율 연동] 외화 모드(te-fx-wrap 표시 중)면 te-price-fx-krw, 원화면 te-price-krw
   const isFxMode  = $el('te-fx-wrap')?.style.display !== 'none';
+  // The hidden FX preview is display-only and can be stale when an existing
+  // trade is edited. Persist a freshly calculated KRW price from visible fields.
   const price     = isFxMode
-    ? parseFloat(f('te-price-fx-krw')?.value || '0')
+    ? Math.round(Number(f('te-price-fx')?.value || '0')
+      * Number(f('te-fx-rate')?.value || '0'))
     : parseFloat((f('te-price-krw')?.value || '0').replace(/,/g, ''));
   const tradeType = window._currentTradeType || 'buy';
   const isAction = tradeType === 'split' || tradeType === 'reverse_split';
@@ -717,10 +728,11 @@ function saveTrade() {
     if (isFxMode) {
       const fxPriceVal = parseFloat(f('te-price-fx')?.value || '0') || 0;
       const fxRateVal  = parseFloat(f('te-fx-rate')?.value  || '0') || 0;
-      if (!fxPriceVal || fxPriceVal <= 0) { err.textContent='❌ 외화 단가를 입력하세요'; err.style.display='block'; return; }
-      if (!fxRateVal  || fxRateVal  <= 0) { err.textContent='❌ 매입 환율을 입력하세요'; err.style.display='block'; return; }
-    } else if (isNaN(price) || price <= 0) {
-      err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return;
+      if (!Number.isFinite(fxPriceVal) || fxPriceVal <= 0) { err.textContent='❌ 외화 단가를 입력하세요'; err.style.display='block'; return; }
+      if (!Number.isFinite(fxRateVal) || fxRateVal <= 0) { err.textContent='❌ 매입 환율을 입력하세요'; err.style.display='block'; return; }
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      err.textContent='❌ 유효한 원화 환산 단가를 입력하세요'; err.style.display='block'; return;
     }
   }
 
