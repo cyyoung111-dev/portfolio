@@ -155,16 +155,40 @@ async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) 
     return {ok:false,errorCode:'TRADE_V2_RECOVERY_BASELINE_CONFLICT'};
   // Even a previously no-op write must have a durable server receipt
   // before a following mutation can be prepared.
-  const result=await requestGsheetFormJson('getPortfolioSyncReceipt',{
+  const query=()=>requestGsheetFormJson('getPortfolioSyncReceipt',{
     kind:record.action,operationId:record.id,...record.params
   },{targetUrl,timeoutMs:15000,retry:0,preserveError:true});
-  if(result?.status!=='ok'||result.operationId!==record.id
-      ||result.kind!==record.action||result.receiptState!=='COMPLETE')
+  let result=await query();
+  const sameReceipt=x=>x?.status==='ok'&&x.operationId===record.id
+    &&x.kind===record.action;
+  // "attempted" is a write-ahead record, not proof that HTTP reached
+  // Apps Script. A confirmed NOT_FOUND may be replayed exactly once with
+  // the ORIGINAL operationId, request hash, source CAS and payload.
+  // GAS holds ScriptLock and de-duplicates that same id under lock.
+  // Never replay UNKNOWN/BUSY/PARTIAL/FAILED or a changed baseline.
+  if(sameReceipt(result)&&result.receiptState==='NOT_FOUND'){
+    if(expected!==baseline.revision)
+      return {ok:false,errorCode:'TRADE_V2_NOT_FOUND_BASELINE_CHANGED'};
+    if(typeof isGsheetConnectionCurrent==='function'
+        &&!isGsheetConnectionCurrent(targetUrl,generation))
+      return {ok:false,errorCode:'TRADE_V2_CONNECTION_CHANGED'};
+    await requestGsheetFormJson('syncTradesV2',{
+      ...record.params,operationId:record.id
+    },{targetUrl,timeoutMs:60000,retry:0,preserveError:true});
+    // The retry response can itself be lost; ALWAYS verify the server
+    // receipt, then GET and verify the exact financial ledger.
+    if(typeof isGsheetConnectionCurrent==='function'
+        &&!isGsheetConnectionCurrent(targetUrl,generation))
+      return {ok:false,errorCode:'TRADE_V2_CONNECTION_CHANGED'};
+    result=await query();
+  }
+  if(!sameReceipt(result)||result.receiptState!=='COMPLETE')
     return {ok:false,errorCode:'TRADE_V2_RECEIPT_'+
       String(result?.receiptState||result?.errorCode||'UNCONFIRMED')};
-  // If the verified result is already our local baseline, no new write is
-  // needed; otherwise read and pin the original operation's exact result.
-  if(targetRevision!==baseline.revision){
+  // Do not equate a matching in-memory revision with verified durable
+  // readback. This also handles a crash after dirty ACK persistence but
+  // before the terminal receipt marker was durably written.
+  {
     const readback=await requestGsheetActionJson('getTrades',{},{
       targetUrl,timeoutMs:20000,retry:0,preserveError:true
     });
@@ -182,10 +206,22 @@ async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) 
     if(typeof isGsheetConnectionCurrent==='function'
         &&!isGsheetConnectionCurrent(targetUrl,generation))
       return {ok:false,errorCode:'TRADE_V2_CONNECTION_CHANGED'};
-    if(typeof _acknowledgePortfolioTradeV2Sync==='function'
+    // A past ACK can already be present in the durable journal when the
+    // terminal receipt write alone failed. Do not acknowledge it twice.
+    if(targetRevision!==baseline.revision
+        &&typeof _acknowledgePortfolioTradeV2Sync==='function'
         &&!_acknowledgePortfolioTradeV2Sync(targetUrl,baseline,{
           revision:targetRevision,trades:readback.trades
         }))return {ok:false,errorCode:'TRADE_V2_RECOVERY_ACK_PERSIST_FAILED'};
+    if(targetRevision===baseline.revision
+        &&Array.isArray(baseline.trades)){
+      const known=await _tradeV2BrowserSha256(
+        baseline.trades.slice().sort((a,b)=>
+          String(a.date||'').localeCompare(String(b.date||'')))
+          .map(_tradeV2BrowserCanonical));
+      if(known!==targetRevision)
+        return {ok:false,errorCode:'TRADE_V2_RECOVERY_LOCAL_BASELINE_MISMATCH'};
+    }
     baseline={...baseline,revision:targetRevision,
       trades:readback.trades.map(t=>({...t}))};
     window._tradeLedgerV2BaselineTargets={
@@ -1776,17 +1812,20 @@ async function syncTradesToGsheet(options) {
           }))
         return {status:'error',errorCode:'TRADE_V2_DIRTY_ACK_PERSIST_FAILED',
           saveState:'partial',followupRequired:true};
+      // Journal ACK has already advanced durably. Update in-memory
+      // baseline BEFORE writing the terminal marker, so a one-off marker
+      // failure cannot strand a stale in-memory preimage and double-ACK.
+      window._tradeLedgerV2BaselineTargets={
+        ...(window._tradeLedgerV2BaselineTargets||{}),
+        [targetUrl]:{...v2Baseline,revision:targetRevision,
+          trades:verified.trades.map(t=>({...t}))}
+      };
       if(!_markTradeV2ReadbackConfirmed_(targetUrl,{
           ...request,explicitEmpty:allowEmpty?'1':'',rebuildFrom
         },targetRevision))
         return {status:'error',
           errorCode:'TRADE_V2_READBACK_RECEIPT_PERSIST_FAILED',
           saveState:'partial',followupRequired:true};
-      window._tradeLedgerV2BaselineTargets={
-        ...(window._tradeLedgerV2BaselineTargets||{}),
-        [targetUrl]:{...v2Baseline,revision:targetRevision,
-          trades:verified.trades.map(t=>({...t}))}
-      };
       return {...response,saveState:'success',
         tradeLedgerProtocolVersion:2,tradeFxMetadataVersion:1,
         ledgerRevision:targetRevision};
