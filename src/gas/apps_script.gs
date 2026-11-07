@@ -6936,32 +6936,6 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       }
     }
   });
-  // All dates are already evaluated by _fundValueNeedsProcessing(). If
-  // nothing needs changing, acquiring the global write lock and rereading
-  // whole NAV/price/Snapshot sheets is unnecessary. In particular, repeated
-  // 19:00/20:30 closes should not consume the GAS timeout budget merely to
-  // prove that previously stored NAV and derived rows remain unchanged.
-  // Partial/missing-publication statuses must still be reported verbatim.
-  if (values.length === 0) {
-    _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'resultAggregate', '_refreshFundValuations');
-    var skippedResult = {
-      continuation:false, deferredSnapshotDates:0,
-      completionStatus:Object.keys(fundResults).some(function(code) {
-        return fundResults[code].status !== 'ok';
-      }) ? 'partial' : 'ok',
-      saved:0, navSaved:0, snapshots:0,
-      processing:{
-        nav:{processed:0, pending:Object.keys(fundResults).reduce(function(sum, code) {
-          return sum + Number(fundResults[code].navMissing || 0);
-        },0)},
-        priceHistory:{processed:0,pending:0},
-        snapshots:{processed:0,pending:0,reasons:[]}
-      },
-      missingHoldings:[],snapshotWarnings:[],lastDate:'',fundResults:fundResults
-    };
-    _fundRecoveryDiagnosticFinish(diagnostic, 'end');
-    return skippedResult;
-  }
   // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.
   // 외부 HTTP·NAV 파싱·평가 계산은 lock 밖에서 완료합니다.
   // 동시 실행에서 중복 추가를 막기 위해 쓰기 직전 최신 상태를 다시 읽습니다.
