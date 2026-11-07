@@ -30,6 +30,8 @@ Object.assign(process.env,{GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'ref
   GAS_SCRIPT_ID:scriptId,GAS_DEPLOYMENT_ID:deploymentId,GAS_SERVER_FILE_NAME:'Code',
   GAS_WEB_APP_URL:'https://script.google.com/macros/s/'+deploymentId+'/exec',
   GAS_DEPLOY_DRY_RUN:'true',GAS_9282_RELEASE_APPROVAL:'false',GAS_9283_RELEASE_APPROVAL:'false',
+  GAS_9284_RELEASE_APPROVAL:'false',GAS_9285_RELEASE_APPROVAL:'false',
+  GAS_ISSUE860_ONE_SHOT_DRYRUN:'false',
   CLASPRC_JSON:JSON.stringify({client_id:'FAKE_CLIENT',client_secret:'FAKE_SECRET',refresh_token:'FAKE_REFRESH'})});
 const calls=[],logs=[];
 let extra=true,stale=false,oauthFailure=false,reviewed=false,headMatches=false;
@@ -91,8 +93,26 @@ try {
   assert.equal(result.status,'UNVERIFIED');
   assert.deepEqual(result.failures,['INVENTORY_UNVERIFIED','DRY_RUN_UNVERIFIED']);
   oauthFailure=false;
+  // Protected one-shot is allowed only on the current main SHA and can
+  // perform the same GET-only diagnostic as workflow_dispatch.
+  process.env.GITHUB_EVENT_NAME='push';
+  process.env.GAS_ISSUE860_ONE_SHOT_DRYRUN='true';
+  const beforePush=calls.length;
+  result=await runReadOnly9282({fetchImpl:mock});
+  assert.equal(result.status,'BLOCKED');
+  assert.equal(result.sourceVersion,'9.285');
+  assert.equal(result.dryRun.dryRun,true);
+  assert.ok(calls.slice(beforePush).every(c=>c.method==='GET'
+    ||c.url==='https://oauth2.googleapis.com/token'));
+  process.env.GAS_ISSUE860_ONE_SHOT_DRYRUN='false';
+  let before=calls.length;
+  await assert.rejects(runReadOnly9282({fetchImpl:mock}),/ISSUE860_MODE_INVALID/);
+  assert.equal(calls.length,before,'unflagged push must stop before network');
+  process.env.GITHUB_EVENT_NAME='workflow_dispatch';
   for(const [key,bad] of [['GAS_DEPLOY_DRY_RUN','false'],['GAS_9282_RELEASE_APPROVAL','true'],
-    ['GAS_9283_RELEASE_APPROVAL','true'],['GITHUB_REF','refs/heads/feature'],['GITHUB_EVENT_NAME','push']]) {
+    ['GAS_9283_RELEASE_APPROVAL','true'],['GAS_9284_RELEASE_APPROVAL','true'],
+    ['GAS_9285_RELEASE_APPROVAL','true'],['GITHUB_REF','refs/heads/feature'],
+    ['GITHUB_EVENT_NAME','push']]) {
     const previous=process.env[key];process.env[key]=bad;before=calls.length;
     await assert.rejects(runReadOnly9282({fetchImpl:mock}));
     assert.equal(calls.length,before,'invalid mode fails before network');
@@ -120,7 +140,10 @@ assert.equal(job.environment,'portfolio-production-gas');
 assert.deepEqual(job.concurrency,{group:'gas-production-deploy','cancel-in-progress':false});
 const live=job.steps.find(x=>x.name==='Re-audit and dry-run only (no runtime endpoint calls)');
 assert.ok(live);
-assert.equal(live.if,"github.event_name == 'workflow_dispatch'");
+assert.equal(live.if,"github.event_name == 'workflow_dispatch' || github.event_name == 'push'");
+assert.equal(live.env.GAS_ISSUE860_ONE_SHOT_DRYRUN,"${{ github.event_name == 'push' && 'true' || 'false' }}");
+assert.equal(live.env.GAS_9284_RELEASE_APPROVAL,'false');
+assert.equal(live.env.GAS_9285_RELEASE_APPROVAL,'false');
 assert.equal(live.run,'node scripts/issue860-readonly-9282-dryrun.mjs');
 assert.equal(live.env.GAS_DEPLOY_DRY_RUN,'true');
 assert.equal(live.env.GAS_9282_RELEASE_APPROVAL,'false');
@@ -128,7 +151,7 @@ assert.equal(live.env.GAS_9283_RELEASE_APPROVAL,'false');
 assert.ok(!('GAS_ACCESS_TOKEN' in live.env));
 const oneShot=job.steps.find(x=>x.name==='One-shot exact GAS deployment and authenticated gate inspect (GET only)');
 assert.ok(oneShot);
-assert.equal(oneShot.if,"github.event_name == 'push'");
+assert.equal(oneShot.if,"github.event_name == 'push' && always()");
 assert.equal(oneShot.run,'node scripts/issue860-first-cutover.mjs');
 assert.equal(oneShot.env.GAS_FIRST_GATE_PHASE,'inspect');
 assert.equal(oneShot.env.GAS_ISSUE860_ONE_SHOT_INSPECT,'true');
