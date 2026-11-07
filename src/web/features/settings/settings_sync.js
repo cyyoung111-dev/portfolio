@@ -1576,6 +1576,89 @@ async function syncTradesToGsheet(options) {
       }).catch(()=>{});
     }
 
+    // v2 stays completely inactive on the approved GAS 9.284 endpoint.
+    // Activate only when the SAME Bootstrap supplied 14-column IDs and
+    // revision, with exact URL + generation provenance.
+    const v2Generation=Number.isInteger(generation)?generation:
+      (typeof getGsheetConnectionGeneration==='function'
+        ?getGsheetConnectionGeneration():-1);
+    const v2Baseline=_tradeV2PinnedBaseline(targetUrl,v2Generation);
+    if(v2Baseline){
+      // A filtered/malformed local ledger must not become an implicit delete.
+      if(trades.length!==sourceTrades.length)
+        return {status:'error',errorCode:'TRADE_V2_TRUNCATED_LOCAL_LEDGER',
+          saveState:'failed'};
+      const declaredDeleteIds=Array.isArray(options?.tradeV2DeleteIds)
+        ?options.tradeV2DeleteIds
+        :(allowEmpty&&trades.length===0
+          ?v2Baseline.trades.map(t=>String(t.id)):[]);
+      let contract;
+      try{
+        contract=await _prepareTradeV2SyncContract(
+          v2Baseline,trades,declaredDeleteIds);
+      }catch(err){
+        const code=String(err?.message||'TRADE_V2_LOCAL_CONTRACT_FAILED');
+        _syncWarn('[거래 v2] 쓰기 전 검증 실패:',code);
+        return {status:'error',errorCode:code,saveState:'failed'};
+      }
+      const targetRevision=contract.targetRevision;
+      const {targetRevision:ignoreComputed,...request}=contract;
+      const response=await _requestPortfolioRecoveryWrite('syncTradesV2',{
+        ...request,explicitEmpty:allowEmpty?'1':'',rebuildFrom
+      },{
+        targetUrl,generation:v2Generation,
+        recoveryScope:'trade-v2:'+v2Baseline.revision,
+        timeoutMs:60000,retry:0,preserveError:true
+      });
+      if(response?.status!=='ok'||response.receiptState!=='COMPLETE'){
+        _syncWarn('[거래 v2] 영수증 확정 전 추가 쓰기 차단:',
+          response?.errorCode||'SYNC_RECEIPT_UNCONFIRMED');
+        return response||{status:'error',errorCode:'TRADE_V2_RECEIPT_UNAVAILABLE',
+          saveState:'partial',followupRequired:true};
+      }
+      // An ACK or read-only receipt alone is not enough to advance the
+      // browser baseline. Re-fetch the exact financial ledger after saving.
+      const verified=await requestGsheetActionJson('getTrades',{},{
+        targetUrl,timeoutMs:20000,retry:0,preserveError:true
+      });
+      const connectionOk=typeof isGsheetConnectionCurrent!=='function'
+        ||isGsheetConnectionCurrent(targetUrl,v2Generation);
+      if(!connectionOk||verified?.status!=='ok'
+          ||verified.tradeLedgerProtocolVersion!==2
+          ||verified.ledgerRevision!==targetRevision
+          ||!Array.isArray(verified.trades)
+          ||verified.trades.length!==trades.length
+          ||verified.trades.some(t=>!t?.id)){
+        return {status:'error',errorCode:'TRADE_V2_READBACK_UNVERIFIED',
+          saveState:'partial',followupRequired:true};
+      }
+      let readbackDigest;
+      try {
+        readbackDigest=await _tradeV2BrowserSha256(
+          verified.trades.slice().sort((a,b)=>
+            String(a.date||'').localeCompare(String(b.date||'')))
+            .map(_tradeV2BrowserCanonical));
+      }catch(ignore){
+        return {status:'error',errorCode:'TRADE_V2_READBACK_INVALID',
+          saveState:'partial',followupRequired:true};
+      }
+      if(readbackDigest!==targetRevision)
+        return {status:'error',errorCode:'TRADE_V2_READBACK_HASH_MISMATCH',
+          saveState:'partial',followupRequired:true};
+      if(typeof isGsheetConnectionCurrent==='function'
+          &&!isGsheetConnectionCurrent(targetUrl,v2Generation))
+        return {status:'error',errorCode:'TRADE_V2_CONNECTION_CHANGED',
+          saveState:'partial',followupRequired:true};
+      window._tradeLedgerV2BaselineTargets={
+        ...(window._tradeLedgerV2BaselineTargets||{}),
+        [targetUrl]:{...v2Baseline,revision:targetRevision,
+          trades:verified.trades.map(t=>({...t}))}
+      };
+      return {...response,saveState:'success',
+        tradeLedgerProtocolVersion:2,tradeFxMetadataVersion:1,
+        ledgerRevision:targetRevision};
+    }
+
     // Older GAS versions silently discard the foreign currency/unit-price
     // fields. Never send such a ledger to an endpoint that did not explicitly
     // advertise 13-column round-trip support on THIS exact connection.
