@@ -1238,7 +1238,7 @@ function _markPortfolioRemoteDirty(deletedTradeIds) {
   // A confirmed UI delete remains explicit across debounce and offline
   // journal retries. Missing ledger rows are never independently inferred.
   const liveIds=new Set(rawTrades.map(t=>String(t.id||'')));
-  const tradeV2DeleteIds=Array.from(new Set([
+  const requestedDeleteIds=Array.from(new Set([
     ...(Array.isArray(previous?.tradeV2DeleteIds)?previous.tradeV2DeleteIds:[]),
     ...(Array.isArray(deletedTradeIds)?deletedTradeIds:[])
   ].map(String))).filter(id=>id && !liveIds.has(id));
@@ -1248,6 +1248,25 @@ function _markPortfolioRemoteDirty(deletedTradeIds) {
   const tradeV2Baseline=previous?.tradeV2Baseline ||
     (pinned?{targetUrl:target,protocol:2,revision:pinned.revision,
       trades:pinned.trades.map(t=>({...t}))}:null);
+  // A just-created trade can be removed before the debounce or while
+  // offline: absent a server preimage and an ATTEMPTED create receipt, this
+  // is cancellation of a local create, NOT an authoritative server delete.
+  const serverIds=new Set((tradeV2Baseline?.trades||[])
+    .map(t=>String(t.id||'')));
+  const receipt=typeof _readPortfolioRecoveryReceipts==='function'
+    ?_readPortfolioRecoveryReceipts()?.[target]?.syncTradesV2:null;
+  const attempted=receipt?.action==='syncTradesV2'&&receipt.attempted===true;
+  let attemptedCreatedIds=new Set(),receiptUnparseable=false;
+  if(attempted){
+    try{
+      const submitted=JSON.parse(receipt.params?.data||'[]');
+      if(!Array.isArray(submitted))throw Error('INVALID_RECEIPT_ROWS');
+      attemptedCreatedIds=new Set(submitted.map(t=>String(t.id||'')));
+    }catch(ignore){receiptUnparseable=true;}
+  }
+  const tradeV2DeleteIds=requestedDeleteIds.filter(id=>
+    !tradeV2Baseline||serverIds.has(id)||attemptedCreatedIds.has(id)||
+    receiptUnparseable);
   _portfolioRemoteDirtyByTarget[target] = {
     target,
     epoch,
