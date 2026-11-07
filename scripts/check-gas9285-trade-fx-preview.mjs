@@ -191,7 +191,17 @@ assert.equal(oldRead.trades[0].fxRateAtBuy,undefined);
 columns=13;stored=[fxTrade.date?[
  '2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350
 ]:[]];
+const modernIncomplete={...fxTrade,price:210000,memo:'different trade',
+ priceRaw:undefined,fxRateAtBuy:undefined};
+const modernIncompleteResult=ctx.handleSyncTrades(JSON.stringify([modernIncomplete]),'',false);
+assert.equal(modernIncompleteResult.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
+ 'even an upgraded client cannot erase prior FX evidence on a price or memo correction');
+assert.equal(stored[0][11],155.5);
 console.log('GAS_TRADE_FX_ROUNDTRIP_PASS 13-cols legacy11 receipt-codec readback/anti-downgrade');
+// Restore the original 11-column mock before unrelated legacy DATE/rebuild
+// regression cases. Those tests intentionally send a plain buy, not an
+// upgrade operation against an already FX-tagged financial ledger.
+columns=11;stored=[];ledgerJournal=false;mutation=null;
 
 const values=[['2026-10-07','005930',100]];
 const genericSheet={getRange:()=>({getValues:()=>[[new Date('2026-10-07T00:00:00Z'),'005930',100]]})};
