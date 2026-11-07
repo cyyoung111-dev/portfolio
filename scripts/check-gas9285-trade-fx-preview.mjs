@@ -208,7 +208,7 @@ stored=[
 ];
 const afterFxDeletion=ctx.handleSyncTrades(JSON.stringify([plainTrade]),'',false);
 assert.equal(afterFxDeletion.status,'ok',
- 'explicit removal of only FX row must retain unchanged ordinary trade');
+ 'explicit removal of only FX row must retain unchanged ordinary trade: '+JSON.stringify(afterFxDeletion));
 assert.equal(stored.length,1);
 assert.equal(stored[0][6],100);
 assert.equal(stored[0][11],'');
