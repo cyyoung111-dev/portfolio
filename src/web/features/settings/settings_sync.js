@@ -106,15 +106,44 @@ async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteId
 // Resolve an earlier v2 write BEFORE deriving a later CAS contract. A lost
 // ACK may have advanced the server while this device still holds the old
 // preimage. Never use that old preimage for a new edit.
+// ACK COMPLETE is NOT equivalent to a readback-confirmed ledger.
+// Persist this terminal proof only after the full GET + hash + dirty-journal
+// acknowledgement. Older completed-only receipts still require recovery.
+function _markTradeV2ReadbackConfirmed_(targetUrl,expectedParams,revision) {
+  const records=_readPortfolioRecoveryReceipts();
+  const record=records?.[targetUrl]?.syncTradesV2;
+  if(!record||record.action!=='syncTradesV2'||!record.attempted
+      ||record.completed!==true
+      ||JSON.stringify(record.params)!==JSON.stringify(expectedParams)
+      ||!/^[0-9a-f]{64}$/.test(String(revision||'')))return false;
+  record.readbackConfirmedRevision=revision;
+  return _savePortfolioRecoveryReceipts(records);
+}
+
 async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) {
   const records=_readPortfolioRecoveryReceipts();
   const record=records?.[targetUrl]?.syncTradesV2;
-  if(!record?.attempted) return {ok:true,baseline};
+  if(!record?.attempted) return {ok:true,baseline,consumedDeleteIds:[]};
+  // A completed-and-verified prior write no longer owns the current
+  // baseline. Another device can advance the server and this local client
+  // can later restore that newer authoritative ledger safely.
+  if(record.readbackConfirmedRevision){
+    if(record.completed!==true||
+        !/^[0-9a-f]{64}$/.test(String(record.readbackConfirmedRevision)))
+      return {ok:false,errorCode:'TRADE_V2_TERMINAL_RECEIPT_INVALID'};
+    return {ok:true,baseline,consumedDeleteIds:[]};
+  }
   if(record.action!=='syncTradesV2'||!record.id||!record.params
       ||record.params.tradeLedgerProtocolVersion!=='2')
     return {ok:false,errorCode:'TRADE_V2_RECEIPT_INVALID'};
   const expected=String(record.params.expectedLedgerRevision||'');
-  let rows,targetRevision;
+  let rows,targetRevision,consumedDeleteIds=[];
+  try {
+    const changes=JSON.parse(record.params.intents||'[]');
+    if(!Array.isArray(changes))throw Error('INVALID_INTENTS');
+    consumedDeleteIds=changes.filter(x=>x?.type==='delete')
+      .map(x=>String(x.id||''));
+  }catch(ignore){return {ok:false,errorCode:'TRADE_V2_RECEIPT_INTENTS_INVALID'};}
   try{
     rows=JSON.parse(record.params.data||'[]');
     if(!Array.isArray(rows))throw Error('TRADE_V2_RECEIPT_ROWS_INVALID');
@@ -164,9 +193,10 @@ async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) 
     };
   }
   record.completed=true;
+  record.readbackConfirmedRevision=targetRevision;
   if(!_savePortfolioRecoveryReceipts(records))
     return {ok:false,errorCode:'TRADE_V2_RECEIPT_LOCAL_BACKUP_FAILED'};
-  return {ok:true,baseline};
+  return {ok:true,baseline,consumedDeleteIds};
 }
 
 function _readPortfolioRecoveryReceipts() {
@@ -1664,10 +1694,22 @@ async function syncTradesToGsheet(options) {
       if(trades.length!==sourceTrades.length)
         return {status:'error',errorCode:'TRADE_V2_TRUNCATED_LOCAL_LEDGER',
           saveState:'failed'};
-      const declaredDeleteIds=Array.isArray(options?.tradeV2DeleteIds)
-        ?options.tradeV2DeleteIds
-        :(allowEmpty&&trades.length===0
-          ?v2Baseline.trades.map(t=>String(t.id)):[]);
+      // A read-only recovery may consume old deletion IDs in the durable
+      // journal *within this very call*. Never reuse the options array
+      // captured before that recovery.
+      const latestDirty=typeof _getPortfolioRemoteDirty==='function'
+        ?_getPortfolioRemoteDirty():null;
+      const idsFromJournal=options?.recoveryWrite===true
+        &&latestDirty?.target===targetUrl
+        &&Array.isArray(latestDirty.tradeV2DeleteIds)
+        ?latestDirty.tradeV2DeleteIds:null;
+      const pendingIds=idsFromJournal||
+        (Array.isArray(options?.tradeV2DeleteIds)?options.tradeV2DeleteIds:
+          (allowEmpty&&trades.length===0
+            ?v2Baseline.trades.map(t=>String(t.id)):[]));
+      const recoveredDeletes=new Set(recovered.consumedDeleteIds||[]);
+      const declaredDeleteIds=pendingIds.filter(id=>
+        !recoveredDeletes.has(String(id)));
       let contract;
       try{
         contract=await _prepareTradeV2SyncContract(
@@ -1733,6 +1775,12 @@ async function syncTradesToGsheet(options) {
             revision:targetRevision,trades:verified.trades
           }))
         return {status:'error',errorCode:'TRADE_V2_DIRTY_ACK_PERSIST_FAILED',
+          saveState:'partial',followupRequired:true};
+      if(!_markTradeV2ReadbackConfirmed_(targetUrl,{
+          ...request,explicitEmpty:allowEmpty?'1':'',rebuildFrom
+        },targetRevision))
+        return {status:'error',
+          errorCode:'TRADE_V2_READBACK_RECEIPT_PERSIST_FAILED',
           saveState:'partial',followupRequired:true};
       window._tradeLedgerV2BaselineTargets={
         ...(window._tradeLedgerV2BaselineTargets||{}),
