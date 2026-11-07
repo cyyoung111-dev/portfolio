@@ -9,6 +9,8 @@ const elements = {
   'te-name': { value: '' },
   'te-code': { value: '' },
   'te-selected-name': { style: {}, textContent: '' },
+  'te-acct': { value: '' },
+  'te-acct-group': { innerHTML: '' },
 };
 const context = {
   window: {},
@@ -18,6 +20,7 @@ const context = {
     { name: 'ETF종목', assetType: 'ETF' },
   ],
   STOCK_CODE: {},
+  getAcctList() { return ['전체','현재계좌']; },
   $el(id) { return elements[id] || null; },
   getEPType(item, fallback) { return item?.assetType || fallback; },
   _escapeHtml(value) { return String(value); },
@@ -26,6 +29,7 @@ const context = {
 
 vm.runInNewContext(`${source}\n
   globalThis.__testRefresh = _refreshTeCodeList;
+  globalThis.__testRefreshAcct = _refreshTeAcctList;
   globalThis.__testEdit = editTrade;
   globalThis.__setOpen = fn => { openAddTrade = fn; };
 `, context, { filename: 'src/web/features/trade/editor/mgmt_trade.js' });
@@ -49,13 +53,30 @@ if (source.includes("f('te-price').value")) {
   process.exit(1);
 }
 
-console.log('✅ 기존 거래 선택·필드 복원·유형별 종목 필터 검사 통과');
+// A legacy holding may use an account no longer included in the current
+// account picker. Opening its editor must not silently reassign the trade.
+context.__testRefreshAcct('보관계좌');
+assert.equal(elements['te-acct'].value,'보관계좌');
+assert.match(elements['te-acct-group'].innerHTML,/data-value="보관계좌"/);
+assert.match(elements['te-acct-group'].innerHTML,/data-value="현재계좌"/);
+context.__testRefreshAcct('현재계좌');
+assert.equal(elements['te-acct'].value,'현재계좌');
+context.__testRefreshAcct('');
+assert.equal(elements['te-acct'].value,'현재계좌',
+  'a brand-new trade without an account still selects the active default');
+console.log('✅ 기존 거래 선택·과거 계좌 보존·유형별 종목 필터 검사 통과');
 
 // Production saveTrade with synthetic DOM; never sends requests or writes live data.
 function run(trades,qty,date='2026-02-23',opts={}){
-const fields={'te-name':opts.name||'시험','te-qty':String(qty),'te-date':date,'te-price-krw':String(opts.price ?? 100),'te-acct':opts.acct||'계좌','te-code':'005930','te-assettype':'주식','te-memo':'','te-ratio':String(opts.ratio||'')};
-const elements=Object.fromEntries(Object.entries(fields).map(([k,value])=>[k,{value,style:{}}]));elements['te-error']={style:{},textContent:''};elements['te-fx-wrap']={style:{display:'none'}};
-const ctx={window:{_currentTradeType:opts.type||'sell'},rawTrades:JSON.parse(JSON.stringify(trades)),EDITABLE_PRICES:[{name:'시험',code:'005930',assetType:'주식'}],STOCK_CODE:{},$el:id=>elements[id]||null,normName:x=>x,getEP:()=>({currency:'KRW'}),getAccountId:()=> 'A',genTradeId:()=>999};
+const fields={'te-name':opts.name||'시험','te-qty':String(qty),'te-date':date,
+ 'te-price-krw':String(opts.price ?? 100),
+ 'te-price-fx':String(opts.fxPrice ?? 150),
+ 'te-fx-rate':String(opts.fxRate ?? 1300),
+ 'te-price-fx-krw':String(opts.fxPreview ?? 1),
+ 'te-acct':opts.acct||'계좌','te-code':'005930','te-assettype':'주식',
+ 'te-memo':'','te-ratio':String(opts.ratio||'')};
+const elements=Object.fromEntries(Object.entries(fields).map(([k,value])=>[k,{value,style:{}}]));elements['te-error']={style:{},textContent:''};elements['te-fx-wrap']={style:{display:opts.fx ? '' : 'none'}};
+const ctx={window:{_currentTradeType:opts.type||'sell'},rawTrades:JSON.parse(JSON.stringify(trades)),EDITABLE_PRICES:[{name:'시험',code:'005930',assetType:'주식'}],STOCK_CODE:{},$el:id=>elements[id]||null,normName:x=>x,getEP:()=>({currency:opts.fx?'USD':'KRW'}),getAccountId:()=> 'A',genTradeId:()=>999};
 ctx.rawHoldings=[];ctx.migrateLegacyTrades=()=>{};ctx.getEPType=()=> '주식';
 ctx.saveHoldings=()=>{ctx.saved=true};ctx.refreshAll=()=>{};
 const dataSource=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
@@ -132,7 +153,65 @@ assert.equal(unsafeSplit.saved,false,'split correction cannot create downstream 
 const safeSplit=run([historicBuy,split,postSplitSale],10,'2026-02-10',{type:'split',editId:7,ratio:3});
 assert.equal(safeSplit.saved,true);
 assert.equal(safeSplit.holdings[0].qty,15,'historical split replays before subsequent sale');
-console.log('PASS: historical buy/sell/price/account/split correction, future oversell guard, fail-closed editing');
+// Editing an existing USD trade previously reused the old hidden KRW
+// preview when FX-price/rate listeners had not been attached. Persist the
+// newly calculated KRW amount, then recompute real holdings and PnL.
+const oldFx={id:99,...row('2026-02-01','buy',10),price:195000,
+  priceRaw:150,fxRateAtBuy:1300};
+const correctedFx=run([oldFx],10,'2026-02-01',
+  {type:'buy',editId:99,fx:true,fxPrice:155.5,fxRate:1350,
+   fxPreview:195000});
+const fxPriceKrw=Math.round(155.5*1350);
+assert.equal(correctedFx.saved,true);
+assert.equal(correctedFx.trades[0].price,fxPriceKrw,
+ 'a stale hidden preview must not overwrite amended foreign unit price');
+assert.equal(correctedFx.trades[0].priceRaw,155.5);
+assert.equal(correctedFx.trades[0].fxRateAtBuy,1350);
+assert.equal(correctedFx.holdings[0].costAmt,fxPriceKrw*10,
+ 'holdings and graph cost basis must derive from the saved conversion');
+const invalidFx=run([oldFx],10,'2026-02-01',
+  {type:'buy',editId:99,fx:true,fxPrice:'1e309',fxRate:1350,fxPreview:195000});
+assert.equal(invalidFx.saved,false);
+assert.equal(invalidFx.trades[0].price,195000,
+ 'rejected infinite FX input must preserve the original cost and ledger');
+const invalidKrw=run([row('2026-02-01','buy',10)],10,
+ '2026-02-01',{type:'buy',price:'1e309'});
+assert.equal(invalidKrw.saved,false,'infinite KRW purchase price must not persist');
+const badRate=run([oldFx],10,'2026-02-01',
+  {type:'buy',editId:99,fx:true,fxPrice:150,fxRate:'1e309'});
+assert.equal(badRate.saved,false);
+
+// The delegated FX preview handler must be bound once on overlay creation,
+// regardless of whether the user first clicked a ticker or reopened a trade.
+{
+ const callbacks={};
+ const overlay={
+  addEventListener:(type,cb)=>{(callbacks[type] ||= []).push(cb);}
+ };
+ const fxFields={
+  'te-name':{value:'시험'},'te-price-fx':{value:'160'},
+  'te-fx-rate':{value:'1300'},'te-fx-preview':{textContent:''},
+  'te-price-fx-krw':{value:'195000'}
+ };
+ const fxCtx={
+  window:{},rawTrades:[],EDITABLE_PRICES:[],STOCK_CODE:{},
+  $el:id=>fxFields[id]||null,normName:v=>v,
+  getEP:()=>({currency:'USD'})
+ };
+ vm.runInNewContext(source
+  +'\nglobalThis.__bind=_bindTradeEditEvents;',fxCtx);
+ fxCtx.__bind(overlay);
+ fxCtx.__bind(overlay);
+ assert.equal(callbacks.input.length,1,'only one FX listener per overlay');
+ callbacks.input[0]({target:{id:'te-fx-rate'}});
+ assert.equal(fxFields['te-price-fx-krw'].value,208000,
+   'existing trade FX preview must update after editing exchange rate');
+ fxFields['te-price-fx'].value='1e309';
+ callbacks.input[0]({target:{id:'te-price-fx'}});
+ assert.equal(fxFields['te-price-fx-krw'].value,'',
+   'infinite derived KRW must be removed from preview');
+}
+console.log('PASS: historical buy/sell/account/split + legacy account + existing foreign unit-price correction, nonfinite rejection');
 
 
 // Bulk-import UI explicitly accepts dotted dates. Its writer must store ISO
