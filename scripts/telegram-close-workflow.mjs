@@ -205,7 +205,11 @@ export async function settleOptionalCloseFinance(promise,waitMs=1800){
  if(!Number.isInteger(waitMs)||waitMs<0||waitMs>1800)
    throw Error('TELEGRAM_CLOSE_FINANCE_BUDGET_INVALID');
  const pending=Promise.resolve(promise).catch(()=>null);
- if(waitMs===0)return await Promise.race([pending,Promise.resolve(null)]);
+ // With zero remaining budget, give an already-fulfilled public evidence
+ // promise one microtask to win. An unresolved request still returns null
+ // without any timer, so the close SEND window remains protected.
+ if(waitMs===0)return (await Promise.race([
+   pending,Promise.resolve().then(()=>null)]))??null;
  let timer;
  try {
    const deadline=new Promise(resolve=>{timer=setTimeout(()=>resolve(null),waitMs);});
