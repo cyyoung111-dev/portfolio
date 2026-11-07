@@ -4,17 +4,12 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 import {composeGas9285TradeFxPreview} from './compose-gas9285-trade-fx-preview.mjs';
-import {createHash} from 'node:crypto';
 const {base,candidate,manifest}=composeGas9285TradeFxPreview();
-const sha1=text=>{
- const bytes=Buffer.from(text,'utf8');
- return createHash('sha1').update('blob '+bytes.length+'\\0').update(bytes).digest('hex');
-};
 assert.equal(manifest.baseSourceGitBlob,'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
-assert.match(candidate,/gasVersion: '9\\.285'/);
+assert.ok(candidate.includes("gasVersion: '9.285'"));
 assert.equal(candidate.includes('function _portfolioTradeFxMetadata_('),true);
 assert.notEqual(candidate,base);
 const source=isolateGasBusinessLogic(candidate);
