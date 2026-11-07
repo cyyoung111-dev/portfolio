@@ -10,6 +10,33 @@ assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
 assert.ok(candidate.includes("gasVersion: '9.285'"));
+// Unchanged Korean trades must retain v9.284 receipt canonical hashes
+// across the candidate upgrade; only actually recorded FX adds fields.
+{
+ const extractFn=(src,name)=>{
+   const i=src.indexOf('function '+name+'('),j=src.indexOf('\n}',i);
+   assert.ok(i>=0&&j>i);
+   return src.slice(i,j+2);
+ };
+ const initial=vm.createContext({_issue507GateInside_:true,
+   _normalizeDate:d=>String(d||'')});
+ const next=vm.createContext({_issue507GateInside_:true,
+   _normalizeDate:d=>String(d||'')});
+ vm.runInContext(extractFn(base,'_portfolioSyncCanonical_')
+   +'\nglobalThis.canonical=_portfolioSyncCanonical_;',initial);
+ vm.runInContext(extractFn(candidate,'_portfolioTradeFxMetadata_')
+   +'\n'+extractFn(candidate,'_portfolioSyncCanonical_')
+   +'\nglobalThis.canonical=_portfolioSyncCanonical_;',next);
+ const plain={date:'2026-11-06',tradeType:'buy',acct:'연금',name:'국내ETF',
+   code:'069500',qty:12,price:10000,assetType:'ETF'};
+ assert.equal(next.canonical('syncTrades',[plain]),
+   initial.canonical('syncTrades',[plain]),
+   '9.284 pending domestic receipt must remain COMPLETE after upgrade');
+ const fx={...plain,price:209925,priceRaw:155.5,fxRateAtBuy:1350};
+ assert.notEqual(next.canonical('syncTrades',[fx]),
+   next.canonical('syncTrades',[plain]),'FX evidence must be receipt-signed');
+}
+
 assert.equal(candidate.includes('function _portfolioTradeFxMetadata_('),true);
 assert.notEqual(candidate,base);
 const source=isolateGasBusinessLogic(candidate);
@@ -118,7 +145,7 @@ for(const [column,value] of [[0,new Date('2021-05-12T07:00:00Z')],[4,'5930'],[5,
 // The older 11-column reader remains valid with empty optional metadata.
 mutation=null;
 const fxTrade={...trade,qty:10,price:209925,priceRaw:155.5,fxRateAtBuy:1350,
-  ratio:2,fractionalCash:123.45};
+  ratio:2,fractionalCash:123.45,tradeFxSchemaVersion:1};
 const fxSaved=ctx.handleSyncTrades(JSON.stringify([fxTrade]),'',false);
 assert.equal(fxSaved.status,'ok');
 assert.equal(fxSaved.tradeFxMetadataVersion,1);
@@ -143,10 +170,12 @@ assert.throws(()=>ctx._portfolioTradeFxMetadata_({...fxTrade,fxRateAtBuy:''}),
  /TRADE_FX_METADATA_INCOMPLETE/);
 assert.throws(()=>ctx._portfolioTradeFxMetadata_({...fxTrade,price:200000}),
  /TRADE_FX_METADATA_PRICE_MISMATCH/);
-const staleFxClient={...fxTrade};delete staleFxClient.priceRaw;delete staleFxClient.fxRateAtBuy;
+const staleFxClient={...fxTrade,memo:'legacy editor changed memo'};
+delete staleFxClient.priceRaw;delete staleFxClient.fxRateAtBuy;
+delete staleFxClient.tradeFxSchemaVersion;
 const blocked=ctx.handleSyncTrades(JSON.stringify([staleFxClient]),'',false);
 assert.equal(blocked.status,'error');
-assert.equal(blocked.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
+assert.equal(blocked.errorCode,'TRADE_FX_LEGACY_CLIENT_BLOCKED',
  'stale 11-column clients cannot silently erase saved FX source data');
 assert.equal(stored[0][11],155.5,'blocked downgrade leaves ledger intact');
 const badFx=ctx.handleSyncTrades(JSON.stringify([{
