@@ -72,7 +72,23 @@ const missing=evaluateSemiconductorCompanyViews({date,stocks:morningPrices,finan
 assert.equal(missing.length,2);
 assert.ok(missing.every(x=>x.book===null));
 assert.ok(missing.every(x=>x.price));
-assert.match(formatSemiconductorCompanyFiveViews({date,stocks:morningPrices}).join(' '),/BPS·PBR 미확보/);
+const unverifiedViews=formatSemiconductorCompanyFiveViews({date,
+ stocks:morningPrices}).join('\n');
+assert.match(unverifiedViews,/BPS·PBR 미확보/);
+assert.match(unverifiedViews,/삼성 BPS\/PBR 미확보/);
+assert.match(unverifiedViews,/하닉 BPS\/PBR 미확보/);
+assert.doesNotMatch(unverifiedViews,/하닉: 단일종류 BPS 검증/,
+ 'without DART evidence the footer must not certify Hynix BPS');
+const onlySamsung=formatSemiconductorCompanyFiveViews({date,stocks:morningPrices,
+ financialEvidence:{...financial,domestic:[financial.domestic[0],
+ {...financial.domestic[1],evidence:null}]}}).join('\n');
+assert.match(onlySamsung,/삼성 BPS\/PBR: 지배자본÷보통·우선 합산/);
+assert.match(onlySamsung,/하닉 BPS\/PBR 미확보/);
+const onlyHynix=formatSemiconductorCompanyFiveViews({date,stocks:morningPrices,
+ financialEvidence:{...financial,domestic:[{...financial.domestic[0],evidence:null},
+ financial.domestic[1]]}}).join('\n');
+assert.match(onlyHynix,/삼성 BPS\/PBR 미확보/);
+assert.match(onlyHynix,/하닉: 단일종류 BPS 검증/);
 assert.equal(evaluateSemiconductorCompanyViews({date:'2027-02-01'}).length,0,
  'dated release must not be reused without bounds after next report season');
 assert.equal(evaluateSemiconductorCompanyViews({date:'2026-10-28'}).length,0,
