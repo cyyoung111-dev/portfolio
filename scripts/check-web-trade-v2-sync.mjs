@@ -47,7 +47,7 @@ const ctx=vm.createContext({window:w,crypto:webcrypto,TextEncoder,
   writes.push({action,params,opts});
   assert.equal(action,'syncTradesV2');
   assert.equal(opts.retry,0);
-  assert.equal(opts.recoveryScope,'trade-v2:'+baseline.revision);
+  assert.equal(opts.recoveryScope,'trade-v2:'+w._tradeLedgerV2BaselineTargets[url].revision);
   remote=JSON.parse(params.data);
   readHash=await ctx._tradeV2BrowserSha256(remote.slice().sort((a,b)=>
     String(a.date||'').localeCompare(String(b.date||'')))
