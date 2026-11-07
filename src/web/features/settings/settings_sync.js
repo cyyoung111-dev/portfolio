@@ -42,8 +42,8 @@ function _tradeV2BrowserCanonical(t) {
     throw Error('TRADE_FX_METADATA_PRICE_MISMATCH');
   return [id,String(t?.date||'').slice(0,10),String(t?.tradeType||''),
     String(t?.acct||''),String(t?.name||''),
-    _tradeV2NormalizeCode(t?.code),numeric(t?.qty,false),
-    numeric(t?.price,false),String(t?.assetType||'주식'),String(t?.memo||''),
+    _tradeV2NormalizeCode(t?.code),numeric(t?.qty??0,false),
+    numeric(t?.price??0,false),String(t?.assetType||'주식'),String(t?.memo||''),
     numeric(t?.ratio,true),numeric(t?.fractionalCash,true),raw,rate];
 }
 async function _tradeV2BrowserSha256(value) {
@@ -60,6 +60,7 @@ async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteId
       ||!Array.isArray(baseline.trades)||!Array.isArray(localTrades))
     throw Error('TRADE_V2_BASELINE_UNVERIFIED');
   const deletes=new Set(declaredDeleteIds||[]);
+  if(deletes.size!==(declaredDeleteIds||[]).length)throw Error('TRADE_DELETE_INTENT_DUPLICATE');
   const idOk=id=>/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(id||''));
   const indexed=rows=>{
     const m=new Map();
@@ -79,7 +80,7 @@ async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteId
       intents.push({type:'delete',id,beforeHash:await _tradeV2BrowserSha256(_tradeV2BrowserCanonical(t))});
       continue;
     }
-    deletes.delete(id);
+    if(deletes.has(id))throw Error('TRADE_DELETE_INTENT_INVALID');
     const prev=_tradeV2BrowserCanonical(t),updated=_tradeV2BrowserCanonical(next);
     if(prev[12]!==''&&(updated[12]===''||updated[13]===''))
       throw Error('TRADE_FX_METADATA_LOSS_RISK');
@@ -93,6 +94,8 @@ async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteId
   }
   return {
     data:JSON.stringify(localTrades),
+    targetRevision:await _tradeV2BrowserSha256(localTrades.slice().sort((a,b)=>
+      String(a.date||'').localeCompare(String(b.date||''))).map(_tradeV2BrowserCanonical)),
     tradeLedgerProtocolVersion:'2',
     expectedLedgerRevision:baseline.revision,
     intents:JSON.stringify(intents)
@@ -1523,6 +1526,7 @@ async function syncTradesToGsheet(options) {
           : (ep?.code || remote?.code || STOCK_CODE[ep?.name || t.name] || '');
         const code = isDirectFund ? '' : _normalizeSyncCode(baseCode || t.code || '');
         return {
+          id:        t.id || '',
           date:      t.date,
           tradeType: t.tradeType,
           acct:      t.acct      || '',
