@@ -84,6 +84,10 @@ assert.match(prose,/미국 TTM 2\/9·FY만 1\/9·FY PBR 2\/9/);
 assert.match(prose,/MSFT TTM FCF \$40\.0B · CAPEX\/OCF 60%/);
 assert.match(prose,/NVDA TTM FCF \$33\.0B/);
 assert.match(prose,/FY BPS \$10\.00 \/ 조정 PBR 75\.0배/);
+assert.match(prose,/삼성전자 보통·우선 합산 참고 BPS/,
+ 'multi-class DART book value must never look like legal common-only BPS');
+assert.match(prose,/SK하이닉스 단일종류 확인 BPS/,
+ 'single-class DART book value keeps its higher verification status');
 assert.doesNotMatch(prose,/META FY PBR/);
 assert.ok(prose.length<=680);
 
