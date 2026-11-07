@@ -17,7 +17,7 @@ const extract=name=>{
  assert.ok(i>=0&&j>i,'production GAS function missing: '+name);
  return candidate.slice(i,j+2);
 };
-const names=['_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
+const names=['_cleanCode','_normalizeCodeRows','_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
  '_tradeV2RowsFromTrades_','_tradeV2RowHash_','_tradeV2Revision_',
  '_tradeV2ValidateMutation_','handleSyncTrades','handleGetTrades'];
 const js='var TRADE_V2_ID_RE=/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/;\n'
@@ -27,7 +27,6 @@ const ctx=vm.createContext({console,JSON,Date,Number,String,Math,isFinite,isNaN,
  _normalizeDate:x=>String(x||'').slice(0,10),
  _portfolioSyncDigest_:txt=>createHash('sha256').update(txt).digest('hex'),
  _parseArrayParam:txt=>JSON.parse(txt),
- _cleanCode:x=>String(x||''),
  jsonOk:x=>({status:'ok',...x}),
  jsonError:(msg,x)=>({status:'error',message:msg,...x}),
 });
@@ -76,7 +75,6 @@ Object.assign(ctx,{
  _setPendingTradeSnapshotRebuild:()=>{},
  _markTradeLedgerWriteUnverified_:()=>{},
  _clearTradeLedgerWriteJournal_:()=>{},
- _normalizeCodeRows:rows=>rows,
  _setCodeColumnText:()=>{},
  _verifyTradeWrittenRange:(sh,row,values)=>{
   assert.deepEqual(JSON.parse(JSON.stringify(stored)),JSON.parse(JSON.stringify(values)));
@@ -106,7 +104,7 @@ const edit=(row)=>({type:'update',id:row.id,
  beforeHash:ctx._tradeV2RowHash_(toRow(row))});
 const deletion=row=>({type:'delete',id:row.id,
  beforeHash:ctx._tradeV2RowHash_(toRow(row))});
-const run=(rows,contract)=>ctx.handleSyncTrades(JSON.stringify(rows),'',false,false,null,contract);
+const run=(rows,contract,explicitEmpty=false)=>ctx.handleSyncTrades(JSON.stringify(rows),'',explicitEmpty,false,null,contract);
 const failed=(code,rows,contract)=>{
  const beforeWrites=writeCount,prior=JSON.stringify(stored);
  const got=run(rows,contract);
@@ -149,6 +147,32 @@ const deleteFx=run([changedPlain],meta([deletion(fx)],changedRevision));
 assert.equal(deleteFx.status,'ok');
 assert.equal(stored.length,1);
 assert.equal(stored[0][13],plain.id);
+// Code normalization must match the *production* writer. Request code
+// '5930' is written as '005930', yet its ACK and GET revision must match.
+const shortCode={...changedPlain,code:'5930'};
+const normalizedAck=run([shortCode],meta([edit(changedPlain)],deleteFx.ledgerRevision));
+assert.equal(normalizedAck.status,'ok',JSON.stringify(normalizedAck));
+assert.equal(stored[0][4],'005930','production _normalizeCodeRows pads the code');
+assert.equal(normalizedAck.ledgerRevision,ctx.handleGetTrades().ledgerRevision,
+ 'write ACK must hash the persisted normalized code, not the raw input');
+assert.equal(ctx._tradeV2Revision_([toRow(shortCode)]),normalizedAck.ledgerRevision,
+ 'v2 CAS uses the same effective normalized code');
+// Deleting the final trade keeps a legitimate empty, 14-column v2 ledger.
+const finalDelete=run([],meta([deletion(changedPlain)],normalizedAck.ledgerRevision),true);
+assert.equal(finalDelete.status,'ok',JSON.stringify(finalDelete));
+assert.equal(stored.length,0);
+const emptyRead=ctx.handleGetTrades();
+assert.equal(emptyRead.status,'ok');
+assert.equal(emptyRead.tradeLedgerProtocolVersion,2);
+assert.equal(emptyRead.ledgerRevision,ctx._tradeV2Revision_([]));
+assert.equal(finalDelete.ledgerRevision,emptyRead.ledgerRevision,
+ 'last deletion must remain COMPLETE-checkable from the empty ledger');
+const fresh={...plain,id:'tr_fresh001',memo:'new after empty'};
+const created=run([fresh],meta([{type:'create',id:fresh.id}],emptyRead.ledgerRevision));
+assert.equal(created.status,'ok','after last deletion a new create must work');
+assert.equal(stored.length,1);
+assert.equal(stored[0][13],fresh.id);
+assert.equal(created.ledgerRevision,ctx.handleGetTrades().ledgerRevision);
 // Legacy 11-column input cannot be promoted implicitly to ID-bearing source.
 stored=initial.map(r=>r.slice(0,11));columns=11;
 failed('TRADE_LEDGER_IDENTITY_MIGRATION_REQUIRED',[plain,fx],meta());
