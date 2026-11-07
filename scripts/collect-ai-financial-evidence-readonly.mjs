@@ -18,9 +18,15 @@ export async function collectAiFinancialEvidence({
   throw Error('FINANCIAL_EVIDENCE_CLOCK_INVALID');
  const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',
   year:'numeric',month:'2-digit',day:'2-digit'}).format(instant);
- const ttm=await readTtm({now});
- const fyValues=await readValues({now});
- const dart=await readDart({now});
+ // DART BPS is the first independently validated input. A partial SEC
+ // outage must never prevent these already-verified Korean company facts
+ // from reaching the scheduled 06:20 evidence artifact.
+ // SEC collectors remain sequential to respect public-source fair access.
+ // Every source has an independent fail-closed boundary; no stale fallback.
+ let dart={},ttm={},fyValues={};
+ try{dart=await readDart({now});}catch{}
+ try{ttm=await readTtm({now});}catch{}
+ try{fyValues=await readValues({now});}catch{}
  // Nonblocking, status-only diagnostics are out-of-band: artifact unchanged.
  try{onSourceStatus(financialSourceCoverageStatus({ttm,fy:fyValues,dart}));}catch{}
  return buildAiFinancialEvidence({

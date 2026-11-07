@@ -54,7 +54,7 @@ const result=await collectAiFinancialEvidence({
  readDart:async()=>{readOrder.push('DART');return dart;},
  onSourceStatus:status=>{assert.equal(observed,null);observed=status;}
 });
-assert.deepEqual(readOrder,['SEC_TTM','SEC_FY','DART']);
+assert.deepEqual(readOrder,['DART','SEC_TTM','SEC_FY']);
 assert.deepEqual(observed,checked);
 assert.equal(result.kind,'AI_FINANCIAL_EVIDENCE_READ_ONLY');
 assert.equal(JSON.stringify(result).includes('sourceStatus'),false,

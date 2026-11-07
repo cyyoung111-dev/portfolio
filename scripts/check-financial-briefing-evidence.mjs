@@ -182,8 +182,8 @@ const asyncResult=await collectAiFinancialEvidence({
  readValues:async()=>{ordered.push('FY');return fyValues;},
  readDart:async()=>{ordered.push('DART');return dart;},
  domesticQuotes});
-assert.deepEqual(ordered,['TTM','FY','DART'],
- 'SEC readers must not burst in parallel');
+assert.deepEqual(ordered,['DART','TTM','FY'],
+ 'DART first while SEC readers remain strictly sequential');
 assert.deepEqual(asyncResult.coverage,verified.coverage);
 assert.equal(asyncResult.gasDeployments,0);
 console.log('FINANCIAL_EVIDENCE_BRIEFING_PASS source dates, FCF/PBR, missing, 5-person and length');

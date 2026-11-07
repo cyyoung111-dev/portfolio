@@ -140,6 +140,22 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
   +'/9·FY PBR '+coverage.referencePbr+'/9, 국내 DART BPS '+coverage.domestic+'/2';
  const bySymbol=new Map(evidence.items.map(x=>[x.symbol,x]));
  const lines=[header,count];
+ // The Korean BPS is independently verified by DART. Its priority must not
+ // depend on the number of successful US SEC/Yahoo companies in the appendix.
+ // Keep the actual filing quarter explicit; a 3Q issuer press release must
+ // never make the 2Q official book value appear to be a 3Q BPS.
+ const d=evidence.domestic.map(x=>{
+  const r=x.evidence;
+  if(!r)return x.name+' 미확보';
+  return x.name+' '+(r.indicative?'참고':'확인')+' BPS '+Math.round(r.bpsKrw).toLocaleString('en-US')+'원'
+   +' ['+r.period+' 연결]'
+   +(positive(r.pbrTimes)&&day(r.priceDate)
+    ?' / '+r.pbrTimes.toFixed(2)+'배('+r.priceDate.slice(5)+' NH 종가)'
+    :' / PBR 미확보');
+ }).join('; ');
+ const dLine='• 국내: '+d;
+ if([...lines,dLine].join('\n').length<=maxLength)lines.push(dLine);
+ // Only lower-priority US lines use the remaining bounded Telegram budget.
  for(const sym of preferred){
   const v=compact(bySymbol.get(sym));
   if(!v)continue;
@@ -147,16 +163,6 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
    break;
   lines.push('• '+v);
  }
- const d=evidence.domestic.map(x=>{
-  const r=x.evidence;
-  if(!r)return x.name+' 미확보';
-  return x.name+' '+(r.indicative?'참고':'확인')+' BPS '+Math.round(r.bpsKrw).toLocaleString('en-US')+'원'
-   +(positive(r.pbrTimes)&&day(r.priceDate)
-    ?' / '+r.pbrTimes.toFixed(2)+'배('+r.priceDate.slice(5)+' NH 종가)'
-    :' / PBR 미확보');
- }).join('; ');
- const dLine='• 국내: '+d;
- if([...lines,dLine].join('\n').length<=maxLength)lines.push(dLine);
  const caution='• 5인 관점: FCF·CAPEX는 AI 전용 투자액/소유주이익/ROIC가 아님. FY PBR은 DCF 내재가치가 아니며 CDS 시장 5Y 종가 미확보.';
  if([...lines,caution].join('\n').length<=maxLength)lines.push(caution);
  return lines;
