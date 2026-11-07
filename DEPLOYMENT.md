@@ -1,3 +1,13 @@
+## GAS v9.285 — 검증된 펀드 no-op 전용 릴리스 후보 (2026-11-08 KST)
+
+- **릴리스 소스:** `src/gas/apps_script.gs` / `reference/gas-v9.285.gs` 전체 Git blob `954fd4aeae767ddac0cb161d3a81003b5b699d1c`. 이전 운영 9.284 복구용 `reference/gas-v9.284.gs` blob `b5b1c7fd5a27454419ddd6d12ecb20751c207c63` 보존. 변경 대상 펀드 평가가 0건이면 글로벌 Writer lock·추가 저장 재검증을 생략하되, NAV 미공표/부분완료와 실제 변경에 대한 기존 보호 Write는 유지합니다.
+- **배포 상태: 미배포/미승인.** GitHub main에 전체 소스가 병합되더라도 Apps Script 운영 웹앱은 **여전히 실제 확인된 v9.284/341**이고 Writer/금융 원장을 변경하지 않습니다. GAS v9.285는 `REVIEWED_GAS_SOURCE_BLOBS` 전체 해시 검사와 별도 `approve_9285=true` 수동 승인 조건이 필요하며, 자동 `workflow_run` 배포는 버전 정책상 차단합니다. 단순 CI 성공은 운영 정상화를 뜻하지 않습니다.
+- **클라이언트 계약:** 서버 `getSettings` 포함 API의 `gasVersion=9.285`, 웹 `EXPECTED_GAS_VERSION=9.285`로 릴리스 후보 코드를 일치시키되 `COMPATIBLE_GAS_VERSIONS`에서 실제 운영 9.284도 계속 허용합니다. NAV/복구/배당/NH 소비자는 9.284와 9.285만 추가 호환하도록 사전에 검증했습니다. 거래원장 14열 v2 Draft #1012는 포함하지 않고 별도 v9.286+ 후보로 분리합니다.
+- **배포 전:** 현재 프로젝트/deployment/기존 Writer 인벤토리, Google API 인증 범위 및 Apps Script 실행 로그, protected dry-run(금융 쓰기 0건), 운영 실행 중복 0건과 복구 경로를 확인하고 별도 수동 승인을 받습니다. 승인 전에 `GAS_DEPLOY_DRY_RUN=true`를 유지합니다.
+- **배포 후 실검증:** `getSettings`·`getAutomationStatus`의 `gasVersion=9.285` readback, Writer gate/lease, 19시 펀드 CLOSE 완료와 11월 공식 NAV·좌수·가격이력·Snapshot 39행 검산, PC/모바일 값·로딩시간 일치, 주말 이월 및 재시도 단일 수행을 실제 로그로 확인해야 합니다. `fundOk=true`와 `closeState=COMPLETE` 증거 없이는 정상화 완료 표시 금지.
+
+---
+
 ## GAS v9.284 — 한화 C-RPe NAV 공유 Writer Lease 전체 릴리스 후보 (2026-11-06 KST)
 
 - **전체 GAS 소스:** `src/gas/apps_script.gs` Git blob `b5b1c7fd5a27454419ddd6d12ecb20751c207c63` (재현 가능한 직전 v9.283 blob `327f48785550a012eaf1ed533c24bf6289c01a71`). `scripts/compose-gas9284-hanwha-leased-preview.mjs`와 바이트 단위 일치해야 합니다.
