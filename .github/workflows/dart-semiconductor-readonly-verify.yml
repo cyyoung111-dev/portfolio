@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/dart-semiconductor-readonly-verify.yml'
+      - 'scripts/briefing-dart-semiconductor-sources.mjs'
+      - 'scripts/audit-dart-semiconductor-readonly.mjs'
   workflow_dispatch:
 permissions:
   contents: read
