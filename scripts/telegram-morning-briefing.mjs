@@ -6,6 +6,7 @@ import {readFearGreed} from './briefing-fear-greed.mjs';
 import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
  formatMorningVkospi,formatMorningTurnover,formatMorningBreadth} from './telegram-morning-supplements.mjs';
 import {MORNING_SERIES, expectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
+import {verifiedYahoo52WeekRange} from './briefing-yahoo-52week-range.mjs';
 import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 import {loadMorningMaster,mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
 export async function fetchNightReference(date,options={}) { return fetchNhNightFromGas(date,options); }
@@ -52,35 +53,64 @@ function dateInZone(instant, zone) {
   const p=Object.fromEntries(parts.map(part=>[part.type,part.value]));
   return `${p.year}-${p.month}-${p.day}`;
 }
-export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,now=new Date(),host='query1.finance.yahoo.com'}={}) {
-  try {
-    if(!['query1.finance.yahoo.com','query2.finance.yahoo.com'].includes(host))return null;
-    const url=new URL(`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}`);
-    const end=Date.parse(`${tradingDate}T00:00:00Z`);
-    url.searchParams.set('period1',String(Math.floor((end-14*DAY)/1000)));
-    url.searchParams.set('period2',String(Math.floor((end+DAY)/1000)));
-    url.searchParams.set('interval','1d');
-    const response=await fetchImpl(url.toString(),{headers:{accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(12000)});
-    if(!response.ok)return null;
-    const chart=(await response.json())?.chart?.result?.[0];
-    if(chart?.meta?.symbol!==symbol || !chart.meta.exchangeTimezoneName || !Array.isArray(chart.timestamp) || !Array.isArray(chart.indicators?.quote?.[0]?.close))return null;
-    const rows=new Map(),closes=chart.indicators.quote[0].close;
-    for(let i=0;i<Math.min(chart.timestamp.length,closes.length);i++){
-      const epoch=Number(chart.timestamp[i]), value=Number(closes[i]);
-      if(!Number.isFinite(epoch)||epoch<=0||!Number.isFinite(value)||value<=0||epoch*1000>now.getTime())continue;
-      const date=dateInZone(new Date(epoch*1000),chart.meta.exchangeTimezoneName);
-      // Daily candles from the briefing date may be incomplete; never call them a close.
-      if(date>=tradingDate || date<new Date(end-8*DAY).toISOString().slice(0,10))continue;
-      // BTC-USD is 24/7: Yahoo's current UTC daily candle is incomplete
-      // until 00:00 UTC (09:00 KST), even if its timestamp is already past.
-      if(symbol==='BTC-USD'&&date>=now.toISOString().slice(0,10))continue;
-      rows.set(date,value);
-    }
-    const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
-    if(!list.length)return null;
-    const [date,value]=list.at(-1), prior=list.length>1?list.at(-2)[1]:null;
-    return {label,symbol,date,value,changePercent:prior>0?(value/prior-1)*100:null,source:'Yahoo Finance 일봉'};
-  } catch { return null; }
+export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
+ now=new Date(),host='query1.finance.yahoo.com',
+ include52Week=false,expectedSessionDate=null}={}) {
+ try {
+  if(!['query1.finance.yahoo.com','query2.finance.yahoo.com'].includes(host)
+    ||!(now instanceof Date)||!Number.isFinite(now.getTime()))return null;
+  const url=new URL(`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}`);
+  const end=Date.parse(`${tradingDate}T00:00:00Z`);
+  if(!Number.isFinite(end))return null;
+  // No new HTTP requests: selected morning Yahoo series reuse their existing
+  // daily chart call, asking for sufficient history for a validated 52w range.
+  // Other consumers retain the original two-week request.
+  url.searchParams.set('period1',String(Math.floor((end-(include52Week?378:14)*DAY)/1000)));
+  url.searchParams.set('period2',String(Math.floor((end+DAY)/1000)));
+  url.searchParams.set('interval','1d');
+  const response=await fetchImpl(url.toString(),{
+   headers:{accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(12000)});
+  if(!response.ok)return null;
+  const chart=(await response.json())?.chart?.result?.[0];
+  const quote=chart?.indicators?.quote?.[0];
+  if(chart?.meta?.symbol!==symbol||!chart.meta.exchangeTimezoneName
+    ||!Array.isArray(chart.timestamp)||!Array.isArray(quote?.close))return null;
+  const rows=new Map(),annual=[];
+  const closes=quote.close, highs=quote.high, lows=quote.low;
+  // Never hide a missing OHLC candle when computing a 52-week extreme:
+  // keep invalid historical rows so the range validator rejects the entire
+  // optional range, while allowing independently valid recent closes through.
+  let completeOhlcShape=chart.timestamp.length===closes.length
+   &&Array.isArray(highs)&&highs.length===closes.length
+   &&Array.isArray(lows)&&lows.length===closes.length;
+  for(let i=0;i<chart.timestamp.length;i++){
+   const epoch=Number(chart.timestamp[i]);
+   if(!Number.isFinite(epoch)||epoch<=0){
+    completeOhlcShape=false;continue;
+   }
+   if(epoch*1000>now.getTime())continue;
+   const date=dateInZone(new Date(epoch*1000),chart.meta.exchangeTimezoneName);
+   if(date>=tradingDate)continue; // today is an unfinished candle
+   if(symbol==='BTC-USD'&&date>=now.toISOString().slice(0,10))continue;
+   const value=closes[i];
+   if(include52Week)annual.push({date,close:value,
+    high:Array.isArray(highs)?highs[i]:null,
+    low:Array.isArray(lows)?lows[i]:null});
+   if(typeof value!=='number'||!Number.isFinite(value)||value<=0)continue;
+   if(date<new Date(end-8*DAY).toISOString().slice(0,10))continue;
+   rows.set(date,value);
+  }
+  const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
+  if(!list.length)return null;
+  const [date,value]=list.at(-1),prior=list.length>1?list.at(-2)[1]:null;
+  const result={label,symbol,date,value,changePercent:prior>0
+    ?(value/prior-1)*100:null,source:'Yahoo Finance 일봉'};
+  if(include52Week&&completeOhlcShape&&expectedSessionDate===date){
+   const range=verifiedYahoo52WeekRange(annual,date);
+   if(range)result.range52w=range;
+  }
+  return result;
+ }catch{return null;}
 }
 export function formatMorningBriefing(tradingDate, reference, rows,options={}) {
   return formatFullMorningBriefing(tradingDate, reference, rows,options);
