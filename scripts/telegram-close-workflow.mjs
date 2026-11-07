@@ -18,7 +18,7 @@ import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures.mjs';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
-import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
+import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
@@ -193,7 +193,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  // Precomputed SEC/DART evidence only. Never fetch in the 17:00 critical path.
  const financialLines=financialEvidence?.asOfKst===date
   &&financialEvidence.usSessionDate===expectedMorningDate('SPX',date)
-   ?formatAiFinancialEvidence(financialEvidence):[];
+   ?fitAiFinancialEvidenceForBudget(financialEvidence,
+       3900-lines.join('\n').length-2):[];
  const index=lines.indexOf('■ 국내 시장 (당일 종가)');
  if(financialLines.length&&index>=0
   &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
