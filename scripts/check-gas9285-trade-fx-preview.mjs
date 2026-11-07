@@ -13,6 +13,41 @@ assert.ok(candidate.includes("gasVersion: '9.285'"));
 assert.equal(candidate.includes('function _portfolioTradeFxMetadata_('),true);
 assert.notEqual(candidate,base);
 const source=isolateGasBusinessLogic(candidate);
+
+// The server must attest FX persistence on BOTH the initial write and its
+// idempotent receipt recovery; a browser can lose the first HTTP response.
+{
+ const fetchFn=name=>{
+  const i=candidate.indexOf('function '+name+'(');
+  const j=candidate.indexOf('\n}',i);
+  assert.ok(i>0&&j>i,name+' missing');
+  return candidate.slice(i,j+2);
+ };
+ const lock={tryLock:()=>true,waitLock:()=>{},releaseLock:()=>{}};
+ const receipts={getProperty:()=>JSON.stringify({state:'COMPLETE'})};
+ const ctx=vm.createContext({
+  _issue507GateInside_:true,
+  LockService:{getScriptLock:()=>lock},
+  PropertiesService:{getScriptProperties:()=>receipts},
+  _portfolioSyncReceiptInput_:(kind,id)=>({kind,id,key:'example'}),
+  _portfolioSyncReceiptState_:()=> 'COMPLETE',
+  jsonOk:x=>({status:'ok',...x}),
+  jsonError:(message,value)=>({status:'error',message,...value}),
+ });
+ vm.runInContext(fetchFn('handleGetPortfolioSyncReceipt')
+  +'\n'+fetchFn('handlePortfolioSyncWithReceipt'),ctx);
+ const inquiry=ctx.handleGetPortfolioSyncReceipt({
+  kind:'syncTrades',operationId:'pr_ledger_aabbccdd1122',data:'[]'
+ });
+ assert.equal(inquiry.receiptState,'COMPLETE');
+ assert.equal(inquiry.tradeFxMetadataVersion,1);
+ const replay=ctx.handlePortfolioSyncWithReceipt({
+  action:'syncTrades',operationId:'pr_ledger_aabbccdd1122',data:'[]'
+ });
+ assert.equal(replay.replayed,true);
+ assert.equal(replay.tradeFxMetadataVersion,1);
+}
+
 const ctx=vm.createContext({console,Date,JSON,Number,String,Math,isFinite,isNaN});
 vm.runInContext(source,ctx);
 ctx.Utilities={formatDate:(date,timezone)=>{
