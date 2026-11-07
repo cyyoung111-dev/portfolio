@@ -104,8 +104,8 @@ for(const name of workflowFiles){
 }
 assert.equal(protectedWorkflowNames.length,72,
   'migration inventory: all 72 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,74,
-  'migration inventory: all 74 secret-consuming jobs must be protected');
+assert.equal(protectedJobs,75,
+  'migration inventory: all 75 secret-consuming jobs must be protected');
 assert.ok(fs.readFileSync(new URL('kb-fund-nav-collect.yml',dir),'utf8').includes('hanwha-collect:'),
   'Hanwha F00001 collector must be present and environment-gated');
 assert.ok(protectedWorkflowNames.includes('krx-20261105-held-source-preflight.yml'),

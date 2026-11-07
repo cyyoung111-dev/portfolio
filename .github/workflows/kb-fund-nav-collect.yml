@@ -143,3 +143,23 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/collect-hanwha-fund-nav.mjs --apply
+  # A successful private NAV import is not proof that the portfolio closeRun
+  # completed. Independently verify public class/date, saved derived rows,
+  # and authenticated GAS close state after both serial private collectors.
+  # This job is GET/preview-only; it cannot authorize a retry or writer.
+  postflight-readonly:
+    needs: [collect, hanwha-collect]
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify published KB NAV, saved derived values, and GAS close (read only)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-kb-nav-postflight-readonly.mjs
