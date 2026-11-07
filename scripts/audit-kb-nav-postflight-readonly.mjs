@@ -17,12 +17,13 @@ const kstToday=now=>new Intl.DateTimeFormat('en-CA',{
  timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
 }).format(now);
 
-export function assessKbNavPostflight({close,officialRows,fundRow,today}) {
+export function assessKbNavPostflight({close,officialRows,fundRow,today,officialNavMatched}) {
  if(!isDay(today)||!close||!isDay(close.runDate)||close.runDate>today
    ||!['COMPLETE','INCOMPLETE','ERROR','NEVER_RUN'].includes(close.state)
    ||typeof close.priceOk!=='boolean'||typeof close.fundOk!=='boolean'
    ||!Array.isArray(officialRows)||officialRows.length>35
-   ||officialRows.some(x=>!x||!isDay(x.date)||x.date>=today)
+   ||officialRows.some(x=>!x||!isDay(x.date)||x.date>=today
+     ||!Number.isFinite(x.nav)||x.nav<=0)
    ||new Set(officialRows.map(x=>x.date)).size!==officialRows.length)
    throw Error('KB_POSTFLIGHT_SCHEMA_UNVERIFIED');
  const date=close.runDate,latestPublishedDate=officialRows.map(x=>x.date).sort().at(-1)||'-';
@@ -45,11 +46,17 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today}) {
  if(!closeDateVerified) {
    verdict='CLOSE_DATE_STALE_OR_UNVERIFIED';pass=false;
  } else if(!officiallyPublished) {
-   // Do not pretend an as-yet unpublished NAV should have been imported.
-   // The close may still be pending; report that separately.
-   verdict='OFFICIAL_NAV_NOT_YET_PUBLISHED';pass=true;
+   // No NAV can be imported before official publication, but an unrelated
+   // incomplete GAS close must still fail the job rather than appear green.
+   verdict=closeComplete?'OFFICIAL_NAV_NOT_YET_PUBLISHED'
+     :'OFFICIAL_NAV_NOT_YET_PUBLISHED_CLOSE_INCOMPLETE';
+   pass=closeComplete;
  } else if(!fundRow||!storedNavConfirmed) {
    verdict='OFFICIAL_NAV_NOT_IMPORTED';pass=false;
+ } else if(officialNavMatched!==true) {
+   // A self-consistent NAV/price/snapshot set is NOT proof of the exact
+   // externally published class NAV. Confirm the value via GAS preview only.
+   verdict='OFFICIAL_NAV_VALUE_MISMATCH_OR_UNVERIFIED';pass=false;
  } else if(!derivedConfirmed) {
    verdict='PUBLISHED_NAV_DERIVED_UNVERIFIED';pass=false;
  } else if(!closeComplete) {
@@ -59,7 +66,8 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today}) {
  }
  return {kind:'KB_NAV_CLOSE_POSTFLIGHT_READ_ONLY',asOfKst:today,
    closeDate:date,latestPublishedDate,officiallyPublished,
-   storedNavConfirmed,derivedConfirmed,closeState:close.state,
+   storedNavConfirmed,derivedConfirmed,officialNavMatched:officialNavMatched===true,
+   closeState:close.state,
    expectedRunDate:close.expectedRunDate||'-',
    expectedSnapshotDate:close.expectedSnapshotDate||'-',
    runStale:close.runStale,snapshotStale:close.snapshotStale,
@@ -83,9 +91,46 @@ export async function readKbValuation({url,token,from,to,fetchImpl=fetch}) {
  catch{throw Error('KB_POSTFLIGHT_GAS_JSON_UNVERIFIED');}
 }
 
+
+// The audited source can be published after the private collector finishes.
+// A stored NAV + matching derived amount is only internally consistent; this
+// exact-value GAS preview independently compares it with the public class NAV.
+// Preview is read-only. No NAV values/response bodies are written to logs.
+export function verifyKbOfficialNavPreview(date,nav,payload) {
+ return isDay(date)&&Number.isFinite(nav)&&nav>0
+   &&payload?.status==='ok'&&payload.code==='F00002'
+   &&['candidates','updates','warnings','errors','duplicates','zeroUnits']
+     .every(key=>Array.isArray(payload[key])&&payload[key].length===0)
+   &&Array.isArray(payload.identical)&&payload.identical.length===1
+   &&payload.identical[0]?.date===date
+   &&Number(payload.identical[0].existingNav)===nav
+   &&Number(payload.identical[0].uploadedNav)===nav;
+}
+export async function readKbExactNavPreview({url,token,date,nav,fetchImpl=fetch}) {
+ const endpoint=validateWebAppUrl(url);
+ if(typeof token!=='string'||!token.trim()||!isDay(date)
+   ||!Number.isFinite(nav)||nav<=0)throw Error('KB_POSTFLIGHT_PREVIEW_CONFIG');
+ const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',
+   appendOnly:true,ackWarnings:true,
+   sourceText:'KR5223AQ0185 AQ018 S-T OFFICIAL_READ_ONLY',
+   rows:[{date,nav}]};
+ let response;
+ try{
+   response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
+     headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+     body:new URLSearchParams({action:'previewFundNavImport',
+       data:JSON.stringify(input),accessToken:token}),
+     signal:AbortSignal.timeout(90000)});
+ }catch{throw Error('KB_POSTFLIGHT_PREVIEW_NETWORK_UNVERIFIED');}
+ if(!response?.ok)throw Error('KB_POSTFLIGHT_PREVIEW_HTTP_UNVERIFIED');
+ try{return await response.json();}
+ catch{throw Error('KB_POSTFLIGHT_PREVIEW_JSON_UNVERIFIED');}
+}
+
 export async function auditKbNavPostflight({url,token,now=new Date(),
  statusReader=runBackfillStatus,sourceReader=runPublicSourceOnly,
- valuationReader=readKbValuation,fetchImpl=fetch}={}) {
+ valuationReader=readKbValuation,previewReader=readKbExactNavPreview,
+ fetchImpl=fetch}={}) {
  if(!(now instanceof Date)||!Number.isFinite(now.getTime()))
    throw Error('KB_POSTFLIGHT_CLOCK');
  const today=kstToday(now),from=shift(today,-6);
@@ -101,8 +146,12 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
  summarizeFundRows(proof,'F00002',from,today);
  const matching=proof.fundResults.F00002.dates.filter(x=>x.date===close.runDate);
  if(matching.length>1)throw Error('KB_POSTFLIGHT_DUPLICATE_DATE');
+ const official=source.rows.find(x=>x.date===close.runDate);
+ const officialNavMatched=official?verifyKbOfficialNavPreview(close.runDate,
+   official.nav,await previewReader({url,token,date:close.runDate,
+     nav:official.nav,fetchImpl})):false;
  return assessKbNavPostflight({close,officialRows:source.rows,
-   fundRow:matching[0]||null,today});
+   fundRow:matching[0]||null,today,officialNavMatched});
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
@@ -116,6 +165,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
        'KB NAV postflight: **'+result.verdict+'**'
        +' · published='+result.officiallyPublished
        +' · NAV='+result.storedNavConfirmed
+       +' · exactOfficialNAV='+result.officialNavMatched
        +' · derived='+result.derivedConfirmed
        +' · close='+result.closeState+'\n');
    }
