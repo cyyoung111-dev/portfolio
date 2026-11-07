@@ -74,6 +74,38 @@ for(const bad of [
  {expectedUsDate:'10/29/2026'},{secondary:null}
  ])assert.throws(()=>summarizeCloseCoverage(date,bad),/COVERAGE_INPUT_INVALID/);
 
+// FRED H.15 observations may appear a publication day late. The formatter
+// already accepts the immediate prior US weekday and labels its actual date;
+// the coverage score must agree, but never mix two different rate dates.
+const laggedDate='2026-11-06',expectedUs='2026-11-05';
+const priorH15=[
+ {id:'UST2Y',label:'미 국채 2년',date:'2026-11-04',value:3.8,source:'FRED_H15_DAILY'},
+ {id:'UST3Y',label:'미 국채 3년',date:'2026-11-04',value:3.9,source:'FRED_H15_DAILY'},
+ {id:'UST10Y_FRED',label:'미 국채 10년',date:'2026-11-04',value:4.2,source:'FRED_H15_DAILY'}
+];
+const lagged=summarizeCloseCoverage(laggedDate,{
+ expectedUsDate:expectedUs,rates:priorH15
+});
+assert.deepEqual(lagged.treasury,{verified:3,total:3});
+for(const id of ['UST2Y','UST3Y','YIELD_SPREAD'])
+ assert.equal(lagged.statuses.find(x=>x.id===id)?.status,'VERIFIED',id);
+assert.match(formatCloseCoverageSummary(lagged),/국채금리·스프레드 3\/3/);
+const mixedRates=summarizeCloseCoverage(laggedDate,{
+ expectedUsDate:expectedUs,
+ rates:priorH15.map(x=>x.id==='UST10Y_FRED'?{...x,date:expectedUs}:x)
+});
+assert.equal(mixedRates.treasury.verified,2,
+ 'cross-date 10Y-2Y spread must remain unverified');
+assert.equal(mixedRates.statuses.find(x=>x.id==='YIELD_SPREAD').status,'NO_VERIFIED_ROW');
+const tooOld=summarizeCloseCoverage(laggedDate,{
+ expectedUsDate:expectedUs,rates:priorH15.map(x=>({...x,date:'2026-11-03'}))
+});
+assert.equal(tooOld.treasury.verified,0,'older H.15 cannot be accepted as current');
+const repeatedRates=summarizeCloseCoverage(laggedDate,{
+ expectedUsDate:expectedUs,rates:[...priorH15,priorH15[0]]
+});
+assert.equal(repeatedRates.treasury.verified,0,'ambiguous H.15 must fail closed');
+
 const meta=JSON.stringify(summary);
 assert.ok(!meta.includes('7720.39')&&!meta.includes('PRIVATE_AUTH_TOKEN'));
 assert.equal(MORNING_SERIES.length,21,'morning inventory remains the existing 21 dated series');
