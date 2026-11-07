@@ -13,6 +13,7 @@ const extract=(text,name)=>{
  return tail.slice(0,end+2);
 };
 const funcs=[
+ extract(sync,'_normalizeSyncCode'),
  extract(sync,'_hasTradeFxMetadataProtocol'),
  extract(sync,'syncTradesToGsheet'),
  'globalThis.save=syncTradesToGsheet;'
