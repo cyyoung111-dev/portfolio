@@ -17,9 +17,11 @@ function validDate(value) {
 function shiftDate(value,days) {
  return new Date(Date.parse(value+'T00:00:00Z')+days*86400000).toISOString().slice(0,10);
 }
-export function summarizeFundRows(payload,code,from,to) {
+export function summarizeFundRows(payload,code,from,to,{maxDays=7}={}) {
  const r=payload?.fundResults?.[code], rows=r?.dates;
- if(payload?.status!=='ok'||r?.code!==code||!Array.isArray(rows)||rows.length>7)
+ if(![7,32].includes(maxDays)||!validDate(from)||!validDate(to)
+   ||to<from||shiftDate(from,maxDays-1)!==to
+   ||payload?.status!=='ok'||r?.code!==code||!Array.isArray(rows)||rows.length>maxDays)
    throw Error('FUND_AUDIT_BAD_RESPONSE');
  const seen=new Set();
  const summary={code,from,to,activeDays:0,confirmedNavDays:0,
@@ -54,12 +56,13 @@ export function summarizeFundRows(payload,code,from,to) {
    summary[key].sort();
  return summary;
 }
-export async function auditFundRows({url,token,now=new Date(),fetchImpl=fetch,emit=()=>{}}) {
+export async function auditFundRows({url,token,now=new Date(),fetchImpl=fetch,emit=()=>{},days=7}) {
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('FUND_AUDIT_TOKEN_MISSING');
+ if(![7,32].includes(days))throw Error('FUND_AUDIT_DAYS_INVALID');
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
  if(!validDate(today))throw Error('FUND_AUDIT_DATE_INVALID');
- const from=shiftDate(today,-6),to=today, summaries=[];
+ const from=shiftDate(today,1-days),to=today, summaries=[];
  for(const code of FUNDS) {
   let response, data;
   try {
@@ -70,7 +73,7 @@ export async function auditFundRows({url,token,now=new Date(),fetchImpl=fetch,em
   }catch{throw Error('FUND_AUDIT_NETWORK_UNVERIFIED');}
   if(!response?.ok)throw Error('FUND_AUDIT_HTTP_UNVERIFIED');
   try{data=await response.json();}catch{throw Error('FUND_AUDIT_JSON_UNVERIFIED');}
-  const summary=summarizeFundRows(data,code,from,to);
+  const summary=summarizeFundRows(data,code,from,to,{maxDays:days});
   emit(summary);summaries.push(summary);
  }
  return summaries;
