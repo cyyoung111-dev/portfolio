@@ -61,6 +61,9 @@ const good=await execute(true,{
 assert.equal(good.response.status,'ok');
 assert.equal(good.requests.length,1);
 const sent=JSON.parse(good.requests[0].params.data);
+assert.equal(sent[0].tradeFxSchemaVersion,1);
+assert.equal(sent[1].tradeFxSchemaVersion,1,
+ 'any fresh client payload must attest support to prevent old browser loss');
 assert.equal(sent[0].priceRaw,155.5);
 assert.equal(sent[0].fxRateAtBuy,1350);
 assert.equal(sent[0].price,209925);
