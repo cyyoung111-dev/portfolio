@@ -35,6 +35,46 @@ for(const bad of [
  {status:'error',message:'PRIVATE_ACCOUNT'},
 ]) assert.throws(()=>summarizeFundRows(bad,'F00001',FROM,TO),/FUND_AUDIT_BAD_RESPONSE/);
 
+// 32-day read-only mode is bounded, single-call per fund, and may expose
+// only date/status labels. Default seven-day behavior stays unchanged.
+const longFrom='2026-09-29',longTo='2026-10-30';
+const longDates=Array.from({length:32},(_,i)=>
+ new Date(Date.parse(longFrom+'T00:00:00Z')+i*86400000).toISOString().slice(0,10));
+const longRecords=longDates.map(date=>row('F00002',date,
+ date==='2026-10-10'?'NON_PUBLICATION_CARRY':'EXISTING_CONFIRMED',
+ date==='2026-10-11'?'WRITE_REQUIRED':'EXISTING_VALID',
+ date==='2026-10-11'?'NOT_CREATED':'EXISTING_VALID'));
+const expanded=summarizeFundRows(payload('F00002',longRecords),'F00002',longFrom,longTo,{maxDays:32});
+assert.equal(expanded.activeDays,32);
+assert.deepEqual(expanded.evaluationPendingDates,['2026-10-11']);
+assert.deepEqual(expanded.snapshotPendingDates,['2026-10-11']);
+assert.deepEqual(expanded.writerBlockedDates,[]);
+assert.throws(()=>summarizeFundRows(payload('F00002',longRecords),
+ 'F00002',longFrom,longTo),/FUND_AUDIT_BAD_RESPONSE/,
+ 'default parser still rejects overlong responses');
+assert.throws(()=>summarizeFundRows(payload('F00002',longRecords.concat(row('F00002','2026-10-31'))),
+ 'F00002',longFrom,longTo,{maxDays:32}),/FUND_AUDIT_BAD_RESPONSE/);
+let longCalls=0;
+const longSummary=await auditFundRows({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'PRIVATE_TOKEN',
+ days:32,now:new Date('2026-10-30T12:00:00Z'),
+ fetchImpl:async(_url,options)=>{
+  longCalls++;
+  const input=Object.fromEntries(options.body);
+  assert.equal(input.action,'getFundValuationStatus');
+  assert.equal(input.from,longFrom);assert.equal(input.to,longTo);
+  return {ok:true,json:async()=>payload(input.code,
+   input.code==='F00002'?longRecords:[])};
+ }
+});
+assert.equal(longCalls,3);
+assert.deepEqual(longSummary.map(x=>x.code),FUNDS);
+assert.deepEqual(longSummary[1].snapshotPendingDates,['2026-10-11']);
+await assert.rejects(()=>auditFundRows({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'PRIVATE_TOKEN',
+ days:33,fetchImpl:async()=>{throw Error('SHOULD_NEVER_BE_CALLED');}
+}),/FUND_AUDIT_DAYS_INVALID/);
+
 const seen=[];
 const result=await auditFundRows({
  url:'https://script.google.com/macros/s/TEST/exec',token:'PRIVATE_TOKEN',
