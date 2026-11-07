@@ -151,6 +151,36 @@ async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) 
       String(a.date||'').localeCompare(String(b.date||'')))
       .map(_tradeV2BrowserCanonical));
   }catch(ignore){return {ok:false,errorCode:'TRADE_V2_RECEIPT_ROWS_INVALID'};}
+  // A proven durable dirty-journal ACK is evidence of this operation's
+  // *historical* successful readback. A later device may validly advance
+  // the current server ledger, which makes the old server receipt CHANGED.
+  // Finalize ONLY this old local receipt; never rebase the current ledger
+  // from a historical target or silently discard a true in-flight write.
+  if(record.completed===true && typeof lsGet==='function'
+      && typeof PORTFOLIO_REMOTE_DIRTY_KEY!=='undefined'){
+    const saved=lsGet(PORTFOLIO_REMOTE_DIRTY_KEY,{})?.[targetUrl]?.tradeV2Baseline;
+    if(saved?.targetUrl===targetUrl && saved.protocol===2
+        && saved.revision===targetRevision && Array.isArray(saved.trades)
+        && saved.trades.length===rows.length){
+      let verified=false;
+      try{
+        verified=(await _tradeV2BrowserSha256(
+          saved.trades.slice().sort((a,b)=>
+            String(a.date||'').localeCompare(String(b.date||'')))
+            .map(_tradeV2BrowserCanonical)))===targetRevision;
+      }catch(ignore){verified=false;}
+      const journal=lsGet(PORTFOLIO_REMOTE_DIRTY_KEY,{})?.[targetUrl];
+      const pendingDeletes=new Set(journal?.tradeV2DeleteIds||[]);
+      if(verified&&consumedDeleteIds.every(id=>!pendingDeletes.has(id))){
+        record.readbackConfirmedRevision=targetRevision;
+        if(!_savePortfolioRecoveryReceipts(records))
+          return {ok:false,errorCode:'TRADE_V2_RECEIPT_LOCAL_BACKUP_FAILED'};
+        // Preserve the caller's *new* baseline; that may be a legitimate
+        // later revision from another client. The old operation is terminal.
+        return {ok:true,baseline,consumedDeleteIds};
+      }
+    }
+  }
   if(expected!==baseline.revision&&targetRevision!==baseline.revision)
     return {ok:false,errorCode:'TRADE_V2_RECOVERY_BASELINE_CONFLICT'};
   // Even a previously no-op write must have a durable server receipt
