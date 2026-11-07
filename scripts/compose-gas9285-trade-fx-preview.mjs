@@ -60,6 +60,20 @@ export function composeGas9285TradeFxPreview(){
  ]
 ];
  for(const [from,to] of replacements)candidate=replaceOnce(candidate,from,to);
+ // Previous v9.284 receipts MUST keep their exact 11-field canonical
+ // request hash. Only genuinely supplied FX evidence extends the tuple.
+ candidate=replaceOnce(candidate,
+   "    return [_normalizeDate(r.date),String(r.tradeType||''),",
+   "    var fxMeta=_portfolioTradeFxMetadata_(r);\n    return [_normalizeDate(r.date),String(r.tradeType||''),");
+ candidate=replaceOnce(candidate,
+   "parseFloat(r.ratio)||0,parseFloat(r.fractionalCash)||0].concat(_portfolioTradeFxMetadata_(r));",
+   "parseFloat(r.ratio)||0,parseFloat(r.fractionalCash)||0].concat(fxMeta[0]===''?[]:fxMeta);");
+ // If a 13-column ledger already contains FX evidence, do not allow a
+ // cached 11-column client to rewrite ANY of it (even when memo, qty or date
+ // differs). Updated clients explicitly attest support in every trade row.
+ candidate=replaceOnce(candidate,
+   "    var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(13, sh.getLastColumn())).getValues() : [];\n    if (!sh) {",
+   "    var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(13, sh.getLastColumn())).getValues() : [];\n    var existingFx=previousRows.some(function(row){return row[11]!=='' && row[11]!=null;});\n    if (existingFx && !(explicitEmpty===true && trades.length===0)\n        && trades.some(function(row){return row.tradeFxSchemaVersion!==1;}))\n      return jsonError('이전 외화 원단가를 보존하지 않는 구 클라이언트 거래 덮어쓰기 차단',\n        {errorCode:'TRADE_FX_LEGACY_CLIENT_BLOCKED',saveState:'failed'});\n    if (!sh) {");
  // Receipt replay and the receipt read-only inquiry must also attest the
  // capability. Otherwise a lost ACK would leave a completed FX ledger dirty.
  candidate=replaceOnce(candidate,
