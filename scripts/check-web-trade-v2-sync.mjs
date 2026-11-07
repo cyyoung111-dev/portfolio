@@ -14,7 +14,7 @@ const extract=name=>{
 };
 const names=['_normalizeSyncCode','_hasTradeFxMetadataProtocol',
  '_tradeV2PinnedBaseline','_tradeV2NormalizeCode','_tradeV2BrowserCanonical',
- '_tradeV2BrowserSha256','_prepareTradeV2SyncContract','syncTradesToGsheet'];
+ '_tradeV2BrowserSha256','_prepareTradeV2SyncContract','_recoverOutstandingTradeV2Receipt','syncTradesToGsheet'];
 const url='https://gas.example/v2',generation=7;
 const before={id:'tr_test00001',date:'2026-11-06',tradeType:'buy',
  acct:'US',name:'TEST',code:'005930',qty:10,price:209925,
@@ -38,6 +38,8 @@ const ctx=vm.createContext({window:w,crypto:webcrypto,TextEncoder,
  isCodeLessDirectFundTrade:()=>false,
  showToast:()=>{},_syncWarn:()=>{},
  _hasPortfolioReceiptProtocol:()=>false,
+ _readPortfolioRecoveryReceipts:()=>({}),
+ _savePortfolioRecoveryReceipts:()=>true,
  syncIssuesToGsheet:async()=>{},
  requestGsheetFormJson:async(action,params)=>{
   legacyWrites++;return {status:'ok',saveState:'success',
