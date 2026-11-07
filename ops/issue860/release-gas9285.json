@@ -1,12 +1,12 @@
 {
   "version": "9.285",
   "purpose": "FUND_VERIFIED_NOOP_ONLY",
-  "status": "REVIEW_CANDIDATE_NOT_DEPLOYABLE",
+  "status": "STAGED_SOURCE_MANUAL_PRODUCTION_RELEASE_REQUIRED",
   "parentVersion": "9.284",
   "parentSourceGitBlob": "b5b1c7fd5a27454419ddd6d12ecb20751c207c63",
   "candidateSourceGitBlob": "954fd4aeae767ddac0cb161d3a81003b5b699d1c",
   "composer": "scripts/compose-gas9285-fund-noop-preview.mjs",
-  "sourcePromotion": "REFERENCE_COMMITTED_REVIEW_PENDING",
+  "sourcePromotion": "SOURCE_COMMITTED_NOT_DEPLOYED",
   "tradeLedgerV2MinimumTargetVersion": "9.286",
   "includesTradeLedgerV2": false,
   "observedProduction": {
@@ -19,17 +19,20 @@
   "verified": {
     "offlineNoopGuard": true,
     "weekendCarryWriteRequired": true,
-    "realGas9285Execution": false
+    "realGas9285Execution": false,
+    "fullSourceGitBlobMatchesReference": true,
+    "versionsSynchronizedInCode": true
   },
   "approval": {
-    "sourcePromotion": false,
+    "sourcePromotion": true,
     "operationalRelease": false,
     "financialWrites": false,
     "deployInventoryReady": false,
-    "webClientVersionReady": false,
+    "webClientVersionReady": true,
     "manualDryRunPassed": false,
     "appsScriptExecutionVerified": false,
-    "manualReleaseGatePrepared": true
+    "manualReleaseGatePrepared": true,
+    "reviewedSourcePinConfigured": true
   },
   "recovery": {
     "lastKnownSourceBlob": "b5b1c7fd5a27454419ddd6d12ecb20751c207c63",
@@ -38,12 +41,12 @@
     "manualRollbackOnly": true
   },
   "blockers": [
-    "PRODUCTION_ROOT_SOURCE_STILL_9284",
-    "RELEASE_ALLOWLIST_PIN_9285_MISSING",
-    "FRONTEND_EXPECTED_GAS_VERSION_9284",
+    "PRODUCTION_GAS_9285_NOT_DEPLOYED",
     "MANUAL_9285_APPROVAL_NOT_GRANTED",
     "DEPLOYMENT_INVENTORY_AND_GAS_EXECUTION_VERIFICATION_PENDING",
-    "FULL_POST_DEPLOY_GAS_AND_PC_MOBILE_READBACK_PENDING"
+    "PROTECTED_MANUAL_DRY_RUN_PENDING",
+    "FULL_POST_DEPLOY_GAS_AND_PC_MOBILE_READBACK_PENDING",
+    "CLOSE_FUND_TIMEOUT_UNRESOLVED"
   ],
   "candidateReferencePath": "reference/gas-v9.285.gs"
 }
