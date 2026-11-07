@@ -610,6 +610,8 @@ async function loadSettings(onProgress, options) {
     }
     let s = data.settings;
     window._portfolioReceiptTargets = {...(window._portfolioReceiptTargets || {}), [loadTarget]: data.portfolioSyncReceipts === true};
+    window._tradeFxMetadataTargets = {...(window._tradeFxMetadataTargets || {}),
+      [loadTarget]: data.tradeFxMetadataVersion === 1};
     const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
     // Recovery provenance may exist ONLY as a durable A->B journal if the
     // browser stopped between code-sheet flush and Settings failure readback.
