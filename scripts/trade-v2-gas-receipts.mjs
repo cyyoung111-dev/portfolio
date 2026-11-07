@@ -16,9 +16,47 @@ function _tradeV2ReceiptInput_(params) {
     'syncTradesV2',_tradeV2RowsFromTrades_(rows).map(_tradeV2CanonicalRow_),
     expected,intents,params.rebuildFrom||'',params.explicitEmpty||''
   ]));
+  contract.operationId=id;
+  contract.requestHash=signature;
+  contract.targetRevision=target;
   return {id:id,kind:'syncTradesV2',key:TRADE_V2_RECEIPT_PREFIX+
     _portfolioSyncDigest_('syncTradesV2|'+id),requestHash:signature,
     targetRevision:target,contract:contract,rows:rows};
+}
+
+/**
+ * Durable writer checkpoint. Called only AFTER the trading ledger has been
+ * written/read-back, Snapshot rebuild has succeeded, and the source
+ * fingerprint has been recorded, but BEFORE clearing pending.
+ * Avoids relying on the hourly worker to revisit an already-IDLE ledger.
+ */
+function _tradeV2CheckpointVerified_(meta,ss,from,to) {
+  if(!meta||!meta.operationId)return null; // internal production VM fixtures
+  var key=TRADE_V2_RECEIPT_PREFIX+
+    _portfolioSyncDigest_('syncTradesV2|'+String(meta.operationId));
+  var props=PropertiesService.getScriptProperties(),
+      raw=props.getProperty(key),record=raw?JSON.parse(raw):null;
+  if(!record||record.kind!=='syncTradesV2'||record.state!=='STARTED'||
+      record.sourceId!==ss.getId()||record.requestHash!==meta.requestHash||
+      record.targetRevision!==meta.targetRevision)
+    throw Error('TRADE_V2_CHECKPOINT_RECEIPT_CONFLICT');
+  var sh=ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if(!sh||sh.getLastColumn()<14)
+    throw Error('TRADE_V2_CHECKPOINT_SCHEMA_MISMATCH');
+  var rows=sh.getLastRow()>1
+    ? sh.getRange(2,1,sh.getLastRow()-1,14).getValues():[];
+  if(_tradeV2Revision_(rows)!==record.targetRevision)
+    throw Error('TRADE_V2_CHECKPOINT_REVISION_MISMATCH');
+  var fingerprint=_tradeLedgerContentFingerprint_(ss);
+  if(!fingerprint||props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY)!==fingerprint)
+    throw Error('TRADE_V2_CHECKPOINT_SOURCE_UNVERIFIED');
+  record.state='SOURCE_VERIFIED';
+  record.affectedFrom=String(from||'');
+  record.affectedTo=String(to||'');
+  record.proofFingerprint=fingerprint;
+  record.verifiedAt=new Date().toISOString();
+  props.setProperty(key,JSON.stringify(record));
+  return record;
 }
 function _tradeV2ReceiptState_(input,record,ss) {
   if(!record)return 'NOT_FOUND';
@@ -49,6 +87,15 @@ function _tradeV2ReceiptState_(input,record,ss) {
   // A regular synchronous successful save is COMPLETE once the readback
   // and all affected Snapshot dates have been verified above.
   if(record.state==='COMPLETE')return 'COMPLETE';
+  // SOURCE_VERIFIED was durably stamped by the writer after Snapshot
+  // completion, before clearing pending. Source proof and present ledger
+  // must still match, and deferred/pending checks above still apply.
+  if(record.state==='SOURCE_VERIFIED'){
+    var props=PropertiesService.getScriptProperties();
+    var fp=props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
+    return fp&&fp===record.proofFingerprint &&
+      fp===_tradeLedgerContentFingerprint_(ss)?'COMPLETE':'PARTIAL';
+  }
   // STARTED and PARTIAL must NOT auto-upgrade on a matching ledger hash.
   // Require a newer, writer-fingerprint-bound Snapshot worker completion
   // proof. The same v1 proof already verifies date ranges and deferred dates.
@@ -94,10 +141,18 @@ function handleTradeSyncV2WithReceipt_(params) {
     // performs revision/intents validation before touching the source.
     var result=JSON.parse(handleSyncTrades(params.data,params.rebuildFrom||'',
       params.explicitEmpty==='1',true,input.rows,input.contract).getContent());
-    record.affectedFrom=String(result.affectedFrom||'');
-    record.affectedTo=String(result.affectedTo||'');
+    // The writer may have durably stamped SOURCE_VERIFIED before the
+    // wrapper got its response. Never erase that proof on a partial result.
+    var checkpointRaw=props.getProperty(input.key);
+    var checkpoint=checkpointRaw?JSON.parse(checkpointRaw):null;
+    if(checkpoint&&checkpoint.state==='SOURCE_VERIFIED'&&
+        checkpoint.requestHash===input.requestHash&&
+        checkpoint.sourceId===ss.getId())record=checkpoint;
+    record.affectedFrom=String(result.affectedFrom||record.affectedFrom||'');
+    record.affectedTo=String(result.affectedTo||record.affectedTo||'');
     record.state=result.status==='ok'&&result.saveState!=='partial'
-      ?'COMPLETE':result.saveState==='partial'?'PARTIAL':'FAILED';
+      ?'COMPLETE':record.state==='SOURCE_VERIFIED'?'SOURCE_VERIFIED'
+      :result.saveState==='partial'?'PARTIAL':'FAILED';
     props.setProperty(input.key,JSON.stringify(record));
     if(record.state==='COMPLETE'&&_tradeV2ReceiptState_(input,record,ss)==='COMPLETE')
       return jsonOk(Object.assign({},result,{operationId:input.id,
