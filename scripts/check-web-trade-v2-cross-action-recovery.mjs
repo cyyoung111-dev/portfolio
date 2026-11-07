@@ -107,6 +107,7 @@ const fns=[
  fn(sync,'_tradeV2BrowserCanonical'),
  fn(sync,'_tradeV2BrowserSha256'),
  fn(sync,'_recoverOutstandingTradeV2Receipt'),
+ fn(sync,'_preflightTradeV2Receipt'),
  fn(data,'_retryPortfolioRemoteDirtySync')
 ];
 vm.runInContext(fns.join('\n'),ctx);
