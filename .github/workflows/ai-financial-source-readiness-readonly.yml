@@ -1,0 +1,67 @@
+name: AI SEC DART source readiness (read-only)
+# One-shot main push or explicit manual probe. No market schedules, Telegram,
+# GAS requests, sheets, credentials in logs or persisted financial data.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/ai-financial-source-readiness-readonly.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ai-sec-dart-source-readiness-readonly
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Probe public official SEC and DART data without sending or storing
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {collectAiFinancialEvidence}
+            from './scripts/collect-ai-financial-evidence-readonly.mjs';
+          import {isFinancialSourceCoverageStatus}
+            from './scripts/briefing-financial-source-status.mjs';
+          import {expectedMorningDate}
+            from './scripts/telegram-morning-report.mjs';
+          const kst=new Intl.DateTimeFormat('en-CA',{
+            timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+          }).format(new Date());
+          const expectedUsDate=expectedMorningDate('SPX',kst);
+          let coverage=null;
+          try{
+            await collectAiFinancialEvidence({
+              usSessionDate:expectedUsDate,
+              onSourceStatus:s=>{if(isFinancialSourceCoverageStatus(s))coverage=s;}
+            });
+          }catch{}
+          if(!isFinancialSourceCoverageStatus(coverage)){
+            console.error('SEC_DART_SOURCE_STATUS_UNVERIFIED');
+            process.exit(2);
+          }
+          // Fixed symbols/statuses only. No balances, raw API responses,
+          // user agent, issuer financial amounts, or authentication tokens.
+          console.log(JSON.stringify({kind:'SEC_DART_SOURCE_READINESS',
+            asOfKst:kst,usSessionDate:expectedUsDate,...coverage,
+            financeWrites:0,telegramSends:0,gasDeployments:0}));
+          const blocked=coverage.ttm.some(x=>x.status==='SEC_USER_AGENT_NOT_CONFIGURED')
+            || coverage.fyPbr.some(x=>x.status==='SEC_USER_AGENT_NOT_CONFIGURED')
+            || coverage.domestic.some(x=>x.status==='DART_KEY_NOT_CONFIGURED'
+              ||x.status==='DART_KEY_REJECTED');
+          if(blocked)process.exitCode=2;
+          NODE
