@@ -14,7 +14,7 @@ const get=name=>{
 const funcs=['_normalizeSyncCode','_hasTradeFxMetadataProtocol',
  '_tradeV2PinnedBaseline','_tradeV2NormalizeCode','_tradeV2BrowserCanonical',
  '_tradeV2BrowserSha256','_prepareTradeV2SyncContract',
- '_recoverOutstandingTradeV2Receipt','syncTradesToGsheet'];
+ '_markTradeV2ReadbackConfirmed_','_recoverOutstandingTradeV2Receipt','syncTradesToGsheet'];
 const url='https://test-gas.invalid/v2',generation=7;
 const original={id:'tr_old000001',date:'2026-11-06',tradeType:'buy',
  acct:'US',name:'TEST',code:'005930',qty:10,price:100,assetType:'주식',memo:''};
@@ -76,6 +76,8 @@ const ctx=vm.createContext({window:browser,crypto:webcrypto,TextEncoder,
   assert.equal(intents.length,1);
   assert.equal(intents[0].beforeHash,sha(canon(saved)));
   newWrites++;
+  targetStore[url].syncTradesV2={action,attempted:true,completed:true,
+    id:'pr_followup01234567890123',params:{...params}};
   remote=[edited];
   return {status:'ok',receiptState:'COMPLETE',saveState:'success',
    tradeLedgerProtocolVersion:2,ledgerRevision:rev30};
@@ -93,6 +95,23 @@ assert.equal(oldRevRecovered,true);
 assert.equal(receipt.completed,true);
 assert.equal(browser._tradeLedgerV2BaselineTargets[url].revision,rev30);
 assert.ok(storagePersisted>=1);
+assert.equal(targetStore[url].syncTradesV2.readbackConfirmedRevision,rev30);
+// A second device can advance the authoritative revision. A fully
+// readback-confirmed old receipt must never block a fresh baseline.
+const freshOther={...edited,qty:40};
+const rev40=sha([canon(freshOther)]);
+const otherBaseline={targetUrl:url,generation,protocol:2,
+  revision:rev40,trades:[freshOther]};
+const callsBefore=receiptReads;
+const terminal=await ctx._recoverOutstandingTradeV2Receipt(
+  url,generation,otherBaseline);
+assert.equal(terminal.ok,true);
+assert.equal(terminal.baseline.revision,rev40);
+assert.equal(receiptReads,callsBefore,
+ 'terminally verified prior receipt must not be rechecked');
+// Prepare a separate historical ACK-loss fixture for the PARTIAL branch.
+targetStore[url].syncTradesV2=receipt;
+delete receipt.readbackConfirmedRevision;
 const prior=browser._tradeLedgerV2BaselineTargets[url];
 // A PARTIAL prior receipt must block a new CAS, never create a FAILED write.
 receipt.completed=false;
