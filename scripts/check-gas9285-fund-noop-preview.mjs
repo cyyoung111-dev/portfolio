@@ -51,6 +51,8 @@ assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSI
 const currentWeb=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
 assert.match(currentWeb,/const EXPECTED_GAS_VERSION = '9\.284';/,
  'web consumer still expects the live GAS, not this unreleased candidate');
+assert.match(currentWeb,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\[[^\]]*'9\.285'\]\);/,
+ 'web consumer must permit a reviewed 9.285 read response before cutover');
 const gateReleaseId=s=>s.match(/var ISSUE507_GATE_RELEASE_ID='([a-f0-9]{64})'/)?.[1]||'';
 assert.match(gateReleaseId(base),/^[a-f0-9]{64}$/);
 assert.equal(gateReleaseId(candidate),gateReleaseId(base),

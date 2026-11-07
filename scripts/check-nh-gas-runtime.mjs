@@ -464,6 +464,27 @@ assert.doesNotMatch(JSON.stringify(nhProbeReports),/005930|000660|F00001|private
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
  expectedGasVersion:'9.283',fetchImpl:nhProbeFetch}),/MASTER_UNVERIFIED/);
+// The 9.284 live version and the successor 9.285 both work, but unreviewed
+// versions and explicit pinned-version mismatches continue to fail closed.
+const fetchVersion=version=>async(url,options)=>{
+ const request=new URLSearchParams(options.body);
+ if(request.get('action')==='getCodeListReadOnly')
+  return {ok:true,json:async()=>({status:'ok',readOnly:true,gasVersion:version,codes:masterOnly})};
+ return nhProbeFetch(url,options);
+};
+const nextProbe=await runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+ fetchImpl:fetchVersion('9.285')
+});
+assert.equal(nextProbe.gasVersion,'9.285');
+assert.equal(nextProbe.persist,false);
+await assert.rejects(runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+ expectedGasVersion:'9.284',fetchImpl:fetchVersion('9.285')}),/MASTER_UNVERIFIED/);
+await assert.rejects(runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+ fetchImpl:fetchVersion('9.286')}),/MASTER_UNVERIFIED/);
+
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'',
  fetchImpl:nhProbeFetch}),/AUTH_MISSING/);

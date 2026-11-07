@@ -331,7 +331,7 @@ export function classifyF00001ScopedReview(integrity,hanwhaStatus,kbStatus){
 // raw digest, or source revision are ever emitted.
 export function runtimeProof(status,range){
  const version=status?.gasVersion;
- if(status?.status!=='ok'||!['9.281','9.282','9.283','9.284'].includes(version)||
+ if(status?.status!=='ok'||!['9.281','9.282','9.283','9.284','9.285'].includes(version)||
    status.automation?.gasVersion!==version)
    throw Error('FUND_SNAPSHOT_GAS_VERSION_UNVERIFIED');
  if(range?.status!=='ok'||!Array.isArray(range.checkedDates)||

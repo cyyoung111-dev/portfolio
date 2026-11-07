@@ -15,7 +15,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
   const rejected=await request('getAutomationStatus',{},token==='ISSUE507_BAD_AUTH'?'ISSUE507_BAD_AUTH_ALT':'ISSUE507_BAD_AUTH');
   if(rejected.status!=='error'||rejected.message!=='인증 실패')throw Error('MAINTENANCE_AUTH_GUARD');
   const before=await request('getAutomationStatus');
-  if(before.status!=='ok'||!['9.281','9.282','9.283','9.284'].includes(before.gasVersion))throw Error('MAINTENANCE_VERSION');
+  if(before.status!=='ok'||!['9.281','9.282','9.283','9.284','9.285'].includes(before.gasVersion))throw Error('MAINTENANCE_VERSION');
   const summaries=[];
   for(const mode of ['reconcile','yearendPrices']) {
     let r;
@@ -34,7 +34,7 @@ export async function run({url,token,apply=false,fetchImpl=fetch}) {
     summaries.push({mode,status:'OK',applied:r.applied,...Object.fromEntries(keys.map(k=>[k,r[k]]))});
   }
   const after=await request('getAutomationStatus');
-  if(after.status!=='ok'||!['9.281','9.282','9.283','9.284'].includes(after.gasVersion)||after.gasVersion!==before.gasVersion)throw Error('MAINTENANCE_POSTCHECK');
+  if(after.status!=='ok'||!['9.281','9.282','9.283','9.284','9.285'].includes(after.gasVersion)||after.gasVersion!==before.gasVersion)throw Error('MAINTENANCE_POSTCHECK');
   const q=summaries.find(x=>x.mode==='reconcile');
   if(q.status==='OK'&&after.automation?.tradeSnapshotDeferredCount!==q.remaining)throw Error('MAINTENANCE_QUEUE_READBACK');
   const complete=summaries.every(r=>r.status==='OK' && (!apply || r.mode==='reconcile' || r.added===r.needed));
