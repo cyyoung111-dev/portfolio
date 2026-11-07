@@ -1,5 +1,6 @@
 import {validClosingStockReference} from './closing-extra-daily-sources.mjs';
 import {verifyTreasuryCurve} from './closing-us-treasury-curve.mjs';
+import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
 // Read-only coverage inventory. "Connected" means that a production formatter
 // has a validated source path, NOT that the provider returned data today.
 // Never log raw provider bodies, credentials, prices or private portfolio rows.
@@ -24,8 +25,8 @@ const extraMarkets=Object.freeze([
  ['WTI','WTI','CL=F'],['BRENT','Brent','BZ=F'],['GOLD','금','GC=F'],
  ['COPPER','구리','HG=F'],['BTC','BTC','BTC-USD']
 ]);
+const turnoverMarkets=Object.freeze([['KOSPI','코스피 거래대금'],['KOSDAQ','코스닥 거래대금']]);
 const unwired=Object.freeze([
-  'KRX_TURNOVER',
   'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
 
@@ -37,6 +38,8 @@ export const CLOSE_SOURCE_CATALOG=Object.freeze({
   extraMarkets:Object.freeze(extraMarkets.map(([id,label,symbol])=>Object.freeze({id,label,symbol,role:'OPTIONAL_MARKET'}))),
   treasuryRates:Object.freeze(rateIds.map(([id,label])=>Object.freeze({id,label,role:'OPTIONAL_MACRO'}))),
   volatility:Object.freeze([{id:'VKOSPI',label:'VKOSPI',role:'OPTIONAL_REFERENCE'}]),
+  turnover:Object.freeze(turnoverMarkets.map(([market,label])=>Object.freeze({
+    id:'KRX_TURNOVER_'+market,label,market,role:'OPTIONAL_REFERENCE'}))),
   notConnected:Object.freeze([...unwired])
 });
 // Connected means formatter + validated read-only provider exist. It does
@@ -50,16 +53,16 @@ export const MORNING_NOT_CONNECTED=Object.freeze([
   'FEDWATCH','FINVIZ_HEATMAP','ECONOMIC_EVENTS'
 ]);
 
-const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY','STOCKS','MACROS','MARKETS','VKOSPI']);
+const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY','STOCKS','MACROS','MARKETS','VKOSPI','TURNOVER']);
 const validRow=r=>r&&Number.isFinite(r.value)&&r.value>0;
 function state(found,failed){
   return found?'VERIFIED':failed?'FETCH_FAILED':'NO_VERIFIED_ROW';
 }
-export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],rates=[],vkospi=[],expectedUsDate=null,
+export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],rates=[],vkospi=[],turnover=[],expectedUsDate=null,
   failedGroups=[]}={}){
   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)
     ||!Array.isArray(nh)||!Array.isArray(domestic)||!Array.isArray(secondary)
-    ||!Array.isArray(stocks)||!Array.isArray(macros)||!Array.isArray(markets)||!Array.isArray(rates)||!Array.isArray(vkospi)
+    ||!Array.isArray(stocks)||!Array.isArray(macros)||!Array.isArray(markets)||!Array.isArray(rates)||!Array.isArray(vkospi)||!Array.isArray(turnover)
     ||!Array.isArray(failedGroups)||failedGroups.some(x=>!allowedFailureGroups.has(x))
     ||(expectedUsDate!==null&&(typeof expectedUsDate!=='string'
       ||!/^\d{4}-\d{2}-\d{2}$/.test(expectedUsDate))))
@@ -119,6 +122,10 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
     &&x.value>0&&x.value<200);
   statuses.push({id:'VKOSPI',role:'OPTIONAL_REFERENCE',
     status:state(volatilityRows.length===1,failed.has('VKOSPI'))});
+  const acceptedTurnover=verifyOfficialKrxTurnover(date,turnover);
+  for(const entry of CLOSE_SOURCE_CATALOG.turnover)
+    statuses.push({id:entry.id,role:entry.role,
+      status:state(acceptedTurnover.some(x=>x.market===entry.market),failed.has('TURNOVER'))});
   for(const id of CLOSE_SOURCE_CATALOG.notConnected)
     statuses.push({id,role:'NOT_CONNECTED',status:'NOT_CONNECTED'});
   const verified=id=>statuses.find(x=>x.id===id)?.status==='VERIFIED';
@@ -133,6 +140,7 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
     markets:{verified:extraMarkets.filter(([id])=>verified(id)).length,total:5},
     treasury:{verified:rateIds.filter(([id])=>verified(id)).length,total:3},
     volatility:{verified:verified('VKOSPI')?1:0,total:1},
+    turnover:{verified:turnoverMarkets.filter(([m])=>verified('KRX_TURNOVER_'+m)).length,total:2},
     groupErrors:[...failed].sort(),
     statuses,
   };
@@ -145,7 +153,7 @@ export function formatCloseCoverageSummary(coverage){
    ...CLOSE_SOURCE_CATALOG.core,...CLOSE_SOURCE_CATALOG.reference,
    ...CLOSE_SOURCE_CATALOG.extraStocks,...CLOSE_SOURCE_CATALOG.extraMacros,
    ...CLOSE_SOURCE_CATALOG.extraMarkets,...CLOSE_SOURCE_CATALOG.treasuryRates,
-   ...CLOSE_SOURCE_CATALOG.volatility
+   ...CLOSE_SOURCE_CATALOG.volatility,...CLOSE_SOURCE_CATALOG.turnover
   ].map(x=>[x.id,x.label]));
   const missing=coverage.statuses.filter(x=>x.status!=='VERIFIED'
     &&x.status!=='NOT_CONNECTED').map(x=>displayNames[x.id]||x.id);
@@ -157,7 +165,8 @@ export function formatCloseCoverageSummary(coverage){
       +' · 주요 종목 '+coverage.stocks.verified+'/4 · 환율·금리 '+coverage.macros.verified+'/3'
       +' · 원자재/BTC '+coverage.markets.verified+'/5'
       +' · 국채금리·스프레드 '+coverage.treasury.verified+'/3'
-      +' · VKOSPI '+coverage.volatility.verified+'/1',
+      +' · VKOSPI '+coverage.volatility.verified+'/1'
+      +' · KRX 거래대금 '+coverage.turnover.verified+'/2',
     '미확보: '+(missing.length
       ?missing.length<=8?missing.join(' · '):missing.slice(0,8).join(' · ')+' 외 '+(missing.length-8)+'개'
       :'없음'),
