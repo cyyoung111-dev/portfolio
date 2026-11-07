@@ -544,6 +544,44 @@ console.log('Close lifecycle read-only diagnosis: stage, price/NAV, failure, pri
  const done=await resumeClose({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl,emit:x=>emitted.push(x)});
  assert.equal(done.complete,true);assert.equal(scheduled,1);assert.equal(continued,1);
  assert.equal(emitted.length,1);assert.ok(!JSON.stringify(done).includes('PRIVATE'));
+ // A known persisted FUND timeout must not invoke expensive GAS
+ // continue/schedule previews or risk another 330-second wait.
+ const timedOut=structuredClone(fixture);
+ timedOut.automation.closeRun={state:'INCOMPLETE',stage:'PRICE',runDate:'2026-11-07'};
+ timedOut.automation.portfolioClose={
+  runDate:'2026-11-07',priceOk:true,fundOk:false,errors:['PRIVATE_ACCOUNT']
+ };
+ timedOut.automation.fundAttempt={state:'TIMEOUT_SUSPECTED',date:'2026-11-07'};
+ timedOut.automation.fundLastError='FUND_TIMEOUT';
+ let probes=0,previewAttempts=0;
+ const observations=[];
+ const timeoutFetch=async(_url,o)=>{
+  const p=Object.fromEntries(o.body);
+  if(p.action==='resumeIncompletePortfolioClose'){
+   previewAttempts++;
+   throw Error('UNEXPECTED_READONLY_MUTATION_PREVIEW');
+  }
+  if(p.action!=='getAutomationStatus')throw Error('UNEXPECTED_ACTION');
+  probes++;
+  const data=p.accessToken==='AUTOMATION_READONLY_AUTH_PROBE'
+    ?{status:'error',message:'인증 실패'}:timedOut;
+  return {ok:true,json:async()=>structuredClone(data)};
+ };
+ const timeoutResult=await resumeClose({
+  url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',
+  fetchImpl:timeoutFetch,readOnly:true,emit:x=>observations.push(x)
+ });
+ assert.equal(previewAttempts,0);
+ assert.equal(probes,2,'preserve mandatory negative auth and real status');
+ assert.equal(timeoutResult.complete,false);
+ assert.equal(timeoutResult.continueReady,null);
+ assert.equal(timeoutResult.scheduleReady,null);
+ assert.equal(timeoutResult.preflightState,'BLOCKED_BY_PERSISTED_FUND_TIMEOUT');
+ assert.equal(timeoutResult.status.close.fundState,'TIMEOUT_SUSPECTED');
+ assert.equal(timeoutResult.status.close.priceOk,true);
+ assert.equal(timeoutResult.status.close.fundOk,false);
+ assert.equal(observations.at(-1).reason,'FUND_TIMEOUT_SUSPECTED');
+ assert.ok(!JSON.stringify(timeoutResult).includes('PRIVATE_ACCOUNT'));
  fixture.automation.fundLastWarning='F00002 NAV 미확보';scheduled=continued=0;
  const rechecked=await resumeClose({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl});
  assert.equal(rechecked.complete,true);assert.equal(scheduled,1);assert.equal(continued,1,'COMPLETE warning must run actual recheck');
