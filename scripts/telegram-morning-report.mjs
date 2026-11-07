@@ -2,6 +2,8 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {formatHowardMarksView} from './briefing-howard-marks-risk.mjs';
 import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {formatSemiconductorCompanyFiveViews} from './briefing-semiconductor-company-views.mjs';
+import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
+ from './briefing-yahoo-52week-range.mjs';
 
 // Original multi-asset morning briefing structure, rendered in one Telegram message.
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
@@ -85,7 +87,9 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
    if(skipSymbols.has(item.symbol))continue;
    let primary=null,primaryReason='NO_ROW';
    try{
-    primary=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl});
+    primary=await fetchDaily(item.label,item.symbol,date,{now,fetchImpl,
+     include52Week:yahoo52WeekRequested(item.id),
+     expectedSessionDate:expectedMorningDate(item.id,date,now)});
     if(hasExpectedMorningDate(item,date,primary,now)){
      list[i]={...primary};emit(item,'PRIMARY_VERIFIED');continue;
     }
@@ -97,7 +101,9 @@ export async function collectMorningSeries(date,{fetchDaily,now=new Date(),fetch
    let backup=null,backupReason='NO_ROW';
    try{
     backup=await fetchDaily(item.label,item.symbol,date,
-     {now,fetchImpl,host:'query2.finance.yahoo.com'});
+     {now,fetchImpl,host:'query2.finance.yahoo.com',
+      include52Week:yahoo52WeekRequested(item.id),
+      expectedSessionDate:expectedMorningDate(item.id,date,now)});
     if(hasExpectedMorningDate(item,date,backup,now)){
      list[i]={...backup};
      emit(item,'BACKUP_VERIFIED',primaryReason);continue;
@@ -261,6 +267,14 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   if(financialLines.length&&evidenceIndex>=0
    &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
     lines.splice(evidenceIndex,0,...financialLines,'');
+  // Optional, independently dated Yahoo OHLC ranges never displace a
+  // verified close, financial evidence, the 21-series QC, or 07:40 delivery.
+  const trendLines=formatMorningYahoo52WeekRanges(map,date,
+   (id,session)=>expectedMorningDate(id,session,options?.now||null),{maxLines:4});
+  const trendAt=lines.indexOf('■ 7. 수급·유동성 / 체크포인트');
+  if(trendLines.length&&trendAt>=0
+    &&lines.join('\n').length+trendLines.join('\n').length+2<=3700)
+   lines.splice(trendAt,0,...trendLines,'');
   let message=lines.join('\n');
   const optional=[
     /^시장폭 A\/D:/,/^미국 선물 참고:/,/^미 국채 2Y /,
