@@ -109,6 +109,25 @@ assert.ok(closingWith.length<=4000,'dense closing format cannot cancel 17:00 SEN
 assert.match(closingWith,/S&P 500: 7,000/);
 assert.match(closingWith,/KOSPI: 5,000/);
 assert.match(closingWith,/■ 데이터 확인: 핵심지수 6\/6/);
+const liveFutures=[
+ ['ES','S&P500 선물','ES=F',7200],['NQ','NASDAQ100 선물','NQ=F',26000],
+ ['YM','다우 선물','YM=F',54000],['RTY','러셀2000 선물','RTY=F',2600]
+].map(([id,label,symbol,value])=>({
+ id,label,symbol,value,asOf:new Date(date+'T16:57:00+09:00').toISOString(),
+ source:'YAHOO_DELAYED_FUTURES_REFERENCE'
+}));
+const sentiment={score:28.5,rating:'fear',weekAgo:41.5,
+ observedAt:new Date(date+'T15:10:00+09:00').toISOString(),source:'CNN_FEAR_GREED'};
+const stress=formatClose(date,nh,secondary,domestic,stocks,macros,
+ markets,liveFutures,closeClock,rates,vk,sentiment,financial,turnover);
+assert.match(stress,/확보 4\/4/);
+assert.match(stress,/삼성전자·SK하이닉스 5인 정량 관점/);
+assert.match(stress,/참고 PBR 1\.50배/);
+assert.match(stress,/PBR 2\.00배/);
+assert.match(stress,/■ 공시 재무 근거/,'fully verified DART+SEC proof must survive 4 fresh futures');
+assert.match(stress,/국내 DART BPS 2\/2/);
+assert.match(stress,/기본 가격·미국 지수/);
+assert.ok(stress.length<=4000,'full close with fresh futures must fit SEND payload');
 console.log('BRIEFING_DENSE_FINANCIAL_PRIORITY_PASS morning='
  +morningWith.length+'/'+morningWithout.length
  +' close='+closingWith.length+'/'+closingWithout.length
