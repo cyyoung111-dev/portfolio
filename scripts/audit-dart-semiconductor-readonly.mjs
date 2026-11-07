@@ -12,6 +12,17 @@ const allowed=new Set([
  'DART_SHARE_TOTAL_MISMATCH','DART_BPS_ARITHMETIC_INVALID',
  'INDICATIVE_MULTICLASS_BPS','VERIFIED_SINGLECLASS_BPS'
 ]);
+// Do not expose raw share counts, issuer capital or invalid field contents.
+// The optional detail is selected from a fixed set of arithmetic diagnoses.
+const shareDetails=new Set([
+ 'COMMON_FIELD_NON_NUMERIC','COMMON_SHARE_RANGE_INVALID',
+ 'COMMON_SHARE_ARITHMETIC_MISMATCH','COMMON_NONPOSITIVE_SHARES',
+ 'PREFERRED_FIELD_NON_NUMERIC','PREFERRED_SHARE_RANGE_INVALID',
+ 'PREFERRED_SHARE_ARITHMETIC_MISMATCH',
+ 'TOTAL_FIELD_NON_NUMERIC','TOTAL_SHARE_RANGE_INVALID',
+ 'TOTAL_SHARE_ARITHMETIC_MISMATCH','TOTAL_NONPOSITIVE_SHARES',
+ 'CLASS_TOTAL_OUTSTANDING_MISMATCH','UNKNOWN_STOCK_FIELD'
+]);
 export async function auditDartDomesticBps({reader=readTwoDomesticDartBps}={}){
  const raw=await reader();
  const statuses=DART_SEMICONDUCTORS.map(item=>{
@@ -22,6 +33,8 @@ export async function auditDartDomesticBps({reader=readTwoDomesticDartBps}={}){
   const report=Array.isArray(raw.rows)
    ?raw.rows.filter(r=>r.symbol===item.symbol):[];
   return {symbol:item.symbol,status,
+   ...(status==='DART_SHARE_TOTAL_MISMATCH'
+    &&shareDetails.has(hits[0]?.detail)?{detail:hits[0].detail}:{}),
    filedPeriod:report.length===1?report[0].period:null};
  });
  return {mode:'DART_DOMESTIC_SEMICONDUCTOR_READ_ONLY',
