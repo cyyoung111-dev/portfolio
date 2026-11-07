@@ -1179,6 +1179,8 @@ function _normalizePortfolioRemoteDirtyEntry(value) {
     receiptProtocol: value.receiptProtocol === 1 ? 1 : 0,
     receiptScope: String(value.receiptScope || ''),
     legacyUntracked: value.legacyUntracked === true,
+    tradeV2DeleteIds:Array.isArray(value.tradeV2DeleteIds)
+      ?Array.from(new Set(value.tradeV2DeleteIds.map(String))).filter(Boolean):[],
     trades: Array.isArray(value.trades) ? value.trades.map(t => ({ ...t })) : [],
     holdings: Array.isArray(value.holdings) ? value.holdings.map(h => ({ ...h })) : [],
     fundDirect: value.fundDirect && typeof value.fundDirect === 'object'
@@ -1221,16 +1223,25 @@ function _persistPortfolioRemoteDirtyMap() {
   }
 }
 
-function _markPortfolioRemoteDirty() {
+function _markPortfolioRemoteDirty(deletedTradeIds) {
   const target = _currentGsheetSyncTarget();
   if (!target) return 0;
   const epoch = ++_portfolioRemoteSyncEpoch;
+  const previous=_portfolioRemoteDirtyByTarget[target];
+  // A confirmed UI delete remains explicit across debounce and offline
+  // journal retries. Missing ledger rows are never independently inferred.
+  const liveIds=new Set(rawTrades.map(t=>String(t.id||'')));
+  const tradeV2DeleteIds=Array.from(new Set([
+    ...(Array.isArray(previous?.tradeV2DeleteIds)?previous.tradeV2DeleteIds:[]),
+    ...(Array.isArray(deletedTradeIds)?deletedTradeIds:[])
+  ].map(String))).filter(id=>id && !liveIds.has(id));
   _portfolioRemoteDirtyByTarget[target] = {
     target,
     epoch,
     receiptProtocol: 1,
     receiptScope: 'task_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2),
     legacyUntracked: !!(_portfolioRemoteDirtyByTarget[target] && (_portfolioRemoteDirtyByTarget[target].receiptProtocol !== 1 || _portfolioRemoteDirtyByTarget[target].legacyUntracked)),
+    tradeV2DeleteIds,
     trades: rawTrades.map(t => ({ ...t })),
     holdings: rawHoldings.map(h => ({ ...h })),
     fundDirect: (typeof fundDirect === 'object' && fundDirect)
@@ -1385,6 +1396,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
               recoveryWrite: true,
               recoveryScope: dirty.receiptScope,
               tradesOverride: dirty.trades,
+              tradeV2DeleteIds: dirty.tradeV2DeleteIds,
               masterCodesOverride: options?.masterCodesOverride
             })
           : Promise.resolve(null));
@@ -1516,6 +1528,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
                 generation: retryGeneration,
                 allowDuringRestore,
                 tradesOverride: recoveryTrades,
+                tradeV2DeleteIds:_portfolioRemoteDirtyByTarget[retryTarget]?.tradeV2DeleteIds || [],
                 masterCodesOverride: options?.masterCodesOverride
               })
             : Promise.resolve(null)
@@ -1693,7 +1706,7 @@ function saveHoldings(options) {
   }
   // pending 실패 뒤 새 거래가 생겨도 성공 전에는 repair token을 지우지 않습니다.
   // debounce는 아래 _retryPendingExplicitEmptyTradeSync()의 rawTrades>0 분기로 현재 원장을 재전송합니다.
-  _markPortfolioRemoteDirty();
+  _markPortfolioRemoteDirty(options?.tradeV2DeleteIds);
   const remoteSyncTarget = _currentGsheetSyncTarget();
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
@@ -1840,7 +1853,8 @@ function _commitTrades(options) {
   syncHoldingsFromTrades({ clearWhenEmpty: true });
   saveHoldings({
     allowEmptyTradeSync: options?.allowEmptyTradeSync === true,
-    emptyTradeSyncFrom: options?.emptyTradeSyncFrom || ''
+    emptyTradeSyncFrom: options?.emptyTradeSyncFrom || '',
+    tradeV2DeleteIds:options?.tradeV2DeleteIds || []
   });
   refreshAll();
   // 현재가 편집창이 열린 상태에서 전량 매도하면 목록도 즉시 다시 계산합니다.
