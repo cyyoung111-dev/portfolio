@@ -28,6 +28,27 @@ const cleanInt=value=>{
  return safeInt(n)?n:null;
 };
 const unique=x=>x.length&&x.every(v=>v===x[0])?x[0]:null;
+// In DART stock-count tables only, a literal dash represents an empty
+// stock category/zero treasury shares. Never treat null, empty strings,
+// arbitrary text, financial amounts, or a missing column as numeric zero.
+const stockCount=value=>typeof value==='string'
+ &&['-','–','—'].includes(value.trim())?0:cleanInt(value);
+const shareRowCheck=(row,kind)=>{
+ const issued=stockCount(row.istc_totqy),treasury=stockCount(row.tesstk_co),
+  outstanding=stockCount(row.distb_stock_co);
+ if(!safeInt(issued)||!safeInt(treasury)||!safeInt(outstanding))
+  return {net:null,detail:kind+'_FIELD_NON_NUMERIC'};
+ if(issued<0||treasury<0||outstanding<0||treasury>issued)
+  return {net:null,detail:kind+'_SHARE_RANGE_INVALID'};
+ if(issued-treasury!==outstanding)
+  return {net:null,detail:kind+'_SHARE_ARITHMETIC_MISMATCH'};
+ // An inactive preferred stock row of all zeros is allowed; the common and
+ // reported total classes must nevertheless be strictly positive.
+ if(outstanding===0&&kind!=='PREFERRED')
+  return {net:null,detail:kind+'_NONPOSITIVE_SHARES'};
+ return {net:outstanding,detail:null};
+};
+
 const reportOptions=now=>{
  const today=dateKst(now),y=Number(today.slice(0,4));
  const result=[];
@@ -84,21 +105,22 @@ export function extractDartDomesticBps(finance,shares,item,report,{now=new Date(
  if(totalRows.length!==1||!classes.some(r=>r.se==='보통주')
   ||classes.length!==new Set(classes.map(r=>r.se)).size)
   return {status:'DART_SHARE_CLASSES_UNVERIFIED',snapshot:null};
- const getNet=row=>{
-  const issued=cleanInt(row.istc_totqy),treasury=cleanInt(row.tesstk_co),
-   outstanding=cleanInt(row.distb_stock_co);
-  return safeInt(issued)&&safeInt(treasury)&&safeInt(outstanding)
-   &&issued>0&&treasury>=0&&outstanding>0
-   &&issued-treasury===outstanding?outstanding:null;
- };
- const classShares=classes.map(getNet),total=getNet(totalRows[0]);
- if(classShares.some(x=>!safeInt(x))||!safeInt(total)
-  ||classShares.reduce((a,b)=>a+b,0)!==total)
-  return {status:'DART_SHARE_TOTAL_MISMATCH',snapshot:null};
+ const checks=classes.map(r=>shareRowCheck(r,
+  r.se==='보통주'?'COMMON':'PREFERRED'));
+ const classShares=checks.map(x=>x.net),totalCheck=shareRowCheck(totalRows[0],'TOTAL');
+ const total=totalCheck.net;
+ const invalid=checks.find(x=>!safeInt(x.net));
+ if(invalid||!safeInt(total))
+  return {status:'DART_SHARE_TOTAL_MISMATCH',snapshot:null,
+   detail:invalid?.detail||totalCheck.detail||'UNKNOWN_STOCK_FIELD'};
+ if(classShares.reduce((a,b)=>a+b,0)!==total)
+  return {status:'DART_SHARE_TOTAL_MISMATCH',snapshot:null,
+   detail:'CLASS_TOTAL_OUTSTANDING_MISMATCH'};
  const bps=parentEquity/total;
  if(!Number.isFinite(bps)||bps<=0)
   return {status:'DART_BPS_ARITHMETIC_INVALID',snapshot:null};
- const hasPreferred=classes.some(x=>x.se==='우선주');
+ const preferredIndex=classes.findIndex(x=>x.se==='우선주');
+ const hasPreferred=preferredIndex>=0&&classShares[preferredIndex]>0;
  return {status:hasPreferred?'INDICATIVE_MULTICLASS_BPS':'VERIFIED_SINGLECLASS_BPS',
   snapshot:{symbol:item.symbol,corpCode:item.corpCode,
    receiptNo:accession,filingDate:receiptDate,period:report.period,
@@ -153,7 +175,7 @@ export async function readTwoDomesticDartBps({
  const instant=now(),options=reportOptions(instant);
  const rows=[],statuses=[];
  for(const item of DART_SEMICONDUCTORS){
-  let status='NO_PUBLISHED_REPORT',snapshot=null;
+  let status='NO_PUBLISHED_REPORT',snapshot=null,detail=null;
   for(const option of options){
    const params={corp_code:item.corpCode,bsns_year:String(option.year),
     reprt_code:option.code};
@@ -164,11 +186,11 @@ export async function readTwoDomesticDartBps({
    const shares=await callDart('stockTotqySttus',params,{fetchImpl,apiKey});
    if(shares.kind!=='OK'){status=shares.kind;break;}
    const ext=extractDartDomesticBps(fs.doc,shares.doc,item,option,{now:instant});
-   status=ext.status;snapshot=ext.snapshot;
+   status=ext.status;snapshot=ext.snapshot;detail=ext.detail||null;
    // Once a new filing exists, never silently fall back to older fiscal data.
    break;
   }
-  statuses.push({symbol:item.symbol,status});
+  statuses.push({symbol:item.symbol,status,...(detail?{detail}:{})});
   if(snapshot)rows.push(snapshot);
   // One invalid key is a global credential error, not a company-specific
   // missing filing. Stop further requests without leaking the key.
