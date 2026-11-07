@@ -78,6 +78,7 @@ async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteId
     if(!next) {
       if(!deletes.has(id))throw Error('TRADE_DELETE_INTENT_REQUIRED');
       intents.push({type:'delete',id,beforeHash:await _tradeV2BrowserSha256(_tradeV2BrowserCanonical(t))});
+      deletes.delete(id);
       continue;
     }
     if(deletes.has(id))throw Error('TRADE_DELETE_INTENT_INVALID');
