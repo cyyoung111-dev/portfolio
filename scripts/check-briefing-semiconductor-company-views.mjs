@@ -10,6 +10,10 @@ const sam=SEMI_ISSUER_RELEASES.find(x=>x.id==='SAMSUNG');
 const hynix=SEMI_ISSUER_RELEASES.find(x=>x.id==='SKHYNIX');
 assert.equal(SEMI_ISSUER_RELEASES.length,2);
 assert.equal(sam.revenueTrillion,195.3);
+assert.equal(sam.basis,'ISSUER_Q3_2026_REPORTED',
+ 'Samsung 2026-10-29 published quarterly results must not be described as preliminary');
+assert.equal(hynix.basis,'ISSUER_Q3_2026_PRELIMINARY',
+ 'SK hynix issuer 2026-10-28 release is preliminary');
 assert.equal(sam.operatingProfitTrillion,107.4);
 assert.equal(sam.quarterlyCommonEpsKrw,11462);
 assert.equal(sam.annualCapexPlanTrillion,84.4);
@@ -42,7 +46,10 @@ assert.ok(Math.abs(rows[1].operatingMarginPercent-79.66)<0.1);
 assert.equal(rows[0].book.pbr,1.5);
 assert.equal(rows[0].book.indicative,true);
 assert.equal(rows[1].book.pbr,2);
+assert.match(rows[0].valueLine,/보통·우선 합산 참고 BPS 120,000원/);
 assert.match(rows[0].valueLine,/참고 PBR 1.50배/);
+assert.doesNotMatch(rows[0].valueLine,/검증 BPS/);
+assert.match(rows[1].valueLine,/검증 BPS 100,000원/);
 assert.match(rows[1].valueLine,/PBR 2.00배/);
 const view=formatSemiconductorCompanyFiveViews({date,stocks:morningPrices,financialEvidence:financial}).join('\n');
 for(const name of ['버핏','애크먼','린치','다모다란','막스','삼성전자','SK하이닉스'])
@@ -52,6 +59,11 @@ assert.match(view,/98.7조/);
 assert.match(view,/1.50배/);
 assert.match(view,/2.00배/);
 assert.match(view,/적정가 아님/);
+assert.match(view,/삼성 BPS\/PBR: 지배자본÷보통·우선 합산 유통주식 참고치/);
+assert.match(view,/주식종류별 권리 차이 미반영/);
+assert.match(view,/삼성 3Q26 10\/29 실적 발표·하닉 10\/28 잠정 발표/);
+assert.match(view,/BPS는 표시된 DART 결산일 기준/);
+assert.doesNotMatch(view,/3Q26 기업 잠정 발표\(10\/28~29\)/);
 assert.match(view,/분기 EPS/);
 assert.doesNotMatch(view,/확정 FCF|확정 ROIC|PER [0-9]+배/);
 assert.ok(view.length<1300,'must fit within full Telegram daily market briefing');
