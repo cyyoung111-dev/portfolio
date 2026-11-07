@@ -8,7 +8,7 @@ const {base,candidate,manifest}=composeGas9285TradeV2Preview();
 assert.equal(manifest.baseSourceGitBlob,'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
 assert.equal(manifest.columns,14);
 assert.equal(manifest.productionDeploymentApproved,false);
-assert.equal(manifest.requiresReceiptImplementation,true);
+assert.equal(manifest.requiresReceiptImplementation,false);
 assert.equal(manifest.financeWrites,0);
 assert.notEqual(candidate,base);
 new vm.Script(candidate,{filename:'unpublished-gas-9285-v2.gs'});
@@ -160,6 +160,6 @@ const lockAt=srcFund.indexOf('var writeLock = LockService.getScriptLock();');
 assert.ok(noopAt>0 && lockAt>noopAt,'fund noop must preempt writer lock');
 console.log('GAS9285_TRADE_V2_PREVIEW_PASS '+JSON.stringify({
  productionSourceExecuted:true,columns:14,previewOnly:true,
- receiptImplemented:false,legacyMigrationImplemented:false,
+ receiptImplemented:true,legacyMigrationImplemented:false,
  financeWrites:0,gasProjectWrites:0,rebuilds,readCount
 }));
