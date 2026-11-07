@@ -216,6 +216,31 @@ stored=[
  ['2021-05-10','buy','계좌','테스트','005930',2,100,'주식','','','', '', ''],
  ['2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350]
 ];
+// A preserved FX row must not freeze ordinary trading on the same
+// account/security. Exercise production handleSyncTrades, not a mock guard.
+const baseMixedRows=[
+ ['2021-05-10','buy','계좌','테스트','005930',2,100,'주식','','','', '', ''],
+ ['2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350]
+];
+const plainEdit={...plainTrade,memo:'ordinary memo correction'};
+const plainSell={...plainTrade,date:'2021-05-12',tradeType:'sell',
+ qty:1,price:111};
+const plainSplit={...plainTrade,date:'2021-05-13',tradeType:'split',
+ qty:1,price:0,ratio:2};
+for(const [label,ordinary] of [
+ ['ordinary memo edit',[plainEdit]],
+ ['ordinary sell added',[plainTrade,plainSell]],
+ ['ordinary split added',[plainTrade,plainSplit]]
+]){
+ stored=baseMixedRows.map(row=>[...row]);
+ const saved=ctx.handleSyncTrades(JSON.stringify([...ordinary,fxTrade]),'',false);
+ assert.equal(saved.status,'ok',label+' must remain writable while FX row is unchanged: '+JSON.stringify(saved));
+ assert.equal(stored.length,ordinary.length+1,label+' persists all rows');
+ const fxRow=stored.find(row=>row[11]===155.5 && row[12]===1350);
+ assert.ok(fxRow,label+' preserves FX evidence in 13-column ledger');
+ assert.equal(fxRow[6],209925,label+' preserves KRW unit price');
+}
+stored=baseMixedRows.map(row=>[...row]);
 const changedFxNoMetadata={
  ...fxTrade,tradeFxSchemaVersion:1,priceRaw:undefined,
  fxRateAtBuy:undefined,memo:'edited but no FX'
