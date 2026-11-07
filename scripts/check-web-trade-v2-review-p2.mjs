@@ -33,7 +33,7 @@ const localMatch=(local,remote,dirty=false)=> {
   data:{trades:remote,tradeLedgerProtocolVersion:2,ledgerRevision:rev},
   dirtyPortfolioAtLoad:dirty?{}:null,pendingEmptySyncAtLoad:null,
   dirtyPortfolioSyncResolvedAtLoad:false,loadTarget:url,loadGeneration:generation});
- vm.runInContext(get(sync,'_tradeV2BrowserCanonical')+'\n'+get(sync,'_tradeV2PinnedBaseline'),c);
+ vm.runInContext([get(sync,'_tradeV2NormalizeCode'),get(sync,'_tradeV2BrowserCanonical'),get(sync,'_tradeV2PinnedBaseline')].join('\n'),c);
  vm.runInContext('(function(){'+settings.slice(blockFrom,blockTo)+'})()',c);
  return c.window._tradeLedgerV2BaselineTargets[url];
 };
