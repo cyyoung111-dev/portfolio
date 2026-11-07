@@ -7,6 +7,10 @@ function _tradeV2CanonicalRow_(r) {
   var numeric=[5,6,9,10,11,12];
   return [String(r[13]==null?'':r[13])].concat(r.slice(0,13).map(function(v,i){
     if(i===0)return _normalizeDate(v);
+    // Match the actual GAS writer (_normalizeCodeRows, column E) exactly.
+    // Legacy inputs such as 5930 are stored as 005930. Hashes and CAS
+    // therefore describe the persisted value, never the browser spelling.
+    if(i===4)return v==null||v===''?'':_cleanCode(v);
     if(v==null||v==='')return '';
     if(numeric.indexOf(i)>=0){
       var n=Number(v);
@@ -21,7 +25,7 @@ function _tradeV2RowsFromTrades_(trades) {
     .map(function(t){
       var fx=_portfolioTradeFxMetadata_(t);
       return [_normalizeDate(t.date),t.tradeType||'',t.acct||'',t.name||'',
-        t.code||'',t.qty||0,t.price||0,t.assetType||'주식',
+        _cleanCode(t.code)||'',t.qty||0,t.price||0,t.assetType||'주식',
         t.memo||'',t.ratio||'',t.fractionalCash||'',fx[0],fx[1],t.id||''];
     });
 }
@@ -34,7 +38,9 @@ function _tradeV2ValidateMutation_(previousRows,trades,meta,lastColumn) {
     return {ok:false,errorCode:'TRADE_LEDGER_V2_REQUIRED'};
   if(!Array.isArray(meta.intents)||!meta.expectedLedgerRevision)
     return {ok:false,errorCode:'TRADE_INTENT_REQUIRED'};
-  if(previousRows.length===0||lastColumn<14)
+  // A migrated 14-column ledger can legitimately be empty after deleting
+  // its last trade. Column N's header is the migration proof in that case.
+  if(lastColumn<14)
     return {ok:false,errorCode:'TRADE_LEDGER_IDENTITY_MIGRATION_REQUIRED'};
   var old={},next={},intents={},oldRows=previousRows;
   var i,id,row,kind;
