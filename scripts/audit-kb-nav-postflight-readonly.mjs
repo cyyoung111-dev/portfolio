@@ -7,6 +7,7 @@ import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {runPublicSourceOnly} from './collect-kb-fund-nav.mjs';
 import {summarizeFundRows} from './diagnose-fund-valuation-readonly.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
+import {describeFundCloseCheckpoint} from './assess-krx-overnight-health.mjs';
 
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const isDay=d=>typeof d==='string'&&DAY.test(d)&&
@@ -168,8 +169,11 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
  const officialNavMatched=official?verifyKbOfficialNavPreview(referenceDate,
    official.nav,await previewReader({url,token,date:referenceDate,
      nav:official.nav,fetchImpl})):false;
- return assessKbNavPostflight({close,officialRows:source.rows,
-   fundRow:matching[0]||null,today,officialNavMatched});
+ // Expose only allow-listed GAS checkpoint enums. This is persisted runtime
+ // evidence, not independent Apps Script Executions / successful close proof.
+ return {...assessKbNavPostflight({close,officialRows:source.rows,
+   fundRow:matching[0]||null,today,officialNavMatched}),
+   fundCloseCheckpointEvidence:describeFundCloseCheckpoint(status)};
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
@@ -185,7 +189,11 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
        +' · NAV='+result.storedNavConfirmed
        +' · exactOfficialNAV='+result.officialNavMatched
        +' · derived='+result.derivedConfirmed
-       +' · close='+result.closeState+'\n');
+       +' · close='+result.closeState
+       +' · stage='+result.fundCloseCheckpointEvidence.closeStage
+       +' · fundAttempt='+result.fundCloseCheckpointEvidence.fundAttemptState
+       +' · fundFailure='+result.fundCloseCheckpointEvidence.fundFailureClass
+       +' · lastFundWork='+result.fundCloseCheckpointEvidence.fundWorkStage+'\n');
    }
    if(!result.pass)process.exitCode=1;
  }catch(error){
