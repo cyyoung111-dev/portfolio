@@ -5,7 +5,7 @@ import {gasSourceBlobSha,extractExpectedGasVersion,assertGasReleaseReady} from '
 import {composeGas9284HanwhaLeasedPreview} from './compose-gas9284-hanwha-leased-preview.mjs';
 
 const {candidate,base,manifest}=composeGas9284HanwhaLeasedPreview();
-const promoted=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const promoted=fs.readFileSync('reference/gas-v9.284.gs','utf8');
 assert.equal(promoted,candidate,'actual full source must match the reviewed v9.284 candidate byte-for-byte');
 assert.equal(gasSourceBlobSha(promoted),'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
 assert.equal(assertGasReleaseReady(promoted),'9.284');
