@@ -59,7 +59,7 @@ try {
   assert.equal(result.inventory.archivedV335DescriptionHintCount,1);
   assert.equal(result.inventory.archivedV335IdentityVerified,false);
   assert.equal(result.dryRun.dryRun,true,'blocked inventory must not suppress dry-run');
-  assert.equal(result.dryRun.version,'9.284');
+  assert.equal(result.dryRun.version,'9.285');
   assert.equal(result.releaseAuthorized,false);
   assert.deepEqual([result.gasWrites,result.financeWrites,result.telegramSends],[0,0,0]);
   assert.ok(calls.every(c=>c.method==='GET'||c.url==='https://oauth2.googleapis.com/token'));

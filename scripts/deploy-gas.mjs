@@ -34,6 +34,7 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.285': '954fd4aeae767ddac0cb161d3a81003b5b699d1c',
   '9.284': 'b5b1c7fd5a27454419ddd6d12ecb20751c207c63',
   '9.283': '327f48785550a012eaf1ed533c24bf6289c01a71',
   // Exact canonical source and its Issue860 editor-only resume alias profile.

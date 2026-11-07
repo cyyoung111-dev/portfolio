@@ -14,7 +14,7 @@ function replaceOne(src,a,b,label){
  return src.replace(a,b);
 }
 export function composeGas9285FundNoopPreview(){
- const base=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const base=fs.readFileSync('reference/gas-v9.284.gs','utf8');
  if(blob(base)!==BASE_BLOB)throw Error('GAS9285_UNREVIEWED_BASE');
  let src=base;
  const old=`  // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.

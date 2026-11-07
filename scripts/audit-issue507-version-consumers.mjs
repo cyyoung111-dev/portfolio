@@ -6,8 +6,8 @@ import {fileURLToPath} from 'node:url';
 import {prepareIssue507ProposedRelease} from './prepare-issue507-proposed-release.mjs';
 import {assertGasReleaseReady} from './deploy-gas.mjs';
 
-export const BASE_VERSION='9.284';
-export const PROPOSED_VERSION='9.284';
+export const BASE_VERSION='9.285';
+export const PROPOSED_VERSION='9.285';
 export const REQUIRED_OPERATING_CONSUMERS=Object.freeze([
  'src/web/features/settings/settings_fetch.js',
  'scripts/collect-kb-fund-nav.mjs',
@@ -69,11 +69,11 @@ export function auditIssue507VersionConsumers({
      const line=lines[i];
      // An observable consumer pin, not an arbitrary date or historical note.
      // Report location and class, never source contents or endpoint credentials.
-     const direct=/\b(?:gasVersion|EXPECTED_GAS_VERSION)\b[^\n]{0,220}['"]9\.284['"]|['"]9\.284['"][^\n]{0,220}\b(?:gasVersion|EXPECTED_GAS_VERSION)\b/.test(line);
+     const direct=/\b(?:gasVersion|EXPECTED_GAS_VERSION)\b[^\n]{0,220}['"]9\.285['"]|['"]9\.285['"][^\n]{0,220}\b(?:gasVersion|EXPECTED_GAS_VERSION)\b/.test(line);
      if(direct)addPin(file,i+1,'direct');
      // A standalone VERSION/GAS constant may reject the returned gasVersion,
      // even if the comparison lives far from its definition.
-     if(/\b[A-Za-z_$][\w$]*(?:GAS|VERSION)[\w$]*\s*=\s*['"]9\.284['"]/.test(line))
+     if(/\b[A-Za-z_$][\w$]*(?:GAS|VERSION)[\w$]*\s*=\s*['"]9\.285['"]/.test(line))
        addPin(file,i+1,'version_constant');
    }
    // Capture multi-line Set/Array version allowlists by their exact literal
@@ -85,7 +85,7 @@ export function auditIssue507VersionConsumers({
      if(!/(?:GAS|VERSION)/i.test(symbol))continue;
      const segment=match[2];
      const start=match.index+match[0].indexOf(segment);
-     for(const literal of segment.matchAll(/['"]9\.284['"]/g)){
+     for(const literal of segment.matchAll(/['"]9\.285['"]/g)){
        const offset=start+literal.index;
        const line=1+text.slice(0,offset).split('\n').length-1;
        addPin(file,line,'version_allowlist',symbol);

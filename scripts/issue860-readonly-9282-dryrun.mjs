@@ -32,7 +32,7 @@ export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
      process.env.GAS_DEPLOY_DRY_RUN!=='true'||process.env.GAS_9282_RELEASE_APPROVAL!=='false'||
      process.env.GAS_9283_RELEASE_APPROVAL!=='false')throw Error('ISSUE860_MODE_INVALID');
   const sourceVersion=assertGasReleaseReady(fs.readFileSync('src/gas/apps_script.gs','utf8'));
-  if(!['9.282','9.283','9.284'].includes(sourceVersion))throw Error('ISSUE860_CANDIDATE_INVALID');
+  if(!['9.282','9.283','9.284','9.285'].includes(sourceVersion))throw Error('ISSUE860_CANDIDATE_INVALID');
   const guarded=readonlyTransport(process.env.GAS_SCRIPT_ID,fetchImpl);
   const originalFetch=globalThis.fetch;
   const originalExpected=process.env.GAS_EXPECTED_MAIN_SHA;

@@ -7,8 +7,10 @@ import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import {composeGas9285FundNoopPreview} from './compose-gas9285-fund-noop-preview.mjs';
 
 const {base,candidate,manifest}=composeGas9285FundNoopPreview();
-assert.equal(base,fs.readFileSync('src/gas/apps_script.gs','utf8'),
- 'existing live v9.284 release must stay untouched');
+assert.equal(base,fs.readFileSync('reference/gas-v9.284.gs','utf8'),
+ 'reviewed 9.284 rollback source must stay immutable');
+assert.equal(candidate,fs.readFileSync('src/gas/apps_script.gs','utf8'),
+ 'promoted 9.285 candidate must exactly equal the full production-file candidate');
 assert.equal(gasSourceBlobSha(base),manifest.baseSourceGitBlob);
 assert.equal(gasSourceBlobSha(candidate),manifest.candidateSourceGitBlob);
 const reviewedReference=fs.readFileSync('reference/gas-v9.285.gs','utf8');
@@ -34,25 +36,27 @@ assert.equal(releasePlan.candidateSourceGitBlob,manifest.candidateSourceGitBlob)
 assert.equal(releasePlan.candidateSourceGitBlob,'954fd4aeae767ddac0cb161d3a81003b5b699d1c');
 assert.equal(releasePlan.includesTradeLedgerV2,false);
 assert.equal(releasePlan.candidateReferencePath,'reference/gas-v9.285.gs');
-assert.equal(releasePlan.sourcePromotion,'REFERENCE_COMMITTED_REVIEW_PENDING');
+assert.equal(releasePlan.sourcePromotion,'SOURCE_COMMITTED_NOT_DEPLOYED');
 assert.equal(releasePlan.approval.manualReleaseGatePrepared,true);
-assert.ok(releasePlan.blockers.includes('PRODUCTION_ROOT_SOURCE_STILL_9284'));
+assert.ok(releasePlan.blockers.includes('PRODUCTION_GAS_9285_NOT_DEPLOYED'));
 assert.equal(releasePlan.tradeLedgerV2MinimumTargetVersion,'9.286');
-assert.equal(releasePlan.approval.sourcePromotion,false);
+assert.equal(releasePlan.approval.sourcePromotion,true);
 assert.equal(releasePlan.approval.operationalRelease,false);
 assert.equal(releasePlan.approval.financialWrites,false);
 assert.equal(releasePlan.approval.deployInventoryReady,false);
-assert.equal(releasePlan.approval.webClientVersionReady,false);
+assert.equal(releasePlan.approval.webClientVersionReady,true);
+assert.equal(releasePlan.approval.operationalRelease,false);
 assert.equal(releasePlan.approval.manualDryRunPassed,false);
 assert.equal(releasePlan.approval.appsScriptExecutionVerified,false);
 // A green offline candidate test is not an authorization to ship GAS.
 assert.equal(assertGasReleaseReady(base),'9.284');
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/);
+assert.equal(assertGasReleaseReady(candidate),'9.285');
+assert.throws(()=>assertGasReleaseReady(candidate+'\n// drift'),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
 const currentWeb=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
-assert.match(currentWeb,/const EXPECTED_GAS_VERSION = '9\.284';/,
- 'web consumer still expects the live GAS, not this unreleased candidate');
-assert.match(currentWeb,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\[[^\]]*'9\.285'\]\);/,
- 'web consumer must permit a reviewed 9.285 read response before cutover');
+assert.match(currentWeb,/const EXPECTED_GAS_VERSION = '9\.285';/,
+ 'web expected version must match the promoted release candidate');
+assert.match(currentWeb,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\[[^\]]*'9\.284', EXPECTED_GAS_VERSION\]\);/,
+ 'web consumer must still accept the actually deployed 9.284 version');
 const gateReleaseId=s=>s.match(/var ISSUE507_GATE_RELEASE_ID='([a-f0-9]{64})'/)?.[1]||'';
 assert.match(gateReleaseId(base),/^[a-f0-9]{64}$/);
 assert.equal(gateReleaseId(candidate),gateReleaseId(base),

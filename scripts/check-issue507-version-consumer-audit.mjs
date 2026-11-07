@@ -4,8 +4,8 @@ import {auditIssue507VersionConsumers,REQUIRED_OPERATING_CONSUMERS,REQUIRED_VERS
 
 const report=auditIssue507VersionConsumers();
 assert.equal(report.status,'RELEASE_PR_PENDING_APPROVAL');
-assert.equal(report.baseVersion,'9.284');
-assert.equal(report.proposedVersion,'9.284');
+assert.equal(report.baseVersion,'9.285');
+assert.equal(report.proposedVersion,'9.285');
 assert.equal(report.readyForDeployment,false);
 assert.equal(report.productionGasChanged,true);
 assert.equal(report.versionMigrationPerformed,true);
@@ -27,7 +27,7 @@ const web='src/web/features/settings/settings_fetch.js';
 const real=fs.readFileSync(web,'utf8');
 assert.throws(()=>auditIssue507VersionConsumers({
  readText:file=>file===web?real.replace(
-  /(\bconst\s+EXPECTED_GAS_VERSION\s*=\s*['"])9\.284(?=['"])/,
+  /(\bconst\s+EXPECTED_GAS_VERSION\s*=\s*['"])9\.285(?=['"])/,
   (_whole,prefix)=>prefix+'9.999'
  ):fs.readFileSync(file,'utf8'),
 }),/ISSUE507_EXPECTED_WEB_VERSION_CHANGED/);
@@ -35,8 +35,8 @@ assert.throws(()=>auditIssue507VersionConsumers({
 const first=REQUIRED_OPERATING_CONSUMERS[1];
 const original=fs.readFileSync(first,'utf8');
 assert.throws(()=>auditIssue507VersionConsumers({
- readText:file=>file===first?original.replaceAll("'9.284'","'9.999'")
-  .replaceAll('"9.284"','"9.999"'):fs.readFileSync(file,'utf8'),
+ readText:file=>file===first?original.replaceAll("'9.285'","'9.999'")
+  .replaceAll('"9.285"','"9.999"'):fs.readFileSync(file,'utf8'),
 }),/ISSUE507_REQUIRED_CONSUMER_PIN_MISSING/);
 
 // Mutate the actual production version allowlist rather than the distant
@@ -44,7 +44,7 @@ assert.throws(()=>auditIssue507VersionConsumers({
 const deferredSource=fs.readFileSync(known,'utf8');
 const changedDeferred=deferredSource.replace(
  /(?<=const SUPPORTED_GAS_VERSION=new Set\(\[)([^\]]*)/, 
- list=>list.replace("'9.284'","'9.999'")
+ list=>list.replace("'9.285'","'9.999'")
 );
 assert.notEqual(changedDeferred,deferredSource);
 assert.throws(()=>auditIssue507VersionConsumers({
@@ -57,7 +57,7 @@ const alternate='scripts/run-synthetic-multiline-client.mjs';
 const multiline=auditIssue507VersionConsumers({
  files:[...new Set([...report.allVersionPins.map(x=>x.file),alternate])],
  readText:file=>file===alternate?
-  "const VALID_GAS_VERSIONS=new Set([\n  '9.279',\n  '9.284'\n]);\nif (!VALID_GAS_VERSIONS.has(payload.gasVersion)) throw Error('BAD');":
+  "const VALID_GAS_VERSIONS=new Set([\n  '9.279',\n  '9.285'\n]);\nif (!VALID_GAS_VERSIONS.has(payload.gasVersion)) throw Error('BAD');":
   fs.readFileSync(file,'utf8'),
 });
 assert.ok(multiline.allVersionPins.some(x=>x.file===alternate&&x.line===3
@@ -68,7 +68,7 @@ const synthetic='scripts/run-synthetic-issue507-client.mjs';
 const augmented=auditIssue507VersionConsumers({
  files:[...new Set([...report.allVersionPins.map(x=>x.file),synthetic])],
  readText:file=>file===synthetic?
-  "if (reply.gasVersion !== '9.284') throw Error('OLD_VERSION');":
+  "if (reply.gasVersion !== '9.285') throw Error('OLD_VERSION');":
   fs.readFileSync(file,'utf8'),
 });
 assert.ok(augmented.allVersionPins.some(x=>x.file===synthetic&&x.kind==='operational_or_support'));

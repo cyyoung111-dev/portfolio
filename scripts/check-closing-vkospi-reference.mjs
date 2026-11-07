@@ -130,9 +130,9 @@ await assert.rejects(deliverClose({...prepared,reportInputs:{...prepared.reportI
  vkospi:[{...row[0],date:'2026-10-30'}]}},{now,send:async()=>assert.fail('stale value sent')}),
  /TELEGRAM_CLOSE_PAYLOAD_INVALID/);
 
-// Production source is read-only: create an in-memory preview changing exactly
-// one VKOSPI-specific API URL, never install/deploy the preview.
-const sourceGas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+// Pinned 9.284 predecessor is immutable: preview the historical one-URL change.
+// Never install/deploy this historical proposal into the promoted 9.285 runtime.
+const sourceGas=fs.readFileSync('reference/gas-v9.284.gs','utf8');
 const proposal=composeGASVkospiDerivativeProposal(sourceGas);
 assert.notEqual(proposal.candidate,sourceGas);
 assert.equal(proposal.candidate.replace(PROPOSED_DERIVATIVE_ENDPOINT,

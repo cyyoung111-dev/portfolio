@@ -1,6 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
 //  - 가격이력 저장 검증: Date로 변환된 입력시각을 시트 시간대로 초 단위 대조.
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.284
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.285
+//
+//  v9.285 변경사항 (2026.11.07):
+//  • 펀드 재검산에서 변경 대상 0건이면 글로벌 writer 잠금·전체 NAV 재조회 생략
+//  • NAV 미공표·partial 경고 보존, 실제 금융변경 경로의 잠금·백업·검증 유지
+//  • 후보 검증 전 운영 GAS v9.284 유지; 별도 승인 없이 배포 금지
 //
 //  v9.284 변경사항 (2026.11.06):
 //  • F00001 C-RPe import/derived refresh를 기존 공유 FUND/backfill lease 경유로 제한
@@ -5846,7 +5851,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.284' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.285' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6936,6 +6941,30 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       }
     }
   });
+  // No derived row needs processing: a repeated 19:00/20:30 close must not
+  // acquire the global writer lock or reread NAV/price/Snapshot merely to
+  // confirm that the already-verifiable fund rows are unchanged.
+  // Missing official publication and partial statuses are still retained.
+  if (values.length === 0) {
+    _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'resultAggregate', '_refreshFundValuations');
+    var unchanged = {
+      continuation:false, deferredSnapshotDates:0,
+      completionStatus:Object.keys(fundResults).some(function(code) {
+        return fundResults[code].status !== 'ok';
+      }) ? 'partial' : 'ok',
+      saved:0, navSaved:0, snapshots:0,
+      processing:{
+        nav:{processed:0,pending:Object.keys(fundResults).reduce(function(sum,code) {
+          return sum + Number(fundResults[code].navMissing || 0);
+        },0)},
+        priceHistory:{processed:0,pending:0},
+        snapshots:{processed:0,pending:0,reasons:[]}
+      },
+      missingHoldings:[],snapshotWarnings:[],lastDate:'',fundResults:fundResults
+    };
+    _fundRecoveryDiagnosticFinish(diagnostic,'end');
+    return unchanged;
+  }
   // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.
   // 외부 HTTP·NAV 파싱·평가 계산은 lock 밖에서 완료합니다.
   // 동시 실행에서 중복 추가를 막기 위해 쓰기 직전 최신 상태를 다시 읽습니다.
@@ -13368,7 +13397,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.284',
+    gasVersion: '9.285',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -13436,7 +13465,7 @@ function _getAutomationStatusData() {
 
 function handleGetAutomationStatus() {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleGetAutomationStatus', handleGetAutomationStatus, this, arguments);
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.284' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.285' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16576,7 +16605,7 @@ function handleGetCodeListReadOnly() {
     // Do not settle, migrate or retire any transaction, including malformed/partial markers.
     if (PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('CODE_LIST_READ_ONLY_PENDING');
-    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.284' });
+    return jsonOk({ codes: getCodeItems(getss(), true), publicDataApiKeyConfigured: !!_getPublicDataApiKey(), readOnly: true, gasVersion: '9.285' });
   } catch(err) {
     return jsonError('CODE_LIST_READ_ONLY_FAILED');
   } finally {
@@ -17424,7 +17453,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.284' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.285' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17456,7 +17485,7 @@ function handleGetBootstrap() {
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.284'
+      gasVersion: '9.285'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -19768,7 +19797,7 @@ function handleDiagnoseNhMarketData(params) {
     var items=[{code:'005930',currency:'KRW',market:'KRX'},{code:'AAPL',currency:'USD',market:'NASDAQ'}];
     var meta={},quotes=fetchPricesNh(items,{},meta),date=today();
     var closes=fetchNhRegularCloses(items,date,{useMarketCloseCutoffs:true});
-    return jsonOk({gasVersion: '9.284',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
+    return jsonOk({gasVersion: '9.285',readOnly:true,provider:'NH',quotesConnected:!!(quotes['005930']&&quotes.AAPL),closes:closes,closeSampleComplete:!!(closes['005930']&&closes.AAPL),fullCoverageVerified:false});
   }catch(error){return jsonError('NH_DIAGNOSTIC_FAILED');}
 }
 
@@ -19800,7 +19829,7 @@ function handleGetNhAuthStatusProxy(params) {
     PropertiesService.getScriptProperties().getProperty('NHPLUG_AUTH_RECORD_V1'),_nhTokenScope_(creds)):null;
   // Never issue a token or return its value for a status check.
   return jsonOk({provider:'NH',enabled:enabled,tokenCached:!!existing,tokenIssued:false,
-    gasVersion: '9.284',readOnly:true});
+    gasVersion: '9.285',readOnly:true});
 }
 function _nhProxyFutureCandidate_(today) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_nhProxyFutureCandidate_', _nhProxyFutureCandidate_, this, arguments);
@@ -20016,7 +20045,7 @@ function handleGetNhIndexProbe(params){
      if(stop){stopped=true;break;}
    }
  }
- return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.284',date:'2026-10-29',
+ return jsonOk({provider:'NH',readOnly:true,gasVersion: '9.285',date:'2026-10-29',
    candidateOnly:true,mappingVerified:false,results:records,stopped:stopped});
 }
 
@@ -20097,7 +20126,7 @@ var ISSUE507_GATE_RELEASE_ID='257c26d1ad789d8f036e74d56418644385e8860dab8c5551fb
 // Original alias functions are private implementation details; direct editor
 // calls and other deployments must be disabled by the rollout operator.
 var _issue507GateInside_=false;
-var ISSUE507_GATE_API_VERSION='9.284';
+var ISSUE507_GATE_API_VERSION='9.285';
 function _issue507GateAtomic_(fn,quickCleanup) {
   var lock=LockService.getScriptLock(),owned=lock.hasLock();
   if(!owned){
