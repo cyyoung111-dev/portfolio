@@ -85,6 +85,37 @@ const noOhlcQuote=await fetchDatedDaily('SOX','^SOX',report,{now,include52Week:t
 assert.equal(noOhlcQuote?.date,session);
 assert.equal(noOhlcQuote.range52w,undefined,
  'do not infer 52-week high-low from closing prices');
+const missingHighLow=structuredClone(chart);
+missingHighLow.chart.result[0].indicators.quote[0].high[35]=1000;
+missingHighLow.chart.result[0].indicators.quote[0].low[35]=null;
+const corruptHigh=await fetchDatedDaily('SOX','^SOX',report,{
+ now,include52Week:true,expectedSessionDate:session,
+ fetchImpl:async()=>({ok:true,json:async()=>missingHighLow})
+});
+assert.equal(corruptHigh?.date,session,'valid last close remains available');
+assert.equal(corruptHigh.range52w,undefined,
+ 'missing low cannot silently erase the true high of that day');
+
+const missingClose=structuredClone(chart);
+missingClose.chart.result[0].indicators.quote[0].close[45]=null;
+const corruptClose=await fetchDatedDaily('SOX','^SOX',report,{
+ now,include52Week:true,expectedSessionDate:session,
+ fetchImpl:async()=>({ok:true,json:async()=>missingClose})
+});
+assert.equal(corruptClose?.date,session);
+assert.equal(corruptClose.range52w,undefined,
+ 'missing close in an otherwise populated historical candle prevents 52w');
+
+const shortHighs=structuredClone(chart);
+shortHighs.chart.result[0].indicators.quote[0].high.pop();
+const badArrayShape=await fetchDatedDaily('SOX','^SOX',report,{
+ now,include52Week:true,expectedSessionDate:session,
+ fetchImpl:async()=>({ok:true,json:async()=>shortHighs})
+});
+assert.equal(badArrayShape?.date,session);
+assert.equal(badArrayShape.range52w,undefined,
+ 'OHLC array length mismatch cannot become verified 52-week extremes');
+
 
 let requested=[];
 const collected=await collectMorningSeries(report,{
