@@ -28,14 +28,32 @@ function _tradeV2ReceiptState_(input,record,ss) {
   if(record.state==='FAILED')return 'FAILED';
   if(_tradeLedgerWriteUnverified_()||_readPendingTradeSnapshotRebuild())
     return 'PARTIAL';
+  // Snapshot workers can defer an unresolved date and clear the pending
+  // marker. No receipt may attest COMPLETE while its affected range is
+  // deferred. A crash before affectedFrom/To were recorded is conservative:
+  // any deferred date keeps the receipt PARTIAL.
+  var deferred;
+  try{deferred=_readTradeSnapshotDeferredState_().dates;}
+  catch(ignore){return 'UNKNOWN';}
+  var from=String(record.affectedFrom||''),to=String(record.affectedTo||'');
+  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(from)||
+     !/^\\d{4}-\\d{2}-\\d{2}$/.test(to)||from>to){
+    if(deferred.length)return 'PARTIAL';
+  }else if(deferred.some(function(day){return day>=from&&day<=to;})){
+    return 'PARTIAL';
+  }
   var read=JSON.parse(handleGetTrades(ss).getContent());
   if(read.status!=='ok'||read.tradeLedgerProtocolVersion!==2)
     return 'UNKNOWN';
   if(read.ledgerRevision!==input.targetRevision)return 'CHANGED';
-  // A hard stop after source+Snapshot verification but before receipt update
-  // is recoverable by read-only revision and pending-state evidence.
-  if(record.state==='COMPLETE'||record.state==='STARTED'||record.state==='PARTIAL')
-    return 'COMPLETE';
+  // A regular synchronous successful save is COMPLETE once the readback
+  // and all affected Snapshot dates have been verified above.
+  if(record.state==='COMPLETE')return 'COMPLETE';
+  // STARTED and PARTIAL must NOT auto-upgrade on a matching ledger hash.
+  // Require a newer, writer-fingerprint-bound Snapshot worker completion
+  // proof. The same v1 proof already verifies date ranges and deferred dates.
+  if(record.state==='STARTED'||record.state==='PARTIAL')
+    return _portfolioSyncFollowupRecovered_(record)?'COMPLETE':'PARTIAL';
   return 'UNKNOWN';
 }
 function handleTradeV2ReceiptReadOnly_(params) {
