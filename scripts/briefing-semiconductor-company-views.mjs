@@ -111,6 +111,13 @@ export function formatSemiconductorCompanyFiveViews(input={}){
   ?(x.book.indicative?'참고 PBR(보통·우선 합산) ':'PBR ')+round(x.book.pbr)+'배 (BPS×1/1.5/2='
     +[1,1.5,2].map(y=>num(x.book.bps*y)).join('/')+'원, 적정가 아님)'
   :'PBR·DCF 유보(BPS/FCF 미확보)';
+ const bookProvenance='※ '+(s.book
+  ?(s.book.indicative
+    ?'삼성 BPS/PBR: 지배자본÷보통·우선 합산 유통주식 참고치(주식종류별 권리 차이 미반영)'
+    :'삼성: 단일종류 BPS 검증')
+  :'삼성 BPS/PBR 미확보')+'; '+(h.book
+   ?(h.book.indicative?'하닉: 복수종류 참고 BPS':'하닉: 단일종류 BPS 검증')
+   :'하닉 BPS/PBR 미확보')+'.';
  return [
   '■ 삼성전자·SK하이닉스 5인 정량 관점 (당일 실제 발언 아님)',
   '• '+metric(s),
@@ -126,7 +133,7 @@ export function formatSemiconductorCompanyFiveViews(input={}){
   '• 다모다란: 삼전 '+pbr(s)+'; 하닉 '+pbr(h),
   '• 하워드 막스: 삼전 DS 이익집중·메모리 정상화; 하닉 '+pct(h.operatingMarginPercent)
     +' 고마진 정상화·증설 위험',
-  '※ 삼성 BPS/PBR: 지배자본÷보통·우선 합산 유통주식 참고치(주식종류별 권리 차이 미반영). 하닉: 단일종류 BPS 검증.',
+  bookProvenance,
   '※ 삼성 3Q26 10/29 실적 발표·하닉 10/28 잠정 발표. BPS는 표시된 DART 결산일 기준; TTM EPS/FCF/ROIC·장기 PBR 분포 미확보.'
  ];
 }
