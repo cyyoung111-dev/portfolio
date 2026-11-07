@@ -94,8 +94,8 @@ export function composeGas9285TradeV2Preview(){
  // when it can see a pending receipt. Include v2 PARTIAL/STARTED receipts;
  // otherwise an interrupted v2 write could never safely recover its ACK.
  candidate=once(candidate,
-  "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0) return false;\\n      try {var receipt=JSON.parse(all[key]);return receipt.kind==='syncTrades' && receipt.state==='PARTIAL';}",
-  "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0 && key.indexOf(TRADE_V2_RECEIPT_PREFIX)!==0) return false;\\n      try {var receipt=JSON.parse(all[key]);return (receipt.kind==='syncTrades' && receipt.state==='PARTIAL') || (receipt.kind==='syncTradesV2' && (receipt.state==='PARTIAL' || receipt.state==='STARTED'));}",
+  "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0) return false;\n      try {var receipt=JSON.parse(all[key]);return receipt.kind==='syncTrades' && receipt.state==='PARTIAL';}",
+  "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0 && key.indexOf(TRADE_V2_RECEIPT_PREFIX)!==0) return false;\n      try {var receipt=JSON.parse(all[key]);return (receipt.kind==='syncTrades' && receipt.state==='PARTIAL') || (receipt.kind==='syncTradesV2' && (receipt.state==='PARTIAL' || receipt.state==='STARTED'));}",
   'V2_WORKER_SNAPSHOT_PROOF');
  // Fold in the previously independent fund no-op optimization.
  const oldFund=[
