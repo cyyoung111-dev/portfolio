@@ -59,7 +59,7 @@ const options={
  fetchStocks:async()=>[],fetchMacros:async()=>[],fetchMarkets:async()=>[],
  fetchFutures:async()=>[],fetchRates:async()=>[],fetchVkospi:async()=>[],
  fetchTurnover:async(date,{now:clock})=>{
-  calls++;assert.equal(date,day);assert.equal(clock(),now());
+  calls++;assert.equal(date,day);assert.equal(clock().getTime(),now().getTime());
   return [kospi,kosdaq];
  },
  loadPrepared:async()=>null,loadFinancialEvidence:async()=>null
