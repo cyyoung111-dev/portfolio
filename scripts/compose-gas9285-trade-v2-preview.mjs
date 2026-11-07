@@ -1,0 +1,115 @@
+// Source-only v9.285 candidate. NEVER deploy this module output directly:
+// authenticated receipt, ID migration, new web client and E2E still required.
+import {createHash} from 'node:crypto';
+import {composeGas9285TradeFxPreview} from './compose-gas9285-trade-fx-preview.mjs';
+import {TRADE_V2_GAS_HELPERS} from './trade-v2-gas-functions.mjs';
+const blob=s=>{const b=Buffer.from(s,'utf8');return createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');};
+function once(source,oldValue,newValue,label){
+ if(source.split(oldValue).length!==2)throw Error('TRADE_V2_ANCHOR_DRIFT:'+label);
+ return source.replace(oldValue,newValue);
+}
+export function composeGas9285TradeV2Preview(){
+ const original=composeGas9285TradeFxPreview();
+ let candidate=original.candidate;
+ candidate=once(candidate,
+  "function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows) {",
+  TRADE_V2_GAS_HELPERS+"\nfunction handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows, tradeV2Meta) {",
+  'INSERT_V2_GAS_FUNCTIONS');
+ // An ID-less client cannot modify an ID-bearing ledger, nor initialize
+ // an unreviewed legacy sheet as if it had permanent IDs.
+ const start="    var existingFx=previousRows.some(function(row){return row[11]!=='' && row[11]!=null;});";
+ const end="    if (!sh) {";
+ let a=candidate.indexOf(start,candidate.indexOf("function handleSyncTrades("));
+ let b=candidate.indexOf(end,a);
+ if(a<0||b<=a)throw Error('TRADE_V2_LEGACY_GUARD_DRIFT');
+ candidate=candidate.slice(0,a)+[
+  "    var v2Check=_tradeV2ValidateMutation_(previousRows,trades,tradeV2Meta,sh?sh.getLastColumn():0);",
+  "    if(!v2Check.ok)return jsonError('거래 ID·수정삭제·버전 확인 필요',",
+  "      {errorCode:v2Check.errorCode,saveState:'failed'});",
+  ""
+ ].join('\n')+candidate.slice(b);
+ candidate=once(candidate,
+  "Math.min(13, sh.getLastColumn())).getValues() : [];",
+  "Math.min(14, sh.getLastColumn())).getValues() : [];",
+  'READ_14');
+ // The 13-column group heuristic was unsafe across account changes.
+ const heuristicStart="    // Never let a stale 11-column client wipe existing FX evidence for an";
+ const heuristicEnd="    var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;";
+ a=candidate.indexOf(heuristicStart,candidate.indexOf("function handleSyncTrades("));
+ b=candidate.indexOf(heuristicEnd,a);
+ if(a<0||b<=a)throw Error('TRADE_V2_HEURISTIC_DRIFT');
+ candidate=candidate.slice(0,a)+candidate.slice(b);
+ candidate=once(candidate,
+  "t.ratio || '', t.fractionalCash || ''].concat(_portfolioTradeFxMetadata_(t));",
+  "t.ratio || '', t.fractionalCash || ''].concat(_portfolioTradeFxMetadata_(t),[t.id||'']);",
+  'INTENDED_ID');
+ candidate=once(candidate,
+  "sh.getRange(1,1,1,13).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산','외화단가','매입환율']]);",
+  "sh.getRange(1,1,1,14).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산','외화단가','매입환율','거래ID']]);",
+  'HEADERS_14');
+ candidate=once(candidate,
+  "sh.getRange(1,1,1,13).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');",
+  "sh.getRange(1,1,1,14).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');",
+  'HEADER_FORMAT_14');
+ candidate=once(candidate,
+  "sh.getRange(2, 1, intendedRows.length, 13).setValues(_normalizeCodeRows(intendedRows, 4));",
+  "sh.getRange(2, 1, intendedRows.length, 14).setValues(_normalizeCodeRows(intendedRows, 4));",
+  'WRITER_14');
+ candidate=once(candidate,
+  "backupCleanup: tradeBackupCleanup, tradeFxMetadataVersion: 1 });",
+  "backupCleanup: tradeBackupCleanup, tradeFxMetadataVersion: 1, tradeLedgerProtocolVersion:2, ledgerRevision:v2Check.nextRevision });",
+  'WRITE_ACK');
+ candidate=once(candidate,
+  "...(fx.length ? {priceRaw:fx[0],fxRateAtBuy:fx[1]} : {})",
+  "...(fx.length ? {priceRaw:fx[0],fxRateAtBuy:fx[1]} : {}),\n          ...(r[13] ? {id:String(r[13])} : {})",
+  'READ_ID');
+ candidate=once(candidate,
+  "return jsonOk({ trades: trades, tradeFxMetadataVersion: 1 });",
+  "return jsonOk({ trades: trades, tradeFxMetadataVersion: 1,\n      tradeLedgerProtocolVersion:numCols>=14?2:0,\n      ledgerRevision:numCols>=14?_tradeV2Revision_(data):'' });",
+  'READ_REVISION');
+ // Deliberately separate v2 route. The legacy syncTrades action is blocked
+ // before writing by the mandatory v2 metadata gate in handleSyncTrades.
+ candidate=once(candidate,
+  "  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1');",
+  "  if (params.action === 'syncTradesV2' && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1', false, null, {tradeLedgerProtocolVersion:Number(params.tradeLedgerProtocolVersion),expectedLedgerRevision:String(params.expectedLedgerRevision||''),intents:JSON.parse(params.intents||'[]')});\n  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1');",
+  'V2_POST_ROUTE');
+ // Fold in the previously independent fund no-op optimization.
+ const oldFund=[
+  "  // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.",
+  "  // 외부 HTTP·NAV 파싱·평가 계산은 lock 밖에서 완료합니다.",
+  "  // 동시 실행에서 중복 추가를 막기 위해 쓰기 직전 최신 상태를 다시 읽습니다.",
+  "  var writeLock = LockService.getScriptLock();"
+ ].join('\n');
+ const fundNoop=[
+  "  // Exact no-op avoids duplicate NAV reads and writer-lock contention.",
+  "  if (values.length === 0) {",
+  "    _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'resultAggregate', '_refreshFundValuations');",
+  "    var unchanged = {",
+  "      continuation:false, deferredSnapshotDates:0,",
+  "      completionStatus:Object.keys(fundResults).some(function(code) {",
+  "        return fundResults[code].status !== 'ok';",
+  "      }) ? 'partial' : 'ok',",
+  "      saved:0, navSaved:0, snapshots:0,",
+  "      processing:{",
+  "        nav:{processed:0,pending:Object.keys(fundResults).reduce(function(sum,code) {",
+  "          return sum + Number(fundResults[code].navMissing || 0);",
+  "        },0)},",
+  "        priceHistory:{processed:0,pending:0},",
+  "        snapshots:{processed:0,pending:0,reasons:[]}",
+  "      },",
+  "      missingHoldings:[],snapshotWarnings:[],lastDate:'',fundResults:fundResults",
+  "    };",
+  "    _fundRecoveryDiagnosticFinish(diagnostic,'end');",
+  "    return unchanged;",
+  "  }"
+ ].join('\n')+'\n';
+ candidate=once(candidate,oldFund,fundNoop+oldFund,'FUND_NOOP');
+ const manifest={...original.manifest,
+  candidateSourceGitBlob:blob(candidate),tradeLedgerProtocolVersion:2,
+  columns:14,features:['fx-original-price','immutable-trade-id','CAS',
+    'explicit-create-update-delete','fund-noop'],
+  requiresReceiptImplementation:true,requiresLegacyMigration:true,
+  status:'SOURCE_PREVIEW_NOT_DEPLOYABLE',productionDeploymentApproved:false,
+  gasProjectWrites:0,financeWrites:0};
+ return {base:original.base,candidate,manifest};
+}
