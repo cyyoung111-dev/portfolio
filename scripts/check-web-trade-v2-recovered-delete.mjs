@@ -85,7 +85,7 @@ const funcs=['_normalizeSyncCode','_hasTradeFxMetadataProtocol',
  '_tradeV2PinnedBaseline','_tradeV2NormalizeCode',
  '_tradeV2BrowserCanonical','_tradeV2BrowserSha256',
  '_prepareTradeV2SyncContract','_markTradeV2ReadbackConfirmed_',
- '_recoverOutstandingTradeV2Receipt','syncTradesToGsheet'];
+ '_recoverOutstandingTradeV2Receipt','_preflightTradeV2Receipt','syncTradesToGsheet'];
 vm.runInContext(funcs.map(n=>source(sync,n)).join('\n')+'\n'
  +source(data,'_acknowledgePortfolioTradeV2Sync'),ctx);
 const stale=[removed.id];
