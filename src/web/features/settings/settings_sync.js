@@ -1584,6 +1584,9 @@ async function syncTradesToGsheet(options) {
       (typeof getGsheetConnectionGeneration==='function'
         ?getGsheetConnectionGeneration():-1);
     const v2Baseline=_tradeV2PinnedBaseline(targetUrl,v2Generation);
+    if(window._tradeLedgerV2RequiredTargets?.[targetUrl]===true && !v2Baseline)
+      return {status:'error',errorCode:'TRADE_V2_BASELINE_REQUIRED',
+        saveState:'failed'};
     if(v2Baseline){
       // A filtered/malformed local ledger must not become an implicit delete.
       if(trades.length!==sourceTrades.length)
@@ -1649,6 +1652,15 @@ async function syncTradesToGsheet(options) {
       if(typeof isGsheetConnectionCurrent==='function'
           &&!isGsheetConnectionCurrent(targetUrl,v2Generation))
         return {status:'error',errorCode:'TRADE_V2_CONNECTION_CHANGED',
+          saveState:'partial',followupRequired:true};
+      // The trading ledger is already verified on the server. Persist the
+      // new preimage and consume acknowledged deletion IDs BEFORE returning
+      // to a caller that may still fail in its Holdings/Settings step.
+      if(typeof _acknowledgePortfolioTradeV2Sync==='function' &&
+          !_acknowledgePortfolioTradeV2Sync(targetUrl,v2Baseline,{
+            revision:targetRevision,trades:verified.trades
+          }))
+        return {status:'error',errorCode:'TRADE_V2_DIRTY_ACK_PERSIST_FAILED',
           saveState:'partial',followupRequired:true};
       window._tradeLedgerV2BaselineTargets={
         ...(window._tradeLedgerV2BaselineTargets||{}),
