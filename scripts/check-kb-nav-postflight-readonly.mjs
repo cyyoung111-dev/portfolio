@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {assessKbNavPostflight,auditKbNavPostflight}
+import {assessKbNavPostflight,auditKbNavPostflight,
+ verifyKbOfficialNavPreview,readKbExactNavPreview}
  from './audit-kb-nav-postflight-readonly.mjs';
 
 const today='2026-11-07',date='2026-11-06';
@@ -13,15 +14,23 @@ const verified={code:'F00002',date,navState:'EXISTING_CONFIRMED',
  evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID',
  publicationExpected:true};
 const assess=(change={})=>assessKbNavPostflight({
- today,close,officialRows:source,fundRow:verified,...change
+ today,close,officialRows:source,fundRow:verified,officialNavMatched:true,...change
 });
 const notPublished=assess({officialRows:source.slice(0,1),fundRow:null});
-assert.equal(notPublished.verdict,'OFFICIAL_NAV_NOT_YET_PUBLISHED');
-assert.equal(notPublished.pass,true);
+assert.equal(notPublished.verdict,'OFFICIAL_NAV_NOT_YET_PUBLISHED_CLOSE_INCOMPLETE');
+assert.equal(notPublished.pass,false);
+const unpublishedHealthy=assess({officialRows:source.slice(0,1),fundRow:null,
+ close:{...close,state:'COMPLETE',fundOk:true}});
+assert.equal(unpublishedHealthy.verdict,'OFFICIAL_NAV_NOT_YET_PUBLISHED');
+assert.equal(unpublishedHealthy.pass,true);
 assert.equal(notPublished.closeComplete,false);
 assert.equal(assess({fundRow:{...verified,navState:'NAV_MISSING'}}).verdict,
  'OFFICIAL_NAV_NOT_IMPORTED');
 assert.equal(assess({fundRow:null}).pass,false);
+assert.equal(assess({officialNavMatched:false}).verdict,
+ 'OFFICIAL_NAV_VALUE_MISMATCH_OR_UNVERIFIED');
+assert.equal(assess({officialNavMatched:undefined}).pass,false,
+ 'an unverified public-vs-stored NAV may never pass');
 assert.equal(assess({fundRow:{...verified,snapshotState:'WRITE_REQUIRED'}}).verdict,
  'PUBLISHED_NAV_DERIVED_UNVERIFIED');
 assert.equal(assess({fundRow:{...verified,unitsApplied:false}}).pass,false);
@@ -67,7 +76,20 @@ assert.throws(()=>assess({officialRows:[source[0],source[0]]}),
 assert.throws(()=>assess({close:{...close,runDate:'2026-11-99'}}),
  /KB_POSTFLIGHT_SCHEMA_UNVERIFIED/);
 
-let publicCalls=0,statusCalls=0,gasCalls=0;
+let publicCalls=0,statusCalls=0,gasCalls=0,previewCalls=0;
+const exactPreview=(value=2100.55)=>({status:'ok',code:'F00002',
+ candidates:[],updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:[],
+ identical:[{date,existingNav:value,uploadedNav:value}]});
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,exactPreview()),true);
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,exactPreview(2100.56)),false,
+ 'source revision must not be reported verified from internally consistent derived rows');
+for(const fault of [{...exactPreview(),candidates:[{date}]},
+ {...exactPreview(),updates:[{date}]},
+ {...exactPreview(),identical:[...exactPreview().identical,...exactPreview().identical]},
+ {...exactPreview(),code:'F00001'},
+ {...exactPreview(),warnings:[{date}]}])
+ assert.equal(verifyKbOfficialNavPreview(date,2100.55,fault),false);
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,null),false);
 const proof={status:'ok',fundResults:{F00002:{code:'F00002',
  dates:[verified]}}};
 const mocks={
@@ -79,11 +101,26 @@ const mocks={
  valuationReader:async ({from,to})=>{
    gasCalls++;assert.equal(from,'2026-11-01');assert.equal(to,today);
    return proof;
+ },
+ previewReader:async ({date:requestedDate,nav})=>{
+   previewCalls++;assert.equal(requestedDate,date);assert.equal(nav,2100.55);
+   return exactPreview();
  }
 };
 const result=await auditKbNavPostflight(mocks);
 assert.equal(result.verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
-assert.deepEqual([statusCalls,publicCalls,gasCalls],[1,1,1]);
+assert.deepEqual([statusCalls,publicCalls,gasCalls,previewCalls],[1,1,1,1]);
+const mismatch=await auditKbNavPostflight({...mocks,
+ previewReader:async()=>exactPreview(2100.56)});
+assert.equal(mismatch.verdict,'OFFICIAL_NAV_VALUE_MISMATCH_OR_UNVERIFIED');
+assert.equal(mismatch.pass,false);
+assert.ok(!JSON.stringify(mismatch).includes('2100.55')
+ &&!JSON.stringify(mismatch).includes('2100.56'),
+ 'public NAV values must not appear in status-only outputs');
+const missing=await auditKbNavPostflight({...mocks,
+ sourceReader:async()=>({writerInvoked:false,rows:source.slice(0,1)}),
+ previewReader:async()=>{throw Error('UNPUBLISHED_DID_NOT_SKIP_PREVIEW');}});
+assert.equal(missing.verdict,'OFFICIAL_NAV_NOT_YET_PUBLISHED_CLOSE_INCOMPLETE');
 await assert.rejects(()=>auditKbNavPostflight({
  ...mocks,sourceReader:async()=>({writerInvoked:true,rows:source})
 }),/KB_POSTFLIGHT_SOURCE_UNVERIFIED/);
@@ -107,4 +144,21 @@ assert.equal(post.steps.at(-1).env.GAS_ACCESS_TOKEN.includes('secrets.GAS_ACCESS
 const script=fs.readFileSync('scripts/audit-kb-nav-postflight-readonly.mjs','utf8');
 assert.doesNotMatch(script,/action:['"](?:collectKbFundNav|collectHanwhaFundNav|resumeIncompletePortfolioClose)['"]/);
 assert.match(script,/action:'getFundValuationStatus'/);
+assert.match(script,/action:'previewFundNavImport'/);
+// The public source may be submitted only to read-only GAS preview.
+let requestAction='';
+const preview=await readKbExactNavPreview({
+ url:'https://script.google.com/macros/s/EXAMPLE123/exec',token:'MOCK_TOKEN_1234',date,
+ nav:2100.55,fetchImpl:async (_url,opts)=>{
+   const body=Object.fromEntries(opts.body);
+   requestAction=body.action;
+   const input=JSON.parse(body.data);
+   assert.equal(input.code,'F00002');assert.equal(input.provider,'KB_VALUE_ST');
+   assert.equal(input.classCode,'AQ018');
+   assert.deepEqual(input.rows,[{date,nav:2100.55}]);
+   assert.equal(body.accessToken,'MOCK_TOKEN_1234');
+   return {ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(requestAction,'previewFundNavImport');
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,preview),true);
 console.log('KB NAV postflight: published-vs-persisted, close marker, safety and workflow PASS');
