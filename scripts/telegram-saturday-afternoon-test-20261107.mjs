@@ -72,6 +72,17 @@ export function validateSendPayload(data,instant){
     ||!data.message.includes('■ QC:')||!data.message.includes('TEST ONLY'))
     throw Error('EXTRA_TEST_SEND_DENIED');
 }
+export async function sendAndRecord(payload,{
+ now=()=>new Date(),send=sendTelegram,writeFile=fs.writeFileSync,
+ token,chatId,runId='',path=RUNTIME+'/sent.json'
+}={}){
+ validateSendPayload(payload,now());
+ await send(token,chatId,payload.message);
+ const proof={status:'SENT',date:DATE,claim:CLAIM,runId:String(runId)};
+ writeFile(path,JSON.stringify(proof),{flag:'wx'});
+ return {status:'SENT',date:DATE,sourceCount:payload.sourceCount};
+}
+
 async function main(){
  const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
  if(!authorize({eventName:process.env.GITHUB_EVENT_NAME,event,instant:new Date(),
@@ -92,15 +103,12 @@ async function main(){
      sourceCount:result.sourceCount||0,financialWrites:0,gasDeployments:0}));
  }else if(process.argv[2]==='send'){
    const payload=JSON.parse(fs.readFileSync(RUNTIME+'/payload.json','utf8'));
-   validateSendPayload(payload,new Date());
-   await sendTelegram(process.env.TELEGRAM_BOT_TOKEN,
-     process.env.TELEGRAM_CHAT_ID,payload.message);
-   // Telegram sendMessage confirmed ok=true; a failed upload cannot trigger a
-   // second send, because the claim artifact was published before this step.
-   fs.writeFileSync(RUNTIME+'/sent.json',JSON.stringify({
-     status:'SENT',date:DATE,claim:CLAIM,runId:process.env.GITHUB_RUN_ID}),{flag:'wx'});
-   console.log(JSON.stringify({status:'SENT',date:DATE,
-     sourceCount:payload.sourceCount,financialWrites:0,gasDeployments:0}));
+   const sent=await sendAndRecord(payload,{
+     token:process.env.TELEGRAM_BOT_TOKEN,
+     chatId:process.env.TELEGRAM_CHAT_ID,
+     runId:process.env.GITHUB_RUN_ID||''
+   });
+   console.log(JSON.stringify({...sent,financialWrites:0,gasDeployments:0}));
  }else throw Error('EXTRA_TEST_MODE_INVALID');
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
