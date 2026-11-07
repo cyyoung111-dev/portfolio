@@ -119,7 +119,7 @@ const in2=ctx._tradeV2ReceiptInput_(interrupted);
 props[in2.key]=JSON.stringify({
  sourceId:'test-workbook',kind:in2.kind,id:in2.id,
  requestHash:in2.requestHash,targetRevision:in2.targetRevision,
- state:'STARTED',at:new Date().toISOString()
+ state:'STARTED',at:'2026-11-06T00:00:00.000Z'
 });
 delete props['snapshot_complete'];
 const beforeWorker=ctx.handleTradeV2ReceiptReadOnly_({...interrupted,kind:'syncTradesV2'});
