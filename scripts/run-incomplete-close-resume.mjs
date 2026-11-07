@@ -13,6 +13,19 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  const waitingFundDone=status=>status.close.krxPublicationWaiting && status.close.fundOk===true
    && status.close.fundState==='DONE' && !status.close.fundErrorPresent && !status.close.fundWarningPresent;
  if(!readOnly&&waitingFundDone(initial))return {complete:false,fundComplete:true,waitingPublication:true,status:initial};
+ // An authenticated persisted timeout is already sufficient to block a
+ // read-only recovery verdict. The GAS preview would acquire the same shared
+ // ScriptLock and has been observed to hang until the 330s HTTP timeout.
+ // Never schedule/continue or imply readiness based on a timed-out worker.
+ if(readOnly && initial.close.state==='INCOMPLETE'
+   && initial.close.fundOk===false
+   && initial.close.fundState==='TIMEOUT_SUSPECTED'){
+  emit({phase:'FUND_TIMEOUT_PREVIEW_SKIPPED',operation:'READ_ONLY',
+    requestState:'BLOCKED',reason:'FUND_TIMEOUT_SUSPECTED'});
+  return {mode:'READ_ONLY',complete:false,continueReady:null,
+    scheduleReady:null,preflightState:'BLOCKED_BY_PERSISTED_FUND_TIMEOUT',
+    status:initial};
+ }
  async function req(action,args={}) {
   let r;
   const started=Date.now();
