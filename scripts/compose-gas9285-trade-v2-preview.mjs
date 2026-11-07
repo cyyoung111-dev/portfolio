@@ -90,6 +90,13 @@ export function composeGas9285TradeV2Preview(){
   "  if (params.action === 'getPortfolioSyncReceipt') return handleGetPortfolioSyncReceipt(params);",
   "  if (params.action === 'previewTradeLedgerV2Migration') return handlePreviewTradeLedgerV2Migration_();\n  if (params.action === 'getPortfolioSyncReceipt') return handleGetPortfolioSyncReceipt(params);",
   'V2_MIGRATION_READONLY_ROUTE');
+ // The existing Snapshot worker stamps a durable completion proof only
+ // when it can see a pending receipt. Include v2 PARTIAL/STARTED receipts;
+ // otherwise an interrupted v2 write could never safely recover its ACK.
+ candidate=once(candidate,
+  "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0) return false;\\n      try {var receipt=JSON.parse(all[key]);return receipt.kind==='syncTrades' && receipt.state==='PARTIAL';}",
+  "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0 && key.indexOf(TRADE_V2_RECEIPT_PREFIX)!==0) return false;\\n      try {var receipt=JSON.parse(all[key]);return (receipt.kind==='syncTrades' && receipt.state==='PARTIAL') || (receipt.kind==='syncTradesV2' && (receipt.state==='PARTIAL' || receipt.state==='STARTED'));}",
+  'V2_WORKER_SNAPSHOT_PROOF');
  // Fold in the previously independent fund no-op optimization.
  const oldFund=[
   "  // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.",
