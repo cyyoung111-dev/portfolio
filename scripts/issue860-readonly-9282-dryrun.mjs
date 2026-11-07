@@ -6,6 +6,35 @@ import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
 import {inspectGasDeploymentsReadOnly} from './issue507-deployment-inventory-readonly.mjs';
 import {loadTrackedRuntimeSources} from './issue507-deployment-reference-analysis.mjs';
 
+// Safe audit projection: never print deployment IDs, raw version source,
+// Apps Script project identifiers, OAuth scopes, tokens or private errors.
+export function safeIssue860ReleaseAudit(result){
+  const inventory=result?.inventory;
+  const reasons=new Set(['EXPECTED_DEPLOYMENT_NOT_PROVEN','HEAD_IDENTITY_CONFLICT',
+    'VERSION_METADATA_UNVERIFIED','UNKNOWN_ENTRY_POINTS',
+    'ADDITIONAL_DEPLOYMENTS_REQUIRE_ISOLATION','DETAIL_METADATA_UNVERIFIED',
+    'VERSIONED_SOURCE_UNVERIFIED',
+    'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED']);
+  const count=value=>Number.isSafeInteger(value)&&value>=0?value:null;
+  const reason=inventory?.reason;
+  return {mode:'ISSUE860_PROTECTED_READ_ONLY',sourceVersion:result?.sourceVersion==='9.285'?'9.285':'UNVERIFIED',
+    status:['BLOCKED','UNVERIFIED','READ_ONLY_CHECKS_PASSED'].includes(result?.status)
+      ?result.status:'UNVERIFIED',
+    inventoryStatus:inventory?.status==='BLOCKED'?'BLOCKED':
+      inventory?.status==='INVENTORY_ONLY'?'INVENTORY_ONLY':'UNVERIFIED',
+    inventoryReason:reasons.has(reason)?reason:'UNVERIFIED',
+    deploymentCount:count(inventory?.deploymentCount),
+    unverifiedVersionedDeploymentCount:count(inventory?.unverifiedVersionedDeploymentCount),
+    additionalRoutableDeploymentCount:count(inventory?.additionalRoutableDeploymentCount),
+    extraReviewedGateDeploymentCount:count(inventory?.additionalDeploymentReviewedGate9282Count),
+    extraKnownLegacyDeploymentCount:count(inventory?.additionalDeploymentKnownLegacy9281Count),
+    sourceUnreviewedCount:count(inventory?.sourceUnreviewedCount),
+    detailGetUnverifiedCount:count(inventory?.detailGetUnverifiedCount),
+    dryRun:result?.dryRun?.dryRun===true,
+    dryRunVersion:result?.dryRun?.version==='9.285'?'9.285':null,
+    releaseAuthorized:false,gasWrites:0,financeWrites:0,telegramSends:0};
+}
+
 // A second boundary around the existing dry-run: even a regression in deploy()
 // cannot invoke a web app, Sheets, Telegram, scripts.run or a GAS mutation.
 export function readonlyTransport(scriptId, fetchImpl) {
@@ -88,12 +117,7 @@ export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try {
     const result=await runReadOnly9282();
-    const safe={mode:result.mode,sourceVersion:result.sourceVersion,
-      status:result.status,failures:result.failures,
-      inventoryStatus:result.inventory?.status||'UNVERIFIED',
-      dryRun:result.dryRun?.dryRun===true,
-      dryRunVersion:result.dryRun?.version||null,
-      releaseAuthorized:false,gasWrites:0,financeWrites:0,telegramSends:0};
+    const safe=safeIssue860ReleaseAudit(result);
     console.log(JSON.stringify(safe));
     if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       '## Issue #860 protected read-only GAS v9.285 audit\n```json\n'+JSON.stringify(safe,null,2)+'\n```\n'+
