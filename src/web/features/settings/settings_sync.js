@@ -1440,6 +1440,7 @@ async function syncTradesToGsheet(options) {
           assetType: isDirectFund ? (t.assetType || t.type || '펀드')
             : getEPType(ep, remote?.type || t.assetType || '주식'),
           memo:      t.memo      || '',
+          tradeFxSchemaVersion: 1,
           ratio:     t.ratio || 0,
           fractionalCash: t.fractionalCash || 0,
           ...(t.priceRaw != null && t.priceRaw !== ''
