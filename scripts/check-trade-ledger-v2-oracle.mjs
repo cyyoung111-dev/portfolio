@@ -33,10 +33,10 @@ ok('account and memo changes preserve existing ID and FX',
  [regular,{...fx,acct:'퇴직연금',memo:'이전'}],[intent('update',fx)]);
 ok('ordinary memo edit with FX untouched',
  [{...regular,memo:'수정'},fx],[intent('update',regular)]);
-const sale={id:'tr_sale001',...regular,tradeType:'sell',date:'2026-11-07',qty:1};
+const sale={...regular,id:'tr_sale001',tradeType:'sell',date:'2026-11-07',qty:1};
 ok('new sale in same group as FX',
  [regular,fx,sale],[{type:'create',id:sale.id}]);
-const split={id:'tr_split01',...regular,tradeType:'split',date:'2026-11-07',
+const split={...regular,id:'tr_split01',tradeType:'split',date:'2026-11-07',
  qty:1,price:0,ratio:2};
 ok('new split in same group as FX',
  [regular,fx,split],[{type:'create',id:split.id}]);
@@ -52,7 +52,7 @@ error('stale browser revision cannot overwrite','TRADE_LEDGER_REVISION_CONFLICT'
  [regular,fx],[] ,before,'old-revision');
 error('duplicate ID cannot collapse records','TRADE_ID_DUPLICATE',
  [regular,{...fx,id:regular.id}]);
-error('FX metadata must be a complete pair','TRADE_FX_METADATA_INCOMPLETE',
+error('existing FX metadata missing one field must be blocked','TRADE_FX_METADATA_LOSS_RISK',
  [regular,{...fx,fxRateAtBuy:undefined}],[intent('update',fx)]);
 error('FX multiplication must match stored KRW unit price',
  'TRADE_FX_METADATA_PRICE_MISMATCH',
