@@ -1433,6 +1433,38 @@ async function _retryPortfolioRemoteDirtySync(options) {
         options?.onFailure?.('MASTER_VALIDATION_FAILED');
         return false;
       }
+      // Recover any prior trade-v2 operation BEFORE the generic holdings
+      // receipt gate. A write-ahead attempted record can legitimately be
+      // NOT_FOUND on GAS if the browser exited before sending. Cross-action
+      // receipt checks intentionally forbid holdings writes until that exact
+      // original operation is settled under the existing GAS ScriptLock.
+      // Do not wrap this preflight in a second queue: we are already inside
+      // the target-scoped _queuePortfolioRemoteSync callback.
+      const outstandingTradeV2 = typeof _readPortfolioRecoveryReceipts === 'function'
+        ? _readPortfolioRecoveryReceipts()?.[targetUrl]?.syncTradesV2 : null;
+      if (outstandingTradeV2?.attempted && !outstandingTradeV2.readbackConfirmedRevision) {
+        const tradeBaseline = typeof _tradeV2PinnedBaseline === 'function'
+          ? _tradeV2PinnedBaseline(targetUrl, generation) : null;
+        if (!tradeBaseline || typeof _recoverOutstandingTradeV2Receipt !== 'function') {
+          options?.onFailure?.('TRADE_V2_BASELINE_REQUIRED');
+          return false;
+        }
+        let tradeRecovered;
+        try {
+          tradeRecovered = await _recoverOutstandingTradeV2Receipt(
+            targetUrl, generation, tradeBaseline);
+        } catch (error) {
+          options?.onFailure?.('TRADE_V2_PREFLIGHT_UNAVAILABLE');
+          return false;
+        }
+        if (!tradeRecovered?.ok) {
+          options?.onFailure?.(tradeRecovered?.errorCode || 'TRADE_V2_PREFLIGHT_UNCONFIRMED');
+          return false;
+        }
+        // The readback-qualified receipt is now terminal. Changes to the
+        // dirty journal (e.g. consumed deletes) remain authoritative for
+        // subsequent sync steps; never restore the preflight's old snapshot.
+      }
       // 두 저장은 서버에서 같은 ScriptLock을 사용한다. 복구 시 동시에 보내면
       // 보유 저장이 잠금을 기다리다가 브라우저 시간 제한에 걸릴 수 있다.
       const holdingsResult = typeof syncHoldingsToGsheet === 'function'
