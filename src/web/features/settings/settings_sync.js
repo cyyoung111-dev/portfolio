@@ -103,6 +103,70 @@ async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteId
   };
 }
 
+// Resolve an earlier v2 write BEFORE deriving a later CAS contract. A lost
+// ACK may have advanced the server while this device still holds the old
+// preimage. Never use that old preimage for a new edit.
+async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) {
+  const records=_readPortfolioRecoveryReceipts();
+  const record=records?.[targetUrl]?.syncTradesV2;
+  if(!record?.attempted) return {ok:true,baseline};
+  if(record.action!=='syncTradesV2'||!record.id||!record.params
+      ||record.params.tradeLedgerProtocolVersion!=='2')
+    return {ok:false,errorCode:'TRADE_V2_RECEIPT_INVALID'};
+  const expected=String(record.params.expectedLedgerRevision||'');
+  let rows,targetRevision;
+  try{
+    rows=JSON.parse(record.params.data||'[]');
+    if(!Array.isArray(rows))throw Error('TRADE_V2_RECEIPT_ROWS_INVALID');
+    targetRevision=await _tradeV2BrowserSha256(rows.slice().sort((a,b)=>
+      String(a.date||'').localeCompare(String(b.date||'')))
+      .map(_tradeV2BrowserCanonical));
+  }catch(ignore){return {ok:false,errorCode:'TRADE_V2_RECEIPT_ROWS_INVALID'};}
+  if(expected!==baseline.revision&&targetRevision!==baseline.revision)
+    return {ok:false,errorCode:'TRADE_V2_RECOVERY_BASELINE_CONFLICT'};
+  // If this client has already durably applied the confirmed readback, only
+  // mark the recovery record complete. Never issue a second write.
+  if(targetRevision!==baseline.revision){
+    const result=await requestGsheetFormJson('getPortfolioSyncReceipt',{
+      kind:record.action,operationId:record.id,...record.params
+    },{targetUrl,timeoutMs:15000,retry:0,preserveError:true});
+    if(result?.status!=='ok'||result.operationId!==record.id
+        ||result.kind!==record.action||result.receiptState!=='COMPLETE')
+      return {ok:false,errorCode:'TRADE_V2_RECEIPT_'+
+        String(result?.receiptState||result?.errorCode||'UNCONFIRMED')};
+    const readback=await requestGsheetActionJson('getTrades',{},{
+      targetUrl,timeoutMs:20000,retry:0,preserveError:true
+    });
+    if(readback?.status!=='ok'||readback.tradeLedgerProtocolVersion!==2
+        ||readback.ledgerRevision!==targetRevision
+        ||!Array.isArray(readback.trades)
+        ||readback.trades.length!==rows.length)
+      return {ok:false,errorCode:'TRADE_V2_RECOVERY_READBACK_UNVERIFIED'};
+    const computed=await _tradeV2BrowserSha256(
+      readback.trades.slice().sort((a,b)=>
+        String(a.date||'').localeCompare(String(b.date||'')))
+        .map(_tradeV2BrowserCanonical));
+    if(computed!==targetRevision)
+      return {ok:false,errorCode:'TRADE_V2_RECOVERY_READBACK_HASH'};
+    if(typeof isGsheetConnectionCurrent==='function'
+        &&!isGsheetConnectionCurrent(targetUrl,generation))
+      return {ok:false,errorCode:'TRADE_V2_CONNECTION_CHANGED'};
+    if(typeof _acknowledgePortfolioTradeV2Sync==='function'
+        &&!_acknowledgePortfolioTradeV2Sync(targetUrl,baseline,{
+          revision:targetRevision,trades:readback.trades
+        }))return {ok:false,errorCode:'TRADE_V2_RECOVERY_ACK_PERSIST_FAILED'};
+    baseline={...baseline,revision:targetRevision,
+      trades:readback.trades.map(t=>({...t}))};
+    window._tradeLedgerV2BaselineTargets={
+      ...(window._tradeLedgerV2BaselineTargets||{}),[targetUrl]:baseline
+    };
+  }
+  record.completed=true;
+  if(!_savePortfolioRecoveryReceipts(records))
+    return {ok:false,errorCode:'TRADE_V2_RECEIPT_LOCAL_BACKUP_FAILED'};
+  return {ok:true,baseline};
+}
+
 function _readPortfolioRecoveryReceipts() {
   const value = lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, {});
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -1583,11 +1647,17 @@ async function syncTradesToGsheet(options) {
     const v2Generation=Number.isInteger(generation)?generation:
       (typeof getGsheetConnectionGeneration==='function'
         ?getGsheetConnectionGeneration():-1);
-    const v2Baseline=_tradeV2PinnedBaseline(targetUrl,v2Generation);
+    let v2Baseline=_tradeV2PinnedBaseline(targetUrl,v2Generation);
     if(window._tradeLedgerV2RequiredTargets?.[targetUrl]===true && !v2Baseline)
       return {status:'error',errorCode:'TRADE_V2_BASELINE_REQUIRED',
         saveState:'failed'};
     if(v2Baseline){
+      const recovered=await _recoverOutstandingTradeV2Receipt(
+        targetUrl,v2Generation,v2Baseline);
+      if(!recovered.ok)return {status:'error',
+        errorCode:recovered.errorCode,saveState:'partial',
+        followupRequired:true};
+      v2Baseline=recovered.baseline;
       // A filtered/malformed local ledger must not become an implicit delete.
       if(trades.length!==sourceTrades.length)
         return {status:'error',errorCode:'TRADE_V2_TRUNCATED_LOCAL_LEDGER',
