@@ -6,7 +6,7 @@ import {expectedMorningDate} from './telegram-morning-report.mjs';
 export const SEMI_ISSUER_RELEASES=Object.freeze([
  Object.freeze({
   id:'SAMSUNG',symbol:'005930.KS',code:'005930',name:'삼성전자',
-  date:'2026-10-29',period:'2026-09-30',basis:'ISSUER_Q3_2026_PRELIMINARY',
+  date:'2026-10-29',period:'2026-09-30',basis:'ISSUER_Q3_2026_REPORTED',
   url:'https://news.samsung.com/kr/삼성전자-2026년-3분기-실적-발표',
   revenueTrillion:195.3,operatingProfitTrillion:107.4,dsProfitTrillion:106.5,
   quarterlyCommonEpsKrw:11462,annualCapexPlanTrillion:84.4
@@ -70,7 +70,7 @@ export function evaluateSemiconductorCompanyViews({
   const earningsGrowth=item.id==='SKHYNIX'
    ?(item.operatingProfitTrillion/item.priorYearQuarterOperatingProfitTrillion-1)*100:null;
   const valueLine=book
-   ?'BPS '+num(book.bps)+'원 / '+(book.indicative?'참고 ':'')+'PBR '
+   ?(book.indicative?'보통·우선 합산 참고 BPS ':'검증 BPS ')+num(book.bps)+'원 / '+(book.indicative?'참고 ':'')+'PBR '
      +round(book.pbr)+'배 ['+book.period+' 연결 · '+price.date+' '+(price.source==='NH_REGULAR_CLOSE'?'NH':'KRX')+']'
    :price?'종가 '+num(price.value)+'원 ['+price.date+'] / BPS·PBR 미확보'
     :'확정 종가·BPS·PBR 미확보';
@@ -108,7 +108,7 @@ export function formatSemiconductorCompanyFiveViews(input={}){
   +'조/영업익 '+x.operatingProfitTrillion.toFixed(1)+'조/영업률 '
   +pct(x.operatingMarginPercent)+'; '+x.valueLine;
  const pbr=x=>x.book
-  ?(x.book.indicative?'참고 ':'')+'PBR '+round(x.book.pbr)+'배 (BPS×1/1.5/2='
+  ?(x.book.indicative?'참고 PBR(보통·우선 합산) ':'PBR ')+round(x.book.pbr)+'배 (BPS×1/1.5/2=
     +[1,1.5,2].map(y=>num(x.book.bps*y)).join('/')+'원, 적정가 아님)'
   :'PBR·DCF 유보(BPS/FCF 미확보)';
  return [
@@ -126,6 +126,7 @@ export function formatSemiconductorCompanyFiveViews(input={}){
   '• 다모다란: 삼전 '+pbr(s)+'; 하닉 '+pbr(h),
   '• 하워드 막스: 삼전 DS 이익집중·메모리 정상화; 하닉 '+pct(h.operatingMarginPercent)
     +' 고마진 정상화·증설 위험',
-  '※ 3Q26 기업 잠정 발표(10/28~29). TTM EPS/FCF/ROIC·장기 PBR 분포 미확보.'
+  '※ 삼성 BPS/PBR: 지배자본÷보통·우선 합산 유통주식 참고치(주식종류별 권리 차이 미반영). 하닉: 단일종류 BPS 검증.',
+  '※ 삼성 3Q26 10/29 실적 발표·하닉 10/28 잠정 발표. BPS는 표시된 DART 결산일 기준; TTM EPS/FCF/ROIC·장기 PBR 분포 미확보.'
  ];
 }
