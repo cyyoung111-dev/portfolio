@@ -143,9 +143,25 @@ export function composeGas9285TradeV2Preview(){
   "  }"
  ].join('\n')+'\n';
  candidate=once(candidate,oldFund,fundNoop+oldFund,'FUND_NOOP');
+ // The source-only 13-column builder remains an input for legacy FX
+ // parsing, NOT an independently releasable writer. Every 14-column output
+ // must prove that the lossy account/stock-group heuristic was removed.
+ const writerStart=candidate.indexOf('function handleSyncTrades(');
+ const writerEnd=candidate.indexOf('\n}',writerStart);
+ if(writerStart<0||writerEnd<=writerStart)
+   throw Error('TRADE_V2_WRITER_MISSING');
+ const writerBody=candidate.slice(writerStart,writerEnd+2);
+ if(/previousFxGroups|oldOrdinaryCounts|TRADE_FX_GROUP_/.test(writerBody))
+   throw Error('TRADE_V2_UNSAFE_13_COLUMN_HEURISTIC_PRESENT');
+ if(!writerBody.includes('_tradeV2ValidateMutation_(')
+     || !writerBody.includes('Math.min(14, sh.getLastColumn())')
+     || !writerBody.includes('t.id||')
+     || !writerBody.includes('intendedRows.length, 14)'))
+   throw Error('TRADE_V2_WRITER_ID_CAS_INVARIANT_MISSING');
  const manifest={...original.manifest,
   candidateSourceGitBlob:blob(candidate),tradeLedgerProtocolVersion:2,
-  columns:14,features:['fx-original-price','immutable-trade-id','CAS',
+  columns:14,legacy13ColumnWriterExcluded:true,
+  finalWriterRequiresIdCas:true,features:['fx-original-price','immutable-trade-id','CAS',
     'explicit-create-update-delete','fund-noop','migration-readonly-preview'],
   requiresReceiptImplementation:false,requiresLegacyMigration:true,
   status:'SOURCE_PREVIEW_NOT_DEPLOYABLE',productionDeploymentApproved:false,
