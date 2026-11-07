@@ -94,4 +94,44 @@ assert.deepEqual([...oldTuple.slice(-2)],[0,0]);
 assert.notDeepEqual([...fxTuple],[...oldTuple],
  'a legacy 11-col server row cannot prove the FX source for a dirty local trade');
 assert.match(load, /_tradeFxMetadataTargets[\s\S]*data\.tradeFxMetadataVersion === 1/);
+
+// A lost HTTP acknowledgement is not a failed write. The authenticated,
+// read-only COMPLETE receipt must propagate FX capability proof, otherwise
+// a legitimate recovery is permanently stuck with an uncleared dirty record.
+{
+ const receiptSource=extract(sync,'_requestPortfolioRecoveryWrite');
+ const recordStore={};
+ let reads=0,writes=0;
+ const receiptCtx=vm.createContext({
+  Date,Math,JSON,
+  _readPortfolioRecoveryReceipts:()=>structuredClone(recordStore.data||{}),
+  _savePortfolioRecoveryReceipts:r=>{recordStore.data=structuredClone(r);return true},
+  isGsheetConnectionCurrent:()=>true,
+  requestGsheetFormJson:async(action,params)=>{
+   if(action==='getPortfolioSyncReceipt'){
+    reads++;
+    return {status:'ok',receiptState:reads===1?'NOT_FOUND':'COMPLETE',
+     operationId:params.operationId,kind:params.kind,tradeFxMetadataVersion:1};
+   }
+   writes++;
+   return {status:'error',errorCode:'CLIENT_TIMEOUT'};
+  },
+ });
+ vm.runInContext(receiptSource+
+  '\nglobalThis.write=_requestPortfolioRecoveryWrite;',receiptCtx);
+ const request={data:JSON.stringify([sourceTrade]),
+  explicitEmpty:'',rebuildFrom:''};
+ const opts={targetUrl:'https://gas.sample/',recoveryScope:'revision_fxtest_01',
+   generation:7};
+ const recovered=await receiptCtx.write('syncTrades',request,opts);
+ assert.equal(recovered.status,'ok');
+ assert.equal(recovered.tradeFxMetadataVersion,1,
+  'authoritative receipt COMPLETE must carry FX capability into replay result');
+ assert.equal(writes,1,'one server write only; no unsafe retry on ACK loss');
+ const again=await receiptCtx.write('syncTrades',request,opts);
+ assert.equal(again.status,'ok');
+ assert.equal(again.tradeFxMetadataVersion,1);
+ assert.equal(writes,1,'read-only verified journal must prevent duplicate ledger rewrite');
+}
+
 console.log('TRADE_FX_WEB_ROUNDTRIP_PASS live sync serializer 2/2 extra fields, old GAS denied, ACK required, legacy compare');
