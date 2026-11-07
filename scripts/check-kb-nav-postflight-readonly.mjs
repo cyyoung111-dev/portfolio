@@ -6,7 +6,8 @@ import {assessKbNavPostflight,auditKbNavPostflight}
 
 const today='2026-11-07',date='2026-11-06';
 const source=[{date:'2026-11-05',nav:2169.72},{date,nav:2100.55}];
-const close={state:'INCOMPLETE',runDate:date,priceOk:true,fundOk:false};
+const close={state:'INCOMPLETE',runDate:date,priceOk:true,fundOk:false,
+ runStale:false,snapshotStale:false,expectedRunDate:date,expectedSnapshotDate:date};
 const verified={code:'F00002',date,navState:'EXISTING_CONFIRMED',
  valuationRequired:true,unitsApplied:true,reconciled:true,
  evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID',
@@ -29,6 +30,24 @@ assert.equal(assess().pass,false);
 const healthy=assess({close:{...close,state:'COMPLETE',fundOk:true}});
 assert.equal(healthy.verdict,'NAV_AND_CLOSE_VERIFIED');
 assert.equal(healthy.pass,true);
+// Never count a previously completed run as today's close when the newer KRX
+// session is expected or GAS has already marked the old result as stale.
+const oldDate='2026-11-04',priorRow={...verified,date:oldDate};
+const oldClose={...close,state:'COMPLETE',fundOk:true,runDate:oldDate,runStale:true};
+const staleProof=assess({close:oldClose,fundRow:priorRow,
+ officialRows:[{date:oldDate,nav:1},...source]});
+assert.equal(staleProof.verdict,'CLOSE_DATE_STALE_OR_UNVERIFIED');
+assert.equal(staleProof.pass,false);
+assert.equal(staleProof.closeComplete,false);
+assert.equal(assess({close:{...oldClose,runStale:false},fundRow:priorRow,
+ officialRows:[{date:oldDate,nav:1},...source]}).pass,false,
+ 'expected newest session must reject an older COMPLETED close');
+assert.equal(assess({close:{...close,state:'COMPLETE',fundOk:true,
+ snapshotStale:true}}).pass,false,
+ 'snapshot stale status must fail closed');
+assert.equal(assess({close:{...close,state:'COMPLETE',fundOk:true,
+ expectedSnapshotDate:'2026-11-05'}}).pass,false,
+ 'a prior snapshot date cannot prove the latest close');
 assert.deepEqual({financialWrites:healthy.financialWrites,
  gasDeployments:healthy.gasDeployments,telegramSends:healthy.telegramSends},
  {financialWrites:0,gasDeployments:0,telegramSends:0});
