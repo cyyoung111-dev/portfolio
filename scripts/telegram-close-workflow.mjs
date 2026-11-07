@@ -197,6 +197,27 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
    lines.splice(index,0,...financialLines,'');
  return lines.join('\n');
 }
+// Wait only briefly for the already-running 06:20 SEC/DART artifact read.
+// A fast market-only PREPARE used to read a still-pending optional promise as
+// null. Always cancel the timer, catch optional errors, and never make the
+// evidence loader a claim or dispatch gate.
+export async function settleOptionalCloseFinance(promise,waitMs=1800){
+ if(!Number.isInteger(waitMs)||waitMs<0||waitMs>1800)
+   throw Error('TELEGRAM_CLOSE_FINANCE_BUDGET_INVALID');
+ const pending=Promise.resolve(promise).catch(()=>null);
+ // With zero remaining budget, give an already-fulfilled public evidence
+ // promise one microtask to win. An unresolved request still returns null
+ // without any timer, so the close SEND window remains protected.
+ if(waitMs===0)return (await Promise.race([
+   pending,Promise.resolve().then(()=>null)]))??null;
+ let timer;
+ try {
+   const deadline=new Promise(resolve=>{timer=setTimeout(()=>resolve(null),waitMs);});
+   return (await Promise.race([pending,deadline]))??null;
+ } finally {
+   if(timer!==undefined)clearTimeout(timer);
+ }
+}
 export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,fetchNh=readNhMorningIndexes,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN,
  fetchSecondary=fetchSecondaryIndexes,fetchDomestic=fetchDomesticCloseIndexes,
@@ -216,11 +237,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   if(data.total_count>0){if(!data.artifacts.some(a=>a.name===artifactName))throw Error('TELEGRAM_CLOSE_CLAIM_SCHEMA');return {ready:false,status:'ALREADY_CLAIMED',date:window.date};}
   // Run the optional public-data loader alongside market collection; it must
   // never become a delivery claim, source gate or Telegram send authority.
-  let optionalFinancialEvidence=null;
-  // No waiting for finance: core market data is authoritative for delivery.
-  void Promise.resolve().then(()=>loadFinancialEvidence(window.date,
-    {token:githubToken,repository,fetchImpl,now}))
-    .then(value=>{optionalFinancialEvidence=value??null;},()=>{});
+  // Start in parallel; after market verification allow a bounded grace
+  // period for the already-started archive reader to resolve.
+  const optionalFinancialEvidence=Promise.resolve().then(()=>
+    loadFinancialEvidence(window.date,{token:githubToken,repository,fetchImpl,now}))
+    .catch(()=>null);
   // US NH indices and Korean KRX/FDR EOD references are independently
   // eligible. A missing NH response must not block verified domestic closes.
   // FRED/CBOE secondary references alone NEVER authorize sending.
@@ -280,7 +301,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   if(!after.allowed||after.date!==window.date)throw Error('TELEGRAM_CLOSE_LATE');
   if(!quality.currentDeliveryGateSatisfied)
     return {ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:window.date,coverage,quality};
-  const financialEvidence=optionalFinancialEvidence;
+  // Do not delay a near-deadline SEND. At 17:28:30 KST or later,
+  // take only evidence already resolved by the normal market reads.
+  const remainingMs=Date.parse(window.date+'T17:28:30+09:00')-now().getTime();
+  const financialEvidence=await settleOptionalCloseFinance(
+    optionalFinancialEvidence,Math.min(1800,Math.max(0,remainingMs)));
   // Recheck after the optional read: a late archive must never arm a claim.
   const finalClock=closeWindow(now());
   if(!finalClock.allowed||finalClock.date!==window.date)

@@ -7,7 +7,7 @@ import YAML from 'yaml';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare}
+import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare,settleOptionalCloseFinance}
  from './telegram-close-workflow.mjs';
 import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 const day='2026-10-30',now=()=>new Date(day+'T17:00:00+09:00');
@@ -483,6 +483,39 @@ const preparedFinancial=await prepareClose({...options,
  }});
 assert.equal(financialReads,1);
 assert.equal(preparedFinancial.ready,true);
+// A fast market PREPARE must still include a slightly delayed public artifact.
+const delayedFinancial=await prepareClose({...options,
+ loadFinancialEvidence:async()=>new Promise(resolve=>
+   setTimeout(()=>resolve(financeProof),30))});
+assert.equal(delayedFinancial.ready,true);
+assert.deepEqual(delayedFinancial.reportInputs.financialEvidence,financeProof,
+ 'bounded archive wait includes asynchronously resolved SEC/DART evidence');
+assert.equal(await settleOptionalCloseFinance(
+ new Promise(resolve=>setTimeout(()=>resolve('VALID'),12)),50),'VALID');
+assert.equal(await settleOptionalCloseFinance(Promise.reject(Error('offline')),40),null);
+assert.deepEqual(await settleOptionalCloseFinance(
+ Promise.resolve({proof:true}),0),{proof:true},
+ 'already resolved SEC/DART evidence must survive zero grace');
+assert.equal(await settleOptionalCloseFinance(new Promise(()=>{}),0),null,
+ 'zero grace must never block a still-loading finance artifact');
+const startedWait=Date.now();
+assert.equal(await settleOptionalCloseFinance(new Promise(()=>{}),25),null,
+ 'unresolved finance reader cannot block a real market briefing');
+assert.ok(Date.now()-startedWait<500,'short optional finance deadline is bounded');
+await assert.rejects(settleOptionalCloseFinance(null,1801),
+ /TELEGRAM_CLOSE_FINANCE_BUDGET_INVALID/);
+const deadlineFinancial=await prepareClose({...options,
+ now:()=>new Date(day+'T17:29:00+09:00'),
+ loadFinancialEvidence:async()=>new Promise(()=>{})});
+assert.equal(deadlineFinancial.ready,true,
+ 'near 17:30 cutoff optional finance must not hold up market delivery');
+assert.equal(deadlineFinancial.reportInputs.financialEvidence,undefined);
+const alreadyReadyAtDeadline=await prepareClose({...options,
+ now:()=>new Date(day+'T17:29:00+09:00'),
+ loadFinancialEvidence:async()=>financeProof});
+assert.equal(alreadyReadyAtDeadline.ready,true);
+assert.deepEqual(alreadyReadyAtDeadline.reportInputs.financialEvidence,financeProof,
+ 'zero-grace PREPARE must preserve finance that settled during market reads');
 assert.deepEqual(preparedFinancial.reportInputs.financialEvidence,financeProof);
 assert.ok(preparedFinancial.message.length<=4000);
 let deliveryText='';
@@ -535,9 +568,11 @@ assert.equal(omittedMorning.ready,true);
 // A never-resolving optional loader must not postpone the market send path.
 const neverFinance=()=>new Promise(()=>{});
 const blocked=()=>new Promise(resolve=>setTimeout(()=>resolve('BLOCKED'),1500));
-const quickClose=await Promise.race([
- prepareClose({...options,loadFinancialEvidence:neverFinance}),blocked()]);
-assert.equal(quickClose.ready,true,'17:00 market prepare must never await finance');
+const quickCloseStarted=Date.now();
+const quickClose=await prepareClose({...options,loadFinancialEvidence:neverFinance});
+assert.equal(quickClose.ready,true,'17:00 market prepare cannot be blocked indefinitely by finance');
+assert.ok(Date.now()-quickCloseStarted<2800,
+ 'optional archive grace is bounded to 1.8 seconds plus market preparation');
 assert.equal(quickClose.reportInputs.financialEvidence,undefined);
 const quickMorning=await Promise.race([
  prepareMorning({
