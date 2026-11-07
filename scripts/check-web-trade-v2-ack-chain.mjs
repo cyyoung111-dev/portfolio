@@ -14,7 +14,7 @@ const get=name=>{
 const funcs=['_normalizeSyncCode','_hasTradeFxMetadataProtocol',
  '_tradeV2PinnedBaseline','_tradeV2NormalizeCode','_tradeV2BrowserCanonical',
  '_tradeV2BrowserSha256','_prepareTradeV2SyncContract',
- '_markTradeV2ReadbackConfirmed_','_recoverOutstandingTradeV2Receipt','syncTradesToGsheet'];
+ '_markTradeV2ReadbackConfirmed_','_recoverOutstandingTradeV2Receipt','_preflightTradeV2Receipt','syncTradesToGsheet'];
 const url='https://test-gas.invalid/v2',generation=7;
 const original={id:'tr_old000001',date:'2026-11-06',tradeType:'buy',
  acct:'US',name:'TEST',code:'005930',qty:10,price:100,assetType:'주식',memo:''};
