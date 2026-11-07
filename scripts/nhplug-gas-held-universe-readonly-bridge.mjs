@@ -97,7 +97,7 @@ export function buildGasHeldUniverseCandidate({date,codeList,trades,codeListVers
   if(!day(date)||krxSessionStatus(date)!=='OPEN')fail('DATE_UNVERIFIED');
   if(!Array.isArray(codeList)||!codeList.length||codeList.length>MAX_CODES
     ||!Array.isArray(trades)||trades.length>MAX_TRADES)fail('SOURCE_MISSING');
-  if(!['9.281','9.282','9.283','9.284'].includes(codeListVersion))fail('UNREVIEWED_GAS_VERSION');
+  if(!['9.281','9.282','9.283','9.284','9.285'].includes(codeListVersion))fail('UNREVIEWED_GAS_VERSION');
   const catalog=identity(codeList);
   const positions=calculateHoldings(trades,date,catalog);
   const items=[...catalog.values()].map(classify).sort((a,b)=>a.code.localeCompare(b.code));
@@ -149,7 +149,7 @@ export async function fetchGasHeldUniverseCandidate({date,url,token,fetchImpl=fe
   const first=await readAction(endpoint,token,'getTrades',fetchImpl);
   if(first.status!=='ok'||!Array.isArray(first.trades))fail('TRADES_UNAVAILABLE');
   const master=await readAction(endpoint,token,'getCodeListReadOnly',fetchImpl);
-  if(master.status!=='ok'||master.readOnly!==true||!['9.281','9.282','9.283','9.284'].includes(master.gasVersion)
+  if(master.status!=='ok'||master.readOnly!==true||!['9.281','9.282','9.283','9.284','9.285'].includes(master.gasVersion)
     ||!Array.isArray(master.codes))fail('MASTER_UNAVAILABLE');
   const second=await readAction(endpoint,token,'getTrades',fetchImpl);
   if(second.status!=='ok'||!Array.isArray(second.trades))fail('TRADES_UNAVAILABLE');
