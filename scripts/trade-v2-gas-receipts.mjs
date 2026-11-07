@@ -36,8 +36,8 @@ function _tradeV2ReceiptState_(input,record,ss) {
   try{deferred=_readTradeSnapshotDeferredState_().dates;}
   catch(ignore){return 'UNKNOWN';}
   var from=String(record.affectedFrom||''),to=String(record.affectedTo||'');
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(from)||
-     !/^\\d{4}-\\d{2}-\\d{2}$/.test(to)||from>to){
+  if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(from)||
+     !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(to)||from>to){
     if(deferred.length)return 'PARTIAL';
   }else if(deferred.some(function(day){return day>=from&&day<=to;})){
     return 'PARTIAL';
