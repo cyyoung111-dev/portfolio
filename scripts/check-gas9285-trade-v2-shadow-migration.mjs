@@ -33,7 +33,7 @@ const fx=['2026-11-06','buy','US','US_TEST','AAPL',3,7425,
  '주식','corrected','','',5.5,1350];
 const duplicate=[clone(base),clone(base)];
 const sources=[
- {name:'11-column duplicate',width:11,rows:[...duplicate,{...base,0:'2026-11-06'}]},
+ {name:'11-column duplicate',width:11,rows:[...duplicate,(()=>{const r=clone(base);r[0]='2026-11-06';return r;})()]},
  {name:'13-column FX',width:13,rows:[clone(fx),[...base,'','']]},
  {name:'14-column already migrated',width:14,rows:[[...fx,'tr_existing01']]}
 ];
