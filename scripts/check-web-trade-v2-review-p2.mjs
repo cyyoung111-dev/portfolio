@@ -111,6 +111,23 @@ assert.equal(journal._portfolioRemoteDirtyByTarget[url].tradeV2DeleteIds.length,
  'later Settings retry cannot reuse an already confirmed deletion');
 assert.equal(journal._portfolioRemoteDirtyByTarget[url].tradeV2Baseline.revision,
  confirmed.revision);
+// Local create + delete before any network attempt is a cancellation,
+// never a server delete of an ID the server has never seen.
+const localCreated={...before,id:'tr_local000001',qty:1};
+journal.rawTrades=[localCreated];
+journal._markPortfolioRemoteDirty();
+journal.rawTrades=[];
+journal._markPortfolioRemoteDirty([localCreated.id]);
+assert.equal(journal._portfolioRemoteDirtyByTarget[url].tradeV2DeleteIds.length,0,
+ 'delete of an unsent local create must not poison the v2 journal');
+const attempt={action:'syncTradesV2',attempted:true,
+ params:{data:JSON.stringify([localCreated])}};
+journal._readPortfolioRecoveryReceipts=()=>({[url]:{syncTradesV2:attempt}});
+journal._markPortfolioRemoteDirty([localCreated.id]);
+assert.deepEqual(
+ Array.from(journal._portfolioRemoteDirtyByTarget[url].tradeV2DeleteIds),
+ [localCreated.id],
+ 'an attempted remote create must be recovered before deleting its ID');
 const prep=await vmBase._prepareTradeV2SyncContract(
  {...restoredJournal,revision:confirmed.revision,trades:[]},[],[]);
 assert.deepEqual(JSON.parse(prep.intents),[]);
@@ -118,4 +135,4 @@ assert.match(sync,/TRADE_V2_BASELINE_REQUIRED/);
 assert.match(sync,/_acknowledgePortfolioTradeV2Sync/);
 console.log('WEB_TRADE_V2_REVIEW_P2_PASS '+JSON.stringify({
  staleSameIdBlocked:true,rebootBaselineRestored:true,
- confirmedDeletesConsumed:true,productionWrites:0}));
+ confirmedDeletesConsumed:true,localCreateCancellation:true,productionWrites:0}));
