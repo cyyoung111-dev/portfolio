@@ -44,6 +44,19 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/collect-kb-fund-nav.mjs
+      # Public-only date signal: a successful KB import job may have zero candidates
+      # when the latest class NAV has not yet been published. Report dates only;
+      # never expose class NAV amounts, credential material or GAS state here.
+      - name: Verify latest published KB AQ018 source date (no NAV amounts)
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import {runPublicSourceOnly} from './scripts/collect-kb-fund-nav.mjs';
+          const r=await runPublicSourceOnly();
+          console.log(JSON.stringify({kind:'KB_PUBLIC_LAST_PUBLISHED_DATE',
+            latestDate:r.latestDate,cutoffExclusive:r.historicalCutoffExclusive,
+            sourceRows:r.sourceRows,writerInvoked:false}));
+          NODE
       - name: Verify Hanwha C-RPe exact source and shared-writer readiness (preview only)
         if: always()
         env:
