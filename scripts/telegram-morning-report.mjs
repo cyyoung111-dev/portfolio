@@ -1,6 +1,6 @@
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {formatHowardMarksView} from './briefing-howard-marks-risk.mjs';
-import {formatAiFinancialEvidence} from './briefing-financial-evidence.mjs';
+import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
 import {formatSemiconductorCompanyFiveViews} from './briefing-semiconductor-company-views.mjs';
 import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
  from './briefing-yahoo-52week-range.mjs';
@@ -262,7 +262,8 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   // punctual briefing or exceed the Telegram message length budget.
   const financialLines=options?.financialEvidence?.asOfKst===date
    &&options.financialEvidence.usSessionDate===expectedMorningDate('SPX',date)
-    ?formatAiFinancialEvidence(options.financialEvidence):[];
+    ?fitAiFinancialEvidenceForBudget(options.financialEvidence,
+      3900-lines.join('\n').length-2):[];
   const evidenceIndex=lines.indexOf('■ 10. 오늘의 시나리오 (조건부, 확률 미산정)');
   if(financialLines.length&&evidenceIndex>=0
    &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
