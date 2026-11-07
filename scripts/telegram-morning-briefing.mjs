@@ -77,18 +77,26 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
     ||!Array.isArray(chart.timestamp)||!Array.isArray(quote?.close))return null;
   const rows=new Map(),annual=[];
   const closes=quote.close, highs=quote.high, lows=quote.low;
-  for(let i=0;i<Math.min(chart.timestamp.length,closes.length);i++){
-   const epoch=Number(chart.timestamp[i]),value=Number(closes[i]);
-   if(!Number.isFinite(epoch)||epoch<=0||!Number.isFinite(value)||value<=0
-     ||epoch*1000>now.getTime())continue;
+  // Never hide a missing OHLC candle when computing a 52-week extreme:
+  // keep invalid historical rows so the range validator rejects the entire
+  // optional range, while allowing independently valid recent closes through.
+  let completeOhlcShape=chart.timestamp.length===closes.length
+   &&Array.isArray(highs)&&highs.length===closes.length
+   &&Array.isArray(lows)&&lows.length===closes.length;
+  for(let i=0;i<chart.timestamp.length;i++){
+   const epoch=Number(chart.timestamp[i]);
+   if(!Number.isFinite(epoch)||epoch<=0){
+    completeOhlcShape=false;continue;
+   }
+   if(epoch*1000>now.getTime())continue;
    const date=dateInZone(new Date(epoch*1000),chart.meta.exchangeTimezoneName);
    if(date>=tradingDate)continue; // today is an unfinished candle
    if(symbol==='BTC-USD'&&date>=now.toISOString().slice(0,10))continue;
-   if(include52Week&&Array.isArray(highs)&&Array.isArray(lows)){
-    const high=highs[i],low=lows[i];
-    if(typeof high==='number'&&typeof low==='number')
-     annual.push({date,close:value,high,low});
-   }
+   const value=closes[i];
+   if(include52Week)annual.push({date,close:value,
+    high:Array.isArray(highs)?highs[i]:null,
+    low:Array.isArray(lows)?lows[i]:null});
+   if(typeof value!=='number'||!Number.isFinite(value)||value<=0)continue;
    if(date<new Date(end-8*DAY).toISOString().slice(0,10))continue;
    rows.set(date,value);
   }
@@ -97,7 +105,7 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
   const [date,value]=list.at(-1),prior=list.length>1?list.at(-2)[1]:null;
   const result={label,symbol,date,value,changePercent:prior>0
     ?(value/prior-1)*100:null,source:'Yahoo Finance 일봉'};
-  if(include52Week&&expectedSessionDate===date){
+  if(include52Week&&completeOhlcShape&&expectedSessionDate===date){
    const range=verifiedYahoo52WeekRange(annual,date);
    if(range)result.range52w=range;
   }
