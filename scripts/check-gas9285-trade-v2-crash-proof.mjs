@@ -71,7 +71,6 @@ Object.assign(ctx,{
  _markTradeLedgerWriteUnverified_:()=>{dirty=true},
  _clearTradeLedgerWriteJournal_:()=>{dirty=false},
  _setCodeColumnText:()=>{},
- _normalizeCodeRows:undefined,
  _verifyTradeWrittenRange:(sheet,first,values)=>assert.deepEqual(
   JSON.parse(JSON.stringify(rows)),JSON.parse(JSON.stringify(values))),
  _touchSnapshotIntegritySourceRevision:()=>{},
