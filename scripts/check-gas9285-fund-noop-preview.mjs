@@ -41,13 +41,13 @@ assert.equal(releasePlan.approval.appsScriptExecutionVerified,false);
 assert.equal(assertGasReleaseReady(base),'9.284');
 assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/);
 const currentWeb=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
-assert.match(currentWeb,/const EXPECTED_GAS_VERSION = '9\\.284';/,
+assert.match(currentWeb,/const EXPECTED_GAS_VERSION = '9\.284';/,
  'web consumer still expects the live GAS, not this unreleased candidate');
 const gateReleaseId=s=>s.match(/var ISSUE507_GATE_RELEASE_ID='([a-f0-9]{64})'/)?.[1]||'';
 assert.match(gateReleaseId(base),/^[a-f0-9]{64}$/);
 assert.equal(gateReleaseId(candidate),gateReleaseId(base),
  'existing writer gate release id must not drift');
-const entrypointCount=s=>[...s.matchAll(/^function [A-Za-z_$][\\w$]*\\s*\\(/gm)].length;
+const entrypointCount=s=>[...s.matchAll(/^function [A-Za-z_$][\w$]*\s*\(/gm)].length;
 assert.equal(entrypointCount(candidate),entrypointCount(base),
  'fund no-op cannot add GAS public entrypoints');
 new vm.Script(candidate,{filename:'gas-9285-fund-noop-preview.gs'});
