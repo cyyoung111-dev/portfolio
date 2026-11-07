@@ -2,7 +2,12 @@ name: kb-fund-nav-collect
 on:
   schedule:
     - cron: '30 0 * * 1-5' # 09:30 KST on weekdays, after previous-day KB NAV becomes public
-    - cron: '10 9 * * *'
+    - cron: '10 9 * * *' # 18:10 KST daily; primary evening publication catch-up
+    # GitHub schedule is best-effort and the 2026-11-07 18:10 KST event
+    # was absent from the actual scheduled-run ledger. Use a staggered
+    # second wake-up, not a parallel writer. Existing concurrency and GAS
+    # idempotent NAV preview/readback/lease guards stay authoritative.
+    - cron: '17 10 * * *' # 19:17 KST daily; delayed/missed-run fallback
   workflow_dispatch:
   # One GET-only public source check on the merge that installs this workflow.
   push:

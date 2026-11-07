@@ -134,6 +134,32 @@ await assert.rejects(()=>auditKbNavPostflight({
 }),/FUND_AUDIT_BAD_RESPONSE/);
 
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/kb-fund-nav-collect.yml','utf8'));
+// The private collector must have at least two independently scheduled
+// opportunities after the official NAV publication, because GitHub's cron
+// scheduling can be delayed or silently skipped. This is a WAKING fallback,
+// not a second writer: workflow concurrency and GAS idempotency must remain.
+const cron=workflow.on?.schedule?.map(v=>v.cron);
+assert.ok(Array.isArray(cron));
+assert.ok(cron.includes('10 9 * * *'),'18:10 KST primary must remain');
+assert.ok(cron.includes('17 10 * * *'),'19:17 KST fallback must remain');
+assert.equal(new Set(cron).size,cron.length,'duplicate cron wakes are wasteful');
+assert.equal(workflow.concurrency.group,'kb-fund-nav-collect');
+assert.equal(workflow.concurrency['cancel-in-progress'],false);
+const privateCollector=workflow.jobs.collect;
+assert.equal(privateCollector.environment,'portfolio-production-gas');
+assert.match(privateCollector.if,/refs\/heads\/main/);
+assert.match(privateCollector.if,/schedule/);
+assert.match(privateCollector.steps.at(-1).run,/collect-kb-fund-nav[.]mjs --apply/);
+const hanwhaCollector=workflow.jobs['hanwha-collect'];
+assert.deepEqual(hanwhaCollector.needs,['collect']);
+assert.equal(hanwhaCollector.environment,'portfolio-production-gas');
+assert.match(hanwhaCollector.if,/always\(\)/);
+assert.match(hanwhaCollector.steps.at(-1).run,/collect-hanwha-fund-nav[.]mjs --apply/);
+const kbCollectorCode=fs.readFileSync('scripts/collect-kb-fund-nav.mjs','utf8');
+assert.match(kbCollectorCode,/previewFundNavImport/);
+assert.match(kbCollectorCode,/NAV_READBACK_FAILED/);
+assert.match(kbCollectorCode,/if\s*\(candidates\.length\)/);
+assert.match(kbCollectorCode,/sameDayExcluded|row\.date<today/);
 const post=workflow.jobs['postflight-readonly'];
 assert.ok(post,'protected postflight must exist');
 assert.deepEqual(post.needs,['collect','hanwha-collect']);
