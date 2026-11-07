@@ -557,9 +557,11 @@ assert.equal(omittedMorning.ready,true);
 // A never-resolving optional loader must not postpone the market send path.
 const neverFinance=()=>new Promise(()=>{});
 const blocked=()=>new Promise(resolve=>setTimeout(()=>resolve('BLOCKED'),1500));
-const quickClose=await Promise.race([
- prepareClose({...options,loadFinancialEvidence:neverFinance}),blocked()]);
-assert.equal(quickClose.ready,true,'17:00 market prepare must never await finance');
+const quickCloseStarted=Date.now();
+const quickClose=await prepareClose({...options,loadFinancialEvidence:neverFinance});
+assert.equal(quickClose.ready,true,'17:00 market prepare cannot be blocked indefinitely by finance');
+assert.ok(Date.now()-quickCloseStarted<2800,
+ 'optional archive grace is bounded to 1.8 seconds plus market preparation');
 assert.equal(quickClose.reportInputs.financialEvidence,undefined);
 const quickMorning=await Promise.race([
  prepareMorning({
