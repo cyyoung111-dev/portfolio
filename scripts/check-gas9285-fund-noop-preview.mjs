@@ -11,6 +11,10 @@ assert.equal(base,fs.readFileSync('src/gas/apps_script.gs','utf8'),
  'existing live v9.284 release must stay untouched');
 assert.equal(gasSourceBlobSha(base),manifest.baseSourceGitBlob);
 assert.equal(gasSourceBlobSha(candidate),manifest.candidateSourceGitBlob);
+const reviewedReference=fs.readFileSync('reference/gas-v9.285.gs','utf8');
+assert.equal(gasSourceBlobSha(reviewedReference),manifest.candidateSourceGitBlob);
+assert.equal(reviewedReference,candidate,
+ 'reviewed full GAS file must exactly match the pinned no-op composer bytes');
 assert.notEqual(candidate,base);
 assert.equal(extractExpectedGasVersion(base),'9.284');
 assert.equal(extractExpectedGasVersion(candidate),'9.285');
@@ -29,6 +33,10 @@ assert.equal(releasePlan.parentSourceGitBlob,manifest.baseSourceGitBlob);
 assert.equal(releasePlan.candidateSourceGitBlob,manifest.candidateSourceGitBlob);
 assert.equal(releasePlan.candidateSourceGitBlob,'954fd4aeae767ddac0cb161d3a81003b5b699d1c');
 assert.equal(releasePlan.includesTradeLedgerV2,false);
+assert.equal(releasePlan.candidateReferencePath,'reference/gas-v9.285.gs');
+assert.equal(releasePlan.sourcePromotion,'REFERENCE_COMMITTED_REVIEW_PENDING');
+assert.equal(releasePlan.approval.manualReleaseGatePrepared,true);
+assert.ok(releasePlan.blockers.includes('PRODUCTION_ROOT_SOURCE_STILL_9284'));
 assert.equal(releasePlan.tradeLedgerV2MinimumTargetVersion,'9.286');
 assert.equal(releasePlan.approval.sourcePromotion,false);
 assert.equal(releasePlan.approval.operationalRelease,false);
