@@ -581,6 +581,26 @@ assert.equal(repeatedComplete.fundResults.F00001.valuations,0,'정상 완료 날
 assert.equal(repeatedComplete.fundResults.F00001.completedSkipped,2,'정상 완료 날짜 생략 건수 반환');
 assert.equal(repeatBuildCalls,0,'정상 완료 날짜는 Snapshot 재구성 함수 호출 전에 제외');
 assert.equal(prices.rows.length,count);
+// A fully reconciled period must not acquire a *writer* lock just to prove
+// that existing confirmed NAV and derived rows are still correct. This is
+// critical for repeated 19:00/20:30 close recovery under GAS time limits.
+const originalFundWriterLock=context.LockService.getScriptLock;
+context.LockService.getScriptLock=()=>{
+  throw Error('FUND_NOOP_MUST_NOT_ACQUIRE_WRITER_LOCK');
+};
+try {
+  const fullyReconciled=context._refreshFundValuations(ssFor(sheets),
+    '2026-01-01','2026-01-02');
+  assert.equal(fullyReconciled.completionStatus,'ok');
+  assert.equal(fullyReconciled.saved,0);
+  assert.equal(fullyReconciled.navSaved,0);
+  assert.equal(fullyReconciled.snapshots,0);
+  assert.equal(fullyReconciled.processing.priceHistory.processed,0);
+  assert.equal(fullyReconciled.processing.snapshots.processed,0);
+  assert.equal(fullyReconciled.fundResults.F00001.completedSkipped,2);
+} finally {
+  context.LockService.getScriptLock=originalFundWriterLock;
+}
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 delete sheets['스냅샷'];
 const incomplete=context._refreshFundValuations(ssFor(sheets),'2026-01-01','2026-01-02');
