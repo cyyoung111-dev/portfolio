@@ -6,7 +6,7 @@
   "parentSourceGitBlob": "b5b1c7fd5a27454419ddd6d12ecb20751c207c63",
   "candidateSourceGitBlob": "954fd4aeae767ddac0cb161d3a81003b5b699d1c",
   "composer": "scripts/compose-gas9285-fund-noop-preview.mjs",
-  "sourcePromotion": "PENDING",
+  "sourcePromotion": "REFERENCE_COMMITTED_REVIEW_PENDING",
   "tradeLedgerV2MinimumTargetVersion": "9.286",
   "includesTradeLedgerV2": false,
   "observedProduction": {
@@ -28,7 +28,8 @@
     "deployInventoryReady": false,
     "webClientVersionReady": false,
     "manualDryRunPassed": false,
-    "appsScriptExecutionVerified": false
+    "appsScriptExecutionVerified": false,
+    "manualReleaseGatePrepared": true
   },
   "recovery": {
     "lastKnownSourceBlob": "b5b1c7fd5a27454419ddd6d12ecb20751c207c63",
@@ -37,11 +38,12 @@
     "manualRollbackOnly": true
   },
   "blockers": [
-    "REVIEWED_FULL_SOURCE_PROMOTION_NOT_COMMITTED",
+    "PRODUCTION_ROOT_SOURCE_STILL_9284",
     "RELEASE_ALLOWLIST_PIN_9285_MISSING",
     "FRONTEND_EXPECTED_GAS_VERSION_9284",
-    "MANUAL_RELEASE_APPROVAL_GATE_9285_MISSING",
+    "MANUAL_9285_APPROVAL_NOT_GRANTED",
     "DEPLOYMENT_INVENTORY_AND_GAS_EXECUTION_VERIFICATION_PENDING",
     "FULL_POST_DEPLOY_GAS_AND_PC_MOBILE_READBACK_PENDING"
-  ]
+  ],
+  "candidateReferencePath": "reference/gas-v9.285.gs"
 }
