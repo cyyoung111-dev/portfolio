@@ -87,7 +87,7 @@ const ctx=vm.createContext({window,JSON,Set,Map,Array,Date,String,Number,
 const helpers=['_normalizeSyncCode','_hasTradeFxMetadataProtocol',
  '_tradeV2PinnedBaseline','_tradeV2NormalizeCode','_tradeV2BrowserCanonical',
  '_tradeV2BrowserSha256','_prepareTradeV2SyncContract',
- '_markTradeV2ReadbackConfirmed_','_recoverOutstandingTradeV2Receipt',
+ '_markTradeV2ReadbackConfirmed_','_recoverOutstandingTradeV2Receipt','_preflightTradeV2Receipt',
  'syncTradesToGsheet'];
 vm.runInContext([
  ...helpers.map(n=>get(sync,n)),
