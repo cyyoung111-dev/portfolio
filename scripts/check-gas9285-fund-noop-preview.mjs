@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {gasSourceBlobSha,extractExpectedGasVersion} from './deploy-gas.mjs';
+import {gasSourceBlobSha,extractExpectedGasVersion,assertGasReleaseReady} from './deploy-gas.mjs';
 import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import {composeGas9285FundNoopPreview} from './compose-gas9285-fund-noop-preview.mjs';
 
@@ -20,6 +20,36 @@ assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
 assert.equal((candidate.match(/gasVersion: '9\.285'/g)||[]).length,9);
 assert.match(candidate,/var ISSUE507_GATE_API_VERSION='9\.285'/);
+
+const releasePlan=JSON.parse(fs.readFileSync('ops/issue860/release-gas9285.json','utf8'));
+assert.equal(releasePlan.version,'9.285');
+assert.equal(releasePlan.purpose,'FUND_VERIFIED_NOOP_ONLY');
+assert.equal(releasePlan.parentVersion,'9.284');
+assert.equal(releasePlan.parentSourceGitBlob,manifest.baseSourceGitBlob);
+assert.equal(releasePlan.candidateSourceGitBlob,manifest.candidateSourceGitBlob);
+assert.equal(releasePlan.candidateSourceGitBlob,'954fd4aeae767ddac0cb161d3a81003b5b699d1c');
+assert.equal(releasePlan.includesTradeLedgerV2,false);
+assert.equal(releasePlan.tradeLedgerV2MinimumTargetVersion,'9.286');
+assert.equal(releasePlan.approval.sourcePromotion,false);
+assert.equal(releasePlan.approval.operationalRelease,false);
+assert.equal(releasePlan.approval.financialWrites,false);
+assert.equal(releasePlan.approval.deployInventoryReady,false);
+assert.equal(releasePlan.approval.webClientVersionReady,false);
+assert.equal(releasePlan.approval.manualDryRunPassed,false);
+assert.equal(releasePlan.approval.appsScriptExecutionVerified,false);
+// A green offline candidate test is not an authorization to ship GAS.
+assert.equal(assertGasReleaseReady(base),'9.284');
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/);
+const currentWeb=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
+assert.match(currentWeb,/const EXPECTED_GAS_VERSION = '9\.284';/,
+ 'web consumer still expects the live GAS, not this unreleased candidate');
+const gateReleaseId=s=>s.match(/var ISSUE507_GATE_RELEASE_ID='([a-f0-9]{64})'/)?.[1]||'';
+assert.match(gateReleaseId(base),/^[a-f0-9]{64}$/);
+assert.equal(gateReleaseId(candidate),gateReleaseId(base),
+ 'existing writer gate release id must not drift');
+const entrypointCount=s=>[...s.matchAll(/^function [A-Za-z_$][\w$]*\s*\(/gm)].length;
+assert.equal(entrypointCount(candidate),entrypointCount(base),
+ 'fund no-op cannot add GAS public entrypoints');
 new vm.Script(candidate,{filename:'gas-9285-fund-noop-preview.gs'});
 
 const source=isolateGasBusinessLogic(candidate);
