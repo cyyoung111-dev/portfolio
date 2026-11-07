@@ -44,7 +44,8 @@ assert.equal(releasePlan.approval.sourcePromotion,true);
 assert.equal(releasePlan.approval.operationalRelease,false);
 assert.equal(releasePlan.approval.financialWrites,false);
 assert.equal(releasePlan.approval.deployInventoryReady,false);
-assert.equal(releasePlan.approval.webClientVersionReady,false);
+assert.equal(releasePlan.approval.webClientVersionReady,true);
+assert.equal(releasePlan.approval.operationalRelease,false);
 assert.equal(releasePlan.approval.manualDryRunPassed,false);
 assert.equal(releasePlan.approval.appsScriptExecutionVerified,false);
 // A green offline candidate test is not an authorization to ship GAS.
