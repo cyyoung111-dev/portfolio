@@ -60,6 +60,14 @@ export function composeGas9285TradeFxPreview(){
  ]
 ];
  for(const [from,to] of replacements)candidate=replaceOnce(candidate,from,to);
+ // Receipt replay and the receipt read-only inquiry must also attest the
+ // capability. Otherwise a lost ACK would leave a completed FX ledger dirty.
+ candidate=replaceOnce(candidate,
+   "return jsonOk({operationId:input.id,kind:input.kind,receiptState:_portfolioSyncReceiptState_(input,raw?JSON.parse(raw):null)});",
+   "return jsonOk({operationId:input.id,kind:input.kind,receiptState:_portfolioSyncReceiptState_(input,raw?JSON.parse(raw):null),tradeFxMetadataVersion:input.kind==='syncTrades'?1:undefined});");
+ candidate=replaceOnce(candidate,
+   "jsonOk({receiptState:state,operationId:input.id,saveState:'success',replayed:true})",
+   "jsonOk({receiptState:state,operationId:input.id,saveState:'success',replayed:true,tradeFxMetadataVersion:input.kind==='syncTrades'?1:undefined})");
  candidate=replaceOnce(candidate,'//  📊 포트폴리오 대시보드 — Google Apps Script  v9.284',
    '//  📊 포트폴리오 대시보드 — Google Apps Script  v9.285');
  candidate=replaceOnce(candidate,'//  v9.284 변경사항 (2026.11.06):',
