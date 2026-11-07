@@ -14,7 +14,7 @@ const extract=name=>{
 };
 const names=['_normalizeSyncCode','_hasTradeFxMetadataProtocol',
  '_tradeV2PinnedBaseline','_tradeV2NormalizeCode','_tradeV2BrowserCanonical',
- '_tradeV2BrowserSha256','_prepareTradeV2SyncContract','_recoverOutstandingTradeV2Receipt','syncTradesToGsheet'];
+ '_tradeV2BrowserSha256','_prepareTradeV2SyncContract','_markTradeV2ReadbackConfirmed_','_recoverOutstandingTradeV2Receipt','syncTradesToGsheet'];
 const url='https://gas.example/v2',generation=7;
 const before={id:'tr_test00001',date:'2026-11-06',tradeType:'buy',
  acct:'US',name:'TEST',code:'005930',qty:10,price:209925,
@@ -25,6 +25,7 @@ const baseline={targetUrl:url,generation,protocol:2,
 const w={_tradeLedgerV2BaselineTargets:{[url]:baseline},
  _tradeFxMetadataTargets:{[url]:true}};
 let remote=[before],readHash='',writes=[],legacyWrites=0,forceBadRead=false;
+const recoveryRecords={};
 const ctx=vm.createContext({window:w,crypto:webcrypto,TextEncoder,
  JSON,Array,Map,Set,Number,String,Date,Math,Uint8Array,
  GSHEET_API_URL:url,rawTrades:[next],STOCK_CODE:{TEST:'005930'},
@@ -38,7 +39,7 @@ const ctx=vm.createContext({window:w,crypto:webcrypto,TextEncoder,
  isCodeLessDirectFundTrade:()=>false,
  showToast:()=>{},_syncWarn:()=>{},
  _hasPortfolioReceiptProtocol:()=>false,
- _readPortfolioRecoveryReceipts:()=>({}),
+ _readPortfolioRecoveryReceipts:()=>recoveryRecords,
  _savePortfolioRecoveryReceipts:()=>true,
  syncIssuesToGsheet:async()=>{},
  requestGsheetFormJson:async(action,params)=>{
@@ -47,6 +48,8 @@ const ctx=vm.createContext({window:w,crypto:webcrypto,TextEncoder,
  },
  _requestPortfolioRecoveryWrite:async(action,params,opts)=>{
   writes.push({action,params,opts});
+  recoveryRecords[url]={syncTradesV2:{action,id:'pr_test'+writes.length,
+    attempted:true,completed:true,params:{...params}}};
   assert.equal(action,'syncTradesV2');
   assert.equal(opts.retry,0);
   assert.equal(opts.recoveryScope,'trade-v2:'+w._tradeLedgerV2BaselineTargets[url].revision);
