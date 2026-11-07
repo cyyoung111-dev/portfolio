@@ -124,16 +124,18 @@ async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) 
   }catch(ignore){return {ok:false,errorCode:'TRADE_V2_RECEIPT_ROWS_INVALID'};}
   if(expected!==baseline.revision&&targetRevision!==baseline.revision)
     return {ok:false,errorCode:'TRADE_V2_RECOVERY_BASELINE_CONFLICT'};
-  // If this client has already durably applied the confirmed readback, only
-  // mark the recovery record complete. Never issue a second write.
+  // Even a previously no-op write must have a durable server receipt
+  // before a following mutation can be prepared.
+  const result=await requestGsheetFormJson('getPortfolioSyncReceipt',{
+    kind:record.action,operationId:record.id,...record.params
+  },{targetUrl,timeoutMs:15000,retry:0,preserveError:true});
+  if(result?.status!=='ok'||result.operationId!==record.id
+      ||result.kind!==record.action||result.receiptState!=='COMPLETE')
+    return {ok:false,errorCode:'TRADE_V2_RECEIPT_'+
+      String(result?.receiptState||result?.errorCode||'UNCONFIRMED')};
+  // If the verified result is already our local baseline, no new write is
+  // needed; otherwise read and pin the original operation's exact result.
   if(targetRevision!==baseline.revision){
-    const result=await requestGsheetFormJson('getPortfolioSyncReceipt',{
-      kind:record.action,operationId:record.id,...record.params
-    },{targetUrl,timeoutMs:15000,retry:0,preserveError:true});
-    if(result?.status!=='ok'||result.operationId!==record.id
-        ||result.kind!==record.action||result.receiptState!=='COMPLETE')
-      return {ok:false,errorCode:'TRADE_V2_RECEIPT_'+
-        String(result?.receiptState||result?.errorCode||'UNCONFIRMED')};
     const readback=await requestGsheetActionJson('getTrades',{},{
       targetUrl,timeoutMs:20000,retry:0,preserveError:true
     });
