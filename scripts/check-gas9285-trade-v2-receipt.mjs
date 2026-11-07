@@ -15,7 +15,7 @@ const extract=name=>{
  assert(i>=0&&j>i,name+' missing in GAS output');
  return candidate.slice(i,j+2);
 };
-const fn=['_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
+const fn=['_cleanCode','_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
  '_tradeV2RowsFromTrades_','_tradeV2RowHash_','_tradeV2Revision_',
  '_recordPortfolioSyncSnapshotCompletion_','_portfolioSyncFollowupRecovered_',
  '_tradeV2ReceiptInput_','_tradeV2ReceiptState_',
