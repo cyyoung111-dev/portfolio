@@ -6,6 +6,99 @@ function _hasPortfolioReceiptProtocol(targetUrl) {
 function _hasTradeFxMetadataProtocol(targetUrl) {
   return window._tradeFxMetadataTargets?.[targetUrl] === true;
 }
+// The live v9.284 connection must never acquire v2 capabilities by guessing
+// from its version label. Only a matching Bootstrap 14-column schema/revision
+// pinned to this exact target and generation can unlock v2.
+function _tradeV2PinnedBaseline(targetUrl,generation) {
+  const proof=window._tradeLedgerV2BaselineTargets?.[targetUrl];
+  if(!proof || proof.protocol!==2 || !/^[0-9a-f]{64}$/.test(String(proof.revision||''))
+      || !Array.isArray(proof.trades)
+      || (Number.isInteger(generation)&&proof.generation!==generation)
+      || String(proof.targetUrl)!==String(targetUrl))return null;
+  return proof;
+}
+function _tradeV2NormalizeCode(raw) {
+  let code=String(raw||'').trim().toUpperCase();
+  if(!code)return '';
+  if(/^[0-9]+$/.test(code))return code.padStart(6,'0');
+  if(/^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/.test(code)
+      &&code.length<=30&&/[A-Z]/.test(code))return code;
+  return '';
+}
+// Identical to GAS _tradeV2CanonicalRow_(_tradeV2RowsFromTrades_()).
+// ratio/fractionalCash=0 must round-trip as blank: the GAS writer stores ''.
+function _tradeV2BrowserCanonical(t) {
+  const id=String(t?.id||'');
+  const numeric=(v,emptyAsBlank)=>{
+    if(v===undefined||v===null||v==='')return '';
+    const n=Number(v);
+    if(!Number.isFinite(n))throw Error('TRADE_NUMBER_INVALID');
+    return emptyAsBlank&&!n?'':n;
+  };
+  const raw=numeric(t?.priceRaw,false),rate=numeric(t?.fxRateAtBuy,false);
+  if((raw==='')!==(rate===''))throw Error('TRADE_FX_METADATA_INCOMPLETE');
+  if(raw!==''&&(!Number.isFinite(raw)||raw<=0||rate<=0
+      ||Math.round(raw*rate)!==Number(t?.price)))
+    throw Error('TRADE_FX_METADATA_PRICE_MISMATCH');
+  return [id,String(t?.date||'').slice(0,10),String(t?.tradeType||''),
+    String(t?.acct||''),String(t?.name||''),
+    _tradeV2NormalizeCode(t?.code),numeric(t?.qty,false),
+    numeric(t?.price,false),String(t?.assetType||'주식'),String(t?.memo||''),
+    numeric(t?.ratio,true),numeric(t?.fractionalCash,true),raw,rate];
+}
+async function _tradeV2BrowserSha256(value) {
+  if(typeof crypto==='undefined'||!crypto.subtle||typeof TextEncoder==='undefined')
+    throw Error('TRADE_V2_CRYPTO_UNAVAILABLE');
+  const data=new TextEncoder().encode(JSON.stringify(value));
+  const digest=await crypto.subtle.digest('SHA-256',data);
+  return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
+}
+// Fail closed on an undeclared delete. A missing row is NEVER interpreted
+// as a delete merely because the current device has a partial ledger.
+async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteIds) {
+  if(!baseline||!/^[0-9a-f]{64}$/.test(String(baseline.revision||''))
+      ||!Array.isArray(baseline.trades)||!Array.isArray(localTrades))
+    throw Error('TRADE_V2_BASELINE_UNVERIFIED');
+  const deletes=new Set(declaredDeleteIds||[]);
+  const idOk=id=>/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(id||''));
+  const indexed=rows=>{
+    const m=new Map();
+    for(const trade of rows) {
+      const id=String(trade?.id||'');
+      if(!idOk(id))throw Error('TRADE_ID_MISSING_OR_INVALID');
+      if(m.has(id))throw Error('TRADE_ID_DUPLICATE');
+      m.set(id,trade);
+    }
+    return m;
+  };
+  const old=indexed(baseline.trades),now=indexed(localTrades),intents=[];
+  for(const [id,t] of old) {
+    const next=now.get(id);
+    if(!next) {
+      if(!deletes.has(id))throw Error('TRADE_DELETE_INTENT_REQUIRED');
+      intents.push({type:'delete',id,beforeHash:await _tradeV2BrowserSha256(_tradeV2BrowserCanonical(t))});
+      continue;
+    }
+    deletes.delete(id);
+    const prev=_tradeV2BrowserCanonical(t),updated=_tradeV2BrowserCanonical(next);
+    if(prev[12]!==''&&(updated[12]===''||updated[13]===''))
+      throw Error('TRADE_FX_METADATA_LOSS_RISK');
+    if(JSON.stringify(prev)!==JSON.stringify(updated))
+      intents.push({type:'update',id,beforeHash:await _tradeV2BrowserSha256(prev)});
+  }
+  if(deletes.size)throw Error('TRADE_DELETE_INTENT_INVALID');
+  for(const [id,t] of now) {
+    _tradeV2BrowserCanonical(t);
+    if(!old.has(id))intents.push({type:'create',id});
+  }
+  return {
+    data:JSON.stringify(localTrades),
+    tradeLedgerProtocolVersion:'2',
+    expectedLedgerRevision:baseline.revision,
+    intents:JSON.stringify(intents)
+  };
+}
+
 function _readPortfolioRecoveryReceipts() {
   const value = lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, {});
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
