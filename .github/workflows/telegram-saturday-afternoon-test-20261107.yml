@@ -65,8 +65,6 @@ jobs:
         id: prepare
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           EXTRA_TEST_ADDITION_VERIFIED: ${{ steps.verify.outputs.verified }}
         run: node scripts/telegram-saturday-afternoon-test-20261107.mjs prepare
       - name: Persist unique claim before any Telegram contact
