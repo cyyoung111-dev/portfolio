@@ -72,7 +72,8 @@ const ctx=vm.createContext({window,JSON,Set,Map,Array,Date,String,Number,
  _requestPortfolioRecoveryWrite:async(action,params)=>{
   assert.equal(action,'syncTradesV2');
   if(attempts===0)assert.equal(params.expectedLedgerRevision,revOld);
-  else assert.equal(params.expectedLedgerRevision,revNew);
+  else if(attempts===1)assert.equal(params.expectedLedgerRevision,revNew);
+  else if(attempts===2)assert.equal(params.expectedLedgerRevision,revLater);
   const written=JSON.parse(params.data);
   attempts++;remote=written;
   const id='pr_test'+String(attempts).padStart(18,'0');
@@ -116,6 +117,40 @@ assert.equal(durableDirty[url].tradeV2Baseline.revision,revLater);
 assert.equal(window._tradeLedgerV2BaselineTargets[url].revision,revLater);
 assert.equal(durableReceipts[url].syncTradesV2.readbackConfirmedRevision,
  revLater);
+// New P2: terminal marker failed, then another device advanced the GAS
+// ledger. The old verified readback must be terminally acknowledged using
+// its DURABLE local journal proof rather than the now-CHANGED server receipt.
+failTerminalOnce=true;
+const third={...old,qty:5},thirdRevision=rev(third);
+ctx.rawTrades=[third];
+const thirdWrite=await ctx.syncTradesToGsheet({targetUrl:url,generation});
+assert.equal(thirdWrite.errorCode,'TRADE_V2_READBACK_RECEIPT_PERSIST_FAILED');
+assert.equal(attempts,3);
+assert.equal(durableDirty[url].tradeV2Baseline.revision,thirdRevision);
+assert.equal(durableReceipts[url].syncTradesV2.readbackConfirmedRevision,
+ undefined);
+const otherDevice={...old,qty:6},otherRevision=rev(otherDevice);
+remote=[otherDevice];
+const foreignBaseline={targetUrl:url,protocol:2,generation,
+ revision:otherRevision,trades:[otherDevice]};
+// A local forged/incomplete ACK is insufficient: do not trust only revision.
+const savedCopy=JSON.parse(JSON.stringify(durableDirty[url]));
+durableDirty[url].tradeV2Baseline.trades[0].qty=99;
+const unsafe=await ctx._recoverOutstandingTradeV2Receipt(
+ url,generation,foreignBaseline);
+assert.equal(unsafe.errorCode,'TRADE_V2_RECOVERY_BASELINE_CONFLICT');
+assert.equal(durableReceipts[url].syncTradesV2.readbackConfirmedRevision,
+ undefined,'corrupted durable journal cannot finalize historical ACK');
+durableDirty[url]=savedCopy;
+const verifiedPast=await ctx._recoverOutstandingTradeV2Receipt(
+ url,generation,foreignBaseline);
+assert.equal(verifiedPast.ok,true,JSON.stringify(verifiedPast));
+assert.equal(verifiedPast.baseline.revision,otherRevision,
+ 'the historical ACK must not roll back the newer device revision');
+assert.equal(durableReceipts[url].syncTradesV2.readbackConfirmedRevision,
+ thirdRevision);
+assert.equal(attempts,3,'no old write replay after another device change');
 console.log('WEB_TRADE_V2_TERMINAL_PERSIST_RECOVER_PASS '+JSON.stringify({
  oneOffMarkerFailure:true,idempotentRecovery:true,
- subsequentCasFresh:true,realSheetWrites:0}));
+ subsequentCasFresh:true,otherDeviceRevisionSafe:true,
+ forgedAckBlocked:true,realSheetWrites:0}));
