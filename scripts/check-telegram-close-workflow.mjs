@@ -493,6 +493,11 @@ assert.deepEqual(delayedFinancial.reportInputs.financialEvidence,financeProof,
 assert.equal(await settleOptionalCloseFinance(
  new Promise(resolve=>setTimeout(()=>resolve('VALID'),12)),50),'VALID');
 assert.equal(await settleOptionalCloseFinance(Promise.reject(Error('offline')),40),null);
+assert.deepEqual(await settleOptionalCloseFinance(
+ Promise.resolve({proof:true}),0),{proof:true},
+ 'already resolved SEC/DART evidence must survive zero grace');
+assert.equal(await settleOptionalCloseFinance(new Promise(()=>{}),0),null,
+ 'zero grace must never block a still-loading finance artifact');
 const startedWait=Date.now();
 assert.equal(await settleOptionalCloseFinance(new Promise(()=>{}),25),null,
  'unresolved finance reader cannot block a real market briefing');
@@ -505,6 +510,12 @@ const deadlineFinancial=await prepareClose({...options,
 assert.equal(deadlineFinancial.ready,true,
  'near 17:30 cutoff optional finance must not hold up market delivery');
 assert.equal(deadlineFinancial.reportInputs.financialEvidence,undefined);
+const alreadyReadyAtDeadline=await prepareClose({...options,
+ now:()=>new Date(day+'T17:29:00+09:00'),
+ loadFinancialEvidence:async()=>financeProof});
+assert.equal(alreadyReadyAtDeadline.ready,true);
+assert.deepEqual(alreadyReadyAtDeadline.reportInputs.financialEvidence,financeProof,
+ 'zero-grace PREPARE must preserve finance that settled during market reads');
 assert.deepEqual(preparedFinancial.reportInputs.financialEvidence,financeProof);
 assert.ok(preparedFinancial.message.length<=4000);
 let deliveryText='';
