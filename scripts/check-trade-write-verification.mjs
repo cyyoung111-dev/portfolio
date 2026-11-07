@@ -16,18 +16,18 @@ ctx.Utilities={formatDate:(date,timezone)=>{
 ctx.CONFIG={TIMEZONE:'Asia/Seoul',SHEET_TRADES:'거래이력'};
 ctx.SpreadsheetApp={flush:()=>{}};
 ctx.Logger={log:()=>{}};
-let locked=false,backupStatus='',rebuilds=0,cleanup=0,stored=[],mutation=null;
+let locked=false,backupStatus='',rebuilds=0,cleanup=0,stored=[],mutation=null,columns=11;
 const lock={waitLock:()=>{assert.equal(locked,false);locked=true;},releaseLock:()=>{locked=false;}};
 ctx.LockService={getScriptLock:()=>lock};
 const ss={getSpreadsheetTimeZone:()=> 'America/Los_Angeles',getSheetByName:()=>sheet};
-const sheet={getParent:()=>ss,getLastRow:()=>2,getLastColumn:()=>11,getMaxRows:()=>100,
+const sheet={getParent:()=>ss,getLastRow:()=>2,getLastColumn:()=>columns,getMaxRows:()=>100,
   clearContents:()=>{stored=[];},getRange:(row,column,n,m)=>{
     const range={setNumberFormat:()=>range,setBackground:()=>range,setFontColor:()=>range,setFontWeight:()=>range,
-      setValues:values=>{if(row===2)stored=values.map(r=>[...r]);return range;},
+      setValues:values=>{if(row===1)columns=values[0].length;if(row===2)stored=values.map(r=>[...r]);return range;},
       getValues:()=>{
         const rows=stored.length?stored.map(r=>[...r]):[['2021-05-11','buy','계좌','테스트','005930',1,100,'주식','','','']];
         if(stored.length){rows[0][0]=new Date('2021-05-11T07:00:00Z');if(mutation)mutation(rows);}
-        return rows;
+        return rows.map(r=>r.slice(0,m));
       }};
     return range;
   }};
@@ -71,6 +71,57 @@ for(const [column,value] of [[0,new Date('2021-05-12T07:00:00Z')],[4,'5930'],[5,
   assert.equal(rebuilds,0,'readback failure cannot launch Snapshot recalculation');
   assert.equal(locked,false);
 }
+// Production 13-column trade ledger round-trip: a corrected foreign trade
+// must persist KRW cost, original FX unit-price and purchase FX rate together.
+// The older 11-column reader remains valid with empty optional metadata.
+mutation=null;
+const fxTrade={...trade,qty:10,price:209925,priceRaw:155.5,fxRateAtBuy:1350,
+  ratio:2,fractionalCash:123.45};
+const fxSaved=ctx.handleSyncTrades(JSON.stringify([fxTrade]),'',false);
+assert.equal(fxSaved.status,'ok');
+assert.equal(fxSaved.tradeFxMetadataVersion,1);
+assert.equal(columns,13,'trading ledger header must expand to 13 columns');
+assert.equal(stored[0].length,13);
+assert.deepEqual(stored[0].slice(9),[2,123.45,155.5,1350],
+ 'split ratio, fractional cash, FX source price and rate persisted without loss');
+const fxRead=ctx.handleGetTrades();
+assert.equal(fxRead.status,'ok');
+assert.equal(fxRead.trades[0].price,209925);
+assert.equal(fxRead.trades[0].priceRaw,155.5);
+assert.equal(fxRead.trades[0].fxRateAtBuy,1350);
+assert.equal(fxRead.trades[0].ratio,2);
+assert.equal(fxRead.trades[0].fractionalCash,123.45);
+const fxReceipt=ctx._portfolioSyncCanonical_('syncTrades',[fxTrade]);
+const fxChangedRate=ctx._portfolioSyncCanonical_('syncTrades',[
+  {...fxTrade,priceRaw:167.94,fxRateAtBuy:1250,price:209925}
+]);
+assert.notEqual(fxReceipt,fxChangedRate,
+ 'sync receipt identity must include both original FX values');
+assert.throws(()=>ctx._portfolioTradeFxMetadata_({...fxTrade,fxRateAtBuy:''}),
+ /TRADE_FX_METADATA_INCOMPLETE/);
+assert.throws(()=>ctx._portfolioTradeFxMetadata_({...fxTrade,price:200000}),
+ /TRADE_FX_METADATA_PRICE_MISMATCH/);
+const staleFxClient={...fxTrade};delete staleFxClient.priceRaw;delete staleFxClient.fxRateAtBuy;
+const blocked=ctx.handleSyncTrades(JSON.stringify([staleFxClient]),'',false);
+assert.equal(blocked.status,'error');
+assert.equal(blocked.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
+ 'stale 11-column clients cannot silently erase saved FX source data');
+assert.equal(stored[0][11],155.5,'blocked downgrade leaves ledger intact');
+const badFx=ctx.handleSyncTrades(JSON.stringify([{
+ ...fxTrade,priceRaw:155.5,fxRateAtBuy:1351
+}]),'',false);
+assert.equal(badFx.errorCode,'TRADE_FX_METADATA_PRICE_MISMATCH');
+assert.equal(stored[0][12],1350,'bad FX metadata rejected before ledger write');
+columns=11;stored=[stored[0].slice(0,11)];
+const oldRead=ctx.handleGetTrades();
+assert.equal(oldRead.status,'ok','legacy 11-column trade sheet remains readable');
+assert.equal(oldRead.trades[0].priceRaw,undefined);
+assert.equal(oldRead.trades[0].fxRateAtBuy,undefined);
+columns=13;stored=[fxTrade.date?[
+ '2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350
+]:[]];
+console.log('GAS_TRADE_FX_ROUNDTRIP_PASS 13-cols legacy11 receipt-codec readback/anti-downgrade');
+
 const values=[['2026-10-07','005930',100]];
 const genericSheet={getRange:()=>({getValues:()=>[[new Date('2026-10-07T00:00:00Z'),'005930',100]]})};
 assert.throws(()=>ctx._verifyWrittenRange(genericSheet,2,1,values),/검증 실패/,
