@@ -3,6 +3,7 @@
 import {createHash} from 'node:crypto';
 import {composeGas9285TradeFxPreview} from './compose-gas9285-trade-fx-preview.mjs';
 import {TRADE_V2_GAS_HELPERS} from './trade-v2-gas-functions.mjs';
+import {TRADE_V2_GAS_RECEIPTS} from './trade-v2-gas-receipts.mjs';
 const blob=s=>{const b=Buffer.from(s,'utf8');return createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');};
 function once(source,oldValue,newValue,label){
  if(source.split(oldValue).length!==2)throw Error('TRADE_V2_ANCHOR_DRIFT:'+label);
@@ -13,7 +14,7 @@ export function composeGas9285TradeV2Preview(){
  let candidate=original.candidate;
  candidate=once(candidate,
   "function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows) {",
-  TRADE_V2_GAS_HELPERS+"\nfunction handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows, tradeV2Meta) {",
+  TRADE_V2_GAS_HELPERS+"\n"+TRADE_V2_GAS_RECEIPTS+"\nfunction handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld, receiptRows, tradeV2Meta) {",
   'INSERT_V2_GAS_FUNCTIONS');
  // An ID-less client cannot modify an ID-bearing ledger, nor initialize
  // an unreviewed legacy sheet as if it had permanent IDs.
@@ -71,8 +72,12 @@ export function composeGas9285TradeV2Preview(){
  // before writing by the mandatory v2 metadata gate in handleSyncTrades.
  candidate=once(candidate,
   "  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1');",
-  "  if (params.action === 'syncTradesV2' && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1', false, null, {tradeLedgerProtocolVersion:Number(params.tradeLedgerProtocolVersion),expectedLedgerRevision:String(params.expectedLedgerRevision||''),intents:JSON.parse(params.intents||'[]')});\n  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1');",
+  "  if (params.action === 'syncTradesV2' && params.data) return handleTradeSyncV2WithReceipt_(params);\n  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1');",
   'V2_POST_ROUTE');
+ candidate=once(candidate,
+  "  if (params.action === 'getPortfolioSyncReceipt') return handleGetPortfolioSyncReceipt(params);",
+  "  if (params.action === 'getPortfolioSyncReceipt' && params.kind === 'syncTradesV2') return handleTradeV2ReceiptReadOnly_(params);\n  if (params.action === 'getPortfolioSyncReceipt') return handleGetPortfolioSyncReceipt(params);",
+  'V2_RECEIPT_LOOKUP_ROUTE');
  // Fold in the previously independent fund no-op optimization.
  const oldFund=[
   "  // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.",
@@ -108,7 +113,7 @@ export function composeGas9285TradeV2Preview(){
   candidateSourceGitBlob:blob(candidate),tradeLedgerProtocolVersion:2,
   columns:14,features:['fx-original-price','immutable-trade-id','CAS',
     'explicit-create-update-delete','fund-noop'],
-  requiresReceiptImplementation:true,requiresLegacyMigration:true,
+  requiresReceiptImplementation:false,requiresLegacyMigration:true,
   status:'SOURCE_PREVIEW_NOT_DEPLOYABLE',productionDeploymentApproved:false,
   gasProjectWrites:0,financeWrites:0};
  return {base:original.base,candidate,manifest};
