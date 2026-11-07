@@ -1,0 +1,35 @@
+name: DART semiconductor BPS audit (read-only)
+# Explicitly isolated from SEC prefetch, Telegram sends, GAS and financial ledgers.
+# On first addition to main, run exactly one diagnostic after the user's secret setup.
+# Future rechecks are manual (Run workflow), not a new polling/sending schedule.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dart-semiconductor-readonly-verify.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dart-semiconductor-bps-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Inspect official DART company BPS status only
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: node scripts/audit-dart-semiconductor-readonly.mjs
