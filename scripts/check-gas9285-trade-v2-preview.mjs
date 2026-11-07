@@ -19,7 +19,7 @@ const extract=name=>{
 };
 const names=['_cleanCode','_normalizeCodeRows','_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
  '_tradeV2RowsFromTrades_','_tradeV2RowHash_','_tradeV2Revision_',
- '_tradeV2ValidateMutation_','handleSyncTrades','handleGetTrades'];
+ '_tradeV2ValidateMutation_','_tradeV2CheckpointVerified_','handleSyncTrades','handleGetTrades'];
 const js='var TRADE_V2_ID_RE=/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/;\n'
  +names.map(extract).join('\n');
 const ctx=vm.createContext({console,JSON,Date,Number,String,Math,isFinite,isNaN,
