@@ -16,6 +16,7 @@ const extract=(text,name)=>{
 const funcs=[
  extract(sync,'_normalizeSyncCode'),
  extract(sync,'_hasTradeFxMetadataProtocol'),
+ extract(sync,'_tradeV2PinnedBaseline'),
  extract(sync,'syncTradesToGsheet'),
  'globalThis.save=syncTradesToGsheet;'
 ].join('\n');
