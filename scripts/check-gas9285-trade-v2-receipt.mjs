@@ -18,7 +18,7 @@ const extract=name=>{
 const fn=['_cleanCode','_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
  '_tradeV2RowsFromTrades_','_tradeV2RowHash_','_tradeV2Revision_',
  '_recordPortfolioSyncSnapshotCompletion_','_portfolioSyncFollowupRecovered_',
- '_tradeV2ReceiptInput_','_tradeV2ReceiptState_',
+ '_tradeV2ReceiptInput_','_tradeV2ReceiptState_','_tradeV2CheckpointVerified_',
  'handleTradeV2ReceiptReadOnly_','handleTradeSyncV2WithReceipt_'];
 const ctx=vm.createContext({Date,JSON,String,Number,Math,isFinite,
  _issue507GateInside_:true,_normalizeDate:x=>String(x||''),
