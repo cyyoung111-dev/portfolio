@@ -170,6 +170,30 @@ function _setHistMode(mode) {
   _invalidateHistoryLoad();
 }
 
+// A preset takes precedence over manual dates. Selecting a custom month
+// explicitly enters "시작월 지정" mode on both desktop and mobile.
+function _onHistoryRangeChange() {
+  const range = $el('histRangeSelect');
+  const month = $el('histStartMonth');
+  if (month && range) {
+    if (range.value === 'custom') {
+      if (!month.value) {
+        const today = _kstTodayStr();
+        month.value = /^\d{4}-\d{2}-\d{2}$/.test(today) ? today.slice(0,4) + '-01' : '';
+      }
+    } else {
+      month.value = '';
+    }
+  }
+  _invalidateHistoryLoad();
+}
+function _onHistoryStartMonthChange() {
+  const month = $el('histStartMonth');
+  const range = $el('histRangeSelect');
+  if (range && month) range.value = month.value ? 'custom' : '365';
+  _invalidateHistoryLoad();
+}
+
 function _invalidateHistoryLoad() {
   __histState.loadRequestId++;
   const queryBtn = $el('btn-history-query');
@@ -208,8 +232,12 @@ function _restoreSuccessfulHistoryView() {
   if (!statusEl || !chartWrap) return false;
   const startMonth = $el('histStartMonth');
   const range = $el('histRangeSelect');
-  if (startMonth) startMonth.value = saved.startMonth || startMonth.value;
-  if (range) range.value = saved.range || range.value;
+  if (startMonth) startMonth.value = saved.startMonth || '';
+  if (range) {
+    // Legacy views defaulted to January even with a 1-year preset. Preserve
+    // the actual previously queried start month, but label it as custom.
+    range.value = saved.startMonth ? 'custom' : (saved.range || '365');
+  }
   statusEl.innerHTML = saved.statusHtml || '';
   if (coverageEl) coverageEl.innerHTML = saved.coverageHtml || '';
   chartWrap.innerHTML = saved.chartHtml;

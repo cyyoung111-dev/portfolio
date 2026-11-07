@@ -84,6 +84,27 @@ function _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, co
   return false;
 }
 
+// Preset periods are rolling calendar-day windows. A manual month has
+// effect only in the explicit 'custom' mode; do not let a stale month input
+// silently override the selected 3m/6m/1y/2y preset.
+function _historyQueryStartDate(startMonth, range, todayStr) {
+  const date = String(todayStr || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      !Number.isFinite(Date.parse(date + 'T00:00:00Z')) ||
+      new Date(date + 'T00:00:00Z').toISOString().slice(0,10) !== date)
+    throw new Error('손익 그래프 기준일을 확인할 수 없습니다.');
+  if (range === 'custom') {
+    const month = String(startMonth || '');
+    if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month))
+      throw new Error('직접 시작 연월을 선택해 주세요.');
+    return month + '-01';
+  }
+  if (range === '0') return '';
+  const days = {'90':90,'180':180,'365':365,'730':730}[String(range)];
+  if (!Number.isInteger(days)) throw new Error('손익 그래프 조회 기간이 올바르지 않습니다.');
+  return _kstDateOffset(date, -days);
+}
+
 async function loadHistoryChart(retryAttempt = 0) {
   const loadStartedAt = performance.now();
   const requestId = ++__histState.loadRequestId;
@@ -111,17 +132,11 @@ async function loadHistoryChart(retryAttempt = 0) {
   _setHistoryStatus(statusEl, 'loading', { step: 1, total: 2, message: '거래·확정가격·NAV 원자료 조회 중...' });
 
   try {
-    const startMonth = String($el('histStartMonth')?.value || '').trim();
-    // ★ [버그수정] var → const (async 함수 내 var 호이스팅 리스크 제거)
-    const rangeDays = parseInt($el('histRangeSelect')?.value || '365', 10);
-    let fromStr = '';
-    if (/^\d{4}-\d{2}$/.test(startMonth)) fromStr = `${startMonth}-01`;
-    else if (rangeDays > 0) {
-      // ★ [버그수정] new Date() 로컬 타임존 → _kstNow() + _kstDateOffset() 으로 교체
-      //   settings_fetch.js getDateStr()과 동일한 패턴 — KST 기준으로 통일
-      const todayStr = _kstTodayStr();
-      fromStr = _kstDateOffset(todayStr, -rangeDays);
-    }
+    const fromStr = _historyQueryStartDate(
+      $el('histStartMonth')?.value || '',
+      $el('histRangeSelect')?.value || '365',
+      _kstTodayStr()
+    );
     const historyStartedAt = performance.now();
     const data = await _historyRequestJson('getHistorySource', { from: fromStr }, { timeoutMs: 45000, retry: 0, preserveError: true });
     const getHistoryMs = performance.now() - historyStartedAt;

@@ -12,7 +12,7 @@ function renderHistoryView(area) {
             <button id="histModeWeek" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">주간</button>
             <button id="histModeMonth" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
           </div>
-          <input id="histStartMonth" type="month" title="시작 연월"
+          <input id="histStartMonth" type="month" title="직접 지정할 시작 연월 (선택)"
             style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem" />
           <select id="histRangeSelect"
             style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem">
@@ -21,6 +21,7 @@ function renderHistoryView(area) {
             <option value="365" selected>1년</option>
             <option value="730">2년</option>
             <option value="0">전체</option>
+            <option value="custom">시작월 지정</option>
           </select>
           <div id="histBenchmarkMulti" title="비교지수(복수선택) · 선택 기간 수익률과 MDD 표시"
             style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--s2)">
@@ -51,15 +52,11 @@ function renderHistoryView(area) {
   _initHistState();
   _applyHistModeUI(_getHistMode());
   _renderHistBenchmarkButtons();
-  const monthEl = $el('histStartMonth');
-  if (monthEl && !monthEl.value) {
-    // ★ [버그수정] new Date() 로컬 타임존 → _kstNow() 으로 교체 (KST 기준 연도)
-    const kst = _kstNow();
-    monthEl.value = `${kst.getUTCFullYear()}-01`;
-  }
+  // With the default 1-year preset, the manual month must stay blank.
+  // A previous successful custom view is restored independently below.
   if (!_restoreSuccessfulHistoryView()) _setHistoryStatus($el('histStatusMsg'), 'query_ready');
-  $el('histRangeSelect')?.addEventListener('change', _invalidateHistoryLoad);
-  $el('histStartMonth')?.addEventListener('change', _invalidateHistoryLoad);
+  $el('histRangeSelect')?.addEventListener('change', _onHistoryRangeChange);
+  $el('histStartMonth')?.addEventListener('change', _onHistoryStartMonthChange);
   $el('histDetailDate')?.addEventListener('change', async () => {
     __histState.detailDate = String($el('histDetailDate')?.value || '');
     _renderHistoryDateDetail(__histState.snapshots || []);
