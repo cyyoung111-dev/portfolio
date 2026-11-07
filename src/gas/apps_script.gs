@@ -10493,6 +10493,24 @@ function _portfolioSyncDigest_(text) {
     return ('0' + ((b + 256) % 256).toString(16)).slice(-2);
   }).join('');
 }
+// Optional legacy trade columns L/M. Absent on 11-column ledgers, but when
+// supplied both inputs must be finite, positive and reconcile exactly to
+// the KRW unit price. No exchange-rate inference from a market quote.
+function _portfolioTradeFxMetadata_(trade) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioTradeFxMetadata_', _portfolioTradeFxMetadata_, this, arguments);
+  var raw=trade && trade.priceRaw, rate=trade && trade.fxRateAtBuy;
+  var hasRaw=raw!==undefined && raw!==null && raw!=='';
+  var hasRate=rate!==undefined && rate!==null && rate!=='';
+  if (!hasRaw && !hasRate) return ['', ''];
+  if (!hasRaw || !hasRate) throw new Error('TRADE_FX_METADATA_INCOMPLETE');
+  var amount=Number(raw),fx=Number(rate),price=Number(trade.price);
+  if (!isFinite(amount) || !isFinite(fx) || amount<=0 || fx<=0
+      || !isFinite(price) || price<=0
+      || Math.round(amount*fx)!==price)
+    throw new Error('TRADE_FX_METADATA_PRICE_MISMATCH');
+  return [amount,fx];
+}
+
 function _portfolioSyncCanonical_(kind, rows) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioSyncCanonical_', _portfolioSyncCanonical_, this, arguments);
   if (!Array.isArray(rows)) throw new Error('INVALID_SYNC_PAYLOAD');
@@ -10501,7 +10519,7 @@ function _portfolioSyncCanonical_(kind, rows) {
       parseFloat(r.costAmt)||0,String(r.assetType||'주식'),String(r.acct||'')];
     return [_normalizeDate(r.date),String(r.tradeType||''),String(r.acct||''),String(r.name||''),String(r.code||''),
       parseFloat(r.qty)||0,parseFloat(r.price)||0,String(r.assetType||'주식'),String(r.memo||''),
-      parseFloat(r.ratio)||0,parseFloat(r.fractionalCash)||0];
+      parseFloat(r.ratio)||0,parseFloat(r.fractionalCash)||0].concat(_portfolioTradeFxMetadata_(r));
   });
   // 거래는 같은 날짜의 원장 순서를 보존한다. 보유는 합산 종목의 순서와 무관하다.
   normalized.sort(kind === 'syncHoldings'
@@ -10679,7 +10697,7 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld,
     var pendingSnapshotRebuild = _readPendingTradeSnapshotRebuild();
     var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
     var createdTradeSheet = !sh;
-    var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(11, sh.getLastColumn())).getValues() : [];
+    var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(13, sh.getLastColumn())).getValues() : [];
     if (!sh) {
       sh = ss.insertSheet(CONFIG.SHEET_TRADES);
       sh.setColumnWidth(1,100); sh.setColumnWidth(2,70);  sh.setColumnWidth(3,100);
@@ -10690,11 +10708,32 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld,
     // A hard GAS timeout cannot run catch/finally and must not leave a new
     // ledger with stale Snapshot and an already-advanced fingerprint.
     trades.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
-    var intendedRows = trades.map(function(t) {
-      return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
-        t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
-        t.ratio || '', t.fractionalCash || ''];
-    });
+    var intendedRows;
+    try {
+      intendedRows = trades.map(function(t) {
+        return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
+          t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
+          t.ratio || '', t.fractionalCash || ''].concat(_portfolioTradeFxMetadata_(t));
+      });
+    } catch (fxError) {
+      return jsonError('외화거래 원단가/매입환율 불일치: '+fxError.message,
+        {errorCode:fxError.message,saveState:'failed'});
+    }
+    // Never let a stale 11-column client wipe existing FX evidence for an
+    // identical trade. An intentional correction sends paired FX fields.
+    for (var fxRowIndex=0;fxRowIndex<previousRows.length;fxRowIndex++) {
+      var previous=previousRows[fxRowIndex]||[];
+      if (previous[11]==='' || previous[11]==null) continue;
+      var previousKey=JSON.stringify(previous.slice(0,11).map(function(v,i) {
+        return i===0?_normalizeDate(v):v;
+      }));
+      var erased=intendedRows.some(function(row) {
+        return JSON.stringify(row.slice(0,11))===previousKey
+          && (row[11]==='' || row[12]==='');
+      });
+      if (erased) return jsonError('기존 외화단가·매입환율 누락 클라이언트 저장 차단',
+        {errorCode:'TRADE_FX_METADATA_LOSS_RISK',saveState:'failed'});
+    }
     var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;
     affectedFrom = _earliestChangedTradeDate(previousRows, intendedRows);
     if (pendingSnapshotRebuild && pendingSnapshotRebuild.from
@@ -10709,10 +10748,10 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld,
     sourceTouched = true;
     sh.clearContents();
     _setCodeColumnText(sh, 5);
-    sh.getRange(1,1,1,11).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산']]);
-    sh.getRange(1,1,1,11).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    sh.getRange(1,1,1,13).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산','외화단가','매입환율']]);
+    sh.getRange(1,1,1,13).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
     if (intendedRows.length > 0)
-      sh.getRange(2, 1, intendedRows.length, 11).setValues(_normalizeCodeRows(intendedRows, 4));
+      sh.getRange(2, 1, intendedRows.length, 13).setValues(_normalizeCodeRows(intendedRows, 4));
     SpreadsheetApp.flush();
     var currentRows = intendedRows;
     if (currentRows.length) _verifyTradeWrittenRange(sh, 2, _normalizeCodeRows(currentRows, 4));
@@ -10750,7 +10789,7 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty, receiptLockHeld,
     }
     _markSnapshotBackupStatus(tradeBackup, 'COMPLETED');
     var tradeBackupCleanup = tradeBackup ? _cleanupCurrentSystemBackup(ss, tradeBackup) : null;
-    return jsonOk({ saveState: 'success', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup });
+    return jsonOk({ saveState: 'success', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup, tradeFxMetadataVersion: 1 });
   } catch(err) {
     if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', err.message);
     if (sourcePersisted || sourceTouched) {
@@ -16610,6 +16649,14 @@ function handleGetTrades(existingSs) {
       .filter(function(r){ return r[0] || r[3]; })
       .map(function(r) {
         var assetType = (r[7] || '주식').toString();
+        var rawFx=r[11], rawRate=r[12], hasRaw=rawFx!=null && rawFx!=='';
+        var hasRate=rawRate!=null && rawRate!=='';
+        var fx=[];
+        if (hasRaw || hasRate) {
+          fx=_portfolioTradeFxMetadata_({
+            price:r[6], priceRaw:rawFx, fxRateAtBuy:rawRate
+          });
+        }
         return {
           date:      (r[0] instanceof Date)
                        ? Utilities.formatDate(r[0], CONFIG.TIMEZONE, 'yyyy-MM-dd')
@@ -16628,9 +16675,10 @@ function handleGetTrades(existingSs) {
           //   r[9]는 항상 undefined → fund 항상 false 버그 수정
           //   assetType으로 펀드/TDF 여부를 추론하도록 변경
           fund:      (assetType === '펀드' || assetType === 'TDF'),
+          ...(fx.length ? {priceRaw:fx[0],fxRateAtBuy:fx[1]} : {})
         };
       });
-    return jsonOk({ trades: trades });
+    return jsonOk({ trades: trades, tradeFxMetadataVersion: 1 });
   } catch(err) {
     return jsonError('getTrades 실패: ' + err.message);
   }
@@ -17424,7 +17472,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, portfolioSyncReceipts: true, gasVersion: '9.284' });
+    return jsonOk({ settings: settings, portfolioSyncReceipts: true, tradeFxMetadataVersion: 1, gasVersion: '9.284' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -17455,6 +17503,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       portfolioSyncReceipts: true,
+      tradeFxMetadataVersion: 1,
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
       gasVersion: '9.284'
     });
