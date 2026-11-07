@@ -140,6 +140,8 @@ const workflow=YAML.parse(fs.readFileSync('.github/workflows/kb-fund-nav-collect
 // not a second writer: workflow concurrency and GAS idempotency must remain.
 const cron=workflow.on?.schedule?.map(v=>v.cron);
 assert.ok(Array.isArray(cron));
+assert.ok(cron.includes('30 0 * * 1-5'),'09:30 KST weekday must remain');
+assert.ok(cron.includes('10 0 * * 0,6'),'09:10 KST weekend official NAV catch-up');
 assert.ok(cron.includes('10 9 * * *'),'18:10 KST primary must remain');
 assert.ok(cron.includes('17 10 * * *'),'19:17 KST fallback must remain');
 assert.equal(new Set(cron).size,cron.length,'duplicate cron wakes are wasteful');
