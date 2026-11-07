@@ -79,7 +79,6 @@ corrupted.list[2].distb_stock_co='110,000,001';
 assert.equal(extractDartDomesticBps(fin(item.corpCode,2026,'11012'),
  corrupted,item,period,{now:at()}).status,'DART_SHARE_TOTAL_MISMATCH');
 assert.equal(extractDartDomesticBps(fin(item.corpCode,2026,'11012'),
- shares(item.corpCode,'2026-06-30'),item,
- {...period,period:'2026-09-30'},{now:at()}).status,
+ shares(item.corpCode,'2026-03-31'),item,period,{now:at()}).status,
  'DART_SHARES_PERIOD_UNVERIFIED');
 console.log('DART_POSTSECRET_READONLY_SMOKE_PASS Q3_unfiled Q2_report 2_company authkey_redacted invalid_key no_writes');
