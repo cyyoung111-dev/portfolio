@@ -13,6 +13,19 @@ const isDay=d=>typeof d==='string'&&DAY.test(d)&&
  Number.isFinite(Date.parse(d+'T00:00:00Z'))&&
  new Date(d+'T00:00:00Z').toISOString().slice(0,10)===d;
 const shift=(d,n)=>new Date(Date.parse(d+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
+// GAS closeRun tracks calendar days, whereas KB AQ018 public official NAV
+// can legitimately stop at Friday over the weekend. Require Friday (not
+// arbitrary stale Thursday) unless a newer Saturday/Sunday NAV is ACTUALLY
+// present in the independently fetched official source. Weekday close still
+// requires that weekday's exact publication.
+export function expectedKbOfficialReferenceDate(closeDate,rows=[]) {
+ if(!isDay(closeDate)||!Array.isArray(rows))return null;
+ const dow=new Date(closeDate+'T00:00:00Z').getUTCDay();
+ if(dow!==0&&dow!==6)return closeDate;
+ const friday=shift(closeDate,dow===6?-1:-2);
+ return rows.filter(x=>isDay(x?.date)&&x.date>=friday&&x.date<=closeDate)
+   .map(x=>x.date).sort().at(-1)||friday;
+}
 const kstToday=now=>new Intl.DateTimeFormat('en-CA',{
  timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
 }).format(now);
@@ -26,10 +39,13 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
      ||!Number.isFinite(x.nav)||x.nav<=0)
    ||new Set(officialRows.map(x=>x.date)).size!==officialRows.length)
    throw Error('KB_POSTFLIGHT_SCHEMA_UNVERIFIED');
- const date=close.runDate,latestPublishedDate=officialRows.map(x=>x.date).sort().at(-1)||'-';
- const officiallyPublished=officialRows.some(x=>x.date===date);
- const storedNavConfirmed=fundRow?.navState==='EXISTING_CONFIRMED';
- const derivedConfirmed=fundRow?.valuationRequired===true&&fundRow?.unitsApplied===true
+ const date=close.runDate,referenceDate=expectedKbOfficialReferenceDate(date,officialRows);
+ const latestPublishedDate=officialRows.map(x=>x.date).sort().at(-1)||'-';
+ const officiallyPublished=officialRows.some(x=>x.date===referenceDate);
+ // Do not substitute a Saturday carried valuation for Friday's confirmed NAV.
+ const storedNavConfirmed=fundRow?.date===referenceDate&&fundRow?.navState==='EXISTING_CONFIRMED';
+ const derivedConfirmed=fundRow?.date===referenceDate
+   &&fundRow?.valuationRequired===true&&fundRow?.unitsApplied===true
    &&fundRow?.reconciled===true
    &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.evaluationState)
    &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.snapshotState);
@@ -65,7 +81,7 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
    verdict='NAV_AND_CLOSE_VERIFIED';pass=true;
  }
  return {kind:'KB_NAV_CLOSE_POSTFLIGHT_READ_ONLY',asOfKst:today,
-   closeDate:date,latestPublishedDate,officiallyPublished,
+   closeDate:date,officialReferenceDate:referenceDate,latestPublishedDate,officiallyPublished,
    storedNavConfirmed,derivedConfirmed,officialNavMatched:officialNavMatched===true,
    closeState:close.state,
    expectedRunDate:close.expectedRunDate||'-',
@@ -144,11 +160,13 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
  const proof=await valuationReader({url,token,from,to:today,fetchImpl});
  // Reuse the existing date-scoped, read-only GAS response validator.
  summarizeFundRows(proof,'F00002',from,today);
- const matching=proof.fundResults.F00002.dates.filter(x=>x.date===close.runDate);
+ const referenceDate=expectedKbOfficialReferenceDate(close.runDate,source.rows);
+ if(!isDay(referenceDate))throw Error('KB_POSTFLIGHT_REFERENCE_DATE_UNVERIFIED');
+ const matching=proof.fundResults.F00002.dates.filter(x=>x.date===referenceDate);
  if(matching.length>1)throw Error('KB_POSTFLIGHT_DUPLICATE_DATE');
- const official=source.rows.find(x=>x.date===close.runDate);
- const officialNavMatched=official?verifyKbOfficialNavPreview(close.runDate,
-   official.nav,await previewReader({url,token,date:close.runDate,
+ const official=source.rows.find(x=>x.date===referenceDate);
+ const officialNavMatched=official?verifyKbOfficialNavPreview(referenceDate,
+   official.nav,await previewReader({url,token,date:referenceDate,
      nav:official.nav,fetchImpl})):false;
  return assessKbNavPostflight({close,officialRows:source.rows,
    fundRow:matching[0]||null,today,officialNavMatched});

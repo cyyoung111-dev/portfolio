@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
 import {assessKbNavPostflight,auditKbNavPostflight,
- verifyKbOfficialNavPreview,readKbExactNavPreview}
+ expectedKbOfficialReferenceDate,verifyKbOfficialNavPreview,readKbExactNavPreview}
  from './audit-kb-nav-postflight-readonly.mjs';
 
 const today='2026-11-07',date='2026-11-06';
@@ -110,6 +110,55 @@ const mocks={
 const result=await auditKbNavPostflight(mocks);
 assert.equal(result.verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
 assert.deepEqual([statusCalls,publicCalls,gasCalls,previewCalls],[1,1,1,1]);
+// Reproduce live run #42387302439: Sunday 2026-11-08 00:50 KST,
+// GAS calendar close = Saturday 11/07, and official KB latest is Fri 11/06.
+// The old postflight falsely reported 'NOT_YET_PUBLISHED' despite the
+// protected collector importing Friday's exact official NAV.
+const saturday='2026-11-07',sunday='2026-11-08';
+assert.equal(expectedKbOfficialReferenceDate(saturday,source),date);
+assert.equal(expectedKbOfficialReferenceDate(sunday,source),date);
+assert.equal(expectedKbOfficialReferenceDate(date,source),date,
+ 'weekdays still require their own exact official NAV');
+assert.equal(expectedKbOfficialReferenceDate(saturday,source.slice(0,1)),date,
+ 'missing Friday publication must remain unpublished, not reuse Thursday');
+assert.equal(expectedKbOfficialReferenceDate(saturday,[...source,{date:saturday,nav:2101.55}]),saturday,
+ 'a genuine newer Saturday official publication wins');
+const weekendClose={...close,runDate:saturday,
+ expectedRunDate:saturday,expectedSnapshotDate:saturday};
+const weekendAssessment=assess({today:sunday,close:weekendClose,
+ officialRows:source,fundRow:verified});
+assert.equal(weekendAssessment.closeDate,saturday);
+assert.equal(weekendAssessment.officialReferenceDate,date);
+assert.equal(weekendAssessment.officiallyPublished,true);
+assert.equal(weekendAssessment.storedNavConfirmed,true);
+assert.equal(weekendAssessment.derivedConfirmed,true);
+assert.equal(weekendAssessment.verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
+assert.equal(weekendAssessment.pass,false,
+ 'fix must NEVER turn an incomplete GAS close green');
+const carriedWeekendRow={...verified,date:saturday,navState:'EXISTING_CONFIRMED'};
+assert.equal(assess({today:sunday,close:weekendClose,officialRows:source,
+ fundRow:carriedWeekendRow}).verdict,'OFFICIAL_NAV_NOT_IMPORTED',
+ 'Saturday carried row is not Friday exact NAV readback');
+const missingWeekend=assess({today:sunday,close:weekendClose,
+ officialRows:source.slice(0,1),fundRow:null});
+assert.equal(missingWeekend.verdict,'OFFICIAL_NAV_NOT_YET_PUBLISHED_CLOSE_INCOMPLETE');
+const weekendAudit=await auditKbNavPostflight({...mocks,
+ now:new Date('2026-11-07T16:00:00Z'),
+ statusReader:async()=>({close:weekendClose}),
+ valuationReader:async({from,to})=>{
+   assert.equal(from,'2026-11-02');assert.equal(to,sunday);
+   return proof;
+ },
+ previewReader:async ({date:asked,nav})=>{
+   assert.equal(asked,date,'must preview published Friday, not Saturday');
+   assert.equal(nav,2100.55);
+   return exactPreview();
+ }});
+assert.equal(weekendAudit.officialReferenceDate,date);
+assert.equal(weekendAudit.verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
+assert.equal(weekendAudit.pass,false);
+assert.ok(!JSON.stringify(weekendAudit).includes('2100.55'));
+
 const mismatch=await auditKbNavPostflight({...mocks,
  previewReader:async()=>exactPreview(2100.56)});
 assert.equal(mismatch.verdict,'OFFICIAL_NAV_VALUE_MISMATCH_OR_UNVERIFIED');
