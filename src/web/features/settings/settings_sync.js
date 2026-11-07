@@ -3,6 +3,9 @@ const PORTFOLIO_RECOVERY_RECEIPTS_KEY = 'portfolio_recovery_receipts_v1';
 function _hasPortfolioReceiptProtocol(targetUrl) {
   return window._portfolioReceiptTargets?.[targetUrl] === true;
 }
+function _hasTradeFxMetadataProtocol(targetUrl) {
+  return window._tradeFxMetadataTargets?.[targetUrl] === true;
+}
 function _readPortfolioRecoveryReceipts() {
   const value = lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, {});
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -1431,6 +1434,12 @@ async function syncTradesToGsheet(options) {
           assetType: isDirectFund ? (t.assetType || t.type || '펀드')
             : getEPType(ep, remote?.type || t.assetType || '주식'),
           memo:      t.memo      || '',
+          ratio:     t.ratio || 0,
+          fractionalCash: t.fractionalCash || 0,
+          ...(t.priceRaw != null && t.priceRaw !== ''
+             ? {priceRaw: t.priceRaw} : {}),
+          ...(t.fxRateAtBuy != null && t.fxRateAtBuy !== ''
+             ? {fxRateAtBuy: t.fxRateAtBuy} : {}),
         };
       });
     // Never persist a truncated dirty ledger during authoritative restore:
@@ -1463,6 +1472,17 @@ async function syncTradesToGsheet(options) {
       }).catch(()=>{});
     }
 
+    // Older GAS versions silently discard the foreign currency/unit-price
+    // fields. Never send such a ledger to an endpoint that did not explicitly
+    // advertise 13-column round-trip support on THIS exact connection.
+    const hasFxMetadata = trades.some(t =>
+      t.priceRaw !== undefined || t.fxRateAtBuy !== undefined);
+    if (hasFxMetadata && !_hasTradeFxMetadataProtocol(targetUrl)) {
+      _syncWarn('[거래이력 동기화] 서버의 외화원단가·매입환율 보존 지원 미확인, 원본 덮어쓰기 차단');
+      if (typeof showToast === 'function')
+        showToast('외화 거래 원단가·매입환율 서버 보존 미확인 · 거래 저장을 보류했습니다.', 'warn', 7000);
+      return {status:'error', errorCode:'TRADE_FX_METADATA_UNSUPPORTED',saveState:'failed'};
+    }
     const writeTrades = options?.recoveryWrite === true && _hasPortfolioReceiptProtocol(targetUrl)
       ? _requestPortfolioRecoveryWrite : requestGsheetFormJson;
     const data = await writeTrades(
@@ -1476,6 +1496,11 @@ async function syncTradesToGsheet(options) {
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') {
+      // Even with an earlier feature-advertisement, a stale rolling
+      // deployment must return a post-write FX capability acknowledgement.
+      if (hasFxMetadata && data.tradeFxMetadataVersion !== 1)
+        return {status:'error',errorCode:'TRADE_FX_METADATA_ACK_MISSING',
+          saveState:'partial',followupRequired:true};
       _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
       return data;
     }
