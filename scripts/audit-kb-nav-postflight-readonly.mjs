@@ -32,12 +32,13 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today}) {
    &&fundRow?.reconciled===true
    &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.evaluationState)
    &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.snapshotState);
- // A prior successful close is not evidence that the most recent KRX
- // session closed. Require GAS's independent stale/date checks before
- // considering either the NAV or the overall postflight current.
+ // GAS's expectedRunDate is a MINIMUM acceptable session, not exact:
+ // before 21:00 KST it can still point to yesterday even after today's
+ // 19:00 close has legitimately completed. Reject an older stored run while
+ // permitting a newer, verified one; the independent stale flags must agree.
  const closeDateVerified=close.runStale===false&&close.snapshotStale===false
-   &&isDay(close.expectedRunDate)&&close.expectedRunDate===date
-   &&isDay(close.expectedSnapshotDate)&&close.expectedSnapshotDate===date;
+   &&isDay(close.expectedRunDate)&&close.expectedRunDate<=date
+   &&isDay(close.expectedSnapshotDate)&&close.expectedSnapshotDate<=date;
  const closeComplete=closeDateVerified&&close.state==='COMPLETE'
    &&close.priceOk===true&&close.fundOk===true;
  let verdict,pass;
