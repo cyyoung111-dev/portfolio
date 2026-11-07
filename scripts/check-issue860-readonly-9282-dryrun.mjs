@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {readonlyTransport,runReadOnly9282} from './issue860-readonly-9282-dryrun.mjs';
+import {readonlyTransport,runReadOnly9282,safeIssue860ReleaseAudit} from './issue860-readonly-9282-dryrun.mjs';
 import {assertFirstWriterGateCutoverSafe} from './deploy-gas.mjs';
 
 const scriptId='TEST_SCRIPT_IDENTIFIER_12345',deploymentId='TEST_DEPLOYMENT_12345';
@@ -63,6 +63,18 @@ try {
   assert.equal(result.dryRun.dryRun,true,'blocked inventory must not suppress dry-run');
   assert.equal(result.dryRun.version,'9.285');
   assert.equal(result.releaseAuthorized,false);
+  const safe=safeIssue860ReleaseAudit({...result,
+    inventory:{...result.inventory,privateToken:'SECRET_INVENTORY',
+      deploymentId:'PRIVATE_DEPLOYMENT',reason:result.inventory.reason}});
+  assert.equal(safe.inventoryReason,result.inventory.reason);
+  assert.equal(safe.deploymentCount,result.inventory.deploymentCount);
+  assert.equal(safe.additionalRoutableDeploymentCount,result.inventory.additionalRoutableDeploymentCount);
+  assert.equal(safe.sourceVersion,'9.285');
+  assert.equal(safe.dryRun,true);
+  assert.equal(safe.releaseAuthorized,false);
+  assert.ok(!JSON.stringify(safe).includes('PRIVATE_DEPLOYMENT'));
+  assert.ok(!JSON.stringify(safe).includes('SECRET_INVENTORY'));
+  assert.equal(safeIssue860ReleaseAudit({inventory:{reason:'PRIVATE_RAW_ERROR'}}).inventoryReason,'UNVERIFIED');
   assert.deepEqual([result.gasWrites,result.financeWrites,result.telegramSends],[0,0,0]);
   assert.ok(calls.every(c=>c.method==='GET'||c.url==='https://oauth2.googleapis.com/token'));
   assert.doesNotMatch(JSON.stringify(result)+logs.join(' '),/PRIVATE_TEST_ACCESS_TOKEN|FAKE_SECRET|FAKE_REFRESH|ARCHIVED_UNKNOWN_123/);
@@ -149,17 +161,12 @@ assert.equal(live.env.GAS_DEPLOY_DRY_RUN,'true');
 assert.equal(live.env.GAS_9282_RELEASE_APPROVAL,'false');
 assert.equal(live.env.GAS_9283_RELEASE_APPROVAL,'false');
 assert.ok(!('GAS_ACCESS_TOKEN' in live.env));
-const oneShot=job.steps.find(x=>x.name==='One-shot exact GAS deployment and authenticated gate inspect (GET only)');
-assert.ok(oneShot);
-assert.equal(oneShot.if,"github.event_name == 'push' && always()");
-assert.equal(oneShot.run,'node scripts/issue860-first-cutover.mjs');
-assert.equal(oneShot.env.GAS_FIRST_GATE_PHASE,'inspect');
-assert.equal(oneShot.env.GAS_ISSUE860_ONE_SHOT_INSPECT,'true');
-assert.equal(oneShot.env.GAS_DEPLOY_DRY_RUN,'true');
-assert.equal(oneShot.env.GAS_9282_RELEASE_APPROVAL,'false');
-assert.equal(oneShot.env.GAS_9283_RELEASE_APPROVAL,'false');
-assert.equal(oneShot.env.GAS_EXPECTED_MAIN_SHA,'${{ github.sha }}');
-assert.equal(oneShot.env.GAS_ACCESS_TOKEN,'${{ secrets.GAS_ACCESS_TOKEN }}');
+// The legacy 9.282 initial writer cutover is deliberately excluded from
+// the promoted 9.285 audit: it only recognizes 9.281/9.282 source hashes.
+assert.ok(!job.steps.some(x=>x.run==='node scripts/issue860-first-cutover.mjs'));
+assert.ok(!job.steps.some(x=>x.env?.GAS_FIRST_GATE_PHASE));
+assert.equal(live.env.GAS_ISSUE860_ONE_SHOT_DRYRUN,
+  "${{ github.event_name == 'push' && 'true' || 'false' }}");
 assert.ok(job.if.includes("github.ref == 'refs/heads/main'"));
 assert.ok(job.if.includes("github.event_name == 'push'"));
 assert.doesNotMatch(JSON.stringify(workflow),/TELEGRAM|NHPLUG|continue-on-error/);
