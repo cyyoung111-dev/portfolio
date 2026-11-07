@@ -26,11 +26,21 @@ export function readonlyTransport(scriptId, fetchImpl) {
 }
 
 export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
-  selectGasRelease({eventName:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF,
+  // A single main-push one-shot is allowed only from the existing protected
+  // workflow with an explicit read-only flag. It inherits the SAME mandatory
+  // exact-main SHA check before any Google OAuth call as manual dispatch.
+  const oneShot=process.env.GITHUB_EVENT_NAME==='push'
+    &&process.env.GAS_ISSUE860_ONE_SHOT_DRYRUN==='true';
+  const dispatch=process.env.GITHUB_EVENT_NAME==='workflow_dispatch';
+  if((!oneShot&&!dispatch)
+    ||process.env.GITHUB_REPOSITORY!=='cyyoung111-dev/portfolio'
+    ||process.env.GITHUB_REF!=='refs/heads/main'
+    ||process.env.GAS_DEPLOY_DRY_RUN!=='true'
+    ||['GAS_9282_RELEASE_APPROVAL','GAS_9283_RELEASE_APPROVAL',
+      'GAS_9284_RELEASE_APPROVAL','GAS_9285_RELEASE_APPROVAL']
+      .some(key=>process.env[key]!=='false'))throw Error('ISSUE860_MODE_INVALID');
+  selectGasRelease({eventName:'workflow_dispatch',ref:process.env.GITHUB_REF,
     repository:process.env.GITHUB_REPOSITORY,sha:process.env.GITHUB_SHA});
-  if(process.env.GITHUB_EVENT_NAME!=='workflow_dispatch'||
-     process.env.GAS_DEPLOY_DRY_RUN!=='true'||process.env.GAS_9282_RELEASE_APPROVAL!=='false'||
-     process.env.GAS_9283_RELEASE_APPROVAL!=='false')throw Error('ISSUE860_MODE_INVALID');
   const sourceVersion=assertGasReleaseReady(fs.readFileSync('src/gas/apps_script.gs','utf8'));
   if(!['9.282','9.283','9.284','9.285'].includes(sourceVersion))throw Error('ISSUE860_CANDIDATE_INVALID');
   const guarded=readonlyTransport(process.env.GAS_SCRIPT_ID,fetchImpl);
@@ -78,10 +88,16 @@ export async function runReadOnly9282({fetchImpl=globalThis.fetch}={}) {
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try {
     const result=await runReadOnly9282();
-    console.log(JSON.stringify(result));
+    const safe={mode:result.mode,sourceVersion:result.sourceVersion,
+      status:result.status,failures:result.failures,
+      inventoryStatus:result.inventory?.status||'UNVERIFIED',
+      dryRun:result.dryRun?.dryRun===true,
+      dryRunVersion:result.dryRun?.version||null,
+      releaseAuthorized:false,gasWrites:0,financeWrites:0,telegramSends:0};
+    console.log(JSON.stringify(safe));
     if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-      '## Issue #860 읽기 전용 재감사 + v9.282 dry-run\n```json\n'+JSON.stringify(result,null,2)+'\n```\n'+
-      '배포 승인이 아닙니다. 최초 writer gate 차단은 유지됩니다.\n');
+      '## Issue #860 protected read-only GAS v9.285 audit\n```json\n'+JSON.stringify(safe,null,2)+'\n```\n'+
+      '배포 및 금융 원본 쓰기는 허용되지 않습니다. BLOCKED/UNVERIFIED는 정상화가 아닙니다.\n');
     if(result.status!=='READ_ONLY_CHECKS_PASSED')process.exitCode=2;
   } catch {
     console.error('ISSUE860_READONLY_UNVERIFIED');process.exitCode=2;
