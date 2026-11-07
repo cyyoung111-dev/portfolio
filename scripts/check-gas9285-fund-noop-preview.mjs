@@ -34,9 +34,10 @@ assert.ok(realFunction.indexOf('return unchanged;')<realFunction.indexOf('getScr
 assert.equal(realFunction.indexOf('if (values.length === 0)'),
  realFunction.lastIndexOf('if (values.length === 0)'));
 
-const older='2026-11-05',date='2026-11-06',today='2026-11-07';
+const older='2026-11-05',date='2026-11-06',weekend='2026-11-07',today='2026-11-08';
 const nav=[older,'F00002','KB_TEST',2169.72,older,1000,2169.72,'','KB_VALUE_ST'];
-let published=false,needsChange=false,lockCount=0,writeCount=0,readCount=0;
+let published=false,lockCount=0,writeCount=0,readCount=0;
+const pendingDerivedDates=new Set();
 const conf={code:'F00002',name:'KB_TEST',provider:'KB_VALUE_ST',units:1000,startDate:older};
 const rows=()=>published?[{date:older,nav:2169.72},{date,nav:2050.08}]
  :[{date:older,nav:2169.72}];
@@ -59,12 +60,12 @@ const ctx=vm.createContext({
   _fundUnitsAtDate:(_confs,_code,_day)=>conf,
   _storedFundNavRows:()=>rows(),
   _fundNavExpectedPublicationDate:(d)=>d===older||d===date,
-  _fundDailyValues:(_confs,code,navRows,from,to)=>[older,date].map(d=>{
+  _fundDailyValues:(_confs,code,navRows,from,to)=>[older,date,weekend].filter(d=>d>=from&&d<=to).map(d=>{
     const latest=navRows.filter(n=>n.date<=d).at(-1);
     return {date:d,code,name:'KB_TEST',nav:latest.nav,sourceDate:latest.date,
       units:1000,evalAmt:Math.round(latest.nav),provider:'KB_VALUE_ST'};
   }),
-  _fundValueNeedsProcessing:()=>needsChange,
+  _fundValueNeedsProcessing:value=>pendingDerivedDates.has(value.date),
   _fetchMissingFundNavBatches:()=>{throw Error('UNEXPECTED_NAV_FETCH')},
   LockService:{getScriptLock:()=>{lockCount++;throw Error('EXPECTED_WRITER_PATH')}},
   SpreadsheetApp:{flush:()=>{writeCount++;}}
@@ -93,15 +94,30 @@ assert.equal(done.fundResults.F00002.completedSkipped,2);
 assert.equal(done.navSaved,0);
 assert.equal(lockCount,0);
 assert.equal(writeCount,0);
-needsChange=true;
+// An uncommitted 11/07 weekend carry Snapshot must NOT be treated as no-op.
+pendingDerivedDates.add(weekend);
+assert.throws(()=>ctx._refreshFundValuations(ss,older,weekend,undefined,true),
+ /EXPECTED_WRITER_PATH/,
+ 'missing 11/07 weekend carry Snapshot must enter the protected writer');
+assert.equal(lockCount,1);
+pendingDerivedDates.clear();
+pendingDerivedDates.add(date);
 assert.throws(()=>ctx._refreshFundValuations(ss,older,date,undefined,true),
  /EXPECTED_WRITER_PATH/,
- 'any real NAV or derived change must still enter existing protected writer');
-assert.equal(lockCount,1);
+ 'newly corrected official source must enter protected writer');
+assert.equal(lockCount,2);
+pendingDerivedDates.clear();
+done=ctx._refreshFundValuations(ss,older,weekend,undefined,true);
+assert.equal(done.completionStatus,'ok');
+assert.equal(done.fundResults.F00002.valuations,0);
+assert.equal(done.fundResults.F00002.completedSkipped,3);
+assert.equal(done.fundResults.F00002.dates.find(x=>x.date===weekend).navState,
+ 'NON_PUBLICATION_CARRY','2026-11-07 Saturday carries last confirmed 11/06 NAV');
+assert.equal(lockCount,2,'fully reconciled weekend must not acquire writer');
 assert.equal(writeCount,0,'simulation cannot write financial data');
 console.log('GAS9285_FUND_NOOP_PREVIEW_OK '+JSON.stringify({
  originalSourceBlob:manifest.baseSourceGitBlob,
  candidateSourceBlob:manifest.candidateSourceGitBlob,
  previewOnly:true,productionGasDeployed:false,financeWrites:0,
- cases:['confirmed_noop','missing_publication_partial','actual_change_lock_preserved']
+ cases:['confirmed_noop','missing_publication_partial','weekend_carry_uncommitted_requires_writer','actual_change_lock_preserved']
 }));
