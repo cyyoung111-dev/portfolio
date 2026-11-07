@@ -28,10 +28,15 @@ function _legacyTradeTuple(t, accountsById) {
     const mapped=accountsById instanceof Map ? accountsById.get(String(t.accountId)) : '';
     if (!mapped || mapped!==s('acct')) return null;
   }
-  // GAS persists the KRW price, not foreign-currency entry metadata. If the
-  // original pending trade has separate FX input, equality is unprovable.
-  if ((t.priceRaw != null && t.priceRaw !== '' && Number(t.priceRaw)!==0)
-      || (t.fxRateAtBuy != null && t.fxRateAtBuy !== '' && Number(t.fxRateAtBuy)!==0)) return null;
+  // FX evidence is now round-tripped by capable GAS. Require BOTH original
+  // values and the same KRW result; a legacy 11-column source with missing FX
+  // metadata still fails the exact-journal comparison.
+  const hasRaw=t.priceRaw!=null && t.priceRaw!=='';
+  const hasRate=t.fxRateAtBuy!=null && t.fxRateAtBuy!=='';
+  if (hasRaw!==hasRate) return null;
+  const raw=hasRaw?Number(t.priceRaw):0, fx=hasRate?Number(t.fxRateAtBuy):0;
+  if (hasRaw && (!(raw>0) || !(fx>0) || !Number.isFinite(raw)
+      || !Number.isFinite(fx) || Math.round(raw*fx)!==Number(t.price))) return null;
   const qty=number('qty'), price=number('price'),
     ratio=number('ratio'), fractionalCash=number('fractionalCash');
   const assetType=s('assetType')||s('type')||'주식';
@@ -41,7 +46,7 @@ function _legacyTradeTuple(t, accountsById) {
       || !Number.isFinite(ratio) || !Number.isFinite(fractionalCash)
       || ('fund' in t && (typeof t.fund !== 'boolean' || t.fund!==isFund))) return null;
   return [s('date'),s('tradeType'),s('acct'),s('name'),s('code'),
-    qty,price,assetType,s('memo'),ratio,fractionalCash,isFund];
+    qty,price,assetType,s('memo'),ratio,fractionalCash,isFund,raw,fx];
 }
 function _legacyHoldingTuple(h) {
   if (!h || typeof h!=='object') return null;

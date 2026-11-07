@@ -517,7 +517,10 @@ function deleteSelectedTrades() {
   }
   _commitTrades({
     allowEmptyTradeSync: before > 0 && rawTrades.length === 0,
-    emptyTradeSyncFrom: before > 0 && rawTrades.length === 0 ? deletedFrom : ''
+    emptyTradeSyncFrom: before > 0 && rawTrades.length === 0 ? deletedFrom : '',
+    // A user-confirmed selection is an explicit server-side deletion intent.
+    // Preserve only IDs that were actually removed from this local ledger.
+    tradeV2DeleteIds:ids.filter(id=>!rawTrades.some(t=>String(t?.id||'')===id))
   });
 }
 

@@ -3,6 +3,238 @@ const PORTFOLIO_RECOVERY_RECEIPTS_KEY = 'portfolio_recovery_receipts_v1';
 function _hasPortfolioReceiptProtocol(targetUrl) {
   return window._portfolioReceiptTargets?.[targetUrl] === true;
 }
+function _hasTradeFxMetadataProtocol(targetUrl) {
+  return window._tradeFxMetadataTargets?.[targetUrl] === true;
+}
+// The live v9.284 connection must never acquire v2 capabilities by guessing
+// from its version label. Only a matching Bootstrap 14-column schema/revision
+// pinned to this exact target and generation can unlock v2.
+function _tradeV2PinnedBaseline(targetUrl,generation) {
+  const proof=window._tradeLedgerV2BaselineTargets?.[targetUrl];
+  if(!proof || proof.protocol!==2 || !/^[0-9a-f]{64}$/.test(String(proof.revision||''))
+      || !Array.isArray(proof.trades)
+      || (Number.isInteger(generation)&&proof.generation!==generation)
+      || String(proof.targetUrl)!==String(targetUrl))return null;
+  return proof;
+}
+function _tradeV2NormalizeCode(raw) {
+  let code=String(raw||'').trim().toUpperCase();
+  if(!code)return '';
+  if(/^[0-9]+$/.test(code))return code.padStart(6,'0');
+  if(/^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/.test(code)
+      &&code.length<=30&&/[A-Z]/.test(code))return code;
+  return '';
+}
+// Identical to GAS _tradeV2CanonicalRow_(_tradeV2RowsFromTrades_()).
+// ratio/fractionalCash=0 must round-trip as blank: the GAS writer stores ''.
+function _tradeV2BrowserCanonical(t) {
+  const id=String(t?.id||'');
+  const numeric=(v,emptyAsBlank)=>{
+    if(v===undefined||v===null||v==='')return '';
+    const n=Number(v);
+    if(!Number.isFinite(n))throw Error('TRADE_NUMBER_INVALID');
+    return emptyAsBlank&&!n?'':n;
+  };
+  const raw=numeric(t?.priceRaw,false),rate=numeric(t?.fxRateAtBuy,false);
+  if((raw==='')!==(rate===''))throw Error('TRADE_FX_METADATA_INCOMPLETE');
+  if(raw!==''&&(!Number.isFinite(raw)||raw<=0||rate<=0
+      ||Math.round(raw*rate)!==Number(t?.price)))
+    throw Error('TRADE_FX_METADATA_PRICE_MISMATCH');
+  return [id,String(t?.date||'').slice(0,10),String(t?.tradeType||''),
+    String(t?.acct||''),String(t?.name||''),
+    _tradeV2NormalizeCode(t?.code),numeric(t?.qty??0,false),
+    numeric(t?.price??0,false),String(t?.assetType||'주식'),String(t?.memo||''),
+    numeric(t?.ratio,true),numeric(t?.fractionalCash,true),raw,rate];
+}
+async function _tradeV2BrowserSha256(value) {
+  if(typeof crypto==='undefined'||!crypto.subtle||typeof TextEncoder==='undefined')
+    throw Error('TRADE_V2_CRYPTO_UNAVAILABLE');
+  const data=new TextEncoder().encode(JSON.stringify(value));
+  const digest=await crypto.subtle.digest('SHA-256',data);
+  return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
+}
+// Fail closed on an undeclared delete. A missing row is NEVER interpreted
+// as a delete merely because the current device has a partial ledger.
+async function _prepareTradeV2SyncContract(baseline,localTrades,declaredDeleteIds) {
+  if(!baseline||!/^[0-9a-f]{64}$/.test(String(baseline.revision||''))
+      ||!Array.isArray(baseline.trades)||!Array.isArray(localTrades))
+    throw Error('TRADE_V2_BASELINE_UNVERIFIED');
+  const deletes=new Set(declaredDeleteIds||[]);
+  if(deletes.size!==(declaredDeleteIds||[]).length)throw Error('TRADE_DELETE_INTENT_DUPLICATE');
+  const idOk=id=>/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(id||''));
+  const indexed=rows=>{
+    const m=new Map();
+    for(const trade of rows) {
+      const id=String(trade?.id||'');
+      if(!idOk(id))throw Error('TRADE_ID_MISSING_OR_INVALID');
+      if(m.has(id))throw Error('TRADE_ID_DUPLICATE');
+      m.set(id,trade);
+    }
+    return m;
+  };
+  const old=indexed(baseline.trades),now=indexed(localTrades),intents=[];
+  for(const [id,t] of old) {
+    const next=now.get(id);
+    if(!next) {
+      if(!deletes.has(id))throw Error('TRADE_DELETE_INTENT_REQUIRED');
+      intents.push({type:'delete',id,beforeHash:await _tradeV2BrowserSha256(_tradeV2BrowserCanonical(t))});
+      deletes.delete(id);
+      continue;
+    }
+    if(deletes.has(id))throw Error('TRADE_DELETE_INTENT_INVALID');
+    const prev=_tradeV2BrowserCanonical(t),updated=_tradeV2BrowserCanonical(next);
+    if(prev[12]!==''&&(updated[12]===''||updated[13]===''))
+      throw Error('TRADE_FX_METADATA_LOSS_RISK');
+    if(JSON.stringify(prev)!==JSON.stringify(updated))
+      intents.push({type:'update',id,beforeHash:await _tradeV2BrowserSha256(prev)});
+  }
+  if(deletes.size)throw Error('TRADE_DELETE_INTENT_INVALID');
+  for(const [id,t] of now) {
+    _tradeV2BrowserCanonical(t);
+    if(!old.has(id))intents.push({type:'create',id});
+  }
+  return {
+    data:JSON.stringify(localTrades),
+    targetRevision:await _tradeV2BrowserSha256(localTrades.slice().sort((a,b)=>
+      String(a.date||'').localeCompare(String(b.date||''))).map(_tradeV2BrowserCanonical)),
+    tradeLedgerProtocolVersion:'2',
+    expectedLedgerRevision:baseline.revision,
+    intents:JSON.stringify(intents)
+  };
+}
+
+// Resolve an earlier v2 write BEFORE deriving a later CAS contract. A lost
+// ACK may have advanced the server while this device still holds the old
+// preimage. Never use that old preimage for a new edit.
+// ACK COMPLETE is NOT equivalent to a readback-confirmed ledger.
+// Persist this terminal proof only after the full GET + hash + dirty-journal
+// acknowledgement. Older completed-only receipts still require recovery.
+function _markTradeV2ReadbackConfirmed_(targetUrl,expectedParams,revision) {
+  const records=_readPortfolioRecoveryReceipts();
+  const record=records?.[targetUrl]?.syncTradesV2;
+  if(!record||record.action!=='syncTradesV2'||!record.attempted
+      ||record.completed!==true
+      ||JSON.stringify(record.params)!==JSON.stringify(expectedParams)
+      ||!/^[0-9a-f]{64}$/.test(String(revision||'')))return false;
+  record.readbackConfirmedRevision=revision;
+  return _savePortfolioRecoveryReceipts(records);
+}
+
+async function _recoverOutstandingTradeV2Receipt(targetUrl,generation,baseline) {
+  const records=_readPortfolioRecoveryReceipts();
+  const record=records?.[targetUrl]?.syncTradesV2;
+  if(!record?.attempted) return {ok:true,baseline,consumedDeleteIds:[]};
+  // A completed-and-verified prior write no longer owns the current
+  // baseline. Another device can advance the server and this local client
+  // can later restore that newer authoritative ledger safely.
+  if(record.readbackConfirmedRevision){
+    if(record.completed!==true||
+        !/^[0-9a-f]{64}$/.test(String(record.readbackConfirmedRevision)))
+      return {ok:false,errorCode:'TRADE_V2_TERMINAL_RECEIPT_INVALID'};
+    return {ok:true,baseline,consumedDeleteIds:[]};
+  }
+  if(record.action!=='syncTradesV2'||!record.id||!record.params
+      ||record.params.tradeLedgerProtocolVersion!=='2')
+    return {ok:false,errorCode:'TRADE_V2_RECEIPT_INVALID'};
+  const expected=String(record.params.expectedLedgerRevision||'');
+  let rows,targetRevision,consumedDeleteIds=[];
+  try {
+    const changes=JSON.parse(record.params.intents||'[]');
+    if(!Array.isArray(changes))throw Error('INVALID_INTENTS');
+    consumedDeleteIds=changes.filter(x=>x?.type==='delete')
+      .map(x=>String(x.id||''));
+  }catch(ignore){return {ok:false,errorCode:'TRADE_V2_RECEIPT_INTENTS_INVALID'};}
+  try{
+    rows=JSON.parse(record.params.data||'[]');
+    if(!Array.isArray(rows))throw Error('TRADE_V2_RECEIPT_ROWS_INVALID');
+    targetRevision=await _tradeV2BrowserSha256(rows.slice().sort((a,b)=>
+      String(a.date||'').localeCompare(String(b.date||'')))
+      .map(_tradeV2BrowserCanonical));
+  }catch(ignore){return {ok:false,errorCode:'TRADE_V2_RECEIPT_ROWS_INVALID'};}
+  if(expected!==baseline.revision&&targetRevision!==baseline.revision)
+    return {ok:false,errorCode:'TRADE_V2_RECOVERY_BASELINE_CONFLICT'};
+  // Even a previously no-op write must have a durable server receipt
+  // before a following mutation can be prepared.
+  const query=()=>requestGsheetFormJson('getPortfolioSyncReceipt',{
+    kind:record.action,operationId:record.id,...record.params
+  },{targetUrl,timeoutMs:15000,retry:0,preserveError:true});
+  let result=await query();
+  const sameReceipt=x=>x?.status==='ok'&&x.operationId===record.id
+    &&x.kind===record.action;
+  // "attempted" is a write-ahead record, not proof that HTTP reached
+  // Apps Script. A confirmed NOT_FOUND may be replayed exactly once with
+  // the ORIGINAL operationId, request hash, source CAS and payload.
+  // GAS holds ScriptLock and de-duplicates that same id under lock.
+  // Never replay UNKNOWN/BUSY/PARTIAL/FAILED or a changed baseline.
+  if(sameReceipt(result)&&result.receiptState==='NOT_FOUND'){
+    if(expected!==baseline.revision)
+      return {ok:false,errorCode:'TRADE_V2_NOT_FOUND_BASELINE_CHANGED'};
+    if(typeof isGsheetConnectionCurrent==='function'
+        &&!isGsheetConnectionCurrent(targetUrl,generation))
+      return {ok:false,errorCode:'TRADE_V2_CONNECTION_CHANGED'};
+    await requestGsheetFormJson('syncTradesV2',{
+      ...record.params,operationId:record.id
+    },{targetUrl,timeoutMs:60000,retry:0,preserveError:true});
+    // The retry response can itself be lost; ALWAYS verify the server
+    // receipt, then GET and verify the exact financial ledger.
+    if(typeof isGsheetConnectionCurrent==='function'
+        &&!isGsheetConnectionCurrent(targetUrl,generation))
+      return {ok:false,errorCode:'TRADE_V2_CONNECTION_CHANGED'};
+    result=await query();
+  }
+  if(!sameReceipt(result)||result.receiptState!=='COMPLETE')
+    return {ok:false,errorCode:'TRADE_V2_RECEIPT_'+
+      String(result?.receiptState||result?.errorCode||'UNCONFIRMED')};
+  // Do not equate a matching in-memory revision with verified durable
+  // readback. This also handles a crash after dirty ACK persistence but
+  // before the terminal receipt marker was durably written.
+  {
+    const readback=await requestGsheetActionJson('getTrades',{},{
+      targetUrl,timeoutMs:20000,retry:0,preserveError:true
+    });
+    if(readback?.status!=='ok'||readback.tradeLedgerProtocolVersion!==2
+        ||readback.ledgerRevision!==targetRevision
+        ||!Array.isArray(readback.trades)
+        ||readback.trades.length!==rows.length)
+      return {ok:false,errorCode:'TRADE_V2_RECOVERY_READBACK_UNVERIFIED'};
+    const computed=await _tradeV2BrowserSha256(
+      readback.trades.slice().sort((a,b)=>
+        String(a.date||'').localeCompare(String(b.date||'')))
+        .map(_tradeV2BrowserCanonical));
+    if(computed!==targetRevision)
+      return {ok:false,errorCode:'TRADE_V2_RECOVERY_READBACK_HASH'};
+    if(typeof isGsheetConnectionCurrent==='function'
+        &&!isGsheetConnectionCurrent(targetUrl,generation))
+      return {ok:false,errorCode:'TRADE_V2_CONNECTION_CHANGED'};
+    // A past ACK can already be present in the durable journal when the
+    // terminal receipt write alone failed. Do not acknowledge it twice.
+    if(targetRevision!==baseline.revision
+        &&typeof _acknowledgePortfolioTradeV2Sync==='function'
+        &&!_acknowledgePortfolioTradeV2Sync(targetUrl,baseline,{
+          revision:targetRevision,trades:readback.trades
+        }))return {ok:false,errorCode:'TRADE_V2_RECOVERY_ACK_PERSIST_FAILED'};
+    if(targetRevision===baseline.revision
+        &&Array.isArray(baseline.trades)){
+      const known=await _tradeV2BrowserSha256(
+        baseline.trades.slice().sort((a,b)=>
+          String(a.date||'').localeCompare(String(b.date||'')))
+          .map(_tradeV2BrowserCanonical));
+      if(known!==targetRevision)
+        return {ok:false,errorCode:'TRADE_V2_RECOVERY_LOCAL_BASELINE_MISMATCH'};
+    }
+    baseline={...baseline,revision:targetRevision,
+      trades:readback.trades.map(t=>({...t}))};
+    window._tradeLedgerV2BaselineTargets={
+      ...(window._tradeLedgerV2BaselineTargets||{}),[targetUrl]:baseline
+    };
+  }
+  record.completed=true;
+  record.readbackConfirmedRevision=targetRevision;
+  if(!_savePortfolioRecoveryReceipts(records))
+    return {ok:false,errorCode:'TRADE_V2_RECEIPT_LOCAL_BACKUP_FAILED'};
+  return {ok:true,baseline,consumedDeleteIds};
+}
+
 function _readPortfolioRecoveryReceipts() {
   const value = lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, {});
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -25,9 +257,12 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
       kind:record.action,operationId:record.id,...record.params
     }, {targetUrl,timeoutMs:15000,retry:0,preserveError:true});
     if (!current()) return 'CONNECTION_CHANGED';
-    return response?.status === 'ok' && (response.receiptState === 'BUSY'
-      || (response.operationId === record.id && response.kind === record.action))
-      ? response.receiptState : 'UNAVAILABLE';
+    const valid=response?.status === 'ok' && (response.receiptState === 'BUSY'
+      || (response.operationId === record.id && response.kind === record.action));
+    if (valid && record.action === 'syncTrades'
+        && response.tradeFxMetadataVersion === 1)
+      record.tradeFxMetadataVersion=1;
+    return valid ? response.receiptState : 'UNAVAILABLE';
   };
   // 다른 단계의 이전 요청도 먼저 확인한다. 확인 전에는 새 원장 쓰기를 시작하지 않는다.
   for (const previous of Object.values(target)) {
@@ -41,7 +276,8 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
   const signature = JSON.stringify(params);
   if (record?.attempted && JSON.stringify(record.params) === signature) {
     if (!_savePortfolioRecoveryReceipts(records)) return fail('LOCAL_BACKUP_FAILED');
-    return {status:'ok',saveState:'success',receiptState:'COMPLETE',replayed:true};
+    return {status:'ok',saveState:'success',receiptState:'COMPLETE',replayed:true,
+      ...(record.tradeFxMetadataVersion === 1 ? {tradeFxMetadataVersion:1} : {})};
   }
   record = {action,scope,completed:false,id:'pr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_'+Math.random().toString(36).slice(2),params,attempted:false};
   target = {...target,[action]:record};
@@ -64,7 +300,9 @@ async function _requestPortfolioRecoveryWrite(action, params, options) {
   if (after !== 'COMPLETE') return fail(after || 'UNKNOWN');
   record.completed = true;
   return _savePortfolioRecoveryReceipts(records)
-    ? {status:'ok',saveState:'success',receiptState:after,replayed:true} : fail('LOCAL_BACKUP_FAILED');
+    ? {status:'ok',saveState:'success',receiptState:after,replayed:true,
+      ...(record.tradeFxMetadataVersion === 1 ? {tradeFxMetadataVersion:1} : {})}
+    : fail('LOCAL_BACKUP_FAILED');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1421,6 +1659,7 @@ async function syncTradesToGsheet(options) {
           : (ep?.code || remote?.code || STOCK_CODE[ep?.name || t.name] || '');
         const code = isDirectFund ? '' : _normalizeSyncCode(baseCode || t.code || '');
         return {
+          id:        t.id || '',
           date:      t.date,
           tradeType: t.tradeType,
           acct:      t.acct      || '',
@@ -1431,6 +1670,13 @@ async function syncTradesToGsheet(options) {
           assetType: isDirectFund ? (t.assetType || t.type || '펀드')
             : getEPType(ep, remote?.type || t.assetType || '주식'),
           memo:      t.memo      || '',
+          tradeFxSchemaVersion: 1,
+          ratio:     t.ratio || 0,
+          fractionalCash: t.fractionalCash || 0,
+          ...(t.priceRaw != null && t.priceRaw !== ''
+             ? {priceRaw: t.priceRaw} : {}),
+          ...(t.fxRateAtBuy != null && t.fxRateAtBuy !== ''
+             ? {fxRateAtBuy: t.fxRateAtBuy} : {}),
         };
       });
     // Never persist a truncated dirty ledger during authoritative restore:
@@ -1463,6 +1709,139 @@ async function syncTradesToGsheet(options) {
       }).catch(()=>{});
     }
 
+    // v2 stays completely inactive on the approved GAS 9.284 endpoint.
+    // Activate only when the SAME Bootstrap supplied 14-column IDs and
+    // revision, with exact URL + generation provenance.
+    const v2Generation=Number.isInteger(generation)?generation:
+      (typeof getGsheetConnectionGeneration==='function'
+        ?getGsheetConnectionGeneration():-1);
+    let v2Baseline=_tradeV2PinnedBaseline(targetUrl,v2Generation);
+    if(window._tradeLedgerV2RequiredTargets?.[targetUrl]===true && !v2Baseline)
+      return {status:'error',errorCode:'TRADE_V2_BASELINE_REQUIRED',
+        saveState:'failed'};
+    if(v2Baseline){
+      const recovered=await _recoverOutstandingTradeV2Receipt(
+        targetUrl,v2Generation,v2Baseline);
+      if(!recovered.ok)return {status:'error',
+        errorCode:recovered.errorCode,saveState:'partial',
+        followupRequired:true};
+      v2Baseline=recovered.baseline;
+      // A filtered/malformed local ledger must not become an implicit delete.
+      if(trades.length!==sourceTrades.length)
+        return {status:'error',errorCode:'TRADE_V2_TRUNCATED_LOCAL_LEDGER',
+          saveState:'failed'};
+      // A read-only recovery may consume old deletion IDs in the durable
+      // journal *within this very call*. Never reuse the options array
+      // captured before that recovery.
+      const latestDirty=typeof _getPortfolioRemoteDirty==='function'
+        ?_getPortfolioRemoteDirty():null;
+      const idsFromJournal=options?.recoveryWrite===true
+        &&latestDirty?.target===targetUrl
+        &&Array.isArray(latestDirty.tradeV2DeleteIds)
+        ?latestDirty.tradeV2DeleteIds:null;
+      const pendingIds=idsFromJournal||
+        (Array.isArray(options?.tradeV2DeleteIds)?options.tradeV2DeleteIds:
+          (allowEmpty&&trades.length===0
+            ?v2Baseline.trades.map(t=>String(t.id)):[]));
+      const recoveredDeletes=new Set(recovered.consumedDeleteIds||[]);
+      const declaredDeleteIds=pendingIds.filter(id=>
+        !recoveredDeletes.has(String(id)));
+      let contract;
+      try{
+        contract=await _prepareTradeV2SyncContract(
+          v2Baseline,trades,declaredDeleteIds);
+      }catch(err){
+        const code=String(err?.message||'TRADE_V2_LOCAL_CONTRACT_FAILED');
+        _syncWarn('[거래 v2] 쓰기 전 검증 실패:',code);
+        return {status:'error',errorCode:code,saveState:'failed'};
+      }
+      const targetRevision=contract.targetRevision;
+      const {targetRevision:ignoreComputed,...request}=contract;
+      const response=await _requestPortfolioRecoveryWrite('syncTradesV2',{
+        ...request,explicitEmpty:allowEmpty?'1':'',rebuildFrom
+      },{
+        targetUrl,generation:v2Generation,
+        recoveryScope:'trade-v2:'+v2Baseline.revision,
+        timeoutMs:60000,retry:0,preserveError:true
+      });
+      if(response?.status!=='ok'||response.receiptState!=='COMPLETE'){
+        _syncWarn('[거래 v2] 영수증 확정 전 추가 쓰기 차단:',
+          response?.errorCode||'SYNC_RECEIPT_UNCONFIRMED');
+        return response||{status:'error',errorCode:'TRADE_V2_RECEIPT_UNAVAILABLE',
+          saveState:'partial',followupRequired:true};
+      }
+      // An ACK or read-only receipt alone is not enough to advance the
+      // browser baseline. Re-fetch the exact financial ledger after saving.
+      const verified=await requestGsheetActionJson('getTrades',{},{
+        targetUrl,timeoutMs:20000,retry:0,preserveError:true
+      });
+      const connectionOk=typeof isGsheetConnectionCurrent!=='function'
+        ||isGsheetConnectionCurrent(targetUrl,v2Generation);
+      if(!connectionOk||verified?.status!=='ok'
+          ||verified.tradeLedgerProtocolVersion!==2
+          ||verified.ledgerRevision!==targetRevision
+          ||!Array.isArray(verified.trades)
+          ||verified.trades.length!==trades.length
+          ||verified.trades.some(t=>!t?.id)){
+        return {status:'error',errorCode:'TRADE_V2_READBACK_UNVERIFIED',
+          saveState:'partial',followupRequired:true};
+      }
+      let readbackDigest;
+      try {
+        readbackDigest=await _tradeV2BrowserSha256(
+          verified.trades.slice().sort((a,b)=>
+            String(a.date||'').localeCompare(String(b.date||'')))
+            .map(_tradeV2BrowserCanonical));
+      }catch(ignore){
+        return {status:'error',errorCode:'TRADE_V2_READBACK_INVALID',
+          saveState:'partial',followupRequired:true};
+      }
+      if(readbackDigest!==targetRevision)
+        return {status:'error',errorCode:'TRADE_V2_READBACK_HASH_MISMATCH',
+          saveState:'partial',followupRequired:true};
+      if(typeof isGsheetConnectionCurrent==='function'
+          &&!isGsheetConnectionCurrent(targetUrl,v2Generation))
+        return {status:'error',errorCode:'TRADE_V2_CONNECTION_CHANGED',
+          saveState:'partial',followupRequired:true};
+      // The trading ledger is already verified on the server. Persist the
+      // new preimage and consume acknowledged deletion IDs BEFORE returning
+      // to a caller that may still fail in its Holdings/Settings step.
+      if(typeof _acknowledgePortfolioTradeV2Sync==='function' &&
+          !_acknowledgePortfolioTradeV2Sync(targetUrl,v2Baseline,{
+            revision:targetRevision,trades:verified.trades
+          }))
+        return {status:'error',errorCode:'TRADE_V2_DIRTY_ACK_PERSIST_FAILED',
+          saveState:'partial',followupRequired:true};
+      // Journal ACK has already advanced durably. Update in-memory
+      // baseline BEFORE writing the terminal marker, so a one-off marker
+      // failure cannot strand a stale in-memory preimage and double-ACK.
+      window._tradeLedgerV2BaselineTargets={
+        ...(window._tradeLedgerV2BaselineTargets||{}),
+        [targetUrl]:{...v2Baseline,revision:targetRevision,
+          trades:verified.trades.map(t=>({...t}))}
+      };
+      if(!_markTradeV2ReadbackConfirmed_(targetUrl,{
+          ...request,explicitEmpty:allowEmpty?'1':'',rebuildFrom
+        },targetRevision))
+        return {status:'error',
+          errorCode:'TRADE_V2_READBACK_RECEIPT_PERSIST_FAILED',
+          saveState:'partial',followupRequired:true};
+      return {...response,saveState:'success',
+        tradeLedgerProtocolVersion:2,tradeFxMetadataVersion:1,
+        ledgerRevision:targetRevision};
+    }
+
+    // Older GAS versions silently discard the foreign currency/unit-price
+    // fields. Never send such a ledger to an endpoint that did not explicitly
+    // advertise 13-column round-trip support on THIS exact connection.
+    const hasFxMetadata = trades.some(t =>
+      t.priceRaw !== undefined || t.fxRateAtBuy !== undefined);
+    if (hasFxMetadata && !_hasTradeFxMetadataProtocol(targetUrl)) {
+      _syncWarn('[거래이력 동기화] 서버의 외화원단가·매입환율 보존 지원 미확인, 원본 덮어쓰기 차단');
+      if (typeof showToast === 'function')
+        showToast('외화 거래 원단가·매입환율 서버 보존 미확인 · 거래 저장을 보류했습니다.', 'warn', 7000);
+      return {status:'error', errorCode:'TRADE_FX_METADATA_UNSUPPORTED',saveState:'failed'};
+    }
     const writeTrades = options?.recoveryWrite === true && _hasPortfolioReceiptProtocol(targetUrl)
       ? _requestPortfolioRecoveryWrite : requestGsheetFormJson;
     const data = await writeTrades(
@@ -1476,6 +1855,11 @@ async function syncTradesToGsheet(options) {
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') {
+      // Even with an earlier feature-advertisement, a stale rolling
+      // deployment must return a post-write FX capability acknowledgement.
+      if (hasFxMetadata && data.tradeFxMetadataVersion !== 1)
+        return {status:'error',errorCode:'TRADE_FX_METADATA_ACK_MISSING',
+          saveState:'partial',followupRequired:true};
       _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
       return data;
     }

@@ -1179,6 +1179,15 @@ function _normalizePortfolioRemoteDirtyEntry(value) {
     receiptProtocol: value.receiptProtocol === 1 ? 1 : 0,
     receiptScope: String(value.receiptScope || ''),
     legacyUntracked: value.legacyUntracked === true,
+    tradeV2DeleteIds:Array.isArray(value.tradeV2DeleteIds)
+      ?Array.from(new Set(value.tradeV2DeleteIds.map(String))).filter(Boolean):[],
+    tradeV2Baseline:value.tradeV2Baseline
+      && value.tradeV2Baseline.targetUrl===target
+      && value.tradeV2Baseline.protocol===2
+      && /^[0-9a-f]{64}$/.test(String(value.tradeV2Baseline.revision||''))
+      && Array.isArray(value.tradeV2Baseline.trades)
+      ?{targetUrl:target,protocol:2,revision:value.tradeV2Baseline.revision,
+        trades:value.tradeV2Baseline.trades.map(t=>({...t}))}:null,
     trades: Array.isArray(value.trades) ? value.trades.map(t => ({ ...t })) : [],
     holdings: Array.isArray(value.holdings) ? value.holdings.map(h => ({ ...h })) : [],
     fundDirect: value.fundDirect && typeof value.fundDirect === 'object'
@@ -1221,16 +1230,51 @@ function _persistPortfolioRemoteDirtyMap() {
   }
 }
 
-function _markPortfolioRemoteDirty() {
+function _markPortfolioRemoteDirty(deletedTradeIds) {
   const target = _currentGsheetSyncTarget();
   if (!target) return 0;
   const epoch = ++_portfolioRemoteSyncEpoch;
+  const previous=_portfolioRemoteDirtyByTarget[target];
+  // A confirmed UI delete remains explicit across debounce and offline
+  // journal retries. Missing ledger rows are never independently inferred.
+  const liveIds=new Set(rawTrades.map(t=>String(t.id||'')));
+  const requestedDeleteIds=Array.from(new Set([
+    ...(Array.isArray(previous?.tradeV2DeleteIds)?previous.tradeV2DeleteIds:[]),
+    ...(Array.isArray(deletedTradeIds)?deletedTradeIds:[])
+  ].map(String))).filter(id=>id && !liveIds.has(id));
+  const pinned=typeof _tradeV2PinnedBaseline==='function'
+    ?_tradeV2PinnedBaseline(target,typeof getGsheetConnectionGeneration==='function'
+      ?getGsheetConnectionGeneration():null):null;
+  const tradeV2Baseline=previous?.tradeV2Baseline ||
+    (pinned?{targetUrl:target,protocol:2,revision:pinned.revision,
+      trades:pinned.trades.map(t=>({...t}))}:null);
+  // A just-created trade can be removed before the debounce or while
+  // offline: absent a server preimage and an ATTEMPTED create receipt, this
+  // is cancellation of a local create, NOT an authoritative server delete.
+  const serverIds=new Set((tradeV2Baseline?.trades||[])
+    .map(t=>String(t.id||'')));
+  const receipt=typeof _readPortfolioRecoveryReceipts==='function'
+    ?_readPortfolioRecoveryReceipts()?.[target]?.syncTradesV2:null;
+  const attempted=receipt?.action==='syncTradesV2'&&receipt.attempted===true;
+  let attemptedCreatedIds=new Set(),receiptUnparseable=false;
+  if(attempted){
+    try{
+      const submitted=JSON.parse(receipt.params?.data||'[]');
+      if(!Array.isArray(submitted))throw Error('INVALID_RECEIPT_ROWS');
+      attemptedCreatedIds=new Set(submitted.map(t=>String(t.id||'')));
+    }catch(ignore){receiptUnparseable=true;}
+  }
+  const tradeV2DeleteIds=requestedDeleteIds.filter(id=>
+    !tradeV2Baseline||serverIds.has(id)||attemptedCreatedIds.has(id)||
+    receiptUnparseable);
   _portfolioRemoteDirtyByTarget[target] = {
     target,
     epoch,
     receiptProtocol: 1,
     receiptScope: 'task_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2),
     legacyUntracked: !!(_portfolioRemoteDirtyByTarget[target] && (_portfolioRemoteDirtyByTarget[target].receiptProtocol !== 1 || _portfolioRemoteDirtyByTarget[target].legacyUntracked)),
+    tradeV2DeleteIds,
+    tradeV2Baseline,
     trades: rawTrades.map(t => ({ ...t })),
     holdings: rawHoldings.map(h => ({ ...h })),
     fundDirect: (typeof fundDirect === 'object' && fundDirect)
@@ -1239,6 +1283,38 @@ function _markPortfolioRemoteDirty() {
   };
   _persistPortfolioRemoteDirtyMap();
   return epoch;
+}
+
+// Consume an explicit deletion ONLY when the server readback confirms the
+// old trade ID is absent and the full revision has been verified. Persist
+// the advanced v2 baseline with the dirty journal before any later Settings
+// step, so a Settings retry cannot delete the same ID a second time.
+function _acknowledgePortfolioTradeV2Sync(target,oldBaseline,verified) {
+  const dirty=_portfolioRemoteDirtyByTarget[target];
+  if(!dirty||!dirty.tradeV2Baseline)return true;
+  if(dirty.tradeV2Baseline.revision!==oldBaseline?.revision||
+      !verified||!Array.isArray(verified.trades)||
+      !/^[0-9a-f]{64}$/.test(String(verified.revision||'')))
+    return false;
+  const existing=new Set(verified.trades.map(t=>String(t.id||'')));
+  const removed=new Set((oldBaseline.trades||[])
+    .map(t=>String(t.id||'')).filter(id=>id&&!existing.has(id)));
+  const oldSnapshot={...dirty,
+    tradeV2DeleteIds:[...(dirty.tradeV2DeleteIds||[])],
+    tradeV2Baseline:dirty.tradeV2Baseline};
+  dirty.tradeV2DeleteIds=(dirty.tradeV2DeleteIds||[])
+    .filter(id=>!removed.has(String(id)));
+  dirty.tradeV2Baseline={targetUrl:target,protocol:2,
+    revision:verified.revision,trades:verified.trades.map(t=>({...t}))};
+  _persistPortfolioRemoteDirtyMap();
+  const read=typeof lsGet==='function'
+    ?lsGet(PORTFOLIO_REMOTE_DIRTY_KEY,{})?.[target]:null;
+  if(read&&read.tradeV2Baseline?.revision===verified.revision &&
+      JSON.stringify(read.tradeV2DeleteIds||[])===
+      JSON.stringify(dirty.tradeV2DeleteIds))return true;
+  // Do not advertise local completion on a non-durable acknowledgement.
+  Object.assign(dirty,oldSnapshot);
+  return false;
 }
 
 function _clearPortfolioRemoteDirty(epoch, target) {
@@ -1385,6 +1461,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
               recoveryWrite: true,
               recoveryScope: dirty.receiptScope,
               tradesOverride: dirty.trades,
+              tradeV2DeleteIds: dirty.tradeV2DeleteIds,
               masterCodesOverride: options?.masterCodesOverride
             })
           : Promise.resolve(null));
@@ -1516,6 +1593,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
                 generation: retryGeneration,
                 allowDuringRestore,
                 tradesOverride: recoveryTrades,
+                tradeV2DeleteIds:_portfolioRemoteDirtyByTarget[retryTarget]?.tradeV2DeleteIds || [],
                 masterCodesOverride: options?.masterCodesOverride
               })
             : Promise.resolve(null)
@@ -1693,7 +1771,7 @@ function saveHoldings(options) {
   }
   // pending 실패 뒤 새 거래가 생겨도 성공 전에는 repair token을 지우지 않습니다.
   // debounce는 아래 _retryPendingExplicitEmptyTradeSync()의 rawTrades>0 분기로 현재 원장을 재전송합니다.
-  _markPortfolioRemoteDirty();
+  _markPortfolioRemoteDirty(options?.tradeV2DeleteIds);
   const remoteSyncTarget = _currentGsheetSyncTarget();
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
@@ -1840,7 +1918,8 @@ function _commitTrades(options) {
   syncHoldingsFromTrades({ clearWhenEmpty: true });
   saveHoldings({
     allowEmptyTradeSync: options?.allowEmptyTradeSync === true,
-    emptyTradeSyncFrom: options?.emptyTradeSyncFrom || ''
+    emptyTradeSyncFrom: options?.emptyTradeSyncFrom || '',
+    tradeV2DeleteIds:options?.tradeV2DeleteIds || []
   });
   refreshAll();
   // 현재가 편집창이 열린 상태에서 전량 매도하면 목록도 즉시 다시 계산합니다.
