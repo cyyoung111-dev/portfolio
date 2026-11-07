@@ -77,6 +77,38 @@ export function describeWorkerCheckpointEvidence(data,{now=new Date()}={}) {
     checkpointStatus,checkpointAge,runtimeAssessment,triggerVisibility};
 }
 
+// Project ONLY already-sanitized getAutomationStatus evidence; the existing
+// workflow issues one authenticated READ_ONLY request and keeps its old gate.
+// A GAS persisted checkpoint is not an Apps Script Executions trace.
+const CLOSE_STATES=new Set(['COMPLETE','INCOMPLETE','ERROR','NEVER_RUN','UNKNOWN']);
+const CLOSE_STAGES=new Set(['PRICE','FUND','FUND_PENDING','COMPLETE','ERROR','UNKNOWN']);
+const FUND_ATTEMPT_STATES=new Set(['DONE','ERROR','UNKNOWN_LEGACY','TIMEOUT_SUSPECTED','IN_PROGRESS','UNKNOWN']);
+const FUND_WORK_STAGES=new Set(['REQUEST','OWNER_CHECK','OWNER_READY','PRICE_VERIFY',
+  'SCHEDULE','RESERVATION','LEASE','VALUATION','RECONCILE','DONE','FAILED',
+  'fundUnitsRead','storedNavRead','priceHistoryRead','fundUnitsResolve',
+  'storedNavResolve','externalNavFetch','navConfirm','valuationCalculate',
+  'writeLockWait','navWrite','priceHistoryWrite','snapshotTargetCalculate','snapshotWrite']);
+const FUND_FAILURE_CLASSES=new Set(['NONE','CONTINUATION','BUSY',
+  'PRICE_WRITE_VERIFICATION','NAV_CONFLICT','PROPERTY_LIMIT',
+  'SHEET_CAPACITY','TIMEOUT','BACKUP_FAILURE','SNAPSHOT_PROTECTED',
+  'WRITE_VERIFICATION','INTERNAL_RUNTIME','NAV_PROCESSING','UNCLASSIFIED']);
+export function describeFundCloseCheckpoint(data) {
+  const close=data?.close, checkpoint=data?.fundResumeCheckpoint;
+  return {
+    level:'GAS_SAVED_CHECKPOINT_ONLY',processApiExecutionVerified:false,
+    closeState:safeBucket(close?.state,CLOSE_STATES),
+    closeStage:safeBucket(close?.stage,CLOSE_STAGES),
+    closeRunDate:safeRunDate(close?.runDate),
+    priceOk:typeof close?.priceOk==='boolean'?close.priceOk:null,
+    fundOk:typeof close?.fundOk==='boolean'?close.fundOk:null,
+    fundAttemptState:safeBucket(close?.fundState,FUND_ATTEMPT_STATES),
+    fundFailureClass:safeBucket(close?.fundErrorCode,FUND_FAILURE_CLASSES),
+    fundWorkStage:safeBucket(checkpoint?.lastWorkStage,FUND_WORK_STAGES),
+    // No raw checkpoint ID, error, writer token or financial number is logged.
+    fundResumeCheckpointPresent:!!checkpoint
+  };
+}
+
 function isExpectedPublicationWait(data,{now,today,issues,slots}) {
   if(krxSessionStatus(today)!=='OPEN')return false;
   const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
@@ -208,6 +240,7 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
     historicalSlotReasons,
     historicalSlotRunDates,
     workerCheckpointEvidence:describeWorkerCheckpointEvidence(data,{now}),
+    fundCloseCheckpointEvidence:describeFundCloseCheckpoint(data),
     lastBackfillFailureClass:safeBucket(
       data.latestBackfill?.failureClass,BACKFILL_FAILURE_CLASSES),
     lastHistoricalFailureClass:safeBucket(
@@ -259,6 +292,14 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| Worker RUNNING 평가 | '+result.workerCheckpointEvidence.runtimeAssessment+' |',
         '| Worker 트리거 현재 사용자 관측 | '+result.workerCheckpointEvidence.triggerVisibility+' |',
         '| Worker 실제 프로세스 실행 증명 | 미확인 (별도 script.processes 권한 필요) |',
+        '| 마감 상태·단계 (GAS 저장값) | '+result.fundCloseCheckpointEvidence.closeState+
+          ' / '+result.fundCloseCheckpointEvidence.closeStage+' |',
+        '| 마감 PRICE / FUND (GAS 저장값) | '+result.fundCloseCheckpointEvidence.priceOk+
+          ' / '+result.fundCloseCheckpointEvidence.fundOk+' |',
+        '| 펀드 시도 상태 | '+result.fundCloseCheckpointEvidence.fundAttemptState+' |',
+        '| 펀드 장애 유형 | '+result.fundCloseCheckpointEvidence.fundFailureClass+' |',
+        '| 펀드 마지막 단계 | '+result.fundCloseCheckpointEvidence.fundWorkStage+' |',
+        '| 펀드 GAS 프로세스 실행 증명 | 미확인 (별도 Apps Script 실행 이력 필요) |',
         '| KRX 백필 장애 분류 | '+result.lastBackfillFailureClass+' |',
         '| 과거 재처리 장애 분류 | '+result.lastHistoricalFailureClass+' |',
         '',

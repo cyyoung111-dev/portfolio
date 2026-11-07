@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {summarizeCloseStatus} from './diagnose-backfill-status.mjs';
 import YAML from 'yaml';
-import {assessKrxOvernightHealth,describeWorkerCheckpointEvidence} from './assess-krx-overnight-health.mjs';
+import {assessKrxOvernightHealth,describeWorkerCheckpointEvidence,describeFundCloseCheckpoint} from './assess-krx-overnight-health.mjs';
 
 const now=new Date('2026-10-19T02:40:00+09:00');
 const slot=(date,state='SUCCEEDED')=>({runDate:date,state});
@@ -323,4 +323,47 @@ const extraRecoveryEnv=nightlySource.replace(
 assert.notEqual(extraRecoveryEnv,nightlySource,'must mutate actual env');
 assert.throws(()=>assertNightlyWorkflowGuard(extraRecoveryEnv),
   /no recovery-control variables/);
+// The existing single READ_ONLY getAutomationStatus already has the
+// sanitized closeRun/fundAttempt and fund_resume_checkpoint. Publish its
+// *fixed enums* without any new endpoint, write, or exposure of raw errors.
+const closeEvidence={
+ ...good,overallStatus:'ERROR',
+ close:summarizeCloseStatus({
+   portfolioClose:{runDate:'2026-10-18',priceOk:true,fundOk:false,
+     errors:['SENSITIVE_HOLDING_OR_ACCOUNT_VALUE_42']},
+   closeRun:{state:'ERROR',stage:'FUND',runDate:'2026-10-18'},
+   fundAttempt:{state:'TIMEOUT_SUSPECTED',date:'2026-10-18'},
+   fundLastError:'Apps Script 실행 시간 초과',
+ }),
+ fundResumeCheckpoint:{stage:'VALUATION',lastWorkStage:'navWrite',
+   requestId:'0e6f130a-6eb9-4a47-8923-984928312174',atMs:1,
+   elapsedMs:1000,sequence:3}
+};
+const fundEvidence=describeFundCloseCheckpoint(closeEvidence);
+assert.deepEqual(fundEvidence,{
+ level:'GAS_SAVED_CHECKPOINT_ONLY',processApiExecutionVerified:false,
+ closeState:'ERROR',closeStage:'FUND',closeRunDate:'2026-10-18',
+ priceOk:true,fundOk:false,fundAttemptState:'TIMEOUT_SUSPECTED',
+ fundFailureClass:'TIMEOUT',fundWorkStage:'navWrite',
+ fundResumeCheckpointPresent:true
+});
+assert.deepEqual(assessKrxOvernightHealth(closeEvidence,{now}).issues,
+ ['AUTOMATION_NOT_NORMAL'],
+ 'reporting diagnostic evidence must not relax or tighten existing KRX gate');
+assert.deepEqual(assessKrxOvernightHealth(closeEvidence,{now}).fundCloseCheckpointEvidence,
+ fundEvidence);
+const unsupported=describeFundCloseCheckpoint({
+ close:{state:'SECRET_INSIDE_42',stage:'SECRET_INSIDE_42',
+   fundState:'SECRET_INSIDE_42',fundErrorCode:'SECRET_INSIDE_42',
+   runDate:'2026-10-18'},fundResumeCheckpoint:{lastWorkStage:'SECRET_INSIDE_42'}
+});
+assert.equal(unsupported.closeState,'UNVERIFIED');
+assert.equal(unsupported.fundWorkStage,'UNVERIFIED');
+assert.doesNotMatch(JSON.stringify(unsupported),/SECRET_INSIDE_42/);
+assert.doesNotMatch(JSON.stringify(fundEvidence),
+ /SENSITIVE_HOLDING_OR_ACCOUNT_VALUE_42|0e6f130a|accessToken|GAS_WEB_APP_URL/);
+assert.equal(describeFundCloseCheckpoint(good).fundWorkStage,'NOT_REPORTED');
+const nightlyAssessorSource=fs.readFileSync('scripts/assess-krx-overnight-health.mjs','utf8');
+assert.match(nightlyAssessorSource,/펀드 마지막 단계/);
+assert.doesNotMatch(nightlyAssessorSource,/action:['"](?:collectKbFundNav|resumeIncompletePortfolioClose|runDailyFundValuations)['"]/);
 console.log('KRX overnight health: read-only contract, queued/failed/mismatched/healthy checks PASS');
