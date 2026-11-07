@@ -71,7 +71,7 @@ export function evaluateSemiconductorCompanyViews({
    ?(item.operatingProfitTrillion/item.priorYearQuarterOperatingProfitTrillion-1)*100:null;
   const valueLine=book
    ?'BPS '+num(book.bps)+'원 / '+(book.indicative?'참고 ':'')+'PBR '
-     +round(book.pbr)+'배 ['+price.date+' '+(price.source==='NH_REGULAR_CLOSE'?'NH':'KRX')+']'
+     +round(book.pbr)+'배 ['+book.period+' 연결 · '+price.date+' '+(price.source==='NH_REGULAR_CLOSE'?'NH':'KRX')+']'
    :price?'종가 '+num(price.value)+'원 ['+price.date+'] / BPS·PBR 미확보'
     :'확정 종가·BPS·PBR 미확보';
   const buffett=item.id==='SAMSUNG'
