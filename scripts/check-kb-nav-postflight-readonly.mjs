@@ -45,9 +45,17 @@ assert.equal(assess({close:{...oldClose,runStale:false},fundRow:priorRow,
 assert.equal(assess({close:{...close,state:'COMPLETE',fundOk:true,
  snapshotStale:true}}).pass,false,
  'snapshot stale status must fail closed');
+// Before 21:00 KST the GAS expected session may still be yesterday.
+ // A newer, independently verified completed close is valid.
 assert.equal(assess({close:{...close,state:'COMPLETE',fundOk:true,
- expectedSnapshotDate:'2026-11-05'}}).pass,false,
- 'a prior snapshot date cannot prove the latest close');
+ expectedRunDate:'2026-11-05',expectedSnapshotDate:'2026-11-05'}}).pass,true,
+ 'newer completed close must be accepted against yesterday minimum');
+assert.equal(assess({close:{...close,state:'COMPLETE',fundOk:true,
+ expectedSnapshotDate:'2026-11-07'}}).pass,false,
+ 'an expected snapshot date newer than saved close cannot be verified');
+assert.equal(assess({close:{...close,state:'COMPLETE',fundOk:true,
+ expectedRunDate:'2026-11-07'}}).pass,false,
+ 'an expected close date newer than saved run must be rejected');
 assert.deepEqual({financialWrites:healthy.financialWrites,
  gasDeployments:healthy.gasDeployments,telegramSends:healthy.telegramSends},
  {financialWrites:0,gasDeployments:0,telegramSends:0});
