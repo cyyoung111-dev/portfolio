@@ -60,7 +60,7 @@ const ctx=vm.createContext({
   _fundUnitsAtDate:(_confs,_code,_day)=>conf,
   _storedFundNavRows:()=>rows(),
   _fundNavExpectedPublicationDate:(d)=>d===older||d===date,
-  _fundDailyValues:(_confs,code,navRows,from,to)=>[older,date,weekend].map(d=>{
+  _fundDailyValues:(_confs,code,navRows,from,to)=>[older,date,weekend].filter(d=>d>=from&&d<=to).map(d=>{
     const latest=navRows.filter(n=>n.date<=d).at(-1);
     return {date:d,code,name:'KB_TEST',nav:latest.nav,sourceDate:latest.date,
       units:1000,evalAmt:Math.round(latest.nav),provider:'KB_VALUE_ST'};
@@ -78,9 +78,7 @@ assert.equal(done.fundResults.F00002.navMissing,1);
 assert.deepEqual([...done.fundResults.F00002.inputRequiredDates],[date]);
 assert.equal(done.processing.nav.pending,1);
 assert.equal(done.fundResults.F00002.valuations,0);
-assert.equal(done.fundResults.F00002.completedSkipped,3);
-assert.equal(done.fundResults.F00002.dates.find(x=>x.date===weekend).navState,
- 'NON_PUBLICATION_CARRY','2026-11-07 Saturday carries the last confirmed 11/06 NAV');
+assert.equal(done.fundResults.F00002.completedSkipped,2);
 assert.equal(done.processing.snapshots.processed,0);
 assert.equal(done.saved,0);
 assert.equal(done.continuation,false);
@@ -92,7 +90,7 @@ done=ctx._refreshFundValuations(ss,older,date,undefined,true);
 assert.equal(done.completionStatus,'ok');
 assert.equal(done.fundResults.F00002.navMissing,0);
 assert.equal(done.fundResults.F00002.valuations,0);
-assert.equal(done.fundResults.F00002.completedSkipped,3);
+assert.equal(done.fundResults.F00002.completedSkipped,2);
 assert.equal(done.navSaved,0);
 assert.equal(lockCount,0);
 assert.equal(writeCount,0);
@@ -112,6 +110,9 @@ pendingDerivedDates.clear();
 done=ctx._refreshFundValuations(ss,older,weekend,undefined,true);
 assert.equal(done.completionStatus,'ok');
 assert.equal(done.fundResults.F00002.valuations,0);
+assert.equal(done.fundResults.F00002.completedSkipped,3);
+assert.equal(done.fundResults.F00002.dates.find(x=>x.date===weekend).navState,
+ 'NON_PUBLICATION_CARRY','2026-11-07 Saturday carries last confirmed 11/06 NAV');
 assert.equal(lockCount,2,'fully reconciled weekend must not acquire writer');
 assert.equal(writeCount,0,'simulation cannot write financial data');
 console.log('GAS9285_FUND_NOOP_PREVIEW_OK '+JSON.stringify({
