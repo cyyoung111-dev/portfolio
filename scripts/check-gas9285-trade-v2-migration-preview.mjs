@@ -13,7 +13,7 @@ const extract=name=>{
  assert(i>=0&&j>i,name+' absent from generated production source');
  return candidate.slice(i,j+2);
 };
-const names=['_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
+const names=['_cleanCode','_portfolioTradeFxMetadata_','_tradeV2CanonicalRow_',
  '_tradeV2Revision_','_tradeV2MigrationPlan_','handlePreviewTradeLedgerV2Migration_'];
 const ctx=vm.createContext({JSON,Date,String,Number,Array,isFinite,
  _issue507GateInside_:true,
