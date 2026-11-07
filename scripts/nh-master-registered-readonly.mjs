@@ -6,7 +6,7 @@ import {selectNhReadbackCodes} from './activate-nh-gas-runtime.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
 export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
- report=()=>{},expectedGasVersion='9.284'}={}){
+ report=()=>{},expectedGasVersion=null}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('NH_MASTER_PROBE_AUTH_MISSING');
  const call=async(action,args={})=>{
@@ -22,8 +22,13 @@ export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
   catch{throw Error('NH_MASTER_PROBE_JSON_UNVERIFIED');}
  };
  const master=await call('getCodeListReadOnly');
+ // During a 9.284 -> 9.285 cutover both versions are recognized.
+ // Forensic callers can still request a single exact GAS version.
+ const versionOk=expectedGasVersion===null
+   ?['9.284','9.285'].includes(master?.gasVersion)
+   :master?.gasVersion===expectedGasVersion;
  if(master?.status!=='ok'||master?.readOnly!==true
-    ||master?.gasVersion!==expectedGasVersion||!Array.isArray(master.codes))
+    ||!versionOk||!Array.isArray(master.codes))
   throw Error('NH_MASTER_PROBE_MASTER_UNVERIFIED');
  const codes=selectNhReadbackCodes(master.codes);
  if(codes.length<1||codes.length>2)throw Error('NH_MASTER_PROBE_SAMPLE_UNVERIFIED');
