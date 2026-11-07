@@ -61,6 +61,8 @@ jobs:
           assert.ok(PREFIX.includes('시험발송') && CLAIM.includes('afternoon'));
           console.log('AFTERNOON_TEST_WINDOW_GUARD_OK');
           NODE
+      - name: Verify real prepare / duplicate claim / send / SENT contracts
+        run: node scripts/check-telegram-saturday-afternoon-test-20261107.mjs
       - name: Prepare official completed-session market briefing (TEST)
         id: prepare
         env:
