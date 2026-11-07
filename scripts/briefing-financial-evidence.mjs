@@ -167,3 +167,24 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
  if([...lines,caution].join('\n').length<=maxLength)lines.push(caution);
  return lines;
 }
+
+
+// Preserve the bounded SEC/DART provenance panel when a dense market report
+// has room for the verified domestic BPS line but not every US-company row.
+// Never truncate individual monetary values, filing dates or disclosures.
+// If even the complete header+coverage+domestic evidence cannot fit, omit the
+// optional appendix rather than publishing an orphaned/misleading heading.
+export function fitAiFinancialEvidenceForBudget(evidence,availableChars){
+ if(!Number.isSafeInteger(availableChars)||availableChars<0||availableChars>3900)
+  return [];
+ const lines=formatAiFinancialEvidence(evidence);
+ if(lines.length<2)return [];
+ const required=lines[2]?.startsWith('• 국내:')?3:2;
+ const selected=lines.slice(0,required);
+ if(selected.join('\n').length>availableChars)return [];
+ for(const line of lines.slice(required)){
+  if([...selected,line].join('\n').length>availableChars)break;
+  selected.push(line);
+ }
+ return selected;
+}
