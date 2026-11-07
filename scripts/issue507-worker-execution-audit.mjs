@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import {parseClaspCredentials} from './deploy-gas.mjs';
 
 const FUNCTION='runPendingTradeSnapshotRebuild';
+const REQUIRED_PROCESS_SCOPE='https://www.googleapis.com/auth/script.processes';
 const STATES=new Set(['PROCESS_STATUS_UNSPECIFIED','RUNNING','PAUSED','COMPLETED',
   'CANCELED','FAILED','TIMED_OUT','UNKNOWN','DELAYED']);
 const TIME=/^[0-9]{4}-[0-9]{2}-[0-9]{2}T/;
@@ -101,8 +102,18 @@ export async function audit({credentials,scriptId,fetchImpl=fetch,pause,now,cloc
       redirect:'error'},{fetchImpl,pause});
   }catch{throw Error('ISSUE507_OAUTH_NETWORK');}
   if(!response.ok)throw Error('ISSUE507_OAUTH_REJECTED');
-  let token;
-  try{token=(await response.json()).access_token;}catch{throw Error('ISSUE507_OAUTH_JSON');}
+  let token,oauthScopeEvidence='SCOPE_NOT_RETURNED';
+  try{
+    const issued=await response.json();
+    token=issued?.access_token;
+    // Google refresh responses may omit scope. In that case do not claim
+    // missing authorization based solely on a later HTTP 403.
+    if(typeof issued?.scope==='string'){
+      const scopes=issued.scope.split(/\s+/).filter(Boolean);
+      oauthScopeEvidence=scopes.includes(REQUIRED_PROCESS_SCOPE)
+        ?'SCOPE_DECLARED_GRANTED':'SCOPE_DECLARED_MISSING';
+    }
+  }catch{throw Error('ISSUE507_OAUTH_JSON');}
   if(typeof token!=='string'||!token)throw Error('ISSUE507_OAUTH_TOKEN_MISSING');
   const url=new URL('https://script.googleapis.com/v1/processes:listScriptProcesses');
   url.searchParams.set('scriptId',scriptId);
@@ -113,9 +124,13 @@ export async function audit({credentials,scriptId,fetchImpl=fetch,pause,now,cloc
     headers:{authorization:'Bearer '+token},redirect:'error',
     },{fetchImpl,pause});}catch{throw Error('ISSUE507_PROCESS_NETWORK');}
   if(processResponse.status===403)return{mode:'GOOGLE_APPS_SCRIPT_PROCESS_AUDIT_READ_ONLY',
-    function:FUNCTION,result:'PROCESS_API_ACCESS_DENIED',
-    requiredScope:'https://www.googleapis.com/auth/script.processes',
-    workerExecutionVerified:false};
+    function:FUNCTION,
+    result:oauthScopeEvidence==='SCOPE_DECLARED_MISSING'
+      ?'PROCESS_API_SCOPE_NOT_GRANTED':'PROCESS_API_ACCESS_DENIED',
+    scopeEvidence:oauthScopeEvidence,
+    // A 403 with the scope present can also be project/actor permission,
+    // API configuration, or other access denial. Never label it verified.
+    requiredScope:REQUIRED_PROCESS_SCOPE,workerExecutionVerified:false};
   if(processResponse.status===401)return{mode:'GOOGLE_APPS_SCRIPT_PROCESS_AUDIT_READ_ONLY',
     function:FUNCTION,result:'PROCESS_API_AUTH_REJECTED',workerExecutionVerified:false};
   if(!processResponse.ok)throw Error('ISSUE507_PROCESS_HTTP_'+processResponse.status);
@@ -209,6 +224,29 @@ export async function selfTest(){
     {fetchImpl:async()=>{exhausted++;throw Error('PRIVATE');},pause:async()=>{}}),
     /^Error: ISSUE507_REQUEST_NETWORK$/);
   assert.equal(exhausted,3);
+  // Distinguish a refresh response explicitly missing the scope from a
+  // permission/API 403 with scope present or unreported. All remain blocked.
+  for(const [scope,expected,scopeEvidence] of [
+    ['https://www.googleapis.com/auth/script.projects',
+      'PROCESS_API_SCOPE_NOT_GRANTED','SCOPE_DECLARED_MISSING'],
+    [REQUIRED_PROCESS_SCOPE,'PROCESS_API_ACCESS_DENIED','SCOPE_DECLARED_GRANTED'],
+    [undefined,'PROCESS_API_ACCESS_DENIED','SCOPE_NOT_RETURNED']
+  ]){
+    let calls=0;
+    const denied=await audit({credentials:JSON.stringify(c),scriptId:'synthetic_script_id',
+      fetchImpl:async()=>{
+        calls++;
+        return calls===1
+          ?{ok:true,status:200,json:async()=>({access_token:'SYNTHETIC_ACCESS',...(scope?{scope}:{})})}
+          :{ok:false,status:403};
+      }});
+    assert.equal(calls,2,'permanent 403 must not retry token or process API');
+    assert.equal(denied.result,expected);
+    assert.equal(denied.scopeEvidence,scopeEvidence);
+    assert.equal(denied.workerExecutionVerified,false);
+    assert.equal(denied.requiredScope,REQUIRED_PROCESS_SCOPE);
+    assert.doesNotMatch(JSON.stringify(denied),/SYNTHETIC_ACCESS|FAKE_SECRET/);
+  }
   const urls=[];
   const live=await audit({credentials:JSON.stringify(c),scriptId:'synthetic_script_id',now,
     fetchImpl:async url=>{urls.push(String(url));return {ok:true,status:200,
