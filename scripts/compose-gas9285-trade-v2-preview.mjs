@@ -65,6 +65,13 @@ export function composeGas9285TradeV2Preview(){
   "...(fx.length ? {priceRaw:fx[0],fxRateAtBuy:fx[1]} : {})",
   "...(fx.length ? {priceRaw:fx[0],fxRateAtBuy:fx[1]} : {}),\n          ...(r[13] ? {id:String(r[13])} : {})",
   'READ_ID');
+ // A legitimate last-trade deletion leaves an N-column header and zero
+ // data rows. Still return the empty-ledger revision so receipt/CAS can
+ // acknowledge deletion and the next create.
+ candidate=once(candidate,
+  "    if (!sh || sh.getLastRow() < 2) return jsonOk({ trades: [] });",
+  "    if (!sh) return jsonOk({ trades: [], tradeFxMetadataVersion:1, tradeLedgerProtocolVersion:0, ledgerRevision:'' });\n    if (sh.getLastRow() < 2) return jsonOk({ trades:[], tradeFxMetadataVersion:1, tradeLedgerProtocolVersion:sh.getLastColumn()>=14?2:0, ledgerRevision:sh.getLastColumn()>=14?_tradeV2Revision_([]):'' });",
+  'EMPTY_14_READ');
  candidate=once(candidate,
   "return jsonOk({ trades: trades, tradeFxMetadataVersion: 1 });",
   "return jsonOk({ trades: trades, tradeFxMetadataVersion: 1,\n      tradeLedgerProtocolVersion:numCols>=14?2:0,\n      ledgerRevision:numCols>=14?_tradeV2Revision_(data):'' });",
