@@ -1,4 +1,5 @@
 import {validClosingStockReference} from './closing-extra-daily-sources.mjs';
+import {verifyTreasuryCurve} from './closing-us-treasury-curve.mjs';
 // Read-only coverage inventory. "Connected" means that a production formatter
 // has a validated source path, NOT that the provider returned data today.
 // Never log raw provider bodies, credentials, prices or private portfolio rows.
@@ -102,13 +103,16 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
       &&x.date===expected&&validRow(x));
     statuses.push({id:entry.id,role:entry.role,status:state(rows.length===1,failed.has('MARKETS'))});
   }
-  const expectedRates=expectedUsDate;
-  const matchedRate=id=>rates.filter(x=>x?.id===id&&x.source==='FRED_H15_DAILY'
-    &&x.date===expectedRates&&Number.isFinite(x.value)&&x.value>0&&x.value<30).length===1;
-  const ready2=matchedRate('UST2Y'),ready3=matchedRate('UST3Y'),ready10=matchedRate('UST10Y_FRED');
+  // H.15 can be published after its observation day. Use the same dated
+  // validator as the displayed Treasury panel instead of requiring yesterday's
+  // US close for every rate. Never compute a spread across different dates.
+  const verifiedRates=verifyTreasuryCurve(date,rates);
+  const rate=id=>verifiedRates.find(x=>x.id===id)||null;
+  const rate2=rate('UST2Y'),rate3=rate('UST3Y'),rate10=rate('UST10Y_FRED');
   for(const [id] of rateIds)
     statuses.push({id,role:'OPTIONAL_MACRO',status:state(
-      id==='UST2Y'?ready2:id==='UST3Y'?ready3:ready2&&ready10,false)});
+      id==='UST2Y'?Boolean(rate2):id==='UST3Y'?Boolean(rate3)
+        :Boolean(rate2&&rate10&&rate2.date===rate10.date),false)});
   const volatilityRows=vkospi.filter(x=>x?.id==='VKOSPI'&&x.label==='VKOSPI'
     &&x.date===date&&x.source==='KRX_OFFICIAL'
     &&x.role==='NON_NH_REFERENCE_ONLY'&&Number.isFinite(x.value)
