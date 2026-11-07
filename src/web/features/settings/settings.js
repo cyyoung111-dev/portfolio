@@ -1340,6 +1340,25 @@ async function loadSettings(onProgress, options) {
       targetUrl:loadTarget,generation:loadGeneration,epoch:loadEpoch,
       funds:_gsheetCodelessFundsFromRows(s.EDITABLE_PRICES)
     };
+    // Pin v2 provenance ONLY after a successful authoritative Bootstrap and
+    // local restore. A dirty/partial device never upgrades itself from a GAS
+    // version label; financial writes require schema=14 + a server revision.
+    const v2RemoteRows = isBootstrap && bootstrapTradesOk && Array.isArray(data.trades)
+      ? data.trades : null;
+    const v2IdsMatch = !!v2RemoteRows && rawTrades.length === v2RemoteRows.length
+      && rawTrades.every((row,i) => String(row.id||'') === String(v2RemoteRows[i]?.id||''));
+    const v2Proven = v2IdsMatch && !dirtyPortfolioAtLoad && !pendingEmptySyncAtLoad
+      && data.tradeLedgerProtocolVersion === 2
+      && /^[0-9a-f]{64}$/.test(String(data.ledgerRevision||''))
+      && v2RemoteRows.every(row => /^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(row?.id||'')));
+    window._tradeLedgerV2BaselineTargets={
+      ...(window._tradeLedgerV2BaselineTargets||{}),
+      [loadTarget]:v2Proven ? {
+        targetUrl:loadTarget,generation:loadGeneration,protocol:2,
+        revision:String(data.ledgerRevision),
+        trades:v2RemoteRows.map(row=>({...row}))
+      } : null
+    };
     _gsBootRestored = true;
     loadCompleted = true;
     _gsSettingsLoadFailure = null;
