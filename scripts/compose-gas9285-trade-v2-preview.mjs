@@ -105,6 +105,13 @@ export function composeGas9285TradeV2Preview(){
   "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0) return false;\n      try {var receipt=JSON.parse(all[key]);return receipt.kind==='syncTrades' && receipt.state==='PARTIAL';}",
   "      if (key.indexOf(PORTFOLIO_SYNC_RECEIPT_PREFIX)!==0 && key.indexOf(TRADE_V2_RECEIPT_PREFIX)!==0) return false;\n      try {var receipt=JSON.parse(all[key]);return (receipt.kind==='syncTrades' && receipt.state==='PARTIAL') || (receipt.kind==='syncTradesV2' && (receipt.state==='PARTIAL' || receipt.state==='STARTED'));}",
   'V2_WORKER_SNAPSHOT_PROOF');
+ // Bootstrap must advertise the ACTUAL migrated schema and ledger
+ // revision from the same getTrades read (not a static v9.285 capability).
+ // An 11/13-column server must never authorize v2 browser writes.
+ candidate=once(candidate,
+  "      tradeFxMetadataVersion: 1,\n      codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),",
+  "      tradeFxMetadataVersion: 1,\n      tradeLedgerProtocolVersion:tradesOk?Number(tradesResponse.tradeLedgerProtocolVersion||0):0,\n      ledgerRevision:tradesOk?String(tradesResponse.ledgerRevision||''):'',\n      codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),",
+  'BOOTSTRAP_ACTUAL_V2_REVISION');
  // Fold in the previously independent fund no-op optimization.
  const oldFund=[
   "  // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.",
