@@ -610,6 +610,39 @@ async function loadSettings(onProgress, options) {
     }
     let s = data.settings;
     window._portfolioReceiptTargets = {...(window._portfolioReceiptTargets || {}), [loadTarget]: data.portfolioSyncReceipts === true};
+    window._tradeFxMetadataTargets = {...(window._tradeFxMetadataTargets || {}),
+      [loadTarget]: data.tradeFxMetadataVersion === 1};
+    // Never downgrade a proven 14-column server to the old syncTrades route
+    // just because this device restarted without an in-memory baseline.
+    const serverTradeV2 = isBootstrap && data.tradeLedgerProtocolVersion===2
+      && data.portfolioReadStatus?.tradesOk===true
+      && Array.isArray(data.trades)
+      && /^[0-9a-f]{64}$/.test(String(data.ledgerRevision||''));
+    window._tradeLedgerV2RequiredTargets={
+      ...(window._tradeLedgerV2RequiredTargets||{}),
+      [loadTarget]:serverTradeV2
+    };
+    // The dirty journal carries the *original* unconfirmed CAS preimage.
+    // Bootstrap may already reflect a lost ACK; never replace that preimage
+    // with a newer remote revision before inspecting its durable receipt.
+    if(dirtyPortfolioAtLoad?.tradeV2Baseline){
+      const saved=dirtyPortfolioAtLoad.tradeV2Baseline;
+      const valid=serverTradeV2 && saved.targetUrl===loadTarget
+        && saved.protocol===2
+        && /^[0-9a-f]{64}$/.test(String(saved.revision||''))
+        && Array.isArray(saved.trades)
+        && saved.trades.every(t=>/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(t?.id||'')));
+      if(!valid)return failLoad('TRADE_V2_DIRTY_BASELINE_UNVERIFIED');
+      window._tradeLedgerV2BaselineTargets={
+        ...(window._tradeLedgerV2BaselineTargets||{}),
+        [loadTarget]:{...saved,generation:loadGeneration,
+          trades:saved.trades.map(t=>({...t}))}
+      };
+    }else if(serverTradeV2 && dirtyPortfolioAtLoad){
+      // A pre-migration dirty record cannot safely rebase itself onto a
+      // newly migrated 14-column server. Demand explicit reconciliation.
+      return failLoad('TRADE_V2_DIRTY_BASELINE_REQUIRED');
+    }
     const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
     // Recovery provenance may exist ONLY as a durable A->B journal if the
     // browser stopped between code-sheet flush and Settings failure readback.
