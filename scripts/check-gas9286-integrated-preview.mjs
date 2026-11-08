@@ -1,5 +1,6 @@
 // Source-only integration proof; no Apps Script, Sheets or network writes.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -16,6 +17,13 @@ assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.status,'SOURCE_PREVIEW_NOT_DEPLOYABLE');
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
+// Protect main's staged GAS 9.285 web compatibility while trade v2 is
+// reviewed separately. The 9.286 preview is not an approved live endpoint.
+const webFetch=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
+assert.match(webFetch,/const EXPECTED_GAS_VERSION = '9\\.285';/,
+ 'web must retain main staged GAS 9.285 compatibility');
+assert.match(webFetch,/const COMPATIBLE_GAS_VERSIONS = Object\\.freeze\\(\\['9\\.281', '9\\.282', '9\\.283', '9\\.284', EXPECTED_GAS_VERSION\\]\\);/,
+ 'web must accept current 9.284 production during staged 9.285 rollout');
 assert.equal(candidate.split("gasVersion: '9.286'").length-1,9);
 assert.ok(candidate.includes("var ISSUE507_GATE_API_VERSION='9.286'"));
 assert.ok(candidate.includes('function _tradeV2ValidateMutation_('));
