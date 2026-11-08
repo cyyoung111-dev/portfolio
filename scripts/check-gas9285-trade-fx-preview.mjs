@@ -197,22 +197,29 @@ const modernIncompleteResult=ctx.handleSyncTrades(JSON.stringify([modernIncomple
 assert.equal(modernIncompleteResult.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
  'even an upgraded client cannot erase prior FX evidence on a price or memo correction');
 assert.equal(stored[0][11],155.5);
-// A deliberate FX trade deletion must not be confused with a modified
-// FX trade dropping its source metadata. The other existing ordinary trade
-// remains exactly unchanged; preserving it is a valid subset of old rows.
-const plainTrade={...trade,date:'2021-05-10',qty:2,price:100,
- tradeFxSchemaVersion:1};
-stored=[
- ['2021-05-10','buy','계좌','테스트','005930',2,100,'주식','','','', '', ''],
- ['2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350]
-];
-const afterFxDeletion=ctx.handleSyncTrades(JSON.stringify([plainTrade]),'',false);
-assert.equal(afterFxDeletion.status,'ok',
- 'explicit removal of only FX row must retain unchanged ordinary trade: '+JSON.stringify(afterFxDeletion));
-assert.equal(stored.length,1);
-assert.equal(stored[0][6],100);
-assert.equal(stored[0][11],'');
-stored=[
+// Legacy 13-column writes have no immutable ID or explicit delete intent.
+ // Fail closed even if an unchanged ordinary row survives.
+ const plainTrade={...trade,date:'2021-05-10',qty:2,price:100,
+  tradeFxSchemaVersion:1};
+ stored=[
+  ['2021-05-10','buy','계좌','테스트','005930',2,100,'주식','','','', '', ''],
+  ['2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350]
+ ];
+ const beforeRejectedDelete=JSON.stringify(stored);
+ const afterFxDeletion=ctx.handleSyncTrades(JSON.stringify([plainTrade]),'',false);
+ assert.equal(afterFxDeletion.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
+  '13-column preview cannot distinguish deletion from FX loss');
+ assert.equal(JSON.stringify(stored),beforeRejectedDelete,
+  'blocked deletion must preserve original ledger');
+ const accountChangedWithoutFx={...fxTrade,acct:'다른계좌',
+  tradeFxSchemaVersion:1,priceRaw:undefined,fxRateAtBuy:undefined};
+ const accountMove=ctx.handleSyncTrades(
+  JSON.stringify([plainTrade,accountChangedWithoutFx]),'',false);
+ assert.equal(accountMove.errorCode,'TRADE_FX_METADATA_LOSS_RISK',
+  'account change with omitted FX must be blocked before write');
+ assert.equal(JSON.stringify(stored),beforeRejectedDelete,
+  'account move rejection must not alter ledger');
+ stored=[
  ['2021-05-10','buy','계좌','테스트','005930',2,100,'주식','','','', '', ''],
  ['2021-05-11','buy','계좌','테스트','005930',10,209925,'주식','',2,123.45,155.5,1350]
 ];
