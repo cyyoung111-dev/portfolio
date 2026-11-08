@@ -1371,6 +1371,39 @@ async function loadSettings(onProgress, options) {
       targetUrl:loadTarget,generation:loadGeneration,epoch:loadEpoch,
       funds:_gsheetCodelessFundsFromRows(s.EDITABLE_PRICES)
     };
+    const v2RemoteRows = isBootstrap && bootstrapTradesOk && Array.isArray(data.trades)
+      ? data.trades : null;
+    // Identical IDs are NOT sufficient: a second browser may already have
+    // changed quantity/price/account under the SAME immutable ID. Only a
+    // full persisted-field equality may pin this remote revision to local.
+    const v2CanonicalMatch = (local,remote) => {
+      if(typeof _tradeV2BrowserCanonical!=='function'
+          || !Array.isArray(local)||!Array.isArray(remote)
+          || local.length!==remote.length)return false;
+      try {
+        return local.every((row,i)=>
+          JSON.stringify(_tradeV2BrowserCanonical(row))===
+          JSON.stringify(_tradeV2BrowserCanonical(remote[i])));
+      }catch(ignore){return false;}
+    };
+    const v2ContentsMatch=!!v2RemoteRows && v2CanonicalMatch(rawTrades,v2RemoteRows);
+    const v2Proven = v2ContentsMatch && !dirtyPortfolioAtLoad && !pendingEmptySyncAtLoad
+      && data.tradeLedgerProtocolVersion === 2
+      && /^[0-9a-f]{64}$/.test(String(data.ledgerRevision||''))
+      && v2RemoteRows.every(row => /^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(row?.id||'')));
+    window._tradeLedgerV2BaselineTargets={
+      ...(window._tradeLedgerV2BaselineTargets||{}),
+      [loadTarget]:v2Proven ? {
+        targetUrl:loadTarget,generation:loadGeneration,protocol:2,
+        revision:String(data.ledgerRevision),
+        trades:v2RemoteRows.map(row=>({...row}))
+      } : dirtyPortfolioSyncResolvedAtLoad
+          && typeof _tradeV2PinnedBaseline==='function'
+          && _tradeV2PinnedBaseline(loadTarget,loadGeneration)
+          && v2CanonicalMatch(rawTrades,
+            _tradeV2PinnedBaseline(loadTarget,loadGeneration).trades)
+        ? _tradeV2PinnedBaseline(loadTarget,loadGeneration) : null
+    };
     _gsBootRestored = true;
     loadCompleted = true;
     _gsSettingsLoadFailure = null;
