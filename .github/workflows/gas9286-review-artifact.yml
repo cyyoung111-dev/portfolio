@@ -1,0 +1,33 @@
+name: GAS 9.286 read-only release artifact
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/stage-gas9286-review-artifact.mjs'
+      - 'scripts/compose-gas9286-integrated-preview.mjs'
+      - '.github/workflows/gas9286-review-artifact.yml'
+permissions:
+  contents: read
+jobs:
+  prepare-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify v9.286 source and trade v2 migration fixtures
+        run: |
+          node scripts/check-gas9286-integrated-preview.mjs
+          node scripts/check-gas9285-trade-v2-migration-preview.mjs
+          node scripts/check-gas9285-trade-v2-shadow-migration.mjs
+          node scripts/check-gas9285-trade-v2-crash-proof.mjs
+          node scripts/check-gas9285-trade-v2-receipt.mjs
+      - name: Generate immutable review source (NO DEPLOY)
+        run: node scripts/stage-gas9286-review-artifact.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gas9286-source-review-${{ github.sha }}
+          path: artifacts/gas9286-review/
+          retention-days: 30
