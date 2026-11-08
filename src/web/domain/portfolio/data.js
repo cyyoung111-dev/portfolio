@@ -1179,6 +1179,15 @@ function _normalizePortfolioRemoteDirtyEntry(value) {
     receiptProtocol: value.receiptProtocol === 1 ? 1 : 0,
     receiptScope: String(value.receiptScope || ''),
     legacyUntracked: value.legacyUntracked === true,
+    tradeV2DeleteIds:Array.isArray(value.tradeV2DeleteIds)
+      ?Array.from(new Set(value.tradeV2DeleteIds.map(String))).filter(Boolean):[],
+    tradeV2Baseline:value.tradeV2Baseline
+      && value.tradeV2Baseline.targetUrl===target
+      && value.tradeV2Baseline.protocol===2
+      && /^[0-9a-f]{64}$/.test(String(value.tradeV2Baseline.revision||''))
+      && Array.isArray(value.tradeV2Baseline.trades)
+      ?{targetUrl:target,protocol:2,revision:value.tradeV2Baseline.revision,
+        trades:value.tradeV2Baseline.trades.map(t=>({...t}))}:null,
     trades: Array.isArray(value.trades) ? value.trades.map(t => ({ ...t })) : [],
     holdings: Array.isArray(value.holdings) ? value.holdings.map(h => ({ ...h })) : [],
     fundDirect: value.fundDirect && typeof value.fundDirect === 'object'
