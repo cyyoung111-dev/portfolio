@@ -81,3 +81,40 @@ assert.equal(exactFunction(candidate,'_refreshFundValuations'),
  'GAS 9.286 fund function must match staged main 9.285');
 new vm.Script(candidate,{filename:'gas-9286-integrated-preview.gs'});
 console.log('GAS9286_INTEGRATED_PREVIEW_PASS '+JSON.stringify(manifest));
+
+
+// Exercise the actual migration planner in an isolated VM: no GAS/Sheets writes.
+const migrationSandbox={
+  _normalizeDate:value=>String(value||''),
+  _portfolioTradeFxMetadata_:()=>[],
+  _portfolioSyncDigest_:value=>createHash('sha256').update(value).digest('hex'),
+  _tradeV2CanonicalRow_:row=>row.slice(0,13),
+  _tradeV2Revision_:rows=>createHash('sha256').update(JSON.stringify(rows)).digest('hex'),
+  TRADE_V2_ID_RE:/^(?:srv_|tr_)[a-zA-Z0-9_-]{8,64}$/,
+};
+const migrationSource=candidate.slice(
+ candidate.indexOf('function _tradeV2MigrationPlan_('),
+ candidate.indexOf('function handlePreviewTradeLedgerV2Migration_('));
+assert.ok(migrationSource.startsWith('function _tradeV2MigrationPlan_('));
+vm.runInNewContext(migrationSource,migrationSandbox);
+const plan=migrationSandbox._tradeV2MigrationPlan_;
+const row=(id='',price='',rate='')=>[
+ '2026-11-06','매수','ISA','TEST','000001',1,100,'주식','', '', '',price,rate,id];
+const legacy=[row(),row()];
+const first=plan(legacy),second=plan(legacy);
+assert.equal(first.count,2);
+assert.equal(first.assigned,2);
+assert.equal(first.preserved,0);
+assert.notEqual(first.rows[0][13],first.rows[1][13],
+ 'physically duplicated legacy rows require distinct permanent IDs');
+assert.equal(first.proposedRevision,second.proposedRevision,
+ 'same input must yield stable migration revision');
+assert.equal(plan(first.rows).assigned,0,
+ 're-running a migrated ledger must not assign new IDs');
+assert.equal(plan(first.rows).preserved,2);
+assert.throws(()=>plan([row('tr_12345678'),row('tr_12345678')]),
+ /TRADE_MIGRATION_DUPLICATE_ID/);
+assert.throws(()=>plan([row('',1200,'')]),/TRADE_MIGRATION_FX_INCOMPLETE/);
+assert.throws(()=>plan([['2026-11-06']]),/TRADE_MIGRATION_ROW_WIDTH_INVALID/);
+assert.throws(()=>plan([row('bad id')]),/TRADE_MIGRATION_ID_INVALID/);
+console.log('GAS9286_MIGRATION_INVARIANTS_PASS');
