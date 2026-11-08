@@ -3,6 +3,9 @@ const PORTFOLIO_RECOVERY_RECEIPTS_KEY = 'portfolio_recovery_receipts_v1';
 function _hasPortfolioReceiptProtocol(targetUrl) {
   return window._portfolioReceiptTargets?.[targetUrl] === true;
 }
+function _hasTradeFxMetadataProtocol(targetUrl) {
+  return window._tradeFxMetadataTargets?.[targetUrl] === true;
+}
 // The live v9.284 connection must never acquire v2 capabilities by guessing
 // from its version label. Only a matching Bootstrap 14-column schema/revision
 // pinned to this exact target and generation can unlock v2.
