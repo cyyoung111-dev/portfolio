@@ -1,0 +1,41 @@
+name: Trade ledger v2 candidate checks
+
+on:
+  push:
+    branches:
+      - fix/734-foreign-trade-fx-server-roundtrip-20261107
+    paths:
+      - 'scripts/*trade*'
+      - 'scripts/compose-gas9285-trade-fx-preview.mjs'
+      - 'package.json'
+      - '.github/workflows/trade-ledger-v2-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trade-v2-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check FX fail-closed candidate
+        run: node scripts/check-trade-fx-preview-fail-closed.mjs
+      - name: Check 13-column FX production function regression
+        run: node scripts/check-gas9285-trade-fx-preview.mjs
+      - name: Check immutable ID/CAS v2 oracle
+        run: node scripts/check-trade-ledger-v2-oracle.mjs
+      - name: Check 14-column GAS v2 candidate
+        run: node scripts/check-gas9285-trade-v2-preview.mjs
+      - name: Check receipt and crash recovery
+        run: |
+          node scripts/check-gas9285-trade-v2-receipt.mjs
+          node scripts/check-gas9285-trade-v2-crash-proof.mjs
+      - name: Check read-only migration fixtures
+        run: |
+          node scripts/check-gas9285-trade-v2-migration-preview.mjs
+          node scripts/check-gas9285-trade-v2-shadow-migration.mjs
