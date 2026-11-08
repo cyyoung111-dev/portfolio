@@ -22,8 +22,19 @@ export function composeGas9285TradeFxPreview(){
    base=execFileSync('git',['cat-file','blob',PINNED_BASE_BLOB],
     {encoding:'utf8',maxBuffer:32*1024*1024});
   }catch{
-   throw Error('GAS9285_APPROVED_BLOB_UNAVAILABLE expected='+PINNED_BASE_BLOB+
-    ' worktree='+actualBaseBlob+'; fetch complete Git history; do not deploy');
+   // The protected quality-check workflow uses a shallow PR merge checkout.
+   // Fetch the PR's source branch as an object source, not as executable code;
+   // only the exact pinned blob is subsequently accepted.
+   try{
+    execFileSync('git',['fetch','--no-tags','--depth=1','origin',
+     'refs/heads/fix/734-foreign-trade-fx-server-roundtrip-20261107'],
+     {stdio:'pipe',timeout:30000,maxBuffer:1024*1024});
+    base=execFileSync('git',['cat-file','blob',PINNED_BASE_BLOB],
+     {encoding:'utf8',maxBuffer:32*1024*1024});
+   }catch{
+    throw Error('GAS9285_APPROVED_BLOB_UNAVAILABLE expected='+PINNED_BASE_BLOB+
+     ' worktree='+actualBaseBlob+'; source-only candidate cannot be composed');
+   }
   }
  }
  if(sha1(base)!==PINNED_BASE_BLOB)
