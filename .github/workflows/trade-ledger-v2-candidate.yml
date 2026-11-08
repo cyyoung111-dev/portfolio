@@ -1,0 +1,167 @@
+name: Trade ledger v2 candidate checks
+
+on:
+  push:
+    branches:
+      - fix/734-foreign-trade-fx-server-roundtrip-20261107
+    paths:
+      - 'scripts/*trade*'
+      - 'scripts/compose-gas9285-trade-fx-preview.mjs'
+      - 'scripts/*gas9286*'
+      - 'scripts/compose-gas9285-fund-noop-preview.mjs'
+      - 'src/web/features/settings/settings_fetch.js'
+      - 'src/gas/apps_script.gs'
+      - 'reference/gas-v9.285.gs'
+      - 'scripts/check-gas-deploy.mjs'
+      - 'scripts/deploy-gas.mjs'
+      - '.github/workflows/gas-deploy.yml'
+      - 'package.json'
+      - '.github/workflows/trade-ledger-v2-candidate.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'scripts/*trade*'
+      - 'scripts/compose-gas9285-trade-fx-preview.mjs'
+      - 'scripts/*gas9286*'
+      - 'scripts/compose-gas9285-fund-noop-preview.mjs'
+      - 'src/web/features/settings/settings_fetch.js'
+      - 'src/gas/apps_script.gs'
+      - 'reference/gas-v9.285.gs'
+      - 'scripts/check-gas-deploy.mjs'
+      - 'scripts/deploy-gas.mjs'
+      - '.github/workflows/gas-deploy.yml'
+      - 'package.json'
+      - '.github/workflows/trade-ledger-v2-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trade-v2-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify checked-out GAS base provenance
+        shell: bash
+        run: |
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "CHECKOUT_SHA=$(git rev-parse HEAD)"
+          echo "GAS_BLOB=$(git hash-object src/gas/apps_script.gs)"
+          git cat-file -e b5b1c7fd5a27454419ddd6d12ecb20751c207c63^{blob}
+          echo "APPROVED_HISTORICAL_GAS_BLOB=b5b1c7fd5a27454419ddd6d12ecb20751c207c63"
+      - name: Fetch staged main GAS 9.285 provenance for source-only comparison
+        shell: bash
+        run: |
+          git fetch --no-tags origin main
+          git cat-file -e 954fd4aeae767ddac0cb161d3a81003b5b699d1c^{blob}
+          test "$(git rev-parse origin/main:src/gas/apps_script.gs)" = 954fd4aeae767ddac0cb161d3a81003b5b699d1c
+      - name: Check unified GAS v9.286 source and syntax
+        run: node scripts/check-gas9286-integrated-preview.mjs
+      - name: Confirm reviewed FX loss and CAS regression fixtures exist
+        shell: bash
+        run: |
+          grep -Fq 'accountChangedWithoutFx' scripts/check-gas9285-trade-fx-preview.mjs
+          grep -Fq 'TRADE_FX_METADATA_LOSS_RISK' scripts/check-gas9285-trade-fx-preview.mjs
+          grep -Fq 'TRADE_LEDGER_REVISION_CONFLICT' scripts/check-gas9285-trade-v2-preview.mjs
+      - name: Check FX fail-closed candidate
+        run: node scripts/check-trade-fx-preview-fail-closed.mjs
+      - name: Check 13-column FX production function regression
+        run: node scripts/check-gas9285-trade-fx-preview.mjs
+      - name: Check immutable ID/CAS v2 oracle
+        run: node scripts/check-trade-ledger-v2-oracle.mjs
+      - name: Check 14-column GAS v2 candidate
+        run: node scripts/check-gas9285-trade-v2-preview.mjs
+      - name: Execute integrated GAS 9.286 trade writer in isolated fixture
+        run: GAS_TRADE_V2_CANDIDATE=9286 node scripts/check-gas9285-trade-v2-preview.mjs
+      - name: Check receipt and crash recovery
+        run: |
+          node scripts/check-gas9285-trade-v2-receipt.mjs
+          node scripts/check-gas9285-trade-v2-crash-proof.mjs
+      - name: Check read-only migration fixtures
+        run: |
+          node scripts/check-gas9285-trade-v2-migration-preview.mjs
+          node scripts/check-gas9285-trade-v2-shadow-migration.mjs
+
+  main-baseline-integration-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      # The trade-v2 branch intentionally pins GAS 9.284 as its preview base.
+      # Run the complete deploy/version-aware suite on main's staged 9.285
+      # source, while trade-v2-candidate validates the actual PR branch.
+      # This is NOT evidence that the PR branch passes the full suite.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies without lifecycle scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+          fi
+      - name: Run all portfolio integration checks
+        env:
+          npm_config_script_shell: /bin/bash
+          npm_config_ignore_scripts: 'true'
+        run: npm run check:ci
+
+  staged-gas-branch-integration-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      # Exercise PR scripts and web against main's staged GAS source.
+      # This is a read-only compatibility check, NOT a 9.286 deploy proof.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Overlay exact staged main GAS sources without committing
+        shell: bash
+        run: |
+          git fetch --no-tags origin main
+          git show origin/main:src/gas/apps_script.gs > src/gas/apps_script.gs
+          git show origin/main:reference/gas-v9.285.gs > reference/gas-v9.285.gs
+          git show origin/main:DEPLOYMENT.md > DEPLOYMENT.md
+          git show origin/main:scripts/check-gas.mjs > scripts/check-gas.mjs
+          test "$(git hash-object DEPLOYMENT.md)" = "$(git rev-parse origin/main:DEPLOYMENT.md)"
+          test "$(git hash-object src/gas/apps_script.gs)" = 954fd4aeae767ddac0cb161d3a81003b5b699d1c
+          test "$(git hash-object reference/gas-v9.285.gs)" = "$(git rev-parse origin/main:reference/gas-v9.285.gs)"
+      - name: Install dependencies without lifecycle scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+          fi
+      - name: Check staged GAS deployment and web trade compatibility
+        env:
+          npm_config_script_shell: /bin/bash
+          npm_config_ignore_scripts: 'true'
+        run: |
+          # The full PR suite pins its GAS v9.284 candidate and must not
+          # be run after overlaying v9.285 (see #36 failure in
+          # check-gas9284-hanwha-leased-preview.mjs). The unmodified
+          # branch suite is covered by trade-v2-candidate and main by
+          # main-baseline-integration-ci. Test only cross-version contracts.
+          node scripts/check-gas-deploy.mjs
+          node scripts/check-gas.mjs
+          node scripts/check-web-trade-v2-contract.mjs
+          node scripts/check-web-trade-v2-sync.mjs
+          node scripts/check-web-trade-v2-review-p2.mjs
+          # The fund preview oracle requires the original live v9.284 file.
+          # It runs on the unmodified main baseline; do not overlay it here.
