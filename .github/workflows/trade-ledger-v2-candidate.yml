@@ -44,6 +44,8 @@ jobs:
         run: node scripts/check-trade-ledger-v2-oracle.mjs
       - name: Check 14-column GAS v2 candidate
         run: node scripts/check-gas9285-trade-v2-preview.mjs
+      - name: Execute integrated GAS 9.286 trade writer in isolated fixture
+        run: GAS_TRADE_V2_CANDIDATE=9286 node scripts/check-gas9285-trade-v2-preview.mjs
       - name: Check receipt and crash recovery
         run: |
           node scripts/check-gas9285-trade-v2-receipt.mjs
