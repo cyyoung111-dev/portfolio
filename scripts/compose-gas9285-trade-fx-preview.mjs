@@ -82,16 +82,8 @@ export function composeGas9285TradeFxPreview(){
  // An exact subset of the old non-FX rows safely proves an FX deletion.
  candidate=replaceOnce(candidate,
    "    var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;",
-   `    var previousFxGroups={};
-    previousRows.forEach(function(row) {
-      if (row[11]==='' || row[11]==null) return;
-      previousFxGroups[JSON.stringify([
-        String(row[2]||''),String(row[3]||''),_cleanCode(row[4])
-      ])]=true;
-    });
-    // Existing FX rows are all still present: ordinary trades may be edited,
-    // added or split without risking removal of the original FX evidence.
-    // Use a multiset to protect duplicate FX trades, including their row link.
+   `    // Preserve each existing FX row exactly until immutable trade IDs and
+    // explicit update/delete intents are supported by the server.
     var preservedFxCounts={};
     var fxRowKey=function(row){
       return JSON.stringify([_normalizeDate(row[0]),String(row[1]||''),
@@ -120,32 +112,6 @@ export function composeGas9285TradeFxPreview(){
     if(!fxRowsFullyPreserved) return jsonError(
       '기존 외화거래의 변경·삭제는 영구 거래ID 기반 v2 전환 후 지원',
       {errorCode:'TRADE_FX_METADATA_LOSS_RISK',saveState:'failed'});
-    if(!fxRowsFullyPreserved){
-    var oldOrdinaryCounts={};
-    previousRows.forEach(function(row) {
-      if (row[11]!=='' && row[11]!=null) return;
-      var group=JSON.stringify([
-        String(row[2]||''),String(row[3]||''),_cleanCode(row[4])
-      ]);
-      if (!previousFxGroups[group]) return;
-      var oldRow=row.slice(0,11);
-      oldRow[0]=_normalizeDate(oldRow[0]);
-      var key=JSON.stringify([group,oldRow]);
-      oldOrdinaryCounts[key]=(oldOrdinaryCounts[key]||0)+1;
-    });
-    for (var j=0;j<intendedRows.length;j++) {
-      var candidateRow=intendedRows[j];
-      var group=JSON.stringify([
-        String(candidateRow[2]||''),String(candidateRow[3]||''),_cleanCode(candidateRow[4])
-      ]);
-      if (!previousFxGroups[group] || (candidateRow[11]!=='' && candidateRow[11]!=null))continue;
-      var key=JSON.stringify([group,candidateRow.slice(0,11)]);
-      if (!oldOrdinaryCounts[key]) return jsonError(
-        '기존 외화거래 원천값 누락으로 인한 원장 갱신 차단',
-        {errorCode:'TRADE_FX_METADATA_LOSS_RISK',saveState:'failed'});
-      oldOrdinaryCounts[key]--;
-    }
-    }
     var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;`);
  // Receipt replay and the receipt read-only inquiry must also attest the
  // capability. Otherwise a lost ACK would leave a completed FX ledger dirty.
