@@ -1754,6 +1754,139 @@ async function syncTradesToGsheet(options) {
       }).catch(()=>{});
     }
 
+    // v2 stays completely inactive on the approved GAS 9.284 endpoint.
+    // Activate only when the SAME Bootstrap supplied 14-column IDs and
+    // revision, with exact URL + generation provenance.
+    const v2Generation=Number.isInteger(generation)?generation:
+      (typeof getGsheetConnectionGeneration==='function'
+        ?getGsheetConnectionGeneration():-1);
+    let v2Baseline=_tradeV2PinnedBaseline(targetUrl,v2Generation);
+    if(window._tradeLedgerV2RequiredTargets?.[targetUrl]===true && !v2Baseline)
+      return {status:'error',errorCode:'TRADE_V2_BASELINE_REQUIRED',
+        saveState:'failed'};
+    if(v2Baseline){
+      const recovered=await _preflightTradeV2Receipt(
+        targetUrl,v2Generation,v2Baseline);
+      if(!recovered.ok)return {status:'error',
+        errorCode:recovered.errorCode,saveState:'partial',
+        followupRequired:true};
+      v2Baseline=recovered.baseline;
+      // A filtered/malformed local ledger must not become an implicit delete.
+      if(trades.length!==sourceTrades.length)
+        return {status:'error',errorCode:'TRADE_V2_TRUNCATED_LOCAL_LEDGER',
+          saveState:'failed'};
+      // A read-only recovery may consume old deletion IDs in the durable
+      // journal *within this very call*. Never reuse the options array
+      // captured before that recovery.
+      const latestDirty=typeof _getPortfolioRemoteDirty==='function'
+        ?_getPortfolioRemoteDirty():null;
+      const idsFromJournal=options?.recoveryWrite===true
+        &&latestDirty?.target===targetUrl
+        &&Array.isArray(latestDirty.tradeV2DeleteIds)
+        ?latestDirty.tradeV2DeleteIds:null;
+      const pendingIds=idsFromJournal||
+        (Array.isArray(options?.tradeV2DeleteIds)?options.tradeV2DeleteIds:
+          (allowEmpty&&trades.length===0
+            ?v2Baseline.trades.map(t=>String(t.id)):[]));
+      const recoveredDeletes=new Set(recovered.consumedDeleteIds||[]);
+      const declaredDeleteIds=pendingIds.filter(id=>
+        !recoveredDeletes.has(String(id)));
+      let contract;
+      try{
+        contract=await _prepareTradeV2SyncContract(
+          v2Baseline,trades,declaredDeleteIds);
+      }catch(err){
+        const code=String(err?.message||'TRADE_V2_LOCAL_CONTRACT_FAILED');
+        _syncWarn('[거래 v2] 쓰기 전 검증 실패:',code);
+        return {status:'error',errorCode:code,saveState:'failed'};
+      }
+      const targetRevision=contract.targetRevision;
+      const {targetRevision:ignoreComputed,...request}=contract;
+      const response=await _requestPortfolioRecoveryWrite('syncTradesV2',{
+        ...request,explicitEmpty:allowEmpty?'1':'',rebuildFrom
+      },{
+        targetUrl,generation:v2Generation,
+        recoveryScope:'trade-v2:'+v2Baseline.revision,
+        timeoutMs:60000,retry:0,preserveError:true
+      });
+      if(response?.status!=='ok'||response.receiptState!=='COMPLETE'){
+        _syncWarn('[거래 v2] 영수증 확정 전 추가 쓰기 차단:',
+          response?.errorCode||'SYNC_RECEIPT_UNCONFIRMED');
+        return response||{status:'error',errorCode:'TRADE_V2_RECEIPT_UNAVAILABLE',
+          saveState:'partial',followupRequired:true};
+      }
+      // An ACK or read-only receipt alone is not enough to advance the
+      // browser baseline. Re-fetch the exact financial ledger after saving.
+      const verified=await requestGsheetActionJson('getTrades',{},{
+        targetUrl,timeoutMs:20000,retry:0,preserveError:true
+      });
+      const connectionOk=typeof isGsheetConnectionCurrent!=='function'
+        ||isGsheetConnectionCurrent(targetUrl,v2Generation);
+      if(!connectionOk||verified?.status!=='ok'
+          ||verified.tradeLedgerProtocolVersion!==2
+          ||verified.ledgerRevision!==targetRevision
+          ||!Array.isArray(verified.trades)
+          ||verified.trades.length!==trades.length
+          ||verified.trades.some(t=>!t?.id)){
+        return {status:'error',errorCode:'TRADE_V2_READBACK_UNVERIFIED',
+          saveState:'partial',followupRequired:true};
+      }
+      let readbackDigest;
+      try {
+        readbackDigest=await _tradeV2BrowserSha256(
+          verified.trades.slice().sort((a,b)=>
+            String(a.date||'').localeCompare(String(b.date||'')))
+            .map(_tradeV2BrowserCanonical));
+      }catch(ignore){
+        return {status:'error',errorCode:'TRADE_V2_READBACK_INVALID',
+          saveState:'partial',followupRequired:true};
+      }
+      if(readbackDigest!==targetRevision)
+        return {status:'error',errorCode:'TRADE_V2_READBACK_HASH_MISMATCH',
+          saveState:'partial',followupRequired:true};
+      if(typeof isGsheetConnectionCurrent==='function'
+          &&!isGsheetConnectionCurrent(targetUrl,v2Generation))
+        return {status:'error',errorCode:'TRADE_V2_CONNECTION_CHANGED',
+          saveState:'partial',followupRequired:true};
+      // The trading ledger is already verified on the server. Persist the
+      // new preimage and consume acknowledged deletion IDs BEFORE returning
+      // to a caller that may still fail in its Holdings/Settings step.
+      if(typeof _acknowledgePortfolioTradeV2Sync==='function' &&
+          !_acknowledgePortfolioTradeV2Sync(targetUrl,v2Baseline,{
+            revision:targetRevision,trades:verified.trades
+          }))
+        return {status:'error',errorCode:'TRADE_V2_DIRTY_ACK_PERSIST_FAILED',
+          saveState:'partial',followupRequired:true};
+      // Journal ACK has already advanced durably. Update in-memory
+      // baseline BEFORE writing the terminal marker, so a one-off marker
+      // failure cannot strand a stale in-memory preimage and double-ACK.
+      window._tradeLedgerV2BaselineTargets={
+        ...(window._tradeLedgerV2BaselineTargets||{}),
+        [targetUrl]:{...v2Baseline,revision:targetRevision,
+          trades:verified.trades.map(t=>({...t}))}
+      };
+      if(!_markTradeV2ReadbackConfirmed_(targetUrl,{
+          ...request,explicitEmpty:allowEmpty?'1':'',rebuildFrom
+        },targetRevision))
+        return {status:'error',
+          errorCode:'TRADE_V2_READBACK_RECEIPT_PERSIST_FAILED',
+          saveState:'partial',followupRequired:true};
+      return {...response,saveState:'success',
+        tradeLedgerProtocolVersion:2,tradeFxMetadataVersion:1,
+        ledgerRevision:targetRevision};
+    }
+
+    // Older GAS versions silently discard the foreign currency/unit-price
+    // fields. Never send such a ledger to an endpoint that did not explicitly
+    // advertise 13-column round-trip support on THIS exact connection.
+    const hasFxMetadata = trades.some(t =>
+      t.priceRaw !== undefined || t.fxRateAtBuy !== undefined);
+    if (hasFxMetadata && !_hasTradeFxMetadataProtocol(targetUrl)) {
+      _syncWarn('[거래이력 동기화] 서버의 외화원단가·매입환율 보존 지원 미확인, 원본 덮어쓰기 차단');
+      if (typeof showToast === 'function')
+        showToast('외화 거래 원단가·매입환율 서버 보존 미확인 · 거래 저장을 보류했습니다.', 'warn', 7000);
+      return {status:'error', errorCode:'TRADE_FX_METADATA_UNSUPPORTED',saveState:'failed'};
+    }
     const writeTrades = options?.recoveryWrite === true && _hasPortfolioReceiptProtocol(targetUrl)
       ? _requestPortfolioRecoveryWrite : requestGsheetFormJson;
     const data = await writeTrades(
