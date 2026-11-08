@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import {composeGas9286IntegratedPreview} from './compose-gas9286-integrated-preview.mjs';
+import {composeGas9285TradeV2Preview} from './compose-gas9285-trade-v2-preview.mjs';
 const blob=s=>{const b=Buffer.from(s,'utf8');return createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');};
 const {base,candidate,manifest}=composeGas9286IntegratedPreview();
 assert.equal(blob(base),'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
@@ -32,5 +33,22 @@ assert.equal(manifest.requiresProductionMigration,true);
 assert.equal(manifest.requiresReleaseReview,true);
 for(const unsafe of ['previousFxGroups','oldOrdinaryCounts','TRADE_FX_GROUP_'])
  assert.ok(!candidate.includes(unsafe),'unsafe legacy group heuristic: '+unsafe);
+// Compare the exact executable business functions with the independently
+// regression-tested 14-column v2 source. A release version bump must not
+// silently alter FX account transfers, ID/CAS, receipts or fund no-op.
+const v2=composeGas9285TradeV2Preview().candidate;
+const exactFunction=(src,name)=>{
+ const start=src.indexOf('function '+name+'(');
+ assert.ok(start>=0,'missing function '+name);
+ const end=src.indexOf('\\n}',start);
+ assert.ok(end>start,'unterminated function '+name);
+ return src.slice(start,end+2);
+};
+for(const name of ['handleSyncTrades','handleGetTrades',
+ '_tradeV2ValidateMutation_','_tradeV2CheckpointVerified_',
+ '_refreshFundValuations','handleTradeSyncV2WithReceipt_',
+ 'handleTradeV2ReceiptReadOnly_'])
+ assert.equal(exactFunction(candidate,name),exactFunction(v2,name),
+  'integrated GAS function drift: '+name);
 new vm.Script(candidate,{filename:'gas-9286-integrated-preview.gs'});
 console.log('GAS9286_INTEGRATED_PREVIEW_PASS '+JSON.stringify(manifest));
