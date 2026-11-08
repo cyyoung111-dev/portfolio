@@ -55,9 +55,9 @@ assert.throws(()=>ctx._tradeV2MigrationPlan_([[...row,155.5,'']]),
  /TRADE_MIGRATION_FX_INCOMPLETE/);
 assert.throws(()=>ctx._tradeV2MigrationPlan_([existing,existing]),
  /TRADE_MIGRATION_DUPLICATE_ID/);
-let locked=false,writes=0,rows=doubled,invalidHeader=false;
+let locked=false,writes=0,rows=doubled,invalidHeader=false,sheetWidth=11;
 ctx.getss=()=>({getSheetByName:()=>({
- getLastRow:()=>rows.length+1,getLastColumn:()=>rows[0].length,
+ getLastRow:()=>rows.length+1,getLastColumn:()=>sheetWidth,
  getRange:(r,c,n,w)=>({getValues:()=>r===1?[['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산','외화단가','매입환율','거래ID'].slice(0,w).map((v,i)=>invalidHeader&&i===3?'WRONG_HEADER':v)]:rows.map(r=>[...r]),
    setValues:()=>{writes++;throw Error('unexpected mutation')}})
 })});
@@ -82,11 +82,27 @@ assert.equal(rejected.errorCode,'TRADE_MIGRATION_HEADER_MISMATCH');
 assert.equal(writes,0);
 assert.equal(locked,false);
 invalidHeader=false;
-rows=[existing];
+rows=[existing];sheetWidth=14;
 const upToDate=ctx.handlePreviewTradeLedgerV2Migration_();
 assert.equal(upToDate.migrationStatus,'READY');
 assert.equal(upToDate.existingIdsPreserved,1);
 assert.equal(writes,0);
+// Empty but correctly headed ledgers are valid: no migration and no writes.
+rows=[];
+const empty=ctx.handlePreviewTradeLedgerV2Migration_();
+assert.equal(empty.status,'ok');
+assert.equal(empty.sourceRows,0);
+assert.equal(empty.assignedIdsNeeded,0);
+assert.equal(empty.migrationStatus,'READY');
+assert.equal(writes,0);
+assert.equal(locked,false);
+// A malformed width must fail closed, without leaking a lock or writing.
+rows=[row.slice(0,10)];sheetWidth=10;
+const badWidth=ctx.handlePreviewTradeLedgerV2Migration_();
+assert.equal(badWidth.status,'error');
+assert.equal(badWidth.errorCode,'TRADE_MIGRATION_SHEET_WIDTH_INVALID');
+assert.equal(writes,0);
+assert.equal(locked,false);
 console.log('GAS9285_TRADE_V2_MIGRATION_PREVIEW_PASS '+JSON.stringify({
  sourceRowsPreviewed:2,stableDuplicateIds:true,sourcePreserved:true,
  publicationApproval:false,productionGasDeployed:false,financeWrites:0
