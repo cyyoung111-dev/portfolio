@@ -117,4 +117,6 @@ assert.throws(()=>plan([row('tr_12345678'),row('tr_12345678')]),
 assert.throws(()=>plan([row('',1200,'')]),/TRADE_MIGRATION_FX_INCOMPLETE/);
 assert.throws(()=>plan([['2026-11-06']]),/TRADE_MIGRATION_ROW_WIDTH_INVALID/);
 assert.throws(()=>plan([row('bad id')]),/TRADE_MIGRATION_ID_INVALID/);
+assert.throws(()=>plan([row().slice(0,12)]),/TRADE_MIGRATION_ROW_WIDTH_INVALID/);
+assert.ok(candidate.includes("if([11,13,14].indexOf(width)===-1)throw Error('TRADE_MIGRATION_SHEET_WIDTH_INVALID')"));
 console.log('GAS9286_MIGRATION_INVARIANTS_PASS');
