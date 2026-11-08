@@ -11,7 +11,8 @@ const replaceOnce=(s,from,to)=>{
 };
 export function composeGas9285TradeFxPreview(){
  const base=fs.readFileSync('src/gas/apps_script.gs','utf8');
- if(sha1(base)!==PINNED_BASE_BLOB)throw Error('GAS9285_UNREVIEWED_BASE');
+ const actualBaseBlob=sha1(base);
+ if(actualBaseBlob!==PINNED_BASE_BLOB)throw Error('GAS9285_UNREVIEWED_BASE expected='+PINNED_BASE_BLOB+' actual='+actualBaseBlob+'; inspect checked-out GAS source/ref; never bypass provenance gate');
  let candidate=base;
  const replacements=[
  [
