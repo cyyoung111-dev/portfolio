@@ -327,6 +327,19 @@ assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGAC
  assert.equal(reviewed.releaseAuthorized,false);
  assert.equal(reviewed.allActorsAndVersionsTerminatedVerified,false);
  assert.equal(reviewed.externalSheetsWritersExcludedVerified,false);
+ // Google REST may canonicalize line endings independently of a Git checkout.
+ // CRLF is the sole harmless normalization; any changed executable still fails.
+ const reviewedCRLF={scriptId,files:[
+  {name:'Code',type:'SERVER_JS',source:reviewedSource.replace(/\n/g,'\r\n')},
+  {name:'appsscript',type:'JSON',source:'{}'}
+ ]};
+ const crlfAudit=await setup({'':{deployments:[
+    item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
+  reviewedDetails,{'336':reviewedCRLF}).run({verifyDetails:true,verifySource:true});
+ assert.equal(crlfAudit.status,'INVENTORY_ONLY');
+ assert.equal(crlfAudit.sourceKnownReviewedFullReleaseCount,1);
+ assert.equal(crlfAudit.releaseAuthorized,false);
+
  // Version labels or one character edit cannot falsely borrow approval.
  const forged={scriptId,files:[
   {name:'Code',type:'SERVER_JS',source:reviewedSource+'\\n// unauthorized drift'},
