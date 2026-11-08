@@ -57,6 +57,12 @@ jobs:
           echo "APPROVED_HISTORICAL_GAS_BLOB=b5b1c7fd5a27454419ddd6d12ecb20751c207c63"
       - name: Check unified GAS v9.286 source and syntax
         run: node scripts/check-gas9286-integrated-preview.mjs
+      - name: Confirm reviewed FX loss and CAS regression fixtures exist
+        shell: bash
+        run: |
+          grep -Fq 'accountChangedWithoutFx' scripts/check-gas9285-trade-fx-preview.mjs
+          grep -Fq 'TRADE_FX_METADATA_LOSS_RISK' scripts/check-gas9285-trade-fx-preview.mjs
+          grep -Fq 'TRADE_LEDGER_REVISION_CONFLICT' scripts/check-gas9285-trade-v2-preview.mjs
       - name: Check FX fail-closed candidate
         run: node scripts/check-trade-fx-preview-fail-closed.mjs
       - name: Check 13-column FX production function regression
