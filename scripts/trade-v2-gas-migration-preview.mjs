@@ -54,6 +54,15 @@ function handlePreviewTradeLedgerV2Migration_() {
       errorCode:'TRADE_MIGRATION_SOURCE_MISSING'});
     var width=sh.getLastColumn();
     if([11,13,14].indexOf(width)===-1)throw Error('TRADE_MIGRATION_SHEET_WIDTH_INVALID');
+    // Width alone is not a schema proof: reject reordered or foreign sheets.
+    var expectedHeaders=['날짜','매수/매도','계좌','종목명','종목코드',
+      '수량','단가','자산유형','메모','비율','단주정산','외화단가',
+      '매입환율','거래ID'];
+    var actualHeaders=sh.getRange(1,1,1,width).getValues()[0];
+    for(var h=0;h<width;h++){
+      if(String(actualHeaders[h]||'').trim()!==expectedHeaders[h])
+        throw Error('TRADE_MIGRATION_HEADER_MISMATCH');
+    }
     var rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,
       Math.min(14,sh.getLastColumn())).getValues():[];
     var plan=_tradeV2MigrationPlan_(rows);
