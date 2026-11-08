@@ -1,0 +1,27 @@
+name: GAS production deployment inventory (read-only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: portfolio-production-gas
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    env:
+      GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+      GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+      GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+      GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+      GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Inspect all GAS deployments (GET only, no deployment or finance writes)
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
