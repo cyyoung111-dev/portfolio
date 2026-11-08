@@ -20,6 +20,16 @@ assert.ok(candidate.includes('function _tradeV2ValidateMutation_('));
 assert.ok(candidate.includes('function handleSyncTrades('));
 assert.ok(candidate.includes('if (values.length === 0)'));
 assert.ok(candidate.includes('intendedRows.length, 14)'));
+// No legacy writer can be accepted as a v2 writer; the live release must
+// remain unchanged until migration and authenticated E2E evidence exist.
+assert.ok(candidate.includes("params.action === 'syncTradesV2'"));
+assert.ok(candidate.includes('handleTradeSyncV2WithReceipt_'));
+assert.ok(candidate.includes('handleTradeV2ReceiptReadOnly_'));
+assert.ok(candidate.includes('previewTradeLedgerV2Migration'));
+assert.ok(candidate.includes('_tradeV2CheckpointVerified_'));
+assert.ok(candidate.includes('tradeLedgerProtocolVersion'));
+assert.equal(manifest.requiresProductionMigration,true);
+assert.equal(manifest.requiresReleaseReview,true);
 for(const unsafe of ['previousFxGroups','oldOrdinaryCounts','TRADE_FX_GROUP_'])
  assert.ok(!candidate.includes(unsafe),'unsafe legacy group heuristic: '+unsafe);
 new vm.Script(candidate,{filename:'gas-9286-integrated-preview.gs'});
