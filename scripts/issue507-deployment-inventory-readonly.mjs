@@ -4,7 +4,7 @@
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
-import {deploymentIdFromWebAppUrl} from './deploy-gas.mjs';
+import {deploymentIdFromWebAppUrl,assertGasReleaseReady} from './deploy-gas.mjs';
 import {classifyPublishedGateSource} from './audit-published-gas-gate-readonly.mjs';
 import {scanDeploymentReferences,loadTrackedRuntimeSources} from './issue507-deployment-reference-analysis.mjs';
 
@@ -219,7 +219,8 @@ export async function inspectGasDeploymentsReadOnly({
  // complete writer isolation. HEAD/unknown version is never fetched as source.
  const sourceAudit={attempted:false,distinctVersions:0,successful:0,
   failed:0,skippedUnversioned:0,skippedOverLimit:0,
-  knownLegacy9281:0,knownReviewedGate9282:0,unreviewedSource:0};
+  knownLegacy9281:0,knownReviewedGate9282:0,knownReviewedRelease:0,
+  unreviewedSource:0};
  // Version-to-classification mapping stays private in memory. Aggregate
  // classification by deployment role (expected vs additional), not by URL.
  const sourceByVersion=new Map();
@@ -255,6 +256,15 @@ export async function inspectGasDeploymentsReadOnly({
       code[0].source.length<1000||code[0].source.length>1400000)
      throw Error('source');
     const classified=classifyPublishedGateSource(code[0].source);
+    // The historical gate-only detector intentionally recognizes <=9.282.
+    // A later complete GAS 9.283/9.284/9.285 release is reviewed only if
+    // it matches the SAME exact full-file Git blob as production deployment.
+    // This never authorizes running an endpoint or proves writer inactivity.
+    let exactReviewedRelease=false;
+    try{
+      const approvedVersion=assertGasReleaseReady(code[0].source.replace(/\r\n/g,'\n'));
+      exactReviewedRelease=['9.283','9.284','9.285'].includes(approvedVersion);
+    }catch{}
     sourceAudit.successful++;
     if(classified.knownLegacyBaseline){
      sourceAudit.knownLegacy9281++;
@@ -262,6 +272,9 @@ export async function inspectGasDeploymentsReadOnly({
     }else if(classified.gateReadAllowed){
      sourceAudit.knownReviewedGate9282++;
      sourceByVersion.set(version,'REVIEWED_GATE_V9282');
+    }else if(exactReviewedRelease){
+     sourceAudit.knownReviewedRelease++;
+     sourceByVersion.set(version,'REVIEWED_FULL_RELEASE_SOURCE');
     }else{
      sourceAudit.unreviewedSource++;
      sourceByVersion.set(version,'UNREVIEWED_SOURCE');
@@ -296,12 +309,13 @@ export async function inspectGasDeploymentsReadOnly({
  const expectedRow=entries.find(e=>e.expected);
  const expectedSourceClassification=expectedRow?getRole(expectedRow):'EXPECTED_NOT_FOUND';
  const additionalRoleCounts={
-  knownLegacy9281:0,reviewedGate9282:0,unreviewed:0,
+  knownLegacy9281:0,reviewedGate9282:0,reviewedFullRelease:0,unreviewed:0,
   versionUnverified:0,getUnverified:0,limitUnverified:0,notInspected:0};
  for(const e of entries.filter(x=>!x.expected&&!x.testHeadVerified&&x.types.length>0)){
   const role=getRole(e);
   if(role==='APPROVED_LEGACY_V9281')additionalRoleCounts.knownLegacy9281++;
   else if(role==='REVIEWED_GATE_V9282')additionalRoleCounts.reviewedGate9282++;
+  else if(role==='REVIEWED_FULL_RELEASE_SOURCE')additionalRoleCounts.reviewedFullRelease++;
   else if(role==='UNREVIEWED_SOURCE')additionalRoleCounts.unreviewed++;
   else if(role==='VERSION_METADATA_UNVERIFIED')additionalRoleCounts.versionUnverified++;
   else if(role==='SOURCE_LIMIT_UNVERIFIED')additionalRoleCounts.limitUnverified++;
@@ -380,6 +394,7 @@ export async function inspectGasDeploymentsReadOnly({
   sourceGetSkippedOverLimitCount:sourceAudit.skippedOverLimit,
   sourceKnownLegacy9281Count:sourceAudit.knownLegacy9281,
   sourceKnownReviewedGate9282Count:sourceAudit.knownReviewedGate9282,
+  sourceKnownReviewedFullReleaseCount:sourceAudit.knownReviewedRelease,
   sourceUnreviewedCount:sourceAudit.unreviewedSource,
   unreviewedSourceStaticScanMethod:'LEXICAL_HINTS_ONLY',
   unreviewedSourceStaticVersionsScanned:hints.scanned,
@@ -393,6 +408,7 @@ export async function inspectGasDeploymentsReadOnly({
   expectedDeploymentSourceClassification:expectedSourceClassification,
   additionalDeploymentKnownLegacy9281Count:additionalRoleCounts.knownLegacy9281,
   additionalDeploymentReviewedGate9282Count:additionalRoleCounts.reviewedGate9282,
+  additionalDeploymentReviewedFullReleaseCount:additionalRoleCounts.reviewedFullRelease,
   additionalDeploymentUnreviewedSourceCount:additionalRoleCounts.unreviewed,
   additionalDeploymentVersionUnverifiedCount:additionalRoleCounts.versionUnverified,
   additionalDeploymentSourceGetUnverifiedCount:additionalRoleCounts.getUnverified,

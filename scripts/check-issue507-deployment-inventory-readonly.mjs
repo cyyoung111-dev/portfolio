@@ -303,6 +303,57 @@ assert.equal(sourceReport.sourceKnownReviewedGate9282Count,0);
 assert.equal(sourceReport.sourceGetSkippedUnversionedCount,1);
 assert.equal(sourceReport.sourceGetUnverifiedCount,0);
 assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGACY_V9281');
+ // Post-v9.282 production source needs its own exact full-file reviewed
+ // classification. The old v9.282 gate-only classifier must not falsely
+ // report an immutable reviewed 9.284 as an unreviewed writer.
+ const reviewedSource=fs.readFileSync('reference/gas-v9.284.gs','utf8');
+ const reviewedFiles={scriptId,files:[
+  {name:'Code',type:'SERVER_JS',source:reviewedSource},
+  {name:'appsscript',type:'JSON',source:'{}'}
+ ]};
+ const reviewedDetails={
+  [expectedDeploymentId]:configuredWebApp(expectedDeploymentId,'MYSELF','USER_DEPLOYING')
+ };
+ const reviewed=await setup({'':{deployments:[
+    item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
+  reviewedDetails,{'336':reviewedFiles}).run({verifyDetails:true,verifySource:true});
+ assert.equal(reviewed.status,'INVENTORY_ONLY');
+ assert.equal(reviewed.reason,'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED');
+ assert.equal(reviewed.expectedDeploymentSourceClassification,'REVIEWED_FULL_RELEASE_SOURCE');
+ assert.equal(reviewed.sourceKnownReviewedFullReleaseCount,1);
+ assert.equal(reviewed.sourceUnreviewedCount,0);
+ assert.equal(reviewed.deploymentCount,2);
+ assert.equal(reviewed.additionalRoutableDeploymentCount,0);
+ assert.equal(reviewed.releaseAuthorized,false);
+ assert.equal(reviewed.allActorsAndVersionsTerminatedVerified,false);
+ assert.equal(reviewed.externalSheetsWritersExcludedVerified,false);
+ // Google REST may canonicalize line endings independently of a Git checkout.
+ // CRLF is the sole harmless normalization; any changed executable still fails.
+ const reviewedCRLF={scriptId,files:[
+  {name:'Code',type:'SERVER_JS',source:reviewedSource.replace(/\n/g,'\r\n')},
+  {name:'appsscript',type:'JSON',source:'{}'}
+ ]};
+ const crlfAudit=await setup({'':{deployments:[
+    item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
+  reviewedDetails,{'336':reviewedCRLF}).run({verifyDetails:true,verifySource:true});
+ assert.equal(crlfAudit.status,'INVENTORY_ONLY');
+ assert.equal(crlfAudit.sourceKnownReviewedFullReleaseCount,1);
+ assert.equal(crlfAudit.releaseAuthorized,false);
+
+ // Version labels or one character edit cannot falsely borrow approval.
+ const forged={scriptId,files:[
+  {name:'Code',type:'SERVER_JS',source:reviewedSource+'\\n// unauthorized drift'},
+  {name:'appsscript',type:'JSON',source:'{}'}
+ ]};
+ const forgedAudit=await setup({'':{deployments:[
+    item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
+  reviewedDetails,{'336':forged}).run({verifyDetails:true,verifySource:true});
+ assert.equal(forgedAudit.status,'BLOCKED');
+ assert.equal(forgedAudit.reason,'VERSIONED_SOURCE_UNVERIFIED');
+ assert.equal(forgedAudit.sourceUnreviewedCount,1);
+ assert.equal(forgedAudit.sourceKnownReviewedFullReleaseCount,0);
+ assert.equal(forgedAudit.releaseAuthorized,false);
+
 assert.equal(sourceReport.additionalDeploymentKnownLegacy9281Count,2);
 assert.equal(sourceReport.additionalDeploymentVersionUnverifiedCount,1);
 assert.equal(sourceReport.additionalDeploymentUnreviewedSourceCount,0);
