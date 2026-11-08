@@ -1,4 +1,5 @@
-name: Issue860 read-only re-audit and v9.282 dry-run
+name: Issue860 v9.285 deployment inventory and read-only dry-run
+# Recheck exact 9.284 published-source classification once after merge.
 
 on:
   workflow_dispatch:
