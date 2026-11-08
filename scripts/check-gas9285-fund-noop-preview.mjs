@@ -55,7 +55,7 @@ assert.throws(()=>assertGasReleaseReady(candidate+'\n// drift'),/GAS_RELEASE_SOU
 const currentWeb=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
 assert.match(currentWeb,/const EXPECTED_GAS_VERSION = '9\.285';/,
  'web expected version must match the promoted release candidate');
-assert.match(currentWeb,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\[[^\]]*'9\.284', EXPECTED_GAS_VERSION\]\);/,
+assert.match(currentWeb,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\[[^\]]*'9\.284', EXPECTED_GAS_VERSION, '9\.286'\]\);/,
  'web consumer must still accept the actually deployed 9.284 version');
 const gateReleaseId=s=>s.match(/var ISSUE507_GATE_RELEASE_ID='([a-f0-9]{64})'/)?.[1]||'';
 assert.match(gateReleaseId(base),/^[a-f0-9]{64}$/);
