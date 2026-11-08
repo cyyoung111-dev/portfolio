@@ -58,7 +58,7 @@ assert.throws(()=>ctx._tradeV2MigrationPlan_([existing,existing]),
 let locked=false,writes=0,rows=doubled;
 ctx.getss=()=>({getSheetByName:()=>({
  getLastRow:()=>rows.length+1,getLastColumn:()=>rows[0].length,
- getRange:()=>({getValues:()=>rows.map(r=>[...r]),
+ getRange:(r,c,n,w)=>({getValues:()=>r===1?[['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산','외화단가','매입환율','거래ID'].slice(0,w)]:rows.map(r=>[...r]),
    setValues:()=>{writes++;throw Error('unexpected mutation')}})
 })});
 ctx.CONFIG={SHEET_TRADES:'거래이력'};

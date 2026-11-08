@@ -120,3 +120,8 @@ assert.throws(()=>plan([row('bad id')]),/TRADE_MIGRATION_ID_INVALID/);
 assert.throws(()=>plan([row().slice(0,12)]),/TRADE_MIGRATION_ROW_WIDTH_INVALID/);
 assert.ok(candidate.includes("if([11,13,14].indexOf(width)===-1)throw Error('TRADE_MIGRATION_SHEET_WIDTH_INVALID')"));
 console.log('GAS9286_MIGRATION_INVARIANTS_PASS');
+
+assert.ok(candidate.includes("throw Error('TRADE_MIGRATION_HEADER_MISMATCH')"),
+ 'migration must fail closed when a same-width sheet has different columns');
+assert.ok(candidate.includes("var actualHeaders=sh.getRange(1,1,1,width).getValues()[0]"),
+ 'migration must read the actual header before planning');
