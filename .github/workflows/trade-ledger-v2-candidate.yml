@@ -116,3 +116,36 @@ jobs:
           npm_config_script_shell: /bin/bash
           npm_config_ignore_scripts: 'true'
         run: npm run check:ci
+
+  staged-gas-branch-integration-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      # Exercise PR scripts and web against main's staged GAS source.
+      # This is a read-only compatibility check, NOT a 9.286 deploy proof.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Overlay exact staged main GAS sources without committing
+        shell: bash
+        run: |
+          git fetch --no-tags origin main
+          git show origin/main:src/gas/apps_script.gs > src/gas/apps_script.gs
+          git show origin/main:reference/gas-v9.285.gs > reference/gas-v9.285.gs
+          test "$(git hash-object src/gas/apps_script.gs)" = 954fd4aeae767ddac0cb161d3a81003b5b699d1c
+          test "$(git hash-object reference/gas-v9.285.gs)" = "$(git rev-parse origin/main:reference/gas-v9.285.gs)"
+      - name: Install dependencies without lifecycle scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+          fi
+      - name: Check PR code against staged main GAS
+        env:
+          npm_config_script_shell: /bin/bash
+          npm_config_ignore_scripts: 'true'
+        run: npm run check:ci
