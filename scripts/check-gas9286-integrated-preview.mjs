@@ -22,8 +22,8 @@ assert.equal(manifest.gasProjectWrites,0);
 const webFetch=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
 assert.ok(webFetch.includes("const EXPECTED_GAS_VERSION = '9.285';"),
  'web must retain main staged GAS 9.285 compatibility');
-assert.ok(webFetch.includes("const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION]);"),
- 'web must accept current 9.284 production during staged 9.285 rollout');
+assert.ok(webFetch.includes("const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286']);"),
+ 'web must accept existing 9.284/9.285 and candidate 9.286 during controlled rollout');
 assert.equal(candidate.split("gasVersion: '9.286'").length-1,9);
 assert.ok(candidate.includes("var ISSUE507_GATE_API_VERSION='9.286'"));
 assert.ok(candidate.includes('function _tradeV2ValidateMutation_('));
