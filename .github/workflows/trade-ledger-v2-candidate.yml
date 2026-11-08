@@ -7,6 +7,7 @@ on:
     paths:
       - 'scripts/*trade*'
       - 'scripts/compose-gas9285-trade-fx-preview.mjs'
+      - 'scripts/*gas9286*'
       - 'package.json'
       - '.github/workflows/trade-ledger-v2-candidate.yml'
   workflow_dispatch:
@@ -33,6 +34,8 @@ jobs:
           echo "GAS_BLOB=$(git hash-object src/gas/apps_script.gs)"
           git cat-file -e b5b1c7fd5a27454419ddd6d12ecb20751c207c63^{blob}
           echo "APPROVED_HISTORICAL_GAS_BLOB=b5b1c7fd5a27454419ddd6d12ecb20751c207c63"
+      - name: Check unified GAS v9.286 source and syntax
+        run: node scripts/check-gas9286-integrated-preview.mjs
       - name: Check FX fail-closed candidate
         run: node scripts/check-trade-fx-preview-fail-closed.mjs
       - name: Check 13-column FX production function regression
