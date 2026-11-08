@@ -31,6 +31,12 @@ assert.ok(candidate.includes('_tradeV2CheckpointVerified_'));
 assert.ok(candidate.includes('tradeLedgerProtocolVersion'));
 assert.equal(manifest.requiresProductionMigration,true);
 assert.equal(manifest.requiresReleaseReview,true);
+// Never treat a source-only candidate as a deployable release, even when
+// the complete integration suite is green.
+assert.equal(manifest.requiresProductionMigration,true);
+assert.equal(manifest.productionDeploymentApproved,false);
+assert.ok(!candidate.includes('GAS9286_RELEASE_APPROVED'));
+
 for(const unsafe of ['previousFxGroups','oldOrdinaryCounts','TRADE_FX_GROUP_'])
  assert.ok(!candidate.includes(unsafe),'unsafe legacy group heuristic: '+unsafe);
 // Compare the exact executable business functions with the independently
