@@ -34,6 +34,7 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.285': '954fd4aeae767ddac0cb161d3a81003b5b699d1c',
   '9.284': 'b5b1c7fd5a27454419ddd6d12ecb20751c207c63',
   '9.283': '327f48785550a012eaf1ed533c24bf6289c01a71',
   // Exact canonical source and its Issue860 editor-only resume alias profile.
@@ -476,7 +477,7 @@ export function summarizeGasReleaseFailure(error,stage) {
 }
 
 // Deployment approval for first stateful gate release is separate from merge.
-export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,dryRun=false,diagnosticOnly=false}={}) {
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,dryRun=false,diagnosticOnly=false}={}) {
   if(dryRun||diagnosticOnly)return;
   if(version==='9.282'&&(eventName!=='workflow_dispatch'||approved!==true))
     throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
@@ -484,6 +485,8 @@ export function assertIssue507ManualReleasePermission({version,eventName,approve
     throw Error('GAS_9283_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.284'&&(eventName!=='workflow_dispatch'||approved9284!==true))
     throw Error('GAS_9284_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  if(version==='9.285'&&(eventName!=='workflow_dispatch'||approved9285!==true))
+    throw Error('GAS_9285_EXPLICIT_MANUAL_RELEASE_REQUIRED');
 }
 export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
@@ -517,7 +520,8 @@ export async function deploy() {
     version:expectedVersion,eventName:process.env.GITHUB_EVENT_NAME,
     approved:process.env.GAS_9282_RELEASE_APPROVAL==='true',
     approved9283:process.env.GAS_9283_RELEASE_APPROVAL==='true',
-    approved9284:process.env.GAS_9284_RELEASE_APPROVAL==='true',dryRun,
+    approved9284:process.env.GAS_9284_RELEASE_APPROVAL==='true',
+    approved9285:process.env.GAS_9285_RELEASE_APPROVAL==='true',dryRun,
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
