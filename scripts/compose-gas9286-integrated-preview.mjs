@@ -20,8 +20,21 @@ export function composeGas9286IntegratedPreview(){
  if(trade.manifest.productionDeploymentApproved||fund.manifest.productionDeploymentApproved)
   throw Error('GAS9286_UNEXPECTED_APPROVAL');
  let candidate=trade.candidate;
- // The v2 candidate already incorporates the fund no-op logic; reject
- // duplicates and missing branches before changing the advertised version.
+ // Preserve the independently staged 9.285 fund writer verbatim. The
+ // trade-v2 preview may have been composed from an older fund fixture.
+ const extractFunction=(src,name)=>{
+  const start=src.indexOf('function '+name+'(');
+  if(start<0)throw Error('GAS9286_MISSING_FUNCTION:'+name);
+  const end=src.indexOf('\\n}',start);
+  if(end<0)throw Error('GAS9286_UNTERMINATED_FUNCTION:'+name);
+  return src.slice(start,end+2);
+ };
+ const fundName='_refreshFundValuations';
+ const tradeFund=extractFunction(candidate,fundName);
+ const stagedFund=extractFunction(fund.candidate,fundName);
+ if(tradeFund!==stagedFund)
+  candidate=replaceOnce(candidate,tradeFund,stagedFund,'STAGED_FUND_WRITER');
+ // Reject duplicate or missing no-op branches after exact function adoption.
  const marker='if (values.length === 0)';
  if(candidate.split(marker).length!==2)throw Error('GAS9286_FUND_NOOP_MISSING_OR_DUPLICATE');
  candidate=replaceOnce(candidate,
