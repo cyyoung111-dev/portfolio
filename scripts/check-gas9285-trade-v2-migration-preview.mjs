@@ -27,6 +27,9 @@ vm.runInContext('var TRADE_V2_ID_RE=/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/;\n'
 const row=['2026-11-06','buy','US','US_TEST','005930',
   10,209925,'주식','', '', ''];
 const doubled=[row.slice(),row.slice()];
+assert.throws(()=>ctx._tradeV2MigrationPlan_([[...row,'','','','unexpected-finance-column']]),
+ /TRADE_MIGRATION_ROW_WIDTH_INVALID/,
+ '15-column source rows must not be silently truncated');
 const initial=ctx._tradeV2MigrationPlan_(doubled);
 assert.equal(initial.count,2);
 assert.equal(initial.assigned,2);
