@@ -67,15 +67,9 @@ for(const name of ['handleSyncTrades','handleGetTrades',
  'handleTradeV2ReceiptReadOnly_'])
  assert.equal(exactFunction(candidate,name),exactFunction(v2,name),
   'integrated GAS function drift: '+name);
-// Detect unexpected divergence from the staged main source outside the
-// explicitly reviewed trade-v2 implementation and release-version changes.
-// Function-level parity is stricter than merely finding a no-op marker.
-for(const name of ['_refreshFundValuations']) {
- assert.equal(exactFunction(candidate,name),exactFunction(stagedFundSource,name),
-  'staged main fund behavior drift: '+name);
-}
+// Fund valuation behavior must match the staged main source byte-for-byte.
 assert.equal(exactFunction(candidate,'_refreshFundValuations'),
  exactFunction(stagedFundSource,'_refreshFundValuations'),
- 'GAS 9.286 fund function must match the staged main 9.285 source');
+ 'GAS 9.286 fund function must match staged main 9.285');
 new vm.Script(candidate,{filename:'gas-9286-integrated-preview.gs'});
 console.log('GAS9286_INTEGRATED_PREVIEW_PASS '+JSON.stringify(manifest));
