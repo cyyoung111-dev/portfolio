@@ -248,7 +248,7 @@ assert.match(portfolioData, /function _normalizePortfolioRemoteDirtyEntry\(value
   '각 연결 dirty entry에 거래·보유·직접펀드 복구 payload를 보존');
 assert.match(portfolioData, /function _normalizePortfolioRemoteDirtyMap\(value\)[\s\S]*const legacy = _normalizePortfolioRemoteDirtyEntry\(value\)[\s\S]*map\[legacy\.target\] = legacy[\s\S]*Object\.values\(value\)/,
   '기존 단일 dirty 형식은 target별 map으로 마이그레이션');
-assert.match(portfolioData, /function _markPortfolioRemoteDirty\(\)[\s\S]*_portfolioRemoteDirtyByTarget\[target\] = \{[\s\S]*trades: rawTrades\.map[\s\S]*holdings: rawHoldings\.map[\s\S]*fundDirect:/,
+assert.match(portfolioData, /function _markPortfolioRemoteDirty\(deletedTradeIds\)[\s\S]*_portfolioRemoteDirtyByTarget\[target\] = \{[\s\S]*trades: rawTrades\.map[\s\S]*holdings: rawHoldings\.map[\s\S]*fundDirect:/,
   'A/B 연결 dirty payload가 서로 덮어쓰지 않도록 현재 target entry만 갱신');
 assert.match(portfolioData, /function _clearPortfolioRemoteDirty\(epoch, target\)[\s\S]*_portfolioRemoteDirtyByTarget\[normalizedTarget\][\s\S]*current\.epoch !== epoch[\s\S]*delete _portfolioRemoteDirtyByTarget\[normalizedTarget\][\s\S]*_persistPortfolioRemoteDirtyMap\(\)/,
   '최신 target+epoch 성공만 해당 연결 dirty를 해제');
