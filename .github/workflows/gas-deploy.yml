@@ -46,6 +46,11 @@ on:
         required: true
         default: false
         type: boolean
+      approve_9285:
+        description: 'GAS v9.285 펀드 전용 릴리스 수동 배포 승인 (기본 false, 소스·호환성 검증 별도)'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -122,6 +127,7 @@ jobs:
       GAS_9282_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9282 && 'true' || 'false' }}
       GAS_9283_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9283 && 'true' || 'false' }}
       GAS_9284_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9284 && 'true' || 'false' }}
+      GAS_9285_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9285 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
