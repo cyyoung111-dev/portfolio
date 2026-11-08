@@ -55,6 +55,11 @@ jobs:
           echo "GAS_BLOB=$(git hash-object src/gas/apps_script.gs)"
           git cat-file -e b5b1c7fd5a27454419ddd6d12ecb20751c207c63^{blob}
           echo "APPROVED_HISTORICAL_GAS_BLOB=b5b1c7fd5a27454419ddd6d12ecb20751c207c63"
+      - name: Fetch staged main GAS 9.285 provenance for source-only comparison
+        shell: bash
+        run: |
+          git fetch --no-tags origin main
+          git cat-file -e 954fd4aeae767ddac0cb161d3a81003b5b699d1c^{blob}
       - name: Check unified GAS v9.286 source and syntax
         run: node scripts/check-gas9286-integrated-preview.mjs
       - name: Confirm reviewed FX loss and CAS regression fixtures exist
