@@ -1701,6 +1701,7 @@ async function syncTradesToGsheet(options) {
           : (ep?.code || remote?.code || STOCK_CODE[ep?.name || t.name] || '');
         const code = isDirectFund ? '' : _normalizeSyncCode(baseCode || t.code || '');
         return {
+          id:        t.id || '',
           date:      t.date,
           tradeType: t.tradeType,
           acct:      t.acct      || '',
@@ -1711,6 +1712,13 @@ async function syncTradesToGsheet(options) {
           assetType: isDirectFund ? (t.assetType || t.type || '펀드')
             : getEPType(ep, remote?.type || t.assetType || '주식'),
           memo:      t.memo      || '',
+          tradeFxSchemaVersion: 1,
+          ratio:     t.ratio || 0,
+          fractionalCash: t.fractionalCash || 0,
+          ...(t.priceRaw != null && t.priceRaw !== ''
+             ? {priceRaw: t.priceRaw} : {}),
+          ...(t.fxRateAtBuy != null && t.fxRateAtBuy !== ''
+             ? {fxRateAtBuy: t.fxRateAtBuy} : {}),
         };
       });
     // Never persist a truncated dirty ledger during authoritative restore:
