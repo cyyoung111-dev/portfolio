@@ -82,8 +82,12 @@ try {
   assert.equal((await runReadOnly9282({fetchImpl:mock})).status,'BLOCKED','legacy source alone remains blocked');
   reviewed=true;
   result=await runReadOnly9282({fetchImpl:mock});
-  assert.equal(result.status,'BLOCKED','9.283 cannot be mistaken for the reviewed live 9.282 source');
-  assert.ok(result.inventory.sourceUnreviewedCount>=1,'published inventory must reject the unreviewed 9.283 source');
+  assert.equal(result.status,'READ_ONLY_CHECKS_PASSED',
+    'a full Git-hash reviewed 9.285 release is source-approved, not writer-authorized');
+  assert.equal(result.inventory.sourceKnownReviewedFullReleaseCount,1);
+  assert.equal(result.inventory.sourceUnreviewedCount,0);
+  assert.equal(result.inventory.reason,'LEGACY_EXECUTION_AND_EXTERNAL_WRITER_ISOLATION_UNVERIFIED');
+  assert.equal(result.inventory.allActorsAndVersionsTerminatedVerified,false);
   assert.equal(result.releaseAuthorized,false);
   // Repeated dispatch executes reads again, with no persistent writes.
   assert.equal((await runReadOnly9282({fetchImpl:mock})).dryRun.deployed,false);
@@ -93,7 +97,9 @@ try {
     globalThis.setTimeout=fn=>{queueMicrotask(fn);return 0;};
     result=await runReadOnly9282({fetchImpl:mock});
   } finally { globalThis.setTimeout=realTimeout; }
-  assert.equal(result.status,'BLOCKED','synthetic published 9.283 is not the verified live writer-gate v9.282');
+  assert.equal(result.status,'READ_ONLY_CHECKS_PASSED',
+    'a fully reviewed 9.285 immutable source passes read-only inventory only');
+  assert.equal(result.releaseAuthorized,false);
   assert.equal(result.dryRun.dryRun,true);
   headMatches=false;
   stale=true;
@@ -111,7 +117,8 @@ try {
   process.env.GAS_ISSUE860_ONE_SHOT_DRYRUN='true';
   const beforePush=calls.length;
   result=await runReadOnly9282({fetchImpl:mock});
-  assert.equal(result.status,'BLOCKED');
+  assert.equal(result.status,'READ_ONLY_CHECKS_PASSED');
+  assert.equal(result.releaseAuthorized,false);
   assert.equal(result.sourceVersion,'9.285');
   assert.equal(result.dryRun.dryRun,true);
   assert.ok(calls.slice(beforePush).every(c=>c.method==='GET'
