@@ -5,6 +5,17 @@ import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import {composeGas9285TradeV2Preview} from './compose-gas9285-trade-v2-preview.mjs';
 const {base,candidate,manifest}=composeGas9285TradeV2Preview();
+// Fund no-op and trade v2 must share the exact approved 9.284 base even
+// when the PR checkout is a synthetic merge with newer main GAS source.
+const {composeGas9285FundNoopPreview}=await import('./compose-gas9285-fund-noop-preview.mjs');
+const fundPreview=composeGas9285FundNoopPreview();
+assert.equal(fundPreview.base,base,'fund and trade must share identical approved base');
+assert.equal(fundPreview.manifest.baseSourceGitBlob,manifest.baseSourceGitBlob);
+assert.equal(fundPreview.manifest.productionDeploymentApproved,false);
+assert.equal(manifest.productionDeploymentApproved,false);
+assert.equal(fundPreview.manifest.gasProjectWrites,0);
+assert.equal(fundPreview.manifest.financeWrites,0);
+
 assert.equal(manifest.baseSourceGitBlob,'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
 assert.equal(manifest.columns,14);
 assert.equal(manifest.legacy13ColumnWriterExcluded,true);
