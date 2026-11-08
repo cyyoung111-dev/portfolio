@@ -40,7 +40,7 @@ const v2=composeGas9285TradeV2Preview().candidate;
 const exactFunction=(src,name)=>{
  const start=src.indexOf('function '+name+'(');
  assert.ok(start>=0,'missing function '+name);
- const end=src.indexOf('\\n}',start);
+ const end=src.indexOf('\n}',start);
  assert.ok(end>start,'unterminated function '+name);
  return src.slice(start,end+2);
 };
