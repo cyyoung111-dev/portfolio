@@ -62,6 +62,7 @@ jobs:
         run: |
           git fetch --no-tags origin main
           git cat-file -e 954fd4aeae767ddac0cb161d3a81003b5b699d1c^{blob}
+          test "$(git rev-parse origin/main:src/gas/apps_script.gs)" = 954fd4aeae767ddac0cb161d3a81003b5b699d1c
       - name: Check unified GAS v9.286 source and syntax
         run: node scripts/check-gas9286-integrated-preview.mjs
       - name: Confirm reviewed FX loss and CAS regression fixtures exist
