@@ -23,6 +23,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify checked-out GAS base provenance
+        shell: bash
+        run: |
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "CHECKOUT_SHA=$(git rev-parse HEAD)"
+          echo "GAS_BLOB=$(git hash-object src/gas/apps_script.gs)"
+          test "$(git hash-object src/gas/apps_script.gs)" = "b5b1c7fd5a27454419ddd6d12ecb20751c207c63"
       - name: Check FX fail-closed candidate
         run: node scripts/check-trade-fx-preview-fail-closed.mjs
       - name: Check 13-column FX production function regression
