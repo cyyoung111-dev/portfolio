@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import {composeGas9285TradeV2Preview} from './compose-gas9285-trade-v2-preview.mjs';
-const {base,candidate,manifest}=composeGas9285TradeV2Preview();
+import {composeGas9286IntegratedPreview} from './compose-gas9286-integrated-preview.mjs';
+const integrationMode=process.env.GAS_TRADE_V2_CANDIDATE==='9286';
+const {base,candidate,manifest}=integrationMode
+ ?composeGas9286IntegratedPreview():composeGas9285TradeV2Preview();
 // Fund no-op and trade v2 must share the exact approved 9.284 base even
 // when the PR checkout is a synthetic merge with newer main GAS source.
 const {composeGas9285FundNoopPreview}=await import('./compose-gas9285-fund-noop-preview.mjs');
@@ -19,7 +22,7 @@ assert.equal(fundPreview.manifest.financeWrites,0);
 // Both independently generated sources must remain nondeployable and must
 // never be mistaken for one combined GAS release.
 assert.equal(fundPreview.manifest.proposedVersion,'9.285');
-assert.equal(manifest.proposedVersion,'9.285');
+assert.equal(manifest.proposedVersion,integrationMode?'9.286':'9.285');
 assert.notEqual(fundPreview.manifest.candidateSourceGitBlob,
  manifest.candidateSourceGitBlob,
  'distinct GAS sources with the same version require a reviewed v9.286+ integration');
@@ -29,12 +32,13 @@ assert.equal(fundPreview.manifest.status,'SOURCE_PREVIEW_NOT_DEPLOYABLE');
 assert.equal(manifest.baseSourceGitBlob,'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
 assert.equal(manifest.columns,14);
 assert.equal(manifest.legacy13ColumnWriterExcluded,true);
-assert.equal(manifest.finalWriterRequiresIdCas,true);
+if(!integrationMode)assert.equal(manifest.finalWriterRequiresIdCas,true);
+else assert.equal(manifest.tradeLedgerProtocolVersion,2);
 const tradeWriter=candidate.slice(candidate.indexOf('function handleSyncTrades('),candidate.indexOf('\n}',candidate.indexOf('function handleSyncTrades('))+2);
 assert.doesNotMatch(tradeWriter,/previousFxGroups|oldOrdinaryCounts|TRADE_FX_GROUP_/);
 assert.match(tradeWriter,/_tradeV2ValidateMutation_/);
 assert.equal(manifest.productionDeploymentApproved,false);
-assert.equal(manifest.requiresReceiptImplementation,false);
+if(!integrationMode)assert.equal(manifest.requiresReceiptImplementation,false);
 assert.equal(manifest.financeWrites,0);
 assert.notEqual(candidate,base);
 new vm.Script(candidate,{filename:'unpublished-gas-9285-v2.gs'});
@@ -223,7 +227,7 @@ const srcFund=candidate.slice(candidate.indexOf('function _refreshFundValuations
 const noopAt=srcFund.indexOf('if (values.length === 0)');
 const lockAt=srcFund.indexOf('var writeLock = LockService.getScriptLock();');
 assert.ok(noopAt>0 && lockAt>noopAt,'fund noop must preempt writer lock');
-console.log('GAS9285_TRADE_V2_PREVIEW_PASS '+JSON.stringify({
+console.log((integrationMode?'GAS9286_INTEGRATED_V2_RUNTIME_PASS ':'GAS9285_TRADE_V2_PREVIEW_PASS ')+JSON.stringify({
  productionSourceExecuted:true,columns:14,previewOnly:true,
  receiptImplemented:true,legacyMigrationImplemented:false,
  financeWrites:0,gasProjectWrites:0,rebuilds,readCount
