@@ -262,7 +262,7 @@ export async function inspectGasDeploymentsReadOnly({
     // This never authorizes running an endpoint or proves writer inactivity.
     let exactReviewedRelease=false;
     try{
-      const approvedVersion=assertGasReleaseReady(code[0].source);
+      const approvedVersion=assertGasReleaseReady(code[0].source.replace(/\r\n/g,'\n'));
       exactReviewedRelease=['9.283','9.284','9.285'].includes(approvedVersion);
     }catch{}
     sourceAudit.successful++;
