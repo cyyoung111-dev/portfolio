@@ -2,6 +2,7 @@
 // live 9.284 source remains byte-for-byte pinned. Do not publish on import.
 // This preview is an alternative to the separate v9.285 fund-noop proposal.
 import fs from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 const PINNED_BASE_BLOB='b5b1c7fd5a27454419ddd6d12ecb20751c207c63';
 const sha1=s=>{const b=Buffer.from(s,'utf8');return createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex')};
@@ -10,9 +11,23 @@ const replaceOnce=(s,from,to)=>{
  return s.replace(from,to);
 };
 export function composeGas9285TradeFxPreview(){
- const base=fs.readFileSync('src/gas/apps_script.gs','utf8');
- const actualBaseBlob=sha1(base);
- if(actualBaseBlob!==PINNED_BASE_BLOB)throw Error('GAS9285_UNREVIEWED_BASE expected='+PINNED_BASE_BLOB+' actual='+actualBaseBlob+'; inspect checked-out GAS source/ref; never bypass provenance gate');
+ // PR merge refs can contain a newer main GAS source. Build this source-only
+ // preview from the exact approved historical blob, never from an unreviewed
+ // merged worktree. Missing Git objects remain fail-closed.
+ const checkedOutBase=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ const actualBaseBlob=sha1(checkedOutBase);
+ let base=checkedOutBase;
+ if(actualBaseBlob!==PINNED_BASE_BLOB){
+  try{
+   base=execFileSync('git',['cat-file','blob',PINNED_BASE_BLOB],
+    {encoding:'utf8',maxBuffer:32*1024*1024});
+  }catch{
+   throw Error('GAS9285_APPROVED_BLOB_UNAVAILABLE expected='+PINNED_BASE_BLOB+
+    ' worktree='+actualBaseBlob+'; fetch complete Git history; do not deploy');
+  }
+ }
+ if(sha1(base)!==PINNED_BASE_BLOB)
+  throw Error('GAS9285_UNREVIEWED_BASE expected='+PINNED_BASE_BLOB+' actual='+sha1(base));
  let candidate=base;
  const replacements=[
  [
