@@ -51,6 +51,11 @@ on:
         required: true
         default: false
         type: boolean
+      approve_9286:
+        description: 'GAS v9.286 통합 릴리스 수동 운영 배포 별도 승인 (기본 false, 원장 마이그레이션 사전검증 필수)'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -128,6 +133,7 @@ jobs:
       GAS_9283_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9283 && 'true' || 'false' }}
       GAS_9284_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9284 && 'true' || 'false' }}
       GAS_9285_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9285 && 'true' || 'false' }}
+      GAS_9286_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9286 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
