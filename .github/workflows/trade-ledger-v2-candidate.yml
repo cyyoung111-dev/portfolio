@@ -21,6 +21,7 @@ on:
       - main
     paths:
       - 'scripts/*trade*'
+      - 'scripts/compose-gas9285-trade-fx-preview.mjs'
       - 'scripts/*gas9286*'
       - 'scripts/compose-gas9285-fund-noop-preview.mjs'
       - 'src/web/features/settings/settings_fetch.js'
