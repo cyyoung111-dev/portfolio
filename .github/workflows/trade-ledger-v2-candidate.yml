@@ -89,12 +89,17 @@ jobs:
           node scripts/check-gas9285-trade-v2-migration-preview.mjs
           node scripts/check-gas9285-trade-v2-shadow-migration.mjs
 
-  full-integration-ci:
+  main-baseline-integration-ci:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
+      # The trade-v2 branch intentionally pins GAS 9.284 as its preview base.
+      # Run the complete deploy/version-aware suite on main's staged 9.285
+      # source, while trade-v2-candidate validates the actual PR branch.
+      # This is NOT evidence that the PR branch passes the full suite.
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
