@@ -25,7 +25,7 @@ export function composeGas9286IntegratedPreview(){
  const extractFunction=(src,name)=>{
   const start=src.indexOf('function '+name+'(');
   if(start<0)throw Error('GAS9286_MISSING_FUNCTION:'+name);
-  const end=src.indexOf('\\n}',start);
+  const end=src.indexOf('\n}',start);
   if(end<0)throw Error('GAS9286_UNTERMINATED_FUNCTION:'+name);
   return src.slice(start,end+2);
  };
