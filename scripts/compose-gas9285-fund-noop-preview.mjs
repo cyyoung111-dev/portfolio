@@ -2,6 +2,7 @@
 // fully reconciled period. The reviewed 9.284 production source stays pinned.
 // Produces source in memory only. NEVER publishes, writes Sheets or sends.
 import fs from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 
 const BASE_BLOB='b5b1c7fd5a27454419ddd6d12ecb20751c207c63';
@@ -14,8 +15,28 @@ function replaceOne(src,a,b,label){
  return src.replace(a,b);
 }
 export function composeGas9285FundNoopPreview(){
- const base=fs.readFileSync('src/gas/apps_script.gs','utf8');
- if(blob(base)!==BASE_BLOB)throw Error('GAS9285_UNREVIEWED_BASE');
+ const worktree=fs.readFileSync('src/gas/apps_script.gs','utf8');
+ let base=worktree;
+ if(blob(base)!==BASE_BLOB){
+  // PR merge refs may carry newer main GAS. Never use it as a source for
+  // this 9.284-based preview; resolve only the reviewed historical blob.
+  try{
+   base=execFileSync('git',['cat-file','blob',BASE_BLOB],
+    {encoding:'utf8',maxBuffer:32*1024*1024});
+  }catch{
+   try{
+    execFileSync('git',['fetch','--no-tags','--depth=1','origin',
+     'refs/heads/fix/734-foreign-trade-fx-server-roundtrip-20261107'],
+     {stdio:'pipe',timeout:30000,maxBuffer:1024*1024});
+    base=execFileSync('git',['cat-file','blob',BASE_BLOB],
+     {encoding:'utf8',maxBuffer:32*1024*1024});
+   }catch{
+    throw Error('GAS9285_FUND_APPROVED_BLOB_UNAVAILABLE expected='+BASE_BLOB+
+     ' worktree='+blob(worktree));
+   }
+  }
+ }
+ if(blob(base)!==BASE_BLOB)throw Error('GAS9285_UNREVIEWED_BASE expected='+BASE_BLOB+' actual='+blob(base));
  let src=base;
  const old=`  // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.
   // 외부 HTTP·NAV 파싱·평가 계산은 lock 밖에서 완료합니다.
