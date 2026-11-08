@@ -14,6 +14,18 @@ on:
       - '.github/workflows/gas-deploy.yml'
       - 'package.json'
       - '.github/workflows/trade-ledger-v2-candidate.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'scripts/*trade*'
+      - 'scripts/*gas9286*'
+      - 'scripts/compose-gas9285-fund-noop-preview.mjs'
+      - 'src/web/features/settings/settings_fetch.js'
+      - 'scripts/check-gas-deploy.mjs'
+      - '.github/workflows/gas-deploy.yml'
+      - 'package.json'
+      - '.github/workflows/trade-ledger-v2-candidate.yml'
   workflow_dispatch:
 
 permissions:
