@@ -20,9 +20,9 @@ assert.equal(manifest.gasProjectWrites,0);
 // Protect main's staged GAS 9.285 web compatibility while trade v2 is
 // reviewed separately. The 9.286 preview is not an approved live endpoint.
 const webFetch=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
-assert.match(webFetch,/const EXPECTED_GAS_VERSION = '9\\.285';/,
+assert.ok(webFetch.includes("const EXPECTED_GAS_VERSION = '9.285';"),
  'web must retain main staged GAS 9.285 compatibility');
-assert.match(webFetch,/const COMPATIBLE_GAS_VERSIONS = Object\\.freeze\\(\\['9\\.281', '9\\.282', '9\\.283', '9\\.284', EXPECTED_GAS_VERSION\\]\\);/,
+assert.ok(webFetch.includes("const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION]);"),
  'web must accept current 9.284 production during staged 9.285 rollout');
 assert.equal(candidate.split("gasVersion: '9.286'").length-1,9);
 assert.ok(candidate.includes("var ISSUE507_GATE_API_VERSION='9.286'"));
