@@ -5,7 +5,7 @@ function _tradeV2MigrationPlan_(sourceRows) {
     throw Error('TRADE_MIGRATION_SOURCE_INVALID');
   var used={},assigned=0,preserved=0,fxEvidence=0;
   var rows=sourceRows.map(function(raw,i){
-    if(!Array.isArray(raw)||raw.length<11||raw.length>14)
+    if(!Array.isArray(raw)||![11,13,14].includes(raw.length))
       throw Error('TRADE_MIGRATION_ROW_WIDTH_INVALID');
     var row=Array.from({length:14},function(_,j){
       return raw[j]==null?'':raw[j];
@@ -52,6 +52,8 @@ function handlePreviewTradeLedgerV2Migration_() {
     var sh=getss().getSheetByName(CONFIG.SHEET_TRADES);
     if(!sh)return jsonError('거래 원장 없음',{
       errorCode:'TRADE_MIGRATION_SOURCE_MISSING'});
+    var width=sh.getLastColumn();
+    if([11,13,14].indexOf(width)===-1)throw Error('TRADE_MIGRATION_SHEET_WIDTH_INVALID');
     var rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,
       Math.min(14,sh.getLastColumn())).getValues():[];
     var plan=_tradeV2MigrationPlan_(rows);
