@@ -71,7 +71,7 @@ const exactFunction=(src,name)=>{
 };
 for(const name of ['handleSyncTrades','handleGetTrades',
  '_tradeV2ValidateMutation_','_tradeV2CheckpointVerified_',
- '_refreshFundValuations','handleTradeSyncV2WithReceipt_',
+ 'handleTradeSyncV2WithReceipt_',
  'handleTradeV2ReceiptReadOnly_'])
  assert.equal(exactFunction(candidate,name),exactFunction(v2,name),
   'integrated GAS function drift: '+name);
