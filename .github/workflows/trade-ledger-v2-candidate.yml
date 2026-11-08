@@ -137,6 +137,7 @@ jobs:
           git show origin/main:src/gas/apps_script.gs > src/gas/apps_script.gs
           git show origin/main:reference/gas-v9.285.gs > reference/gas-v9.285.gs
           git show origin/main:DEPLOYMENT.md > DEPLOYMENT.md
+          git show origin/main:scripts/check-gas.mjs > scripts/check-gas.mjs
           test "$(git hash-object DEPLOYMENT.md)" = "$(git rev-parse origin/main:DEPLOYMENT.md)"
           test "$(git hash-object src/gas/apps_script.gs)" = 954fd4aeae767ddac0cb161d3a81003b5b699d1c
           test "$(git hash-object reference/gas-v9.285.gs)" = "$(git rev-parse origin/main:reference/gas-v9.285.gs)"
@@ -158,6 +159,7 @@ jobs:
           # branch suite is covered by trade-v2-candidate and main by
           # main-baseline-integration-ci. Test only cross-version contracts.
           node scripts/check-gas-deploy.mjs
+          node scripts/check-gas.mjs
           node scripts/check-web-trade-v2-contract.mjs
           node scripts/check-web-trade-v2-sync.mjs
           node scripts/check-web-trade-v2-review-p2.mjs
