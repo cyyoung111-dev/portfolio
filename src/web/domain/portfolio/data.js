@@ -1221,16 +1221,51 @@ function _persistPortfolioRemoteDirtyMap() {
   }
 }
 
-function _markPortfolioRemoteDirty() {
+function _markPortfolioRemoteDirty(deletedTradeIds) {
   const target = _currentGsheetSyncTarget();
   if (!target) return 0;
   const epoch = ++_portfolioRemoteSyncEpoch;
+  const previous=_portfolioRemoteDirtyByTarget[target];
+  // A confirmed UI delete remains explicit across debounce and offline
+  // journal retries. Missing ledger rows are never independently inferred.
+  const liveIds=new Set(rawTrades.map(t=>String(t.id||'')));
+  const requestedDeleteIds=Array.from(new Set([
+    ...(Array.isArray(previous?.tradeV2DeleteIds)?previous.tradeV2DeleteIds:[]),
+    ...(Array.isArray(deletedTradeIds)?deletedTradeIds:[])
+  ].map(String))).filter(id=>id && !liveIds.has(id));
+  const pinned=typeof _tradeV2PinnedBaseline==='function'
+    ?_tradeV2PinnedBaseline(target,typeof getGsheetConnectionGeneration==='function'
+      ?getGsheetConnectionGeneration():null):null;
+  const tradeV2Baseline=previous?.tradeV2Baseline ||
+    (pinned?{targetUrl:target,protocol:2,revision:pinned.revision,
+      trades:pinned.trades.map(t=>({...t}))}:null);
+  // A just-created trade can be removed before the debounce or while
+  // offline: absent a server preimage and an ATTEMPTED create receipt, this
+  // is cancellation of a local create, NOT an authoritative server delete.
+  const serverIds=new Set((tradeV2Baseline?.trades||[])
+    .map(t=>String(t.id||'')));
+  const receipt=typeof _readPortfolioRecoveryReceipts==='function'
+    ?_readPortfolioRecoveryReceipts()?.[target]?.syncTradesV2:null;
+  const attempted=receipt?.action==='syncTradesV2'&&receipt.attempted===true;
+  let attemptedCreatedIds=new Set(),receiptUnparseable=false;
+  if(attempted){
+    try{
+      const submitted=JSON.parse(receipt.params?.data||'[]');
+      if(!Array.isArray(submitted))throw Error('INVALID_RECEIPT_ROWS');
+      attemptedCreatedIds=new Set(submitted.map(t=>String(t.id||'')));
+    }catch(ignore){receiptUnparseable=true;}
+  }
+  const tradeV2DeleteIds=requestedDeleteIds.filter(id=>
+    !tradeV2Baseline||serverIds.has(id)||attemptedCreatedIds.has(id)||
+    receiptUnparseable);
   _portfolioRemoteDirtyByTarget[target] = {
     target,
     epoch,
     receiptProtocol: 1,
     receiptScope: 'task_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2),
     legacyUntracked: !!(_portfolioRemoteDirtyByTarget[target] && (_portfolioRemoteDirtyByTarget[target].receiptProtocol !== 1 || _portfolioRemoteDirtyByTarget[target].legacyUntracked)),
+    tradeV2DeleteIds,
+    tradeV2Baseline,
     trades: rawTrades.map(t => ({ ...t })),
     holdings: rawHoldings.map(h => ({ ...h })),
     fundDirect: (typeof fundDirect === 'object' && fundDirect)
@@ -1239,6 +1274,38 @@ function _markPortfolioRemoteDirty() {
   };
   _persistPortfolioRemoteDirtyMap();
   return epoch;
+}
+
+// Consume an explicit deletion ONLY when the server readback confirms the
+// old trade ID is absent and the full revision has been verified. Persist
+// the advanced v2 baseline with the dirty journal before any later Settings
+// step, so a Settings retry cannot delete the same ID a second time.
+function _acknowledgePortfolioTradeV2Sync(target,oldBaseline,verified) {
+  const dirty=_portfolioRemoteDirtyByTarget[target];
+  if(!dirty||!dirty.tradeV2Baseline)return true;
+  if(dirty.tradeV2Baseline.revision!==oldBaseline?.revision||
+      !verified||!Array.isArray(verified.trades)||
+      !/^[0-9a-f]{64}$/.test(String(verified.revision||'')))
+    return false;
+  const existing=new Set(verified.trades.map(t=>String(t.id||'')));
+  const removed=new Set((oldBaseline.trades||[])
+    .map(t=>String(t.id||'')).filter(id=>id&&!existing.has(id)));
+  const oldSnapshot={...dirty,
+    tradeV2DeleteIds:[...(dirty.tradeV2DeleteIds||[])],
+    tradeV2Baseline:dirty.tradeV2Baseline};
+  dirty.tradeV2DeleteIds=(dirty.tradeV2DeleteIds||[])
+    .filter(id=>!removed.has(String(id)));
+  dirty.tradeV2Baseline={targetUrl:target,protocol:2,
+    revision:verified.revision,trades:verified.trades.map(t=>({...t}))};
+  _persistPortfolioRemoteDirtyMap();
+  const read=typeof lsGet==='function'
+    ?lsGet(PORTFOLIO_REMOTE_DIRTY_KEY,{})?.[target]:null;
+  if(read&&read.tradeV2Baseline?.revision===verified.revision &&
+      JSON.stringify(read.tradeV2DeleteIds||[])===
+      JSON.stringify(dirty.tradeV2DeleteIds))return true;
+  // Do not advertise local completion on a non-durable acknowledgement.
+  Object.assign(dirty,oldSnapshot);
+  return false;
 }
 
 function _clearPortfolioRemoteDirty(epoch, target) {
