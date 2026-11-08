@@ -147,8 +147,23 @@ assert.equal(read.ledgerRevision,good.ledgerRevision);
 assert.equal(read.trades[1].id,fx.id);
 assert.equal(read.trades[1].priceRaw,155.5);
 assert.equal(read.trades[1].fxRateAtBuy,1350);
-const changedRevision=read.ledgerRevision;
-const deleteFx=run([changedPlain],meta([deletion(fx)],changedRevision));
+// A valid account transfer must preserve immutable ID and both FX fields.
+const movedFx={...fx,acct:'ISA',memo:'account transfer'};
+const moveAck=run([changedPlain,movedFx],
+ meta([edit(fx)],read.ledgerRevision));
+assert.equal(moveAck.status,'ok',
+ 'ID-based FX account transfer must succeed: '+JSON.stringify(moveAck));
+assert.equal(stored[1][2],'ISA');
+assert.equal(stored[1][11],155.5);
+assert.equal(stored[1][12],1350);
+assert.equal(stored[1][13],fx.id);
+const movedRead=ctx.handleGetTrades();
+assert.equal(movedRead.trades[1].acct,'ISA');
+assert.equal(movedRead.trades[1].priceRaw,155.5);
+assert.equal(movedRead.trades[1].fxRateAtBuy,1350);
+assert.equal(moveAck.ledgerRevision,movedRead.ledgerRevision);
+const changedRevision=movedRead.ledgerRevision;
+const deleteFx=run([changedPlain],meta([deletion(movedFx)],changedRevision));
 assert.equal(deleteFx.status,'ok');
 assert.equal(stored.length,1);
 assert.equal(stored[0][13],plain.id);
