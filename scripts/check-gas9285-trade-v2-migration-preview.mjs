@@ -87,6 +87,22 @@ const upToDate=ctx.handlePreviewTradeLedgerV2Migration_();
 assert.equal(upToDate.migrationStatus,'READY');
 assert.equal(upToDate.existingIdsPreserved,1);
 assert.equal(writes,0);
+// Empty but correctly headed ledgers are valid: no migration and no writes.
+rows=[];
+const empty=ctx.handlePreviewTradeLedgerV2Migration_();
+assert.equal(empty.status,'ok');
+assert.equal(empty.sourceRows,0);
+assert.equal(empty.assignedIdsNeeded,0);
+assert.equal(empty.migrationStatus,'READY');
+assert.equal(writes,0);
+assert.equal(locked,false);
+// A malformed width must fail closed, without leaking a lock or writing.
+rows=[row.slice(0,10)];
+const badWidth=ctx.handlePreviewTradeLedgerV2Migration_();
+assert.equal(badWidth.status,'error');
+assert.equal(badWidth.errorCode,'TRADE_MIGRATION_SHEET_WIDTH_INVALID');
+assert.equal(writes,0);
+assert.equal(locked,false);
 console.log('GAS9285_TRADE_V2_MIGRATION_PREVIEW_PASS '+JSON.stringify({
  sourceRowsPreviewed:2,stableDuplicateIds:true,sourcePreserved:true,
  publicationApproval:false,productionGasDeployed:false,financeWrites:0
