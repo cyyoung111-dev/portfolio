@@ -160,4 +160,5 @@ jobs:
           node scripts/check-web-trade-v2-contract.mjs
           node scripts/check-web-trade-v2-sync.mjs
           node scripts/check-web-trade-v2-review-p2.mjs
-          node scripts/check-gas9285-fund-noop-preview.mjs
+          # The fund preview oracle requires the original live v9.284 file.
+          # It runs on the unmodified main baseline; do not overlay it here.
