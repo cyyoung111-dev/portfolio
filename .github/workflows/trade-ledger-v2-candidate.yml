@@ -52,3 +52,26 @@ jobs:
         run: |
           node scripts/check-gas9285-trade-v2-migration-preview.mjs
           node scripts/check-gas9285-trade-v2-shadow-migration.mjs
+
+  full-integration-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies without lifecycle scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+          fi
+      - name: Run all portfolio integration checks
+        env:
+          npm_config_script_shell: /bin/bash
+          npm_config_ignore_scripts: 'true'
+        run: npm run check:ci
