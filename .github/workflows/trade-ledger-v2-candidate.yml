@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/734-foreign-trade-fx-server-roundtrip-20261107
+      - integrate/734-trade-v2-on-main-20261108
     paths:
       - 'scripts/*trade*'
       - 'scripts/compose-gas9285-trade-fx-preview.mjs'
