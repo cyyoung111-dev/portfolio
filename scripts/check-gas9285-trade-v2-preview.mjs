@@ -187,6 +187,17 @@ assert.equal(movedRead.trades[1].acct,'ISA');
 assert.equal(movedRead.trades[1].priceRaw,155.5);
 assert.equal(movedRead.trades[1].fxRateAtBuy,1350);
 assert.equal(moveAck.ledgerRevision,movedRead.ledgerRevision);
+// A second browser holding the pre-transfer revision must not overwrite
+// the account move or the FX source fields, even with a valid trade ID.
+const staleMoveWrites=writeCount;
+const staleMoveRows=JSON.stringify(stored);
+const staleMove=run([changedPlain,{...fx,acct:'OLD_ACCOUNT',memo:'stale tab'}],
+ meta([edit(fx)],read.ledgerRevision));
+assert.equal(staleMove.errorCode,'TRADE_LEDGER_REVISION_CONFLICT',
+ 'stale browser cannot reverse an FX account transfer');
+assert.equal(writeCount,staleMoveWrites,'stale browser must not write');
+assert.equal(JSON.stringify(stored),staleMoveRows,
+ 'stale browser must preserve account and original FX evidence');
 const changedRevision=movedRead.ledgerRevision;
 const deleteFx=run([changedPlain],meta([deletion(movedFx)],changedRevision));
 assert.equal(deleteFx.status,'ok');
