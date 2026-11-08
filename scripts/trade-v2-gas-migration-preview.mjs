@@ -5,7 +5,8 @@ function _tradeV2MigrationPlan_(sourceRows) {
     throw Error('TRADE_MIGRATION_SOURCE_INVALID');
   var used={},assigned=0,preserved=0,fxEvidence=0;
   var rows=sourceRows.map(function(raw,i){
-    if(!raw||raw.length<11)throw Error('TRADE_MIGRATION_ROW_INVALID');
+    if(!Array.isArray(raw)||raw.length<11||raw.length>14)
+      throw Error('TRADE_MIGRATION_ROW_WIDTH_INVALID');
     var row=Array.from({length:14},function(_,j){
       return raw[j]==null?'':raw[j];
     });
