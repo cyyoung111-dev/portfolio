@@ -144,8 +144,18 @@ jobs:
           else
             npm install --no-package-lock --no-audit --no-fund --ignore-scripts
           fi
-      - name: Check PR code against staged main GAS
+      - name: Check staged GAS deployment and web trade compatibility
         env:
           npm_config_script_shell: /bin/bash
           npm_config_ignore_scripts: 'true'
-        run: npm run check:ci
+        run: |
+          # The full PR suite pins its GAS v9.284 candidate and must not
+          # be run after overlaying v9.285 (see #36 failure in
+          # check-gas9284-hanwha-leased-preview.mjs). The unmodified
+          # branch suite is covered by trade-v2-candidate and main by
+          # main-baseline-integration-ci. Test only cross-version contracts.
+          node scripts/check-gas-deploy.mjs
+          node scripts/check-web-trade-v2-contract.mjs
+          node scripts/check-web-trade-v2-sync.mjs
+          node scripts/check-web-trade-v2-review-p2.mjs
+          node scripts/check-gas9285-fund-noop-preview.mjs
