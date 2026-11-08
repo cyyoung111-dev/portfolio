@@ -113,6 +113,13 @@ export function composeGas9285TradeFxPreview(){
     });
     // If FX rows were removed/changed, keep the conservative deletion
     // discriminator: only unchanged, surviving ordinary rows are allowed.
+    // Fail closed until protocol v2 has immutable trade IDs and explicit
+    // delete intents. Account changes cannot be distinguished from deleting
+    // an FX row and adding an ordinary row by group/multiset heuristics.
+    // Do not allow the 13-column preview to erase any prior FX evidence.
+    if(!fxRowsFullyPreserved) return jsonError(
+      '기존 외화거래의 변경·삭제는 영구 거래ID 기반 v2 전환 후 지원',
+      {errorCode:'TRADE_FX_METADATA_LOSS_RISK',saveState:'failed'});
     if(!fxRowsFullyPreserved){
     var oldOrdinaryCounts={};
     previousRows.forEach(function(row) {
