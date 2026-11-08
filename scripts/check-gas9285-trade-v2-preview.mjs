@@ -15,6 +15,16 @@ assert.equal(fundPreview.manifest.productionDeploymentApproved,false);
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(fundPreview.manifest.gasProjectWrites,0);
 assert.equal(fundPreview.manifest.financeWrites,0);
+// Version 9.285 is already reserved for the fund-only release candidate.
+// Both independently generated sources must remain nondeployable and must
+// never be mistaken for one combined GAS release.
+assert.equal(fundPreview.manifest.proposedVersion,'9.285');
+assert.equal(manifest.proposedVersion,'9.285');
+assert.notEqual(fundPreview.manifest.candidateSourceGitBlob,
+ manifest.candidateSourceGitBlob,
+ 'distinct GAS sources with the same version require a reviewed v9.286+ integration');
+assert.equal(manifest.status,'SOURCE_PREVIEW_NOT_DEPLOYABLE');
+assert.equal(fundPreview.manifest.status,'SOURCE_PREVIEW_NOT_DEPLOYABLE');
 
 assert.equal(manifest.baseSourceGitBlob,'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
 assert.equal(manifest.columns,14);
