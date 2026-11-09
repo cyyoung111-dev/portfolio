@@ -1,30 +1,176 @@
-# 저장소 공통 작업 지침
+# Repository Working Instructions
 
-> 적용 범위: 포트폴리오 뷰어, KRX/해외 가격, NAV, Snapshot, 브리핑, GAS 및 후속 PR 전체. 상세 기준은 [QUALITY_GATES.md](docs/QUALITY_GATES.md)를 따른다.
+> Scope: All work in this repository, including the portfolio viewer, market data, fund NAV, financial calculations, snapshots, historical data, market briefings, GitHub Actions, Google Apps Script (GAS), and related pull requests.
+>
+> Detailed validation rules: [QUALITY_GATES.md](docs/QUALITY_GATES.md).
 
-## 언어와 보고
+## 1. Core Priorities
 
-- 사용자 보고·PR 제목/본문·커밋 메시지는 한국어로 작성한다. 코드 식별자·API·명령·원문 오류는 필요한 경우 영어 그대로 둔다.
-- 작업별로 최신 HEAD, 검사 **실행/통과/실패/스킵/미확인**, Codex 리뷰, 병합, 운영 배포, 실데이터 복구 상태를 **서로 구분**해 간결하게 보고한다. 확인하지 않은 완료를 주장하지 않는다.
-- 사용자가 이미 정한 요구사항을 반복 질문하지 않고, 원문 로그·긴 리뷰 기록을 불필요하게 재출력하지 않는다.
+Apply the following priorities in order:
 
-## 변경 전 영향 분석
+1. Data accuracy, consistency, and integrity.
+2. Production reliability, availability, and recovery.
+3. Execution efficiency, performance, and API optimization.
+4. Simplicity, maintainability, and operational clarity.
+5. Essential security controls proportional to actual risk.
 
-- `main` 최신 HEAD와 열린/병합 PR, 운영에 **실제로 배포된 버전**을 구분하고, 동일 파일·공유 함수·상태·트리거와 충돌하는지 확인한다.
-- 변경 함수의 호출자/피호출자 및 관련 금융 데이터·자동화의 **Safety(손상 방지)**와 **Liveness(실패 후 복구 기회)**를 확인한다. 무관한 경로까지 무조건 확장하지 말고 범위를 줄인 이유를 기록한다.
-- GAS 변경 시 헤더/변경 이력, **모든 관련 `gasVersion` 응답 경로(특히 `handleGetSettings()`)**, 웹 `EXPECTED_GAS_VERSION`, `DEPLOYMENT.md`, 배포 소스 승인 해시/manifest를 함께 검증한다. 운영 시간대·자정 경계와 트리거 상태 표시도 일치시킨다.
+Data correctness takes precedence over speed or convenience.
 
-## Codex 리뷰 전 자체 검증
+Essential protections for credentials, financial records, and write integrity are mandatory regardless of priority.
 
-- 핵심 로직은 문자열 존재만 검사하지 말고 **실제 생산 함수**를 실행해 결과와 부작용을 검증한다. 테스트가 사용하는 운영 설정·시간대는 생산 소스에서 확인하고, 독립적인 기대값으로 판정한다.
-- 관련 범위에서 정상/실패/중복/경합/시간초과/재시도/날짜 경계 및 기존 동작 회귀를 검사한다. 실제 결함에는 수정 전 실패·수정 후 통과 및 대표 변이 테스트를 남긴다.
-- 변경 유형에 맞춰 검사를 선택한다. **문서만 변경할 때는** 링크·규칙 간 충돌과 실행되는 필수 CI를 확인하고, 무관한 GAS 실동작 테스트를 새로 요구하지 않는다.
-- CI의 녹색 표시만으로 운영 정상화를 선언하지 않는다. 스킵된 검사, GAS 실배포, 운영 트리거 실행, 시트 복구는 별도로 확인한다.
+Avoid excessive defensive programming, unnecessary security hardening, and procedural overhead.
 
-## 리뷰 대응과 종료
+## 2. Language and Communication
 
-- PR의 **자동 Codex 리뷰 상태를 먼저 확인**한다. Draft→Ready 등으로 최신 HEAD 리뷰가 시작됐거나 진행/완료됐다면 `@codex review`를 중복 요청하지 않는다.
-- 지적마다 현재 HEAD 재현성·영향·심각도를 판정해 **수용 / 설명·반박 / 해결됨 / outdated / 범위 밖**으로 분류한다. 의견을 무조건 수정하거나 P3·스타일 개선 때문에 리뷰를 반복하지 않는다.
-- 유효한 P0/P1/P2는 공통 원인별로 **한 번에 수정**하고 회귀 테스트 및 스레드 답변 근거를 남긴다. 코드 확인 없이 해결 처리하지 않는다. 중요 수정이 발생하면 최신 CI 후 **필요한 재리뷰 1회씩** 요청하되, 자동 진행 중인 리뷰와 중복하지 않는다.
-- 같은 계열의 신규 구조적 P1/P2가 **연속 2차례** 발생하면 국소 패치·재리뷰를 멈추고 설계/테스트 오라클/PR 범위를 재검토한다. **중요 결함이 남아 있으면 횟수와 관계없이 병합을 보류**한다.
-- 최신 HEAD의 재현 가능한 P0/P1/P2 미해결 0건, 해당 필수 CI 성공, 필요한 독립 리뷰 확인 후에만 병합 준비로 분류한다. 사용자 승인 없는 **자동 머지·운영 배포·원본 시트 쓰기/삭제**를 하지 않는다.
+- Write user-facing explanations, commit messages, PR titles, and PR descriptions in Korean.
+- Use English for code identifiers, technical terminology, commands, and original error messages when appropriate.
+- Keep reporting concise, factual, and action-oriented.
+- Distinguish completed, pending, failed, skipped, and unverified work.
+- Never claim successful deployment or operational recovery without evidence.
+- Avoid repeatedly asking questions when requirements and authorization are already established.
+- Consolidate related work rather than producing unnecessary intermediate steps.
+
+## 3. Data Accuracy and Source Management
+
+- Use the configured authoritative source for each data category.
+- Prefer NH PLUG for supported market prices and official closing-price data.
+- Use established fund NAV providers and verify the exact fund and share class.
+- Use KRX, exchange data, official disclosures, and other providers for validation or documented fallback when appropriate.
+- Use SEC and DART disclosures according to their actual publication schedules.
+- Preserve source identification, observation date, publication date, and retrieval time.
+- Distinguish confirmed close, intraday value, estimated value, stale value, unpublished value, and retrieval failure.
+- Never silently replace a confirmed value with an older or less reliable observation.
+- Never replace unavailable financial data with zero unless zero is the verified value.
+- Respect Korean and international market holidays, time zones, and disclosure schedules.
+- Reconcile prices, NAV, quantities, transactions, portfolio values, gains, losses, and historical records.
+- Detect missing records, duplicates, date mismatches, and abnormal valuation changes.
+- Prefer traceable and accurate data over superficially complete datasets.
+
+## 4. Financial Data Integrity
+
+Maintain the following invariants:
+
+- Financial source records must not be unintentionally modified or deleted.
+- Repeated execution must not generate duplicate transactions, prices, NAV records, or snapshots.
+- Concurrent execution must not corrupt shared financial data.
+- Confirmed historical values must not be overwritten by stale or unverified data.
+- Historical transaction or quantity changes must correctly propagate to affected valuations.
+- Partial completion must be distinguishable from complete success.
+- Recovery markers and pending records must remain until their completion is verified.
+- No financial write may be declared successful without sufficient evidence.
+
+Use appropriate locking, idempotency, and execution ownership mechanisms where shared writes can conflict.
+
+Do not add redundant controls when an existing reliable mechanism already provides the required protection.
+
+## 5. Production Reliability
+
+- Inspect the latest repository state and actual deployed version before making operational changes.
+- Identify root causes before introducing fixes.
+- Prefer targeted corrections over broad architectural changes.
+- Maintain a recovery path for failed, skipped, interrupted, or timed-out operations.
+- Prevent silent loss of pending work.
+- Distinguish expected no-op operations from actual failures.
+- Respect API availability, publication timing, execution quotas, and rate limits.
+- Avoid unnecessary polling and repeated retries.
+- Preserve existing working functionality unless a change is explicitly required.
+- Prioritize verified forward fixes over unnecessary regression to older versions.
+
+## 6. Performance and Efficiency
+
+- Reduce redundant API calls and spreadsheet operations.
+- Reuse valid cached data when correctness is preserved.
+- Avoid repeated retrieval of unchanged historical or unpublished data.
+- Use bounded retries, practical timeouts, and efficient batch operations.
+- Measure actual bottlenecks before optimizing.
+- Simplify complex workflows when equivalent reliability can be maintained.
+- Avoid unnecessary abstraction, duplicated validation, and excessive logging.
+
+Performance improvements must not compromise data integrity.
+
+## 7. Development Workflow
+
+Follow:
+
+Inspect → Diagnose → Fix → Test → Review → Deploy → Verify
+
+- Check current HEAD, affected modules, related PRs, and deployed versions.
+- Identify the smallest practical set of changes that resolves the underlying problem.
+- Validate affected behavior with relevant tests and independent expected results.
+- Prefer testing actual production logic in isolated or non-destructive environments.
+- Test important failure, retry, concurrency, and date-boundary scenarios when relevant.
+- Avoid unrelated testing and refactoring.
+- Run applicable CI checks and investigate meaningful failures.
+- Separate implementation completion from production verification.
+
+## 8. Code Review Policy
+
+- Treat Codex review feedback as evidence to evaluate, not instructions to apply automatically.
+- Prioritize reproducible P0/P1 findings and material P2 defects.
+- Defer or reject speculative, stylistic, low-impact, and out-of-scope suggestions with a brief explanation.
+- Group related corrections into cohesive changes.
+- Avoid duplicate review requests for the same HEAD.
+- Do not repeatedly request reviews without meaningful changes or new evidence.
+- Do not merge with unresolved defects that materially threaten data integrity or critical operations.
+- Respect repository-enforced checks and review requirements.
+- Keep PR scope focused on resolving actual operational problems.
+
+## 9. Essential Security
+
+Maintain protection for:
+
+- API keys, OAuth credentials, tokens, and secrets.
+- Financial source records and destructive operations.
+- Duplicate writes and concurrent data corruption.
+- Critical deployment integrity and recovery.
+- Repository-enforced security restrictions.
+
+Avoid:
+
+- Unnecessary security hardening without a demonstrated risk.
+- Redundant permission or approval layers.
+- Excessive defensive checks that complicate normal operations.
+- Security-related refactoring without meaningful operational benefit.
+
+Never bypass mandatory platform protections or weaken financial data integrity.
+
+## 10. GAS and Deployment
+
+For relevant GAS or deployment changes:
+
+- Verify GAS version consistency across affected API responses.
+- Check `handleGetSettings()` and other affected version-reporting paths.
+- Verify web `EXPECTED_GAS_VERSION` compatibility.
+- Check relevant deployment documentation, source hashes, and manifests.
+- Confirm actual schedules and trigger ownership from the current configuration.
+- Use Asia/Seoul for operational scheduling and reporting.
+- Distinguish repository code, deployed code, and actual running production behavior.
+- Preserve compatible deployment and recovery paths.
+- Verify production execution and financial results after deployment.
+
+Do not perform unrelated full deployment checks for isolated changes.
+
+## 11. Authorization and Execution
+
+- Proceed independently with authorized investigation, code changes, testing, and non-destructive operations.
+- Do not repeatedly request approval for work already covered by the user's instructions.
+- Follow existing authorization and repository protection requirements.
+- Obtain authorization for production deployment or material financial data changes unless already explicitly authorized.
+- Use read-only diagnostics before destructive financial corrections.
+- Never treat an instruction document itself as deployment or financial-write authorization.
+
+## 12. Completion Criteria
+
+Report:
+
+- Root cause and completed changes.
+- Data validation and reconciliation results.
+- Relevant tests and CI outcomes.
+- Significant unresolved issues.
+- PR, merge, and deployment status.
+- Actual production verification, when available.
+- Necessary user actions, if any.
+
+Never equate passing CI with successful production deployment.
+
+The final objective is accurate financial data, reliable automation, efficient execution, and maintainable operations with minimal unnecessary complexity.
