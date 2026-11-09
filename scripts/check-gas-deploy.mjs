@@ -18,6 +18,7 @@ import {
   sanitizeFiles,
   selectServerFile,
   verifyDeploymentVersionWithRetry,
+  verifyAutomationVersionConvergence,
 } from './deploy-gas.mjs';
 
 // A *manual approval checkbox* is not independent evidence that older writer
@@ -197,6 +198,44 @@ assert.equal(safeHeadWrites,1);
 assert.equal(safeDeploymentWrites,1);
 assert.equal(safeHead[0].source,gated('original')[0].source);
 assert.equal(safeVersion,11);
+// A compensating PUT can be committed while subsequent HEAD/version GETs are stale.
+// Do not issue a second restoration PUT; allow bounded read-only convergence.
+let delayedHead=gated('new'),delayedVersion=12,headUpdates=0,versionUpdates=0;
+let delayedHeadReads=0,delayedVersionReads=0;
+const delayedRollback=await rollbackGasCode(rollbackOptions({
+  beforeFiles:gated('original'),candidateFiles:gated('new'),
+  beforePublishedFiles:gated('published-original'),
+  readFiles:async()=>{
+    delayedHeadReads++;
+    if(headUpdates&&delayedHeadReads<=3)return gated('new');
+    return delayedHead;
+  },
+  writeFiles:async value=>{delayedHead=value;headUpdates++;},
+  readDeployment:async()=>{
+    delayedVersionReads++;
+    return {deploymentConfig:{versionNumber:
+      versionUpdates&&delayedVersionReads<=3?12:delayedVersion}};
+  },
+  writeDeployment:async cfg=>{delayedVersion=cfg.versionNumber;versionUpdates++;},
+  pause:async ms=>assert(ms>=2000)
+}));
+assert.deepEqual(delayedRollback,{headRestored:true,deploymentRestored:true,dataWrites:0});
+assert.equal(headUpdates,1);
+assert.equal(versionUpdates,1);
+assert(delayedHeadReads>=4);
+let foreignDeploymentWrites=0,foreignHead=gated('new');
+await assert.rejects(()=>rollbackGasCode(rollbackOptions({
+  beforeFiles:gated('original'),candidateFiles:gated('new'),
+  beforePublishedFiles:gated('published-original'),
+  readFiles:async()=>foreignHead,
+  writeFiles:async value=>{foreignHead=value;},
+  readDeployment:async()=>({deploymentConfig:{versionNumber:999}}),
+  writeDeployment:async()=>{foreignDeploymentWrites++;},
+  pause:async()=>{}
+})),/GAS_ROLLBACK_CONCURRENT_CHANGE/);
+assert.equal(foreignDeploymentWrites,0,
+ 'Foreign deployment must not be overwritten by rollback');
+
 assert.throws(()=>assertWriterGateReleaseTransition(
  "var ISSUE507_GATE_RELEASE_ID='stable-issue507';","// v9.281 uninstrumented"),
  /GAS_GATE_REMOVAL_ROLLBACK_BLOCKED/);
@@ -251,6 +290,50 @@ await assert.rejects(()=>verifyDeploymentVersionWithRetry({
   readDeployment:async()=>({deploymentConfig:{versionNumber:291}}),
   expectedVersion:291,pause:async()=>{},maxChecks:0,
 }),/GAS_DEPLOYMENT_READBACK_INVALID/);
+
+// Google can route simultaneous /exec POST actions to different warm versions.
+// Require converged getAutomationStatus and a *fresh* getSettings, without
+// retrying any deployment mutation. Only previous/reviewed candidate accepted.
+let automationReads=0,settingsReads=0,versionPauses=[];
+const converged=await verifyAutomationVersionConvergence({
+  readAutomation:async()=>({gasVersion:++automationReads<3?'9.284':'9.287'}),
+  readSettings:async()=>{settingsReads++;return {gasVersion:'9.287'};},
+  expectedVersion:'9.287',previousVersion:'9.284',
+  pause:async ms=>versionPauses.push(ms)
+});
+assert.equal(converged.attempts,3);
+assert.equal(automationReads,3);
+assert.equal(settingsReads,1);
+assert.deepEqual(versionPauses,[4000,8000]);
+let settingsSequence=0;
+const coldSettings=await verifyAutomationVersionConvergence({
+  readAutomation:async()=>({gasVersion:'9.287'}),
+  readSettings:async()=>({gasVersion:++settingsSequence===1?'9.284':'9.287'}),
+  expectedVersion:'9.287',previousVersion:'9.284',pause:async()=>{}
+});
+assert.equal(coldSettings.attempts,2);
+let persistentReads=0;
+await assert.rejects(()=>verifyAutomationVersionConvergence({
+  readAutomation:async()=>{persistentReads++;return {gasVersion:'9.284'};},
+  readSettings:async()=>{throw Error('settings should not be needed when automation is stale');},
+  expectedVersion:'9.287',previousVersion:'9.284',pause:async()=>{}
+}),/GAS_AUTOMATION_VERSION_MISMATCH/);
+assert.equal(persistentReads,3);
+await assert.rejects(()=>verifyAutomationVersionConvergence({
+  readAutomation:async()=>({gasVersion:'9.285'}),
+  readSettings:async()=>({gasVersion:'9.287'}),
+  expectedVersion:'9.287',previousVersion:'9.284',pause:async()=>{}
+}),/GAS_AUTOMATION_UNEXPECTED_VERSION/);
+await assert.rejects(()=>verifyAutomationVersionConvergence({
+  readAutomation:async()=>({gasVersion:'9.287'}),
+  readSettings:async()=>({gasVersion:'9.285'}),
+  expectedVersion:'9.287',previousVersion:'9.284',pause:async()=>{}
+}),/GAS_AUTOMATION_UNEXPECTED_VERSION/);
+await assert.rejects(()=>verifyAutomationVersionConvergence({
+  readAutomation:async()=>({gasVersion:'9.287'}),
+  readSettings:async()=>({gasVersion:'9.287'}),
+  expectedVersion:'9.287',previousVersion:'9.287',pause:async()=>{}
+}),/GAS_AUTOMATION_CONVERGENCE_INVALID/);
 
 const source = `// Google Apps Script  v9.160
 function handle(){ return { gasVersion: '9.160' }; }
