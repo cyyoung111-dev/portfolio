@@ -36,9 +36,9 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   let endpoint;try{endpoint=new URL(url);}catch{throw Error('NH_RUNTIME_GAS_URL_MISSING');}
   if(endpoint.protocol!=='https:'||endpoint.hostname!=='script.google.com'||!/^\/macros\/s\/[^/]+\/exec$/.test(endpoint.pathname)||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('NH_RUNTIME_GAS_URL_INVALID');
   if(!token)throw Error('NH_RUNTIME_GAS_AUTH_NOT_CONFIGURED');
-  const call=async(action,accessToken=token,data)=>{
+  const call=async(action,accessToken=token,data,timeoutMs=90000)=>{
     let result;
-    try{const response=await request(endpoint.href,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action,accessToken,...(data?{data:JSON.stringify(data)}:{})}),redirect:'follow',signal:AbortSignal.timeout(90000)});if(!response.ok)throw Error();result=await response.json();}catch{throw Error('NH_RUNTIME_GAS_REQUEST_FAILED');}
+    try{const response=await request(endpoint.href,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action,accessToken,...(data?{data:JSON.stringify(data)}:{})}),redirect:'follow',signal:AbortSignal.timeout(timeoutMs)});if(!response.ok)throw Error();result=await response.json();}catch{throw Error('NH_RUNTIME_GAS_REQUEST_FAILED');}
     return result;
   };
   const denied=await call('getSettings',token+'-DENY-PROBE');
@@ -91,7 +91,7 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   // Preserve incomplete coverage explicitly; never claim EOD validation.
   let diagnostic;
   try {
-    diagnostic=await call('diagnoseNhMarketData');
+    diagnostic=await call('diagnoseNhMarketData',token,undefined,15000);
   } catch (ignored) {
     report({status:'NH_RUNTIME_DEEP_DIAGNOSTIC_UNAVAILABLE',
       sampleCount:codes.length,providerConfirmed:true,
