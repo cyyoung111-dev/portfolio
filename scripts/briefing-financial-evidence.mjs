@@ -132,9 +132,15 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
   ||!Number.isInteger(maxLength)||maxLength<100||maxLength>1200)return [];
  const coverage=evidence.coverage;
  if(!coverage||!['ttm','fyOnly','referencePbr','domestic'].every(k=>
-  Number.isInteger(coverage[k])&&coverage[k]>=0&&coverage[k]<=9)
+  Number.isInteger(coverage[k])&&coverage[k]>=0
+   &&coverage[k]<=(k==='domestic'?2:9))
+  ||coverage.ttm+coverage.fyOnly>9
   ||new Set(evidence.items.map(x=>x?.symbol)).size!==9
-  ||new Set(evidence.domestic.map(x=>x?.symbol)).size!==2)return [];
+  ||new Set(evidence.domestic.map(x=>x?.symbol)).size!==2
+  ||coverage.ttm!==evidence.items.filter(x=>x?.ttm?.basis==='TTM').length
+  ||coverage.fyOnly!==evidence.items.filter(x=>x?.ttm?.basis==='FY').length
+  ||coverage.referencePbr!==evidence.items.filter(x=>x?.value).length
+  ||coverage.domestic!==evidence.domestic.filter(x=>x?.evidence).length)return [];
  const header='■ 공시 재무 근거 (미국 '+evidence.usSessionDate+' 종가 참고)';
  const count='• 검증 범위: 미국 TTM '+coverage.ttm+'/9·FY만 '+coverage.fyOnly
   +'/9·FY PBR '+coverage.referencePbr+'/9, 국내 DART BPS '+coverage.domestic+'/2';
