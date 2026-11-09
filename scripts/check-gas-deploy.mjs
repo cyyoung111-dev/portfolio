@@ -98,6 +98,22 @@ assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.286',e
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.286',eventName:'workflow_run',dryRun:true}));
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.286',eventName:'workflow_run',diagnosticOnly:true}));
 
+// Fund-only 9.287 must remain manual even after its exact source is pinned.
+// Preview can inspect the deployment without approving any production write.
+for(const mode of [
+ {version:'9.287',eventName:'workflow_run',approved9287:true},
+ {version:'9.287',eventName:'workflow_dispatch',approved9287:false},
+ {version:'9.287',eventName:'workflow_dispatch',approved9286:true},
+ {version:'9.287',eventName:undefined,approved9287:true}
+])assert.throws(()=>assertIssue507ManualReleasePermission(mode),
+ /GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
+ version:'9.287',eventName:'workflow_dispatch',approved9287:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
+ version:'9.287',eventName:'workflow_dispatch',dryRun:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
+ version:'9.287',eventName:'workflow_run',diagnosticOnly:true}));
+
 // v9.285 remains manual-only even if its source is later pinned.
 // A checkbox never overrides a reviewed source, deployment inventory,
 // current main SHA or writer gate.

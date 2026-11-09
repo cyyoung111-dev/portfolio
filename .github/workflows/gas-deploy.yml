@@ -56,6 +56,16 @@ on:
         required: true
         default: false
         type: boolean
+      use_9287_fund_hotfix:
+        description: '9.287 펀드·Snapshot 단독 후보 소스 선택 (거래원장 v2 제외)'
+        required: true
+        default: false
+        type: boolean
+      approve_9287:
+        description: '9.287 후보 실운영 배포 별도 승인. 먼저 dry_run=true 실행'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -134,6 +144,8 @@ jobs:
       GAS_9284_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9284 && 'true' || 'false' }}
       GAS_9285_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9285 && 'true' || 'false' }}
       GAS_9286_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9286 && 'true' || 'false' }}
+      GAS_9287_FUND_HOTFIX: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9287_fund_hotfix && 'true' || 'false' }}
+      GAS_9287_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9287 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -155,6 +167,10 @@ jobs:
       # Dry-run remains available for no-write auth and source checks.
       - name: Require clean full GAS deployment inventory before real deploy
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
+      - name: Read-only full deployment inventory on 9.287 manual dry-run
+        if: env.GAS_9287_FUND_HOTFIX == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'

@@ -1,3 +1,15 @@
+## 2026-11-09 — GAS 9.287 펀드/Snapshot 단독 핫픽스 수동 전환
+
+- 운영에서 확인된 장애: 11/08 20:41:24 GAS 360.993초 초과, 21:01:24 `_backupSheetBeforeWrite` 경유 Spreadsheet 서비스 타임아웃. 실제 11/09 상태 점검에서 HEAD/게시 모두 v9.284, 펀드 마감 ERROR.
+- `9.287`은 검토된 v9.285 펀드 소스 기반 후보이며, Snapshot 백업 중복 읽기 축소 및 단계별 timing만 포함합니다. 거래원장 14열 v2 이관은 **포함하지 않습니다**.
+- 완전한 9.287 후보 SHA: `e2f5239746598754305eb603bc33651f5c36d914`; 리뷰 소스 생성기 `scripts/compose-fund-snapshot-9287-source-preview.mjs`. 이 SHA가 어긋나면 배포가 거절됩니다.
+- `gas-deploy`을 수동 실행해 **먼저** `first_gate_phase=none`, `dry_run=true`, `use_9287_fund_hotfix=true`, `approve_9287=false`로 프로덕션 HEAD·게시 버전 및 배포 인벤토리를 조회합니다. 인벤토리 `BLOCKED` 또는 실행 소유권 불확실 시 실제 배포하지 않습니다.
+- 배포 인벤토리와 Writer·복구 경로가 명확해진 경우에만 `first_gate_phase=none`, `dry_run=false`, `use_9287_fund_hotfix=true`, `approve_9287=true`로 명시적 운영 승인을 진행합니다. `approve_9286`은 사용하지 않습니다.
+- 이 절차는 원본 거래원장·NAV·Snapshot의 복구를 자동 수행하지 않습니다. 게시 성공 후 `getSettings` / `getAutomationStatus` 실제 버전, 39행 Snapshot, 2개 펀드 및 `COMPLETE` 재실행을 별도 입증해야 합니다.
+- main 병합·오프라인 CI·아티팩트 생성은 **실운영 배포 승인이나 성공을 의미하지 않습니다**. 자동 배포에서 9.287 후보 선택 불가이며 임의 백업 삭제·Writer 중복 실행 금지.
+
+---
+
 > 2026-10-24: v9.257은 worker 진단의 반복 읽기 축소 후보이며 아직 미배포입니다. 운영 v9.256과 구분하고 실실행 확인 전 TIMEOUT 해결을 선언하지 않습니다.
 
 ## 2026-10-24 현재 상태

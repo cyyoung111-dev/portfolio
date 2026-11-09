@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import {createHash} from 'node:crypto';
 import {composeFundSnapshot9287SourcePreview} from './compose-fund-snapshot-9287-source-preview.mjs';
 import {composeGas9286IntegratedPreview} from './compose-gas9286-integrated-preview.mjs';
-import {extractExpectedGasVersion,assertGasReleaseReady} from './deploy-gas.mjs';
+import {extractExpectedGasVersion,assertGasReleaseReady,assertIssue507ManualReleasePermission} from './deploy-gas.mjs';
 
 const sha=s=>{
   const b=Buffer.from(s,'utf8');
@@ -26,18 +26,27 @@ assert.equal(manifest.purpose,'FUND_SNAPSHOT_HOTFIX_NO_TRADE_V2');
 assert.equal(manifest.releaseMode,'SOURCE_PREVIEW_ONLY');
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.approvedForGasDeploy,false);
-assert.equal(manifest.webVersionCompatible,false);
+assert.equal(manifest.webVersionCompatible,true);
 assert.equal(manifest.tradeLedgerV2Included,false);
 assert.equal(manifest.tradeLedgerMigrationRequired,false);
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
 assert.equal(manifest.telegramSends,0);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/,
-  'Unknown 9.287 source must fail deployment pin guard');
-assert(!fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8')
-  .includes("'9.287'"),'Consumer compatibility is a deliberately pending gate');
-assert(!fs.readFileSync('.github/workflows/gas-deploy.yml','utf8')
-  .includes('approve_9287:'),'Deploy authorization must not be added implicitly');
+assert.equal(assertGasReleaseReady(candidate),'9.287',
+  'Reviewed exact source must be pinned without authorizing automatic production writes');
+assert.throws(()=>assertIssue507ManualReleasePermission({
+  version:'9.287',eventName:'workflow_run',approved9287:true
+}),/GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.throws(()=>assertIssue507ManualReleasePermission({
+  version:'9.287',eventName:'workflow_dispatch',approved9287:false
+}),/GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert(fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8')
+  .includes("'9.287'"),'The unchanged 9.285 web API must allow 9.287 source version');
+const deployWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+assert.match(deployWorkflow,/approve_9287:[\s\S]*?default: false/,
+  'Production approval must be explicit and false by default');
+assert.match(deployWorkflow,/use_9287_fund_hotfix:[\s\S]*?default: false/,
+  'Fund-only source selection must also be opt-in');
 new vm.Script(candidate,{filename:'gas9287-fund-snapshot-source-only.gs'});
 assert.equal((candidate.match(/gasVersion: '9\.287'/g)||[]).length,9);
 assert.equal((candidate.match(/var ISSUE507_GATE_API_VERSION='9\.287'/g)||[]).length,1);
@@ -102,6 +111,6 @@ console.log('GAS9287_FUND_SNAPSHOT_ISOLATION_PASS '+JSON.stringify({
   entrypointCount:funcs(candidate),
   sourceReversibleToPinned9285:true,
   exactBackupProfileParityWith9286:true,
-  protectedDeploySourceRejected:true,
+  reviewedSourcePinned:true,manualProductionApprovalRequired:true,
   backendLiveVerified:false,financialWrites:0,gasDeployments:0
 }));

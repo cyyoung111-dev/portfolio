@@ -18,7 +18,7 @@ assert.equal(manifest.tradeLedgerV2Included,false);
 assert.equal(extractExpectedGasVersion(parent),'9.285');
 assert.equal(extractExpectedGasVersion(candidate),'9.287');
 assert.equal(gasSourceBlobSha(candidate),manifest.candidateSourceGitBlob);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/);
+assert.equal(assertGasReleaseReady(candidate),'9.287'); // exact release pin; manual approval remains separate
 assert(!candidate.includes("params.action === 'syncTradesV2'"));
 new vm.Script(candidate,{filename:'review-gas9287-fund-only.gs'});
 
@@ -35,7 +35,7 @@ const review={
  sourceSha:manifest.candidateSourceGitBlob,
  verifiedAgainstCurrentStagedSource:gasSourceBlobSha(before)===manifest.parentSourceGitBlob,
  validatedSyntax:true,
- nextStep:'SEPARATE_FULL_SOURCE_PIN_WEB_CONSUMER_DRY_RUN_AND_MANUAL_APPROVAL',
+ nextStep:'DEPLOYMENT_INVENTORY_WRITER_GATE_DRY_RUN_MANUAL_APPROVAL',
  deploymentDecision:'BLOCKED',
  runtimeMeasurements:'NOT_LIVE',
  signedAtRuntime:false,
