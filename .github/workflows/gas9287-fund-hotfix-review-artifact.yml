@@ -1,6 +1,8 @@
 name: GAS 9.287 fund Snapshot isolated review (NO DEPLOY)
 on:
   workflow_dispatch:
+  # After this change is merged, re-read BOTH production HEAD and the
+  # published deployment. Do not infer rollback state from a failed job alone.
   push:
     branches: [main]
     paths:
