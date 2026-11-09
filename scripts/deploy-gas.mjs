@@ -436,16 +436,19 @@ export async function verifyAutomationVersionConvergence({
     const actual=String(automation?.gasVersion||'');
     if(actual!==expectedVersion&&actual!==previousVersion)
       throw Error('GAS_AUTOMATION_UNEXPECTED_VERSION');
+    let settingsOldVersionObserved=null;
     if(actual===expectedVersion){
       const settings=await readSettings();
       const current=String(settings?.gasVersion||'');
       if(current!==expectedVersion&&current!==previousVersion)
         throw Error('GAS_AUTOMATION_UNEXPECTED_VERSION');
       if(current===expectedVersion)return {automation,settings,attempts:check+1};
+      settingsOldVersionObserved=current===previousVersion;
     }
     if(check<maxChecks-1){
       console.log(JSON.stringify({kind:'GAS_AUTOMATION_VERSION_PENDING',
-        check:check+1,maxChecks,candidateConfirmed:false}));
+        check:check+1,maxChecks,automationOldVersionObserved:actual===previousVersion,
+        settingsOldVersionObserved}));
       await pause((check+1)*4000);
     }
   }
@@ -744,7 +747,14 @@ export async function deploy() {
         writeFiles:files=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content`,{method:'PUT',token:accessToken,body:{files}}),
         readDeployment:()=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,{token:accessToken}),
         writeDeployment:deploymentConfig=>requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,{method:'PUT',token:accessToken,body:{deploymentConfig}})});
-    }catch{throw Error('GAS_RELEASE_FAILED_ROLLBACK_UNVERIFIED');}
+    }catch(rollbackError){
+      const reason=String(rollbackError?.message||'');
+      console.log(JSON.stringify({kind:'GAS_ROLLBACK_VERIFICATION_FAILURE',
+        reason:['GAS_ROLLBACK_CONCURRENT_CHANGE','GAS_ROLLBACK_UNVERIFIED',
+          'GAS_ROLLBACK_READBACK_INVALID','GAS_GATE_REMOVAL_ROLLBACK_BLOCKED']
+          .includes(reason)?reason:'OTHER_UNVERIFIED'}));
+      throw Error('GAS_RELEASE_FAILED_ROLLBACK_UNVERIFIED');
+    }
     throw Error('GAS_RELEASE_FAILED_ROLLBACK_VERIFIED');
   }
 }
