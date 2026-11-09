@@ -1,0 +1,43 @@
+name: Issue 860 GAS 9.289 performance source review (NO DEPLOY)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue860-gas9289-source-review.yml'
+  pull_request:
+    paths:
+      - 'scripts/compose-issue860-gas9289-perf-candidate.mjs'
+      - 'scripts/compose-issue860-close-stage-timing-preview.mjs'
+      - 'scripts/compose-issue860-snapshot-price-read-preview.mjs'
+      - 'scripts/check-issue860-gas9289-perf-candidate.mjs'
+      - 'scripts/stage-issue860-gas9289-review-artifact.mjs'
+      - '.github/workflows/issue860-gas9289-source-review.yml'
+permissions:
+  contents: read
+jobs:
+  source-only:
+    if: github.repository == 'cyyoung111-dev/portfolio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify exact 9.288 parent, Writer and migration invariants
+        run: |
+          node scripts/check-issue860-close-stage-timing-preview.mjs
+          node scripts/check-issue860-snapshot-price-read-preview.mjs
+          node scripts/check-issue860-gas9289-perf-candidate.mjs
+      - name: Generate exact 9.289 source-only artifact
+        run: node scripts/stage-issue860-gas9289-review-artifact.mjs
+      - name: Upload unchanged candidate source and manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue860-gas9289-review-only-${{ github.sha }}
+          path: artifacts/issue860-gas9289-perf-source-review/
+          retention-days: 30
+          if-no-files-found: error
