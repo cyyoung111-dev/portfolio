@@ -32,7 +32,7 @@ assert.equal(manifest.tradeLedgerMigrationRequired,false);
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
 assert.equal(manifest.telegramSends,0);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_SOURCE_NOT_APPROVED/,
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/,
   'Unknown 9.287 source must fail deployment pin guard');
 assert(!fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8')
   .includes("'9.287'"),'Consumer compatibility is a deliberately pending gate');
