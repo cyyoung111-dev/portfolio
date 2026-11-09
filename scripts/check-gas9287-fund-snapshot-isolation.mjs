@@ -26,7 +26,7 @@ assert.equal(manifest.purpose,'FUND_SNAPSHOT_HOTFIX_NO_TRADE_V2');
 assert.equal(manifest.releaseMode,'SOURCE_PREVIEW_ONLY');
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.approvedForGasDeploy,false);
-assert.equal(manifest.webVersionCompatible,false);
+assert.equal(manifest.webVersionCompatible,true);
 assert.equal(manifest.tradeLedgerV2Included,false);
 assert.equal(manifest.tradeLedgerMigrationRequired,false);
 assert.equal(manifest.financeWrites,0);
