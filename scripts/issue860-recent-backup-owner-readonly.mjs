@@ -71,22 +71,37 @@ export function summarizeRecentBackupEvidence(payload,targets=TARGETS){
   financeWrites:0,gasDeployments:0,telegramSends:0,
   targets:result};
 }
+const ACTION_TAGS=Object.freeze({
+ getAutomationStatus:'STATUS',
+ diagnoseWorkbookCells:'INVENTORY'
+});
 const request=async({url,token,action,fetchImpl,timeoutMs=25000})=>{
+ const tag=ACTION_TAGS[action];
+ ensure(Boolean(tag),'FORBIDDEN_ACTION');
  let r;
  try{
   r=await fetchImpl(url,{
    method:'POST',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
    body:new URLSearchParams({action,accessToken:token}),
    redirect:'follow',signal:AbortSignal.timeout(timeoutMs)});
- }catch{throw Error('ISSUE860_READONLY_NETWORK_OR_TIMEOUT_'+action);}
- ensure(r?.ok===true,'HTTP_'+action);
+ }catch(e){
+  const kind=e?.name==='TimeoutError'||e?.name==='AbortError'?'TIMEOUT':'NETWORK';
+  throw Error('ISSUE860_READONLY_'+kind+'_'+tag);
+ }
+ ensure(r?.ok===true,'HTTP_'+tag);
  try{return await r.json();}
- catch{throw Error('ISSUE860_READONLY_JSON_'+action);}
+ catch(e){
+  const kind=e?.name==='TimeoutError'||e?.name==='AbortError'?'TIMEOUT':'JSON';
+  throw Error('ISSUE860_READONLY_'+kind+'_'+tag);
+ }
 };
 export async function run({url,token,fetchImpl=fetch}={}){
  const endpoint=validateWebAppUrl(url);
  ensure(typeof token==='string'&&token.length>=12,'AUTH_REQUIRED');
- const check=await request({url:endpoint,token,action:'getAutomationStatus',fetchImpl});
+ // Status may take longer than the original 25s on an active GAS instance.
+ // Allow one bounded call; do not retry the costly workbook inventory.
+ const check=await request({url:endpoint,token,action:'getAutomationStatus',
+  fetchImpl,timeoutMs:90000});
  ensure(check?.status==='ok'&&check?.gasVersion==='9.284','PRODUCTION_VERSION_DRIFT');
  const stage=String(check.automation?.portfolioClose?.stage||check.automation?.closeRun?.stage||'');
  if(['PRICE','FUND','RUNNING'].includes(stage))
