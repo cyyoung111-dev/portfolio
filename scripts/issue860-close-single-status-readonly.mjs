@@ -36,9 +36,27 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
   close=summarizeCloseStatus(a);
   checkpoint=safeFundResumeCheckpoint(a.fundResumeCheckpoint);
  }catch{throw Error('ISSUE860_STATUS_SCHEMA');}
+ const cleanDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(String(value||''))
+  ?String(value):'UNVERIFIED';
+ const rows=Number(a.portfolioClose?.priceRows);
+ const priceRows=Number.isSafeInteger(rows)&&rows>=0&&rows<=500?rows:null;
+ const cleanOverall=['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN']
+  .includes(a.overallStatus)?a.overallStatus:'UNVERIFIED';
  return {
   kind:'ISSUE860_SINGLE_GAS_STATUS_READONLY',
   gasVersion:payload.gasVersion,
+  observedKstDate:cleanDate(a.checkedAt?.slice(0,10)),
+  overallStatus:cleanOverall,
+  storedPriceRows:priceRows,
+  storedPriceDate:cleanDate(a.portfolioClose?.priceDate),
+  snapshotLastDate:cleanDate(a.snapshotLastDate),
+  priceHistoryLastDate:cleanDate(a.priceHistoryLastDate),
+  expectedSnapshotDate:cleanDate(a.expectedSnapshotDate),
+  snapshotStale:a.snapshotStale===true?true:a.snapshotStale===false?false:null,
+  fundErrorPresent:!!a.fundLastError,
+  fundWarningPresent:!!a.fundLastWarning,
+  pendingKrxDatesCount:Array.isArray(a.pendingKrxCloseDates)
+    ?a.pendingKrxCloseDates.length:null,
   closeState:close.state,closeStage:close.stage,closeRunDate:close.runDate,
   priceOk:close.priceOk,fundOk:close.fundOk,
   fundAttemptState:close.fundState,fundAttemptDate:close.fundAttemptDate,
