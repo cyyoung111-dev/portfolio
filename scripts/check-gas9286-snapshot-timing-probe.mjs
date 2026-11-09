@@ -32,7 +32,7 @@ const unprofiled=composeGas9286IntegratedPreview().candidate;
 assert(new vm.Script(profiled));
 assert(new vm.Script(fn(candidate,'writeSnapshotRows')));
 
-function env(body,{failCopy=false}={}){
+function env(body,{failCopy=false,failRegistry=false,failSignature=false}={}){
   const logs=[],rpc=[],registry=[],props=new Map(),items=[];
   const state={sourceWrites:0,copied:false};
   const src={
@@ -71,10 +71,12 @@ function env(body,{failCopy=false}={}){
     SNAPSHOT_REPAIR_STATE_KEY:'test_restore',
     SYSTEM_BACKUP_SIGNATURE_VERSION:2,
     _snapshotBackupOperationId:'',
-    _readSystemBackupRegistry:()=>{rpc.push('registryRead');return registry.slice();},
+    _readSystemBackupRegistry:()=>{rpc.push('registryRead');if(failRegistry)throw Error('Service Spreadsheets timed out while accessing document');return registry.slice();},
     _registerSystemBackup:record=>{rpc.push('registryCommit');registry.push(record);},
     _sheetContentSignature:sheet=>{
-      rpc.push('signature');return sheet===src?'SOURCE_HASH':'BACKUP_HASH';
+      rpc.push('signature');
+      if(failSignature&&sheet!==src)throw Error('Service Spreadsheets timed out while accessing document');
+      return sheet===src?'SOURCE_HASH':'BACKUP_HASH';
     },
     _fundSheetCapacity:()=>{rpc.push('capacity');return {remainingCells:10000000};},
     _cleanupSystemBackups:()=>{throw Error('UNEXPECTED_CLEANUP');},
@@ -116,7 +118,7 @@ for(const stage of ['registry_read','source_signature','backup_tab_create',
  'backup_copy','backup_flush','backup_signature','registry_commit']){
  assert(events.some(x=>x.stage===stage),'Missing stage '+stage);
 }
-for(const stage of ['source_signature','backup_tab_create','backup_copy',
+for(const stage of ['registry_read','source_signature','backup_tab_create','backup_copy',
  'backup_flush','backup_signature']){
  assert(events.some(x=>x.stage===stage&&x.state==='START'));
  assert(events.some(x=>x.stage===stage&&x.state==='END'));
@@ -129,6 +131,28 @@ const failureEvents=failed.logs.filter(x=>x.startsWith('[SNAPSHOT_BACKUP_TIMING]
  .map(line=>JSON.parse(line.slice('[SNAPSHOT_BACKUP_TIMING] '.length)));
 assert(failureEvents.some(x=>x.stage==='backup_copy'&&x.state==='START'));
 assert(!failureEvents.some(x=>x.stage==='backup_copy'&&x.state==='END'));
+
+// Reproduce the actual 2026-11-08 GAS class of failure at two independent
+// backup stages; never classify an incomplete backup as recoverable evidence.
+const failedRegistry=env(profiled,{failRegistry:true});
+assert.throws(()=>failedRegistry.run(),/Service Spreadsheets timed out/);
+assert.equal(failedRegistry.registry.length,0);
+assert.equal(failedRegistry.state.sourceWrites,0);
+assert.equal(failedRegistry.rpc.includes('insertSheet'),false);
+const registryEvents=failedRegistry.logs.filter(x=>x.startsWith('[SNAPSHOT_BACKUP_TIMING] '))
+ .map(line=>JSON.parse(line.slice('[SNAPSHOT_BACKUP_TIMING] '.length)));
+assert(registryEvents.some(x=>x.stage==='registry_read'&&x.state==='START'));
+assert(!registryEvents.some(x=>x.stage==='registry_read'&&x.state==='END'));
+const failedSignature=env(profiled,{failSignature:true});
+assert.throws(()=>failedSignature.run(),/Service Spreadsheets timed out/);
+assert.equal(failedSignature.registry.length,0,
+ 'A post-copy Sheets timeout must never register a trusted backup');
+assert.equal(failedSignature.state.sourceWrites,0,
+ 'A post-copy backup timeout cannot mutate the Snapshot source');
+const signatureEvents=failedSignature.logs.filter(x=>x.startsWith('[SNAPSHOT_BACKUP_TIMING] '))
+ .map(line=>JSON.parse(line.slice('[SNAPSHOT_BACKUP_TIMING] '.length)));
+assert(signatureEvents.some(x=>x.stage==='backup_signature'&&x.state==='START'));
+assert(!signatureEvents.some(x=>x.stage==='backup_signature'&&x.state==='END'));
 
 // The existing writer still logs backup-start and failures while preserving
 // the owned ScriptLock and never reaching date-scoped writes when backup fails.

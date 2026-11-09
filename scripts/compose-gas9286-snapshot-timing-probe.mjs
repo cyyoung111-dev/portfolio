@@ -60,7 +60,7 @@ export function composeGas9286SnapshotTimingProbe(source){
       'INIT_BACKUP');
     body=replaceExactlyOnce(body,
       '  var registry = _readSystemBackupRegistry();',
-      "  var registry = _readSystemBackupRegistry();\n  snapshotTimingMark('registry_read','END');",
+      "  snapshotTimingMark('registry_read','START');\n  var registry = _readSystemBackupRegistry();\n  snapshotTimingMark('registry_read','END');",
       'REGISTRY');
     body=replaceExactlyOnce(body,
       '    if (operationRecord) return Object.assign({}, operationRecord, { reused: true });',
