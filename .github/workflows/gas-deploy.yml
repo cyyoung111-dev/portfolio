@@ -202,6 +202,12 @@ jobs:
         if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true' || env.GAS_9289_CLOSE_PERF == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
+      # A clean deployment inventory is not proof of idle portfolio Writers.
+      # Read actual current v9.287 state and legacy 338-row ledger before
+      # approving a *separate* 9.288 production write. No write or retry.
+      - name: Verify live 9.287 settled close and legacy ledger before 9.288 production
+        if: env.GAS_9288_TRADE_V2 == 'true' && env.GAS_9288_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        run: node scripts/issue734-v9288-live-readiness-readonly.mjs
       - name: Verify live 9.288 and migrated trade v2 before 9.289 production
         if: env.GAS_9289_CLOSE_PERF == 'true' && env.GAS_9289_RELEASE_APPROVAL == 'true' && env.GAS_9289_TRADE_V2_VERIFIED == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue860-v9289-trade-v2-live-gate.mjs
