@@ -46,7 +46,11 @@ function _tradeV2MigrationManual_(mode) {
     if(!lock.tryLock(30000))
       throw Error('TRADE_V2_MIGRATION_LOCK_BUSY');
     locked=true;
-    var ss=getss(),sh=ss.getSheetByName(CONFIG.SHEET_TRADES);
+    var ss=getss(),configuredId=String(props.getProperty('SS_ID')||
+      (typeof SS_ID!=='undefined'?SS_ID:'')||'');
+    if(!configuredId||configuredId!==ss.getId())
+      throw Error('TRADE_V2_MIGRATION_SSID_CONFIG_MISMATCH');
+    var sh=ss.getSheetByName(CONFIG.SHEET_TRADES);
     if(!sh)throw Error('TRADE_V2_MIGRATION_SOURCE_MISSING');
     var width=sh.getLastColumn(),count=sh.getLastRow()-1;
     checkHeader(sh,width);
