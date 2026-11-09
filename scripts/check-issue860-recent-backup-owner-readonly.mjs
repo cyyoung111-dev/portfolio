@@ -37,9 +37,11 @@ assert.equal(a.deleteAllowed,false);
 assert(!JSON.stringify(a).includes('EXTERNAL_PRIVATE_OWNER_ID'));
 assert(!JSON.stringify(a).includes('스냅샷_백업_'));
 assert(!JSON.stringify(a).includes('PRIVATE'));
+const inconsistent=registered(TARGETS[0],{rows:0,registered:true,status:'COMPLETED',match:false});
+inconsistent.backupClassification='REGISTERED_INCOMPLETE';
 assert.throws(()=>summarizeRecentBackupEvidence({status:'ok',workbook:{
- sheets:[registered(TARGETS[0],{rows:0,registered:true,status:'COMPLETED',match:false})]
-}}),/ISSUE860_READONLY_PROVENANCE_MISMATCH|(?=a)b/);
+ sheets:[inconsistent]
+}}),/ISSUE860_READONLY_PROVENANCE_MISMATCH/);
 
 const endpoint='https://script.google.com/macros/s/TEST_DEPLOYMENT_TOKEN/exec';
 const secret='GAS_TEST_PROTECTED_TOKEN';
