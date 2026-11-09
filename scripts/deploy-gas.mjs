@@ -383,14 +383,19 @@ async function verifyWebApp(url, accessToken, expectedVersion) {
   throw new Error(`배포 후 웹앱 버전 확인 실패: 기대 ${expectedVersion}, 마지막 결과 ${last}`);
 }
 
-// Apps Script deployments can lag a successful PUT by several seconds in
-// list/get reads. Retry the *same* deployment GET; never POST a new version
-// merely because the first read is stale. A permanent mismatch still fails.
+// The 2026-11-09 v9.287 production PUT was followed by five stale
+// deployment GET reads (~15s), then a verified rollback. Give Apps Script
+// propagation a bounded ~68s across ten GET checks before treating old
+// metadata as a failure. This NEVER repeats the version POST or deployment PUT.
 export async function verifyDeploymentVersionWithRetry({
-  readDeployment, expectedVersion, pause = sleep, maxChecks = 5,
+  readDeployment, expectedVersion, previousVersion = null,
+  pause = sleep, maxChecks = 10,
 }) {
   if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1
       || !Number.isSafeInteger(maxChecks) || maxChecks < 1 || maxChecks > 10
+      || (previousVersion !== null
+        && (!Number.isSafeInteger(previousVersion) || previousVersion < 1
+          || previousVersion === expectedVersion))
       || typeof readDeployment !== 'function' || typeof pause !== 'function') {
     throw new Error('GAS_DEPLOYMENT_READBACK_INVALID');
   }
@@ -399,7 +404,15 @@ export async function verifyDeploymentVersionWithRetry({
     const result = await readDeployment();
     lastVersion = Number(result?.deploymentConfig?.versionNumber || 0);
     if (lastVersion === expectedVersion) return result;
-    if (check < maxChecks - 1) await pause((check + 1) * 1500);
+    // A third-party deployment change is not an eventual-consistency case.
+    // Stop before any further polling or overwriting someone else's version.
+    if (previousVersion !== null && lastVersion !== previousVersion)
+      throw new Error('GAS_DEPLOYMENT_CONCURRENT_VERSION_UNVERIFIED');
+    if (check < maxChecks - 1) {
+      console.log(JSON.stringify({kind:'GAS_DEPLOYMENT_READBACK_PENDING',
+        check:check+1,maxChecks,expectedVersionSeen:false}));
+      await pause((check + 1) * 1500);
+    }
   }
   throw new Error(`deployment version 검증 실패: expected=${expectedVersion}, observed=${lastVersion}`);
 }
@@ -466,7 +479,8 @@ export function summarizeGasReleaseFailure(error,stage) {
     'AUTOMATION_DIAG_BAD_LEDGER_WRITE','AUTOMATION_DIAG_BAD_LEDGER_PENDING',
     'AUTOMATION_DIAG_BAD_DEFERRED_COUNT','AUTOMATION_DIAG_BAD_DEFERRED_DATE',
     'AUTOMATION_DIAG_BAD_HISTORICAL_CHECKPOINT','AUTOMATION_DIAG_BAD_OBSERVATION_TIME',
-    'GAS_AUTOMATION_VERSION_MISMATCH','GAS_DEPLOYMENT_READBACK_INVALID'];
+    'GAS_AUTOMATION_VERSION_MISMATCH','GAS_DEPLOYMENT_READBACK_INVALID',
+    'GAS_DEPLOYMENT_CONCURRENT_VERSION_UNVERIFIED'];
   const message=typeof error?.message==='string'?error.message:'';
   const failureCode=diagnosticCodes.includes(message)?message:
     /^deployment version 검증 실패: expected=\d+, observed=\d+$/.test(message)
@@ -652,6 +666,7 @@ export async function deploy() {
       `${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,
       { token: accessToken }),
     expectedVersion: newVersionNumber,
+    previousVersion: currentVersionNumber,
   });
 
   stage='WEBAPP_VERIFY';
