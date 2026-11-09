@@ -523,7 +523,7 @@ export async function deploy() {
   // The normal source remains pinned at 9.285; only a manual dispatch can
   // select this candidate. Production deployment needs its own approval gate.
   const fund9287 = process.env.GAS_9287_FUND_HOTFIX === 'true';
-  if (fund9287 && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
+  if (fund9287 && !dryRun && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
     throw Error('GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   const source = fund9287
     ? composeFundSnapshot9287SourcePreview().candidate
