@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {selectGasRelease,assertCurrentMainRelease} from './gas-release-gate.mjs';
+import {selectGasRelease,assertCurrentMainRelease,selectVerifiedGasRelease} from './gas-release-gate.mjs';
 import {rollbackGasCode} from './deploy-gas.mjs';
 
 const sha='a'.repeat(40),repository='cyyoung111-dev/portfolio';
@@ -23,6 +23,19 @@ const response=s=>async()=>({ok:true,json:async()=>({object:{sha:s}})});
 await assertCurrentMainRelease({sha,fetchImpl:response(sha)});
 await assert.rejects(()=>assertCurrentMainRelease({sha,fetchImpl:response('b'.repeat(40))}),/STALE_COMMIT/);
 await assert.rejects(()=>assertCurrentMainRelease({sha,fetchImpl:async()=>{throw Error('PRIVATE');}}),/MAIN_UNAVAILABLE/);
+// Superseded automatic CI completions should skip cleanly, never select an
+// old commit or enter the deploy job. Manual releases still reject stale SHA.
+const verified=await selectVerifiedGasRelease({...input,fetchImpl:response(sha)});
+assert.equal(verified.skip,false);
+assert.equal(verified.sha,sha);
+const superseded=await selectVerifiedGasRelease({...input,fetchImpl:response('b'.repeat(40))});
+assert.deepEqual(superseded,{sha:'',automatic:true,skip:true,reason:'GAS_RELEASE_SUPERSEDED'});
+await assert.rejects(()=>selectVerifiedGasRelease({...input,eventName:'workflow_dispatch',
+  fetchImpl:response('b'.repeat(40))}),/GAS_RELEASE_STALE_COMMIT/);
+await assert.rejects(()=>selectVerifiedGasRelease({...input,
+  fetchImpl:async()=>{throw Error('PRIVATE');}}),/GAS_RELEASE_MAIN_UNAVAILABLE/);
+await assert.rejects(()=>selectVerifiedGasRelease({...input,enabled:'false',
+  fetchImpl:response(sha)}),/GAS_RELEASE_NOT_ELIGIBLE/);
 
 const oldFiles=[{name:'appsscript',type:'JSON',source:'{}'},
   {name:'Code',type:'SERVER_JS',source:'OLD'}];
@@ -69,7 +82,10 @@ function checkWorkflow(source){
   // Last proven successful production source, never merely HEAD's first parent.
   const sourceStep=validate.steps.find(step=>step.id==='gas_source');
   assert.ok(sourceStep,'proven deployment source preflight is required');
-  assert.equal(sourceStep.if,"github.event_name == 'workflow_run'");
+  assert.equal(sourceStep.if,"github.event_name == 'workflow_run' && steps.release.outputs.skip != 'true'");
+  const releaseCheckout=validate.steps.find(step=>step.name==='Checkout selected immutable release');
+  assert.ok(releaseCheckout);
+  assert.equal(releaseCheckout.if,"github.event_name != 'pull_request' && steps.release.outputs.skip != 'true'");
   assert.equal(sourceStep.run,'node scripts/gas-auto-deploy-eligibility.mjs');
   assert.match(JSON.stringify(sourceStep.env),/github.token/);
   assert.match(JSON.stringify(sourceStep.env),/github.repository/);
@@ -99,10 +115,11 @@ for(const [before,after] of [
   ["node scripts/gas-auto-deploy-eligibility.mjs","echo changed=false"],
   ["vars.GAS_AUTO_DEPLOY_ENABLED == 'true'","true"],
     ["head_branch == 'main'","head_branch != 'main'"],['portfolio-production-gas','other'],
-  ['npm run check:ci','npm run check:gas']]){
+  ['npm run check:ci','npm run check:gas'],
+  ["steps.release.outputs.skip != 'true'","true"]]){
   assert.throws(()=>checkWorkflow(source.replaceAll(before,after)));
 }
-console.log('GAS opt-in trusted main release, stale SHA rejection and scoped code rollback: PASS');
+console.log('GAS opt-in trusted main release, automatic superseded skip, manual stale SHA rejection and scoped code rollback: PASS');
 
 // Actual deploy diagnostic path: OAuth exchange + GET only, no source/version/deployment writes.
 {
