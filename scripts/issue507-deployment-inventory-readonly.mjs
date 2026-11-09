@@ -263,7 +263,7 @@ export async function inspectGasDeploymentsReadOnly({
     let exactReviewedRelease=false;
     try{
       const approvedVersion=assertGasReleaseReady(code[0].source.replace(/\r\n/g,'\n'));
-      exactReviewedRelease=['9.283','9.284','9.285'].includes(approvedVersion);
+      exactReviewedRelease=['9.283','9.284','9.285','9.287'].includes(approvedVersion);
     }catch{}
     sourceAudit.successful++;
     if(classified.knownLegacyBaseline){
