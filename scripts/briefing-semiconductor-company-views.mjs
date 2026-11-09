@@ -51,9 +51,18 @@ function verifiedBook(item,date,financialEvidence,price){
  if(!e||!finitePositive(e.bpsKrw)||!day(e.period)||!day(e.filingDate)
   ||e.period>e.filingDate||e.filingDate>=price.date
   ||!['INDICATIVE_MULTICLASS_BPS','VERIFIED_SINGLECLASS_BPS'].includes(e.status)
-  ||e.indicative!==(e.status==='INDICATIVE_MULTICLASS_BPS')
-  ||e.priceDate!==null||e.pbrTimes!==null)return null;
- return {bps:e.bpsKrw,pbr:price.value/e.bpsKrw,indicative:e.indicative,
+  ||e.indicative!==(e.status==='INDICATIVE_MULTICLASS_BPS'))return null;
+ const computedPbr=price.value/e.bpsKrw;
+ // DART prefetch may already have priced this exact BPS using a dated NH
+ // confirmed close. Do not discard such valid evidence; compare it against
+ // the *independent* confirmed close passed to the rendering step.
+ const unpriced=e.priceDate===null&&e.pbrTimes===null;
+ const independentlyVerified=e.priceDate===price.date
+  &&financialEvidence.domesticSessionDate===price.date
+  &&finitePositive(e.pbrTimes)
+  &&Math.abs(e.pbrTimes-computedPbr)<=Math.max(0.015,computedPbr*0.0001);
+ if(!unpriced&&!independentlyVerified)return null;
+ return {bps:e.bpsKrw,pbr:computedPbr,indicative:e.indicative,
   filingDate:e.filingDate,period:e.period};
 }
 export function evaluateSemiconductorCompanyViews({
