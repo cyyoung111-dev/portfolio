@@ -186,7 +186,7 @@ assert.equal(formatSemiconductorCompanyMetrics({
 }).length,3);
 assert.match(formatSemiconductorCompanyMetrics({
  date,stocks:morningPrices,financialEvidence:pricedMorning
-}).join('\\n'),/참고 PBR 1\\.50배/);
+}).join('\n'),/참고 PBR 1\.50배/);
 assert.ok(marketMorning.length<=3900);
 const marketClose=formatClose(date,[],[],[],closingPrices,[],[],[],
  new Date('2026-11-06T17:00:00+09:00'));
