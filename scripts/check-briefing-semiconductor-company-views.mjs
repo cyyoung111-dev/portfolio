@@ -132,6 +132,48 @@ const official=evaluateSemiconductorCompanyViews({date,period:'close',
  stocks:krxClose,financialEvidence:financial});
 assert.equal(official[0].book.pbr,1.5);
 assert.match(official[0].valueLine,/KRX/);
+
+// Independent read-only DART evidence may already include an exact-session
+// NH PBR. It must be accepted only if its date and numeric PBR agree with
+// the separate verified close. The prior strict-null requirement discarded it.
+const datedDomestic=(day,prices)=>({...financial,domesticSessionDate:day,
+ domestic:financial.domestic.map((r,i)=>({
+  ...r,evidence:{...r.evidence,priceDate:day,
+   pbrTimes:prices[i].value/r.evidence.bpsKrw}
+ }))});
+const pricedMorning=datedDomestic('2026-11-05',morningPrices);
+const confirmedMorning=evaluateSemiconductorCompanyViews({
+ date,period:'morning',stocks:morningPrices,financialEvidence:pricedMorning
+});
+assert.deepEqual(confirmedMorning.map(r=>r.book?.pbr),[1.5,2],
+ 'matching exact-day independently priced DART PBR must be displayed');
+assert.match(formatSemiconductorCompanyFiveViews({
+ date,stocks:morningPrices,financialEvidence:pricedMorning
+}).join('\n'),/참고 PBR 1\.50배/);
+const pricedClosing=datedDomestic(date,closingPrices);
+const confirmedClose=evaluateSemiconductorCompanyViews({
+ date,period:'close',stocks:closingPrices,financialEvidence:pricedClosing
+});
+assert.deepEqual(confirmedClose.map(r=>r.book?.pbr),[1.5,2]);
+for(const unsafe of [
+ {...pricedMorning,domesticSessionDate:date},
+ {...pricedMorning,domestic:pricedMorning.domestic.map(r=>({
+  ...r,evidence:{...r.evidence,priceDate:'2026-11-04'}})},
+ {...pricedMorning,domestic:pricedMorning.domestic.map(r=>({
+  ...r,evidence:{...r.evidence,pbrTimes:r.evidence.pbrTimes+0.5}})},
+ {...pricedMorning,domestic:pricedMorning.domestic.map(r=>({
+  ...r,evidence:{...r.evidence,pbrTimes:null}})}
+]){
+ assert(evaluateSemiconductorCompanyViews({date,stocks:morningPrices,
+  financialEvidence:unsafe}).every(r=>r.book===null),
+  'stale/mismatched DART PBR must never appear as exact confirmed');
+}
+const crossDay=evaluateSemiconductorCompanyViews({
+ date,period:'close',stocks:closingPrices,financialEvidence:pricedMorning
+});
+assert(crossDay.every(r=>r.book===null),
+ 'close must not reuse previous-session PBR as today confirmed');
+
 assert.ok(evaluateSemiconductorCompanyViews({date,period:'close',stocks:morningPrices,
  financialEvidence:financial}).every(x=>x.book===null),
  'closing price must have the production stock id and exact same session');
