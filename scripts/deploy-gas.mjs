@@ -417,10 +417,45 @@ export async function verifyDeploymentVersionWithRetry({
   throw new Error(`deployment version 검증 실패: expected=${expectedVersion}, observed=${lastVersion}`);
 }
 
+// Versioned /exec traffic may reach an older warm Apps Script instance even
+// after the deployment API and one getSettings call have observed the candidate.
+// Require agreement from the heavier getAutomationStatus AND a fresh getSettings.
+// Retry READS only; never rerun a fund writer or publish a second version.
+export async function verifyAutomationVersionConvergence({
+  readAutomation,readSettings,expectedVersion,previousVersion,
+  pause=sleep,maxChecks=3
+}) {
+  if(typeof readAutomation!=='function'||typeof readSettings!=='function'
+    ||typeof pause!=='function'||!/^[0-9]+\.[0-9]+$/.test(String(expectedVersion))
+    ||typeof previousVersion!=='string'
+    ||previousVersion===expectedVersion
+    ||!Number.isSafeInteger(maxChecks)||maxChecks<1||maxChecks>4)
+    throw Error('GAS_AUTOMATION_CONVERGENCE_INVALID');
+  for(let check=0;check<maxChecks;check++){
+    const automation=await readAutomation();
+    const actual=String(automation?.gasVersion||'');
+    if(actual!==expectedVersion&&actual!==previousVersion)
+      throw Error('GAS_AUTOMATION_UNEXPECTED_VERSION');
+    if(actual===expectedVersion){
+      const settings=await readSettings();
+      const current=String(settings?.gasVersion||'');
+      if(current!==expectedVersion&&current!==previousVersion)
+        throw Error('GAS_AUTOMATION_UNEXPECTED_VERSION');
+      if(current===expectedVersion)return {automation,settings,attempts:check+1};
+    }
+    if(check<maxChecks-1){
+      console.log(JSON.stringify({kind:'GAS_AUTOMATION_VERSION_PENDING',
+        check:check+1,maxChecks,candidateConfirmed:false}));
+      await pause((check+1)*4000);
+    }
+  }
+  throw Error('GAS_AUTOMATION_VERSION_MISMATCH');
+}
+
 // Roll back only our exact candidate. A third-party edit/version must never
 // be overwritten by automatic recovery. Financial data is never restored here.
 export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployment,beforePublishedFiles,newVersion,
-  readFiles,writeFiles,readDeployment,writeDeployment}){
+  readFiles,writeFiles,readDeployment,writeDeployment,pause=sleep,maxChecks=6}){
   const canonical=files=>JSON.stringify(sanitizeFiles(files).map(f=>({...f,
     source:f.source.replace(/\r\n/g,'\n')})).sort((a,b)=>(a.name+a.type).localeCompare(b.name+b.type)));
   // Two different rollback surfaces exist: HEAD and the immutable deployed
@@ -453,10 +488,25 @@ export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployme
   // A publish PUT may have committed even when its response was lost and
   // the first GET is stale. Reassert the known previous version in that case.
   if(newVersion || version!==oldVersion)await writeDeployment(beforeDeployment.deploymentConfig);
-  if(canonical(await readFiles())!==canonical(beforeFiles)
-    ||(await readDeployment())?.deploymentConfig?.versionNumber!==oldVersion)
-    throw Error('GAS_ROLLBACK_UNVERIFIED');
-  return {headRestored:true,deploymentRestored:true,dataWrites:0};
+  if(typeof pause!=='function'||!Number.isSafeInteger(maxChecks)
+    ||maxChecks<1||maxChecks>8)throw Error('GAS_ROLLBACK_READBACK_INVALID');
+  const oldHead=canonical(beforeFiles),newHead=canonical(candidateFiles);
+  // Only poll GETs after the one compensating HEAD/Deployment PUT.
+  // Immediate GETs may remain stale after rollback; unrelated edits fail closed.
+  for(let check=0;check<maxChecks;check++){
+    const head=canonical(await readFiles());
+    const observed=Number((await readDeployment())?.deploymentConfig?.versionNumber||0);
+    if(head===oldHead&&observed===oldVersion)
+      return {headRestored:true,deploymentRestored:true,dataWrites:0};
+    if(![oldHead,newHead].includes(head)||![oldVersion,newVersion].includes(observed))
+      throw Error('GAS_ROLLBACK_CONCURRENT_CHANGE');
+    if(check<maxChecks-1){
+      console.log(JSON.stringify({kind:'GAS_ROLLBACK_READBACK_PENDING',
+        check:check+1,maxChecks,restorationVerified:false}));
+      await pause((check+1)*2000);
+    }
+  }
+  throw Error('GAS_ROLLBACK_UNVERIFIED');
 }
 
 // Bounded operational facts only; source text, identifiers and provider messages never leave this report.
@@ -479,7 +529,9 @@ export function summarizeGasReleaseFailure(error,stage) {
     'AUTOMATION_DIAG_BAD_LEDGER_WRITE','AUTOMATION_DIAG_BAD_LEDGER_PENDING',
     'AUTOMATION_DIAG_BAD_DEFERRED_COUNT','AUTOMATION_DIAG_BAD_DEFERRED_DATE',
     'AUTOMATION_DIAG_BAD_HISTORICAL_CHECKPOINT','AUTOMATION_DIAG_BAD_OBSERVATION_TIME',
-    'GAS_AUTOMATION_VERSION_MISMATCH','GAS_DEPLOYMENT_READBACK_INVALID',
+    'GAS_AUTOMATION_VERSION_MISMATCH','GAS_AUTOMATION_UNEXPECTED_VERSION',
+    'GAS_AUTOMATION_CONVERGENCE_INVALID','GAS_ROLLBACK_READBACK_INVALID',
+    'GAS_DEPLOYMENT_READBACK_INVALID',
     'GAS_DEPLOYMENT_CONCURRENT_VERSION_UNVERIFIED'];
   const message=typeof error?.message==='string'?error.message:'';
   const failureCode=diagnosticCodes.includes(message)?message:
@@ -672,8 +724,14 @@ export async function deploy() {
   stage='WEBAPP_VERIFY';
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
   stage='AUTOMATION_VERIFY';
-  const automation=await runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')});
-  if(automation.gasVersion!==expectedVersion)throw Error('GAS_AUTOMATION_VERSION_MISMATCH');
+  const stable=await verifyAutomationVersionConvergence({
+    readAutomation:()=>runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')}),
+    readSettings:()=>verifyWebApp(webAppUrl,env('GAS_ACCESS_TOKEN',{required:false}),expectedVersion),
+    expectedVersion,previousVersion:releaseState.published.version
+  });
+  console.log(JSON.stringify({kind:'GAS_RELEASE_ENDPOINT_CONVERGED',
+    automationVersionConfirmed:true,settingsVersionConfirmed:true,
+    attempts:stable.attempts}));
   console.log(`GAS 자동배포 완료 · GAS v${expectedVersion} · Apps Script version=${newVersionNumber} · webApp=verified`);
   return { deployed: true, version: expectedVersion, deploymentVersion: newVersionNumber, webAppCheck };
   } catch(error) {
