@@ -66,6 +66,40 @@ assert.equal(entrypointCount(candidate),entrypointCount(base),
  'fund no-op cannot add GAS public entrypoints');
 new vm.Script(candidate,{filename:'gas-9285-fund-noop-preview.gs'});
 
+// Snapshot timeout diagnosis: assert the current 9.285 release still retains
+// full-sheet backup verification and date-scoped rollback. These are cost
+// hotspots, not proof of which call timed out in a particular GAS execution.
+// A future optimization must replace these safeguards with independently
+// verified recovery guarantees; never silently bypass backup or readback.
+const functionBody=(name)=>{
+ const start=candidate.indexOf('function '+name+'(');
+ assert(start>=0,name+' missing');
+ const end=candidate.indexOf('\nfunction ',start+10);
+ return candidate.slice(start,end<0?undefined:end);
+};
+const backup=functionBody('_backupSheetBeforeWrite');
+const signature=functionBody('_sheetContentSignature');
+const snapshotWriter=functionBody('writeSnapshotRows');
+const scopedWriter=functionBody('_writeSnapshotDateScoped_');
+assert.match(signature,/range\.getValues\(\)/);
+assert.match(signature,/range\.getFormulas\(\)/);
+assert.match(backup,/_sheetContentSignature\(sheet\)/);
+assert.match(backup,/_sheetContentSignature\(backup\)/);
+assert.match(backup,/sourceRange\.copyTo\(backupRange\)/);
+assert.match(snapshotWriter,/_backupSnapshotBeforeWrite\(ss, sh\)/);
+assert.match(snapshotWriter,/_writeSnapshotDateScoped_\(ss, sh,/);
+assert(snapshotWriter.indexOf('_backupSnapshotBeforeWrite(ss, sh)')
+  <snapshotWriter.indexOf('_writeSnapshotDateScoped_(ss, sh,'),
+ 'backup must precede date-scoped write');
+assert.match(scopedWriter,/readCellImage/);
+assert.match(scopedWriter,/rollbackVerified/);
+assert.match(scopedWriter,/_readRawSnapshotRowsByDate\(ss, date\)/);
+console.log('SNAPSHOT_BACKUP_TIMEOUT_SOURCE_GUARDS_OK '+JSON.stringify({
+  version:'9.285',backupBeforeWrite:true,fullSheetSignatureReads:true,
+  scopedRollback:true,readback:true,liveExecutionVerified:false,
+  financeWrites:0,gasDeployments:0
+}));
+
 const source=isolateGasBusinessLogic(candidate);
 const start=source.indexOf('function _refreshFundValuations(');
 const end=source.indexOf('\n}',start);
