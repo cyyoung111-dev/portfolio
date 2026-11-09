@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import YAML from 'yaml';
 import {buildAiFinancialEvidence,formatAiFinancialEvidence}
  from './briefing-financial-evidence.mjs';
 import {financialPrefetchWindow,prefetchAiFinancialEvidence,
@@ -12,6 +14,12 @@ assert.deepEqual(is,{allowed:true,date:day,status:'IN_WINDOW'});
 assert.equal(financialPrefetchWindow(new Date('2026-11-08T21:14:59Z')).allowed,false);
 assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:25:00Z')).allowed,false);
 assert.equal(financialPrefetchWindow(new Date('invalid')).allowed,false);
+const sentinelAt=()=>new Date('2026-11-08T22:30:00Z'); // 07:30 KST
+assert.deepEqual(financialPrefetchWindow(sentinelAt(),{mode:'sentinel'}),
+ {date:day,allowed:true,status:'IN_WINDOW'});
+assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:19:59Z'),{mode:'sentinel'}).allowed,false);
+assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:38:00Z'),{mode:'sentinel'}).allowed,false);
+assert.equal(financialPrefetchWindow(sentinelAt(),{mode:'unknown'}).allowed,false);
 
 const proof=buildAiFinancialEvidence({
  asOfKst:day,usSessionDate,domesticSessionDate:null,
@@ -50,6 +58,20 @@ assert.equal(built.data.repository,FINANCIAL_PREFETCH_REPO);
 assert.equal(FINANCIAL_PREFETCH_FILE,'financial-evidence.json');
 assert.ok(JSON.stringify(built.data).length<45000);
 assert.deepEqual(verifyFinancialPrefetchArtifact(day,built.data,{now:now()}),proof);
+// The independent sentinel keeps strict freshness and public-only fields.
+const fallback=await prefetchAiFinancialEvidence({
+ now:sentinelAt,collector:writer,mode:'sentinel'});
+assert.equal(fallback.ready,true);
+assert.equal(fallback.artifactName,'ai-financial-evidence-sentinel-'+day);
+assert.equal(fallback.data.captureMode,'SENTINEL_PUSH');
+assert.deepEqual(verifyFinancialPrefetchArtifact(day,fallback.data,
+ {now:sentinelAt()}),proof);
+assert.equal(verifyFinancialPrefetchArtifact(day,
+ {...fallback.data,capturedAt:'2026-11-08T22:39:00Z'},
+ {now:new Date('2026-11-08T22:42:00Z')}),null);
+assert.equal(verifyFinancialPrefetchArtifact(day,
+ {...built.data,captureMode:'SENTINEL_PUSH'},
+ {now:sentinelAt()}),null,'scheduled 06:20 time cannot impersonate sentinel');
 
 // Artifact may be displayed only for this same KST trading day and same US
 // completed regular session. A stale or mismatched copy is rejected.
@@ -94,4 +116,19 @@ assert.equal(timeout.status,'PREFETCH_TOO_LATE');
 assert.equal(proof.portfolioWrites,0);
 assert.equal(proof.telegramSends,0);
 assert.equal(proof.gasDeployments,0);
-console.log('AI_FINANCIAL_PREFETCH_READONLY_PASS day/schedule/source/FCF/PBR/tampering/failclosed');
+const wf=YAML.parse(fs.readFileSync('.github/workflows/ai-financial-evidence-prefetch.yml','utf8'));
+assert.deepEqual(wf.on.push.paths,['ops/telegram-morning-arm-trigger.txt']);
+assert.deepEqual(wf.on.push.branches,['main']);
+assert.equal(wf.jobs.collect.steps.find(x=>x.id==='sentinel').if,"github.event_name == 'push'");
+assert.ok(wf.jobs.collect.steps.find(x=>x.id==='sentinel').run.includes('NOT_EXACT_FILE'));
+assert.match(wf.jobs.collect.steps.find(x=>x.id==='evidence').if,/sentinel.outputs.verified == 'true'/);
+assert.equal(wf.jobs.collect.steps.find(x=>x.id==='evidence').env.FINANCIAL_SENTINEL_VERIFIED,
+ '
++'{{ steps.sentinel.outputs.verified }}');
+assert.equal(wf.jobs.collect.steps.find(x=>x.id==='evidence').env.SEC_USER_AGENT,
+ '
++'{{ secrets.SEC_USER_AGENT }}');
+assert.equal(wf.jobs.collect.steps.find(x=>x.id==='evidence').env.DART_API_KEY,
+ '
++'{{ secrets.DART_API_KEY }}');
+console.log('AI_FINANCIAL_PREFETCH_READONLY_PASS schedule/sentinel/source/FCF/PBR/failclosed');
