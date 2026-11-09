@@ -8,6 +8,7 @@ import {composeGas9286IntegratedPreview}
 import {TRADE_V2_GAS_HELPERS} from './trade-v2-gas-functions.mjs';
 import {TRADE_V2_GAS_RECEIPTS} from './trade-v2-gas-receipts.mjs';
 import {TRADE_V2_GAS_MIGRATION_PREVIEW} from './trade-v2-gas-migration-preview.mjs';
+import {TRADE_V2_GAS_MIGRATION_APPLY} from './trade-v2-gas-migration-apply-preview.mjs';
 
 const PINNED_9287_GIT_BLOB='e2f5239746598754305eb603bc33651f5c36d914';
 const blob=source=>{
@@ -47,6 +48,10 @@ const NEW_V2_FUNCTIONS=Object.freeze([
  'handleTradeSyncV2WithReceipt_','_tradeV2MigrationPlan_',
  'handlePreviewTradeLedgerV2Migration_'
 ]);
+const MANUAL_MIGRATION_FUNCTIONS=Object.freeze([
+ 'runTradeV2MigrationPreflight','runTradeV2MigrationApply',
+ 'runTradeV2MigrationRestore','_tradeV2MigrationManual_'
+]);
 const PROTECTED_FINANCE=Object.freeze([
  '_refreshFundValuations','_backupSheetBeforeWrite','writeSnapshotRows',
  '_issue507GateEnter_','_issue507GateInvoke_','_sheetContentSignature'
@@ -75,6 +80,8 @@ export function composeGas9288TradeV2From9287Preview(){
  const helperFns=functions(extra);
  if(!same([...helperFns.keys()],NEW_V2_FUNCTIONS.filter(x=>x!=='_portfolioTradeFxMetadata_')))
    throw Error('GAS9288_UNEXPECTED_HELPER_FUNCTIONS');
+ if(!same([...functions(TRADE_V2_GAS_MIGRATION_APPLY).keys()],MANUAL_MIGRATION_FUNCTIONS))
+   throw Error('GAS9288_UNEXPECTED_MIGRATION_ENTRYPOINTS');
  let source=approved;
  const transplanted=[];
  for(const name of changed){
@@ -93,7 +100,8 @@ export function composeGas9288TradeV2From9287Preview(){
   newFns.get(fxName)+'\nfunction _portfolioSyncCanonical_(kind, rows) {',
   'ADD_FX_VALIDATOR');
  source=replaceExactlyOnce(source,'function handleSyncTrades(',
-  extra+'\nfunction handleSyncTrades(','ADD_ID_CAS_RECEIPT_MIGRATION_HELPERS');
+  extra+'\n'+TRADE_V2_GAS_MIGRATION_APPLY+'\nfunction handleSyncTrades(',
+  'ADD_ID_CAS_RECEIPT_MIGRATION_HELPERS');
  // Preserve 9.287 release history, only prepend the trade-v2 candidate.
  source=replaceExactlyOnce(source,
   '//  📊 포트폴리오 대시보드 — Google Apps Script  v9.287',
@@ -116,7 +124,7 @@ export function composeGas9288TradeV2From9287Preview(){
   "var ISSUE507_GATE_API_VERSION='9.287'",
   "var ISSUE507_GATE_API_VERSION='9.288'",'GATE_API_VERSION');
  const after=functions(source);
- if(after.size!==oldFns.size+NEW_V2_FUNCTIONS.length)
+ if(after.size!==oldFns.size+NEW_V2_FUNCTIONS.length+MANUAL_MIGRATION_FUNCTIONS.length)
   throw Error('GAS9288_EXTRA_ENTRYPOINT_OR_DUPLICATE');
  for(const name of PROTECTED_FINANCE){
   if(after.get(name)!==oldFns.get(name))
@@ -124,6 +132,9 @@ export function composeGas9288TradeV2From9287Preview(){
  }
  for(const name of NEW_V2_FUNCTIONS){
   if(!after.has(name))throw Error('GAS9288_V2_HANDLER_MISSING:'+name);
+ }
+ for(const name of MANUAL_MIGRATION_FUNCTIONS){
+  if(!after.has(name))throw Error('GAS9288_MANUAL_MIGRATION_MISSING:'+name);
  }
  return {base:approved,candidate:source,manifest:{
   parentVersion:'9.287',candidateVersion:'9.288',
@@ -133,6 +144,10 @@ export function composeGas9288TradeV2From9287Preview(){
   changedLegacyFunctions:changed,
   transplantedFunctions:transplanted,
   introducedFunctions:NEW_V2_FUNCTIONS,
+  manualMigrationFunctions:MANUAL_MIGRATION_FUNCTIONS,
+  migrationApplyRequiresApproval:true,
+  migrationBackupNeverAutomaticallyDeleted:true,
+  migrationPreservesSourceColumns:'A:K',
   protectedFinanceFunctions:PROTECTED_FINANCE,
   releaseStatus:'SOURCE_PREVIEW_ONLY',approvedForGasDeploy:false,
   requiresManualReleaseApproval:true,requiresProductionMigration:true,

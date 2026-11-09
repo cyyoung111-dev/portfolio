@@ -30,6 +30,13 @@ assert.equal(manifest.requiresProductionMigration,true);
 assert.equal(manifest.columns,14);
 assert.equal(manifest.tradeLedgerProtocolVersion,2);
 assert.equal(manifest.introducedFunctions.length,13);
+assert.deepEqual(Array.from(manifest.manualMigrationFunctions).sort(),[
+ '_tradeV2MigrationManual_','runTradeV2MigrationApply',
+ 'runTradeV2MigrationPreflight','runTradeV2MigrationRestore'
+].sort());
+assert.equal(manifest.migrationApplyRequiresApproval,true);
+assert.equal(manifest.migrationBackupNeverAutomaticallyDeleted,true);
+assert.equal(manifest.migrationPreservesSourceColumns,'A:K');
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasProjectWrites,0);
 assert.equal(manifest.telegramSends,0);
@@ -55,6 +62,10 @@ for(const name of ['handleSyncTrades','handleGetTrades','handleGetBootstrap',
   fn(old,name),'v2 business function must match previously tested candidate: '+name);
 assert(candidate.includes("params.action === 'syncTradesV2'"));
 assert(candidate.includes("params.action === 'previewTradeLedgerV2Migration'"));
+assert(candidate.includes('function runTradeV2MigrationApply()'));
+assert(candidate.includes('function runTradeV2MigrationRestore()'));
+assert(!fn(candidate,'doPost').includes('runTradeV2MigrationApply'));
+assert(!fn(candidate,'doGet').includes('runTradeV2MigrationRestore'));
 assert(candidate.includes("var ISSUE507_GATE_API_VERSION='9.288'"));
 assert.equal((candidate.match(/gasVersion: '9\.288'/g)||[]).length,9);
 assert.equal((candidate.match(/gasVersion: '9\.287'/g)||[]).length,0);
