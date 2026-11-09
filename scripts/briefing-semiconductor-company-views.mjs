@@ -107,6 +107,17 @@ export function evaluateSemiconductorCompanyViews({
    views:{buffett,ackman,lynch,damodaran,marks}};
  });
 }
+// The market briefing is a constrained channel: preserve exact-date issuer
+// metrics while leaving investor-framework commentary out of Telegram.
+// The original detailed five-framework evaluator stays available offline.
+export function formatSemiconductorCompanyMetrics(input={}){
+ const evaluated=evaluateSemiconductorCompanyViews(input);
+ if(evaluated.length!==2)return [];
+ return [
+  '■ 삼성전자·SK하이닉스 정량 지표',
+  ...evaluated.map(x=>'• '+x.name+': '+x.valueLine)
+ ];
+}
 // Two per-company numeric evidence anchors, then 5 separate frameworks applied
 // to both firms. 5 investors' actual statements are NOT inferred.
 export function formatSemiconductorCompanyFiveViews(input={}){
