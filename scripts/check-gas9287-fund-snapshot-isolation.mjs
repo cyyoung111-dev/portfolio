@@ -43,9 +43,9 @@ assert.throws(()=>assertIssue507ManualReleasePermission({
 assert(fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8')
   .includes("'9.287'"),'The unchanged 9.285 web API must allow 9.287 source version');
 const deployWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
-assert.match(deployWorkflow,/approve_9287:[\\s\\S]*?default: false/,
+assert.match(deployWorkflow,/approve_9287:[\s\S]*?default: false/,
   'Production approval must be explicit and false by default');
-assert.match(deployWorkflow,/use_9287_fund_hotfix:[\\s\\S]*?default: false/,
+assert.match(deployWorkflow,/use_9287_fund_hotfix:[\s\S]*?default: false/,
   'Fund-only source selection must also be opt-in');
 new vm.Script(candidate,{filename:'gas9287-fund-snapshot-source-only.gs'});
 assert.equal((candidate.match(/gasVersion: '9\.287'/g)||[]).length,9);
