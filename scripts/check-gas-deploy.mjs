@@ -224,6 +224,29 @@ await assert.rejects(()=>verifyDeploymentVersionWithRetry({
 }),/deployment version 검증 실패: expected=291, observed=290/);
 assert.equal(readAttempts,4);
 assert.equal(delayCount,3);
+// The actual 2026-11-09 failure exhausted five GET reads. A deployment
+// becoming visible on check 8 must not create a redundant version or rollback.
+let lateReads=0;const latePauses=[];
+const late=await verifyDeploymentVersionWithRetry({
+  readDeployment:async()=>({deploymentConfig:{
+   versionNumber:++lateReads>=8?342:341}}),
+  expectedVersion:342,previousVersion:341,
+  pause:async ms=>latePauses.push(ms),
+});
+assert.equal(late.deploymentConfig.versionNumber,342);
+assert.equal(lateReads,8);
+assert.deepEqual(latePauses,[1500,3000,4500,6000,7500,9000,10500]);
+let concurrentReads=0;
+await assert.rejects(()=>verifyDeploymentVersionWithRetry({
+  readDeployment:async()=>({deploymentConfig:{
+   versionNumber:++concurrentReads===1?341:999}}),
+  expectedVersion:342,previousVersion:341,pause:async()=>{},maxChecks:10,
+}),/GAS_DEPLOYMENT_CONCURRENT_VERSION_UNVERIFIED/);
+assert.equal(concurrentReads,2,'Foreign deployment must stop readback polling');
+await assert.rejects(()=>verifyDeploymentVersionWithRetry({
+  readDeployment:async()=>({deploymentConfig:{versionNumber:342}}),
+  expectedVersion:342,previousVersion:342,pause:async()=>{},
+}),/GAS_DEPLOYMENT_READBACK_INVALID/);
 await assert.rejects(()=>verifyDeploymentVersionWithRetry({
   readDeployment:async()=>({deploymentConfig:{versionNumber:291}}),
   expectedVersion:291,pause:async()=>{},maxChecks:0,

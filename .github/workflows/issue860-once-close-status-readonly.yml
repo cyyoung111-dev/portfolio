@@ -1,6 +1,8 @@
 name: issue860-once-close-status-readonly
 on:
   workflow_dispatch:
+  # One-shot production rollback-status verification after the failed
+  # v9.287 publish. This reads getAutomationStatus only; no writer or retry.
   # The new protected diagnostic self-file is the only automatic trigger.
   # No schedule, no retry, no GAS writer, and no workbook-wide inventory.
   push:
