@@ -41,6 +41,21 @@
    소스 정확 해시를 대조한 뒤에만 별도 **실배포 승인**(`dry_run=false`,
    `approve_9288=true`)을 검토하며 배포 결과의 HEAD/게시/웹앱 readback을 반드시 확인합니다.
    **`approve_9288=true`는 거래 338건을 이관하는 승인이 아닙니다.**
+   [2026-11-10 00:26 KST dry-run #42644629982](https://github.com/cyyoung111-dev/portfolio/actions/runs/42644629982)는
+   **SUCCESS**였습니다. 읽기 전용 배포 인벤토리는 `INVENTORY_ONLY`, 추가
+   접근 가능한 배포 0, 미승인 소스 0으로 확인됐습니다. `releaseAuthorized=false`는
+   해당 **감사기가 자체적으로 배포를 승인하지 않는다는 뜻**이지
+   `INVENTORY_ONLY`에 의한 GitHub Actions 차단이 아닙니다.
+   실제 워크플로는 인벤토리 `BLOCKED`일 때 중단됩니다.
+   반대로 `INVENTORY_ONLY`는 이전 실행·외부 Writer·편집자 격리가
+   증명됐다는 뜻도 아닙니다.
+   배포 전 별도 [#734 실운영 상태 읽기 전용 검증](https://github.com/cyyoung111-dev/portfolio/actions/workflows/issue734-v9288-live-readiness-readonly.yml)과
+   `gas-deploy`의 `Verify live 9.287 settled close and legacy ledger` 단계를
+   통과해야 합니다. 현재 9.287 `getAutomationStatus`의 마감·펀드 완료,
+   미처리 Writer 플래그 0, 구 트리거 중복 0, `getTrades` 기존 338건을
+   인증된 POST 읽기 전용 호출 2회로 확인합니다.
+   이것은 **저장된 운영 상태**의 검사로, 모든 외부 Writer의 실시간
+   실행 UID·GAS 편집 세션까지 보증하지 않습니다.
 3. GAS 운영 편집기에서 `runTradeV2MigrationPreflight`를 **읽기 전용**으로 실행:
    `gasVersion=9.288`, `schemaWidth=11`, `sourceRows=338`,
    `journalStatus=NONE`(또는 이전 RESTORED),

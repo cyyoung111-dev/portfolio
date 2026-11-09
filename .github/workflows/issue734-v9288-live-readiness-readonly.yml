@@ -1,0 +1,31 @@
+name: Issue 734 v9.288 live readiness read-only (NO DEPLOY)
+on:
+  # One automatically verified post-merge run on this exact workflow file.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue734-v9288-live-readiness-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue734-v9288-live-readonly
+  cancel-in-progress: false
+jobs:
+  read-current-live-state:
+    if: github.repository == 'cyyoung111-dev/portfolio'
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 8
+    env:
+      GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+      GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read actual 9.287 close and 338 legacy trades (2 calls only)
+        run: node scripts/issue734-v9288-live-readiness-readonly.mjs
