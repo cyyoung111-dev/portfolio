@@ -49,21 +49,30 @@ jobs:
     needs: source-review
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Inspect pinned deployed GAS source and HEAD only (read-only)
+      - name: Verify exact reviewed 9.287 source against live project in dry-run
         env:
           GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
           GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
-          GAS_DEPLOY_DIAGNOSTIC_ONLY: 'true'
+          GAS_9287_FUND_HOTFIX: 'true'
+          GAS_9287_RELEASE_APPROVAL: 'false'
           GAS_DEPLOY_DRY_RUN: 'true'
           GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/deploy-gas.mjs
+      - name: Inventory all GAS deployments before any release (read-only)
+        continue-on-error: true
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
