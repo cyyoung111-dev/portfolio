@@ -15,6 +15,7 @@ jobs:
   read-current-live-state:
     if: github.repository == 'cyyoung111-dev/portfolio'
     runs-on: ubuntu-latest
+    environment: portfolio-production-gas
     timeout-minutes: 8
     env:
       GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
