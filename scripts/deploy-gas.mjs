@@ -4,6 +4,7 @@ import {assertCurrentMainRelease} from './gas-release-gate.mjs';
 import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {composeFundSnapshot9287SourcePreview} from './compose-fund-snapshot-9287-source-preview.mjs';
 import {composeGas9288TradeV2From9287Preview} from './compose-gas9288-trade-v2-from-9287-preview.mjs';
+import {composeIssue860Gas9289PerfCandidate} from './compose-issue860-gas9289-perf-candidate.mjs';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -36,6 +37,9 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  // Review-only #1076 artifact (exact source). Future 9.289 production
+  // requires separate manual approval AND an already migrated live v2 ledger.
+  '9.289': 'e6c0d8eba5eba8012ae761de7f436e86601b63d9',
   // Reviewed immutable 9.288 trade v2 candidate; only manual dispatch with separate approval.
   '9.288': '9e8584032daf896c5cffedb02041b604ee82ed07',
   // Explicitly reviewed fund/Snapshot only hotfix; the 14-column trade v2 is excluded.
@@ -552,7 +556,7 @@ export function summarizeGasReleaseFailure(error,stage) {
 }
 
 // Deployment approval for first stateful gate release is separate from merge.
-export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,dryRun=false,diagnosticOnly=false}={}) {
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,approved9289=false,dryRun=false,diagnosticOnly=false}={}) {
   if(dryRun||diagnosticOnly)return;
   if(version==='9.282'&&(eventName!=='workflow_dispatch'||approved!==true))
     throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
@@ -568,6 +572,20 @@ export function assertIssue507ManualReleasePermission({version,eventName,approve
     throw Error('GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.288'&&(eventName!=='workflow_dispatch'||approved9288!==true))
     throw Error('GAS_9288_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  if(version==='9.289'&&(eventName!=='workflow_dispatch'||approved9289!==true))
+    throw Error('GAS_9289_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+}
+// A future 9.289 MUST not bypass the separate 9.288 trade migration.
+// The verified live GET is performed by a protected workflow step before deploy;
+// the independent operator attestation cannot replace that evidence.
+export function assertIssue8609289Prerequisites({
+ version,publishedVersion,confirmedMigrated=false,dryRun=false,diagnosticOnly=false
+}={}) {
+ if(version!=='9.289'||dryRun||diagnosticOnly)return;
+ if(publishedVersion!=='9.288')
+  throw Error('GAS_9289_REQUIRES_PUBLISHED_9288');
+ if(confirmedMigrated!==true)
+  throw Error('GAS_9289_REQUIRES_VERIFIED_TRADE_V2');
 }
 export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
@@ -600,15 +618,19 @@ export async function deploy() {
   if (fund9287 && !dryRun && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
     throw Error('GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   const trade9288 = process.env.GAS_9288_TRADE_V2 === 'true';
-  if (fund9287 && trade9288) throw Error('GAS_RELEASE_CANDIDATES_MUTUALLY_EXCLUSIVE');
+  const perf9289 = process.env.GAS_9289_CLOSE_PERF === 'true';
+  if (Number(fund9287)+Number(trade9288)+Number(perf9289)>1)
+    throw Error('GAS_RELEASE_CANDIDATES_MUTUALLY_EXCLUSIVE');
   if (trade9288 && !dryRun && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
     throw Error('GAS_9288_EXPLICIT_MANUAL_RELEASE_REQUIRED');
-  const source = trade9288
-    ? composeGas9288TradeV2From9287Preview().candidate
+  const source = perf9289
+    ? composeIssue860Gas9289PerfCandidate().candidate
+    : trade9288
+      ? composeGas9288TradeV2From9287Preview().candidate
     : fund9287
       ? composeFundSnapshot9287SourcePreview().candidate
       : fs.readFileSync(SOURCE_PATH, 'utf8');
-  if (fund9287 || trade9288) assertGasReleaseReady(source); // exact candidate blob even in dry-run
+  if (fund9287 || trade9288 || perf9289) assertGasReleaseReady(source); // exact candidate blob even in dry-run
   // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
@@ -620,7 +642,8 @@ export async function deploy() {
     approved9285:process.env.GAS_9285_RELEASE_APPROVAL==='true',
     approved9286:process.env.GAS_9286_RELEASE_APPROVAL==='true',
     approved9287:process.env.GAS_9287_RELEASE_APPROVAL==='true',
-    approved9288:process.env.GAS_9288_RELEASE_APPROVAL==='true',dryRun,
+    approved9288:process.env.GAS_9288_RELEASE_APPROVAL==='true',
+    approved9289:process.env.GAS_9289_RELEASE_APPROVAL==='true',dryRun,
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
@@ -658,6 +681,13 @@ export async function deploy() {
   }
   const releaseState=inspectGasReleaseState({headSource:target.source,publishedSource:deployedTarget.source});
   console.log(JSON.stringify(releaseState));
+  // Runs before any content/version/deployment write, even when HEAD is already
+  // the candidate. Full inventory/GET ledger checks are independent workflow gates.
+  assertIssue8609289Prerequisites({
+    version:expectedVersion,publishedVersion:releaseState.published.version,
+    confirmedMigrated:process.env.GAS_9289_TRADE_V2_VERIFIED==='true',
+    dryRun,diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
+  });
   if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');
   if(!dryRun && process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY!=='true')
     assertFirstWriterGateCutoverSafe(deployedTarget.source,source);

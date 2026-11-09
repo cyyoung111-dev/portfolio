@@ -23,9 +23,8 @@ assert.equal(manifest.candidateSourceGitBlob,gasSourceBlobSha(candidate));
 assert.equal(extractExpectedGasVersion(parent),'9.288');
 assert.equal(extractExpectedGasVersion(candidate),'9.289');
 assert.equal(assertGasReleaseReady(parent),'9.288');
-assert.throws(()=>assertGasReleaseReady(candidate),
- /GAS_RELEASE_UNREVIEWED_VERSION: 9\.289/,
- 'No 9.289 automatic or manual deploy allowed until separate full source review/pin');
+assert.equal(assertGasReleaseReady(candidate),'9.289',
+ 'Exact reviewed source hash is pinned; manual approval and migrated-ledger gate are still mandatory');
 assert.equal(manifest.approvedForGasDeploy,false);
 assert.equal(manifest.waitingOnTradeV2Release,true);
 assert.equal(manifest.financeWrites,0);

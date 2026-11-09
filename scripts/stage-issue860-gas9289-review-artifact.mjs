@@ -19,9 +19,8 @@ assert.equal(manifest.candidateSourceGitBlob,REVIEW_BLOB);
 assert.equal(gasSourceBlobSha(parent),PARENT_BLOB);
 assert.equal(gasSourceBlobSha(candidate),REVIEW_BLOB);
 assert.equal(assertGasReleaseReady(parent),'9.288');
-assert.throws(()=>assertGasReleaseReady(candidate),
- /GAS_RELEASE_UNREVIEWED_VERSION: 9\.289/,
- 'Review artifact must never authorize deployment');
+assert.equal(assertGasReleaseReady(candidate),'9.289',
+ 'Source pinned: real deployment still requires separate manual approval and live v2 check');
 assert.equal(manifest.approvedForGasDeploy,false);
 assert.equal(manifest.waitingOnTradeV2Release,true);
 new vm.Script(candidate,{filename:'gas9289-source-for-review-only.gs'});
@@ -40,7 +39,8 @@ const review={
  financeWriterUnchanged:true,tradeV2MigrationUnchanged:true,
  requiresProduction9288First:true,requiresExplicitSeparateReview:true,
  requiresManualDryRun:true,requiresManualReleaseApproval:true,
- reviewedForProduction:false,deployAllowed:false,
+  requiresLiveTradeV2Readback:true,
+ reviewedForProduction:false,exactHashPinned:true,deployAllowed:false,
  gasProductionUpdated:false,financialSheetsModified:false,
  currentRuntimePerformanceMeasured:false,
  financeWrites:0,gasProjectWrites:0,telegramSends:0
@@ -51,6 +51,6 @@ assert.deepEqual(JSON.parse(fs.readFileSync(manifestPath,'utf8')),review);
 console.log(JSON.stringify({
  kind:'ISSUE860_9289_SOURCE_REVIEW_ARTIFACT_READY',
  parentBlob:PARENT_BLOB,candidateBlob:REVIEW_BLOB,
- status:'REVIEW_ONLY_DEPLOY_BLOCKED',
+ status:'SOURCE_PINNED_MANUAL_GATES_REQUIRED',
  sourceReviewFiles:2,financeWrites:0,gasDeployments:0,telegramSends:0
 }));
