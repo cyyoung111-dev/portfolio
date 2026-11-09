@@ -20,6 +20,14 @@ assert.deepEqual(financialPrefetchWindow(sentinelAt(),{mode:'sentinel'}),
 assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:19:59Z'),{mode:'sentinel'}).allowed,false);
 assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:38:00Z'),{mode:'sentinel'}).allowed,false);
 assert.equal(financialPrefetchWindow(sentinelAt(),{mode:'unknown'}).allowed,false);
+const delayed=()=>new Date('2026-11-09T00:59:49Z'); // 09:59:49 KST, observed cron
+assert.deepEqual(financialPrefetchWindow(delayed()),{
+ date:day,allowed:true,status:'CLOSE_ONLY_WINDOW'
+});
+assert.equal(financialPrefetchWindow(delayed(),{mode:'sentinel'}).allowed,false);
+assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:26:00Z')).allowed,false);
+assert.equal(financialPrefetchWindow(new Date('2026-11-09T07:45:00Z')).allowed,false,
+ 'late public SEC/DART prefetch may not start at 16:45 KST');
 
 const proof=buildAiFinancialEvidence({
  asOfKst:day,usSessionDate,domesticSessionDate:null,
@@ -65,6 +73,33 @@ assert.equal(fallback.artifactName,'ai-financial-evidence-sentinel-'+day);
 assert.equal(fallback.data.captureMode,'SENTINEL_PUSH');
 assert.deepEqual(verifyFinancialPrefetchArtifact(day,fallback.data,
  {now:sentinelAt()}),proof);
+const closeOnly=await prefetchAiFinancialEvidence({
+ now:delayed,collector:writer,mode:'scheduled'
+});
+assert.equal(closeOnly.ready,true);
+assert.equal(closeOnly.status,'PREFETCH_VERIFIED');
+assert.equal(closeOnly.artifactName,'ai-financial-evidence-close-'+day);
+assert.equal(closeOnly.data.captureMode,'LATE_SCHEDULE_CLOSE_ONLY');
+assert.equal(verifyFinancialPrefetchArtifact(day,closeOnly.data,{now:delayed()}),proof);
+assert.equal(verifyFinancialPrefetchArtifact(day,{
+ ...built.data,captureMode:'LATE_SCHEDULE_CLOSE_ONLY'
+},{now:now()}),null,'early 06:20 cannot masquerade as delayed close-only');
+assert.equal(verifyFinancialPrefetchArtifact(day,{
+ ...closeOnly.data,capturedAt:'2026-11-09T07:45:00Z'
+},{now:new Date('2026-11-09T07:45:00Z')}),null,
+ '16:45 KST boundary cannot masquerade as close-only capture');
+const tooLate=await prefetchAiFinancialEvidence({
+ now:()=>new Date('2026-11-09T07:45:00Z'),collector:writer
+});
+assert.equal(tooLate.ready,false);
+assert.equal(tooLate.status,'OUTSIDE_PREFETCH_WINDOW');
+const changedWindow=await prefetchAiFinancialEvidence({
+ now:(()=>{let i=0;return ()=>i++===0?now():delayed();})(),
+ collector:async()=>proof
+});
+assert.equal(changedWindow.ready,false);
+assert.equal(changedWindow.status,'PREFETCH_TOO_LATE',
+ 'scheduled morning start cannot turn into a close-only artifact after delay');
 assert.equal(verifyFinancialPrefetchArtifact(day,
  {...fallback.data,capturedAt:'2026-11-08T22:39:00Z'},
  {now:new Date('2026-11-08T22:42:00Z')}),null);
