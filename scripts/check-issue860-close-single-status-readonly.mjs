@@ -7,8 +7,12 @@ const url='https://script.google.com/macros/s/EXAMPLE_DEPLOYMENT/exec';
 const token='TEST_PRIVATE_ACCESS_TOKEN_12345';
 const data={
  status:'ok',gasVersion:'9.284',automation:{
-  gasVersion:'9.284',
-  portfolioClose:{runDate:'2026-11-08',priceOk:true,fundOk:false,errors:['PRIVATE']},
+  gasVersion:'9.284',checkedAt:'2026-11-09 20:49:20',overallStatus:'INCOMPLETE',
+  snapshotLastDate:'2026-11-09',priceHistoryLastDate:'2026-11-09',
+  expectedSnapshotDate:'2026-11-09',snapshotStale:false,
+  pendingKrxCloseDates:[],fundLastWarning:'PRIVATE:',
+  portfolioClose:{runDate:'2026-11-08',priceOk:true,fundOk:false,
+    priceRows:39,priceDate:'2026-11-09',errors:['PRIVATE']},
   closeRun:{runDate:'2026-11-08',state:'ERROR',stage:'ERROR'},
   fundAttempt:{date:'2026-11-08',state:'TIMEOUT_SUSPECTED'},
   fundLastError:'PRIVATE: timed out for account SECRET',
@@ -46,6 +50,17 @@ assert.equal(report.priceOk,true);
 assert.equal(report.fundOk,false);
 assert.equal(report.fundFailureClass,'TIMEOUT');
 assert.equal(report.fundWorkStage,'navWrite');
+assert.equal(report.observedKstDate,'2026-11-09');
+assert.equal(report.overallStatus,'INCOMPLETE');
+assert.equal(report.storedPriceRows,39);
+assert.equal(report.storedPriceDate,'2026-11-09');
+assert.equal(report.snapshotLastDate,'2026-11-09');
+assert.equal(report.priceHistoryLastDate,'2026-11-09');
+assert.equal(report.expectedSnapshotDate,'2026-11-09');
+assert.equal(report.snapshotStale,false);
+assert.equal(report.fundErrorPresent,true);
+assert.equal(report.fundWarningPresent,true);
+assert.equal(report.pendingKrxDatesCount,0);
 assert.equal(report.closeComplete,false);
 assert.equal(report.processExecutionOwnerVerified,false);
 assert.equal(report.backupRegistryOwnerVerified,false);

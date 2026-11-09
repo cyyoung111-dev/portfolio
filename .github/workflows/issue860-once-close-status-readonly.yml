@@ -5,6 +5,8 @@ on:
   # One-shot production rollback-status verification after the failed
   # v9.287 publish. This reads getAutomationStatus only; no writer or retry.
   # The new protected diagnostic self-file is the only automatic trigger.
+  # 2026-11-09 close recovery readback: one sanitized authenticated GET after merge.
+  # No NAV rerun, no Snapshot write, no GAS deploy and no auto retry.
   # No schedule, no retry, no GAS writer, and no workbook-wide inventory.
   push:
     branches: [main]
