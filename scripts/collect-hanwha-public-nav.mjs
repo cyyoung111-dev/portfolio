@@ -50,7 +50,9 @@ export async function runPublicHanwhaSource({now=new Date(),fetchImpl=fetch}={})
  let response,transportError='HANWHA_SOURCE_NETWORK_UNVERIFIED';
  for(const timeoutMs of [15000,25000]){
   try{
-   response=await fetchImpl(url,{method:'GET',headers:{'User-Agent':'Mozilla/5.0'},
+   response=await fetchImpl(url,{method:'GET',headers:{
+    'User-Agent':'Mozilla/5.0','Accept':'application/json',
+    'Referer':'https://www.hanwhafund.co.kr/ko/fund/search/008942'},
     signal:AbortSignal.timeout(timeoutMs)});
    break;
   }catch(error){
