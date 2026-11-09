@@ -27,14 +27,33 @@ export async function assertCurrentMainRelease({sha,repository=REPOSITORY,token,
   let data;try{data=await response.json();}catch{throw Error('GAS_RELEASE_MAIN_UNAVAILABLE');}
   if(data?.object?.sha!==sha)throw Error('GAS_RELEASE_STALE_COMMIT');
 }
+// An older, already-superseded CI completion must not report a false
+// production release failure. Manual dispatch still fails closed on stale SHA.
+// Do not turn API errors or invalid provenance into a silent skip.
+export async function selectVerifiedGasRelease({
+  eventName,event,ref,repository,sha,enabled,token,fetchImpl=fetch
+}={}){
+  const release=selectGasRelease({eventName,event,ref,repository,sha,enabled});
+  try{
+    await assertCurrentMainRelease({sha:release.sha,repository,token,fetchImpl});
+  }catch(error){
+    if(release.automatic&&error?.message==='GAS_RELEASE_STALE_COMMIT')
+      return {sha:'',automatic:true,skip:true,reason:'GAS_RELEASE_SUPERSEDED'};
+    throw error;
+  }
+  return {...release,skip:false};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
-    const release=selectGasRelease({eventName:process.env.GITHUB_EVENT_NAME,
+    const result=await selectVerifiedGasRelease({
+      eventName:process.env.GITHUB_EVENT_NAME,
       event:JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),
       ref:process.env.GITHUB_REF,repository:process.env.GITHUB_REPOSITORY,
-      sha:process.env.GITHUB_SHA,enabled:process.env.GAS_AUTO_DEPLOY_ENABLED});
-    await assertCurrentMainRelease({sha:release.sha,repository:process.env.GITHUB_REPOSITORY,
-      token:process.env.GITHUB_TOKEN});
-    fs.appendFileSync(process.env.GITHUB_OUTPUT,'sha='+release.sha+'\n');
+      sha:process.env.GITHUB_SHA,enabled:process.env.GAS_AUTO_DEPLOY_ENABLED,
+      token:process.env.GITHUB_TOKEN
+    });
+    fs.appendFileSync(process.env.GITHUB_OUTPUT,result.skip
+      ?'skip=true\n':'sha='+result.sha+'\nskip=false\n');
+    if(result.skip)console.log('GAS_RELEASE_SUPERSEDED_SKIP');
   }catch(e){console.error(/^GAS_RELEASE_[A-Z_]+$/.test(e.message)?e.message:'GAS_RELEASE_GATE_FAILED');process.exitCode=1;}
 }

@@ -80,13 +80,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/gas-release-gate.mjs
       - name: Checkout selected immutable release
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.release.outputs.skip != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.release.outputs.sha }}
       - name: Verify last successful production GAS source
         id: gas_source
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'workflow_run' && steps.release.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
