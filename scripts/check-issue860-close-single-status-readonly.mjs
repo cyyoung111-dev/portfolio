@@ -32,6 +32,15 @@ const network=async(dest,opt)=>{
 const report=await readIssue860Once({url,token,fetchImpl:network});
 assert.equal(calls,1);
 assert.equal(report.gasVersion,'9.284');
+const postFailure=await readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({
+  ...data,gasVersion:'9.287',automation:{...data.automation,gasVersion:'9.287'}
+ })
+})});
+assert.equal(postFailure.gasVersion,'9.287','Post-failure read must not reject successfully published candidate');
+assert.equal(postFailure.processExecutionOwnerVerified,false);
+assert.equal(postFailure.financialWrites,0);
+
 assert.equal(report.closeState,'ERROR');
 assert.equal(report.priceOk,true);
 assert.equal(report.fundOk,false);
