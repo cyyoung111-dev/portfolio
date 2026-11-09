@@ -35,7 +35,8 @@ function _tradeV2MigrationManual_(mode) {
       throw Error('TRADE_V2_MIGRATION_AK_DRIFT');
   };
   var checkHeader=function(sh,width){
-    if(width!==11&&width!==14)throw Error('TRADE_V2_MIGRATION_SCHEMA_UNSUPPORTED');
+    if((mode==='RESTORE'?[11,12,13,14]:[11,14]).indexOf(width)===-1)
+      throw Error('TRADE_V2_MIGRATION_SCHEMA_UNSUPPORTED');
     var head=sh.getRange(1,1,1,11).getValues()[0];
     if(!equal(head,expectedHeaders))throw Error('TRADE_V2_MIGRATION_HEADER_DRIFT');
   };
@@ -111,7 +112,7 @@ function _tradeV2MigrationManual_(mode) {
         throw Error('TRADE_V2_MIGRATION_BACKUP_PLAN_DRIFT');
       // A partial timeout may have left a header and some IDs. Refuse
       // restoration if any L:N cell was edited to an unexpected value.
-      if(width!==11&&width!==14)
+      if([11,12,13,14].indexOf(width)===-1)
         throw Error('TRADE_V2_MIGRATION_PARTIAL_SCHEMA_DRIFT');
       var additions=sh.getRange(1,12,count+1,3).getValues();
       for(var r=0;r<additions.length;r++){
@@ -154,8 +155,9 @@ function _tradeV2MigrationManual_(mode) {
        a.expectedSourceSignature!==srcSignature||
        a.expectedTargetRevision!==plan.proposedRevision)
       throw Error('TRADE_V2_MIGRATION_SOURCE_OR_PLAN_DRIFT');
-    var savedFingerprint=props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
-    if(savedFingerprint&&savedFingerprint!==_tradeLedgerContentFingerprint_(ss))
+    var originalFingerprint=_tradeLedgerContentFingerprint_(ss),
+        savedFingerprint=props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
+    if(savedFingerprint&&savedFingerprint!==originalFingerprint)
       throw Error('TRADE_V2_MIGRATION_FINGERPRINT_STALE');
     var backupName=sh.getName()+'_v2_백업_'+a.operationId.slice(0,20);
     if(ss.getSheetByName(backupName))
@@ -195,7 +197,7 @@ function _tradeV2MigrationManual_(mode) {
     if(readback.assigned!==0||readback.preserved!==count||
        readback.proposedRevision!==plan.proposedRevision||
        !equal(sh.getRange(1,12,1,3).getValues()[0],addedHeaders)||
-       _tradeLedgerContentFingerprint_(ss)!==_tradeLedgerContentFingerprint_(newBackup))
+       _tradeLedgerContentFingerprint_(ss)!==originalFingerprint)
       throw Error('TRADE_V2_MIGRATION_READBACK_MISMATCH');
     props.setProperty(journalKey,JSON.stringify(Object.assign({},record,{
       status:'APPLIED',appliedAt:new Date().toISOString()
