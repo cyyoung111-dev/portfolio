@@ -22,8 +22,8 @@ assert.equal(gasSourceBlobSha(base),manifest.parentSourceGitBlob);
 assert.equal(gasSourceBlobSha(candidate),manifest.candidateSourceGitBlob);
 assert.equal(extractExpectedGasVersion(candidate),'9.288');
 assert.equal(assertGasReleaseReady(live),'9.287');
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION: 9\.288/,
- 'Source-only release must stay blocked without full-file review and manual approval');
+assert.equal(assertGasReleaseReady(candidate),'9.288',
+ 'Exactly reviewed 9.288 source is pinned; deployment requires separate manual approval');
 assert.equal(manifest.approvedForGasDeploy,false);
 assert.equal(manifest.requiresManualReleaseApproval,true);
 assert.equal(manifest.requiresProductionMigration,true);
@@ -70,10 +70,10 @@ assert(candidate.includes("var ISSUE507_GATE_API_VERSION='9.288'"));
 assert.equal((candidate.match(/gasVersion: '9\.288'/g)||[]).length,9);
 assert.equal((candidate.match(/gasVersion: '9\.287'/g)||[]).length,0);
 assert.equal((candidate.match(/gasVersion: '9\.286'/g)||[]).length,0);
-assert(!fs.readFileSync('.github/workflows/gas-deploy.yml','utf8').includes('approve_9288:'),
- 'No unreviewed manual release gate may be introduced by source-only PR');
-assert(!fs.readFileSync('scripts/deploy-gas.mjs','utf8').includes("'9.288':"),
- 'No release whitelist may be introduced by source-only PR');
+assert(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8').includes('approve_9288:'),
+ '9.288 requires explicit manual workflow approval input');
+assert(fs.readFileSync('scripts/deploy-gas.mjs','utf8').includes("'9.288': '9e8584032daf896c5cffedb02041b604ee82ed07'"),
+ '9.288 release must use exact reviewed candidate blob');
 console.log('GAS9288_TRADE_V2_SOURCE_ONLY_PASS '+JSON.stringify({
  parentVersion:manifest.parentVersion,nextVersion:manifest.candidateVersion,
  parentReviewed:true,candidateReleased:false,

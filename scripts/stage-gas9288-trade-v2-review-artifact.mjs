@@ -15,8 +15,7 @@ assert.equal(manifest.approvedForGasDeploy,false);
 assert.equal(manifest.requiresProductionMigration,true);
 assert.equal(gasSourceBlobSha(base),manifest.parentSourceGitBlob);
 assert.equal(gasSourceBlobSha(candidate),manifest.candidateSourceGitBlob);
-assert.throws(()=>assertGasReleaseReady(candidate),
- /GAS_RELEASE_UNREVIEWED_VERSION: 9\.288/);
+assert.equal(assertGasReleaseReady(candidate),'9.288'); // Exact release pin; not auto deploy.
 new vm.Script(candidate,{filename:'gas9288-undeployed-source.gs'});
 const dir='artifacts/gas9288-trade-v2-review';
 fs.mkdirSync(dir,{recursive:true});

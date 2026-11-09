@@ -59,8 +59,8 @@ assert(!live.candidate.includes('function _tradeV2ValidateMutation_('));
 const renamed=legacy.candidate.replaceAll('9.286','9.288');
 assert.equal(extractExpectedGasVersion(renamed),'9.288');
 assert.throws(()=>assertGasReleaseReady(renamed),
- /GAS_RELEASE_UNREVIEWED_VERSION: 9\.288/,
- 'A new version number does not authorize a financial writer');
+ /GAS_RELEASE_SOURCE_NOT_APPROVED: version=9\.288/,
+ 'An old source renamed to 9.288 cannot pass the exact reviewed source pin');
 new vm.Script(live.candidate,{filename:'reviewed-live-9287.gs'});
 new vm.Script(legacy.candidate,{filename:'historical-v2-9286.gs'});
 console.log('TRADE_V2_POST9287_RELEASE_BOUNDARY_PASS '+JSON.stringify({

@@ -66,6 +66,16 @@ on:
         required: true
         default: false
         type: boolean
+      use_9288_trade_v2:
+        description: '검토된 9.287 기반 9.288 거래원장 v2 후보 선택; 원본 이관은 별도 수동 작업'
+        required: true
+        default: false
+        type: boolean
+      approve_9288:
+        description: '9.288 정확 소스 수동 배포 별도 명시 승인 (원장 Writer 격리/마감 확인 필요)'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -146,6 +156,8 @@ jobs:
       GAS_9286_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9286 && 'true' || 'false' }}
       GAS_9287_FUND_HOTFIX: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9287_fund_hotfix && 'true' || 'false' }}
       GAS_9287_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9287 && 'true' || 'false' }}
+      GAS_9288_TRADE_V2: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9288_trade_v2 && 'true' || 'false' }}
+      GAS_9288_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9288 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -168,8 +180,8 @@ jobs:
       - name: Require clean full GAS deployment inventory before real deploy
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Read-only full deployment inventory on 9.287 manual dry-run
-        if: env.GAS_9287_FUND_HOTFIX == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+      - name: Read-only full deployment inventory on 9.287/9.288 manual dry-run
+        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Deploy GAS
