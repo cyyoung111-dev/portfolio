@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import {assertCurrentMainRelease} from './gas-release-gate.mjs';
 import {runBackfillStatus} from './diagnose-backfill-status.mjs';
+import {composeFundSnapshot9287SourcePreview} from './compose-fund-snapshot-9287-source-preview.mjs';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -34,6 +35,8 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  // Explicitly reviewed fund/Snapshot only hotfix; the 14-column trade v2 is excluded.
+  '9.287': 'e2f5239746598754305eb603bc33651f5c36d914',
   '9.285': '954fd4aeae767ddac0cb161d3a81003b5b699d1c',
   '9.284': 'b5b1c7fd5a27454419ddd6d12ecb20751c207c63',
   '9.283': '327f48785550a012eaf1ed533c24bf6289c01a71',
@@ -477,7 +480,7 @@ export function summarizeGasReleaseFailure(error,stage) {
 }
 
 // Deployment approval for first stateful gate release is separate from merge.
-export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,dryRun=false,diagnosticOnly=false}={}) {
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,dryRun=false,diagnosticOnly=false}={}) {
   if(dryRun||diagnosticOnly)return;
   if(version==='9.282'&&(eventName!=='workflow_dispatch'||approved!==true))
     throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
@@ -489,6 +492,8 @@ export function assertIssue507ManualReleasePermission({version,eventName,approve
     throw Error('GAS_9285_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.286'&&(eventName!=='workflow_dispatch'||approved9286!==true))
     throw Error('GAS_9286_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  if(version==='9.287'&&(eventName!=='workflow_dispatch'||approved9287!==true))
+    throw Error('GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED');
 }
 export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
@@ -514,7 +519,16 @@ export async function deploy() {
   const webAppUrl = env('GAS_WEB_APP_URL');
   const deploymentId = env('GAS_DEPLOYMENT_ID', { required: false }) || deploymentIdFromWebAppUrl(webAppUrl);
   const preferredFile = env('GAS_SERVER_FILE_NAME', { required: false });
-  const source = fs.readFileSync(SOURCE_PATH, 'utf8');
+  // Fund-only 9.287 is synthesized from the reviewed immutable 9.285 parent.
+  // The normal source remains pinned at 9.285; only a manual dispatch can
+  // select this candidate. Production deployment needs its own approval gate.
+  const fund9287 = process.env.GAS_9287_FUND_HOTFIX === 'true';
+  if (fund9287 && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
+    throw Error('GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  const source = fund9287
+    ? composeFundSnapshot9287SourcePreview().candidate
+    : fs.readFileSync(SOURCE_PATH, 'utf8');
+  if (fund9287) assertGasReleaseReady(source); // exact SHA even in dry-run
   // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
@@ -524,7 +538,8 @@ export async function deploy() {
     approved9283:process.env.GAS_9283_RELEASE_APPROVAL==='true',
     approved9284:process.env.GAS_9284_RELEASE_APPROVAL==='true',
     approved9285:process.env.GAS_9285_RELEASE_APPROVAL==='true',
-    approved9286:process.env.GAS_9286_RELEASE_APPROVAL==='true',dryRun,
+    approved9286:process.env.GAS_9286_RELEASE_APPROVAL==='true',
+    approved9287:process.env.GAS_9287_RELEASE_APPROVAL==='true',dryRun,
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
