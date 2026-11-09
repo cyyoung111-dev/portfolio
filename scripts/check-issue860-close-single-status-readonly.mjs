@@ -42,6 +42,21 @@ const postFailure=await readIssue860Once({url,token,fetchImpl:async()=>({
  })
 })});
 assert.equal(postFailure.gasVersion,'9.287','Post-failure read must not reject successfully published candidate');
+const afterTradeV2=await readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.288',
+  automation:{...data.automation,gasVersion:'9.288'}})
+})});
+assert.equal(afterTradeV2.gasVersion,'9.288',
+ 'Known manual 9.288 release needs the same strict persisted-status diagnostic');
+assert.equal(afterTradeV2.financialWrites,0);
+await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.289',
+  automation:{...data.automation,gasVersion:'9.289'}})
+})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.289 must not pass');
+await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.288',
+  automation:{...data.automation,gasVersion:'9.287'}})
+})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Outer and inner versions must agree');
 assert.equal(postFailure.processExecutionOwnerVerified,false);
 assert.equal(postFailure.financialWrites,0);
 

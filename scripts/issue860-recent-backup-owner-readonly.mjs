@@ -22,6 +22,9 @@ const ALLOWED_CLASSES=new Set([
  'USER_MANAGED_BACKUP','UNKNOWN'
 ]);
 const ALLOWED_STATUS=new Set(['','CREATED','COMPLETED','WRITE_FAILED']);
+// Historical 9.284 and the reviewed 9.287 / manually gated 9.288 expose
+// this exact read-only diagnostic shape. 9.289 is not approved to deploy.
+const VERIFIED_DIAGNOSTIC_GAS_VERSIONS=new Set(['9.284','9.287','9.288']);
 function ensure(ok,code){if(!ok)throw Error('ISSUE860_READONLY_'+code);}
 function safeCount(n){ensure(Number.isSafeInteger(n)&&n>=0&&n<=1000000,'COUNT');return n;}
 export function summarizeRecentBackupEvidence(payload,targets=TARGETS){
@@ -102,9 +105,14 @@ export async function run({url,token,fetchImpl=fetch}={}){
  // Allow one bounded call; do not retry the costly workbook inventory.
  const check=await request({url:endpoint,token,action:'getAutomationStatus',
   fetchImpl,timeoutMs:90000});
- ensure(check?.status==='ok'&&check?.gasVersion==='9.284','PRODUCTION_VERSION_DRIFT');
+ ensure(check?.status==='ok'&&VERIFIED_DIAGNOSTIC_GAS_VERSIONS.has(check?.gasVersion)
+  &&check?.automation?.gasVersion===check.gasVersion,'PRODUCTION_VERSION_DRIFT');
  const stage=String(check.automation?.portfolioClose?.stage||check.automation?.closeRun?.stage||'');
- if(['PRICE','FUND','RUNNING'].includes(stage))
+ const fundState=String(check.automation?.fundAttempt?.state||'');
+ // Avoid slow workbook scans while a writer or deferred fund attempt is active.
+ if(['PRICE','FUND','RUNNING','START','STARTED','IN_PROGRESS',
+      'FUND_PENDING','BACKUP','SNAPSHOT','NAV_WRITE','RETRYING'].includes(stage)
+   ||['IN_PROGRESS','START','RUNNING','RETRYING'].includes(fundState))
   return {kind:'ISSUE860_BACKUP_DIAGNOSTIC_BUSY_SKIPPED',
    reason:'PORTFOLIO_WRITER_ACTIVE',financeWrites:0,gasDeployments:0};
  // Exactly one slow read: the existing GAS workbook API computes formula
