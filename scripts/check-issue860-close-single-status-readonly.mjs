@@ -48,7 +48,7 @@ const afterTradeV2=await readIssue860Once({url,token,fetchImpl:async()=>({
 })});
 assert.equal(afterTradeV2.gasVersion,'9.288',
  'Known manual 9.288 release needs the same strict persisted-status diagnostic');
-assert.equal(afterTradeV2.financeWrites,0);
+assert.equal(afterTradeV2.financialWrites,0);
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.289',
   automation:{...data.automation,gasVersion:'9.289'}})
