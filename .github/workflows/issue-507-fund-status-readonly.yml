@@ -88,12 +88,21 @@ jobs:
               financeWrites:0,gasDeployments:0,telegramSends:0
             }))
           });
+          // The current KST calendar day is not yet due at morning preflight.
+          // Preserve raw pending dates, but distinguish mature backlog from
+          // today's expected NAV/publication and Snapshot processing.
+          const today=new Intl.DateTimeFormat('en-CA',{
+            timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+          }).format(new Date());
+          const dueDates=x=>[...x.evaluationPendingDates,...x.snapshotPendingDates,
+            ...x.writerBlockedDates].filter(d=>d<today);
           console.log(JSON.stringify({kind:'FUND_32DAY_BACKLOG_VERDICT',
-            pending:rows.some(x=>x.evaluationPendingDates.length>0
-              ||x.snapshotPendingDates.length>0||x.writerBlockedDates.length>0),
-            pendingFunds:rows.filter(x=>x.evaluationPendingDates.length
-              ||x.snapshotPendingDates.length||x.writerBlockedDates.length).map(x=>x.code),
-            writerInvoked:false}));
+            pending:rows.some(x=>dueDates(x).length>0),
+            pendingFunds:rows.filter(x=>dueDates(x).length>0).map(x=>x.code),
+            currentDayPendingFunds:rows.filter(x=>
+              [...x.evaluationPendingDates,...x.snapshotPendingDates,
+                ...x.writerBlockedDates].includes(today)).map(x=>x.code),
+            cutoffExclusive:today,writerInvoked:false}));
           NODE
       - name: Verify KB AQ018 exact source and pending import (preview only)
         if: always()
