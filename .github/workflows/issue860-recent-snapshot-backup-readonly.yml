@@ -1,0 +1,31 @@
+name: issue860-recent-snapshot-backup-readonly
+on:
+  workflow_dispatch:
+  # A single protected read-only inventory when this diagnostic is introduced.
+  # No scheduled retries or file-changes outside this workflow can re-trigger.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/issue860-recent-snapshot-backup-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: issue860-recent-backup-readonly
+  cancel-in-progress: false
+jobs:
+  inventory:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify no-write backup owner classification on synthetic evidence
+        run: node scripts/check-issue860-recent-backup-owner-readonly.mjs
+      - name: One bounded read-only recent Snapshot backup inventory
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue860-recent-backup-owner-readonly.mjs

@@ -102,12 +102,14 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,73,
-  'migration inventory: all 73 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,76,
-  'migration inventory: all 76 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,74,
+  'migration inventory: all 74 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,77,
+  'migration inventory: all 77 secret-consuming jobs must be protected');
 assert.ok(fs.readFileSync(new URL('kb-fund-nav-collect.yml',dir),'utf8').includes('hanwha-collect:'),
   'Hanwha F00001 collector must be present and environment-gated');
+assert.ok(protectedWorkflowNames.includes('issue860-recent-snapshot-backup-readonly.yml'),
+  'one-time recent backup owner inventory must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('krx-20261105-held-source-preflight.yml'),
   'pre-19 KRX held-source audit must require protected production Environment');
 assert.ok(protectedWorkflowNames.includes('nh-master-registered-readonly.yml'),
