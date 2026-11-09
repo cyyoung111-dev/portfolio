@@ -34,8 +34,13 @@ export function financialPrefetchWindow(instant,{mode='scheduled'}={}){
   return {date,allowed:false,status:'PREFETCH_MODE_INVALID'};
  const min=mode==='sentinel'?440:375; // Sentinel 07:20, scheduled 06:15.
  const max=mode==='sentinel'?458:445; // Hard stop at 07:38 or 07:25.
- return {date,allowed:minute>=min&&minute<max,
-  status:minute>=min&&minute<max?'IN_WINDOW':'OUTSIDE_PREFETCH_WINDOW'};
+ const morning=minute>=min&&minute<max;
+ // An arbitrarily late GitHub 06:20 schedule (observed 09:59 KST 11/09)
+ // cannot resurrect a 07:40 artifact. Public facts collected later may
+ // still support the same-day 17:00 close, in a distinct close-only artifact.
+ const closeOnly=mode==='scheduled'&&minute>=458&&minute<1005;
+ return {date,allowed:morning||closeOnly,
+  status:morning?'IN_WINDOW':closeOnly?'CLOSE_ONLY_WINDOW':'OUTSIDE_PREFETCH_WINDOW'};
 }
 
 // This schema includes only PUBLIC financial issuer facts, not source tokens.
@@ -56,12 +61,15 @@ export function verifyFinancialPrefetchArtifact(date,payload,{now=new Date(),
   return null;
  // The independent 07:21 main sentinel is a different, explicitly marked
  // artifact. Never let a stale scheduled snapshot masquerade as sentinel data.
- if(payload.captureMode!==undefined&&payload.captureMode!=='SENTINEL_PUSH')
+ if(![undefined,'SENTINEL_PUSH','LATE_SCHEDULE_CLOSE_ONLY'].includes(payload.captureMode))
   return null;
  const sentinel=payload.captureMode==='SENTINEL_PUSH';
+ const closeOnly=payload.captureMode==='LATE_SCHEDULE_CLOSE_ONLY';
  const captured=Date.parse(payload.capturedAt);
- const lower=Date.parse(date+(sentinel?'T07:20:00+09:00':'T06:15:00+09:00'));
- const upper=Date.parse(date+(sentinel?'T07:38:00+09:00':'T07:25:00+09:00'));
+ const lower=Date.parse(date+(sentinel?'T07:20:00+09:00'
+   :closeOnly?'T07:38:00+09:00':'T06:15:00+09:00'));
+ const upper=Date.parse(date+(sentinel?'T07:38:00+09:00'
+   :closeOnly?'T16:45:00+09:00':'T07:25:00+09:00'));
  if(!Number.isFinite(captured)||captured<lower||captured>=upper
   ||captured>now.getTime()
   ||now.getTime()>=Date.parse(date+'T18:01:00+09:00'))
@@ -143,18 +151,21 @@ export async function prefetchAiFinancialEvidence({
  }catch{return {ready:false,status:'PUBLIC_SOURCE_UNAVAILABLE',
    date:first.date,sourceStatus};}
  const last=financialPrefetchWindow(now(),{mode});
- if(!last.allowed||last.date!==first.date)return {
+ if(!last.allowed||last.date!==first.date||last.status!==first.status)return {
   ready:false,status:'PREFETCH_TOO_LATE',date:first.date};
+ const closeOnly=first.status==='CLOSE_ONLY_WINDOW';
  const payload={schemaVersion:1,date:first.date,
   capturedAt:now().toISOString(),source:'SEC_DART_PUBLIC_READ_ONLY',
   repository:FINANCIAL_PREFETCH_REPO,evidence,
-  ...(mode==='sentinel'?{captureMode:'SENTINEL_PUSH'}:{})};
+  ...(mode==='sentinel'?{captureMode:'SENTINEL_PUSH'}
+   :closeOnly?{captureMode:'LATE_SCHEDULE_CLOSE_ONLY'}:{})};
  const checked=verifyFinancialPrefetchArtifact(first.date,payload,{now:now(),
   expectedUsDate});
  if(!checked)return {ready:false,status:'PUBLIC_EVIDENCE_UNVERIFIED',
   date:first.date,sourceStatus};
  return {ready:true,status:'PREFETCH_VERIFIED',date:first.date,
-  artifactName:'ai-financial-evidence-'+(mode==='sentinel'?'sentinel-':'')+first.date,
+  artifactName:'ai-financial-evidence-'
+   +(mode==='sentinel'?'sentinel-':closeOnly?'close-':'')+first.date,
   data:payload,coverage:checked.coverage,sourceStatus};
 }
 
