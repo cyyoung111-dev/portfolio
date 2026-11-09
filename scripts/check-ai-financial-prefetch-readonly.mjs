@@ -14,7 +14,7 @@ assert.deepEqual(is,{allowed:true,date:day,status:'IN_WINDOW'});
 assert.equal(financialPrefetchWindow(new Date('2026-11-08T21:14:59Z')).allowed,false);
 assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:25:00Z')).allowed,false);
 assert.equal(financialPrefetchWindow(new Date('invalid')).allowed,false);
-const sentinelAt=()=>new Date('2026-11-08T22:30:00Z'); // 07:30 KST
+const sentinelAt=()=>new Date('2026-11-08T22:30:00Z');
 assert.deepEqual(financialPrefetchWindow(sentinelAt(),{mode:'sentinel'}),
  {date:day,allowed:true,status:'IN_WINDOW'});
 assert.equal(financialPrefetchWindow(new Date('2026-11-08T22:19:59Z'),{mode:'sentinel'}).allowed,false);
@@ -58,7 +58,6 @@ assert.equal(built.data.repository,FINANCIAL_PREFETCH_REPO);
 assert.equal(FINANCIAL_PREFETCH_FILE,'financial-evidence.json');
 assert.ok(JSON.stringify(built.data).length<45000);
 assert.deepEqual(verifyFinancialPrefetchArtifact(day,built.data,{now:now()}),proof);
-// The independent sentinel keeps strict freshness and public-only fields.
 const fallback=await prefetchAiFinancialEvidence({
  now:sentinelAt,collector:writer,mode:'sentinel'});
 assert.equal(fallback.ready,true);
@@ -123,12 +122,9 @@ assert.equal(wf.jobs.collect.steps.find(x=>x.id==='sentinel').if,"github.event_n
 assert.ok(wf.jobs.collect.steps.find(x=>x.id==='sentinel').run.includes('NOT_EXACT_FILE'));
 assert.match(wf.jobs.collect.steps.find(x=>x.id==='evidence').if,/sentinel.outputs.verified == 'true'/);
 assert.equal(wf.jobs.collect.steps.find(x=>x.id==='evidence').env.FINANCIAL_SENTINEL_VERIFIED,
- '
-+'{{ steps.sentinel.outputs.verified }}');
+ '$'+'{{ steps.sentinel.outputs.verified }}');
 assert.equal(wf.jobs.collect.steps.find(x=>x.id==='evidence').env.SEC_USER_AGENT,
- '
-+'{{ secrets.SEC_USER_AGENT }}');
+ '$'+'{{ secrets.SEC_USER_AGENT }}');
 assert.equal(wf.jobs.collect.steps.find(x=>x.id==='evidence').env.DART_API_KEY,
- '
-+'{{ secrets.DART_API_KEY }}');
+ '$'+'{{ secrets.DART_API_KEY }}');
 console.log('AI_FINANCIAL_PREFETCH_READONLY_PASS schedule/sentinel/source/FCF/PBR/failclosed');
