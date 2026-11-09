@@ -102,7 +102,14 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
   }
   const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
   if(!list.length)return null;
-  const [date,value]=list.at(-1),prior=list.length>1?list.at(-2)[1]:null;
+  // Yahoo KRW=X can include an extra Sunday FX candle before Monday's
+  // 07:40 briefing. The latest chart bar then masks the already-completed
+  // Friday candle. Select the EXACT expected session where provided; never
+  // relabel the extra FX bar or accept an arbitrarily stale close.
+  const selectedIndex=symbol==='KRW=X'&&expectedSessionDate
+    ?list.findIndex(row=>row[0]===expectedSessionDate):list.length-1;
+  if(selectedIndex<0)return null;
+  const [date,value]=list[selectedIndex],prior=selectedIndex>0?list[selectedIndex-1][1]:null;
   const result={label,symbol,date,value,changePercent:prior>0
     ?(value/prior-1)*100:null,source:'Yahoo Finance 일봉'};
   if(include52Week&&completeOhlcShape&&expectedSessionDate===date){
