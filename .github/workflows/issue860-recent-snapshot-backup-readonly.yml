@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   # A single protected read-only inventory when this diagnostic is introduced.
   # No scheduled retries or file-changes outside this workflow can re-trigger.
+  # 2026-11-09: one current-v9.287 POST read-only backup-owner classification after fixing stale 9.284 guard.
   push:
     branches: [main]
     paths: ['.github/workflows/issue860-recent-snapshot-backup-readonly.yml']
