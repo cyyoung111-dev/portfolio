@@ -9,6 +9,8 @@ on:
     paths:
       - 'scripts/compose-gas9288-trade-v2-from-9287-preview.mjs'
       - 'scripts/check-gas9288-trade-v2-from-9287-preview.mjs'
+      - 'scripts/check-gas9288-trade-v2-migration-apply-restore.mjs'
+      - 'scripts/trade-v2-gas-migration-apply-preview.mjs'
       - 'scripts/stage-gas9288-trade-v2-review-artifact.mjs'
       - 'scripts/trade-v2-gas-functions.mjs'
       - 'scripts/trade-v2-gas-receipts.mjs'
@@ -35,6 +37,7 @@ jobs:
         run: |
           node scripts/check-trade-v2-post9287-release-boundary.mjs
           node scripts/check-gas9288-trade-v2-from-9287-preview.mjs
+          node scripts/check-gas9288-trade-v2-migration-apply-restore.mjs
       - name: Stage immutable v9.288 source for independent review
         run: node scripts/stage-gas9288-trade-v2-review-artifact.mjs
       - name: Store candidate and exact reviewed-parent manifest
