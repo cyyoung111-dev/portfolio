@@ -21,6 +21,10 @@ export function composeSnapshotBackupReadPreview(pinnedSource){
   updated=replaceOnce(updated,'  if (values.length) {\n',
     '  if (rowCount > 0 && colCount > 0) {\n','COPY_GUARD');
   updated=replaceOnce(updated,
+    '    if (backup.getMaxRows() < values.length) backup.insertRowsAfter(backup.getMaxRows(), values.length - backup.getMaxRows());\n',
+    '    if (backup.getMaxRows() < rowCount) backup.insertRowsAfter(backup.getMaxRows(), rowCount - backup.getMaxRows());\n',
+    'BACKUP_EXPANSION');
+  updated=replaceOnce(updated,
     "    var sourceRange = sheet.getRange(1, 1, values.length, colCount);\n"+
     "    var backupRange = backup.getRange(1, 1, values.length, colCount);\n"+
     "    if (typeof sourceRange.copyTo === 'function') sourceRange.copyTo(backupRange);\n"+
