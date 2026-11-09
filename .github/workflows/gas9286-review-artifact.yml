@@ -5,6 +5,15 @@ on:
     paths:
       - 'scripts/stage-gas9286-review-artifact.mjs'
       - 'scripts/compose-gas9286-integrated-preview.mjs'
+      - 'scripts/compose-gas9286-snapshot-timing-probe.mjs'
+      - 'scripts/snapshot-backup-read-optimization-preview.mjs'
+      - 'scripts/compose-gas9285-fund-noop-preview.mjs'
+      - 'scripts/compose-gas9285-trade-v2-preview.mjs'
+      - 'scripts/check-gas9286-integrated-preview.mjs'
+      - 'scripts/check-gas9286-snapshot-timing-probe.mjs'
+      - 'scripts/check-snapshot-backup-read-optimization.mjs'
+      - 'src/gas/apps_script.gs'
+      - 'reference/gas-v9.284.gs'
       - '.github/workflows/gas9286-review-artifact.yml'
 permissions:
   contents: read
@@ -20,6 +29,8 @@ jobs:
       - name: Verify v9.286 source and trade v2 migration fixtures
         run: |
           node scripts/check-gas9286-integrated-preview.mjs
+          node scripts/check-snapshot-backup-read-optimization.mjs
+          node scripts/check-gas9286-snapshot-timing-probe.mjs
           node scripts/check-gas9285-trade-v2-migration-preview.mjs
           node scripts/check-gas9285-trade-v2-shadow-migration.mjs
           node scripts/check-gas9285-trade-v2-crash-proof.mjs
