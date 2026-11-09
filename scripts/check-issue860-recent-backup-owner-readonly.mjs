@@ -7,12 +7,7 @@ import {TARGETS,run,summarizeRecentBackupEvidence}
 // The diagnostic must match the ACTUAL deployed v9.284 GAS response,
 // not merely our synthetic test fixtures. Fail closed on source drift.
 import fs from 'node:fs';
-import {createHash} from 'node:crypto';
 const production=fs.readFileSync('reference/gas-v9.284.gs','utf8');
-const gitBlob=source=>{
- const bytes=Buffer.from(source,'utf8');
- return createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
-};
 assert.equal(production.includes("gasVersion: '9.284'"),true);
 assert.equal(production.includes("if (params.action === 'getAutomationStatus')"),true);
 assert.equal(production.includes("if (params.action === 'diagnoseWorkbookCells')"),true);
@@ -28,7 +23,6 @@ for(const field of ['name','role','backup','systemGeneratedBackup','backupSource
 }
 assert(deployed.includes('_sheetContentSignature(sheet) === backupRecord.signature'),
  'Signature must come from GAS backup self-check, not owner linkage');
-assert.equal(typeof gitBlob(production),'string');
 
 const registered=(target,opts={})=>({
  name:target.name,role:'BACKUP',backup:true,backupSource:'스냅샷',
