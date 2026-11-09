@@ -40,7 +40,7 @@ const review={
  requiresProduction9288First:true,requiresExplicitSeparateReview:true,
  requiresManualDryRun:true,requiresManualReleaseApproval:true,
   requiresLiveTradeV2Readback:true,
- reviewedForProduction:true,deployAllowed:false,
+ reviewedForProduction:false,exactHashPinned:true,deployAllowed:false,
  gasProductionUpdated:false,financialSheetsModified:false,
  currentRuntimePerformanceMeasured:false,
  financeWrites:0,gasProjectWrites:0,telegramSends:0
