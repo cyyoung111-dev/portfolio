@@ -158,11 +158,11 @@ assert.deepEqual(confirmedClose.map(r=>r.book?.pbr),[1.5,2]);
 for(const unsafe of [
  {...pricedMorning,domesticSessionDate:date},
  {...pricedMorning,domestic:pricedMorning.domestic.map(r=>({
-  ...r,evidence:{...r.evidence,priceDate:'2026-11-04'}})},
+  ...r,evidence:{...r.evidence,priceDate:'2026-11-04'}}))},
  {...pricedMorning,domestic:pricedMorning.domestic.map(r=>({
-  ...r,evidence:{...r.evidence,pbrTimes:r.evidence.pbrTimes+0.5}})},
+  ...r,evidence:{...r.evidence,pbrTimes:r.evidence.pbrTimes+0.5}}))},
  {...pricedMorning,domestic:pricedMorning.domestic.map(r=>({
-  ...r,evidence:{...r.evidence,pbrTimes:null}})}
+  ...r,evidence:{...r.evidence,pbrTimes:null}}))}
 ]){
  assert(evaluateSemiconductorCompanyViews({date,stocks:morningPrices,
   financialEvidence:unsafe}).every(r=>r.book===null),
