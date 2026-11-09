@@ -24,6 +24,8 @@ assert.equal(safe.rows[1].startKst,'20:37:04');
 assert(!JSON.stringify(safe).includes('SECRET'));
 assert(!JSON.stringify(safe).includes('OWNER'));
 assert(!JSON.stringify(safe).includes('privateNamedMethod'));
+const emptyGoogleResponse=summarizeProcessPage({});
+assert.deepEqual(emptyGoogleResponse.rows,[],'Omitted empty repeated field means no evidence, not success');
 
 let calls=0;
 const audit=await inspectProcesses({scriptId,token,fetchImpl:async(url,options)=>{
