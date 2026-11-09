@@ -146,4 +146,58 @@ assert.equal(await fallbackLoad(sentinelFetch(),{...sentinelPayload,
 assert.equal(await fallbackLoad(sentinelFetch(),{...sentinelPayload,
  capturedAt:'2026-11-08T22:39:00Z'}),null,'late capture rejected');
 
-console.log('AI_FINANCIAL_EVIDENCE_LOADER_PASS scheduled/sentinel/provenance/duplicate/date/source/zip/FCF/failclosed');
+// Observed late schedule 09:59 KST on 11/09: it is not valid for the
+// 07:40 morning briefing, but should not waste verified public evidence
+// when a 17:00 close still has time to use a close-only artifact.
+const latePayload={...payload,captureMode:'LATE_SCHEDULE_CLOSE_ONLY',
+ capturedAt:'2026-11-09T01:03:00Z'};
+const lateList={total_count:1,artifacts:[{
+ id:73,name:'ai-financial-evidence-close-'+day,expired:false,
+ size_in_bytes:1000,workflow_run:{id:83,head_branch:'main',head_sha:sha}
+}]};
+const lateRun={...run,id:83,event:'schedule',
+ created_at:'2026-11-09T00:59:49Z',
+ run_started_at:'2026-11-09T01:00:00Z',
+ updated_at:'2026-11-09T01:04:00Z'};
+const lateCalls=[];
+const lateFetch=(theRun=lateRun,theList=lateList)=>async (url,opts)=>{
+ assert.equal(opts.headers.authorization,'Bearer mock-gh-token');
+ lateCalls.push(url);
+ if(url.includes('/artifacts?name=ai-financial-evidence-close-'))
+  return okJson(theList);
+ if(url.includes('/artifacts?'))return okJson({total_count:0,artifacts:[]});
+ if(url.endsWith('/actions/runs/83'))return okJson(theRun);
+ if(url.endsWith('/actions/artifacts/73/zip'))return okZip(Buffer.from('fake zip'));
+ throw Error('Unexpected close-only read');
+};
+assert.deepEqual(await load(lateFetch(),{
+ now:()=>close,decode:async()=>latePayload
+}),good,'17:02 may use a 09:59 delayed schedule with exact-day provenance');
+lateCalls.length=0;
+assert.equal(await load(lateFetch(),{
+ now:()=>morning,decode:async()=>latePayload
+}),null,'morning must never accept late SEC/DART data');
+assert(!lateCalls.some(url=>url.includes('ai-financial-evidence-close-')),
+ '07:40 loader must not even query the close-only artifact');
+assert.equal(await load(lateFetch({...lateRun,event:'push'}),{
+ now:()=>close,decode:async()=>latePayload
+}),null,'push cannot impersonate a delayed scheduled close capture');
+assert.equal(await load(lateFetch({...lateRun,
+ created_at:'2026-11-08T22:20:00Z'}),{
+ now:()=>close,decode:async()=>latePayload
+}),null,'07:20 scheduled artifact cannot masquerade as late close');
+assert.equal(await load(lateFetch(lateRun,{...lateList,total_count:2}),{
+ now:()=>close,decode:async()=>latePayload
+}),null,'ambiguous close-only artifacts are rejected');
+for(const bad of [
+ {...latePayload,captureMode:undefined},
+ {...latePayload,captureMode:'SENTINEL_PUSH'},
+ {...latePayload,capturedAt:'2026-11-08T21:20:00Z'},
+ {...latePayload,capturedAt:'2026-11-09T07:45:00Z'},
+ {...latePayload,date:'2026-11-06'}
+]){
+ assert.equal(await load(lateFetch(),{
+  now:()=>close,decode:async()=>bad
+ }),null,'a close-only artifact must have exact source, date and capture mode');
+}
+console.log('AI_FINANCIAL_EVIDENCE_LOADER_PASS scheduled/sentinel/close-only/provenance/duplicate/date/source/zip/FCF/failclosed');

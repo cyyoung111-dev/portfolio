@@ -14,11 +14,14 @@ const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const sha=x=>typeof x==='string'&&/^[0-9a-f]{40}$/.test(x);
 const inWindow=(value,date,mode='scheduled')=> {
  const ms=Date.parse(value);
- const lower=mode==='sentinel'?'T07:20:00+09:00':'T06:15:00+09:00';
- const upper=mode==='sentinel'?'T07:38:00+09:00':'T07:25:00+09:00';
- return Number.isFinite(ms)
-  &&ms>=Date.parse(date+lower)
-  &&ms<Date.parse(date+upper);
+ const limits={
+  scheduled:['T06:15:00+09:00','T07:25:00+09:00'],
+  sentinel:['T07:20:00+09:00','T07:38:00+09:00'],
+  closeOnly:['T07:38:00+09:00','T16:45:00+09:00']
+ }[mode];
+ return !!limits&&Number.isFinite(ms)
+  &&ms>=Date.parse(date+limits[0])
+  &&ms<Date.parse(date+limits[1]);
 };
 
 // Check the zip entry independently of JSON validation; zip-slip, symlinks,
@@ -71,10 +74,14 @@ export async function loadAiFinancialEvidenceArtifact(date,{
  // Prefer the original scheduled 06:20 evidence when valid. The independent
  // 07:21 dated push is a separate authenticated fallback artifact, never
  // allowed to replace valid primary facts with an older or ambiguous copy.
- for(const mode of ['scheduled','sentinel']){
+ // A delayed 06:20 schedule cannot be used for the 07:40 briefing.
+ // Only the same-day close (after 16:35 KST) may read its separately
+ // marked public SEC/DART artifact.
+ const closeEligible=at.getTime()>=Date.parse(date+'T16:35:00+09:00');
+ for(const mode of ['scheduled','sentinel',...(closeEligible?['closeOnly']:[])]){
   try{
    const artifactName='ai-financial-evidence-'
-     +(mode==='sentinel'?'sentinel-':'')+date;
+     +(mode==='sentinel'?'sentinel-':mode==='closeOnly'?'close-':'')+date;
    const list=await githubGet(API+'/artifacts?name='+encodeURIComponent(artifactName)
      +'&per_page=100',{token,fetchImpl});
    if(list?.total_count!==1||!Array.isArray(list.artifacts)
@@ -107,6 +114,7 @@ export async function loadAiFinancialEvidenceArtifact(date,{
    if(!payload||typeof payload!=='object'||Array.isArray(payload)
     ||JSON.stringify(payload).length>MAX_JSON
     ||(mode==='sentinel'?payload.captureMode!=='SENTINEL_PUSH'
+      :mode==='closeOnly'?payload.captureMode!=='LATE_SCHEDULE_CLOSE_ONLY'
       :payload.captureMode!==undefined))continue;
    // Strict session/FCF/BPS/source verification is identical for both.
    const validated=verifyFinancialPrefetchArtifact(date,payload,{now:now()});
