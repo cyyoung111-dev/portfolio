@@ -7,6 +7,8 @@ import {TARGETS,run,summarizeRecentBackupEvidence}
 // The diagnostic must match the ACTUAL deployed v9.284 GAS response,
 // not merely our synthetic test fixtures. Fail closed on source drift.
 import fs from 'node:fs';
+import {composeFundSnapshot9287SourcePreview} from './compose-fund-snapshot-9287-source-preview.mjs';
+import {composeGas9288TradeV2From9287Preview} from './compose-gas9288-trade-v2-from-9287-preview.mjs';
 const production=fs.readFileSync('reference/gas-v9.284.gs','utf8');
 assert.equal(production.includes("gasVersion: '9.284'"),true);
 assert.equal(production.includes("if (params.action === 'getAutomationStatus')"),true);
@@ -23,6 +25,22 @@ for(const field of ['name','role','backup','systemGeneratedBackup','backupSource
 }
 assert(deployed.includes('_sheetContentSignature(sheet) === backupRecord.signature'),
  'Signature must come from GAS backup self-check, not owner linkage');
+for(const {version,source} of [
+ {version:'9.287',source:composeFundSnapshot9287SourcePreview().candidate},
+ {version:'9.288',source:composeGas9288TradeV2From9287Preview().candidate}
+]){
+ assert(source.includes("var ISSUE507_GATE_API_VERSION='"+version+"'"));
+ assert(source.includes("if (params.action === 'diagnoseWorkbookCells')"));
+ const begin=source.indexOf('function _diagnoseWorkbookCells('),end=source.indexOf('\n}',begin);
+ assert(begin>=0&&end>begin,'missing '+version+' inventory');
+ const live=source.slice(begin,end+2);
+ for(const field of ['name','role','backup','systemGeneratedBackup','backupSource',
+  'backupStatus','backupClassification','signatureMatch','operationId',
+  'lastRow','lastColumn','maxRows','maxColumns'])
+  assert(new RegExp('\\b'+field+':').test(live),'missing '+version+' '+field);
+ assert(live.includes('_sheetContentSignature(sheet) === backupRecord.signature'),
+  'verified live 9.287/9.288 backup digest');
+}
 
 const registered=(target,opts={})=>({
  name:target.name,role:'BACKUP',backup:true,backupSource:'스냅샷',
@@ -73,8 +91,8 @@ const fetchImpl=async(_url,opt)=>{
  assert.equal(q.get('accessToken'),secret);
  calls.push(action);
  return {ok:true,json:async()=>action==='getAutomationStatus'?
-  {status:'ok',gasVersion:'9.284',automation:{
-   portfolioClose:{stage:'ERROR'}}}:payload};
+  {status:'ok',gasVersion:'9.287',automation:{gasVersion:'9.287',
+   portfolioClose:{stage:'COMPLETE'},fundAttempt:{state:'DONE'}}}:payload};
 };
 const result=await run({url:endpoint,token:secret,fetchImpl});
 assert.equal(result.found,4);
@@ -85,11 +103,45 @@ assert.equal(result.gasDeployments,0);
 calls.length=0;
 const active=await run({url:endpoint,token:secret,fetchImpl:async(_url,opt)=>{
  calls.push(opt.body.get('action'));
- return {ok:true,json:async()=>({status:'ok',gasVersion:'9.284',
-  automation:{portfolioClose:{stage:'FUND'}}})};
+ return {ok:true,json:async()=>({status:'ok',gasVersion:'9.287',
+  automation:{gasVersion:'9.287',portfolioClose:{stage:'FUND'}}})};
 }});
 assert.equal(active.reason,'PORTFOLIO_WRITER_ACTIVE');
 assert.deepEqual(calls,['getAutomationStatus'],'Never inspect whole workbook while a writer is active');
+for(const version of ['9.284','9.288']){
+ const observed=await run({url:endpoint,token:secret,fetchImpl:async(_url,opt)=>({
+  ok:true,json:async()=>opt.body.get('action')==='getAutomationStatus'
+   ?{status:'ok',gasVersion:version,automation:{gasVersion:version,
+     portfolioClose:{stage:'COMPLETE'},fundAttempt:{state:'DONE'}}}:payload
+ })});
+ assert.equal(observed.found,4,'Known GAS version permits inventory: '+version);
+}
+for(const stage of ['START','STARTED','IN_PROGRESS','FUND_PENDING','BACKUP','NAV_WRITE']){
+ const actions=[];
+ const blocked=await run({url:endpoint,token:secret,fetchImpl:async(_url,opt)=>{
+  actions.push(opt.body.get('action'));
+  return {ok:true,json:async()=>({status:'ok',gasVersion:'9.287',
+   automation:{gasVersion:'9.287',portfolioClose:{stage}}})};
+ }});
+ assert.equal(blocked.reason,'PORTFOLIO_WRITER_ACTIVE',stage);
+ assert.deepEqual(actions,['getAutomationStatus']);
+}
+for(const state of ['IN_PROGRESS','RETRYING']){
+ const actions=[];
+ const blocked=await run({url:endpoint,token:secret,fetchImpl:async(_url,opt)=>{
+  actions.push(opt.body.get('action'));
+  return {ok:true,json:async()=>({status:'ok',gasVersion:'9.287',
+   automation:{gasVersion:'9.287',portfolioClose:{stage:'COMPLETE'},
+    fundAttempt:{state}}})};
+ }});
+ assert.equal(blocked.reason,'PORTFOLIO_WRITER_ACTIVE');
+ assert.deepEqual(actions,['getAutomationStatus']);
+}
+for(const [outer,inner] of [['9.289','9.289'],['9.287','9.288'],['9.999','9.999']])
+ await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async()=>({
+  ok:true,json:async()=>({status:'ok',gasVersion:outer,
+   automation:{gasVersion:inner,portfolioClose:{stage:'COMPLETE'}}})
+ })}),/ISSUE860_READONLY_PRODUCTION_VERSION_DRIFT/);
 await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async()=>({
  ok:true,json:async()=>({status:'ok',gasVersion:'9.999',automation:{}})
 })}),/ISSUE860_READONLY_PRODUCTION_VERSION_DRIFT/);
@@ -110,8 +162,8 @@ let inventoryRequests=0;
 await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async(_url,opt)=>{
  inventoryRequests++;
  if(opt.body.get('action')==='getAutomationStatus')
-  return {ok:true,json:async()=>({status:'ok',gasVersion:'9.284',automation:{
-   portfolioClose:{stage:'ERROR'}}})};
+  return {ok:true,json:async()=>({status:'ok',gasVersion:'9.287',automation:{gasVersion:'9.287',
+   portfolioClose:{stage:'COMPLETE'},fundAttempt:{state:'DONE'}}})};
  throw Object.assign(new Error('DO_NOT_EXPOSE_PRIVATE_RESPONSE'),{name:'TimeoutError'});
 }}),/ISSUE860_READONLY_TIMEOUT_INVENTORY/);
 assert.equal(inventoryRequests,2,'Only one inventory request following a status check');
@@ -121,5 +173,6 @@ await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async()=>({
 
 console.log(JSON.stringify({kind:'ISSUE860_RECENT_BACKUP_READONLY_CONTRACT_PASS',
   count:TARGETS.length,strictTargetLabels:true,rawOwnerIdsExposed:false,
+  currentVersions:['9.287','9.288'],unexpectedVersionBlocked:true,
   restoresOrDeletes:false,writerBusyGuard:true,requiresExpectedProductionVersion:true,
   networkCalls:0,realFinanceWrites:0}));
