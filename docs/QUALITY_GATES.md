@@ -1,68 +1,350 @@
-# 공통 품질 게이트 — 사전 검증·Codex 리뷰·운영 종료
+# Quality Gates — Data Accuracy and Production Reliability
 
-> 모든 후속 PR에 적용한다. **문서의 규칙은 CI에서 실제 강제되는 항목과 다르며**, GitHub Actions 실행 결과와 브랜치 보호 설정으로 강제 여부를 확인한다. 작업 지시의 요약은 [AGENTS.md](../AGENTS.md)에 둔다.
+> Scope: All repository changes.
+>
+> Primary policy: [AGENTS.md](../AGENTS.md).
+>
+> Apply validation proportional to the actual operational risk and affected functionality.
+>
+> Documented quality gates and GitHub-enforced checks are different. Never treat a documentation change as permission to bypass an enforced CI check, branch protection rule, or deployment restriction.
 
-## 1. 변경 범위와 영향 분석
+## 1. Quality Objectives
 
-- 최근 `main`/PR HEAD, 열린·병합 PR, 현재 **운영 GAS/웹 배포 버전**을 구분한다. 새 변경은 한 동작 계약을 단위로 작게 유지한다.
-- 수정할 함수의 호출자·피호출자, 공유 상태(시트/PropertiesService/캐시/잠금/트리거), 수동 실행과 예외·finally 경로를 파악한다.
-- 입력·성공·실패·중복·부분 완료·재시도·복구 조건을 먼저 정의한다. 수정 전 재현 가능하면 실패 테스트를 작성하고, 불가능하면 이유와 대체 증거를 남긴다.
-- 다음 표는 **관련된 행만 검증**한다. 무관한 항목은 근거를 들어 제외한다.
+Evaluate changes using these priorities:
 
-| 영향 축 | 주요 확인 내용 |
+1. Data accuracy and integrity.
+2. Production stability and recoverability.
+3. Performance and execution efficiency.
+4. Simplicity and maintainability.
+5. Essential security protections.
+
+A successful change must solve the intended problem without introducing material data errors or operational regressions.
+
+Avoid unnecessary validation, excessive approval procedures, and repeated review cycles.
+
+## 2. Risk-Based Validation
+
+Select tests based on the affected functionality.
+
+| Change Type | Required Validation |
 | --- | --- |
-| 병합·배포 | 최신 `main`, 다른 열린 PR, 배포된 GAS/웹 버전과 데이터 계약 충돌 |
-| 실행 소유권 | 19시 마감, 20:30 watchdog, 22:10 당일 백필, 23:10·00:30 과거 백필, deferred NAV, 수동 실행, 복구 작업 사이의 잠금·트리거·시간 경합 |
-| 데이터 원천 | KRX/Toss/Yahoo/해외 종가·NAV의 **정확한 거래일과 출처**, 휴장, 0건·지연, 이월값·수기값 보호 |
-| 기록·표시 | 가격이력, Snapshot, 거래원장·과거 수량, 평가금액·손익, 웹 UI·브리핑, 큐/완료 마커 정합성 |
-| 실패·자원 | GAS 실행 한도, lease 만료, ScriptLock, API 제한, 실행 중 중단, 중복 예약, 자정 |
+| Documentation only | Content, links, consistency, applicable CI |
+| UI or presentation | Rendering, affected calculations, relevant regression |
+| Market data retrieval | Source, date, value, freshness, missing-data handling |
+| NAV or fund processing | Fund identity, share class, publication date, value, storage |
+| Financial calculations | Independent expected results, totals, reconciliation |
+| Historical data or snapshots | Dates, quantities, duplicates, recalculation |
+| Shared financial writes | Idempotency, ownership, concurrent execution, recovery |
+| Scheduling or automation | Trigger configuration, execution ownership, retries |
+| Market briefings | Data accuracy, coverage, delivery state, duplication |
+| GAS or deployment | Relevant version contracts, release verification, operational readback |
+| Credentials or access | Secret protection and affected permission boundaries |
 
-## 2. 운영 데이터 불변조건
+Do not automatically require every test category for every change.
 
-- **Safety — 단일 쓰기 소유권:** 동시에 충돌하는 원장·가격·Snapshot·NAV 쓰기를 허용하지 않는다. 소유권/lease 조회·획득·해제와 완료 기록의 원자성을 확인한다.
-- **Liveness — 복구 기회:** `BUSY`, `SKIPPED`, 시간초과 또는 공급원 장애로 작업이 조용히 소멸하지 않아야 한다. 다음 예약·대기열이 없거나 재시도 기회를 소진하면 **미복구/경보**로 명시한다.
-- **멱등성:** 동일 날짜·계좌·종목의 재실행은 중복 행·금액을 만들지 않는다. 공식 확정 종가를 출처 불명 현재가/이월값으로 덮지 않는다.
-- **부분 완료와 날짜:** PRICE 성공·FUND 실패, 소급 거래/수량 변경, 전일·당일·휴장·해외 거래일·KST 자정, Snapshot/NAV 미확정을 구분한다. 데이터 증거가 확보되기 전에는 완료 마커나 큐 항목을 삭제하지 않는다.
-- **실행 소유권:** 선행 충돌은 실제 실패 시도로 차감하지 않는다. run ID, token, 트리거 UID와 결과의 귀속을 검증하고, timeout 이후 오래된 소유자가 새 실행의 상태를 덮지 않게 한다.
+Mandatory repository-enforced checks must still pass.
 
-## 3. 사전 자체검토와 테스트
+## 3. Source Accuracy and Freshness
 
-1. **생산 함수 기반:** 중요한 동작은 실제 생산 함수를 실행해 값·상태 전이·숨은 부작용까지 검증한다. 함수명/문자열 포함 검사만으로 안전성을 선언하지 않는다.
-2. **독립 검증 오라클:** 생산 구현을 복사한 모의 함수가 아니라 독립 불변조건/기대 결과로 판정한다. 모의 객체를 사용할 경우 `CONFIG.TIMEZONE` 등 운영 설정은 실제 소스에서 추출·검증하고, **정상으로 가정한 상수**로 오류를 숨기지 않는다.
-3. **대표 반례:** 관련 범위에서 정상, 공급원 오류/0건, 잠금 충돌, 중복 실행, 쓰기 성공 뒤 응답 유실, 부분 저장, 자정·휴장, timeout, 재시도 소진, 과거 수량 정정 등을 확인한다. 변이 테스트로 주요 안전장치 제거 시 검사 실패도 확인한다.
-4. **회귀/범위 통제:** 기존 정상 사례와 다른 PR·운영 자동화를 교차 검증한다. 실패 원인은 공통 원인별로 보완한다. 테스트 fixture에는 실토큰·개인정보·실계좌 원장을 넣지 않는다.
-5. **유형별 적합성:** 런타임 변경에는 동작·통합 테스트, 스케줄/배포 변경에는 실제 트리거·버전 경로 검사, **문서만 변경하면** 내용·링크·체크리스트 정합성 및 해당 CI를 우선한다. 무관한 실운영 테스트를 강제하지 않는다.
+For affected financial data, verify:
 
-자동 테스트가 재현하지 못하는 운영 환경(실제 계정별 트리거 설치, API 공급원 일시 장애, 실데이터 저장)은 **별도 미검증 항목**으로 보고한다.
+- Correct instrument, symbol, fund, and share class.
+- Correct provider and source priority.
+- Correct market or disclosure date.
+- Correct publication and retrieval timestamps.
+- Correct values, units, currencies, and precision.
+- Consistency between source data and stored records.
 
-## 4. GAS 릴리스·예약 작업의 추가 검증 (해당 시)
+Use the configured authoritative source.
 
-- GAS 헤더·변경 이력, 실제 `handleGetSettings()` 및 관련 `gasVersion` 응답, 웹 `EXPECTED_GAS_VERSION`, `DEPLOYMENT.md`, 승인 소스 해시/manifest의 일치를 점검한다. 관련 테스트는 `npm run check:gas-deploy`에 포함한다.
-- **22:10 당일 / 23:10 과거 / 00:30 과거 백필**은 일정·대상 날짜·독립 진행성·공유 lease를 확인한다. 실제 생산 트리거 **생성/수리/삭제 함수**와 자동화 상태 API·메뉴 진단 함수를 테스트에서 실행하여 누락·중복·무변경을 확인한다.
-- 스케줄 변경 시 기대 시각·KST 시간대·자정 경계·운영 안내·진단 UI·연결된 트리거와 lock 여유를 함께 검토한다. 코드와 테스트의 숫자만 맞춰 오류를 통과시키지 않는다.
-- 릴리스 검사 성공은 **배포·트리거 설치·시세 저장 성공과 다르다.** 운영에서는 대상 날짜별 정확한 공식 출처·보유 종목 커버리지·Snapshot·수량/평가·미해결 큐를 별도 확인한다. 특정 과거 날짜의 37건/39행을 미래 모든 날짜의 고정 기준으로 사용하지 않는다.
+Prefer NH PLUG for supported prices and established official sources for NAV, disclosures, and other financial data.
 
-## 5. Codex 리뷰 대응 — 중복 요청과 무한 루프 방지
+Use secondary providers only according to documented validation or fallback rules.
 
-1. **리뷰 전:** 영향 분석, 수정 전 실패/수정 후 통과, 주요 반례, 최신 HEAD 필수 CI 상태를 준비한다. 코드 외 변경은 비적용 이유를 적는다.
-2. **요청 중복 금지:** GitHub의 자동 리뷰 상태부터 조회한다. Draft→Ready·PR 생성 등으로 **같은 HEAD 리뷰가 진행 중/완료**라면 `@codex review`를 또 요청하지 않는다.
-3. **수용 여부 판단:** 최신 HEAD의 지적을 **실제 재현 가능한 P0/P1/P2 / 중요하지 않은 제안 / 재현 불가 / 해결됨 / outdated / 범위 밖**으로 분류한다. Codex 의견은 수정 명령이 아니며, 잘못된 지적은 근거와 테스트로 설명·반박한다.
-4. **묶어서 처리:** 유효한 중요 지적은 공통 원인·공유 상태를 먼저 찾아 **하나의 수정 배치**로 처리한다. 회귀와 변이 테스트, 기존 경로 영향, 리뷰 스레드에 수정 근거를 남긴 후 실제 해결된 스레드만 닫는다.
-5. **필요한 재리뷰:** 중요 코드 수정이 있다면 최신 HEAD CI 후 독립 리뷰를 **한 번씩** 요청한다. 진행 중인 자동 리뷰나 동일 SHA의 리뷰를 중복 예약하지 않는다. 단순 스타일·별도 기능·문서 정리만으로 리뷰를 무한 반복하지 않는다.
-6. **설계 재검토:** 같은 계열 신규 구조적 P1/P2가 **연속 2차례** 확인되면 국소 패치와 재리뷰를 중단하고 상태 모델·테스트 오라클·PR 범위부터 재설계한다. 이는 **중요 결함을 무시하고 병합하라는 뜻이 아니다**.
+Never manufacture values to improve reported coverage.
 
-종료 기준은 댓글 수 0개가 아니라 **최신 코드에서 재현 가능한 P0/P1/P2 미해결 0건**, 관련 회귀검사 및 필수 CI 성공, 필요한 리뷰 완료이다. 해결된/outdated 리뷰나 P3·취향성 정리는 승인된 별도 범위에서 처리할 수 있다.
+### Data status classification
 
-## 6. CI, PR, 배포, 운영 검증은 별도 상태
+Distinguish:
 
-- `.github/workflows/quality-check.yml`은 모든 PR에서 `npm run check:ci`를 실행하도록 구성되어 있다. 검사 스크립트 추가/변경은 `check-ci-coverage`의 실제 실행 경로 검사를 통과해야 한다.
-- `web-check`와 `gas-deploy`는 워크플로 트리거·변경 파일에 따라 실행 여부가 달라진다. **미실행/skipped는 성공이 아니다.** 각 PR에서 **해당 필수 체크**가 최신 HEAD에 대해 실제 성공했는지 확인한다.
-- CI 설정만으로 필수 체크·리뷰 대화 해결이 머지 차단에 적용되지 않는다. GitHub 브랜치 보호 규칙은 별도로 확인한다.
-- 코드 검증 → 독립 리뷰 → 병합 준비 → `main` 머지 → GAS/웹 실배포 → 운영 API/트리거·실데이터 검증을 단계별로 구분한다.
-- 실운영 시트 수정, 과거 가격 재생성, 트리거 대량 정리 전에는 읽기 전용 진단, 대상 기간, 백업/복구 방안과 승인 여부를 확인한다. 승인 없는 자동 머지·배포·원본 시트 쓰기/삭제는 금지한다.
+- CONFIRMED: Validated authoritative observation.
+- PROVISIONAL: Available but not final.
+- STALE: Previously valid observation that is no longer current.
+- NOT_PUBLISHED: Data not yet expected to exist.
+- UNAVAILABLE: Expected data could not be retrieved.
+- INVALID: Data failed validation.
 
-## 7. 종료 보고 및 재발 학습
+Do not treat expected non-publication as a technical failure.
 
-결과 보고에는 **PR/HEAD SHA, 영향 범위, 실제 수정한 원인, 통과·실패·스킵 CI, 최신 Codex 리뷰/중요 미해결 건수, 운영 미확인 사항, 머지·배포 여부**를 담는다. 실증 없는 완료·복구 선언을 금지한다.
+Do not report stale data as a current observation.
 
-중요 결함의 누락 원인을 `시나리오/호출 경로/검증 오라클/CI 미실행/운영 격차/설계`로 분류하고, 같은 유형이 반복되면 문장만 추가하지 말고 검사·불변조건 자체를 개선한다. 월별 리뷰 후 신규 중요 결함·재발·복구 지연·CI 미실행을 추적하되 임의의 개선율은 약속하지 않는다.
+## 4. Financial Reconciliation
+
+For affected portfolio calculations, validate:
+
+- Transactions and historical quantities.
+- Purchase cost and acquisition basis.
+- Current valuation.
+- Realized and unrealized profit or loss.
+- Dividends and distributions.
+- Fund NAV and unit balances.
+- Currency conversion, where applicable.
+- Account totals and portfolio totals.
+- Historical snapshots and recalculated periods.
+
+Verify totals using independent calculations where practical.
+
+When source inputs are missing, report incomplete valuation rather than silently treating missing values as zero.
+
+Investigate material discrepancies before declaring completion.
+
+Do not rely on hard-coded historical row counts as permanent requirements.
+
+## 5. Financial Write Integrity
+
+These protections are mandatory when relevant:
+
+- Single effective writer for conflicting operations.
+- Idempotent writes and retries.
+- Protection against duplicate records.
+- Correct execution ownership and lease handling.
+- Recovery after partial writes or interrupted execution.
+- Preservation of authoritative historical records.
+- No premature deletion of pending recovery information.
+
+Check that a timed-out or outdated execution cannot overwrite newer valid results.
+
+Avoid redundant locks or additional writer gates when existing controls already protect the same operation correctly.
+
+For read-only operations, do not require financial-write validation unless the change affects a shared dependency.
+
+## 6. Automation and Recovery
+
+Validate affected automated operations using current production configuration.
+
+Check:
+
+- Expected schedule and time zone.
+- Trading calendar and relevant date boundaries.
+- Trigger identity and ownership.
+- Retry and timeout behavior.
+- Duplicate execution prevention.
+- Partial success and failure recovery.
+- Completion and pending-work markers.
+- Provider availability and rate limits.
+
+Use the current configured schedule instead of hard-coded historical times.
+
+An expected no-op is not automatically a failure.
+
+A skipped or failed operation must not silently disappear when recovery is still required.
+
+Reduce unnecessary polling, repeated requests, and duplicate recovery attempts.
+
+## 7. Fund NAV and Publication Timing
+
+- Confirm the exact fund, share class, and NAV source.
+- Distinguish the NAV valuation date from its publication date.
+- Respect actual publication schedules, holidays, and weekends.
+- Do not assume every fund publishes a new NAV every calendar day.
+- Avoid unnecessary retries before the next expected publication.
+- Do not generate artificial NAV values for missing publication dates.
+- Preserve the last verified NAV with its correct reference date where the product requires carry-forward display.
+- Clearly identify pending, unavailable, and confirmed updates.
+- Validate stored NAV values separately from displayed portfolio valuations.
+
+Do not write unchanged records merely to demonstrate that an automation executed.
+
+## 8. Market Briefing Quality
+
+For affected morning or closing briefings, verify:
+
+- Correct target trading date and publication timing.
+- Accurate source values and freshness labels.
+- Correct market indicators and available coverage.
+- Consistency between current values and historical comparisons.
+- Appropriate handling of missing or delayed data.
+- Correct valuation inputs and financial metrics.
+- No fabricated market observations or unsupported analysis.
+- Correct delivery status and duplicate-delivery prevention.
+
+When company valuation metrics are included, verify the reporting period, source, units, and relevant calculation assumptions.
+
+Distinguish generated content from actual successful Telegram delivery.
+
+A successful workflow run does not by itself prove that the final briefing was delivered.
+
+Do not perform duplicate production sends solely to demonstrate success.
+
+## 9. Testing Standards
+
+Use production logic where practical, but isolate or dry-run operations that could modify real financial records.
+
+For relevant defects:
+
+1. Reproduce the original failure when practical.
+2. Identify the root cause.
+3. Apply a targeted fix.
+4. Verify the corrected behavior.
+5. Run relevant regression checks.
+6. Confirm the operational result where accessible.
+
+Use independent expected values for critical financial calculations.
+
+Test concurrency, retries, timeouts, partial completion, and date boundaries when they are relevant to the change.
+
+Do not require exhaustive mutation testing for unrelated or low-risk changes.
+
+Do not introduce test code that duplicates the production algorithm as its only validation oracle.
+
+Never use real credentials in test fixtures.
+
+## 10. CI and Repository Checks
+
+- Run all checks actually required by the repository or GitHub configuration.
+- The existing `quality-check.yml` executes `npm run check:ci` for pull requests.
+- Do not bypass enforced checks through documentation or instruction changes.
+- Run additional targeted checks when appropriate to the change.
+- Investigate relevant failures before merging.
+- Distinguish passed, failed, skipped, not run, and unverified checks.
+- A skipped check is not evidence of a successful test.
+- Do not launch unnecessary duplicate CI workflows.
+
+For changes to test scripts or CI configuration, verify that the required validation scripts remain reachable and effective.
+
+## 11. Codex Review Policy
+
+Review findings according to actual impact.
+
+### Mandatory resolution
+
+- Reproducible P0 and P1 defects.
+- Material P2 defects affecting financial correctness, data integrity, critical production reliability, or required operational behavior.
+
+### Optional or deferrable
+
+- P3 findings.
+- Stylistic improvements.
+- Speculative issues without supporting evidence.
+- Out-of-scope refactoring.
+- Redundant defensive checks.
+- Improvements unrelated to the current failure.
+
+Review severity labels are not sufficient by themselves. Assess the actual affected behavior and risk.
+
+Do not blindly implement all reviewer suggestions.
+
+### Review workflow
+
+1. Check whether automatic review already exists for the current HEAD.
+2. Avoid duplicate review requests.
+3. Classify each material finding by reproducibility and impact.
+4. Resolve related issues in a consolidated change.
+5. Re-run relevant tests.
+6. Request additional review only when required or materially justified.
+7. Record the reason when declining an unsupported suggestion.
+
+If repeated reviews reveal the same structural issue, reconsider the design instead of endlessly patching symptoms.
+
+Do not merge with unresolved material defects.
+
+Respect required reviews enforced by GitHub.
+
+## 12. GAS Release and Deployment Validation
+
+When GAS or deployment behavior changes, verify the relevant contracts:
+
+- Actual GAS source version.
+- Affected `gasVersion` API responses.
+- `handleGetSettings()` where applicable.
+- Web `EXPECTED_GAS_VERSION`.
+- Supported compatibility versions.
+- Deployment source identity, hashes, and manifests.
+- Relevant triggers and execution ownership.
+- Deployment status and operational readback.
+
+Use actual current configuration rather than outdated schedules or historical release assumptions.
+
+Preserve enforced source verification and deployment authorization.
+
+Do not require full GAS deployment testing for unrelated documentation or isolated UI changes.
+
+Where appropriate, use dry-run validation before production deployment.
+
+A passed release check does not prove that a new version is running in production.
+
+## 13. Merge and Production Authorization
+
+Before merging:
+
+- Confirm relevant changes are complete.
+- Confirm mandatory CI success.
+- Confirm material review findings are resolved or adequately addressed.
+- Check for conflicts with other active changes.
+
+Proceed with merge only when authorized and permitted by repository rules.
+
+Before material production changes:
+
+- Confirm the intended target and scope.
+- Check for conflicting active operations.
+- Preserve a practical recovery path.
+- Obtain authorization unless it has already been explicitly granted.
+- Avoid unnecessary additional approval requests for already authorized work.
+
+Treat financial source-data writes and destructive corrections as high-risk operations.
+
+Never interpret an instruction file as authorization to bypass required deployment controls.
+
+## 14. Production Verification
+
+Separate the following states:
+
+1. Code updated.
+2. Tests passed.
+3. PR merged.
+4. Deployment completed.
+5. Production execution verified.
+6. Financial data and outputs verified.
+
+Do not combine these states into a single completion claim.
+
+When applicable, verify:
+
+- Actual deployed version.
+- API responses and timestamps.
+- Trigger execution and ownership.
+- Source-data coverage.
+- Financial reconciliation.
+- Snapshot and NAV updates.
+- Market briefing delivery.
+- Remaining recovery queues and errors.
+
+If direct production verification is unavailable, report that limitation.
+
+## 15. Completion Criteria
+
+A task may be reported as completed when:
+
+- The requested scope is implemented.
+- Relevant required checks pass.
+- Material regressions are addressed.
+- Financial data correctness is preserved.
+- Authorized operational changes are verified to the extent accessible.
+- Remaining uncertainty is clearly disclosed.
+
+Do not block unrelated completed work because of optional style changes or speculative review suggestions.
+
+## 16. Continuous Improvement
+
+When operational problems recur:
+
+- Identify the common root cause.
+- Improve the actual validation or recovery mechanism.
+- Remove redundant checks where equivalent protection already exists.
+- Reduce repeated API calls, unnecessary retries, and manual intervention.
+- Preserve reliable controls for data integrity and recovery.
+
+The goal is effective validation, not maximum validation volume.
+
+**Success means accurate data, reliable operation, efficient execution, and verified results.**
