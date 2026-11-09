@@ -34,11 +34,14 @@ function durationSeconds(raw) {
  return Math.round(n*1000)/1000;
 }
 export function summarizeProcessPage(payload) {
- if(!payload||typeof payload!=='object'||Array.isArray(payload)
-    ||!Array.isArray(payload.processes)||payload.processes.length>100)
+ if(!payload||typeof payload!=='object'||Array.isArray(payload))
    fail('SCHEMA');
+ // Google omits an empty repeated field in some JSON responses. Zero rows
+ // is not evidence that a known trigger completed successfully.
+ const processes=payload.processes===undefined?[]:payload.processes;
+ if(!Array.isArray(processes)||processes.length>100)fail('SCHEMA');
  const out=[];
- for(const entry of payload.processes) {
+ for(const entry of processes) {
   if(!entry||typeof entry!=='object')fail('PROCESS_SCHEMA');
   const alias=ACTIONS.get(entry.functionName);
   if(!alias)continue;
