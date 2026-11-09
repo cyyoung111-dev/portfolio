@@ -1,0 +1,31 @@
+name: issue860-once-close-status-readonly
+on:
+  workflow_dispatch:
+  # The new protected diagnostic self-file is the only automatic trigger.
+  # No schedule, no retry, no GAS writer, and no workbook-wide inventory.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/issue860-once-close-status-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: issue860-once-close-status-readonly
+  cancel-in-progress: false
+jobs:
+  status:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prove one-shot sanitized diagnostic contract offline
+        run: node scripts/check-issue860-close-single-status-readonly.mjs
+      - name: Read exactly one stored GAS close status (no workbook inventory)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue860-close-single-status-readonly.mjs
