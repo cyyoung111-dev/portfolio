@@ -76,6 +76,21 @@ on:
         required: true
         default: false
         type: boolean
+      use_9289_close_perf:
+        description: '9.289 마감 성능·계측 후보; 9.288 배포·거래원장 이관 완료 후에만'
+        required: true
+        default: false
+        type: boolean
+      approve_9289:
+        description: '9.289 별도 수동 실운영 배포 승인 (먼저 dry_run)'
+        required: true
+        default: false
+        type: boolean
+      confirm_9288_migration:
+        description: '실제 9.288 338건 이관·저널 APPLIED 확인 (독립 live GET 필수)'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -158,6 +173,9 @@ jobs:
       GAS_9287_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9287 && 'true' || 'false' }}
       GAS_9288_TRADE_V2: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9288_trade_v2 && 'true' || 'false' }}
       GAS_9288_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9288 && 'true' || 'false' }}
+      GAS_9289_CLOSE_PERF: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9289_close_perf && 'true' || 'false' }}
+      GAS_9289_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9289 && 'true' || 'false' }}
+      GAS_9289_TRADE_V2_VERIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_9288_migration && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -180,10 +198,13 @@ jobs:
       - name: Require clean full GAS deployment inventory before real deploy
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Read-only full deployment inventory on 9.287/9.288 manual dry-run
-        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+      - name: Read-only full deployment inventory on manual candidate dry-run
+        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true' || env.GAS_9289_CLOSE_PERF == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
+      - name: Verify live 9.288 and migrated trade v2 before 9.289 production
+        if: env.GAS_9289_CLOSE_PERF == 'true' && env.GAS_9289_RELEASE_APPROVAL == 'true' && env.GAS_9289_TRADE_V2_VERIFIED == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        run: node scripts/issue860-v9289-trade-v2-live-gate.mjs
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/deploy-gas.mjs
