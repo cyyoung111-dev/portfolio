@@ -176,6 +176,15 @@ for(const c of checks){
    assert.match(verify.run,/git diff --name-only HEAD\^ HEAD/);
    assert.match(verify.run,/CLOSE_SENTINEL_MULTI_COMMIT_REJECTED/);
    assert.match(verify.run,/CLOSE_SENTINEL_FILE_MODE_UNVERIFIED/);
+   assert.match(verify.run,/TZ=Asia\/Seoul date \+%F/,
+     'the independent push cannot arm a stale close date');
+   assert.match(verify.run,/CLOSE_SENTINEL_WRONG_KST_DATE/,
+     'the close sentinel must bind to the actual KST trading day');
+   assert.match(verify.run,/CLOSE_SENTINEL_OTHER_LINES_CHANGED/,
+     'the independent controller may modify only armed=, not other lines');
+   assert.match(verify.run,/CLOSE_SENTINEL_ARMED_FORMAT_INVALID/);
+   assert.match(verify.run,/git show "HEAD\^:\$sentinel"/,
+     'prove the prior sentinel source before accepting the push');
    assert.ok(String(waiting.env.TELEGRAM_CLOSE_SENTINEL_VERIFIED||'')
      .includes('steps.verify_sentinel.outputs.verified'));
    assert.equal(steps.find(step=>step.uses==='actions/checkout@v7').with['fetch-depth'],2);
