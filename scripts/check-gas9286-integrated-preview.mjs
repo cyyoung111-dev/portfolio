@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import {composeGas9286IntegratedPreview} from './compose-gas9286-integrated-preview.mjs';
 import {composeGas9285TradeV2Preview} from './compose-gas9285-trade-v2-preview.mjs';
 import {composeSnapshotBackupReadPreview} from './snapshot-backup-read-optimization-preview.mjs';
+import {composeGas9286SnapshotTimingProbe} from './compose-gas9286-snapshot-timing-probe.mjs';
 const blob=s=>{const b=Buffer.from(s,'utf8');return createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');};
 const {base,candidate,manifest}=composeGas9286IntegratedPreview();
 assert.equal(blob(base),'b5b1c7fd5a27454419ddd6d12ecb20751c207c63');
@@ -79,10 +80,14 @@ for(const name of ['handleSyncTrades','handleGetTrades',
 // Confirm the separately tested backup RPC reduction is included in the
 // nondeployable integrated 9.286 preview, not in approved v9.285.
 const optimizedSnapshotPreview=composeSnapshotBackupReadPreview(stagedFundSource);
-assert.equal(exactFunction(candidate,'_backupSheetBeforeWrite'),
- exactFunction(optimizedSnapshotPreview.source,'_backupSheetBeforeWrite'),
- 'Integrated backup function must match tested source-only optimization');
+const profiledSnapshotPreview=composeGas9286SnapshotTimingProbe(optimizedSnapshotPreview.source);
+for(const name of ['_backupSheetBeforeWrite','writeSnapshotRows'])
+ assert.equal(exactFunction(candidate,name),exactFunction(profiledSnapshotPreview.source,name),
+  'Integrated GAS must match tested source-only optimization and timing profile: '+name);
 assert.ok(manifest.integratedFeatures.includes('backup-read-optimization'));
+assert.ok(manifest.integratedFeatures.includes('snapshot-stage-timing'));
+assert.equal(profiledSnapshotPreview.financeWrites,0);
+assert.equal(profiledSnapshotPreview.productionGasDeployments,0);
 assert.ok(!exactFunction(candidate,'_backupSheetBeforeWrite')
  .includes('var values = rowCount > 0 && colCount > 0 ? sheet.getRange('));
 assert.ok(exactFunction(candidate,'_backupSheetBeforeWrite')
