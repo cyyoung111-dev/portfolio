@@ -3,6 +3,7 @@
 import {createHash} from 'node:crypto';
 import {composeGas9285TradeV2Preview} from './compose-gas9285-trade-v2-preview.mjs';
 import {composeGas9285FundNoopPreview} from './compose-gas9285-fund-noop-preview.mjs';
+import {composeSnapshotBackupReadPreview} from './snapshot-backup-read-optimization-preview.mjs';
 const blob=s=>{const b=Buffer.from(s,'utf8');return createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');};
 function replaceOnce(src,from,to,label){
  if(src.split(from).length!==2)throw Error('GAS9286_ANCHOR_DRIFT:'+label);
@@ -51,10 +52,13 @@ export function composeGas9286IntegratedPreview(){
   "var ISSUE507_GATE_API_VERSION='9.286'",'GATE');
  if(candidate.includes("gasVersion: '9.285'")||candidate.includes("ISSUE507_GATE_API_VERSION='9.285'"))
   throw Error('GAS9286_STALE_VERSION');
+ // Apply the independently tested backup read optimization only to the
+ // integrated 9.286 source-only candidate; never mutate approved 9.285.
+ candidate=composeSnapshotBackupReadPreview(candidate).source;
  return {base:trade.base,candidate,manifest:{
   baseSourceGitBlob:blob(trade.base),candidateSourceGitBlob:blob(candidate),
   parentVersion:'9.284',proposedVersion:'9.286',
-  integratedFeatures:['fund-noop','trade-ledger-v2','fx-source-preservation','receipt','CAS'],
+  integratedFeatures:['fund-noop','trade-ledger-v2','fx-source-preservation','receipt','CAS','backup-read-optimization'],
   tradeLedgerProtocolVersion:2,columns:14,legacy13ColumnWriterExcluded:true,
   status:'SOURCE_PREVIEW_NOT_DEPLOYABLE',productionDeploymentApproved:false,
   requiresReleaseReview:true,requiresProductionMigration:true,
