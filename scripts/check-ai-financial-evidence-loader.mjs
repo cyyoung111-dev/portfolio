@@ -108,4 +108,42 @@ for(const members of [
  assert.throws(()=>decodeFinancialEvidenceZip(zip(members)),'unsafe ZIP entry rejected');
 }
 assert.throws(()=>decodeFinancialEvidenceZip(Buffer.from('not-a-zip')));
-console.log('AI_FINANCIAL_EVIDENCE_LOADER_PASS provenance/duplicate/date/source/zip/FCF/failclosed');
+// An independently verified 07:21 sentinel may recover a delayed GitHub
+// 06:20 schedule without impersonating its archival evidence.
+const sentinelPayload={...payload,captureMode:'SENTINEL_PUSH',
+ capturedAt:'2026-11-08T22:29:00Z'};
+const sentinelList={total_count:1,artifacts:[{
+ id:72,name:'ai-financial-evidence-sentinel-'+day,expired:false,
+ size_in_bytes:1000,workflow_run:{id:82,head_branch:'main',head_sha:sha}
+}]};
+const sentinelRun={...run,id:82,event:'push',
+ created_at:'2026-11-08T22:21:00Z',
+ run_started_at:'2026-11-08T22:22:00Z',
+ updated_at:'2026-11-08T22:30:00Z'};
+const sentinelFetch=(theRun=sentinelRun,theList=sentinelList)=>async (url,opts)=>{
+ assert.equal(opts.headers.authorization,'Bearer mock-gh-token');
+ if(url.includes('/actions/artifacts?name=ai-financial-evidence-sentinel-'))
+  return okJson(theList);
+ if(url.includes('/actions/artifacts?'))
+  return okJson({total_count:0,artifacts:[]});
+ if(url.endsWith('/actions/runs/82'))return okJson(theRun);
+ if(url.endsWith('/actions/artifacts/72/zip'))return okZip(Buffer.from('fake zip'));
+ throw Error('Unapproved sentinel endpoint');
+};
+const fallbackLoad=(fetchImpl=sentinelFetch(),p=sentinelPayload)=>load(fetchImpl,{
+ decode:async()=>p});
+assert.deepEqual(await fallbackLoad(),good,
+ 'independent main sentinel artifact must load if schedule did not run');
+assert.equal(await fallbackLoad(sentinelFetch({...sentinelRun,event:'schedule'})),null,
+ 'sentinel artifact cannot claim scheduled provenance');
+assert.equal(await fallbackLoad(sentinelFetch({...sentinelRun,
+ created_at:'2026-11-08T22:40:00Z'})),null,
+ 'late GitHub queued sentinel is rejected');
+assert.equal(await fallbackLoad(sentinelFetch(sentinelRun,
+ {...sentinelList,total_count:2})),null,'duplicate sentinel artifacts rejected');
+assert.equal(await fallbackLoad(sentinelFetch(),{...sentinelPayload,
+ captureMode:undefined}),null,'scheduled payload cannot masquerade as sentinel');
+assert.equal(await fallbackLoad(sentinelFetch(),{...sentinelPayload,
+ capturedAt:'2026-11-08T22:39:00Z'}),null,'late capture rejected');
+
+console.log('AI_FINANCIAL_EVIDENCE_LOADER_PASS scheduled/sentinel/provenance/duplicate/date/source/zip/FCF/failclosed');

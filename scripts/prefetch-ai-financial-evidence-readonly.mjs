@@ -1,5 +1,5 @@
 // Isolated public SEC/DART evidence prefetch for the next 07:40/17:00 briefings.
-// ONLY an authenticated main/schedule action may write its own Actions artifact.
+// Only an authenticated main schedule or verified dated sentinel push may write its own Actions artifact.
 // No Telegram, GAS, Sheets, portfolio positions, or other financial ledgers.
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
@@ -21,7 +21,7 @@ const strictDay=d=>typeof d==='string'&&DAY.test(d)
 const numeric=n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<1e16;
 const positive=n=>numeric(n)&&n>0;
 const dt=n=>new Date(n);
-export function financialPrefetchWindow(instant){
+export function financialPrefetchWindow(instant,{mode='scheduled'}={}){
  if(!(instant instanceof Date)||!Number.isFinite(instant.getTime()))
   return {allowed:false,date:null,status:'CLOCK_INVALID'};
  const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
@@ -30,8 +30,12 @@ export function financialPrefetchWindow(instant){
  }).formatToParts(instant).map(x=>[x.type,x.value]));
  const date=p.year+'-'+p.month+'-'+p.day;
  const minute=Number(p.hour)*60+Number(p.minute);
- return {date,allowed:minute>=375&&minute<445,
-  status:minute>=375&&minute<445?'IN_WINDOW':'OUTSIDE_PREFETCH_WINDOW'};
+ if(!['scheduled','sentinel'].includes(mode))
+  return {date,allowed:false,status:'PREFETCH_MODE_INVALID'};
+ const min=mode==='sentinel'?440:375; // Sentinel 07:20, scheduled 06:15.
+ const max=mode==='sentinel'?458:445; // Hard stop at 07:38 or 07:25.
+ return {date,allowed:minute>=min&&minute<max,
+  status:minute>=min&&minute<max?'IN_WINDOW':'OUTSIDE_PREFETCH_WINDOW'};
 }
 
 // This schema includes only PUBLIC financial issuer facts, not source tokens.
@@ -50,9 +54,14 @@ export function verifyFinancialPrefetchArtifact(date,payload,{now=new Date(),
   ||payload.evidence.domesticSessionDate!==null
   ||payload.evidence.kind!=='AI_FINANCIAL_EVIDENCE_READ_ONLY')
   return null;
+ // The independent 07:21 main sentinel is a different, explicitly marked
+ // artifact. Never let a stale scheduled snapshot masquerade as sentinel data.
+ if(payload.captureMode!==undefined&&payload.captureMode!=='SENTINEL_PUSH')
+  return null;
+ const sentinel=payload.captureMode==='SENTINEL_PUSH';
  const captured=Date.parse(payload.capturedAt);
- const lower=Date.parse(date+'T06:15:00+09:00');
- const upper=Date.parse(date+'T07:25:00+09:00');
+ const lower=Date.parse(date+(sentinel?'T07:20:00+09:00':'T06:15:00+09:00'));
+ const upper=Date.parse(date+(sentinel?'T07:38:00+09:00':'T07:25:00+09:00'));
  if(!Number.isFinite(captured)||captured<lower||captured>=upper
   ||captured>now.getTime()
   ||now.getTime()>=Date.parse(date+'T18:01:00+09:00'))
@@ -115,9 +124,9 @@ export function verifyFinancialPrefetchArtifact(date,payload,{now=new Date(),
 }
 
 export async function prefetchAiFinancialEvidence({
- now=()=>new Date(),collector=collectAiFinancialEvidence
+ now=()=>new Date(),collector=collectAiFinancialEvidence,mode='scheduled'
 }={}){
- const first=financialPrefetchWindow(now());
+ const first=financialPrefetchWindow(now(),{mode});
  if(!first.allowed)return {ready:false,status:first.status,date:first.date};
  if(krxSessionStatus(first.date)!=='OPEN')
   return {ready:false,status:'MARKET_NOT_OPEN',date:first.date};
@@ -133,18 +142,19 @@ export async function prefetchAiFinancialEvidence({
    }});
  }catch{return {ready:false,status:'PUBLIC_SOURCE_UNAVAILABLE',
    date:first.date,sourceStatus};}
- const last=financialPrefetchWindow(now());
+ const last=financialPrefetchWindow(now(),{mode});
  if(!last.allowed||last.date!==first.date)return {
   ready:false,status:'PREFETCH_TOO_LATE',date:first.date};
  const payload={schemaVersion:1,date:first.date,
   capturedAt:now().toISOString(),source:'SEC_DART_PUBLIC_READ_ONLY',
-  repository:FINANCIAL_PREFETCH_REPO,evidence};
+  repository:FINANCIAL_PREFETCH_REPO,evidence,
+  ...(mode==='sentinel'?{captureMode:'SENTINEL_PUSH'}:{})};
  const checked=verifyFinancialPrefetchArtifact(first.date,payload,{now:now(),
   expectedUsDate});
  if(!checked)return {ready:false,status:'PUBLIC_EVIDENCE_UNVERIFIED',
   date:first.date,sourceStatus};
  return {ready:true,status:'PREFETCH_VERIFIED',date:first.date,
-  artifactName:'ai-financial-evidence-'+first.date,
+  artifactName:'ai-financial-evidence-'+(mode==='sentinel'?'sentinel-':'')+first.date,
   data:payload,coverage:checked.coverage,sourceStatus};
 }
 
@@ -152,11 +162,15 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
   if(process.env.GITHUB_REPOSITORY!==FINANCIAL_PREFETCH_REPO
    ||process.env.GITHUB_REF!=='refs/heads/main'
-   ||process.env.GITHUB_EVENT_NAME!=='schedule'
+   ||!(process.env.GITHUB_EVENT_NAME==='schedule'
+     ||(process.env.GITHUB_EVENT_NAME==='push'
+       &&process.env.FINANCIAL_SENTINEL_VERIFIED==='true'))
    ||process.env.GITHUB_RUN_ATTEMPT!=='1'
    ||!process.env.GITHUB_OUTPUT)
    throw Error('FINANCIAL_PREFETCH_ACTION_UNAUTHORIZED');
-  const result=await prefetchAiFinancialEvidence();
+  const result=await prefetchAiFinancialEvidence({
+    mode:process.env.GITHUB_EVENT_NAME==='push'?'sentinel':'scheduled'
+  });
   if(result.ready){
    fs.mkdirSync('.ai-financial-evidence',{recursive:true});
    fs.writeFileSync('.ai-financial-evidence/'+FINANCIAL_PREFETCH_FILE,

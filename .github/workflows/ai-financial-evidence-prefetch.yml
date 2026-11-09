@@ -4,17 +4,20 @@ name: AI financial evidence prefetch (read-only)
 on:
   schedule:
     - cron: '20 21 * * 0-4' # 06:20 KST Monday–Friday; after US regular close
+  push:
+    branches: [main]
+    paths: ['ops/telegram-morning-arm-trigger.txt']
 permissions:
   contents: read
 concurrency:
-  group: ai-financial-evidence-prefetch
+  group: ai-financial-evidence-prefetch-${{ github.event_name }}
   cancel-in-progress: false
 jobs:
   collect:
     if: >-
       github.repository == 'cyyoung111-dev/portfolio' &&
       github.ref == 'refs/heads/main' &&
-      github.event_name == 'schedule' &&
+      (github.event_name == 'schedule' || github.event_name == 'push') &&
       github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -22,12 +25,37 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Verify one-file dated sentinel push (no portfolio writes)
+        if: github.event_name == 'push'
+        id: sentinel
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          deny() {
+            echo "FINANCIAL_SENTINEL_DENIED_$1"
+            echo 'verified=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          file='ops/telegram-morning-arm-trigger.txt'
+          today="$(TZ=Asia/Seoul date +%F)"
+          [[ "$PUSH_BEFORE" =~ ^[0-9a-f]{40}$ ]] || deny BEFORE_SHA
+          [[ "$PUSH_BEFORE" == "$(git rev-parse HEAD^)" ]] || deny MULTI_COMMIT
+          [[ "$(git diff --name-only HEAD^ HEAD)" == "$file" ]] || deny NOT_EXACT_FILE
+          [[ "$(git ls-files --stage "$file" | awk '{print $1}')" == '100644' ]] || deny FILE_MODE
+          [[ "$(wc -c < "$file")" -lt 800 ]] || deny FILE_TOO_LARGE
+          [[ "$(grep -Ec '^armed_date=[0-9]{4}-[0-9]{2}-[0-9]{2}$' "$file" || true)" == '1' ]] || deny DATE_FORMAT
+          [[ "$(grep '^armed_date=' "$file" | cut -d= -f2)" == "$today" ]] || deny WRONG_DATE
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
       - name: Fetch public SEC and DART evidence with exact date and filing checks
+        if: github.event_name == 'schedule' || steps.sentinel.outputs.verified == 'true'
         id: evidence
         env:
+          FINANCIAL_SENTINEL_VERIFIED: ${{ steps.sentinel.outputs.verified }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: node scripts/prefetch-ai-financial-evidence-readonly.mjs
