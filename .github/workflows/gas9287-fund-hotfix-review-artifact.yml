@@ -41,3 +41,29 @@ jobs:
           name: gas9287-fund-only-review-${{ github.sha }}
           path: artifacts/gas9287-fund-review/
           retention-days: 30
+
+  live-deployment-readiness:
+    # Once after main merge: inspect production Apps Script project HEAD/deployment.
+    # No Sheets reads, file writes, deployment version minting or publishing.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    needs: source-review
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Inspect pinned deployed GAS source and HEAD only (read-only)
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GAS_DEPLOY_DIAGNOSTIC_ONLY: 'true'
+          GAS_DEPLOY_DRY_RUN: 'true'
+          GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/deploy-gas.mjs
