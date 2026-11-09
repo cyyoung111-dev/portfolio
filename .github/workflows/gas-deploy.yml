@@ -159,9 +159,17 @@ jobs:
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/deploy-gas.mjs
+      # Inspect is a read-only inventory of the CURRENT deployed release;
+      # the Issue860 cutover helper only recognizes historical v9.282 blobs.
+      - name: Inspect current GAS deployment inventory (read-only)
+        if: env.GAS_FIRST_GATE_PHASE == 'inspect' && env.GAS_DEPLOY_DRY_RUN == 'true'
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: First writer gate maintenance cutover (never resumes writers)
-        if: env.GAS_FIRST_GATE_PHASE != 'none'
+        if: env.GAS_FIRST_GATE_PHASE != 'none' && env.GAS_FIRST_GATE_PHASE != 'inspect'
         run: node scripts/issue860-first-cutover.mjs
+      - name: Reject write-enabled inspect
+        if: env.GAS_FIRST_GATE_PHASE == 'inspect' && env.GAS_DEPLOY_DRY_RUN != 'true'
+        run: exit 2
       # A successful deployment must not conceal failure to activate the
       # primary NH price source. Historical readback probes below are optional.
       - name: Activate NH current prices after real GAS deployment
