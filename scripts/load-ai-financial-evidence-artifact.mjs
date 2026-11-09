@@ -12,11 +12,13 @@ const MAX_ZIP=100000,MAX_JSON=45000;
 const TIMEOUT_MS=2200;
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const sha=x=>typeof x==='string'&&/^[0-9a-f]{40}$/.test(x);
-const inWindow=(value,date)=> {
+const inWindow=(value,date,mode='scheduled')=> {
  const ms=Date.parse(value);
+ const lower=mode==='sentinel'?'T07:20:00+09:00':'T06:15:00+09:00';
+ const upper=mode==='sentinel'?'T07:38:00+09:00':'T07:25:00+09:00';
  return Number.isFinite(ms)
-  &&ms>=Date.parse(date+'T06:15:00+09:00')
-  &&ms<Date.parse(date+'T07:25:00+09:00');
+  &&ms>=Date.parse(date+lower)
+  &&ms<Date.parse(date+upper);
 };
 
 // Check the zip entry independently of JSON validation; zip-slip, symlinks,
@@ -62,45 +64,57 @@ export async function loadAiFinancialEvidenceArtifact(date,{
   ||!DAY.test(date)||Number.isNaN(Date.parse(date+'T00:00:00Z'))
   ||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date
   ||krxSessionStatus(date)!=='OPEN')return null;
- try{
-  const at=now();
-  if(!(at instanceof Date)||!Number.isFinite(at.getTime())
-   ||at.getTime()<Date.parse(date+'T07:25:00+09:00')
-   ||at.getTime()>=Date.parse(date+'T18:01:00+09:00'))return null;
-  const artifactName='ai-financial-evidence-'+date;
-  const list=await githubGet(API+'/artifacts?name='+encodeURIComponent(artifactName)+'&per_page=100',
-   {token,fetchImpl});
-  if(list?.total_count!==1||!Array.isArray(list.artifacts)
-   ||list.artifacts.length!==1)return null;
-  const artifact=list.artifacts[0],runId=artifact?.workflow_run?.id;
-  if(artifact?.name!==artifactName||artifact.expired!==false
-   ||!Number.isSafeInteger(artifact.id)||artifact.id<=0
-   ||!Number.isSafeInteger(runId)||runId<=0
-   ||!Number.isInteger(artifact.size_in_bytes)
-   ||artifact.size_in_bytes<=0||artifact.size_in_bytes>MAX_ZIP
-   ||artifact.workflow_run.head_branch!=='main'
-   ||!sha(artifact.workflow_run.head_sha))return null;
-  const run=await githubGet(API+'/runs/'+runId,{token,fetchImpl});
-  if(!run||run.id!==runId||run.name!==FINANCIAL_PREFETCH_WORKFLOW
-   ||run.path!==FINANCIAL_PREFETCH_PATH||run.event!=='schedule'
-   ||run.head_branch!=='main'
-   ||run.head_repository?.full_name!==FINANCIAL_PREFETCH_REPO
-   ||run.repository?.full_name!==FINANCIAL_PREFETCH_REPO
-   ||run.status!=='completed'||run.conclusion!=='success'
-   ||run.run_attempt!==1||run.head_sha!==artifact.workflow_run.head_sha
-   ||!inWindow(run.created_at,date)||!inWindow(run.run_started_at||run.created_at,date)
-   ||!Number.isFinite(Date.parse(run.updated_at))
-   ||Date.parse(run.updated_at)>now().getTime())return null;
-  const archive=await githubGet(API+'/artifacts/'+artifact.id+'/zip',
-   {token,fetchImpl,decode:'zip'});
-  if(!archive)return null;
-  const payload=await decode(archive);
-  if(!payload||typeof payload!=='object'||Array.isArray(payload)
-   ||JSON.stringify(payload).length>MAX_JSON)return null;
-  // The verifier rejects stale/cross-session, invented financial fields,
-  // domestic PBR without same-session NH prices and altered FCF arithmetic.
-  return verifyFinancialPrefetchArtifact(date,payload,{now:now()});
- }catch{
-  return null; // Never fail a punctual market briefing over optional evidence.
+ const at=now();
+ if(!(at instanceof Date)||!Number.isFinite(at.getTime())
+  ||at.getTime()<Date.parse(date+'T07:25:00+09:00')
+  ||at.getTime()>=Date.parse(date+'T18:01:00+09:00'))return null;
+ // Prefer the original scheduled 06:20 evidence when valid. The independent
+ // 07:21 dated push is a separate authenticated fallback artifact, never
+ // allowed to replace valid primary facts with an older or ambiguous copy.
+ for(const mode of ['scheduled','sentinel']){
+  try{
+   const artifactName='ai-financial-evidence-'
+     +(mode==='sentinel'?'sentinel-':'')+date;
+   const list=await githubGet(API+'/artifacts?name='+encodeURIComponent(artifactName)
+     +'&per_page=100',{token,fetchImpl});
+   if(list?.total_count!==1||!Array.isArray(list.artifacts)
+     ||list.artifacts.length!==1)continue;
+   const artifact=list.artifacts[0],runId=artifact?.workflow_run?.id;
+   if(artifact?.name!==artifactName||artifact.expired!==false
+    ||!Number.isSafeInteger(artifact.id)||artifact.id<=0
+    ||!Number.isSafeInteger(runId)||runId<=0
+    ||!Number.isInteger(artifact.size_in_bytes)
+    ||artifact.size_in_bytes<=0||artifact.size_in_bytes>MAX_ZIP
+    ||artifact.workflow_run.head_branch!=='main'
+    ||!sha(artifact.workflow_run.head_sha))continue;
+   const run=await githubGet(API+'/runs/'+runId,{token,fetchImpl});
+   if(!run||run.id!==runId||run.name!==FINANCIAL_PREFETCH_WORKFLOW
+    ||run.path!==FINANCIAL_PREFETCH_PATH
+    ||run.event!==(mode==='sentinel'?'push':'schedule')
+    ||run.head_branch!=='main'
+    ||run.head_repository?.full_name!==FINANCIAL_PREFETCH_REPO
+    ||run.repository?.full_name!==FINANCIAL_PREFETCH_REPO
+    ||run.status!=='completed'||run.conclusion!=='success'
+    ||run.run_attempt!==1||run.head_sha!==artifact.workflow_run.head_sha
+    ||!inWindow(run.created_at,date,mode)
+    ||!inWindow(run.run_started_at||run.created_at,date,mode)
+    ||!Number.isFinite(Date.parse(run.updated_at))
+    ||Date.parse(run.updated_at)>now().getTime())continue;
+   const archive=await githubGet(API+'/artifacts/'+artifact.id+'/zip',
+     {token,fetchImpl,decode:'zip'});
+   if(!archive)continue;
+   const payload=await decode(archive);
+   if(!payload||typeof payload!=='object'||Array.isArray(payload)
+    ||JSON.stringify(payload).length>MAX_JSON
+    ||(mode==='sentinel'?payload.captureMode!=='SENTINEL_PUSH'
+      :payload.captureMode!==undefined))continue;
+   // Strict session/FCF/BPS/source verification is identical for both.
+   const validated=verifyFinancialPrefetchArtifact(date,payload,{now:now()});
+   if(validated)return validated;
+  }catch{
+   // One source becoming unavailable must not hide a valid independent
+   // read-only artifact. Never block the core punctual market briefing.
+  }
  }
+ return null;
 }
