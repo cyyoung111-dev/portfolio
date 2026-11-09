@@ -19,6 +19,8 @@ const checked=(url,options)=>{
  assert.equal(u.searchParams.get('fundCd'),'008942');
  assert.equal(u.searchParams.get('endDate'),'2026-11-09');
  assert.equal(options.method,'GET');
+ assert.equal(options.headers.Accept,'application/json');
+ assert.equal(options.headers.Referer,'https://www.hanwhafund.co.kr/ko/fund/search/008942');
  assert(options.signal);
 };
 let calls=0;
