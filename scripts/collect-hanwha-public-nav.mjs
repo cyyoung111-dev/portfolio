@@ -43,14 +43,25 @@ export async function runPublicHanwhaSource({now=new Date(),fetchImpl=fetch}={})
  const from=new Date(Date.parse(to+'T00:00:00Z')-31*86400000).toISOString().slice(0,10);
  const url=new URL(SOURCE_URL);
  url.search=new URLSearchParams({fundCd:FUND_CD,period:'',startDate:from,endDate:to});
- let response;
- try{
-  response=await fetchImpl(url,{method:'GET',headers:{'User-Agent':'Mozilla/5.0'},
-   signal:AbortSignal.timeout(60000)});
- }catch{
-  throw Error('HANWHA_SOURCE_NETWORK_UNVERIFIED');
+ // A transient GitHub-runner connection failure should not discard a valid
+ // official C-RPe quotation. Retry only transport errors, with a *bounded*
+ // total wait that is shorter than the old single 60s request. HTTP failures
+ // and invalid official responses remain fail-closed, never cross-class data.
+ let response,transportError='HANWHA_SOURCE_NETWORK_UNVERIFIED';
+ for(const timeoutMs of [15000,25000]){
+  try{
+   response=await fetchImpl(url,{method:'GET',headers:{
+    'User-Agent':'Mozilla/5.0','Accept':'application/json',
+    'Referer':'https://www.hanwhafund.co.kr/ko/fund/search/008942'},
+    signal:AbortSignal.timeout(timeoutMs)});
+   break;
+  }catch(error){
+   transportError=error?.name==='TimeoutError'||error?.name==='AbortError'
+    ?'HANWHA_SOURCE_TIMEOUT_UNVERIFIED':'HANWHA_SOURCE_NETWORK_UNVERIFIED';
+  }
  }
- if(!response?.ok)throw Error('HANWHA_SOURCE_HTTP_UNVERIFIED');
+ if(!response)throw Error(transportError);
+ if(!response.ok)throw Error('HANWHA_SOURCE_HTTP_UNVERIFIED');
  let payload;
  try{payload=await response.json();}
  catch{throw Error('HANWHA_SOURCE_JSON_UNVERIFIED');}
