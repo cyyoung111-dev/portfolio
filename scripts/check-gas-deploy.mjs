@@ -115,6 +115,19 @@ assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
 assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
  version:'9.287',eventName:'workflow_run',diagnosticOnly:true}));
 
+// Reviewed v9.288 trade-v2 successor is manual-only despite its source hash.
+for(const mode of [
+  {version:'9.288',eventName:'workflow_run',approved9288:true},
+  {version:'9.288',eventName:'workflow_dispatch',approved9288:false},
+  {version:'9.288',eventName:'workflow_dispatch',approved9287:true},
+  {version:'9.288',eventName:undefined,approved9288:true}
+])assert.throws(()=>assertIssue507ManualReleasePermission(mode),
+  /GAS_9288_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
+  version:'9.288',eventName:'workflow_dispatch',approved9288:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
+  version:'9.288',eventName:'workflow_dispatch',dryRun:true}));
+
 // v9.285 remains manual-only even if its source is later pinned.
 // A checkbox never overrides a reviewed source, deployment inventory,
 // current main SHA or writer gate.
