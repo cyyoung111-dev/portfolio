@@ -357,7 +357,7 @@ assert.deepEqual(workflow.on.workflow_dispatch.inputs.first_gate_phase.options,[
 const steps=workflow.jobs.deploy.steps;
 const special=steps.find(s=>s.run==='node scripts/issue860-first-cutover.mjs');
 assert.equal(special.if,"env.GAS_FIRST_GATE_PHASE != 'none' && env.GAS_FIRST_GATE_PHASE != 'inspect'");
-const inspect=steps.find(s=>s.run==='node scripts/issue507-deployment-inventory-readonly.mjs');
+const inspect=steps.find(s=>s.name==='Inspect current GAS deployment inventory (read-only)');
 assert.equal(inspect.if,"env.GAS_FIRST_GATE_PHASE == 'inspect' && env.GAS_DEPLOY_DRY_RUN == 'true'");
 assert.equal(inspect['continue-on-error'],undefined);
 const rejectInspect=steps.find(s=>s.name==='Reject write-enabled inspect');
