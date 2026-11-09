@@ -35,7 +35,8 @@ const sample=Array.from({length:338},(_,i)=>[
 const value=x=>x===undefined||x===null?'':x;
 function setup(){
  const originals=[headers.slice(),...sample.map(x=>x.slice())],
-       sheets=[],propsMap={issue507_writer_gate_v1:JSON.stringify({mode:'OPEN',active:{}})};
+       sheets=[],propsMap={SS_ID:'book-verified-338',
+        issue507_writer_gate_v1:JSON.stringify({mode:'OPEN',active:{}})};
  let mutations=0,backups=0,lockBusy=false,failAfterTwo=false,flushCount=0;
  const context={};
  const ss={getId:()=> 'book-verified-338',
@@ -252,6 +253,38 @@ run('foreign ID modification prevents recovery of ambiguous L:N',()=>{
  // audit; fixture clears it to prove the staged recovery may resume.
  outside.original._put(2,14,'');
  assert.equal(outside.ctx.runTradeV2MigrationRestore().status,'ok');
+});
+const wrongBinding=setup();
+run('preflight refuses active sheet inconsistent with configured GAS SS_ID',()=>{
+ wrongBinding.props.setProperty('SS_ID','different-book');
+ const denied=wrongBinding.ctx.runTradeV2MigrationPreflight();
+ assert.equal(denied.errorCode,'TRADE_V2_MIGRATION_SSID_CONFIG_MISMATCH');
+ assert.equal(wrongBinding.counts.backups,0);
+ assert.equal(wrongBinding.counts.mutations,0);
+});
+const badIsolation=setup(),pIsolation=badIsolation.ctx.runTradeV2MigrationPreflight();
+run('writer isolation attestation cannot be omitted',()=>{
+ badIsolation.approve('APPLY',pIsolation);
+ const obj=JSON.parse(badIsolation.props.getProperty('trade_v2_migration_approval_v1'));
+ obj.writerIsolationConfirmed=false;
+ badIsolation.props.setProperty('trade_v2_migration_approval_v1',JSON.stringify(obj));
+ assert.equal(badIsolation.ctx.runTradeV2MigrationApply().errorCode,
+  'TRADE_V2_MIGRATION_APPROVAL_REQUIRED');
+ assert.equal(badIsolation.counts.backups,0);
+});
+const backupTamper=setup(),pTamper=backupTamper.ctx.runTradeV2MigrationPreflight();
+run('backup corruption blocks restore and never deletes source',()=>{
+ backupTamper.approve('APPLY',pTamper);backupTamper.fault();
+ assert.equal(backupTamper.ctx.runTradeV2MigrationApply().status,'error');
+ const j=JSON.parse(backupTamper.props.getProperty('trade_v2_migration_journal_v1'));
+ const backup=backupTamper.ss.getSheetByName(j.backupName);
+ backup._put(2,6,8888);
+ backupTamper.approve('RESTORE',pTamper);
+ assert.equal(backupTamper.ctx.runTradeV2MigrationRestore().errorCode,
+  'TRADE_V2_MIGRATION_BACKUP_UNVERIFIED');
+ assert.equal(backupTamper.original.getRange(2,6,1,1).getValues()[0][0],sample[0][5]);
+ backup._put(2,6,sample[0][5]);
+ assert.equal(backupTamper.ctx.runTradeV2MigrationRestore().status,'ok');
 });
 const stale=setup(),pStale=stale.ctx.runTradeV2MigrationPreflight();
 run('stale source edit blocks APPLY before backup or mutation',()=>{
