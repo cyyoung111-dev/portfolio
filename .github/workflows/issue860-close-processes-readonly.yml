@@ -1,0 +1,33 @@
+name: issue860 Nov 9 GAS processes READ ONLY
+on:
+  workflow_dispatch:
+  # Only this workflow's initial main introduction triggers the live GET.
+  # No daily schedule, no GAS invoke and no financial writer.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/issue860-close-processes-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: issue860-close-processes-readonly
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify offline process audit boundaries
+        run: node scripts/check-issue860-close-processes-readonly.mjs
+      - name: GET 2026-11-09 process status only (no data writes)
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue860-close-processes-readonly.mjs
