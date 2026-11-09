@@ -35,7 +35,7 @@ const review={
  sourceSha:manifest.candidateSourceGitBlob,
  verifiedAgainstCurrentStagedSource:gasSourceBlobSha(before)===manifest.parentSourceGitBlob,
  validatedSyntax:true,
- nextStep:'SEPARATE_FULL_SOURCE_PIN_WEB_CONSUMER_DRY_RUN_AND_MANUAL_APPROVAL',
+ nextStep:'DEPLOYMENT_INVENTORY_WRITER_GATE_DRY_RUN_MANUAL_APPROVAL',
  deploymentDecision:'BLOCKED',
  runtimeMeasurements:'NOT_LIVE',
  signedAtRuntime:false,
