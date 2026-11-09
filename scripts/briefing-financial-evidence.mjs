@@ -163,7 +163,7 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
    break;
   lines.push('• '+v);
  }
- const caution='• 5인 관점: FCF·CAPEX는 AI 전용 투자액/소유주이익/ROIC가 아님. FY PBR은 DCF 내재가치가 아니며 CDS 시장 5Y 종가 미확보.';
+ const caution='• 자료 주의: FCF·CAPEX는 AI 전용 투자액이나 소유주이익이 아니며 FY PBR은 내재가치가 아닙니다.';
  if([...lines,caution].join('\n').length<=maxLength)lines.push(caution);
  return lines;
 }
