@@ -1,7 +1,6 @@
 import {krxSessionStatus} from './krx-session-calendar.mjs';
-import {formatHowardMarksView} from './briefing-howard-marks-risk.mjs';
 import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
-import {formatSemiconductorCompanyFiveViews} from './briefing-semiconductor-company-views.mjs';
+import {formatSemiconductorCompanyMetrics} from './briefing-semiconductor-company-views.mjs';
 import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
  from './briefing-yahoo-52week-range.mjs';
 
@@ -180,10 +179,9 @@ function outlook(map) {
     'Bull: 한국 장초반 상승 확산·외국인 수급 동반 시',
     'Bear: VIX 반등·원화 약세·반도체 상대약세 시'];
 }
-// AI value-chain and five-investor frameworks applied to verified previous-session
-// market prices. This is our scenario analysis, never a claim that the investors
-// commented on today's market. CAPEX/orders/valuations are not in this feed.
-function morningAiInvestorLens(map,reportDate,now=null,financialEvidence=null) {
+// Compact, evidence-bounded AI market signals. Investor-specific commentary
+// is omitted to retain sourced market supplements within Telegram limits.
+function morningAiMarketLens(map,reportDate,now=null,financialEvidence=null) {
   const ndx=evidence(map,'NDX'), sox=evidence(map,'SOX'), vix=evidence(map,'VIX');
   const pct=x=>(x>=0?'+':'')+x.toFixed(2)+'%';
   let relative='SOX·NASDAQ100 동시 확정 일봉 부족 → 반도체 상대강도 판단 보류';
@@ -205,10 +203,9 @@ function morningAiInvestorLens(map,reportDate,now=null,financialEvidence=null) {
     '• 종합: '+trend,
     '• 실수요: 빅테크 CAPEX·GPU/HBM 주문·AI 수익화·재고 실측 미연결 → 업황 확정 불가.',
     '',
-    ...formatSemiconductorCompanyFiveViews({
+    ...formatSemiconductorCompanyMetrics({
       date:reportDate,period:'morning',stocks:[...map.values()],financialEvidence
     }),
-    formatHowardMarksView({vix,expectedDate:expectedMorningDate('VIX',reportDate,now)}),
     ''
   ];
 }
@@ -241,7 +238,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   '■ 7. 수급·유동성 / 체크포인트',
   '고객예탁금·신용잔고: 최신 확정치 미연결 (거래대금은 2항 참조)',
   'FedWatch·Finviz 히트맵·주요 이벤트: 별도 검증 필요','',
-  ...morningAiInvestorLens(map,date,options?.now||null,options?.financialEvidence||null),
+  ...morningAiMarketLens(map,date,options?.now||null,options?.financialEvidence||null),
   '■ 10. 오늘의 시나리오 (조건부, 확률 미산정)',
   ...outlook(map),'',
   '■ QC: 기준 거래일과 일치한 일봉 '+verifiedDisplayed+'/'+MORNING_SERIES.length

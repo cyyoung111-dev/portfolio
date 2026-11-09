@@ -74,31 +74,24 @@ const macros=[
 ];
 const domesticAnalysis=formatAiIndustryCloseLens({date,usDate,nh,domestic,secondary,stocks}).join('\n');
 assert.match(domesticAnalysis,/KOSPI \+2\.24% \/ KOSDAQ \+1\.38% → 양 시장 상승/);
-for(const name of ['버핏','다모다란','애크먼','피터 린치','하워드 막스'])
- assert.ok(domesticAnalysis.includes(name),'investor lens: '+name);
-assert.match(domesticAnalysis,/ROIC.*FCF/);
-assert.match(domesticAnalysis,/PBR·DCF 유보/);
-assert.match(domesticAnalysis,/순현금 98.7조/);
-assert.match(domesticAnalysis,/영업익 YoY/);
-assert.match(domesticAnalysis,/삼성전자·SK하이닉스 5인 정량 관점/);
-assert.match(domesticAnalysis,/하워드 막스: VIX 19\.42 \(전일 \+5\.00%, 변동성 상승\)/);
-assert.match(domesticAnalysis,/5년 CDS·차입만기 미검증/);
+assert.match(domesticAnalysis,/삼성전자·SK하이닉스 정량 지표/);
+assert.match(domesticAnalysis,/BPS·PBR 미확보/);
+assert.doesNotMatch(domesticAnalysis,/5인 정량 관점|• 버핏:|• 애크먼:|• 피터 린치:|• 다모다란:|• 하워드 막스:/);
 const noVixClose=formatAiIndustryCloseLens({date,usDate,nh,domestic,
  secondary:secondary.filter(x=>x.label!=='VIX'),stocks}).join('\n');
-assert.match(noVixClose,/하워드 막스: VIX 동일 거래일 확정치 미확보/);
+assert.doesNotMatch(noVixClose,/하워드 막스:/);
 const wrongDayVixClose=formatAiIndustryCloseLens({date,usDate,nh,domestic,
  secondary:secondary.map(x=>x.label==='VIX'?{...x,date:'2026-10-29'}:x),
  stocks}).join('\n');
-assert.match(wrongDayVixClose,/하워드 막스: VIX 동일 거래일 확정치 미확보/);
+assert.doesNotMatch(wrongDayVixClose,/하워드 막스:/);
 const futureDate='2027-01-05',futureUsDate='2027-01-04';
 const afterEarningsExpiry=formatAiIndustryCloseLens({
  date:futureDate,usDate:futureUsDate,
  secondary:[{label:'VIX',role:'NON_NH_REFERENCE_ONLY',source:'CBOE_VIX_DAILY',
   date:futureUsDate,value:30,changePercent:20}]
 }).join('\n');
-assert.match(afterEarningsExpiry,/하워드 막스: VIX 30\.00 \(전일 \+20\.00%, 변동성 상승\)/);
-assert.match(afterEarningsExpiry,/5년 CDS·차입만기 미검증/);
-assert.doesNotMatch(afterEarningsExpiry,/3Q26\]|삼성전자·SK하이닉스 5인 정량 관점/,
+assert.doesNotMatch(afterEarningsExpiry,/하워드 막스:|정량 지표/);
+assert.doesNotMatch(afterEarningsExpiry,/3Q26\]|삼성전자·SK하이닉스 정량 지표/,
  'do not show expired Q3 issuer metrics as current');
 
 assert.doesNotMatch(wrongDayVixClose,/VIX 19\.42 \(전일/);

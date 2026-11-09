@@ -146,8 +146,8 @@ const morningNoEvidence=formatFullMorningBriefing(asOfKst,null,[],{
 const morningWithEvidence=formatFullMorningBriefing(asOfKst,null,[],{
  now:new Date('2026-11-05T22:40:00Z'),financialEvidence:verified});
 assert.ok(morningWithEvidence.length<=3900);
-assert.match(morningWithEvidence,/삼성전자·SK하이닉스 5인 정량 관점/);
-assert.match(morningWithEvidence,/• 하워드 막스:/);
+assert.match(morningWithEvidence,/삼성전자·SK하이닉스 정량 지표/);
+assert.doesNotMatch(morningWithEvidence,/5인 정량 관점|• 하워드 막스:|• 버핏:/);
 if(morningWithEvidence.includes('■ 공시 재무 근거'))
  assert.match(morningWithEvidence,/미국 TTM 2\/9/);
 else assert.equal(morningWithEvidence,morningNoEvidence,
@@ -171,7 +171,8 @@ assert.equal(formatClose(...closeArgs,{...verified,asOfKst:'2026-11-05'}),
  closeNoEvidence);
 assert.equal(formatClose(...closeArgs,{...verified,usSessionDate:'2026-11-04'}),
  closeNoEvidence);
-assert.match(closeWithEvidence,/• 하워드 막스:/);
+assert.match(closeWithEvidence,/삼성전자·SK하이닉스 정량 지표/);
+assert.doesNotMatch(closeWithEvidence,/5인 정량 관점|• 하워드 막스:|• 버핏:/);
 if(closeWithEvidence.includes('■ 공시 재무 근거'))
  assert.match(closeWithEvidence,/미국 TTM 2\/9/);
 else assert.equal(closeWithEvidence,closeNoEvidence);
@@ -190,4 +191,4 @@ assert.deepEqual(ordered,['DART','TTM','FY'],
  'DART first while SEC readers remain strictly sequential');
 assert.deepEqual(asyncResult.coverage,verified.coverage);
 assert.equal(asyncResult.gasDeployments,0);
-console.log('FINANCIAL_EVIDENCE_BRIEFING_PASS source dates, FCF/PBR, missing, 5-person and length');
+console.log('FINANCIAL_EVIDENCE_BRIEFING_PASS source dates, FCF/PBR, missing, concise metrics and length');

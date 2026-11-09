@@ -1,6 +1,5 @@
 import {selectCurrentFuturesRows} from './closing-current-futures.mjs';
-import {formatHowardMarksView} from './briefing-howard-marks-risk.mjs';
-import {formatSemiconductorCompanyFiveViews} from './briefing-semiconductor-company-views.mjs';
+import {formatSemiconductorCompanyMetrics} from './briefing-semiconductor-company-views.mjs';
 import {validClosingStockReference} from './closing-extra-daily-sources.mjs';
 // Evidence-bounded AI value-chain commentary for the 17:00 closing briefing.
 // Market-price proxies are NOT direct evidence of hyperscaler CAPEX or AI ROI.
@@ -72,16 +71,11 @@ export function formatAiIndustryCloseLens({date,usDate,nh=[],domestic=[],seconda
    +(confirmed.length<4?' 개별주 반응을 업황 확정 근거로 사용하지 않습니다.':' 기업별 실적·수주 확인은 별도 필요합니다.'));
  lines.push('• AI 수요 검증: 빅테크 CAPEX·클라우드 매출·GPU 주문 데이터 미연결.'
    +' AI 설비투자 → HBM/GPU 수요 → 네트워크·광통신·전력·냉각 → AI 소프트웨어 수익화의 연결이 핵심.');
- const companyViews=formatSemiconductorCompanyFiveViews({
+ // Keep exact-date DART BPS/PBR and dated prices, but omit repeated
+ // five-investor narratives so cash market and macro rows remain visible.
+ lines.push(...formatSemiconductorCompanyMetrics({
   date,period:'close',stocks,financialEvidence
- });
- if(companyViews.length)lines.push(...companyViews);
- else{
-  lines.push('■ 투자 판단 — 5인 투자 원칙 적용 (인물의 당일 의견이 아님)');
-  lines.push('• 버핏: ROIC·소유주 FCF, 애크먼: 재무여력·배당·재투자 확인.');
-  lines.push('• 린치: TTM EPS/PER, 다모다란: DCF·PBR, 막스: 반도체 업황·손실 위험 검증 유보.');
- }
- lines.push(formatHowardMarksView({vix,expectedDate:usDate}));
+ }));
  lines.push('■ 조건부 시나리오 · 다음 확인');
  lines.push('• 긍정: 빅테크 CAPEX 대비 AI 매출·FCF가 개선되고 HBM 수주·마진이 유지되면'
    +' 반도체 이익 지속성에 우호적.');

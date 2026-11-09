@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {SEMI_ISSUER_RELEASES,evaluateSemiconductorCompanyViews,
- formatSemiconductorCompanyFiveViews}
+ formatSemiconductorCompanyFiveViews,formatSemiconductorCompanyMetrics}
  from './briefing-semiconductor-company-views.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
@@ -179,12 +179,18 @@ assert.ok(evaluateSemiconductorCompanyViews({date,period:'close',stocks:morningP
  'closing price must have the production stock id and exact same session');
 const marketMorning=formatFullMorningBriefing(date,null,morningPrices,{
  now:new Date('2026-11-06T07:45:00+09:00'),financialEvidence:null});
-assert.match(marketMorning,/삼성전자·SK하이닉스 5인 정량 관점/);
-assert.match(marketMorning,/분기 EPS 11,462/);
+assert.match(marketMorning,/삼성전자·SK하이닉스 정량 지표/);
+assert.doesNotMatch(marketMorning,/5인 정량 관점|• 버핏:|• 다모다란:|• 하워드 막스:/);
+assert.equal(formatSemiconductorCompanyMetrics({
+ date,stocks:morningPrices,financialEvidence:pricedMorning
+}).length,3);
+assert.match(formatSemiconductorCompanyMetrics({
+ date,stocks:morningPrices,financialEvidence:pricedMorning
+}).join('\n'),/참고 PBR 1\.50배/);
 assert.ok(marketMorning.length<=3900);
 const marketClose=formatClose(date,[],[],[],closingPrices,[],[],[],
  new Date('2026-11-06T17:00:00+09:00'));
-assert.match(marketClose,/삼성전자·SK하이닉스 5인 정량 관점/);
-assert.match(marketClose,/순현금 98.7조/);
+assert.match(marketClose,/삼성전자·SK하이닉스 정량 지표/);
+assert.doesNotMatch(marketClose,/5인 정량 관점|• 버핏:|• 하워드 막스:/);
 assert.ok(marketClose.length<=4000);
-console.log('SEMICONDUCTOR_FIVE_VIEWS_PASS issuer=2 investor_lenses=5 book_price_date=exact no_dart_key=true');
+console.log('SEMICONDUCTOR_METRICS_PASS compact_telegram=true detailed_helper_preserved=true book_price_date=exact');
