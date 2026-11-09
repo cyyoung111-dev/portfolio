@@ -54,11 +54,10 @@ const morningWithout=formatFullMorningBriefing(date,null,morningRows,
 const morningWith=formatFullMorningBriefing(date,null,morningRows,
  {now:morningClock,financialEvidence:financial});
 assert.match(morningWith,/기준 거래일과 일치한 일봉 21\/21/);
-assert.match(morningWith,/삼성전자·SK하이닉스 5인 정량 관점/);
+assert.match(morningWith,/삼성전자·SK하이닉스 정량 지표/);
 assert.match(morningWith,/참고 PBR 1\.50배/);
 assert.match(morningWith,/검증 BPS 100,000원 \/ PBR 2\.00배/);
-assert.match(morningWith,/• 버핏:.*하닉 영업률/);
-assert.match(morningWith,/• 하워드 막스:/);
+assert.doesNotMatch(morningWith,/• 버핏:|• 하워드 막스:|5인 정량 관점/);
 assert.match(morningWith,/■ 공시 재무 근거/);
 assert.match(morningWith,/국내 DART BPS 2\/2/);
 assert.match(morningWith,/삼성전자 보통·우선 합산 참고 BPS/);
@@ -109,7 +108,7 @@ const closingWithout=formatClose(date,nh,secondary,domestic,stocks,macros,
  markets,[],closeClock,rates,vk,null,null,turnover);
 const closingWith=formatClose(date,nh,secondary,domestic,stocks,macros,
  markets,[],closeClock,rates,vk,null,financial,turnover);
-assert.match(closingWith,/삼성전자·SK하이닉스 5인 정량 관점/);
+assert.match(closingWith,/삼성전자·SK하이닉스 정량 지표/);
 assert.match(closingWith,/참고 PBR 1\.50배/);
 assert.match(closingWith,/검증 BPS 100,000원 \/ PBR 2\.00배/);
 assert.match(closingWith,/■ 공시 재무 근거/);
@@ -130,7 +129,7 @@ const sentiment={score:28.5,rating:'fear',weekAgo:41.5,
 const stress=formatClose(date,nh,secondary,domestic,stocks,macros,
  markets,liveFutures,closeClock,rates,vk,sentiment,financial,turnover);
 assert.match(stress,/확보 4\/4/);
-assert.match(stress,/삼성전자·SK하이닉스 5인 정량 관점/);
+assert.match(stress,/삼성전자·SK하이닉스 정량 지표/);
 assert.match(stress,/참고 PBR 1\.50배/);
 assert.match(stress,/PBR 2\.00배/);
 assert.match(stress,/■ 공시 재무 근거/,'fully verified DART+SEC proof must survive 4 fresh futures');
@@ -140,4 +139,4 @@ assert.ok(stress.length<=4000,'full close with fresh futures must fit SEND paylo
 console.log('BRIEFING_DENSE_FINANCIAL_PRIORITY_PASS morning='
  +morningWith.length+'/'+morningWithout.length
  +' close='+closingWith.length+'/'+closingWithout.length
- +' SEC9+DART2+five_lenses=VERIFIED');
+ +' SEC9+DART2+concise_metrics=VERIFIED');
