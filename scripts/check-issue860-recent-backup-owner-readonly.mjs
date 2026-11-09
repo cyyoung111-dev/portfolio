@@ -93,6 +93,32 @@ assert.deepEqual(calls,['getAutomationStatus'],'Never inspect whole workbook whi
 await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async()=>({
  ok:true,json:async()=>({status:'ok',gasVersion:'9.999',automation:{}})
 })}),/ISSUE860_READONLY_PRODUCTION_VERSION_DRIFT/);
+// One-shot transport errors must be classified without leaking exception text,
+// endpoint, token, or mistaking a STATUS timeout for an INVENTORY timeout.
+for(const [errorName,expected] of [
+ ['TimeoutError','TIMEOUT_STATUS'],['AbortError','TIMEOUT_STATUS'],
+ ['Error','NETWORK_STATUS']
+]){
+ let count=0;
+ await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async()=>{
+  count++;
+  throw Object.assign(new Error('DO_NOT_EXPOSE_PRIVATE_REQUEST'),{name:errorName});
+ }}),new RegExp('ISSUE860_READONLY_'+expected));
+ assert.equal(count,1,'Never retry live status after transport failure');
+}
+let inventoryRequests=0;
+await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async(_url,opt)=>{
+ inventoryRequests++;
+ if(opt.body.get('action')==='getAutomationStatus')
+  return {ok:true,json:async()=>({status:'ok',gasVersion:'9.284',automation:{
+   portfolioClose:{stage:'ERROR'}}})};
+ throw Object.assign(new Error('DO_NOT_EXPOSE_PRIVATE_RESPONSE'),{name:'TimeoutError'});
+}}),/ISSUE860_READONLY_TIMEOUT_INVENTORY/);
+assert.equal(inventoryRequests,2,'Only one inventory request following a status check');
+await assert.rejects(()=>run({url:endpoint,token:secret,fetchImpl:async()=>({
+ ok:true,json:async()=>{throw Error('DO_NOT_EXPOSE_PRIVATE_RESPONSE');}
+})}),/ISSUE860_READONLY_JSON_STATUS/);
+
 console.log(JSON.stringify({kind:'ISSUE860_RECENT_BACKUP_READONLY_CONTRACT_PASS',
   count:TARGETS.length,strictTargetLabels:true,rawOwnerIdsExposed:false,
   restoresOrDeletes:false,writerBusyGuard:true,requiresExpectedProductionVersion:true,
