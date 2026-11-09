@@ -161,16 +161,16 @@ jobs:
       - name: Read-only release state before any deployment write
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         run: GAS_DEPLOY_DIAGNOSTIC_ONLY=true node scripts/deploy-gas.mjs
-      - name: Read-only full deployment inventory on 9.287 manual dry-run
-        if: env.GAS_9287_FUND_HOTFIX == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        continue-on-error: true
-        run: node scripts/issue507-deployment-inventory-readonly.mjs
       # Real production changes are blocked when ANY other routed GAS
       # deployment is unverified, public or has an unreviewed version.
       # Exact current v9.281 inventory is BLOCKED: no deploy can start.
       # Dry-run remains available for no-write auth and source checks.
       - name: Require clean full GAS deployment inventory before real deploy
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
+      - name: Read-only full deployment inventory on 9.287 manual dry-run
+        if: env.GAS_9287_FUND_HOTFIX == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
