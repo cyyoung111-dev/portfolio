@@ -84,9 +84,39 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   if(!Number.isSafeInteger(reportedCount)||reportedCount<codes.length)
     throw Error('NH_RUNTIME_READBACK_NH_PRICES_MISSING');
   if(positiveReturned!==codes.length)throw Error('NH_RUNTIME_READBACK_PRICE_MISSING');
-  const diagnostic=await call('diagnoseNhMarketData');
-  report({status:'NH_REGULAR_CLOSE_SAMPLE_READBACK',readOnly:diagnostic?.readOnly===true,quotesConnected:diagnostic?.quotesConnected===true,closes:diagnostic?.closes||{},closeSampleComplete:diagnostic?.closeSampleComplete===true,fullCoverageVerified:false});
-  return {status:'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED',sampleCount:codes.length,legacyProviderRemoved:true,gasVersion:before.gasVersion,registeredUsTarget,fullCoverageVerified:false,closeVerified:false};
+  // At this point exact live NH provider and every sampled price are already
+  // confirmed. diagnoseNhMarketData is a *secondary, read-only* deep probe.
+  // A GAS six-minute timeout or network timeout in that probe must not
+  // retrospectively label a successfully published GAS release as failed.
+  // Preserve incomplete coverage explicitly; never claim EOD validation.
+  let diagnostic;
+  try {
+    diagnostic=await call('diagnoseNhMarketData');
+  } catch (ignored) {
+    report({status:'NH_RUNTIME_DEEP_DIAGNOSTIC_UNAVAILABLE',
+      sampleCount:codes.length,providerConfirmed:true,
+      reason:'SECONDARY_GAS_READ_TIMEOUT_OR_UNAVAILABLE',
+      closeSampleComplete:false,fullCoverageVerified:false});
+    return {status:'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED_DIAGNOSTIC_PENDING',
+      sampleCount:codes.length,legacyProviderRemoved:true,
+      gasVersion:before.gasVersion,registeredUsTarget,
+      fullCoverageVerified:false,closeVerified:false,
+      deepDiagnosticVerified:false};
+  }
+  const diagnosticVerified=diagnostic?.status==='ok'&&diagnostic?.readOnly===true;
+  report({status:'NH_REGULAR_CLOSE_SAMPLE_READBACK',
+    readOnly:diagnostic?.readOnly===true,
+    quotesConnected:diagnostic?.quotesConnected===true,
+    closes:diagnostic?.closes||{},
+    closeSampleComplete:diagnostic?.closeSampleComplete===true,
+    fullCoverageVerified:false});
+  return {status:diagnosticVerified
+      ?'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED'
+      :'NH_ACTIVE_SAMPLE_READBACK_CONFIRMED_DIAGNOSTIC_PENDING',
+    sampleCount:codes.length,legacyProviderRemoved:true,
+    gasVersion:before.gasVersion,registeredUsTarget,
+    fullCoverageVerified:false,closeVerified:false,
+    deepDiagnosticVerified:diagnosticVerified};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
