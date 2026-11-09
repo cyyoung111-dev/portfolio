@@ -10,8 +10,7 @@ const {candidate,manifest}=composeGas9286IntegratedPreview();
 assert.equal(manifest.proposedVersion,'9.286');
 assert.equal(manifest.productionDeploymentApproved,false);
 assert(manifest.integratedFeatures.includes('snapshot-stage-timing'));
-const direct=composeGas9286SnapshotTimingProbe(candidate);
-assert.throws(()=>composeGas9286SnapshotTimingProbe(direct.source),
+assert.throws(()=>composeGas9286SnapshotTimingProbe(candidate),
  /TIMING_PROFILE_ANCHOR_AMBIGUOUS|TIMING_PROFILE_ANCHOR_MISSING/,
  'Refuse duplicate instrumentation');
 function fn(source,name){
