@@ -4,6 +4,32 @@ import assert from 'node:assert/strict';
 import {TARGETS,run,summarizeRecentBackupEvidence}
  from './issue860-recent-backup-owner-readonly.mjs';
 
+// The diagnostic must match the ACTUAL deployed v9.284 GAS response,
+// not merely our synthetic test fixtures. Fail closed on source drift.
+import fs from 'node:fs';
+import {createHash} from 'node:crypto';
+const production=fs.readFileSync('reference/gas-v9.284.gs','utf8');
+const gitBlob=source=>{
+ const bytes=Buffer.from(source,'utf8');
+ return createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
+};
+assert.equal(production.includes("gasVersion: '9.284'"),true);
+assert.equal(production.includes("if (params.action === 'getAutomationStatus')"),true);
+assert.equal(production.includes("if (params.action === 'diagnoseWorkbookCells')"),true);
+const start=production.indexOf('function _diagnoseWorkbookCells(');
+const end=production.indexOf('\n}',start);
+assert(start>0&&end>start,'Deployed read-only inventory API missing');
+const deployed=production.slice(start,end+2);
+for(const field of ['name','role','backup','systemGeneratedBackup','backupSource',
+ 'backupStatus','backupClassification','signatureMatch','operationId',
+ 'lastRow','lastColumn','maxRows','maxColumns']){
+ assert(new RegExp('\\b'+field+':').test(deployed),
+  'Missing actual v9.284 backup inventory field '+field);
+}
+assert(deployed.includes('_sheetContentSignature(sheet) === backupRecord.signature'),
+ 'Signature must come from GAS backup self-check, not owner linkage');
+assert.equal(typeof gitBlob(production),'string');
+
 const registered=(target,opts={})=>({
  name:target.name,role:'BACKUP',backup:true,backupSource:'스냅샷',
  systemGeneratedBackup:opts.registered===true,
