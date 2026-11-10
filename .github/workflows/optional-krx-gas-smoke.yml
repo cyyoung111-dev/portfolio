@@ -1,12 +1,7 @@
 name: KRX and GAS optional indicators read-only smoke
 on:
-  pull_request:
-    paths:
-      - 'scripts/probe-optional-krx-gas-readonly.mjs'
-      - '.github/workflows/optional-krx-gas-smoke.yml'
-      - 'scripts/closing-vkospi-reference.mjs'
-      - 'scripts/closing-krx-turnover.mjs'
-      - 'scripts/telegram-morning-breadth.mjs'
+  # A protected environment cannot be granted to arbitrary PR checks. Run
+  # explicitly on reviewed main only, with read-only producer actions.
   workflow_dispatch:
 permissions:
   contents: read
