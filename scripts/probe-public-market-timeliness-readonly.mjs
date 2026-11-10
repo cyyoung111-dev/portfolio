@@ -1,4 +1,4 @@
-import {qualifyPublicMarketQuote} from './qualify-public-market-session.mjs';
+import {qualifyPublicMarketQuote,qualifyPublicStockDailyReference} from './qualify-public-market-session.mjs';
 // Public market reference reconnaissance only. Never writes finance data or
 // claims a quote is KRX confirmed. All output is schema/date/status metadata.
 const stamp=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',
@@ -17,7 +17,8 @@ const queries=[
  ['NAVER_MOBILE_KOSDAQ','https://m.stock.naver.com/front-api/stock/domestic/basic?code=KOSDAQ&endType=index'],
  ['NAVER_MOBILE_SAMSUNG','https://m.stock.naver.com/front-api/stock/domestic/basic?code=005930&endType=stock'],
  ['NAVER_MOBILE_HYNIX','https://m.stock.naver.com/front-api/stock/domestic/basic?code=000660&endType=stock'],
- ['NAVER_KRX_STOCK_DAY','https://stock.naver.com/api/domestic/detail/005930/siseDay?bizdate='+session.replaceAll('-','')+'&pageSize=5'],
+ ['NAVER_STOCK_DAILY_SAMSUNG','https://m.stock.naver.com/api/stock/005930/price?pageSize=5&page=1'],
+ ['NAVER_STOCK_DAILY_HYNIX','https://m.stock.naver.com/api/stock/000660/price?pageSize=5&page=1'],
  ['NAVER_KOSPI_DAILY','https://m.stock.naver.com/front-api/stock/domestic/index/price/list?code=KOSPI&page=1&pageSize=5'],
  ];
 const safeKeys=o=>o&&typeof o==='object'&&!Array.isArray(o)
@@ -82,7 +83,8 @@ async function probe([id,url]){
     finalHost,result:raw.trimStart().startsWith('<')?'HTML_NOT_JSON':'NOT_JSON',
     durationMs:Date.now()-began};}
   return {id,atKst,http:response.status,type,finalHost,result:'JSON_PARSED',
-    durationMs:Date.now()-began,...inspect(obj)};
+    durationMs:Date.now()-began,...inspect(obj),
+    stockDailyReference:qualifyPublicStockDailyReference(obj,id,session)};
  }catch(err){return {id,atKst,result:
    ['TimeoutError','AbortError'].includes(err?.name)?'TIMEOUT':'NETWORK_FAILURE',
    durationMs:Date.now()-began};}
@@ -95,5 +97,6 @@ for(let i=0;i<queries.length;i+=4){
 console.log(JSON.stringify({kind:'TIMELINESS_CANDIDATES_FINISHED',observedAtKst:stamp(),
  sameDayDirectQuoteSources:results.filter(x=>x.result==='JSON_PARSED'&&x.hasSameDayDirectQuote).length,
  indexCloseReferenceSources:results.filter(x=>x.result==='JSON_PARSED'&&x.indexCloseReferenceCount>0).length,
+ sameDayDailyStockBarSources:results.filter(x=>x.result==='JSON_PARSED'&&x.stockDailyReference?.hasExactDateBar).length,
  jsonCount:results.filter(x=>x.result==='JSON_PARSED').length,
  tested:results.length,priceWrites:0,telegramSends:0,gasWrites:0}));
