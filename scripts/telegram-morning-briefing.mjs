@@ -1,3 +1,4 @@
+import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
@@ -127,9 +128,13 @@ export function formatMorningBriefing(tradingDate, reference, rows,options={}) {
 }
 
 export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
+  const outbound=/^\[한국장 장전 종합 브리핑 \|/.test(message)
+    ?compactBriefingForDelivery(message,{mode:'morning'})
+    :/^\[\d{4}-\d{2}-\d{2} 장후 시장 브리핑\]/.test(message)
+      ?compactBriefingForDelivery(message,{mode:'close'}):message;
   if(!/^\d+:[A-Za-z0-9_-]{20,}$/.test(String(token||''))||! /^-?\d+$/.test(String(chatId||'')))throw new Error('TELEGRAM_CONFIG_INVALID');
   try {
-    const response=await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:String(chatId),text:message,disable_web_page_preview:true}),redirect:'error',signal:AbortSignal.timeout(15000)});
+    const response=await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:String(chatId),text:outbound,disable_web_page_preview:true}),redirect:'error',signal:AbortSignal.timeout(15000)});
     if(!response.ok || (await response.json())?.ok!==true)throw new Error('FAILED');
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
