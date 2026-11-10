@@ -1,4 +1,6 @@
 name: Issue 860 v9.290 predeployment dry-run - READ ONLY
+# 2026-11-11 independent post-07:40 Writer Gate readback after pausing denied
+# script.processes 03:17 schedule. Protected credentialed GETs, no GAS writes.
 on:
   push:
     branches: [main]
