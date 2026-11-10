@@ -233,3 +233,80 @@
 *원본 보존형 정리*이지 정상 완료 증명이나 금융 데이터 복구가 아닙니다.
 GitHub 소스 테스트 PASS만으로 운영 Script Properties가 정리됐다고
 주장하거나 `writerIsolationConfirmed`를 설정해서는 안 됩니다.
+
+
+## 7. 2026-11-10 임시 금융 Writer 중단 승인 — DRAINING 원장 이관 경로
+
+사용자가 포트폴리오 웹앱·GAS 금융 Writer의 일시 중단을 명시적으로 승인했습니다.
+기존 6절의 OPEN 단발복구 방식은 DRAINING에서 실행할 수 없으므로
+**이번 중단을 실행할 경우 반드시 이 절에 따른 전체 경로를 사용**합니다.
+이 기능은 GitHub 비배포 수동 operator 소스만 추가한 것이며
+CI/PR 병합 자체는 운영 속성·GAS 배포·트리거·금융 원장을 바꾸지 않습니다.
+
+1. 같은 Apps Script 프로젝트의 **Issue734_Recovery.gs 전체 내용**을
+   최신 ops/issue734/targeted-timeout-gate-recovery.gs 파일 내용으로
+   교체해 저장합니다. 기존 소스에 추가로 이어붙이거나 Code.gs를 교체하면
+   함수 중복/운영 코드 손상을 초래할 수 있습니다.
+2. 원본 338행, 11열 A:K, Gate OPEN/기존 stale 14건, 이전 잔존 journal
+   없음, 다른 Writer/편집자·외부 배포가 금융 시트를 수정하지 않음을
+   확인합니다. 과거 실행 완료 근거와 **현재 작동 중인 Writer의 배제**는
+   구분해야 합니다. 특히 17:00 장마감 전후는 피합니다.
+3. 편집기에서 **issue734StartWriterMaintenancePause** 1회 실행.
+   스크립트 Lock으로 원 Gate를 별도 속성에 원문 백업한 뒤
+   mode=DRAINING/active=14로 설정합니다. 신규 같은 GAS 프로젝트 Writer는
+   GATE_MAINTENANCE 차단될 수 있고 예약 트리거는 실패로 기록될 수 있습니다.
+   트리거를 삭제하거나 웹앱 배포를 변경하지 않습니다.
+   결과 로그 DRAINING, activeBefore=14, activeAfter=14 확인.
+4. 읽기 전용 getWriterGateStatus로 DRAINING/14를 확인하고 **7분 이상**
+   관찰합니다. 그 후 **issue734PreviewTimedOutGateRecovery**를
+   실행해 MATCHED_BUT_NOT_AUTHORIZED / activeCount=14 /
+   새 originalGateDigest를 확인합니다.
+   기존 OPEN 사전검사 해시를 DRAINING 승인에 재사용하지 않습니다.
+5. 다른 프로젝트/레거시 배포/편집자도 실제로 Writer 경합이 배제됐다는
+   독립 확인 후에만 Script Property **issue734_stale_gate_recovery_approval_v1**
+   (6절 승인 JSON과 동일, 단 최신 digest 및 실제 KST 실행일 사용)을 승인합니다.
+   사실과 다른 externalWritersExcluded=true를 입력해서는 안 됩니다.
+   **issue734CommitTimedOutGateRecovery** 1회 실행 후
+   PRUNED/14 및 Gate DRAINING/active0,
+   원본 Gate 두 백업/감사 속성 보존을 readback 검증합니다.
+6. **issue734DrainedTradeV2Preflight**를 실행해
+   11열, 338건, journal NONE, spreadsheetId, sheetId,
+   sourceDigest, sourceSignature, targetRevision을 새로 확보합니다.
+   기존 OPEN 전용 runTradeV2MigrationPreflight/Apply는 사용하지 않습니다.
+   3절의 승인 스키마를 사용해 Script Property
+   **trade_v2_migration_approval_v1**을 실제 KST 날짜·새 서명·고유
+   operationId로 승인하며, writerIsolationConfirmed=true는 DRAINING 및
+   모든 외부 Writer 격리를 실증한 경우에만 설정합니다.
+7. **issue734DrainedTradeV2Apply** 단 1회 실행.
+   원본 게시 v9.288 이관 본문과 동일한 금융 검증·백업·원장 L:N ID 쓰기
+   경로를 사용하지만 신규 Writer가 차단된 DRAINING/active0 및
+   복구/중단 감사 증거를 추가로 요구합니다.
+   APPLIED, assignedIds=338, backup 보존, A:K 기존 값·수식/원가
+   불변, N 338개 고유 ID, journal APPLIED를 별도로 확인합니다.
+   실패·부분쓰기면 DRAINING 유지, 임의 Apply 재실행/OPEN 강제 금지.
+   4절 별도 Restore 승인 후 **issue734DrainedTradeV2Restore**만 사용합니다.
+8. 확인 완료된 APPLIED 상태에서만
+   **issue734ResumeWritersAfterApplied** 실행.
+   원본 A:K/백업·L:N 338건 재검증, stale Gate audit와 journal 확인,
+   1회성 승인 두 개 폐기 후 Gate OPEN 재개.
+   실행 결과 OPEN/active0/338건 및 실제 웹앱·GAS 예약 기능 정상성을
+   재검증합니다. 원본 백업/감사 속성은 보존합니다.
+
+### 중단을 취소하거나 이관 실패 시
+- **이관 전**, 또는 Restore 이후 journal RESTORED/원본 11열로 돌아온
+  상태에서는 7분 장벽 후 **issue734AbortWriterMaintenancePause**
+  실행을 통해 Gate OPEN 복귀가 가능합니다.
+- 고아 Active 14건 정리 전에 취소하면 기존 14건이 그대로 남습니다.
+  정리한 후 취소하면 Active0 및 기존 11열 상태로 재개합니다.
+- migration journal PREPARED/WRITING/PARTIAL/RESTORING 상태에서는
+  강제 재개를 거부합니다. 원본·독립 backup을 유지하고 Restore가
+  완료된 후에만 재개합니다.
+- 중간 감사 상태 PREPARED/ABORTING/RESUMING 등에서 오류가 발생하면
+  수동 속성 편집/재시도 없이 원본 증거를 보존하고 별도 검토합니다.
+- DRAINING 중 실패한 자동화 예약 실행은 정상 재개 후에도 자동으로
+  재실행된다고 가정하지 않습니다.
+
+**중요:** Github 코드/CI와 별도 운영 Gate 실제 변경 여부를 구분합니다.
+운영 상태가 실제 DRAINING으로 읽히기 전에는 중단 완료를 주장할 수 없으며,
+APPLIED journal과 338개 유일 ID, 원본 A:K 불변, OPEN 재개까지 확인되기
+전에는 이관 완료를 주장할 수 없습니다.
