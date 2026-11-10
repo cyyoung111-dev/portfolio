@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {MORNING_SERIES} from './telegram-morning-report.mjs';
-import {CLOSE_SOURCE_CATALOG,MORNING_NOT_CONNECTED,
+import {CLOSE_SOURCE_CATALOG,MORNING_NOT_CONNECTED,MORNING_OPTIONAL_CONNECTED,
   summarizeCloseCoverage,formatCloseCoverageSummary,
   closeQualityDecision} from './briefing-source-coverage.mjs';
 import {formatClose,prepareClose} from './telegram-close-workflow.mjs';
@@ -33,8 +33,13 @@ assert.deepEqual(summary.core,{verified:6,total:6,domestic:3,us:3});
 assert.deepEqual(summary.reference,{verified:3,total:3});
 assert.equal(summary.groupErrors.length,0);
 assert.equal(closeQualityDecision(summary).fullCoreCoverage,true);
-assert.equal(summary.statuses.filter(x=>x.status==='NOT_CONNECTED').length,
- CLOSE_SOURCE_CATALOG.notConnected.length);
+assert.deepEqual(CLOSE_SOURCE_CATALOG.notConnected,[],
+ 'wired investor flow and KOFIA must not appear as permanently disconnected');
+assert.equal(summary.statuses.filter(x=>x.status==='NOT_CONNECTED').length,0);
+for(const id of ['FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'])
+ assert.equal(summary.statuses.find(x=>x.id===id)?.status,'NO_VERIFIED_ROW',id);
+assert.deepEqual(summary.investors,{verified:0,total:1});
+assert.deepEqual(summary.liquidity,{verified:0,total:2});
 assert.equal(new Set(summary.statuses.map(x=>x.id)).size,summary.statuses.length);
 assert.equal(summary.statuses.some(x=>x.id==='VKOSPI'&&x.status==='NO_VERIFIED_ROW'),true);
 assert.deepEqual(summary.volatility,{verified:0,total:1});
@@ -47,8 +52,20 @@ assert.deepEqual(summary.stocks,{verified:0,total:4});
 assert.deepEqual(summary.macros,{verified:0,total:3});
 const qc=formatCloseCoverageSummary(summary);
 assert.match(qc,/핵심지수 6\/6 \(국내 3\/3 · 미국 3\/3\) · 참고 3\/3/);
-assert.match(qc,/미연결 참고지표: \d+개/);
+assert.doesNotMatch(qc,/미연결 참고지표:/,
+ 'all three optional sources have real read-only collectors');
 assert.match(qc,/미확보: 삼성전자/);
+assert.match(qc,/수급 0\/1 · 시장자금 0\/2/);
+assert.doesNotMatch(qc,/미연결 참고지표: 3개/);
+const cash={source:'KOFIA_FREESIS_PUBLIC',asOfKst:date,
+ deposits:{date,balanceMillion:30000000,derivativesMillion:2000000},
+ margin:{date,balanceMillion:18000000,kospiMillion:10000000,kosdaqMillion:8000000}};
+const cashCoverage=summarizeCloseCoverage(date,{liquidity:cash});
+assert.deepEqual(cashCoverage.liquidity,{verified:2,total:2});
+for(const id of ['INVESTOR_DEPOSITS','MARGIN_BALANCE'])
+ assert.equal(cashCoverage.statuses.find(x=>x.id===id).status,'VERIFIED');
+assert.equal(summarizeCloseCoverage(date,{liquidity:{...cash,
+ asOfKst:prev}}).liquidity.verified,0,'stale session cannot be called verified');
 assert.doesNotMatch(qc,/NO_VERIFIED_ROW|NOT_CONNECTED|FETCH_FAILED/,'internal reason codes must not clutter Telegram');
 assert.ok(!qc.includes('7720.39'),'operational log emits only status not provider numbers');
 assert.ok(formatClose(date,nh,refs,domestic).includes(qc));
@@ -109,6 +126,10 @@ assert.equal(repeatedRates.treasury.verified,0,'ambiguous H.15 must fail closed'
 const meta=JSON.stringify(summary);
 assert.ok(!meta.includes('7720.39')&&!meta.includes('PRIVATE_AUTH_TOKEN'));
 assert.equal(MORNING_SERIES.length,21,'morning inventory remains the existing 21 dated series');
+for(const id of ['FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE']){
+ assert.ok(MORNING_OPTIONAL_CONNECTED.includes(id),id+' has a source reader');
+ assert.ok(!MORNING_NOT_CONNECTED.includes(id),id+' is not disconnected');
+}
 for(const id of MORNING_NOT_CONNECTED)assert.ok(!MORNING_SERIES.some(x=>x.id===id),
  'never call a hard-coded placeholder a verified morning source: '+id);
 const report=fs.readFileSync('scripts/telegram-morning-report.mjs','utf8');
@@ -175,6 +196,9 @@ assert.equal(audit.vkospiStatus,'VERIFIED');
 assert.deepEqual(audit.treasuryRows.map(x=>x.status),Array(3).fill('VERIFIED'));
 assert.deepEqual(audit.failedSourceGroups,[]);
 assert.deepEqual(auditMessages,[audit]);
+assert.deepEqual(audit.nonConnected,[]);
+assert.deepEqual(audit.connectedButNotAudited,
+ ['FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE']);
 assert.equal(audit.financialWrites,0);
 assert.equal(audit.telegramSends,0);
 assert.equal(audit.gasDeployments,0);

@@ -181,7 +181,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  }
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
   secondary,stocks,macros,markets,rates:verifiedRates,vkospi:verifiedVkospi,
-  turnover:verifiedTurnover,expectedUsDate:expectedMorningDate('SPX',date)});
+  turnover:verifiedTurnover,liquidity,investors,
+  expectedUsDate:expectedMorningDate('SPX',date)});
  lines.push('',formatClosingExtra(date,stocks,macros,{omitUs10y:verifiedRates.some(x=>x.id==='UST10Y_FRED'&&
     x.date===expectedMorningDate('SPX',date))}),'',
   formatTreasuryCurve(date,verifiedRates),'',
@@ -331,7 +332,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const coverage=summarizeCloseCoverage(window.date,{nh:verified,domestic:domesticVerified,
-   secondary,stocks,macros,markets,rates,vkospi,turnover,
+   secondary,stocks,macros,markets,rates,vkospi,turnover,liquidity,investors,
    expectedUsDate:expectedMorningDate('SPX',window.date),failedGroups});
   const quality=closeQualityDecision(coverage);
   const after=closeWindow(now());

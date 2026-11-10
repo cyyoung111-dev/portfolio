@@ -1,6 +1,8 @@
 import {validClosingStockReference} from './closing-extra-daily-sources.mjs';
 import {verifyTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
+import {formatInvestorTrends} from './briefing-krx-investor-trends.mjs';
+import {formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 // Read-only coverage inventory. "Connected" means that a production formatter
 // has a validated source path, NOT that the provider returned data today.
 // Never log raw provider bodies, credentials, prices or private portfolio rows.
@@ -26,9 +28,9 @@ const extraMarkets=Object.freeze([
  ['COPPER','구리','HG=F'],['BTC','BTC','BTC-USD']
 ]);
 const turnoverMarkets=Object.freeze([['KOSPI','코스피 거래대금'],['KOSDAQ','코스닥 거래대금']]);
-const unwired=Object.freeze([
-  'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'
-]);
+// These sources are connected to both briefings. Missing today's data is
+// NO_VERIFIED_ROW, never a permanently hard-coded NOT_CONNECTED status.
+const unwired=Object.freeze([]);
 
 export const CLOSE_SOURCE_CATALOG=Object.freeze({
   core:Object.freeze(core.map(([id,label,market])=>Object.freeze({id,label,market,role:'REQUIRED_INDEX'}))),
@@ -46,11 +48,11 @@ export const CLOSE_SOURCE_CATALOG=Object.freeze({
 // NOT imply that an authorized key or same-day observation is available.
 export const MORNING_OPTIONAL_CONNECTED=Object.freeze([
   'US_INDEX_FUTURES','KRX_TURNOVER','MARKET_BREADTH',
-  'VKOSPI','UST2Y','UST3Y','YIELD_SPREAD'
+  'VKOSPI','UST2Y','UST3Y','YIELD_SPREAD',
+  'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
 export const MORNING_NOT_CONNECTED=Object.freeze([
-  'FOREIGN_INSTITUTION_FLOW','ADR20','INVESTOR_DEPOSITS','MARGIN_BALANCE',
-  'FEDWATCH','FINVIZ_HEATMAP','ECONOMIC_EVENTS'
+  'ADR20','FEDWATCH','FINVIZ_HEATMAP','ECONOMIC_EVENTS'
 ]);
 
 const allowedFailureGroups=new Set(['NH','DOMESTIC','SECONDARY','STOCKS','MACROS','MARKETS','VKOSPI','TURNOVER']);
@@ -58,7 +60,7 @@ const validRow=r=>r&&Number.isFinite(r.value)&&r.value>0;
 function state(found,failed){
   return found?'VERIFIED':failed?'FETCH_FAILED':'NO_VERIFIED_ROW';
 }
-export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],rates=[],vkospi=[],turnover=[],expectedUsDate=null,
+export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],rates=[],vkospi=[],turnover=[],liquidity=null,investors=null,expectedUsDate=null,
   failedGroups=[]}={}){
   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)
     ||!Array.isArray(nh)||!Array.isArray(domestic)||!Array.isArray(secondary)
@@ -126,6 +128,19 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
   for(const entry of CLOSE_SOURCE_CATALOG.turnover)
     statuses.push({id:entry.id,role:entry.role,
       status:state(acceptedTurnover.some(x=>x.market===entry.market),failed.has('TURNOVER'))});
+  // Optional, validated public data: a connected source can still be absent
+  // on a particular run or have a published date lag. Do not count a raw HTTP
+  // response as a verified observation.
+  const flowVerified=investors?.date===date&&investors?.mode==='close'
+    &&Boolean(formatInvestorTrends(investors));
+  const cashText=liquidity?.asOfKst===date?formatKofiaLiquidity(liquidity):'';
+  const depositsVerified=cashText.includes('예탁금 ');
+  const marginVerified=cashText.includes('신용융자 ');
+  for(const [id,found] of [
+    ['FOREIGN_INSTITUTION_FLOW',flowVerified],
+    ['INVESTOR_DEPOSITS',depositsVerified],
+    ['MARGIN_BALANCE',marginVerified]
+  ])statuses.push({id,role:'OPTIONAL_REFERENCE',status:state(found,false)});
   for(const id of CLOSE_SOURCE_CATALOG.notConnected)
     statuses.push({id,role:'NOT_CONNECTED',status:'NOT_CONNECTED'});
   const verified=id=>statuses.find(x=>x.id===id)?.status==='VERIFIED';
@@ -141,6 +156,8 @@ export function summarizeCloseCoverage(date,{nh=[],domestic=[],secondary=[],stoc
     treasury:{verified:rateIds.filter(([id])=>verified(id)).length,total:3},
     volatility:{verified:verified('VKOSPI')?1:0,total:1},
     turnover:{verified:turnoverMarkets.filter(([m])=>verified('KRX_TURNOVER_'+m)).length,total:2},
+    investors:{verified:verified('FOREIGN_INSTITUTION_FLOW')?1:0,total:1},
+    liquidity:{verified:['INVESTOR_DEPOSITS','MARGIN_BALANCE'].filter(verified).length,total:2},
     groupErrors:[...failed].sort(),
     statuses,
   };
@@ -153,7 +170,10 @@ export function formatCloseCoverageSummary(coverage){
    ...CLOSE_SOURCE_CATALOG.core,...CLOSE_SOURCE_CATALOG.reference,
    ...CLOSE_SOURCE_CATALOG.extraStocks,...CLOSE_SOURCE_CATALOG.extraMacros,
    ...CLOSE_SOURCE_CATALOG.extraMarkets,...CLOSE_SOURCE_CATALOG.treasuryRates,
-   ...CLOSE_SOURCE_CATALOG.volatility,...CLOSE_SOURCE_CATALOG.turnover
+   ...CLOSE_SOURCE_CATALOG.volatility,...CLOSE_SOURCE_CATALOG.turnover,
+   {id:'FOREIGN_INSTITUTION_FLOW',label:'외국인·기관 수급'},
+   {id:'INVESTOR_DEPOSITS',label:'예탁금'},
+   {id:'MARGIN_BALANCE',label:'신용융자'}
   ].map(x=>[x.id,x.label]));
   const missing=coverage.statuses.filter(x=>x.status!=='VERIFIED'
     &&x.status!=='NOT_CONNECTED').map(x=>displayNames[x.id]||x.id);
@@ -166,11 +186,13 @@ export function formatCloseCoverageSummary(coverage){
       +' · 원자재/BTC '+coverage.markets.verified+'/5'
       +' · 국채금리·스프레드 '+coverage.treasury.verified+'/3'
       +' · VKOSPI '+coverage.volatility.verified+'/1'
-      +' · KRX 거래대금 '+coverage.turnover.verified+'/2',
+      +' · KRX 거래대금 '+coverage.turnover.verified+'/2'
+      +' · 수급 '+coverage.investors.verified+'/1'
+      +' · 시장자금 '+coverage.liquidity.verified+'/2',
     '미확보: '+(missing.length
       ?missing.length<=8?missing.join(' · '):missing.slice(0,8).join(' · ')+' 외 '+(missing.length-8)+'개'
       :'없음'),
-    '미연결 참고지표: '+notConnected+'개 (상세는 시스템 진단 로그)',
+    ...(notConnected?['미연결 참고지표: '+notConnected+'개 (상세는 시스템 진단 로그)']:[]),
   ].join('\n');
 }
 // "READY" remains the existing gate (>= 1 verified core index) until a
