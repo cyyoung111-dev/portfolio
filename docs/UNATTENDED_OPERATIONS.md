@@ -17,7 +17,7 @@
 | 대상 | 실행 위치·인증 | 사람 없이 가능한 범위 | 남는 경계 |
 |---|---|---|---|
 | 매일 수집·마감·재처리 | 기존 GAS 설치형 시간 트리거, 생성자 Google 권한 | 한 번 설치·동의 후 자동 실행, 기존 잠금/큐/재시도 사용 | 권한 철회·할당량·원천 불충분·시간 초과는 별도 장애 |
-| 외부 운영 감시 | GitHub 표준 Linux runner, main 보호 환경 | 기존 02:30 KST KRX 감시 + 03:17 KST Process API 감시 | GitHub 예약 자체 지연/누락/중단 가능 |
+| 외부 운영 감시 | GitHub 표준 Linux runner, main 보호 환경 | 기존 02:30 KST KRX 감시. 03:17 KST Process API 감시는 2026-11-11부터 OAuth scope 미부여로 일시 중단 | GitHub 예약 자체 지연/누락/중단 가능 |
 | Sheets 직접 읽기 | GitHub OIDC → WIF → 전용 서비스 계정 → Sheets API | 사용자 refresh token·서비스 계정 JSON 키 없이 매 실행 단기 토큰 | GCP 프로젝트/IAM/API·대상 시트 공유 최초 설정 필요, 현재 미구현/미활성 |
 | 새 GAS 소스 배포 | Apps Script API + 사용자 OAuth | 최초 동의 후 토큰 자동 교환을 이용한 CI 배포는 가능 | 서비스 계정 지원 안 됨. 현재 안전 정책상 수동 dispatch, 자동 배포 미활성 |
 
@@ -25,7 +25,7 @@
 
 ## 이번에 구현한 자동 감시
 
-기존 `issue-507-worker-execution-audit.yml`을 재사용한다. 별도 서버·도메인·새 credential 없이 병합 뒤 main에서 매일 03:17 KST 실행한다. PR은 합성 계약만 수행하며 실인증 job은 main의 schedule/push/workflow_dispatch만 허용하고 `portfolio-production-gas`를 요구한다.
+기존 `issue-507-worker-execution-audit.yml`을 재사용한다. **2026-11-11 운영 판정: 현재 `CLASPRC_JSON`에서 Google OAuth `https://www.googleapis.com/auth/script.processes` scope가 발급되지 않아 실행기록 API가 403을 반환**했다([실패 run #42922061561](https://github.com/cyyoung111-dev/portfolio/actions/runs/42922061561)). 03:17 KST 예약 실행은 반복 오류를 방지하기 위해 중단했고, PR의 모의 계약 검증과 main 수동 `workflow_dispatch`만 유지한다. 사용자 계정에서 scope 재동의 및 접근 권한 검증 후 일정 복구 여부를 별도로 판단한다. 성공 인증 갱신 전에는 GAS 실행 종료 상태를 확인된 것으로 간주하지 않는다.
 
 `--health-check`는 다음을 비정상 종료와 Step Summary로 드러낸다.
 

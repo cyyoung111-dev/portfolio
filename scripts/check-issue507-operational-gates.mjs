@@ -200,11 +200,13 @@ function verifyMonitor(source){
   const document=YAML.parseDocument(source,{uniqueKeys:true});
   assert.equal(document.errors.length,0);
   const config=document.toJS();
-  assert.deepEqual(config.on.schedule,[{cron:'17 18 * * *'}]);
+  assert.equal(config.on.schedule,undefined, 'missing OAuth process scope disables failing 03:17 schedule');
+  assert.equal(config.on.push,undefined, 'read-only process audit must not auto-run on every main push');
+  assert.equal(config.on.workflow_dispatch,null, 'after OAuth reauthorization operator may run it manually');
   assert.deepEqual(config.permissions,{contents:'read'});
   assert.equal(config.concurrency['cancel-in-progress'],false);
   const job=config.jobs['live-readonly'];
-  assert.equal(job.if,"github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')");
+  assert.equal(job.if,"github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'");
   assert.equal(job.environment,'portfolio-production-gas');
   assert.equal(job.needs,'contract');
   assert.equal(job['timeout-minutes'],4);
@@ -218,7 +220,8 @@ function verifyMonitor(source){
 verifyMonitor(auditWorkflow);
 for(const [before,after] of [
   ['--health-check',''],['portfolio-production-gas','unprotected'],
-  ["github.ref == 'refs/heads/main' && ",''],["17 18 * * *","17 18 * * 1"]
+  ["github.ref == 'refs/heads/main' && ",''],["github.event_name == 'workflow_dispatch'","github.event_name == 'schedule'"],
+  ["  pull_request:\n","  schedule:\n    - cron: '17 18 * * *'\n  pull_request:\n"]
 ]){
   const mutated=auditWorkflow.replace(before,after);
   assert.notEqual(mutated,auditWorkflow);
