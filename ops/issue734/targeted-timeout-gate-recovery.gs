@@ -246,6 +246,11 @@ function issue734ResumeWritersAfterApplied() {
       if(!backup||_sheetContentSignature(backup)!==j.sourceSignature||
          backup.getLastColumn()!==11||backup.getLastRow()!==339)
         throw Error('ISSUE734_RESUME_BACKUP_UNVERIFIED');
+      var originalAK=sh.getRange(1,1,339,11),
+          savedAK=backup.getRange(1,1,339,11);
+      if(JSON.stringify(originalAK.getValues())!==JSON.stringify(savedAK.getValues())||
+         JSON.stringify(originalAK.getFormulas())!==JSON.stringify(savedAK.getFormulas()))
+        throw Error('ISSUE734_RESUME_ORIGINAL_AK_DRIFT');
       if(_tradeV2Revision_(sh.getRange(2,1,338,14).getValues())!==j.targetRevision)
         throw Error('ISSUE734_RESUME_TRADE_ID_DRIFT');
       var ids=sh.getRange(2,14,338,1).getValues().map(function(x){return x[0];});
