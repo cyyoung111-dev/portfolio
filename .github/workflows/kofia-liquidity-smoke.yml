@@ -1,0 +1,23 @@
+name: KOFIA public liquidity read-only smoke
+on:
+  pull_request:
+    paths:
+      - 'scripts/briefing-kofia-liquidity.mjs'
+      - 'scripts/probe-kofia-liquidity-readonly.mjs'
+      - '.github/workflows/kofia-liquidity-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-source-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Probe KOFIA public display feed (read-only; no secrets)
+        run: node scripts/probe-kofia-liquidity-readonly.mjs

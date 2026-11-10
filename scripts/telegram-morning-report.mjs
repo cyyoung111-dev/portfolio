@@ -219,32 +219,29 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST · 기준일별 종가 / 외부 참고값만 출처 표시','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id,options)),
-  (options.supplements?.turnover||'거래대금: 미확보'),
-  (options.supplements?.breadth||'시장폭 A/D: 미확보 · ADR20: 20거래일 시계열 미연결'),
-  '외국인/기관 수급: 미확보 (공식 확정 원천 미연결)','',
+  ...(options.supplements?.turnover?[options.supplements.turnover]:[]),
+  ...(options.supplements?.breadth?[options.supplements.breadth]:[]),'',
   '■ 3. 밤사이 미국장 / 반도체',
   ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id,options)),'',
   '■ 4. 코스피200 야간선물 (06:00)',
   reference && Number.isFinite(reference.value) && reference.value>0
     ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt [06:00 확인 · '+reference.tradingDate+'] · 마지막 체결값, 거래소 정산가 아님'
     :'코스피200 야간선물: 당일 참고값 미확보',
-  (options.supplements?.futures||'미국 선물 ES/NQ/YM/RTY: 장전 실시간 검증값 미확보'),'',
+  ...(options.supplements?.futures?[options.supplements.futures]:[]),'',
   '■ 5. 환율 / 금리 / 변동성',
   ...['USDKRW','DXY','UST10Y'].map(id=>entry(map,id,options)),
-  (options.supplements?.treasury||'미 2·3년물 / 장단기 스프레드: 미확보'),
-  (options.supplements?.vkospi||'VKOSPI: 미확보'),'',
+  ...(options.supplements?.treasury?[options.supplements.treasury]:[]),
+  ...(options.supplements?.vkospi?[options.supplements.vkospi]:[]),'',
   '■ 6. 원자재 / 가상자산',
   ...['WTI','BRENT','GOLD','COPPER','BTC'].map(id=>entry(map,id,options)),'',
-  '■ 7. 수급·유동성 / 체크포인트',
-  '고객예탁금·신용잔고: 최신 확정치 미연결 (거래대금은 2항 참조)',
-  'FedWatch·Finviz 히트맵·주요 이벤트: 별도 검증 필요','',
+  ...(options.supplements?.liquidity
+   ?['■ 7. 시장자금 (공표 기준일)',options.supplements.liquidity,'']:[]),
   ...morningAiMarketLens(map,date,options?.now||null,options?.financialEvidence||null),
   '■ 10. 오늘의 시나리오 (조건부, 확률 미산정)',
-  ...outlook(map),'',
+  ...outlook(map).slice(0,1),'',
   '■ QC: 기준 거래일과 일치한 일봉 '+verifiedDisplayed+'/'+MORNING_SERIES.length
    +' · 야간선물 '+(reference?'확보':'미확보'),
-  '일봉은 각 항목 [날짜] 기준이며 현재가·KRX 공식 정산가와 다릅니다.',
-  '미확보 항목은 원천 갱신 지연 또는 거래일 미검증으로 표기합니다.'];
+  '일봉은 각 항목 [날짜] 기준이며 현재가·KRX 공식 정산가와 다릅니다.'];
   // Keep sentiment optional: the original market report and 07:40 gate take priority.
   const sentiment=formatFearGreed(options?.fearGreed,{now:options?.now||new Date()});
   const insertAt=lines.indexOf('■ 6. 원자재 / 가상자산');
@@ -269,7 +266,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   // verified close, financial evidence, the 21-series QC, or 07:40 delivery.
   const trendLines=formatMorningYahoo52WeekRanges(map,date,
    (id,session)=>expectedMorningDate(id,session,options?.now||null),{maxLines:4});
-  const trendAt=lines.indexOf('■ 7. 수급·유동성 / 체크포인트');
+  const trendAt=lines.indexOf('■ 8. AI 산업·반도체 종합평가 (전일 일봉 기반)');
   if(trendLines.length&&trendAt>=0
     &&lines.join('\n').length+trendLines.join('\n').length+2<=3700)
    lines.splice(trendAt,0,...trendLines,'');

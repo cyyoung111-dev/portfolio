@@ -112,8 +112,8 @@ assert.equal(MORNING_SERIES.length,21,'morning inventory remains the existing 21
 for(const id of MORNING_NOT_CONNECTED)assert.ok(!MORNING_SERIES.some(x=>x.id===id),
  'never call a hard-coded placeholder a verified morning source: '+id);
 const report=fs.readFileSync('scripts/telegram-morning-report.mjs','utf8');
-assert.match(report,/미국 선물 ES\/NQ\/YM\/RTY: 장전 실시간 검증값 미확보/);
-assert.match(report,/고객예탁금·신용잔고: 최신 확정치 미연결/);
+assert.doesNotMatch(report,/미국 선물 ES\/NQ\/YM\/RTY: 장전 실시간 검증값 미확보/);
+assert.doesNotMatch(report,/고객예탁금·신용잔고: 최신 확정치 미연결|FedWatch|Finviz/);
 
 const opts={now,githubToken:'SYNTHETIC_READ_TOKEN',repository:'cyyoung111-dev/portfolio',
   fetchImpl:async url=>{

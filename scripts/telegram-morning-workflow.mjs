@@ -96,6 +96,16 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     financialEvidenceNow:()=>financialState.value,
     referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
     onSourceDiagnostic:entry=>{
+      if(entry?.kind==='MORNING_OPTIONAL_COVERAGE'){
+        const c=entry.coverage||{};
+        const bounds={futures:4,treasury:3,vkospi:1,turnover:2,breadth:2};
+        if(Object.entries(bounds).every(([k,max])=>Number.isInteger(c[k])&&c[k]>=0&&c[k]<=max)
+          &&typeof c.kofiaDeposits==='boolean'&&typeof c.kofiaMargin==='boolean')
+          console.log(JSON.stringify({kind:'MORNING_OPTIONAL_COVERAGE',date:window.date,
+            counts:Object.fromEntries(Object.keys(bounds).map(k=>[k,c[k]])),
+            kofia:{deposits:c.kofiaDeposits,margin:c.kofiaMargin}}));
+        return;
+      }
       if(entry?.kind==='YAHOO_MORNING_DAILY_COVERAGE'){
         const statuses=['PRIMARY_VERIFIED','BACKUP_VERIFIED','BOTH_UNVERIFIED'];
         const reasons=['NO_ROW','UNVERIFIED_DATE_OR_VALUE','REQUEST_THROWN'];

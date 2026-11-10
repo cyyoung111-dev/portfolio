@@ -80,7 +80,7 @@ const rows=[
 ];
 const report=formatFullMorningBriefing(date,ref,rows);
 assert.equal(formatMorningBriefing(date,ref,rows),report);
-for (const part of ['오늘의 결론','전일 한국장','밤사이 미국장','코스피200 야간선물','환율 / 금리','원자재','수급·유동성','오늘의 시나리오','QC'])assert.ok(report.includes(part),part);
+for (const part of ['오늘의 결론','전일 한국장','밤사이 미국장','코스피200 야간선물','환율 / 금리','원자재','오늘의 시나리오','QC'])assert.ok(report.includes(part),part);
 assert.match(report,/위험선호 신호 우세/);
 assert.match(report,/AI 산업·반도체 종합평가/);
 assert.match(report,/■ 삼성전자·SK하이닉스 정량 지표/);
@@ -122,8 +122,8 @@ assert.doesNotMatch(yieldReport,/0\.493%/);
 const scaledYieldReport=formatFullMorningBriefing('2026-11-02',null,
  [{...yieldRow,value:49.29}]);
 assert.match(scaledYieldReport,/미 10년물: 미확보 \(금리 단위 검증 필요\)/);
-assert.match(report,/외국인\/기관.*미확보/);
-assert.match(report,/미국 선물 ES\/NQ\/YM\/RTY: 장전 실시간 검증값 미확보/);
+assert.doesNotMatch(report,/외국인\/기관 수급: 미확보|FedWatch|Finviz/);
+assert.doesNotMatch(report,/미국 선물 ES\/NQ\/YM\/RTY: 장전 실시간 검증값 미확보/);
 assert.match(report,/투자판단|Base:/);
 assert.match(report,/공식 정산가와 다릅니다/);
 assert.ok(report.length<3900);
@@ -214,7 +214,7 @@ const correction=await prepareCorrection({now:()=>new Date('2026-10-30T09:45:00+
 assert.equal(correction.ready,true);
 assert.match(correction.message,/장전 브리핑 정정본/);
 assert.match(correction.message,/오늘의 결론/);
-assert.match(correction.message,/수급·유동성/);
+assert.doesNotMatch(correction.message,/고객예탁금·신용잔고: 최신 확정치 미연결|FedWatch|Finviz/);
 assert.match(correction.message,/900.05pt/);
 assert.ok(correction.seriesCount>=4);
 correctionClaimCount=1;
