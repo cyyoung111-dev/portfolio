@@ -32,6 +32,11 @@ jobs:
           node-version: '24'
       - name: Prove source-date selection and no-write audit contract (offline)
         run: node scripts/check-briefing-source-coverage.mjs
+      - name: Probe historical VKOSPI and KRX turnover via existing GAS (READ ONLY)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/probe-gas-optional-krx-readonly.mjs
       - name: Read current completed-market optional source statuses only
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
@@ -41,4 +46,10 @@ jobs:
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/compare-briefing-krx-prior-readonly.mjs
+        run: |
+          hour="$(TZ=Asia/Seoul date +%H)"
+          if [ "$hour" -ge 16 ]; then
+            node scripts/compare-briefing-krx-prior-readonly.mjs
+          else
+            echo 'KRX_CURRENT_SESSION_COMPARISON_BEFORE_CLOSE_SKIPPED'
+          fi
