@@ -1,7 +1,7 @@
-name: issue860 Nov 9 GAS processes READ ONLY
+name: issue860 Nov 10 GAS processes READ ONLY
 on:
   workflow_dispatch:
-  # Only this workflow's initial main introduction triggers the live GET.
+  # This dedicated main-file change triggers the Nov 10 terminal-state GET.
   # No daily schedule, no GAS invoke and no financial writer.
   push:
     branches: [main]
@@ -25,9 +25,11 @@ jobs:
         with:
           node-version: '24'
       - name: Verify offline process audit boundaries
-        run: node scripts/check-issue860-close-processes-readonly.mjs
-      - name: GET 2026-11-09 process status only (no data writes)
+        run: |
+          node scripts/check-issue860-close-processes-readonly.mjs
+          node scripts/check-issue860-close-processes-20261110-readonly.mjs
+      - name: GET 2026-11-10 process status only (no data writes)
         env:
           GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
-        run: node scripts/issue860-close-processes-readonly.mjs
+        run: node scripts/issue860-close-processes-20261110-readonly.mjs
