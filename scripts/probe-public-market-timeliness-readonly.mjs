@@ -1,3 +1,4 @@
+import {qualifyPublicMarketQuote} from './qualify-public-market-session.mjs';
 // Public market reference reconnaissance only. Never writes finance data or
 // claims a quote is KRX confirmed. All output is schema/date/status metadata.
 const stamp=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',
@@ -31,20 +32,8 @@ function inspect(data){
   let {value,path,depth}=stack.pop();visited++;
   if(!value||typeof value!=='object'||seen.has(value)||depth>7)continue;
   seen.add(value);
-  const code=value.itemCode||value.cd;
-  if(marketRe.test(code)&&quotes.length<12){
-   const exchange=value.stockExchangeType;
-   const status=value.marketStatus;
-   const observed=value.localTradedAt;
-   quotes.push({code,exchange:typeof exchange==='string'&&exchange.length<=30?exchange:null,
-    status:typeof status==='string'&&status.length<=35?status:null,
-    statusCodes:status&&typeof status==='object'?safeKeys(status).slice(0,10):[],
-    at:typeof observed==='string'&&/^20\d{2}-\d{2}-\d{2}T/.test(observed)?observed.slice(0,25):null,
-    type:typeof value.priceDataType==='string'?value.priceDataType.slice(0,35):null,
-    hasClosePrice:value.closePrice!==undefined&&value.closePrice!==null,
-    hasTradingValue:value.accumulatedTradingValue!==undefined||value.aa!==undefined,
-    hasNxtOverlay:Boolean(value.nxtOverMarketPriceInfo)});
-  }
+  const qualified=qualifyPublicMarketQuote(value,session);
+  if(qualified&&quotes.length<12)quotes.push(qualified);
   const entries=Array.isArray(value)?value.slice(0,18).map((v,i)=>[String(i),v])
     :Object.entries(value).slice(0,55);
   for(const [key,v] of entries){
@@ -62,10 +51,14 @@ function inspect(data){
   }
  }
  const uniqDates=[...new Map(dates.map(d=>[d.field+':'+d.value,d])).values()].slice(0,22);
- const timestamps=uniqDates.filter(x=>/20\d{2}[-/.]?\d{2}[-/.]?\d{2}/.test(x.value));
+ // Date markers elsewhere in a payload cannot establish a direct, current
+ // market quote. Especially reject timestamps from nested NXT overlays.
+ const sameDayQuote=quotes.some(x=>x.hasSameDayDirectQuote);
  return {rootKeys,foundMarketIds:[...ids],availableFields:[...valueFields].slice(0,28),
-  dateMarkers:uniqDates,hasSameDayTimestamp:timestamps.some(x=>
-    x.value.replaceAll('/','-').replaceAll('.','-').startsWith(session)),
+  dateMarkers:uniqDates,hasSameDayTimestamp:sameDayQuote,
+  hasSameDayDirectQuote:sameDayQuote,
+  indexCloseReferenceCount:quotes.filter(x=>x.qualification===
+    'INDEX_CLOSE_REFERENCE_NOT_KRX_RECONCILED').length,
   sampleFieldNames:[...keys].slice(0,34),quoteSessionEvidence:quotes,inspectedNodes:visited};
 }
 async function probe([id,url]){
@@ -100,6 +93,7 @@ for(let i=0;i<queries.length;i+=4){
  for(const r of rows){results.push(r);console.log(JSON.stringify({kind:'TIMELINESS_SOURCE_CANDIDATE',...r}));}
 }
 console.log(JSON.stringify({kind:'TIMELINESS_CANDIDATES_FINISHED',observedAtKst:stamp(),
- sameDaySchemaCount:results.filter(x=>x.result==='JSON_PARSED'&&x.hasSameDayTimestamp).length,
+ sameDayDirectQuoteSources:results.filter(x=>x.result==='JSON_PARSED'&&x.hasSameDayDirectQuote).length,
+ indexCloseReferenceSources:results.filter(x=>x.result==='JSON_PARSED'&&x.indexCloseReferenceCount>0).length,
  jsonCount:results.filter(x=>x.result==='JSON_PARSED').length,
  tested:results.length,priceWrites:0,telegramSends:0,gasWrites:0}));
