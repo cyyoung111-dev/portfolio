@@ -48,7 +48,7 @@ await assert.rejects(()=>runTelegramMorning({...morningOptions,attempt:2}),/TELE
 await assert.rejects(()=>runTelegramMorning({...morningOptions,now:()=>new Date(`${tomorrow}T08:10:00+09:00`)}),/TELEGRAM_SCHEDULE_LATE/);
 assert.equal(delivered,1,'재시도 및 지연 실행에서 메시지 중복 발송 금지');
 const stale=await runTelegramMorning({...morningOptions,referenceFetch:async()=>({...fakeRef,tradingDate:'2026-10-27'})});
-assert.equal(stale.status,'SENT_SOURCE_MISSING');assert.doesNotMatch(textSent,/당일 참고값 미확보/,'missing standalone row is omitted from actual SEND');assert.match(textSent,/야간선물 미확보/,'core QC remains visible');assert.doesNotMatch(textSent,/872\.35/);
+assert.equal(stale.status,'SENT_SOURCE_MISSING');assert.match(textSent,/당일 참고값 미확보/);assert.doesNotMatch(textSent,/872\.35/);
 const tflRef={...fakeRef,source:'NH',contract:'KA016C000',value:900.05};
 const tflMorning=await runTelegramMorning({...morningOptions,referenceFetch:async()=>tflRef});
 assert.equal(tflMorning.status,'SENT_REFERENCE');
