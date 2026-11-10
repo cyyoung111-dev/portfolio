@@ -39,6 +39,8 @@ jobs:
           node-version: '24'
       - name: Read public candidate quote schemas and published-date markers
         run: |
+          node --check scripts/qualify-public-market-session.mjs
+          node scripts/check-public-market-session-qualification.mjs
           node --check scripts/probe-public-market-timeliness-readonly.mjs
           node scripts/probe-public-market-timeliness-readonly.mjs
       - name: Verify official US Treasury par-yield curve publication lag (READ ONLY)
