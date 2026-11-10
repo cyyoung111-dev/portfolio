@@ -1,0 +1,49 @@
+name: Issue 734 pinned v9.288 writer gate metadata READ ONLY
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/issue734-gate-status-v9288-readonly.mjs'
+      - 'scripts/check-issue734-gate-status-v9288-readonly.mjs'
+      - '.github/workflows/issue734-gate-status-v9288-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue734-gate-status-v9288-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue734-gate-status-v9288-readonly
+  cancel-in-progress: false
+jobs:
+  source-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate immutable authenticated metadata-only GET
+        run: node scripts/check-issue734-gate-status-v9288-readonly.mjs
+  live-gate-status:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.run_attempt == 1
+    needs: source-check
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 3
+    env:
+      GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+      GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Authenticate and read only writer gate mode and active count
+        run: node scripts/issue734-gate-status-v9288-readonly.mjs
