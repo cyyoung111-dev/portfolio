@@ -1,4 +1,3 @@
-import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
@@ -452,7 +451,6 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       investors:r.investors?.markets?.length||0
     },outgoing);
   }
-  outgoing=compactBriefingForDelivery(outgoing,{mode:'close'});
   await send(token,chatId,outgoing);
   // Only successful sends are logged, and only verified source counts/status.
   // Never include quote values, dates of private records or message content.
