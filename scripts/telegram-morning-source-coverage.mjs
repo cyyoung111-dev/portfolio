@@ -36,7 +36,10 @@ export function inspectMorningMessage(date,message,{now=new Date(date+'T07:40:00
   const bracket=/\[([0-9]{4}-[0-9]{2}-[0-9]{2})(?: · (.+))?\]$/.exec(line);
   const source=bracket?(bracket[2]?SOURCE_LABELS[bracket[2]]:PRIMARY_SOURCE_BY_ID[item.id]):null;
   if(line.includes('미확보')||!bracket||bracket[1]!==expected||!source){
-   statuses.push({id:item.id,status:'NO_VERIFIED_ROW',expectedDate:expected});continue;
+   const reason=line.includes('미확보')?'NO_VERIFIED_ROW'
+    :!bracket?'DATE_OR_SOURCE_MISSING'
+    :bracket[1]!==expected?'SESSION_DATE_MISMATCH':'SOURCE_UNVERIFIED';
+   statuses.push({id:item.id,status:reason,expectedDate:expected});continue;
   }
   statuses.push({id:item.id,status:'VERIFIED',expectedDate:expected,source});
   sourceCounts[source]=(sourceCounts[source]||0)+1;
