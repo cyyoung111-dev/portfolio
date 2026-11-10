@@ -162,6 +162,28 @@ assert.equal(gAfter.finished,727);
 assert.equal(maintenance.values.issue734_writer_pause_before_v1,originalGateRaw);
 assert.equal(JSON.parse(maintenance.values.issue734_writer_gate_repair_audit_v1).status,'PRUNED');
 assert(!maintenance.writes.some(x=>x.key.startsWith('issue507_writer_end_v1_')));
+const legacyAbort=maintenance.context.issue734AbortWriterMaintenancePause();
+assert.equal(legacyAbort.status,'OPEN');
+assert.equal(legacyAbort.activeCount,0);
+assert.equal(JSON.parse(maintenance.values.issue507_writer_gate_v1).mode,'OPEN');
+assert.equal(JSON.parse(maintenance.values.issue734_writer_pause_audit_v1).status,'ABORTED');
+const pauseOnly=makeEnvironment();
+const pauseBefore=pauseOnly.values.issue507_writer_gate_v1;
+pauseOnly.context.issue734StartWriterMaintenancePause();
+pauseOnly.context.Date=AdvancedDate;
+const pauseAbort=pauseOnly.context.issue734AbortWriterMaintenancePause();
+assert.equal(pauseAbort.status,'OPEN');
+assert.equal(pauseAbort.activeCount,14);
+assert.equal(JSON.parse(pauseOnly.values.issue507_writer_gate_v1).mode,'OPEN');
+assert.equal(pauseOnly.values.issue734_writer_pause_before_v1,pauseBefore);
+const interrupted=makeEnvironment();
+interrupted.context.issue734StartWriterMaintenancePause();
+interrupted.context.Date=AdvancedDate;
+interrupted.values.trade_v2_migration_journal_v1=JSON.stringify({status:'WRITING'});
+assert.throws(()=>interrupted.context.issue734AbortWriterMaintenancePause(),
+ /ISSUE734_PAUSE_ABORT_MIGRATION_IN_PROGRESS/);
+assert.equal(JSON.parse(interrupted.values.issue507_writer_gate_v1).mode,'DRAINING');
+
 
 console.log(JSON.stringify({kind:'ISSUE734_TARGETED_RECOVERY_SOURCE_PASS',
  confirmedMatches:14,negativeScenarios:negative,
