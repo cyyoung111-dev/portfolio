@@ -20,6 +20,7 @@ jobs:
     env:
       GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
       GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+      ISSUE734_READINESS_EXPECTED_GAS_VERSION: '9.288'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -27,5 +28,5 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Read actual 9.287 close and 338 legacy trades (2 calls only)
+      - name: Read published 9.288 status and 338 pre-migration trades (2 calls only)
         run: node scripts/issue734-v9288-live-readiness-readonly.mjs
