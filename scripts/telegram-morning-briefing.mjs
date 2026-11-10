@@ -4,6 +4,7 @@ import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {readNhStoredMorningStocks} from './nh-morning-stock-history.mjs';
 import {readFearGreed} from './briefing-fear-greed.mjs';
 import {formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
+import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
  formatMorningVkospi,formatMorningTurnover,formatMorningBreadth} from './telegram-morning-supplements.mjs';
 import {MORNING_SERIES, expectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
@@ -205,6 +206,16 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     ?financialEvidenceNow():financialEvidence;
   const message=formatMorningBriefing(first.date,reference,values,{
     now:now(),fearGreed,supplements,financialEvidence:currentEvidence});
+  const display=summarizeOptionalDelivery('morning',{
+    futures:(supplementRows.futures||[]).length,
+    treasury:(supplementRows.treasury||[]).length,
+    vkospi:(supplementRows.vkospi||[]).length,
+    turnover:(supplementRows.turnover||[]).length,
+    breadth:(supplementRows.breadth||[]).length,
+    liquidity:Number(Boolean(supplementRows.liquidity?.deposits))
+      +Number(Boolean(supplementRows.liquidity?.margin))
+  },message);
+  if(display)try{onSourceDiagnostic(display);}catch{}
   await send(token,chatId,message,{fetchImpl});
   return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,
     referenceSource:reference?.source||'NONE',referenceDate:reference?.tradingDate||null,
