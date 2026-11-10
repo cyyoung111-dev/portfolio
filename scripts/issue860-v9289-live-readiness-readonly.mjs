@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {fetchGoogleAuditToken}
   from './audit-published-gas-gate-readonly.mjs';
 import {assertGasReleaseReady,gasSourceBlobSha,selectServerFile,
-  assertGasProjectFileSet} from './deploy-gas.mjs';
+  assertGasProjectFileSet,deploymentIdFromWebAppUrl} from './deploy-gas.mjs';
 import {inspectGateStatus} from './issue734-gate-status-v9288-readonly.mjs';
 import {verifyIssue8609289TradeV2LiveGate}
   from './issue860-v9289-trade-v2-live-gate.mjs';
@@ -64,6 +64,15 @@ export function classifyProjectFiles({head,published,preferredName=''}) {
   // Never expose OAuth tokens, raw GAS sources, appscript manifest or IDs.
   deploymentPerformed:false,financialWrites:0,propertyWrites:0};
 }
+export function resolveDeploymentId({deploymentId='',webAppUrl}={}) {
+ let derived;
+ try{derived=deploymentIdFromWebAppUrl(webAppUrl);}
+ catch{fail('WEBAPP_DEPLOYMENT_ID_UNVERIFIED');}
+ if(!ID.test(derived))fail('WEBAPP_DEPLOYMENT_ID_INVALID');
+ if(deploymentId && deploymentId!==derived)
+  fail('DEPLOYMENT_ID_URL_MISMATCH');
+ return derived;
+}
 export function judgeReadiness({files,gate,trades}) {
  if(files?.status!=='REVIEWED_9288_READY')
   return {status:'BLOCKED_HEAD_FILE_SET',ready:false};
@@ -80,14 +89,14 @@ export async function runReadiness({
  googleOauth,fetchImpl=fetch,gateInspector=inspectGateStatus,
  tradeInspector=verifyIssue8609289TradeV2LiveGate,report=()=>{}
 }={}){
- if(!ID.test(String(scriptId??''))||!ID.test(String(deploymentId??'')))
-  fail('IDENTITY_INVALID');
+ const resolvedDeploymentId=resolveDeploymentId({deploymentId,webAppUrl});
+ if(!ID.test(String(scriptId??'')))fail('SCRIPT_ID_INVALID');
  if(typeof googleOauth!=='string'||googleOauth.length<20)
   fail('OAUTH_NOT_AUTHORIZED');
  if(typeof webAppUrl!=='string'||!webAppUrl.startsWith('https://script.google.com/macros/s/'))
   fail('WEBAPP_URL_UNVERIFIED');
  const root=API+'/projects/'+encodeURIComponent(scriptId);
- const deployed=await getJson(root+'/deployments/'+encodeURIComponent(deploymentId),
+ const deployed=await getJson(root+'/deployments/'+encodeURIComponent(resolvedDeploymentId),
   googleOauth,fetchImpl);
  const vn=deployed?.deploymentConfig?.versionNumber;
  if(!Number.isSafeInteger(vn)||vn<1||
