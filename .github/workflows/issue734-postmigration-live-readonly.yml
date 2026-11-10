@@ -1,0 +1,50 @@
+name: Issue 734 live trade-v2 protocol after migration (READ ONLY)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/issue734-postmigration-live-readonly.mjs'
+      - 'scripts/check-issue734-postmigration-live-readonly.mjs'
+      - '.github/workflows/issue734-postmigration-live-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue734-postmigration-live-readonly.mjs'
+      - 'scripts/check-issue734-postmigration-live-readonly.mjs'
+      - '.github/workflows/issue734-postmigration-live-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue734-postmigration-protocol-readonly
+  cancel-in-progress: false
+jobs:
+  mock-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: node scripts/check-issue734-postmigration-live-readonly.mjs
+  actual-live-read:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.run_attempt == 1
+    needs: mock-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    environment: portfolio-production-gas
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read postmigration trade IDs and current holdings (NO WRITES)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue734-postmigration-live-readonly.mjs
