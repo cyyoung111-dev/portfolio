@@ -1,53 +1,50 @@
-// Existing KRX/GAS credentials only. Read-only production source diagnosis.
-// Do not print tokens, endpoint URLs, quotes, private financial records or
-// raw API bodies. Fixed completed 2026-11-09 KRX date; no Telegram sends.
-import {readClosingVkospi} from './closing-vkospi-reference.mjs';
-import {readClosingKrxTurnoverFromGas} from './closing-krx-turnover.mjs';
-import {readMorningBreadth,parseKrxBreadth} from './telegram-morning-breadth.mjs';
-const TARGET='2026-11-09',AT=()=>new Date('2026-11-09T17:10:00+09:00');
-const details=[];
-const [vk,turn,breadth]=await Promise.all([
- readClosingVkospi(TARGET,{now:AT,onDiagnostic:d=>details.push(d)})
-   .catch(()=>[]),
- readClosingKrxTurnoverFromGas(TARGET,{now:AT,onDiagnostic:d=>details.push(d)})
-   .catch(()=>[]),
- readMorningBreadth('2026-11-10',{
-   now:()=>new Date('2026-11-10T07:40:00+09:00')
- }).catch(()=>[])
-]);
-console.log(JSON.stringify({kind:'KRX_GAS_OPTIONAL_SOURCE_PROBE',
- targetDate:TARGET,gasUrlConfigured:Boolean(process.env.GAS_WEB_APP_URL),
- gasTokenConfigured:Boolean(process.env.GAS_ACCESS_TOKEN),
- krxKeyConfigured:Boolean(process.env.KRX_AUTH_KEY),
- vkospiCount:vk.length,turnoverCount:turn.length,breadthCount:breadth.length,
- diagnostics:details.filter(x=>['VKOSPI_READ','KRX_TURNOVER_READ'].includes(x?.kind))
-  .map(x=>({kind:x.kind,status:x.status})),writes:0,telegramSends:0}));
+// Existing optional GitHub KRX_AUTH_KEY only. Read-only direct KRX OpenAPI.
+// No GAS credentials, portfolio writes, Telegram, prices or raw API bodies.
+import {parseKrxBreadth} from './telegram-morning-breadth.mjs';
+const DAY='2026-11-09';
 const key=process.env.KRX_AUTH_KEY;
-if(typeof key==='string'&&/^[A-Za-z0-9_-]{16,128}$/.test(key)){
- for(const [market,path] of [
-  ['KOSPI','/svc/apis/sto/stk_bydd_trd'],
-  ['KOSDAQ','/svc/apis/sto/ksq_bydd_trd']
- ]){
-  const info={kind:'KRX_STOCK_BREADTH_CONTRACT',market,date:TARGET};
+const configured=typeof key==='string'&&/^[A-Za-z0-9_-]{16,128}$/.test(key);
+console.log(JSON.stringify({kind:'KRX_OPTIONAL_AUTH_PROBE',targetDate:DAY,
+ configured,financialWrites:0,gasCalls:0,telegramSends:0}));
+if(configured){
+ const endpoints=[
+  ['STOCK_KOSPI','/svc/apis/sto/stk_bydd_trd'],
+  ['STOCK_KOSDAQ','/svc/apis/sto/ksq_bydd_trd'],
+  ['INDEX_KOSPI','/svc/apis/idx/kospi_dd_trd'],
+  ['INDEX_KOSDAQ','/svc/apis/idx/kosdaq_dd_trd'],
+  ['INDEX_KRX','/svc/apis/idx/krx_dd_trd']
+ ];
+ await Promise.all(endpoints.map(async ([id,path])=>{
+  const info={kind:'KRX_OPTIONAL_DIRECT_CONTRACT',id};
+  const url=new URL('https://data-dbg.krx.co.kr'+path);
+  url.searchParams.set('basDd','20261109');
   try{
-   const url=new URL('https://data-dbg.krx.co.kr'+path);
-   url.searchParams.set('basDd','20261109');
    const response=await fetch(url.href,{headers:{AUTH_KEY:key,accept:'application/json'},
-     redirect:'error',signal:AbortSignal.timeout(8000)});
-   info.httpStatus=response.status;
+    redirect:'error',signal:AbortSignal.timeout(7500)});
+   info.http=response.status;
    if(response.ok){
-    const obj=await response.json(),rows=obj?.OutBlock_1;
-    info.topKeys=Object.keys(obj||{}).slice(0,6);
+    const payload=await response.json(),rows=payload?.OutBlock_1;
+    info.topKeys=Object.keys(payload||{}).slice(0,5);
     info.rowCount=Array.isArray(rows)?rows.length:0;
-    info.parserAccepted=Boolean(parseKrxBreadth(TARGET,market,obj));
-    info.firstSchemaKeys=Array.isArray(rows)&&rows.length
-      ?Object.keys(rows[0]).filter(x=>['BAS_DD','ISU_CD','TDD_CLSPRC','CMPPREVDD_PRC'].includes(x)):[];
-    info.invalidDateCount=Array.isArray(rows)?rows.filter(x=>x.BAS_DD!=='20261109').length:null;
-    info.blankCodeCount=Array.isArray(rows)?rows.filter(x=>!x.ISU_CD).length:null;
-    info.duplicateCodeCount=Array.isArray(rows)?rows.length-new Set(rows.map(x=>x.ISU_CD)).size:null;
+    info.allExactDate=Array.isArray(rows)&&rows.length>0
+      &&rows.every(x=>x.BAS_DD==='20261109');
+    if(id.startsWith('STOCK_')){
+      const market=id.slice(6);
+      info.breadthParsed=Boolean(parseKrxBreadth(DAY,market,payload));
+      info.duplicateCodes=Array.isArray(rows)
+        ?rows.length-new Set(rows.map(x=>x.ISU_CD)).size:null;
+      info.missingColumns=Array.isArray(rows)&&rows.length
+        ?['ISU_CD','TDD_CLSPRC','CMPPREVDD_PRC'].filter(k=>!(k in rows[0])):[];
+    }else{
+      info.vkospiLabels=Array.isArray(rows)
+        ?rows.filter(x=>/VKOSPI|코스피 ?200 ?변동성/i.test(String(x.IDX_NM||'')))
+          .length:0;
+      info.hasTurnoverColumn=Array.isArray(rows)&&rows.length
+        ?'ACC_TRDVAL' in rows[0]:false;
+    }
    }
   }catch(e){info.error=['AbortError','TimeoutError'].includes(e?.name)
     ?'TIMEOUT':'NETWORK_OR_RESPONSE';}
   console.log(JSON.stringify(info));
- }
+ }));
 }
