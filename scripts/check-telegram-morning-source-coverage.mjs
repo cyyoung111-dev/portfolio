@@ -41,6 +41,13 @@ const mismatchedMessage=message.replace('■ QC: 기준 거래일과 일치한 �
 assert.equal(inspectMorningMessage(date,mismatchedMessage,{now:now()}).status,'QC_MISMATCH');
 const badSource=message.replace(' · Yahoo 참고]',' · NO_PROOF]');
 assert.equal(inspectMorningMessage(date,badSource,{now:now()}).status,'QC_MISMATCH');
+assert.equal(inspectMorningMessage(date,badSource,{now:now()}).missing[0].reason,
+ 'SOURCE_UNVERIFIED');
+const wrongDate=message.replace(/\[2026-10-30 · Yahoo 참고\]/,
+ '[2026-10-29 · Yahoo 참고]');
+if(wrongDate!==message)
+ assert.equal(inspectMorningMessage(date,wrongDate,{now:now()}).missing[0].reason,
+  'SESSION_DATE_MISMATCH');
 assert.equal(inspectMorningMessage(date,'arbitrary text',{now:now()}),null);
 let messageCreated=0,providerCalls=0;
 const prepared=await prepareMorning({
