@@ -8,7 +8,8 @@ const queries=[
  ['NAVER_POLL_INDEX','https://polling.finance.naver.com/api/realtime?query=SERVICE_INDEX%3AKOSPI%2CKOSDAQ%2CKPI200'],
  ['NAVER_POLL_STOCK','https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM%3A005930%2C000660'],
  ['NAVER_PC_SUMMARY','https://finance.naver.com/main/mainSummary.naver'],
- ['NAVER_V1_INTEGRATED','https://stock.naver.com/api/securityService/integration/v1/indicators?domesticIndexCodes=KOSPI&domesticIndexCodes=KOSDAQ&includeBreadth=true&includeTrend=true'],
+ ['NAVER_V1_KOSPI_BREADTH','https://stock.naver.com/api/securityService/integration/v1/indicators?domesticIndexCodes=KOSPI&includeBreadth=true&includeTrend=true'],
+ ['NAVER_V1_KOSDAQ_BREADTH','https://stock.naver.com/api/securityService/integration/v1/indicators?domesticIndexCodes=KOSDAQ&includeBreadth=true&includeTrend=true'],
  ['NAVER_INDEX_POLL_V2','https://stock.naver.com/api/polling/domestic/index?itemCodes=KOSPI,KOSDAQ,KPI200'],
  ['NAVER_INDEX_MAJOR','https://stock.naver.com/api/securityFe/api/index/majors'],
  ['NAVER_MOBILE_KOSPI','https://m.stock.naver.com/front-api/stock/domestic/basic?code=KOSPI&endType=index'],
@@ -23,13 +24,27 @@ const safeKeys=o=>o&&typeof o==='object'&&!Array.isArray(o)
 const marketRe=/^(?:KOSPI|KOSDAQ|KPI200|005930|000660)$/;
 function inspect(data){
  const rootKeys=safeKeys(data);
- const dates=[],ids=new Set(),valueFields=new Set(),keys=new Set();
+ const dates=[],ids=new Set(),valueFields=new Set(),keys=new Set(),quotes=[];
  const stack=[{value:data,path:'root',depth:0}],seen=new Set();
  let visited=0;
  while(stack.length&&visited<1200){
   let {value,path,depth}=stack.pop();visited++;
   if(!value||typeof value!=='object'||seen.has(value)||depth>7)continue;
   seen.add(value);
+  const code=value.itemCode||value.cd;
+  if(marketRe.test(code)&&quotes.length<12){
+   const exchange=value.stockExchangeType;
+   const status=value.marketStatus;
+   const observed=value.localTradedAt;
+   quotes.push({code,exchange:typeof exchange==='string'&&exchange.length<=30?exchange:null,
+    status:typeof status==='string'&&status.length<=35?status:null,
+    statusCodes:status&&typeof status==='object'?safeKeys(status).slice(0,10):[],
+    at:typeof observed==='string'&&/^20\d{2}-\d{2}-\d{2}T/.test(observed)?observed.slice(0,25):null,
+    type:typeof value.priceDataType==='string'?value.priceDataType.slice(0,35):null,
+    hasClosePrice:value.closePrice!==undefined&&value.closePrice!==null,
+    hasTradingValue:value.accumulatedTradingValue!==undefined||value.aa!==undefined,
+    hasNxtOverlay:Boolean(value.nxtOverMarketPriceInfo)});
+  }
   const entries=Array.isArray(value)?value.slice(0,18).map((v,i)=>[String(i),v])
     :Object.entries(value).slice(0,55);
   for(const [key,v] of entries){
@@ -51,7 +66,7 @@ function inspect(data){
  return {rootKeys,foundMarketIds:[...ids],availableFields:[...valueFields].slice(0,28),
   dateMarkers:uniqDates,hasSameDayTimestamp:timestamps.some(x=>
     x.value.replaceAll('/','-').replaceAll('.','-').startsWith(session)),
-  sampleFieldNames:[...keys].slice(0,34),inspectedNodes:visited};
+  sampleFieldNames:[...keys].slice(0,34),quoteSessionEvidence:quotes,inspectedNodes:visited};
 }
 async function probe([id,url]){
  const began=Date.now(),atKst=stamp();
