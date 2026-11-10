@@ -29,6 +29,30 @@ import {readClosingKrxTurnoverFromGas,verifyOfficialKrxTurnover,formatKrxTurnove
  from './closing-krx-turnover.mjs';
 import {readFearGreed,verifyFearGreed,formatFearGreed,fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
 
+// Fixed-shape read-only source reasons for optional 17:00 market indicators.
+// Never propagate provider text, HTTP bodies, URLs, tokens or financial amounts.
+const CLOSE_OPTIONAL_READ_CODES=Object.freeze({
+ FRED_TREASURY_READ:new Set(['SESSION_UNVERIFIED','HTTP_UNAVAILABLE',
+  'CONTENT_TYPE_INVALID','NO_EXACT_VALID_ROW','PUBLISHED_PRIOR_SESSION',
+  'VERIFIED','NETWORK_OR_PARSE_FAILED']),
+ VKOSPI_READ:new Set(['CONFIG_OR_SESSION_UNVERIFIED','ENDPOINT_INVALID',
+  'HTTP_UNAVAILABLE','GAS_RESPONSE_SCHEMA','GAS_AUTH_REJECTED',
+  'KRX_NO_DATED_VKOSPI_POINT','KRX_KEY_NOT_CONFIGURED',
+  'KRX_KEY_OR_INDEX_PERMISSION_DENIED','KRX_VKOSPI_BATCH_NETWORK_FAILURE',
+  'GAS_STATUS_ERROR','NO_EXACT_VALID_ROW','VERIFIED','NETWORK_OR_PARSE_FAILED']),
+ KRX_TURNOVER_READ:new Set(['CONFIG_OR_SESSION_UNVERIFIED',
+  'ENDPOINT_INVALID','HTTP_UNAVAILABLE','PAYLOAD_INVALID','GAS_EMPTY_ROWS',
+  'NO_EXACT_VALID_ROWS','BOTH_VERIFIED','PARTIAL','NETWORK_OR_PARSE_FAILED'])
+});
+export function sanitizeCloseOptionalSourceReason(raw){
+ if(!raw||typeof raw!=='object'||!Object.hasOwn(CLOSE_OPTIONAL_READ_CODES,raw.kind))return null;
+ const safe={kind:raw.kind,status:CLOSE_OPTIONAL_READ_CODES[raw.kind].has(raw.status)
+   ?raw.status:'OTHER_UNVERIFIED'};
+ if(raw.kind==='FRED_TREASURY_READ'&&
+    ['UST2Y','UST3Y','UST10Y_FRED'].includes(raw.id))safe.id=raw.id;
+ return safe;
+}
+
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
 export function closeWindow(instant){
@@ -301,6 +325,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   let futures=[],rates=[],vkospi=[],turnover=[],liquidity=null,investors=null,fearGreed=null;
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
+  const sourceReasons=[];
+  const onSourceReason=detail=>{
+    const safe=sanitizeCloseOptionalSourceReason(detail);
+    if(safe&&sourceReasons.length<12)sourceReasons.push(safe);
+  };
   const combine=(oldRows,liveRows,key)=>{
    const byKey=new Map(oldRows.map(x=>[x[key],x]));
    for(const x of liveRows)byKey.set(x[key],x);
@@ -329,13 +358,15 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     catch{failedGroups.push('MARKETS');}})(),
    (async()=>{try{futures=await fetchFutures(window.date,{fetchImpl,now});}
     catch{futures=[];}})(),
-   (async()=>{try{rates=verifyTreasuryCurve(window.date,await fetchRates(window.date,{fetchImpl}));}
+   (async()=>{try{rates=verifyTreasuryCurve(window.date,await fetchRates(window.date,{fetchImpl,onDiagnostic:onSourceReason}));}
     catch{rates=[];}})(),
    (async()=>{try{vkospi=verifyClosingVkospi(window.date,
-     await fetchVkospi(window.date,{url:gasUrl,token:gasToken,fetchImpl,now}));}
+     await fetchVkospi(window.date,{url:gasUrl,token:gasToken,fetchImpl,now,
+       onDiagnostic:onSourceReason}));}
     catch{failedGroups.push('VKOSPI');}})(),
    (async()=>{try{turnover=verifyOfficialKrxTurnover(window.date,
-     await fetchTurnover(window.date,{url:gasUrl,token:gasToken,fetchImpl,now}));}
+     await fetchTurnover(window.date,{url:gasUrl,token:gasToken,fetchImpl,now,
+       onDiagnostic:onSourceReason}));}
     catch{turnover=[];failedGroups.push('TURNOVER');}})(),
     (async()=>{fearGreed=await readFearGreed({fetchImpl,now});})(),
     (async()=>{try{liquidity=await fetchLiquidity(window.date,{fetchImpl});}
@@ -343,6 +374,13 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     (async()=>{try{investors=await fetchInvestorFlows(window.date,{mode:'close',fetchImpl,now});}
        catch{investors=null;}})()
   ]);
+  // Real provider reasons remain in Actions logs only; never in Telegram.
+  // A zero count is a genuine missing reading, not proof of a broken provider.
+  console.log(JSON.stringify({kind:'CLOSE_OPTIONAL_SOURCE_READ',date:window.date,
+    futures:futures.length,treasury:rates.length,vkospi:vkospi.length,
+    turnover:turnover.length,investorMarkets:investors?.markets?.length||0,
+    kofiaDeposits:Boolean(liquidity?.deposits),kofiaMargin:Boolean(liquidity?.margin),
+    sourceReasons}));
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const coverage=summarizeCloseCoverage(window.date,{nh:verified,domestic:domesticVerified,
