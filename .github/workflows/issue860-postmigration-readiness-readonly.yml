@@ -1,0 +1,43 @@
+name: Issue 860 postmigration editor cleanup and 9.289 readiness (READ ONLY)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue860-postmigration-readiness-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.repository == 'cyyoung111-dev/portfolio'
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 6
+    # Serialize with protected GAS deployment so metadata cannot be read
+    # during an in-progress release.
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify fail-closed readonly audit contract (offline)
+        run: node scripts/check-issue860-postmigration-editor-readiness-readonly.mjs
+      - name: GET editor/source files, pinned published release, Gate and trade v2 (no writes)
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue860-postmigration-editor-readiness-readonly.mjs
