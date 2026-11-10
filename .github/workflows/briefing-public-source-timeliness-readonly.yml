@@ -40,3 +40,7 @@ jobs:
         run: |
           node --check scripts/probe-public-market-timeliness-readonly.mjs
           node scripts/probe-public-market-timeliness-readonly.mjs
+      - name: Verify official US Treasury par-yield curve publication lag (READ ONLY)
+        run: |
+          node --check scripts/probe-us-treasury-curve-readonly.mjs
+          node scripts/probe-us-treasury-curve-readonly.mjs
