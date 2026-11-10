@@ -202,7 +202,7 @@ function verifyMonitor(source){
   const config=document.toJS();
   assert.equal(config.on.schedule,undefined, 'missing OAuth process scope disables failing 03:17 schedule');
   assert.equal(config.on.push,undefined, 'read-only process audit must not auto-run on every main push');
-  assert.deepEqual(config.on.workflow_dispatch,{}, 'after OAuth reauthorization operator may run it manually');
+  assert.equal(config.on.workflow_dispatch,null, 'after OAuth reauthorization operator may run it manually');
   assert.deepEqual(config.permissions,{contents:'read'});
   assert.equal(config.concurrency['cancel-in-progress'],false);
   const job=config.jobs['live-readonly'];
