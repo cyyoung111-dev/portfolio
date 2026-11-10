@@ -11,6 +11,7 @@ on:
   # No NAV rerun, no Snapshot write, no GAS deploy and no auto retry.
   # No schedule, no retry, no GAS writer, and no workbook-wide inventory.
   # 2026-11-10 post v9.289 publish: exactly one sanitized status GET, no trigger/writer changes.
+  # 2026-11-10 22:22 KST: on-demand single read-only persisted finality check after watchdog.
   push:
     branches: [main]
     paths: ['.github/workflows/issue860-once-close-status-readonly.yml']
