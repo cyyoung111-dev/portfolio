@@ -102,10 +102,12 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,82,
-  'migration inventory: all 82 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,86,
-  'migration inventory: all 86 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,83,
+  'migration inventory: all 83 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,87,
+  'migration inventory: all 87 secret-consuming jobs must be protected');
+assert.ok(protectedWorkflowNames.includes('issue860-postmigration-readiness-readonly.yml'),
+  'postmigration readonly editor-cleanup audit must be Environment-protected');
 assert.ok(protectedWorkflowNames.includes('issue860-v9289-live-readiness-readonly.yml'),
   '9.289 live readiness must use protected production GAS Environment');
 assert.ok(fs.readFileSync(new URL('kb-fund-nav-collect.yml',dir),'utf8').includes('hanwha-collect:'),
