@@ -23,7 +23,7 @@ assert.equal(verifyKrxBreadth(prior,[a,a]).length,0);
 assert.match(formatMorningBreadth(day,[a,b]),/KOSPI 220↑\/110↓\/110→/);
 assert.match(formatMorningBreadth(day,[a,b]),/KOSDAQ 330↑\/165↓\/165→/);
 assert.match(formatMorningBreadth(day,[]),/공식 일봉 미검증/);
-assert.match(formatMorningBreadth(day,[]),/ADR20: 20거래일 시계열 미연결/);
+assert.doesNotMatch(formatMorningBreadth(day,[]),/ADR20: 20거래일 시계열 미연결/);
 assert.equal(calculateAdr20([a,b],'KOSPI'),null);
 const dates=Array.from({length:20},(_,i)=>
  new Date(Date.parse('2026-10-01T00:00:00Z')+i*86400000).toISOString().slice(0,10));
