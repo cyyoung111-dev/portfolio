@@ -20,6 +20,7 @@ function makeEnvironment(options={}){
   ISSUE507_GATE_RELEASE_ID:'test_release',
   _issue507GateAtomic_:fn=>fn(props),
   _issue507GateRead_:p=>JSON.parse(p.getProperty('issue507_writer_gate_v1')),
+  _issue507GateSave_:(p,g)=>p.setProperty('issue507_writer_gate_v1',JSON.stringify(g)),
   _tradeLedgerWriteUnverified_:()=>!!options.unverified,
   _readPendingTradeSnapshotRebuild:()=>!!options.pending,
   getss:()=>({getSheetByName:()=>options.noSheet?null:{
@@ -128,6 +129,40 @@ assert.equal(source.includes("s.active={}"),false);
 assert(source.includes('next.active={}'));
 assert(source.includes('ISSUE734_RECOVERY_APPROVAL_REQUIRED'));
 assert(!source.includes('issue507_writer_end_v1_'+ 'XYZ-SECRET'));
+
+const maintenance=makeEnvironment();
+const originalGateRaw=maintenance.values.issue507_writer_gate_v1;
+const paused=maintenance.context.issue734StartWriterMaintenancePause();
+assert.equal(paused.status,'DRAINING');
+assert.equal(paused.originalGateBackupSaved,true);
+assert.equal(maintenance.values.issue734_writer_pause_before_v1,originalGateRaw);
+assert.equal(JSON.parse(maintenance.values.issue734_writer_pause_audit_v1).status,'PAUSED');
+assert.equal(JSON.parse(maintenance.values.issue507_writer_gate_v1).mode,'DRAINING');
+assert.equal(maintenance.context.issue734StartWriterMaintenancePause===undefined,false);
+assert.throws(()=>maintenance.context.issue734PreviewTimedOutGateRecovery(),
+ /ISSUE734_RECOVERY_PAUSE_UNVERIFIED/);
+// Simulate the independent 7-minute barrier WITHOUT waiting in CI.
+const RealDate=Date;
+class AdvancedDate extends RealDate{static now(){return RealDate.now()+480000;}}
+maintenance.context.Date=AdvancedDate;
+const afterBarrier=maintenance.context.issue734PreviewTimedOutGateRecovery();
+assert.equal(afterBarrier.status,'MATCHED_BUT_NOT_AUTHORIZED');
+const correct=JSON.stringify({
+ approvedFor:'PRUNE_EXACT_14_TIMED_OUT',releaseVersion:'9.288',
+ userApproved:true,externalWritersExcluded:true,approvedDate:'2026-11-10',
+ expectedGateDigest:afterBarrier.originalGateDigest
+});
+maintenance.values.issue734_stale_gate_recovery_approval_v1=correct;
+const corrected=maintenance.context.issue734CommitTimedOutGateRecovery();
+assert.equal(corrected.status,'PRUNED');
+const gAfter=JSON.parse(maintenance.values.issue507_writer_gate_v1);
+assert.equal(gAfter.mode,'DRAINING');
+assert.equal(Object.keys(gAfter.active).length,0);
+assert.equal(gAfter.finished,727);
+assert.equal(maintenance.values.issue734_writer_pause_before_v1,originalGateRaw);
+assert.equal(JSON.parse(maintenance.values.issue734_writer_gate_repair_audit_v1).status,'PRUNED');
+assert(!maintenance.writes.some(x=>x.key.startsWith('issue507_writer_end_v1_')));
+
 console.log(JSON.stringify({kind:'ISSUE734_TARGETED_RECOVERY_SOURCE_PASS',
  confirmedMatches:14,negativeScenarios:negative,
  scriptLockRequired:true,rawGateBackupRequired:true,
