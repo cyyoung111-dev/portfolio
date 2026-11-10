@@ -128,9 +128,13 @@ export function formatMorningBriefing(tradingDate, reference, rows,options={}) {
 }
 
 export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
+  const outbound=/^\[한국장 장전 종합 브리핑 \|/.test(message)
+    ?compactBriefingForDelivery(message,{mode:'morning'})
+    :/^\[\d{4}-\d{2}-\d{2} 장후 시장 브리핑\]/.test(message)
+      ?compactBriefingForDelivery(message,{mode:'close'}):message;
   if(!/^\d+:[A-Za-z0-9_-]{20,}$/.test(String(token||''))||! /^-?\d+$/.test(String(chatId||'')))throw new Error('TELEGRAM_CONFIG_INVALID');
   try {
-    const response=await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:String(chatId),text:message,disable_web_page_preview:true}),redirect:'error',signal:AbortSignal.timeout(15000)});
+    const response=await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:String(chatId),text:outbound,disable_web_page_preview:true}),redirect:'error',signal:AbortSignal.timeout(15000)});
     if(!response.ok || (await response.json())?.ok!==true)throw new Error('FAILED');
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
@@ -208,8 +212,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
   const currentEvidence=typeof financialEvidenceNow==='function'
     ?financialEvidenceNow():financialEvidence;
-  const message=compactBriefingForDelivery(formatMorningBriefing(first.date,reference,values,{
-    now:now(),fearGreed,supplements,financialEvidence:currentEvidence}),{mode:'morning'});
+  const message=formatMorningBriefing(first.date,reference,values,{
+    now:now(),fearGreed,supplements,financialEvidence:currentEvidence});
   const display=summarizeOptionalDelivery('morning',{
     futures:(supplementRows.futures||[]).length,
     treasury:(supplementRows.treasury||[]).length,
