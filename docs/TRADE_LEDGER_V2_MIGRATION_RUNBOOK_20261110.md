@@ -151,3 +151,85 @@
 - 이관 후에도 기존 거래 수정·삭제/PC·모바일 동시편집은 별도 v2
   E2E 검증 후 허용합니다. 이관을 먼저 하자는 요청과 운영 편집
   무결성 보증은 서로 다른 완료 조건입니다.
+
+
+## 6. 11/10 Writer Gate Active 14건 — 별도 수동 복구 후보 (실행 전 독립 승인)
+
+- 사용자 GAS 실행 UI 원본 4개 200행 기록에서 `issue507_writer_gate_v1.active`
+  14건 모두 동일 함수 실행시간 범위에 단일 대응하며 실행 상태는 **14건 모두 TIMEOUT**.
+  일치 근거는 [#734 기록](https://github.com/cyyoung111-dev/portfolio/issues/734#issuecomment-6760454303).
+  이것은 실행이 종료됐다는 독립 증거이며 금융작업이 정상 완료됐다는 뜻은 아님.
+  완료 영수증 속성 `issue507_writer_end_v1_*`은 별도 확인 당시 **0건**.
+- Google `script.processes` API 조회는 [#42753249586](https://github.com/cyyoung111-dev/portfolio/actions/runs/42753249586)에서 실패.
+  [#42761118950](https://github.com/cyyoung111-dev/portfolio/actions/runs/42761118950)은 기존 OAuth에
+  `script.processes` 범위가 없음을 실제로 확인. **이 권한을 새로 요청하지 않고도**
+  UI 종료 증거를 별도 검토할 수 있지만 UID→Gate token 연결은 확정하지 못함.
+- 운영 Gate 최신 실조회 [#42754844673](https://github.com/cyyoung111-dev/portfolio/actions/runs/42754844673):
+  `mode=OPEN`, `activeCount=14`. 이는 *실행 중*을 의미하지 않지만 이관
+  `TRADE_V2_MIGRATION_WRITER_NOT_QUIESCENT` 차단을 의미.
+- **새 복구 함수는 운영 v9.288에 배포되지 않음**.
+  `ops/issue734/targeted-timeout-gate-recovery.gs`는 검증용 소스만 제공.
+  기존 `ops/issue507/writer-gate.gs`, 거래원장 마이그레이션 함수 및 게시된
+  Apps Script 345 코드를 **수정하지 않음**.
+- 정상 종료 영수증을 사후에 위조하거나 `completed`를 거짓으로 증가시키지
+  않고, 14개의 **정확히 일치하는 stale active**만 대상 후보로 삼음.
+  활성/배포/타임스탬프/기존 백업이 바뀌면 변경을 거부.
+
+### 실제 복구의 승인·실행 경계
+
+1. 운영 원본 A:K 338건/백업·서명 보존, 현재 Writer Gate
+   `OPEN / 14 exact matches` 및 지난 실행 목록의 종료 여부를 재조회.
+   기존 트리거·외부 웹앱·편집자/다른 writer들이 **일시 격리되었다는
+   독립된 증거**가 없으면 중단. 진행 중인 금융 ledger/snapshot flag가
+   있거나 원본 11열/338건에서 바뀌면 중단. 사용자의 파일 공유는
+   외부 Writer 격리를 증명하지 않음.
+2. 작업자가 운영과 같은 Apps Script 프로젝트에 위 후보 `.gs` 소스를
+   **별도 임시 파일**로 등록(게시 웹앱 배포 변경 금지)하고
+   `issue734PreviewTimedOutGateRecovery`를 단 한 번 실행. 결과
+   `MATCHED_BUT_NOT_AUTHORIZED`, `activeCount=14` 및
+   `originalGateDigest`를 확인. 함수는 속성이나 금융 자료에 쓰지 않음.
+   수동 편집을 통해 원본 `Code.gs`를 교체하거나 기존 배포를 손대지 말 것.
+3. 완전한 외부 writer 격리와 사용자 재승인이 확인됐을 경우에만
+   Script Properties `issue734_stale_gate_recovery_approval_v1`에 다음
+   **실제 일회 승인**을 등록(사실과 다른 `externalWritersExcluded=true`
+   기입 금지). `approvedDate`는 실행 당시 실제 KST 날짜,
+   `expectedGateDigest`는 *최신 Preview* 결과 그대로 사용.
+
+   ```json
+   {
+     "approvedFor": "PRUNE_EXACT_14_TIMED_OUT",
+     "releaseVersion": "9.288",
+     "userApproved": true,
+     "externalWritersExcluded": true,
+     "approvedDate": "<실제 실행일 YYYY-MM-DD (KST)>",
+     "expectedGateDigest": "<최신 Preview 원본 Gate digest>"
+   }
+   ```
+
+4. `issue734CommitTimedOutGateRecovery`를 **한 번만** 수동 실행.
+   기존 `_issue507GateAtomic_` ScriptLock 내부에서
+   release/버전/14개 실행명·startedAt/새로운 active 유무/영수증 유무/
+   금융 pending/원본 11열 338건/승인 날짜·digest를 재확인.
+   원본 Gate JSON을 `issue734_writer_gate_before_20261110_v1`에
+   별도 보존·readback하고, 사후조사용
+   `issue734_writer_gate_repair_audit_v1`을 기록.
+   `issue507_writer_gate_v1.active`의 검증된 stale 14건만 제거하고
+   **정상 종료 receipt/finished/completed 기록을 조작하지 않음**.
+   그 외 새로운 active가 하나라도 생기면 **전체 중단**.
+   결과 `PRUNED`와 새 Gate `activeCount=0`을 별도로 확인.
+   하드 타임아웃·중간 오류 시 **다시 실행하거나 백업 Gate를
+   덮어씌우지 말고** 감사/원본을 보존 후 수동 복구 판단.
+5. 사후 `getWriterGateStatus` read-only 재확인. 외부 Writer 격리,
+   원본/백업 용량 및 338건 최신 Preflight 해시를 재검증한 후에만
+   별도 `trade_v2_migration_approval_v1` 일회성 승인 및
+   `runTradeV2MigrationApply` 실행.
+   `trade_v2_migration_journal_v1=APPLIED`, A:K 원본/공식 원가 불변,
+   N열 고유 ID 338건, PC·모바일 v2 E2E까지 별도 검증.
+6. 복구용 임시 GAS 파일을 정리하고 HEAD/published 소스 일치 및
+   원래 Writer 트리거/배포 정상 운영을 복원·검증.
+   백업/감사 속성은 삭제하지 않음.
+
+**중요:** 이 복구는 시간 초과로 고아가 된 Gate 기록의
+*원본 보존형 정리*이지 정상 완료 증명이나 금융 데이터 복구가 아닙니다.
+GitHub 소스 테스트 PASS만으로 운영 Script Properties가 정리됐다고
+주장하거나 `writerIsolationConfirmed`를 설정해서는 안 됩니다.
