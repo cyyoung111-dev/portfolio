@@ -16,10 +16,7 @@ export function composeIssue860FreshDateAppendPreview(source) {
   const end=source.indexOf('\n}',start);
   assert(start>=0 && end>start,'ISSUE860_APPEND_MISSING_WRITER');
   const original=source.slice(start,end+2);
-  const before=[
-    '      snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);',
-    '      // #507: 날짜별 슬롯만 갱신합니다.'
-  ].join('\n');
+  const before='      snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);';
   const after=[
     '      // #860: append-only, new-date case. The date-scoped writer journals',
     '      // empty append slots, refuses occupied destinations, verifies the',
@@ -33,8 +30,7 @@ export function composeIssue860FreshDateAppendPreview(source) {
     "        Logger.log('[ISSUE860_FRESH_DATE_APPEND] '+JSON.stringify({date:normDate,rows:mergedDate.length,priorRowsUntouched:true}));",
     '        return;',
     '      }',
-    '      snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);',
-    '      // #507: 날짜별 슬롯만 갱신합니다.'
+    '      snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);'
   ].join('\n');
   const replacement=replaceOnce(original,before,after,'BACKUP_BRANCH');
   const candidate=source.slice(0,start)+replacement+source.slice(end+2);
