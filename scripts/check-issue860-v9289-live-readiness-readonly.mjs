@@ -91,6 +91,31 @@ const viaUrl=await runReadiness({...normal,deploymentId:undefined,
   return {ok:true,json:async()=>payload};
  }});
 assert.equal(viaUrl.ready,true);
+const stages=[];
+const instrumented=await runReadiness({...normal,
+ fetchImpl:async (url,options)=>{
+  if(options.method==='POST')return {ok:true};
+  assert.equal(options.method,'GET');
+  const body=url.includes('/deployments/')
+   ?{deploymentConfig:{versionNumber:345},entryPoints:[{entryPointType:'WEB_APP'}]}
+   :{files:published};
+  return {ok:true,json:async()=>body};
+ },
+ tradeInspector:async ({fetchImpl})=>{
+  for(const action of ['getAutomationStatus','getTrades']){
+   await fetchImpl(normal.webAppUrl,{method:'POST',
+    body:new URLSearchParams({action,accessToken:'PRIVATE_TEST_TOKEN'})});
+  }
+  return trades;
+ },report:x=>stages.push(x)});
+assert.equal(instrumented.ready,true);
+const observed=stages.filter(x=>x.kind==='ISSUE860_9289_LIVE_READ_STAGE');
+assert.equal(observed.length,4);
+assert.deepEqual(observed.map(x=>x.action),
+ ['getAutomationStatus','getAutomationStatus','getTrades','getTrades']);
+assert.deepEqual(observed.map(x=>x.status),
+ ['STARTED','HTTP_OK','STARTED','HTTP_OK']);
+assert(!JSON.stringify(stages).includes('PRIVATE_TEST_TOKEN'));
 assert.equal(readyCalls.length,3);
 assert(readyReported.every(x=>x.financialWrites===0||x.financialWrites===undefined));
 assert(!JSON.stringify(readyReported).includes('oauth-token'));

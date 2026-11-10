@@ -121,8 +121,33 @@ export async function runReadiness({
   financialWrites:0});
  let trades=null;
  if(gate.mode==='OPEN'&&gate.activeCount===0){
+  // Observe only the fixed operation name and bounded elapsed time.
+  // Credentials, private trades, raw URL/body and response text never log.
+  const observedFetch=async (url,opts)=>{
+   const action=new URLSearchParams(opts?.body||'').get('action');
+   if(!['getAutomationStatus','getTrades'].includes(action))
+    fail('LIVE_TRADE_ACTION_UNEXPECTED');
+   const began=Date.now();
+   report({kind:'ISSUE860_9289_LIVE_READ_STAGE',action,status:'STARTED',
+    financialWrites:0,gasDeployments:0});
+   try{
+    const response=await fetchImpl(url,opts);
+    report({kind:'ISSUE860_9289_LIVE_READ_STAGE',action,
+     status:response?.ok?'HTTP_OK':'HTTP_UNVERIFIED',
+     elapsedSeconds:Math.min(120,Math.ceil((Date.now()-began)/1000)),
+     financialWrites:0,gasDeployments:0});
+    return response;
+   }catch{
+    report({kind:'ISSUE860_9289_LIVE_READ_STAGE',action,
+     status:'NETWORK_OR_TIMEOUT',
+     elapsedSeconds:Math.min(120,Math.ceil((Date.now()-began)/1000)),
+     financialWrites:0,gasDeployments:0});
+    throw Error('ISSUE860_9289_PREFLIGHT_LIVE_NETWORK_OR_TIMEOUT');
+   }
+  };
   try{
-   trades=await tradeInspector({url:webAppUrl,token:gasToken});
+   trades=await tradeInspector({url:webAppUrl,token:gasToken,
+    fetchImpl:observedFetch});
    report({kind:'ISSUE860_9289_TRADE_PROTOCOL_READBACK',
      status:trades.status,gasVersion:trades.gasVersion,
      tradeProtocol:trades.v2Protocol,uniqueTradeRows:trades.uniqueTradeRows,
