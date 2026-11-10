@@ -308,3 +308,7 @@ console.log('GAS9288_TRADE_V2_MIGRATION_RECOVERY_PASS '+JSON.stringify({
  timeoutRestored:true,staleWritesBlocked:true,
  realFinanceWrites:0,gasDeployments:0,telegramSends:0
 }));
+
+// Reuse the production-equivalent in-memory Sheet/ScriptLock fixture for
+// #734's separately guarded DRAINING-mode cutover tests.
+export {setup};
