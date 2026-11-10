@@ -1,4 +1,4 @@
-name: Issue 860 v9.289 predeployment readiness - READ ONLY
+name: Issue 860 v9.290 predeployment dry-run - READ ONLY
 on:
   push:
     branches: [main]
@@ -25,9 +25,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Simulate release gates without credentials or writes
-        run: node scripts/check-issue860-v9289-live-readiness-readonly.mjs
-      - name: Inspect actual 9.288 published and HEAD file sets, OPEN gate and 338 v2 trades
+      - name: Verify 9.290 exact source and guarded manual release contract offline
+        run: node scripts/check-issue860-v9290-live-gate.mjs
+      - name: Inspect 9.290 GAS candidate and current web-app by exact read-only dry-run
         env:
           GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
           GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
@@ -35,7 +35,26 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
-        run: node scripts/issue860-v9289-live-readiness-readonly.mjs
+          GAS_DEPLOY_DRY_RUN: 'true'
+          GAS_9290_CLOSE_PERF: 'true'
+          GAS_9290_RELEASE_APPROVAL: 'false'
+          GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/deploy-gas.mjs
+      - name: Probe live 9.290 predeploy gate without allowing any mutation
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          set +e
+          node scripts/issue860-v9290-live-gate.mjs
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo 'ISSUE860_9290_READONLY_PREDEPLOY_GATE_BLOCKED_NO_GAS_WRITE'
+          else
+            echo 'ISSUE860_9290_READONLY_PREDEPLOY_GATE_VERIFIED_NOT_A_DEPLOYMENT'
+          fi
   source-gaps:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main'
     environment: portfolio-production-gas
