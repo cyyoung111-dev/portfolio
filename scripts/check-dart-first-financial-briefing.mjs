@@ -57,7 +57,7 @@ assert.ok(onlyDomestic.data.evidence.domestic.every(x=>x.evidence.pbrTimes===nul
 const short=formatAiFinancialEvidence(onlyDomestic.data.evidence).join('\n');
 assert.match(short,/삼성전자 보통·우선 합산 참고 BPS 80,000원 \[2026-06-30 연결\]/);
 assert.match(short,/SK하이닉스 단일종류 확인 BPS 100,000원 \[2026-06-30 연결\]/);
-assert.match(short,/PBR 미확보/);
+assert.match(short,/PBR 종가 미연결/);
 assert.ok(short.length<=680);
 
 const closePrice=[
