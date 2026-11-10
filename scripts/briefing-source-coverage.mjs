@@ -48,7 +48,8 @@ export const CLOSE_SOURCE_CATALOG=Object.freeze({
 // NOT imply that an authorized key or same-day observation is available.
 export const MORNING_OPTIONAL_CONNECTED=Object.freeze([
   'US_INDEX_FUTURES','KRX_TURNOVER','MARKET_BREADTH',
-  'VKOSPI','UST2Y','UST3Y','YIELD_SPREAD'
+  'VKOSPI','UST2Y','UST3Y','YIELD_SPREAD',
+  'FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'
 ]);
 export const MORNING_NOT_CONNECTED=Object.freeze([
   'ADR20','FEDWATCH','FINVIZ_HEATMAP','ECONOMIC_EVENTS'
