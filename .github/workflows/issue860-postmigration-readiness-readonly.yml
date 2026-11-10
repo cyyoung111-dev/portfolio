@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/issue860-postmigration-readiness-readonly.yml'
+      - 'scripts/issue860-postmigration-editor-readiness-readonly.mjs'
   workflow_dispatch:
 
 permissions:
