@@ -4,4 +4,4 @@
 # The guarded workflow verifies a single main commit changing this file only.
 # No API prices, NH/GAS credentials or Telegram messages belong in this file.
 # Actual sending uses existing 07:40 session/claim/SENT protections.
-armed_date=2026-11-10
+armed_date=2026-11-11
