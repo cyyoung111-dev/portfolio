@@ -98,7 +98,10 @@ export async function runClosingGapAudit({
   diagnostics:diagnostics.slice(0,14),
   failedSourceGroups:['STOCKS','TURNOVER','VKOSPI','TREASURY']
     .filter((_,i)=>calls[i].status==='rejected'),
-  nonConnected:['FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'],
+  // This audit deliberately probes only stocks/turnover/VKOSPI/treasury.
+  // Public investor/KOFIA collectors are wired but not independently probed here.
+  connectedButNotAudited:['FOREIGN_INSTITUTION_FLOW','INVESTOR_DEPOSITS','MARGIN_BALANCE'],
+  nonConnected:[],
   completeness:'OPTIONAL_SOURCES_ONLY',
   financialWrites:0,telegramSends:0,gasDeployments:0};
  report(summary);
