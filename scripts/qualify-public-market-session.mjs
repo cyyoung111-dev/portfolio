@@ -39,3 +39,29 @@ export function qualifyPublicMarketQuote(row,expectedKstDate){
   tradingValueScope:!hasTradingValue?'NOT_EXPOSED':
    isIndex?'INDEX_COMPONENT_SCOPE_UNRECONCILED':'STOCK_SESSION_SCOPE_UNRECONCILED'};
 }
+const DAILY_STOCK_SOURCES=Object.freeze({
+ NAVER_STOCK_DAILY_SAMSUNG:'005930',NAVER_STOCK_DAILY_HYNIX:'000660'
+});
+const validDailyPrice=value=>{
+ const raw=String(value??'').replaceAll(',','');
+ return /^\d+(?:\.\d{1,2})?$/.test(raw)&&Number(raw)>0&&Number(raw)<100000000;
+};
+// The endpoint itself pins the stock code. Date-only bars are reference data,
+// not an exchange-labelled, officially reconciled regular-session close.
+export function qualifyPublicStockDailyReference(payload,sourceId,expectedKstDate){
+ const code=DAILY_STOCK_SOURCES[sourceId];
+ if(!code||!datePattern.test(expectedKstDate))return null;
+ const rows=Array.isArray(payload)?payload:
+  Array.isArray(payload?.result)?payload.result:null;
+ if(!rows||rows.length<1||rows.length>40)
+  return {code,latestBarDate:null,hasExactDateBar:false,classification:'DAILY_BAR_SCHEMA_UNVERIFIED'};
+ const dateRows=rows.filter(x=>x&&typeof x.localTradedAt==='string'
+  &&datePattern.test(x.localTradedAt));
+ const latestBarDate=dateRows.map(x=>x.localTradedAt).sort().at(-1)||null;
+ const exact=dateRows.filter(x=>x.localTradedAt===expectedKstDate);
+ const hasExactDateBar=exact.length===1&&validDailyPrice(exact[0].closePrice);
+ return {code,latestBarDate,hasExactDateBar,
+  classification:hasExactDateBar?'PUBLIC_DAILY_CLOSE_REFERENCE_NOT_KRX_RECONCILED'
+   :'EXACT_DATE_DAILY_CLOSE_NOT_VERIFIED',
+  scope:'STOCK_DAILY_REFERENCE_ONLY',sourcePublishedAt:null};
+}

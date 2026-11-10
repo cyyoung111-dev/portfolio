@@ -34,3 +34,18 @@ assert.equal(qualify({itemCode:'KOSPI',marketStatus:'CLOSE',
  localTradedAt:day+'T16:15:00+09:00'},day).qualification,
  'SESSION_OR_PRICE_UNVERIFIED');
 console.log('PUBLIC_MARKET_SESSION_QUALIFICATION_PASS');
+const {qualifyPublicStockDailyReference:daily}=await import('./qualify-public-market-session.mjs');
+const old=[{localTradedAt:'2026-11-09',closePrice:'98,000'}];
+const today=[{localTradedAt:day,closePrice:'99,000'},...old];
+const valid=daily(today,'NAVER_STOCK_DAILY_SAMSUNG',day);
+assert.equal(valid.code,'005930');
+assert.equal(valid.latestBarDate,day);
+assert.equal(valid.hasExactDateBar,true);
+assert.equal(valid.classification,'PUBLIC_DAILY_CLOSE_REFERENCE_NOT_KRX_RECONCILED');
+assert.equal(valid.sourcePublishedAt,null);
+assert.equal(daily(old,'NAVER_STOCK_DAILY_SAMSUNG',day).hasExactDateBar,false);
+assert.equal(daily([...today,today[0]],'NAVER_STOCK_DAILY_HYNIX',day).hasExactDateBar,false);
+assert.equal(daily([{localTradedAt:day,closePrice:null}],'NAVER_STOCK_DAILY_HYNIX',day).hasExactDateBar,false);
+assert.equal(daily(today,'UNKNOWN_SOURCE',day),null);
+assert.equal(daily({bad:true},'NAVER_STOCK_DAILY_HYNIX',day).classification,'DAILY_BAR_SCHEMA_UNVERIFIED');
+console.log('PUBLIC_STOCK_DAILY_REFERENCE_QUALIFICATION_PASS');
