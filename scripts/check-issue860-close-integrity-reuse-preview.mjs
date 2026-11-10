@@ -13,7 +13,7 @@ function body(s,name) {
  assert(i>=0&&j>i,'MISSING_FUNCTION:'+name);
  return s.slice(i,j+2);
 }
-function run(source,{preverified=false,input=good,stored=good,priceStatus='VALID'}={}) {
+function run(source,{preverified=false,input=good,inputs=null,stored=good,priceStatus='VALID'}={}) {
  const count={snapshotReads:0,calcBuilds:0,priceAudits:0};
  const ctx=vm.createContext({
   CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
@@ -32,7 +32,7 @@ function run(source,{preverified=false,input=good,stored=good,priceStatus='VALID
  });
  vm.runInContext(body(source,'diagnoseSnapshotIntegrity'),ctx);
  const res=preverified
-  ?ctx.diagnoseSnapshotIntegrity({},date,undefined,undefined,[structuredClone(input)])
+  ?ctx.diagnoseSnapshotIntegrity({},date,undefined,undefined,inputs===null?[structuredClone(input)]:structuredClone(inputs))
   :ctx.diagnoseSnapshotIntegrity({},date);
  return {result:JSON.parse(JSON.stringify(res)),count};
 }
@@ -82,8 +82,9 @@ for(const invalid of [
  assert.equal(rejected.result.status,'SOURCE_INCOMPLETE','Untrusted preverified rows must fail');
  assert(rejected.result.sourceDataErrors.some(s=>s.includes('ISSUE860_INVALID_PREVERIFIED_ROWS')));
 }
-const duplicate=run(candidate.source,{preverified:true,input:good});
-assert.equal(duplicate.result.status,'VALID'); // single record; duplicate check is in GAS source
+const duplicate=run(candidate.source,{preverified:true,inputs:[good,good]});
+assert.equal(duplicate.result.status,'SOURCE_INCOMPLETE');
+assert(duplicate.result.sourceDataErrors.some(s=>s.includes('ISSUE860_DUPLICATE_PREVERIFIED_ROWS')));
 console.log(JSON.stringify({
  kind:'ISSUE860_CLOSE_INTEGRITY_REUSE_SOURCE_ONLY_PASS',
  originalExpectedRebuilds:baseline.count.calcBuilds,optimizedExpectedRebuilds:optimized.count.calcBuilds,
