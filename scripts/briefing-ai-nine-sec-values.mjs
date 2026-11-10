@@ -138,7 +138,10 @@ export function extractAnnualValueSnapshot(doc,symbol,quote,{now=new Date(),spli
   splitSharesPerOldShare:splitFactor,
   pbrTimes:finite(pbr)?pbr:null,
   pbrUnavailableReason:!finite(pbr)
-   ?(!goodQuote?'QUOTE_UNVERIFIED':!finite(bookPerShare)
+   ?(!goodQuote?'QUOTE_UNVERIFIED':!finite(equity)||equity<=0
+      ?'FISCAL_END_EQUITY_UNAVAILABLE':!denom?.shares
+      ?'FISCAL_END_OUTSTANDING_SHARES_UNVERIFIED'
+      :!finite(bookPerShare)||bookPerShare<=0
       ?'FISCAL_END_BPS_UNAVAILABLE':'SPLIT_HISTORY_UNVERIFIED'):null,
   limitations:['BPS_FROM_EXACT_FISCAL_END_SHARES',
    'FY_BOOK_VALUE_NOT_LATEST_10Q',
