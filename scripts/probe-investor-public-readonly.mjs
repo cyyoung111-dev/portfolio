@@ -38,6 +38,21 @@ for(const host of ['m.stock.naver.com','stock.naver.com']){
      info.sourceTimes=rows.length
        ?[rows[0]?.time,rows.at(-1)?.time].filter(x=>typeof x==='string').slice(0,2)
        :[];
+     const completed=rows.find(x=>x?.bizdate===day);
+     const groups=Array.isArray(completed?.netAmounts)?completed.netAmounts:[];
+     info.investorCategories=groups.map(x=>x?.investorGubun)
+       .filter(x=>typeof x==='string').slice(0,18);
+     const n=x=>typeof x==='string'&&/^-?[0-9][0-9,]*(?:\\.[0-9]+)?$/.test(x)
+       ?Number(x.replaceAll(',','')):null;
+     info.priceBalanceCheck={
+       candidates:groups.filter(x=>[x.sellPrice,x.buyPrice,x.diffValue].every(
+         v=>n(v)!==null)).length,
+       matching:groups.filter(x=>{
+         const sell=n(x.sellPrice),buy=n(x.buyPrice),diff=n(x.diffValue);
+         return sell!==null&&buy!==null&&diff!==null
+           &&Math.abs((buy-sell)-diff)<=Math.max(2,Math.abs(diff)*0.000001);
+       }).length
+     };
    }
  }catch(e){info.error=['TimeoutError','AbortError'].includes(e?.name)
     ?'TIMEOUT':'REQUEST_OR_SCHEMA_UNAVAILABLE';}
