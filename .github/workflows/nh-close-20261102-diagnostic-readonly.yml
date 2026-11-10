@@ -53,3 +53,4 @@ jobs:
           else
             echo 'KRX_CURRENT_SESSION_COMPARISON_BEFORE_CLOSE_SKIPPED'
           fi
+# 2026-11-10: direct, read-only source reprobe requested; no Telegram send or market-data writes.
