@@ -52,7 +52,8 @@ assert.deepEqual(summary.stocks,{verified:0,total:4});
 assert.deepEqual(summary.macros,{verified:0,total:3});
 const qc=formatCloseCoverageSummary(summary);
 assert.match(qc,/핵심지수 6\/6 \(국내 3\/3 · 미국 3\/3\) · 참고 3\/3/);
-assert.match(qc,/미연결 참고지표: \d+개/);
+assert.doesNotMatch(qc,/미연결 참고지표:/,
+ 'all three optional sources have real read-only collectors');
 assert.match(qc,/미확보: 삼성전자/);
 assert.match(qc,/수급 0\/1 · 시장자금 0\/2/);
 assert.doesNotMatch(qc,/미연결 참고지표: 3개/);
