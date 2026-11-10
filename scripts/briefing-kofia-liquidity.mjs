@@ -75,11 +75,14 @@ export function formatKofiaLiquidity(result,{maxLength=140}={}){
  if(result?.source!=='KOFIA_FREESIS_PUBLIC'||!isDay(result?.asOfKst)
   ||!Number.isInteger(maxLength)||maxLength<70||maxLength>300)return '';
  const parts=[];
- if(result.deposits&&isDay(result.deposits.date)
+ const recent=row=>row&&isDay(row.date)
+   &&row.date<=result.asOfKst
+   &&Date.parse(result.asOfKst+'T00:00:00Z')-Date.parse(row.date+'T00:00:00Z')<=10*864e5;
+ if(result.deposits&&recent(result.deposits)
   &&Number.isFinite(result.deposits.balanceMillion)&&result.deposits.balanceMillion>0)
    parts.push('예탁금 '+(result.deposits.balanceMillion/1e6).toFixed(2)
      +'조('+result.deposits.date.slice(5)+')');
- if(result.margin&&isDay(result.margin.date)
+ if(result.margin&&recent(result.margin)
   &&Number.isFinite(result.margin.balanceMillion)&&result.margin.balanceMillion>0
   &&Math.abs(result.margin.balanceMillion-result.margin.kospiMillion
     -result.margin.kosdaqMillion)<=2)
