@@ -145,8 +145,12 @@ function issue734CommitTimedOutGateRecovery() {
 }
 
 
+function _issue734Report_(result) {
+  if(typeof Logger!=='undefined')Logger.log(JSON.stringify(result));
+  return result;
+}
 function issue734StartWriterMaintenancePause() {
-  return _issue507GateAtomic_(function(props){
+  return _issue734Report_(_issue507GateAtomic_(function(props){
     // Manual owner action: precisely pinned 14 stale entries, no new writers.
     var p=_issue734RecoverInspect_(props),
         key='issue734_writer_pause_before_v1',
@@ -173,7 +177,7 @@ function issue734StartWriterMaintenancePause() {
     return {status:'DRAINING',activeBefore:14,activeAfter:14,
       noNewGatedWriters:true,originalGateBackupSaved:true,
       minBarrierMilliseconds:420000,financeWrites:0};
-  });
+  }));
 }
 function _issue734AssertDrainedAfterRepair_(props) {
   var g=_issue507GateRead_(props),s;
@@ -202,30 +206,30 @@ function _issue734WithInternalBypass_(callback) {
   finally{_issue507GateInside_=previous;}
 }
 function issue734DrainedTradeV2Preflight() {
-  return _issue734WithInternalBypass_(function(){
+  return _issue734Report_(_issue734WithInternalBypass_(function(){
     _issue734AssertDrainedAfterRepair_(
       PropertiesService.getScriptProperties());
     return _issue734DrainedTradeV2Migration_('PREVIEW');
-  });
+  }));
 }
 function issue734DrainedTradeV2Apply() {
-  return _issue734WithInternalBypass_(function(){
+  return _issue734Report_(_issue734WithInternalBypass_(function(){
     _issue734AssertDrainedAfterRepair_(
       PropertiesService.getScriptProperties());
     return _issue734DrainedTradeV2Migration_('APPLY');
-  });
+  }));
 }
 function issue734DrainedTradeV2Restore() {
-  return _issue734WithInternalBypass_(function(){
+  return _issue734Report_(_issue734WithInternalBypass_(function(){
     _issue734AssertDrainedAfterRepair_(
       PropertiesService.getScriptProperties());
     return _issue734DrainedTradeV2Migration_('RESTORE');
-  });
+  }));
 }
 // Emergency/declined-migration resume: roll back the PAUSE only if there
 // is no partial trade migration and the 11-column ledger still matches.
 function issue734AbortWriterMaintenancePause() {
-  return _issue734WithInternalBypass_(function(){
+  return _issue734Report_(_issue734WithInternalBypass_(function(){
     return _issue507GateAtomic_(function(props){
       var g=_issue507GateRead_(props),
           count=Object.keys(g.active).length,
@@ -267,11 +271,11 @@ function issue734AbortWriterMaintenancePause() {
       return {status:'OPEN',restoredLegacyRows:338,activeCount:count,
         previousBackupsRetained:true,financeWrites:0};
     });
-  });
+  }));
 }
 
 function issue734ResumeWritersAfterApplied() {
-  return _issue734WithInternalBypass_(function(){
+  return _issue734Report_(_issue734WithInternalBypass_(function(){
     return _issue507GateAtomic_(function(props){
       var g=_issue734AssertDrainedAfterRepair_(props),
           raw=props.getProperty('trade_v2_migration_journal_v1'),j;
@@ -328,7 +332,7 @@ function issue734ResumeWritersAfterApplied() {
         migrationJournal:'APPLIED',approvalsRevoked:true,
         gateBackupsRetained:true,financeWrites:0};
     });
-  });
+  }));
 }
 
 // Exact reviewed GAS v9.288 migration with only explicit DRAINING entry
