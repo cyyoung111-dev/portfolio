@@ -53,11 +53,11 @@ const status={
  }};
 const responses={getAutomationStatus:status,
  getTrades:{status:'ok',trades}};
-async function check(override={},expectCalls=null){
+async function check(override={},expectCalls=null,expectedGasVersion='9.287'){
  const calls=[];
  const answer={...responses,...override};
  const report=await inspectIssue734V9288LiveReadiness({
-  url,token,fetchImpl:async(dest,options)=>{
+  url,token,expectedGasVersion,fetchImpl:async(dest,options)=>{
    assert.equal(dest,url);
    assert.equal(options.method,'POST');
    assert.equal(options.body.get('accessToken'),token);
@@ -69,6 +69,17 @@ async function check(override={},expectCalls=null){
  return report;
 }
 const okay=await check();
+assert.equal(okay.observedGasVersion,'9.287');
+assert.equal(okay.expectedGasVersion,'9.287');
+const published={...status,gasVersion:'9.288',
+ automation:{...status.automation,gasVersion:'9.288'}};
+const publishedOkay=await check({getAutomationStatus:published},null,'9.288');
+assert.equal(publishedOkay.status,'READONLY_PASS');
+assert.equal(publishedOkay.expectedGasVersion,'9.288');
+assert.equal(publishedOkay.permissionToMigrate,false);
+assert.equal(publishedOkay.liveExternalWriterExcludedVerified,false);
+await rejected({getAutomationStatus:published},
+ /ISSUE734_9288_PREFLIGHT_PUBLISHED_VERSION_MISMATCH/,['getAutomationStatus']);
 assert.equal(okay.status,'READONLY_PASS');
 assert.equal(okay.legacyTradeRows,338);
 assert.equal(okay.permissionToDeploy,false);
@@ -78,10 +89,10 @@ assert.equal(okay.financeWrites,0);
 assert(!JSON.stringify(okay).includes('PRIVATE_'));
 assert(!JSON.stringify(okay).includes(token));
 assert(!JSON.stringify(okay).includes(url));
-async function rejected(override,regex,actions){
+async function rejected(override,regex,actions,expectedGasVersion='9.287'){
  const calls=[];
  await assert.rejects(()=>inspectIssue734V9288LiveReadiness({
-  url,token,fetchImpl:async(_dest,options)=>{
+  url,token,expectedGasVersion,fetchImpl:async(_dest,options)=>{
    const action=options.body.get('action');calls.push(action);
    return {ok:true,json:async()=>({...responses,...override})[action]};
   }
@@ -89,9 +100,14 @@ async function rejected(override,regex,actions){
  assert.deepEqual(calls,actions);
 }
 const single=['getAutomationStatus'],double=[...single,'getTrades'];
-for(const v of ['9.285','9.288','9.289']){
+await rejected({getAutomationStatus:{...published,automation:{...published.automation,gasVersion:'9.287'}}},
+ /ISSUE734_9288_PREFLIGHT_PUBLISHED_VERSION_MISMATCH/,single,'9.288');
+await assert.rejects(()=>inspectIssue734V9288LiveReadiness({
+ url,token,expectedGasVersion:'9.289',fetchImpl:async()=>{throw Error('must not call');}
+}),/ISSUE734_9288_PREFLIGHT_EXPECTED_VERSION_UNSUPPORTED/);
+for(const v of ['9.285','9.289']){
  await rejected({getAutomationStatus:{...status,gasVersion:v}},
-  /ISSUE734_9288_PREFLIGHT_PUBLISHED_VERSION_NOT_9287/,single);
+  /ISSUE734_9288_PREFLIGHT_PUBLISHED_VERSION_MISMATCH/,single);
 }
 for(const [field,value] of [
  ['overallStatus','WARNING'],
@@ -136,6 +152,7 @@ for(const bad of [
   double);
 }
 console.log(JSON.stringify({kind:'ISSUE734_9288_LIVE_READINESS_OFFLINE_PASS',
- expectedLegacyRows:338,negativeScenarios:21,legacyGatePreserved:true,
- failClosedOnIncompleteClose:true,exactVersion:'9.287',
+ expectedLegacyRows:338,negativeScenarios:24,legacyGatePreserved:true,
+ failClosedOnIncompleteClose:true,prepublishVersion:'9.287',
+ postpublishVersion:'9.288',
  realNetworkCalls:0,financeWrites:0,gasDeployments:0}));
