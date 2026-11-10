@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'scripts/probe-investor-public-readonly.mjs'
+      - 'scripts/probe-investor-integrated-readonly.mjs'
+      - 'scripts/briefing-krx-investor-trends.mjs'
       - '.github/workflows/investor-public-source-smoke.yml'
   workflow_dispatch:
 permissions:
@@ -19,4 +21,4 @@ jobs:
         with:
           node-version: '24'
       - name: Check public source schema, no financial writes
-        run: node scripts/probe-investor-public-readonly.mjs
+        run: node scripts/probe-investor-public-readonly.mjs && node scripts/probe-investor-integrated-readonly.mjs
