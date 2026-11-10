@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
+import {sendTelegram} from './telegram-morning-briefing.mjs';
 
 const morning=[
  '[한국장 장전 종합 브리핑 | 2026-11-10]',
@@ -60,4 +61,15 @@ for(const text of ['KOSDAQ:','VKOSPI:','미 국채 2년:','장단기금리차',
 assert.match(cc,/■ 원자재·BTC/,'one valid item retains the section');
 assert.throws(()=>compactBriefingForDelivery(123,{mode:'close'}),/COMPACT_INPUT_INVALID/);
 assert.throws(()=>compactBriefingForDelivery('x',{mode:'bad'}),/COMPACT_INPUT_INVALID/);
+// Only production Telegram transport should filter. Injected mock renderers
+// retain their original data for existing regression and operational QC.
+const outbound=[];
+const sendOptions={fetchImpl:async(_url,opts)=>{
+ outbound.push(JSON.parse(opts.body).text);
+ return {ok:true,json:async()=>({ok:true})};
+}};
+await sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345',morning,sendOptions);
+await sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345',close,sendOptions);
+await sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345','시험',sendOptions);
+assert.deepEqual(outbound,[mc,cc,'시험']);
 console.log('BRIEFING_MESSAGE_COMPACT_PASS preserve_verified_values_and_core_qc_no_empty_optional_sections');
