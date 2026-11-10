@@ -63,7 +63,7 @@ export function verifyInvestorTrendCrossMarket(date,values){
    ||Math.abs(total-parts)>Math.max(5000000,Math.abs(total)*0.0001))return null;
  }
  return {date,source:'NAVER_KRX_INVESTOR_REFERENCE',
-  markets:[parsed.KOSPI,parsed.KOSDAQ]};
+  markets:[parsed.KOSPI,parsed.KOSDAQ],all:parsed.ALL};
 }
 export async function readInvestorTrends(date,{mode='morning',now=()=>new Date(),
  fetchImpl=fetch}={}){
@@ -101,7 +101,8 @@ export async function readInvestorTrends(date,{mode='morning',now=()=>new Date()
 export function formatInvestorTrends(result){
  if(!result||result.source!=='NAVER_KRX_INVESTOR_REFERENCE'
   ||!krDay(result.date)||!['morning','close'].includes(result.mode)
-  ||!Array.isArray(result.markets)||result.markets.length!==2)return '';
+  ||!Array.isArray(result.markets)||result.markets.length!==2
+  ||!verifyInvestorTrendCrossMarket(result.date,[...result.markets,result.all]))return '';
  const [kospi,kosdaq]=result.markets;
  if(kospi.market!=='KOSPI'||kosdaq.market!=='KOSDAQ'
   ||kospi.date!==result.date||kosdaq.date!==result.date
