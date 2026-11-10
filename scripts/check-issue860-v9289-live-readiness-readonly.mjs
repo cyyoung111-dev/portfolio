@@ -31,8 +31,8 @@ const differentManifest=published.map(f=>f.name==='appsscript'
  ?{...f,source:'{"timeZone":"UTC"}'}:f);
 assert.equal(classifyProjectFiles({head:differentManifest,published}).status,
  'UNREVIEWED_EXTRA_OR_MANIFEST_FILES');
-assert.equal(classifyProjectFiles({head:published,published:badCore}).status,
- 'PUBLISHED_VERSION_OR_SHA_DRIFT');
+assert.throws(()=>classifyProjectFiles({head:published,published:badCore}),
+ /ISSUE860_9289_PREFLIGHT_PUBLISHED_SOURCE_NOT_REVIEWED/);
 
 const gate={status:'GATE_OPEN_NO_RECORDED_ACTIVE',mode:'OPEN',
  activeCount:0,observedGasVersion:'9.288'};
