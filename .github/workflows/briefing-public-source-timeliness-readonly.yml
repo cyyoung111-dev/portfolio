@@ -1,0 +1,42 @@
+name: Briefing public-source timeliness probe (READ ONLY)
+# Public, unauthenticated candidate availability only. No data writes, Telegram,
+# trading API, NH OAuth, or production GAS reads/deploys.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/briefing-public-source-timeliness-readonly.yml']
+  workflow_dispatch:
+  schedule:
+    # Actual runner timestamp is logged; GitHub cron may start late.
+    # 16:52, 17:08, 17:35 KST; next-day 08:15 KST.
+    - cron: '52 7 * * 1-5'
+    - cron: '8 8 * * 1-5'
+    - cron: '35 8 * * 1-5'
+    - cron: '15 23 * * 0-4'
+permissions:
+  contents: read
+concurrency:
+  group: briefing-public-timeliness-readonly
+  cancel-in-progress: false
+jobs:
+  public_source_probe:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read public candidate quote schemas and published-date markers
+        run: |
+          node --check scripts/probe-public-market-timeliness-readonly.mjs
+          node scripts/probe-public-market-timeliness-readonly.mjs
