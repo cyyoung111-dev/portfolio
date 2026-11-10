@@ -97,11 +97,11 @@ async function monitoredFetch(url,options={}){
    const asked=parsed.searchParams.get('bizdate'),contents=body?.content,
     matches=Array.isArray(contents)?contents.filter(x=>x?.bizdate===asked):[];
    const latest=Array.isArray(contents)?contents.map(x=>x?.bizdate)
-    .filter(x=>typeof x==='string'&&/^\\d{8}$/.test(x)).sort().at(-1):null;
+    .filter(x=>typeof x==='string'&&/^\d{8}$/.test(x)).sort().at(-1):null;
    const row=matches.length===1?matches[0]:null;
    emit('NAVER_SOURCE_SCHEMA',{market:source,http:info.http,type:info.type,
     contentArray:Array.isArray(contents),exactDateRows:matches.length,
-    latestAvailableDate:latest?.slice(0,4)+'-'+latest?.slice(4,6)+'-'+latest?.slice(6,8)||null,
+    latestAvailableDate:latest?latest.slice(0,4)+'-'+latest.slice(4,6)+'-'+latest.slice(6,8):null,
     hasEmptyTime:row?.time==='',
     investorCodeCount:Array.isArray(row?.netAmounts)?row.netAmounts.length:0,
     validated:Boolean(verifyInvestorTrendMarket(date,source,body))});
@@ -156,7 +156,7 @@ await check('KR_MARKET_INDEX_3',async()=>{
 await check('NH_STOCK_SAMSUNG_HYNIX',async()=>{
  if(!endpointValid)return {state:'CONFIG_INVALID'};
  const diag=[];
- const r=await readNhClosingStocks(date,{...gasOpts,onDiagnostic:x=>diag.push(x?.status)});
+ const r=await readNhClosingStocks(date,{...gasOpts,onDiagnostic:x=>diag.push(x)});
  return {state:r.filter(x=>['SAMSUNG','SKHYNIX'].includes(x.id)).length===2?'VERIFIED'
   :r.length?'PARTIAL':'NO_VERIFIED_ROW',count:r.length,
   reasons:diag.map(x=>({status:/^[A-Z0-9_]{3,80}$/.test(x?.status||'')?x.status:'OTHER',
