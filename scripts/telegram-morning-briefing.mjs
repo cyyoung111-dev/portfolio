@@ -1,3 +1,4 @@
+import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
@@ -207,8 +208,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     && candidate.sourceUpdatedAt===`${first.date}T06:00:00+09:00` ? candidate : null;
   const currentEvidence=typeof financialEvidenceNow==='function'
     ?financialEvidenceNow():financialEvidence;
-  const message=formatMorningBriefing(first.date,reference,values,{
-    now:now(),fearGreed,supplements,financialEvidence:currentEvidence});
+  const message=compactBriefingForDelivery(formatMorningBriefing(first.date,reference,values,{
+    now:now(),fearGreed,supplements,financialEvidence:currentEvidence}),{mode:'morning'});
   const display=summarizeOptionalDelivery('morning',{
     futures:(supplementRows.futures||[]).length,
     treasury:(supplementRows.treasury||[]).length,
