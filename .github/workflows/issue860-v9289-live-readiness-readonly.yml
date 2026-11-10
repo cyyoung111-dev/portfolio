@@ -48,6 +48,13 @@ jobs:
           GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/deploy-gas.mjs
+      - name: Independently verify 9.289 gate diagnostic is a single read (offline)
+        run: node scripts/check-issue860-writer-gate-v9289-readonly.mjs
+      - name: Read live 9.289 Writer gate mode and recorded active count (NO WRITES)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue860-writer-gate-v9289-readonly.mjs
       - name: Probe live 9.290 predeploy gate without allowing any mutation
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
