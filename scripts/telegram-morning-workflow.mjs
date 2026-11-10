@@ -96,6 +96,20 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     financialEvidenceNow:()=>financialState.value,
     referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
     onSourceDiagnostic:entry=>{
+      if(entry?.kind==='OPTIONAL_DISPLAY_AUDIT'&&entry.briefing==='morning'){
+        const groups=entry.groups||{};
+        const keys=['futures','treasury','vkospi','turnover','breadth','liquidity'];
+        const states=['SOURCE_UNAVAILABLE','NOT_DISPLAYED','DISPLAYED','PARTIAL_DISPLAYED'];
+        if(keys.every(k=>groups[k]&&states.includes(groups[k].status)
+          &&Number.isInteger(groups[k].sourced)&&Number.isInteger(groups[k].total)
+          &&groups[k].sourced>=0&&groups[k].sourced<=groups[k].total))
+          console.log(JSON.stringify({kind:'MORNING_OPTIONAL_RENDER_AUDIT',
+            date:window.date,
+            indicators:Object.fromEntries(keys.map(k=>[k,{
+              sourced:groups[k].sourced,total:groups[k].total,status:groups[k].status
+            }]))}));
+        return;
+      }
       if(entry?.kind==='MORNING_OPTIONAL_COVERAGE'){
         const c=entry.coverage||{};
         const bounds={futures:4,treasury:3,vkospi:1,turnover:2,breadth:2};
