@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {composeGas9288TradeV2From9287Preview}
  from './compose-gas9288-trade-v2-from-9287-preview.mjs';
-import {classifyProjectFiles,judgeReadiness,runReadiness}
+import {classifyProjectFiles,judgeReadiness,runReadiness,resolveDeploymentId}
  from './issue860-v9289-live-readiness-readonly.mjs';
 
 const {candidate,manifest}=composeGas9288TradeV2From9287Preview();
@@ -61,6 +61,11 @@ const normal={
  fetchImpl:fakeFetch,gateInspector:async()=>gate,
  tradeInspector:async()=>trades,report:value=>reported.push(value)
 };
+assert.equal(resolveDeploymentId({webAppUrl:normal.webAppUrl}),normal.deploymentId);
+assert.equal(resolveDeploymentId({deploymentId:normal.deploymentId,
+ webAppUrl:normal.webAppUrl}),normal.deploymentId);
+assert.throws(()=>resolveDeploymentId({deploymentId:'other-deployment-id',
+ webAppUrl:normal.webAppUrl}),/ISSUE860_9289_PREFLIGHT_DEPLOYMENT_ID_URL_MISMATCH/);
 const live=await runReadiness(normal);
 assert.equal(live.ready,false);
 assert.equal(live.status,'BLOCKED_HEAD_FILE_SET');
@@ -77,6 +82,15 @@ const verified=await runReadiness({...normal,
  },report:x=>readyReported.push(x)});
 assert.equal(verified.ready,true);
 assert.equal(verified.status,'READY_FOR_MANUAL_9289_DRY_RUN');
+const viaUrl=await runReadiness({...normal,deploymentId:undefined,
+ fetchImpl:async (url,options)=>{
+  assert.equal(options.method,'GET');
+  const payload=url.includes('/deployments/')
+   ?{deploymentConfig:{versionNumber:345},entryPoints:[{entryPointType:'WEB_APP'}]}
+   :{files:published};
+  return {ok:true,json:async()=>payload};
+ }});
+assert.equal(viaUrl.ready,true);
 assert.equal(readyCalls.length,3);
 assert(readyReported.every(x=>x.financialWrites===0||x.financialWrites===undefined));
 assert(!JSON.stringify(readyReported).includes('oauth-token'));
