@@ -53,4 +53,12 @@ jobs:
           else
             echo 'KRX_CURRENT_SESSION_COMPARISON_BEFORE_CLOSE_SKIPPED'
           fi
+      - name: Direct live APIs — NH, KRX, GAS, FRED, investors, KOFIA, Yahoo (READ ONLY)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+        run: |
+          node --check scripts/probe-briefing-source-direct-readonly.mjs
+          node scripts/probe-briefing-source-direct-readonly.mjs
 # 2026-11-10: direct, read-only source reprobe requested; no Telegram send or market-data writes.
