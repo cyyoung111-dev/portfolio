@@ -62,3 +62,4 @@ jobs:
           node --check scripts/probe-briefing-source-direct-readonly.mjs
           node scripts/probe-briefing-source-direct-readonly.mjs
 # 2026-11-10: direct, read-only source reprobe requested; no Telegram send or market-data writes.
+# 2026-11-10: repeat exact-day Naver/NH-stock reason probe and actual KRX receipt clock.
