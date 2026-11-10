@@ -1,0 +1,48 @@
+name: Issue 734 OAuth process scope audit (READ ONLY)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/issue734-process-scope-audit-readonly.mjs'
+      - 'scripts/check-issue734-process-scope-audit-readonly.mjs'
+      - '.github/workflows/issue734-process-scope-audit-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue734-process-scope-audit-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue734-process-scope-readonly
+  cancel-in-progress: false
+jobs:
+  source-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify secret-free OAuth diagnostics
+        run: node scripts/check-issue734-process-scope-audit-readonly.mjs
+  scope-audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.run_attempt == 1
+    needs: source-check
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 3
+    env:
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read existing token scope — no authorization or property edits
+        run: node scripts/issue734-process-scope-audit-readonly.mjs
