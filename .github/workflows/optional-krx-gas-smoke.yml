@@ -1,0 +1,28 @@
+name: KRX public index and stock source read-only smoke
+on:
+  # Never expose the protected GAS/KRX environment to PR code.
+  # A merged reviewed main commit triggers ONE read-only smoke, no writes.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/optional-krx-gas-smoke.yml'
+      - 'scripts/probe-optional-krx-gas-readonly.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Check KRX official daily index and stock data (read only)
+        env:
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+        run: node scripts/probe-optional-krx-gas-readonly.mjs

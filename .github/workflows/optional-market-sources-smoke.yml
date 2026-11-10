@@ -1,0 +1,25 @@
+name: Optional markets public source read-only smoke
+on:
+  pull_request:
+    paths:
+      - 'scripts/probe-optional-market-sources-readonly.mjs'
+      - '.github/workflows/optional-market-sources-smoke.yml'
+      - 'scripts/closing-us-treasury-curve.mjs'
+      - 'scripts/telegram-morning-supplements.mjs'
+      - 'scripts/closing-current-futures.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Public FRED and Yahoo read-only diagnostics (no secrets)
+        run: node scripts/probe-optional-market-sources-readonly.mjs

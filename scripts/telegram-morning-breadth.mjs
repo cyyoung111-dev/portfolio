@@ -79,8 +79,9 @@ export function formatMorningBreadth(date,rows=[]){
   const x=valid.find(v=>v.id===m.id);
   return m.id+' '+(x?x.advances+'↑/'+x.declines+'↓/'+x.unchanged+'→':'미확보');
  }).join(' · ');
- return '시장폭 A/D: '+text+(valid.length?' ['+expected+' · KRX 참고]':' (공식 일봉 미검증)')
-   +' · ADR20: 20거래일 시계열 미연결';
+ // ADR20 needs a separate 20-session validated history. Never append a
+ // static 'unconnected' warning to a valid current-session A/D report.
+ return '시장폭 A/D: '+text+(valid.length?' ['+expected+' · KRX 참고]':' (공식 일봉 미검증)');
 }
 // ADR20 must be calculated only from 20 DISTINCT, verified completed sessions,
 // never from a single day's A/D or a stale value carried forward.

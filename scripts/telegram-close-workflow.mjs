@@ -186,7 +186,9 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  lines.push('',formatClosingExtra(date,stocks,macros,{omitUs10y:verifiedRates.some(x=>x.id==='UST10Y_FRED'&&
     x.date===expectedMorningDate('SPX',date))}),'',
   formatTreasuryCurve(date,verifiedRates),'',
-  formatClosingMarketReferences(date,markets),'',formatCloseCoverageSummary(coverage),
+  formatClosingMarketReferences(date,markets),'',
+  formatCloseCoverageSummary(coverage).split('\n')
+    .filter(line=>!line.startsWith('미연결 참고지표:')).join('\n'),
   '※ 기본 가격·미국 지수: NH PLUG · 그 외 참고값 출처 별도 표기');
  // Published FreeSIS settlement-date totals, never presented as a same-day
  // trading close. A missing source must not add another repetitive warning.
@@ -224,7 +226,19 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
    if(pos>=0&&lines.join('\n').length+detail.length+2<=3900)
      lines.splice(pos+1,0,detail);
  }
- return lines.join('\n');
+ // Verified market and finance values outrank generic closing commentary.
+ const genericNotes=[
+  /^• AI 수요 검증:/,/^• 실행 기준:/,/^• 긍정:/,/^• 경계:/,
+  /^■ 조건부 시나리오 · 다음 확인/,/^※ 기본 가격·미국 지수:/
+ ];
+ let rendered=lines.join('\n');
+ for(const pattern of genericNotes){
+  if(rendered.length<=3900)break;
+  const idx=lines.findIndex(x=>pattern.test(x));
+  if(idx>=0)lines.splice(idx,1);
+  rendered=lines.join('\n');
+ }
+ return rendered;
 }
 // Wait only briefly for the already-running 06:20 SEC/DART artifact read.
 // A fast market-only PREPARE used to read a still-pending optional promise as

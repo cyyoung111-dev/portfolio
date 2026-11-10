@@ -272,6 +272,20 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
     &&lines.join('\n').length+trendLines.join('\n').length+2<=3700)
    lines.splice(trendAt,0,...trendLines,'');
   let message=lines.join('\n');
+  // Preserve VERIFIED supplemental market readings before generic commentary.
+  // These notes are interpretations/disclaimers, not missing source values.
+  const lowerPriorityNotes=[
+    /^■ 10\. 오늘의 시나리오 /,
+    /^Base:/,
+    /^• 실수요: 빅테크 CAPEX/,
+    /^일봉은 각 항목 \[날짜\] 기준/
+  ];
+  for(const pattern of lowerPriorityNotes){
+    if(message.length<=3900)break;
+    const i=lines.findIndex(line=>pattern.test(line));
+    if(i>=0)lines.splice(i,1);
+    message=lines.join('\n');
+  }
   const optional=[
     /^시장폭 A\/D:/,/^미국 선물 참고:/,/^미 국채 2Y /,
     /^지수 구성종목 거래대금:/,/^VKOSPI:/,/^시장 수급 \[/
