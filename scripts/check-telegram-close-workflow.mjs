@@ -7,10 +7,28 @@ import YAML from 'yaml';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare,settleOptionalCloseFinance}
+import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare,settleOptionalCloseFinance,
+ sanitizeCloseOptionalSourceReason}
  from './telegram-close-workflow.mjs';
 import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 const day='2026-10-30',now=()=>new Date(day+'T17:00:00+09:00');
+const safeReason=sanitizeCloseOptionalSourceReason({
+ kind:'VKOSPI_READ',status:'KRX_KEY_OR_INDEX_PERMISSION_DENIED',
+ url:'https://private.example.invalid',accessToken:'DO_NOT_EXPOSE',value:1234});
+assert.deepEqual(safeReason,{kind:'VKOSPI_READ',
+ status:'KRX_KEY_OR_INDEX_PERMISSION_DENIED'});
+assert.deepEqual(sanitizeCloseOptionalSourceReason({
+ kind:'FRED_TREASURY_READ',id:'UST2Y',status:'PUBLISHED_PRIOR_SESSION',
+ rawFinancialAmount:999999}),{
+ kind:'FRED_TREASURY_READ',status:'PUBLISHED_PRIOR_SESSION',id:'UST2Y'});
+assert.deepEqual(sanitizeCloseOptionalSourceReason({
+ kind:'KRX_TURNOVER_READ',status:'UNKNOWN_PROVIDER_STRING',
+ rawBody:'CREDENTIALS'}),{
+ kind:'KRX_TURNOVER_READ',status:'OTHER_UNVERIFIED'});
+assert.equal(sanitizeCloseOptionalSourceReason({
+ kind:'PRIVATE_PORTFOLIO_ROW',status:'VERIFIED',accessToken:'LEAK'}),null);
+assert.equal(sanitizeCloseOptionalSourceReason(null),null);
+
 assert.equal(closeWindow(new Date(day+'T16:59:59+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T16:45:00+09:00')).allowed,false,'preparation can run early but delivery may not');
 assert.equal(closeWindow(now()).allowed,true);
