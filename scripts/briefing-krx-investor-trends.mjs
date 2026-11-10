@@ -109,6 +109,11 @@ export function formatInvestorTrends(result){
   ||![kospi.foreignKrw,kospi.institutionKrw,
     kosdaq.foreignKrw,kosdaq.institutionKrw].every(Number.isFinite))
    return '';
+ for(const market of [kospi,kosdaq]){
+  const sum=codes=>codes.reduce((acc,code)=>acc+(market.amounts?.[code]||0),0);
+  if(sum(FOREIGN)!==market.foreignKrw
+    ||sum(INST)!==market.institutionKrw)return '';
+ }
  const fmt=n=>(n>=0?'+':'−')+Math.round(Math.abs(n)/1e8).toLocaleString('en-US')+'억';
  return '시장 수급 ['+result.date.slice(5)+' · KRX 거래 · 네이버 참고'
   +(result.provisional?' 잠정':'')+'] '
