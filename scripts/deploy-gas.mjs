@@ -5,6 +5,7 @@ import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {composeFundSnapshot9287SourcePreview} from './compose-fund-snapshot-9287-source-preview.mjs';
 import {composeGas9288TradeV2From9287Preview} from './compose-gas9288-trade-v2-from-9287-preview.mjs';
 import {composeIssue860Gas9289PerfCandidate} from './compose-issue860-gas9289-perf-candidate.mjs';
+import {composeIssue860Gas9290Preview} from './compose-issue860-gas9290-preview.mjs';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -37,6 +38,8 @@ export function extractExpectedGasVersion(source) {
 // Do not allow other SHA variants without explicit full-source review.
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  // #860 full-source-only CI reviewed successor. Never deploy automatically.
+  '9.290': 'fa12c26b6b6d5f85d6d0e9f17d650a8824d0316c',
   // Review-only #1076 artifact (exact source). Future 9.289 production
   // requires separate manual approval AND an already migrated live v2 ledger.
   '9.289': 'e6c0d8eba5eba8012ae761de7f436e86601b63d9',
@@ -556,7 +559,7 @@ export function summarizeGasReleaseFailure(error,stage) {
 }
 
 // Deployment approval for first stateful gate release is separate from merge.
-export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,approved9289=false,dryRun=false,diagnosticOnly=false}={}) {
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,approved9289=false,approved9290=false,dryRun=false,diagnosticOnly=false}={}) {
   if(dryRun||diagnosticOnly)return;
   if(version==='9.282'&&(eventName!=='workflow_dispatch'||approved!==true))
     throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
@@ -574,6 +577,8 @@ export function assertIssue507ManualReleasePermission({version,eventName,approve
     throw Error('GAS_9288_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.289'&&(eventName!=='workflow_dispatch'||approved9289!==true))
     throw Error('GAS_9289_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  if(version==='9.290'&&(eventName!=='workflow_dispatch'||approved9290!==true))
+    throw Error('GAS_9290_EXPLICIT_MANUAL_RELEASE_REQUIRED');
 }
 // A future 9.289 MUST not bypass the separate 9.288 trade migration.
 // The verified live GET is performed by a protected workflow step before deploy;
@@ -586,6 +591,17 @@ export function assertIssue8609289Prerequisites({
   throw Error('GAS_9289_REQUIRES_PUBLISHED_9288');
  if(confirmedMigrated!==true)
   throw Error('GAS_9289_REQUIRES_VERIFIED_TRADE_V2');
+}
+// #860 v9.290 may follow only the actual deployed v9.289 and a separate,
+// same-workflow, credentialed read-only idle + v2 ledger verification.
+export function assertIssue8609290Prerequisites({
+ version,publishedVersion,liveGateVerified=false,dryRun=false,diagnosticOnly=false
+}={}) {
+ if(version!=='9.290'||dryRun||diagnosticOnly)return;
+ if(publishedVersion!=='9.289')
+   throw Error('GAS_9290_REQUIRES_PUBLISHED_9289');
+ if(liveGateVerified!==true)
+   throw Error('GAS_9290_REQUIRES_LIVE_IDLE_AND_TRADE_V2_PROOF');
 }
 export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
@@ -619,18 +635,21 @@ export async function deploy() {
     throw Error('GAS_9287_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   const trade9288 = process.env.GAS_9288_TRADE_V2 === 'true';
   const perf9289 = process.env.GAS_9289_CLOSE_PERF === 'true';
-  if (Number(fund9287)+Number(trade9288)+Number(perf9289)>1)
+  const perf9290 = process.env.GAS_9290_CLOSE_PERF === 'true';
+  if (Number(fund9287)+Number(trade9288)+Number(perf9289)+Number(perf9290)>1)
     throw Error('GAS_RELEASE_CANDIDATES_MUTUALLY_EXCLUSIVE');
   if (trade9288 && !dryRun && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
     throw Error('GAS_9288_EXPLICIT_MANUAL_RELEASE_REQUIRED');
-  const source = perf9289
+  const source = perf9290
+    ? composeIssue860Gas9290Preview().candidate
+    : perf9289
     ? composeIssue860Gas9289PerfCandidate().candidate
     : trade9288
       ? composeGas9288TradeV2From9287Preview().candidate
     : fund9287
       ? composeFundSnapshot9287SourcePreview().candidate
       : fs.readFileSync(SOURCE_PATH, 'utf8');
-  if (fund9287 || trade9288 || perf9289) assertGasReleaseReady(source); // exact candidate blob even in dry-run
+  if (fund9287 || trade9288 || perf9289 || perf9290) assertGasReleaseReady(source); // exact candidate blob even in dry-run
   // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
@@ -643,7 +662,8 @@ export async function deploy() {
     approved9286:process.env.GAS_9286_RELEASE_APPROVAL==='true',
     approved9287:process.env.GAS_9287_RELEASE_APPROVAL==='true',
     approved9288:process.env.GAS_9288_RELEASE_APPROVAL==='true',
-    approved9289:process.env.GAS_9289_RELEASE_APPROVAL==='true',dryRun,
+    approved9289:process.env.GAS_9289_RELEASE_APPROVAL==='true',
+    approved9290:process.env.GAS_9290_RELEASE_APPROVAL==='true',dryRun,
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
@@ -686,6 +706,11 @@ export async function deploy() {
   assertIssue8609289Prerequisites({
     version:expectedVersion,publishedVersion:releaseState.published.version,
     confirmedMigrated:process.env.GAS_9289_TRADE_V2_VERIFIED==='true',
+    dryRun,diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
+  });
+  assertIssue8609290Prerequisites({
+    version:expectedVersion,publishedVersion:releaseState.published.version,
+    liveGateVerified:process.env.GAS_9290_LIVE_GATE_VERIFIED==='true',
     dryRun,diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');
