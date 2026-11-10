@@ -97,5 +97,7 @@ assert.match(formatInvestorTrends(provisional),/네이버 참고 잠정/);
 const closeReport=formatClose(TODAY,[],[],[],[],[],[],[],
  new Date('2026-11-10T17:00:00+09:00'),[],[],null,null,[],null,provisional);
 assert.match(closeReport,/시장 수급 \[11-10 · KRX 거래 · 네이버 참고 잠정\]/);
+assert.match(closeReport,/수급 1\/1 · 시장자금 0\/2/,
+ 'verified cross-market investor data must count in closing QC');
 assert.ok(closeReport.length<=4000);
 console.log('KRX_INVESTOR_NAVER_REFERENCE_PASS cross-market/date/units/foreign-institution/partial/close-provisional/no-writes');
