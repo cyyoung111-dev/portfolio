@@ -1,4 +1,4 @@
-name: KRX and GAS optional indicators read-only smoke
+name: KRX public index and stock source read-only smoke
 on:
   # Never expose the protected GAS/KRX environment to PR code.
   # A merged reviewed main commit triggers ONE read-only smoke, no writes.
@@ -22,9 +22,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Read only KRX day statistics and GAS market routes
+      - name: Check KRX official daily index and stock data (read only)
         env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
         run: node scripts/probe-optional-krx-gas-readonly.mjs
