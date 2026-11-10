@@ -50,11 +50,17 @@ export async function verifyIssue8609290LiveGate({
  if(!DATE.test(date)||!DATE.test(today)||
    Math.abs((Date.parse(today+'T00:00:00Z')-Date.parse(date+'T00:00:00Z'))/86400000)>4)
   fail('CLOSE_DATE_STALE');
- if(a.portfolioClose?.priceDate!==date||a.snapshotLastDate!==date||
+ // A successful close may coexist with later transaction edits that have
+ // queued a recomputation. Such status must never promote a stale Snapshot.
+ if(a.overallStatus!=='NORMAL'||close.summaryRunDate!==date||
+  close.closeErrorCount!==0||close.closeErrorPresent||
+  close.runStale!==false||
+  a.portfolioClose?.priceDate!==date||a.snapshotLastDate!==date||
   a.priceHistoryLastDate!==date||a.snapshotStale!==false||
-  a.tradeLedgerWriteUnverified===true||
-  (Array.isArray(a.pendingKrxCloseDates)&&a.pendingKrxCloseDates.length>0)||
-  (Number.isFinite(a.tradeSnapshotDeferredCount)&&a.tradeSnapshotDeferredCount>0))
+  a.tradeLedgerWriteUnverified!==false||
+  a.pendingTradeSnapshotRebuildFrom!==''||
+  a.tradeSnapshotDeferredCount!==0||
+  !Array.isArray(a.pendingKrxCloseDates)||a.pendingKrxCloseDates.length!==0)
   fail('DATA_NOT_SETTLED');
  const data=await post(endpoint,token,'getTrades',fetchImpl);
  if(data.tradeLedgerProtocolVersion!==2||
