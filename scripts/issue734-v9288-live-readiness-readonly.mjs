@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// #734: bounded, authenticated read-only preflight BEFORE any manual 9.288
-// production publish. It is not a lease, writer exclusion proof or release
-// approval. Exactly one status and one trade read; no raw finance data logging.
+// #734: bounded authenticated read-only preflight. Default v9.287 is
+// REQUIRED by the pre-9.288 production-publish gate; an explicit v9.288
+// option is used only by the already-published readiness workflow. Neither
+// mode proves execution-owner exclusion or authorizes a finance mutation.
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {summarizeCloseStatus} from './diagnose-backfill-status.mjs';
@@ -25,15 +26,19 @@ async function read(url,token,action,fetchImpl) {
  return obj;
 }
 export async function inspectIssue734V9288LiveReadiness({
- url,token,fetchImpl=fetch,expectedRows=338
+ url,token,fetchImpl=fetch,expectedRows=338,expectedGasVersion='9.287'
 }={}) {
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)fail('AUTH_MISSING');
  if(expectedRows!==338)fail('EXPECTED_COUNT_DRIFT');
+ // Only pinned versions are allowed; never pass the observed version as
+ // its own expected value or silently relax the deployment preflight.
+ if(!['9.287','9.288'].includes(expectedGasVersion))
+  fail('EXPECTED_VERSION_UNSUPPORTED');
  const res=await read(endpoint,token,'getAutomationStatus',fetchImpl);
  const a=res.automation;
- if(res.gasVersion!=='9.287'||a?.gasVersion!==res.gasVersion)
-  fail('PUBLISHED_VERSION_NOT_9287');
+ if(res.gasVersion!==expectedGasVersion||a?.gasVersion!==res.gasVersion)
+  fail('PUBLISHED_VERSION_MISMATCH');
  if(a.overallStatus!=='NORMAL')fail('OVERALL_STATUS_NOT_NORMAL');
  let close;
  try{close=summarizeCloseStatus(a);}catch{fail('CLOSE_SCHEMA_UNVERIFIED');}
@@ -55,8 +60,9 @@ export async function inspectIssue734V9288LiveReadiness({
  if(!t||t.hasClose!==true||t.hasWatchdog!==true
   ||t.hasLegacySplitTriggers!==false||t.hasDuplicateCloseTriggers!==false
   ||t.hasDuplicateWatchdogTriggers!==false)fail('TRIGGERS_UNVERIFIED');
- // Legacy 9.287 must present existing read-only A:K transactions, never
- // silently accept an already migrated/partially migrated v2 response.
+ // Either pinned version must present exactly 338 legacy transactions.
+ // The v9.288 release supports v2, but BEFORE Apply the financial source
+ // remains 11 columns, with no IDs; never accept already migrated v2.
  const ledger=await read(endpoint,token,'getTrades',fetchImpl);
  if(ledger.tradeLedgerProtocolVersion===2||!Array.isArray(ledger.trades)
    ||ledger.trades.length!==expectedRows)fail('LEGACY_LEDGER_NOT_EXACT');
@@ -68,7 +74,8 @@ export async function inspectIssue734V9288LiveReadiness({
    ||('id' in trade))fail('LEGACY_ROW_SCHEMA_DRIFT');
  }
  return {kind:'ISSUE734_9288_LIVE_PREFLIGHT',status:'READONLY_PASS',
-  observedGasVersion:res.gasVersion,closedRunSettled:true,
+  observedGasVersion:res.gasVersion,expectedGasVersion,
+  closedRunSettled:true,
   persistedWritersIdle:true,legacyTradeRows:expectedRows,
   duplicateOldTriggerDetected:false,liveExternalWriterExcludedVerified:false,
   editorSessionExcludedVerified:false,concurrentProcessExcludedVerified:false,
@@ -78,7 +85,8 @@ export async function inspectIssue734V9288LiveReadiness({
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
   console.log(JSON.stringify(await inspectIssue734V9288LiveReadiness({
-   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+   expectedGasVersion:process.env.ISSUE734_READINESS_EXPECTED_GAS_VERSION||'9.287'
   })));
  }catch(error){
   const m=String(error?.message||'');
