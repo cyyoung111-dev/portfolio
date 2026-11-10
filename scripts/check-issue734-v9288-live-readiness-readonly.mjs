@@ -152,7 +152,7 @@ for(const bad of [
   double);
 }
 console.log(JSON.stringify({kind:'ISSUE734_9288_LIVE_READINESS_OFFLINE_PASS',
- expectedLegacyRows:338,negativeScenarios:24,legacyGatePreserved:true,
+ expectedLegacyRows:338,negativeScenarios:23,legacyGatePreserved:true,
  failClosedOnIncompleteClose:true,prepublishVersion:'9.287',
  postpublishVersion:'9.288',
  realNetworkCalls:0,financeWrites:0,gasDeployments:0}));
