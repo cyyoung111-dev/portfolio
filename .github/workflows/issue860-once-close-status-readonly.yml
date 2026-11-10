@@ -1,6 +1,7 @@
 name: issue860-once-close-status-readonly
 on:
   workflow_dispatch:
+  # 2026-11-10 20:30+ KST independent finality readback: one authenticated status GET, no writes.
   # Additional one-shot status check after second (automation-mismatch) deployment failure.
   # One-shot production rollback-status verification after the failed
   # v9.287 publish. This reads getAutomationStatus only; no writer or retry.
