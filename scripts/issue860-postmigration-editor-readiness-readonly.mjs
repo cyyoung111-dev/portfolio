@@ -92,7 +92,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const googleToken=await fetchGoogleAuditToken({clasprc:process.env.CLASPRC_JSON});
   const r=await inspectEditorReadiness({
    scriptId:process.env.GAS_SCRIPT_ID,
-   deploymentId:process.env.GAS_DEPLOYMENT_ID,
+   deploymentId:process.env.GAS_DEPLOYMENT_ID ||
+    deploymentIdFromWebAppUrl(process.env.GAS_WEB_APP_URL||''),
    serverName:process.env.GAS_SERVER_FILE_NAME||'',
    oauthToken:googleToken,gasToken:process.env.GAS_ACCESS_TOKEN,
    webAppUrl:process.env.GAS_WEB_APP_URL
