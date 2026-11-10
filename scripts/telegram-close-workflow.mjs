@@ -20,6 +20,7 @@ import {readCurrentFutures,formatCurrentFutures,selectCurrentFuturesRows} from '
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
 import {readKofiaLiquidity,formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
+import {readInvestorTrends,formatInvestorTrends} from './briefing-krx-investor-trends.mjs';
 import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
@@ -131,7 +132,7 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null,financialEvidence=null,turnover=[],liquidity=null){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null,financialEvidence=null,turnover=[],liquidity=null,investors=null){
  const valid=verifiedNhCloseRows(date,rows);
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const verifiedRates=verifyTreasuryCurve(date,rates);
@@ -188,6 +189,11 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
   '※ 기본 가격·미국 지수: NH PLUG · 그 외 참고값 출처 별도 표기');
  // Published FreeSIS settlement-date totals, never presented as a same-day
  // trading close. A missing source must not add another repetitive warning.
+ const investorLine=formatInvestorTrends(investors);
+ if(investorLine&&lines.join('\n').length+investorLine.length+2<=3900){
+   const position=lines.indexOf('■ 글로벌 참고 지표');
+   if(position>=0)lines.splice(position,0,investorLine,'');
+ }
  const liquidityLine=formatKofiaLiquidity(liquidity);
  if(liquidityLine&&lines.join('\n').length+liquidityLine.length+2<=3900){
    const position=lines.indexOf('■ 글로벌 참고 지표');
@@ -247,6 +253,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
  fetchRates=readTreasuryCurve,fetchVkospi=readClosingVkospi,
  fetchTurnover=readClosingKrxTurnoverFromGas,fetchLiquidity=readKofiaLiquidity,
+ fetchInvestorFlows=readInvestorTrends,
  loadPrepared=async()=>null,loadFinancialEvidence=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
@@ -276,7 +283,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
   let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[]}=cached||{};
   // Latest 17:00 overseas quotes must never come from the 16:50 EOD artifact.
-  let futures=[],rates=[],vkospi=[],turnover=[],liquidity=null,fearGreed=null;
+  let futures=[],rates=[],vkospi=[],turnover=[],liquidity=null,investors=null,fearGreed=null;
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
   const combine=(oldRows,liveRows,key)=>{
@@ -317,7 +324,9 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     catch{turnover=[];failedGroups.push('TURNOVER');}})(),
     (async()=>{fearGreed=await readFearGreed({fetchImpl,now});})(),
     (async()=>{try{liquidity=await fetchLiquidity(window.date,{fetchImpl});}
-       catch{liquidity=null;}})()
+       catch{liquidity=null;}})(),
+    (async()=>{try{investors=await fetchInvestorFlows(window.date,{mode:'close',fetchImpl,now});}
+       catch{investors=null;}})()
   ]);
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
@@ -344,10 +353,11 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     futuresCount:futures.length,ratesCount:rates.length,vkospiCount:vkospi.length,
     turnoverCount:turnover.length,
     liquidityStatus:{deposits:Boolean(liquidity?.deposits),margin:Boolean(liquidity?.margin)},
+    investorMarkets:investors?.markets?.length||0,
     // Market-only public rows; no tokens, accounts or GAS ledger data. The
     // send step re-renders AI/US futures at the actual transmission time.
-    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,turnover,liquidity,fearGreed,...(financialEvidence?{financialEvidence}:{})},
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence,turnover,liquidity)};
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,turnover,liquidity,investors,fearGreed,...(financialEvidence?{financialEvidence}:{})},
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence,turnover,liquidity,investors)};
 }
 // Only the already-armed 16:35 runner uses this bounded wait when today's
 // core index closes are not yet published. Existing claim and SEND guards
@@ -415,14 +425,15 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       &&r.financialEvidence.usSessionDate===expectedMorningDate('SPX',window.date)
        ?r.financialEvidence:null;
     outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
-      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover,r.liquidity||null);
+      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover,r.liquidity||null,r.investors||null);
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     optionalDisplay=summarizeOptionalDelivery('close',{
       futures:selectCurrentFuturesRows(window.date,r.futures,now()).length,
       treasury:rates.length,vkospi:vkospi.length,
       turnover:turnover.length,
       liquidity:Number(Boolean(r.liquidity?.deposits))
-        +Number(Boolean(r.liquidity?.margin))
+        +Number(Boolean(r.liquidity?.margin)),
+      investors:r.investors?.markets?.length||0
     },outgoing);
   }
   await send(token,chatId,outgoing);
