@@ -1,0 +1,45 @@
+name: Issue 734 stranded writer process evidence (READ ONLY)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/issue734-writer-terminal-evidence-readonly.mjs'
+      - 'scripts/check-issue734-writer-terminal-evidence-readonly.mjs'
+      - '.github/workflows/issue734-writer-terminal-evidence-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue734-writer-evidence-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate fail-closed evidence-only process auditor
+        run: node scripts/check-issue734-writer-terminal-evidence-readonly.mjs
+  live-processes-get:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    needs: source-check
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: GET process metadata only — never release or cleanup
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue734-writer-terminal-evidence-readonly.mjs

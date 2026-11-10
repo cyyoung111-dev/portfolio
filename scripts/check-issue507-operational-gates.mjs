@@ -102,10 +102,10 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,78,
-  'migration inventory: all 78 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,81,
-  'migration inventory: all 81 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,79,
+  'migration inventory: all 79 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,82,
+  'migration inventory: all 82 secret-consuming jobs must be protected');
 assert.ok(fs.readFileSync(new URL('kb-fund-nav-collect.yml',dir),'utf8').includes('hanwha-collect:'),
   'Hanwha F00001 collector must be present and environment-gated');
 assert.ok(protectedWorkflowNames.includes('gas9287-fund-hotfix-review-artifact.yml'),
@@ -114,6 +114,8 @@ assert.ok(protectedWorkflowNames.includes('issue860-close-processes-readonly.yml
   'one-shot process audit must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-once-close-status-readonly.yml'),
   'one-shot close status must use protected GAS Environment');
+assert.ok(protectedWorkflowNames.includes('issue734-writer-terminal-evidence-readonly.yml'),
+  'writer process evidence must require protected Environment');
 assert.ok(protectedWorkflowNames.includes('issue734-v9288-live-readiness-readonly.yml'),
   '9.288 predeployment read-only audit must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-recent-snapshot-backup-readonly.yml'),
