@@ -12,13 +12,14 @@ function shape(obj,depth=0){
 }
 for(const host of ['m.stock.naver.com','stock.naver.com']){
  for(const day of ['20261109']){
+ for(const market of (host==='stock.naver.com'?['ALL','KOSPI','KOSDAQ']:['ALL'])){
  const probeEndpoint=endpoint.replace('m.stock.naver.com',host);
  const url=new URL(probeEndpoint);
  for(const [key,value]of Object.entries({
-   tradeType:'KRX',marketType:'ALL',bizdate:day,startIdx:'0',pageSize:'20'
+   tradeType:'KRX',marketType:market,bizdate:day,startIdx:'0',pageSize:'20'
  }))url.searchParams.set(key,value);
  const info={kind:'INVESTOR_PUBLIC_SCHEMA_PROBE',bizdate:day,
-   action:'READ_ONLY',urlHost:url.hostname};
+   action:'READ_ONLY',urlHost:url.hostname,marketType:market};
  try{
    const reply=await fetch(url,{
      redirect:'error',headers:{accept:'application/json',
@@ -78,5 +79,6 @@ for(const host of ['m.stock.naver.com','stock.naver.com']){
  }catch(e){info.error=['TimeoutError','AbortError'].includes(e?.name)
     ?'TIMEOUT':'REQUEST_OR_SCHEMA_UNAVAILABLE';}
  console.log(JSON.stringify(info));
+ }
  }
 }
