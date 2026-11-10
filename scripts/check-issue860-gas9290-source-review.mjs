@@ -24,8 +24,10 @@ assert.equal(manifest.candidateSourceGitBlob,gasSourceBlobSha(candidate));
 assert.equal(extractExpectedGasVersion(parent),'9.289');
 assert.equal(extractExpectedGasVersion(candidate),'9.290');
 assert.equal(assertGasReleaseReady(parent),'9.289');
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION/,
- 'Source-only next version is not approved/deployable just by existence');
+assert.equal(assertGasReleaseReady(candidate),'9.290',
+ 'Exact source is now pinned, but release still requires manual consent and live predeploy gate');
+assert.throws(()=>assertGasReleaseReady(candidate+'\\nUNREVIEWED'),
+ /GAS_RELEASE_SOURCE_NOT_APPROVED/);
 assert.equal(manifest.approvedForGasDeploy,false);
 assert.equal(manifest.financeWrites,0);
 assert.equal(manifest.gasDeployments,0);
