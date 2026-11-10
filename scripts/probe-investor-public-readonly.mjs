@@ -2,7 +2,7 @@
 // No accounts, tokens, raw numbers, Telegram, GAS or financial writes.
 const endpoint='https://m.stock.naver.com/api/domestic/market/trend/daily';
 function shape(obj,depth=0){
- if(depth>2)return typeof obj;
+ if(depth>5)return typeof obj;
  if(Array.isArray(obj))return {type:'array',length:obj.length,
    item:obj.length?shape(obj[0],depth+1):null};
  if(obj===null)return 'null';
@@ -32,6 +32,12 @@ for(const host of ['m.stock.naver.com','stock.naver.com']){
      if(Number.isFinite(size)&&size>600000)throw Error('RESPONSE_TOO_LARGE');
      const json=await reply.json();
      info.schema=shape(json);
+     const rows=Array.isArray(json?.content)?json.content:[];
+     info.sourceDates=[...new Set(rows.map(x=>x?.bizdate)
+       .filter(x=>typeof x==='string'&&/^\d{8}$/.test(x)))].slice(0,7);
+     info.sourceTimes=rows.length
+       ?[rows[0]?.time,rows.at(-1)?.time].filter(x=>typeof x==='string').slice(0,2)
+       :[];
    }
  }catch(e){info.error=['TimeoutError','AbortError'].includes(e?.name)
     ?'TIMEOUT':'REQUEST_OR_SCHEMA_UNAVAILABLE';}
