@@ -1,0 +1,55 @@
+name: Issue 860 v9.289 predeployment readiness - READ ONLY
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue860-v9289-live-readiness-readonly.yml'
+      - 'scripts/issue860-v9289-live-readiness-readonly.mjs'
+      - 'scripts/check-issue860-v9289-live-readiness-readonly.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  readiness:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Simulate release gates without credentials or writes
+        run: node scripts/check-issue860-v9289-live-readiness-readonly.mjs
+      - name: Inspect actual 9.288 published and HEAD file sets, OPEN gate and 338 v2 trades
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue860-v9289-live-readiness-readonly.mjs
+  source-gaps:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main'
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Reprobe current KRX stock, turnover and VKOSPI without Telegram
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-briefing-source-gaps-readonly.mjs
