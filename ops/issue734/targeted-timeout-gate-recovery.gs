@@ -222,6 +222,54 @@ function issue734DrainedTradeV2Restore() {
     return _issue734DrainedTradeV2Migration_('RESTORE');
   });
 }
+// Emergency/declined-migration resume: roll back the PAUSE only if there
+// is no partial trade migration and the 11-column ledger still matches.
+function issue734AbortWriterMaintenancePause() {
+  return _issue734WithInternalBypass_(function(){
+    return _issue507GateAtomic_(function(props){
+      var g=_issue507GateRead_(props),
+          count=Object.keys(g.active).length,
+          raw=props.getProperty('issue734_writer_pause_audit_v1'),
+          backup=props.getProperty('issue734_writer_pause_before_v1'),
+          audit;
+      try{audit=raw?JSON.parse(raw):null;}catch(ignore){audit=null;}
+      if(!audit||audit.status!=='PAUSED'||!backup||
+         audit.originalGateDigest!==_issue734RecoverSha_(backup)||
+         g.mode!=='DRAINING'||audit.pausedAt!==g.barrierAt||
+         Date.now()-g.barrierAt<420000||
+         ![0,14].includes(count))
+        throw Error('ISSUE734_PAUSE_ABORT_STATE_UNVERIFIED');
+      var journal=props.getProperty('trade_v2_migration_journal_v1'),j;
+      try{j=journal?JSON.parse(journal):null;}catch(ignore){
+        throw Error('ISSUE734_PAUSE_ABORT_JOURNAL_INVALID');
+      }
+      if(j&&j.status!=='RESTORED')
+        throw Error('ISSUE734_PAUSE_ABORT_MIGRATION_IN_PROGRESS');
+      if(count===14)_issue734RecoverInspect_(props);
+      else _issue734AssertDrainedAfterRepair_(props);
+      var ss=getss(),sh=ss.getSheetByName(CONFIG.SHEET_TRADES);
+      if(!sh||sh.getLastRow()!==339||sh.getLastColumn()!==11||
+         _tradeLedgerWriteUnverified_()||_readPendingTradeSnapshotRebuild())
+        throw Error('ISSUE734_PAUSE_ABORT_LEDGER_DRIFT');
+      audit.status='ABORTING';
+      props.setProperty('issue734_writer_pause_audit_v1',JSON.stringify(audit));
+      if(props.getProperty('issue734_writer_pause_audit_v1')!==JSON.stringify(audit))
+        throw Error('ISSUE734_PAUSE_ABORT_AUDIT_READBACK_FAILED');
+      // Original active 14 will remain if repair was never approved;
+      // verified no-activity legacy state is otherwise unchanged.
+      g.mode='OPEN';_issue507GateSave_(props,g);
+      if(_issue507GateRead_(props).mode!=='OPEN')
+        throw Error('ISSUE734_PAUSE_ABORT_GATE_READBACK_FAILED');
+      audit.status='ABORTED';audit.abortedAt=Date.now();
+      props.setProperty('issue734_writer_pause_audit_v1',JSON.stringify(audit));
+      if(props.getProperty('issue734_writer_pause_audit_v1')!==JSON.stringify(audit))
+        throw Error('ISSUE734_PAUSE_ABORT_FINAL_READBACK_FAILED');
+      return {status:'OPEN',restoredLegacyRows:338,activeCount:count,
+        previousBackupsRetained:true,financeWrites:0};
+    });
+  });
+}
+
 function issue734ResumeWritersAfterApplied() {
   return _issue734WithInternalBypass_(function(){
     return _issue507GateAtomic_(function(props){
