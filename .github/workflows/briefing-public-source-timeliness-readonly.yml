@@ -4,7 +4,10 @@ name: Briefing public-source timeliness probe (READ ONLY)
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/briefing-public-source-timeliness-readonly.yml']
+    paths:
+      - '.github/workflows/briefing-public-source-timeliness-readonly.yml'
+      - 'scripts/probe-public-market-timeliness-readonly.mjs'
+      - 'scripts/qualify-public-market-session.mjs'
   workflow_dispatch:
   schedule:
     # Actual runner timestamp is logged; GitHub cron may start late.
