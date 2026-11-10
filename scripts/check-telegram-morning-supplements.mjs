@@ -16,6 +16,20 @@ function chart(symbol,at=stamp,value=7000){
 const good=validateMorningFuturesQuote(date,'ES',chart('ES=F'),now);
 assert.equal(good?.source,'YAHOO_DELAYED_FUTURES_REFERENCE');
 assert.equal(good?.value,7000);
+// At 07:40 KST a CME maintenance bar may have a timestamp but no trades.
+// The LAST actual positive trade remains valid only within its real 90m age.
+const maintenance=chart('ES=F');
+maintenance.chart.result[0].timestamp=[stamp,stamp+300,stamp+600];
+maintenance.chart.result[0].indicators.quote[0].close=[7000,null,null];
+const lastTrade=validateMorningFuturesQuote(date,'ES',maintenance,now);
+assert.equal(lastTrade?.value,7000);
+assert.equal(lastTrade?.asOf,new Date(stamp*1000).toISOString());
+const invalidTrailing=structuredClone(maintenance);
+invalidTrailing.chart.result[0].indicators.quote[0].close=[7000,'INVALID',null];
+assert.equal(validateMorningFuturesQuote(date,'ES',invalidTrailing,now),null);
+const unordered=structuredClone(maintenance);
+unordered.chart.result[0].timestamp=[stamp,stamp+600,stamp+300];
+assert.equal(validateMorningFuturesQuote(date,'ES',unordered,now),null);
 assert.equal(validateMorningFuturesQuote(date,'ES',
  chart('ES=F',stamp-6000),now),null,'90m age cap');
 assert.equal(validateMorningFuturesQuote(date,'ES',
