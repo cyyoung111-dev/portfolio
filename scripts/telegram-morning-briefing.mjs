@@ -3,6 +3,7 @@ import {fetchNhNightFromGas} from './nh-gas-proxy.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {readNhStoredMorningStocks} from './nh-morning-stock-history.mjs';
 import {readFearGreed} from './briefing-fear-greed.mjs';
+import {formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
  formatMorningVkospi,formatMorningTurnover,formatMorningBreadth} from './telegram-morning-supplements.mjs';
 import {MORNING_SERIES, expectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
@@ -169,13 +170,30 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   const values=mergeMorningSourceRows(quotes,masterRows,nhRows,domesticRows,nhStockRows);
   const supplements={
     usReferences:supplementRows.usReferences||[],
-    futures:formatMorningFutures(first.date,supplementRows.futures||[],now()),
-    treasury:formatMorningTreasury(first.date,supplementRows.treasury||[]),
-    vkospi:formatMorningVkospi(supplementRows.vkospi||[]),
-    turnover:formatMorningTurnover(supplementRows.turnoverDate||expectedMorningDate('KOSPI',first.date),
-      supplementRows.turnover||[]),
-    breadth:formatMorningBreadth(first.date,supplementRows.breadth||[])
+    futures:supplementRows.futures?.length
+      ?formatMorningFutures(first.date,supplementRows.futures,now()):'',
+    treasury:supplementRows.treasury?.length
+      ?formatMorningTreasury(first.date,supplementRows.treasury):'',
+    vkospi:supplementRows.vkospi?.length
+      ?formatMorningVkospi(supplementRows.vkospi):'',
+    turnover:supplementRows.turnover?.length
+      ?formatMorningTurnover(supplementRows.turnoverDate||expectedMorningDate('KOSPI',first.date),
+       supplementRows.turnover):'',
+    breadth:supplementRows.breadth?.length
+      ?formatMorningBreadth(first.date,supplementRows.breadth):'',
+    liquidity:formatKofiaLiquidity(supplementRows.liquidity)
   };
+  // Optional-source diagnostics are counts only: they must not conflate the
+  // 21 confirmed daily rows with disconnected reference and liquidity feeds.
+  try{onSourceDiagnostic({kind:'MORNING_OPTIONAL_COVERAGE',coverage:{
+    futures:(supplementRows.futures||[]).length,
+    treasury:(supplementRows.treasury||[]).length,
+    vkospi:(supplementRows.vkospi||[]).length,
+    turnover:(supplementRows.turnover||[]).length,
+    breadth:(supplementRows.breadth||[]).length,
+    kofiaDeposits:Boolean(supplementRows.liquidity?.deposits),
+    kofiaMargin:Boolean(supplementRows.liquidity?.margin)
+  }});}catch{}
   const last=allowLateTest?lateTestWindow(now()):scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
   const reference=candidate && candidate.source==='NH' && /^K[A-Z0-9]{8}$/.test(candidate.contract||'') && candidate.kind==='REFERENCE'
