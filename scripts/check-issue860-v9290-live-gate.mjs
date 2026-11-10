@@ -59,6 +59,7 @@ const base={
  automation:{
   gasVersion:'9.289',overallStatus:'NORMAL',snapshotLastDate:date,
   priceHistoryLastDate:date,snapshotStale:false,pendingKrxCloseDates:[],
+  portfolioCloseRunStale:false,pendingTradeSnapshotRebuildFrom:'',
   portfolioClose:{runDate:date,priceDate:date,priceRows:39,priceOk:true,fundOk:true,errors:[]},
   closeRun:{runDate:date,state:'COMPLETE',stage:'COMPLETE'},
   fundAttempt:{state:'DONE',date},tradeLedgerWriteUnverified:false,
@@ -104,6 +105,12 @@ for(const [value,pattern] of [
   automation:{...base.automation,portfolioClose:{...base.automation.portfolioClose,priceDate:'2026-11-09'}}}},/DATA_NOT_SETTLED/],
  [{...good,getTrades:{...good.getTrades,trades:[...trades.slice(0,-1),trades[0]]}},/TRADE_ID_UNVERIFIED/],
  [{...good,getTrades:{...good.getTrades,tradeLedgerProtocolVersion:1}},/TRADE_LEDGER_UNVERIFIED/],
+ [{...good,getAutomationStatus:{...base,automation:{...base.automation,
+  pendingTradeSnapshotRebuildFrom:'2026-11-10',overallStatus:'WARNING'}}},/DATA_NOT_SETTLED/],
+ [{...good,getAutomationStatus:{...base,automation:{...base.automation,
+  tradeSnapshotDeferredCount:1}}},/DATA_NOT_SETTLED/],
+ [{...good,getAutomationStatus:{...base,automation:{...base.automation,
+  tradeLedgerWriteUnverified:true}}},/DATA_NOT_SETTLED/],
  [{...good,getWriterGateStatus:{...good.getWriterGateStatus,
   writerGate:{...good.getWriterGateStatus.writerGate,activeCount:1}}},/WRITER_GATE_NOT_IDLE/]
 ]){
