@@ -1,5 +1,6 @@
 // #860 v9.289 operator-only read-only gate record preview.
 // NOT COMPOSED into GAS release, not called from GitHub, no HTTP route.
+// Presence of two Active receipts is not permission to delete either record.
 // Run inside the ORIGINAL GAS editor only after verifying published v9.289.
 // No cleanup, approval, receipts, Snapshot or ScriptProperties writes.
 function issue860PreviewTwoActiveGateRecords() {
