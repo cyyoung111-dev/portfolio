@@ -82,13 +82,13 @@ function _issue734RecoverInspect_(props) {
 }
 // No financial writes, no property writes. Does not prove external actor isolation.
 function issue734PreviewTimedOutGateRecovery() {
-  var result=_issue507GateAtomic_(function(props){
+  var result=_issue734WithInternalBypass_(function(){return _issue507GateAtomic_(function(props){
     var p=_issue734RecoverInspect_(props);
     return {status:'MATCHED_BUT_NOT_AUTHORIZED',releaseVersion:'9.288',
       activeCount:p.priorActiveCount,originalGateDigest:p.gateDigest,
       requiresIndependentWriterIsolation:true,requiresOneTimeApproval:true,
       financeWrites:0,gateWrites:0};
-  });
+  });});
   if(typeof Logger!=='undefined')Logger.log(JSON.stringify(result));
   return result;
 }
@@ -101,7 +101,7 @@ function issue734PreviewTimedOutGateRecovery() {
 // Do not assert externalWritersExcluded without independently verifying it.
 // This routine NEVER marks a missing end receipt as ENDED.
 function issue734CommitTimedOutGateRecovery() {
-  var result=_issue507GateAtomic_(function(props){
+  var result=_issue734WithInternalBypass_(function(){return _issue507GateAtomic_(function(props){
     var p=_issue734RecoverInspect_(props),rawApproval=
       props.getProperty('issue734_stale_gate_recovery_approval_v1');
     var a;try{a=rawApproval?JSON.parse(rawApproval):null;}
@@ -139,7 +139,7 @@ function issue734CommitTimedOutGateRecovery() {
       activeCountAtReadback:Object.keys(next.active).length,
       backupRetained:true,producerEndReceiptsRecreated:false,
       migrationApplied:false,financeWrites:0};
-  });
+  });});
   if(typeof Logger!=='undefined')Logger.log(JSON.stringify(result));
   return result;
 }
