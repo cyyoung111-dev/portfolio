@@ -121,6 +121,9 @@ const noExpectedDomesticDate=buildAiFinancialEvidence({
  ...args,domesticSessionDate:null});
 assert.equal(noExpectedDomesticDate.domestic[0].evidence.pbrTimes,null,
  'absent expected Korean session must fail closed');
+assert.match(formatAiFinancialEvidence(noExpectedDomesticDate).join('\n'),
+ /PBR 종가 미연결/,
+ 'public DART-only prefetch must not be described as failed PBR collection');
 const previousSessionEvidence=buildAiFinancialEvidence({
  ...args,domesticSessionDate:'2026-11-05',
  domesticQuotes:domesticQuotes.map(x=>({...x,date:'2026-11-05'}))});
