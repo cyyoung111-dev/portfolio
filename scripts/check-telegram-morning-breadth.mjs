@@ -50,7 +50,7 @@ assert.equal(called,2);
 const message=formatFullMorningBriefing(day,null,[],{
  now:now(),supplements:{breadth:formatMorningBreadth(day,[a,b])}});
 assert.match(message,/시장폭 A\/D: KOSPI 220↑/);
-assert.match(message,/외국인\/기관 수급: 미확보/);
+assert.doesNotMatch(message,/외국인\/기관 수급: 미확보|FedWatch|Finviz/);
 assert.match(message,/■ QC: 기준 거래일과 일치한 일봉 0\/21/);
 
 let statusCalls=0;
