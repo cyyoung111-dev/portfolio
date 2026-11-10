@@ -170,8 +170,9 @@ export function formatCloseCoverageSummary(coverage){
    ...CLOSE_SOURCE_CATALOG.extraStocks,...CLOSE_SOURCE_CATALOG.extraMacros,
    ...CLOSE_SOURCE_CATALOG.extraMarkets,...CLOSE_SOURCE_CATALOG.treasuryRates,
    ...CLOSE_SOURCE_CATALOG.volatility,...CLOSE_SOURCE_CATALOG.turnover,
-   ['FOREIGN_INSTITUTION_FLOW','외국인·기관 수급'],
-   ['INVESTOR_DEPOSITS','예탁금'],['MARGIN_BALANCE','신용융자']
+   {id:'FOREIGN_INSTITUTION_FLOW',label:'외국인·기관 수급'},
+   {id:'INVESTOR_DEPOSITS',label:'예탁금'},
+   {id:'MARGIN_BALANCE',label:'신용융자'}
   ].map(x=>[x.id,x.label]));
   const missing=coverage.statuses.filter(x=>x.status!=='VERIFIED'
     &&x.status!=='NOT_CONNECTED').map(x=>displayNames[x.id]||x.id);
