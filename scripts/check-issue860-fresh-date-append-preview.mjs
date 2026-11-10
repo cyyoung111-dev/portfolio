@@ -33,7 +33,7 @@ function evaluate(source,{existingDate='2026-11-09',writeDate='2026-11-10',overw
     _normalizeDate:x=>String(x||'').slice(0,10),
     _cleanCode:x=>String(x||'').trim(),
     _dedupeSnapshotRows:rows=>rows,
-    _isFundCode:code=>/^F\\d{5}$/.test(String(code)),
+    _isFundCode:code=>/^F\d{5}$/.test(String(code)),
     _snapshotIntegrityKey:row=>String(row[1]||''),
     _classifyRawSnapshotDuplicateGroups:()=>[],
     _mergeSnapshotRowsSafely:(_same,incoming)=>incoming,
@@ -68,8 +68,8 @@ assert.throws(()=>assertGasReleaseReady(preview.source),/GAS_RELEASE_SOURCE_NOT_
 assert.throws(()=>composeIssue860FreshDateAppendPreview(preview.source),
  /ISSUE860_APPEND_ALREADY_APPLIED|ISSUE860_APPEND_SOURCE_DRIFT/);
 new vm.Script(preview.source,{filename:'unapproved-issue860-fresh-date-append.gs'});
-const originalFuncs=new Map([...base.matchAll(/^function ([A-Za-z_$][\\w$]*)\\s*\\(/gm)].map(m=>[m[1],fn(base,m[1])]));
-const proposedFuncs=new Map([...preview.source.matchAll(/^function ([A-Za-z_$][\\w$]*)\\s*\\(/gm)].map(m=>[m[1],fn(preview.source,m[1])]));
+const originalFuncs=new Map([...base.matchAll(/^function ([A-Za-z_$][\w$]*)\s*\(/gm)].map(m=>[m[1],fn(base,m[1])]));
+const proposedFuncs=new Map([...preview.source.matchAll(/^function ([A-Za-z_$][\w$]*)\s*\(/gm)].map(m=>[m[1],fn(preview.source,m[1])]));
 assert.deepEqual([...proposedFuncs.keys()],[...originalFuncs.keys()]);
 const changed=[...originalFuncs.keys()].filter(name=>originalFuncs.get(name)!==proposedFuncs.get(name));
 assert.deepEqual(changed,['writeSnapshotRows']);
