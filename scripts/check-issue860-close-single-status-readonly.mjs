@@ -49,10 +49,18 @@ const afterTradeV2=await readIssue860Once({url,token,fetchImpl:async()=>({
 assert.equal(afterTradeV2.gasVersion,'9.288',
  'Known manual 9.288 release needs the same strict persisted-status diagnostic');
 assert.equal(afterTradeV2.financialWrites,0);
-await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
+const afterPerf289=await readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.289',
   automation:{...data.automation,gasVersion:'9.289'}})
-})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.289 must not pass');
+})});
+assert.equal(afterPerf289.gasVersion,'9.289',
+ 'Known deployed v9.289 requires the same sanitized persisted-status diagnostic');
+assert.equal(afterPerf289.requestCount,1);
+assert.equal(afterPerf289.financialWrites,0);
+await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.290',
+  automation:{...data.automation,gasVersion:'9.290'}})
+})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.290 must not pass');
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.288',
   automation:{...data.automation,gasVersion:'9.287'}})

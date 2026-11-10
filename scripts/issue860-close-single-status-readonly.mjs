@@ -28,7 +28,7 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
  catch{throw Error('ISSUE860_STATUS_JSON');}
  const a=payload?.automation;
  if(payload?.status!=='ok'||!a||typeof a!=='object'
-    ||!['9.284','9.287','9.288'].includes(payload.gasVersion)
+    ||!['9.284','9.287','9.288','9.289'].includes(payload.gasVersion)
     ||a.gasVersion!==payload.gasVersion)
   throw Error('ISSUE860_STATUS_VERSION_OR_SCHEMA');
  let close,checkpoint;
