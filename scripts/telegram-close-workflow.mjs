@@ -16,10 +16,11 @@ import {readClosingStockSources,readClosingMacros,formatClosingExtra} from './cl
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
-import {readCurrentFutures,formatCurrentFutures} from './closing-current-futures.mjs';
+import {readCurrentFutures,formatCurrentFutures,selectCurrentFuturesRows} from './closing-current-futures.mjs';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
 import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
 import {readKofiaLiquidity,formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
+import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
@@ -380,7 +381,7 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
   ||!(Number.isSafeInteger(payload.domesticConfirmed)&&payload.domesticConfirmed>=0&&payload.domesticConfirmed<=3)
   ||payload.nhConfirmed+payload.domesticConfirmed<1
   ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
-  let outgoing=payload.message;
+  let outgoing=payload.message,optionalDisplay=null;
   // All new live-futures payloads require the original public market inputs.
   // Recheck intraday quote age at SEND (not PREPARE) time; refresh the entire
   // AI commentary and futures block together. Older EOD-only payloads retain
@@ -416,8 +417,20 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
     outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
       fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover,r.liquidity||null);
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+    optionalDisplay=summarizeOptionalDelivery('close',{
+      futures:selectCurrentFuturesRows(window.date,r.futures,now()).length,
+      treasury:rates.length,vkospi:vkospi.length,
+      turnover:turnover.length,
+      liquidity:Number(Boolean(r.liquidity?.deposits))
+        +Number(Boolean(r.liquidity?.margin))
+    },outgoing);
   }
   await send(token,chatId,outgoing);
+  // Only successful sends are logged, and only verified source counts/status.
+  // Never include quote values, dates of private records or message content.
+  if(optionalDisplay)console.log(JSON.stringify({
+    kind:'CLOSE_OPTIONAL_SENT_AUDIT',date:window.date,groups:optionalDisplay.groups
+  }));
   // The latest report is re-rendered at SEND time. Log only the included
   // optional-indicator status, never the public score, token or full payload.
   const sentimentStatus=Object.hasOwn(payload,'futuresCount')
