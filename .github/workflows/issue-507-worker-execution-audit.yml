@@ -1,16 +1,12 @@
 name: issue-507-worker-execution-audit
 
 # Read-only Apps Script execution history. NO script.run or Sheet writes.
+# 2026-11-11: CLASPRC_JSON refresh has no script.processes OAuth scope.
+# 03:17 KST schedule was deterministically failing. Keep manual diagnostic and
+# PR source-contract test, but do not run credentialed process audit unattended
+# until owner explicitly reauthorizes script.processes for the refresh token.
 on:
-  # 03:17 KST, independently observe the hourly trigger and refresh OAuth.
-  schedule:
-    - cron: '17 18 * * *'
   pull_request:
-    paths:
-      - 'scripts/issue507-worker-execution-audit.mjs'
-      - '.github/workflows/issue-507-worker-execution-audit.yml'
-  push:
-    branches: [main]
     paths:
       - 'scripts/issue507-worker-execution-audit.mjs'
       - '.github/workflows/issue-507-worker-execution-audit.yml'
@@ -38,7 +34,7 @@ jobs:
           node scripts/issue507-worker-execution-audit.mjs --self-test
 
   live-readonly:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: portfolio-production-gas
     needs: contract
     runs-on: ubuntu-latest
