@@ -60,6 +60,11 @@ for(const host of ['m.stock.naver.com','stock.naver.com']){
      const all=groups.reduce((sum,x)=>sum+(n(x.diffValue)||0),0);
      const gross=groups.reduce((sum,x)=>sum+Math.abs(n(x.diffValue)||0),0);
      info.marketBalanceRatio=gross>0?Math.round(Math.abs(all)/gross*1e6)/1e6:null;
+     // Public aggregated KRX-market totals only; rounded to trillion KRW
+     // to compare market data vendors, not confidential customer activity.
+     info.aggregateReferenceTn=Object.fromEntries(Object.entries(groupsByType)
+       .map(([kind,codes])=>[kind,Number(
+         (codes.reduce((sum,code)=>sum+net(code),0)/1e12).toFixed(3))]));
      info.priceBalanceCheck={
        candidates:groups.filter(x=>[x.sellPrice,x.buyPrice,x.diffValue].every(
          v=>n(v)!==null)).length,
