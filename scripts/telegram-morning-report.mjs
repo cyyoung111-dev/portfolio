@@ -1,5 +1,4 @@
 import {krxSessionStatus} from './krx-session-calendar.mjs';
-import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
 import {formatSemiconductorCompanyMetrics} from './briefing-semiconductor-company-views.mjs';
 import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
@@ -298,5 +297,5 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
     message=lines.join('\n');
   }
   if(message.length>3900)throw Error('TELEGRAM_FULL_BRIEFING_TOO_LONG');
-  return compactBriefingForDelivery(message,{mode:'morning'});
+  return message;
 }
