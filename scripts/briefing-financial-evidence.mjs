@@ -157,7 +157,8 @@ export function formatAiFinancialEvidence(evidence,{maxLength=680}={}){
    +' ['+r.period+' 연결]'
    +(positive(r.pbrTimes)&&day(r.priceDate)
     ?' / '+r.pbrTimes.toFixed(2)+'배('+r.priceDate.slice(5)+' NH 종가)'
-    :' / PBR 미확보');
+    :!day(evidence.domesticSessionDate)
+     ?' / PBR 종가 미연결':' / PBR 미확보');
  }).join('; ');
  const dLine='• 국내: '+d;
  if([...lines,dLine].join('\n').length<=maxLength)lines.push(dLine);
