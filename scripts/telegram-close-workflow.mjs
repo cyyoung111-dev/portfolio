@@ -12,7 +12,6 @@ import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} from './briefing-source-coverage.mjs';
-import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import {readClosingStockSources,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
@@ -239,7 +238,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
   if(idx>=0)lines.splice(idx,1);
   rendered=lines.join('\n');
  }
- return compactBriefingForDelivery(rendered,{mode:'close'});
+ return rendered;
 }
 // Wait only briefly for the already-running 06:20 SEC/DART artifact read.
 // A fast market-only PREPARE used to read a still-pending optional promise as
