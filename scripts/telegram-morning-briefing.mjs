@@ -4,6 +4,7 @@ import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {readNhStoredMorningStocks} from './nh-morning-stock-history.mjs';
 import {readFearGreed} from './briefing-fear-greed.mjs';
 import {formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
+import {formatInvestorTrends} from './briefing-krx-investor-trends.mjs';
 import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
  formatMorningVkospi,formatMorningTurnover,formatMorningBreadth} from './telegram-morning-supplements.mjs';
@@ -182,7 +183,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
        supplementRows.turnover):'',
     breadth:supplementRows.breadth?.length
       ?formatMorningBreadth(first.date,supplementRows.breadth):'',
-    liquidity:formatKofiaLiquidity(supplementRows.liquidity)
+    liquidity:formatKofiaLiquidity(supplementRows.liquidity),
+    investors:formatInvestorTrends(supplementRows.investors)
   };
   // Optional-source diagnostics are counts only: they must not conflate the
   // 21 confirmed daily rows with disconnected reference and liquidity feeds.
@@ -193,7 +195,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     turnover:(supplementRows.turnover||[]).length,
     breadth:(supplementRows.breadth||[]).length,
     kofiaDeposits:Boolean(supplementRows.liquidity?.deposits),
-    kofiaMargin:Boolean(supplementRows.liquidity?.margin)
+    kofiaMargin:Boolean(supplementRows.liquidity?.margin),
+    investors:(supplementRows.investors?.markets?.length||0)
   }});}catch{}
   const last=allowLateTest?lateTestWindow(now()):scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
@@ -213,7 +216,8 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     turnover:(supplementRows.turnover||[]).length,
     breadth:(supplementRows.breadth||[]).length,
     liquidity:Number(Boolean(supplementRows.liquidity?.deposits))
-      +Number(Boolean(supplementRows.liquidity?.margin))
+      +Number(Boolean(supplementRows.liquidity?.margin)),
+    investors:(supplementRows.investors?.markets?.length||0)
   },message);
   if(display)try{onSourceDiagnostic(display);}catch{}
   await send(token,chatId,message,{fetchImpl});

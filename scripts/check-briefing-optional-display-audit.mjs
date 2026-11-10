@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 
-const zero={futures:0,treasury:0,vkospi:0,turnover:0,breadth:0,liquidity:0};
+const zero={futures:0,treasury:0,vkospi:0,turnover:0,breadth:0,liquidity:0,investors:0};
 const absent=summarizeOptionalDelivery('morning',zero,'날짜 검증 21/21');
 assert.equal(absent.sourced,0);
 assert.equal(absent.displayed,0);
@@ -20,7 +20,7 @@ const fixtures={
  breadth:'시장폭 A/D: KOSPI 1024↑/1250↓/50→ [2026-11-09 · KRX 참고]',
  liquidity:'시장자금: 예탁금 90.33조(11-06) · 신용융자 28.39조(11-06) [금투협 FreeSIS · 기준일별]'
 };
-const counts={futures:1,treasury:2,vkospi:1,turnover:1,breadth:1,liquidity:2};
+const counts={futures:1,treasury:2,vkospi:1,turnover:1,breadth:1,liquidity:2,investors:0};
 const date='2026-11-10';
 const report=formatFullMorningBriefing(date,null,[],{
  now:new Date(date+'T07:40:00+09:00'),supplements:fixtures
@@ -44,7 +44,7 @@ const invalidQuote=summarizeOptionalDelivery('morning',
  {...zero,vkospi:1},'VKOSPI: 당일 확정치 미확보');
 assert.equal(invalidQuote.groups.vkospi.status,'NOT_DISPLAYED');
 
-const closeCounts={futures:2,treasury:3,vkospi:1,turnover:1,liquidity:1};
+const closeCounts={futures:2,treasury:3,vkospi:1,turnover:1,liquidity:1,investors:0};
 const closing='■ 장후 글로벌 반응 — 미국 지수선물 (지연 시세)\n'
  +'S&P500 선물: 7000pt [17:00 KST · Yahoo 참고]\n'
  +'미 국채 2년: 4.00% [2026-11-09]\n'

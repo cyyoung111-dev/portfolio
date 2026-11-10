@@ -98,7 +98,7 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     onSourceDiagnostic:entry=>{
       if(entry?.kind==='OPTIONAL_DISPLAY_AUDIT'&&entry.briefing==='morning'){
         const groups=entry.groups||{};
-        const keys=['futures','treasury','vkospi','turnover','breadth','liquidity'];
+        const keys=['futures','treasury','vkospi','turnover','breadth','liquidity','investors'];
         const states=['SOURCE_UNAVAILABLE','NOT_DISPLAYED','DISPLAYED','PARTIAL_DISPLAYED'];
         if(keys.every(k=>groups[k]&&states.includes(groups[k].status)
           &&Number.isInteger(groups[k].sourced)&&Number.isInteger(groups[k].total)
@@ -112,7 +112,7 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
       }
       if(entry?.kind==='MORNING_OPTIONAL_COVERAGE'){
         const c=entry.coverage||{};
-        const bounds={futures:4,treasury:3,vkospi:1,turnover:2,breadth:2};
+        const bounds={futures:4,treasury:3,vkospi:1,turnover:2,breadth:2,investors:2};
         if(Object.entries(bounds).every(([k,max])=>Number.isInteger(c[k])&&c[k]>=0&&c[k]<=max)
           &&typeof c.kofiaDeposits==='boolean'&&typeof c.kofiaMargin==='boolean')
           console.log(JSON.stringify({kind:'MORNING_OPTIONAL_COVERAGE',date:window.date,
