@@ -220,7 +220,8 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
   '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id,options)),
   ...(options.supplements?.turnover?[options.supplements.turnover]:[]),
-  ...(options.supplements?.breadth?[options.supplements.breadth]:[]),'',
+  ...(options.supplements?.breadth?[options.supplements.breadth]:[]),
+  ...(options.supplements?.investors?[options.supplements.investors]:[]),'',
   '■ 3. 밤사이 미국장 / 반도체',
   ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id,options)),'',
   '■ 4. 코스피200 야간선물 (06:00)',
@@ -273,7 +274,7 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   let message=lines.join('\n');
   const optional=[
     /^시장폭 A\/D:/,/^미국 선물 참고:/,/^미 국채 2Y /,
-    /^지수 구성종목 거래대금:/,/^VKOSPI:/
+    /^지수 구성종목 거래대금:/,/^VKOSPI:/,/^시장 수급 \[/
   ];
   for(const pattern of optional){
     if(message.length<=3900)break;
