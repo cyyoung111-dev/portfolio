@@ -17,6 +17,7 @@ function makeEnvironment(options={}){
  let s;
  const context={
   ISSUE507_GATE_API_VERSION:options.version||'9.288',
+  _issue507GateInside_:false,
   ISSUE507_GATE_RELEASE_ID:'test_release',
   _issue507GateAtomic_:fn=>fn(props),
   _issue507GateRead_:p=>JSON.parse(p.getProperty('issue507_writer_gate_v1')),
