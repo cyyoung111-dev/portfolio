@@ -33,8 +33,18 @@ export function validateMorningFuturesQuote(date,id,payload,now){
  const chart=found[0],timestamps=chart?.timestamp,closes=chart?.indicators?.quote?.[0]?.close;
  if(chart?.meta?.symbol!==info.symbol||!Array.isArray(timestamps)||!Array.isArray(closes)
   ||timestamps.length!==closes.length||timestamps.length<1||timestamps.length>1000)return null;
- const stamp=timestamps.at(-1),value=closes.at(-1);
- if(!Number.isSafeInteger(stamp)||!num(value))return null;
+ // CME maintenance can append untraded 5-minute bars with null closes.
+ // Select the most recent ACTUAL positive trade, not the latest empty slot.
+ // Never reuse an older date, malformed positive bar or >90m stale trade.
+ let selected=closes.length-1;
+ for(let i=0;i<timestamps.length;i++){
+  if(!Number.isSafeInteger(timestamps[i])||
+    (i>0&&timestamps[i]<=timestamps[i-1]))return null;
+ }
+ while(selected>=0&&closes[selected]===null)selected--;
+ if(selected<0||closes.length-1-selected>18)return null;
+ const stamp=timestamps[selected],value=closes[selected];
+ if(!num(value)||timestamps.at(-1)*1000>now.getTime()+30000)return null;
  const age=now.getTime()-stamp*1000;
  if(age<0||age>SESSION_MS||kst(new Date(stamp*1000)).date!==date)return null;
  return {id,symbol:info.symbol,value,asOf:new Date(stamp*1000).toISOString(),
