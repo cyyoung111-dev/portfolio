@@ -1,0 +1,30 @@
+name: KRX and GAS optional indicators read-only smoke
+on:
+  pull_request:
+    paths:
+      - 'scripts/probe-optional-krx-gas-readonly.mjs'
+      - '.github/workflows/optional-krx-gas-smoke.yml'
+      - 'scripts/closing-vkospi-reference.mjs'
+      - 'scripts/closing-krx-turnover.mjs'
+      - 'scripts/telegram-morning-breadth.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read only KRX day statistics and GAS market routes
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+        run: node scripts/probe-optional-krx-gas-readonly.mjs
