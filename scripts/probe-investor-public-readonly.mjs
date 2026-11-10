@@ -10,8 +10,10 @@ function shape(obj,depth=0){
  return Object.fromEntries(Object.keys(obj).slice(0,38)
    .map(key=>[key,shape(obj[key],depth+1)]));
 }
-for(const day of ['20261109','20261110']){
- const url=new URL(endpoint);
+for(const host of ['m.stock.naver.com','stock.naver.com']){
+ for(const day of ['20261109']){
+ const probeEndpoint=endpoint.replace('m.stock.naver.com',host);
+ const url=new URL(probeEndpoint);
  for(const [key,value]of Object.entries({
    tradeType:'KRX',marketType:'ALL',bizdate:day,startIdx:'0',pageSize:'20'
  }))url.searchParams.set(key,value);
@@ -34,4 +36,5 @@ for(const day of ['20261109','20261110']){
  }catch(e){info.error=['TimeoutError','AbortError'].includes(e?.name)
     ?'TIMEOUT':'REQUEST_OR_SCHEMA_UNAVAILABLE';}
  console.log(JSON.stringify(info));
+ }
 }
