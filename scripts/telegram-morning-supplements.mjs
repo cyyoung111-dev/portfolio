@@ -7,6 +7,7 @@ import {selectClosingVkospi} from './closing-vkospi-reference.mjs';
 import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
 import {validateGasEndpoint} from './nh-gas-proxy.mjs';
 import {readKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
+import {readInvestorTrends} from './briefing-krx-investor-trends.mjs';
 import {readMorningBreadth,formatMorningBreadth} from './telegram-morning-breadth.mjs';
 export {formatMorningBreadth};
 
@@ -113,7 +114,7 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
  const expectedKr=expectedMorningDate('KOSPI',date);
  const missing=US.filter(id=>!nhRows.some(r=>r?.symbol===MORNING_SERIES.find(x=>x.id===id)?.symbol
   &&r.date===expectedUs&&r.source==='NH_INDEX_DAILY'));
- const [usReferences,treasury,futures,vk,turnover,breadth,liquidity]=await Promise.all([
+ const [usReferences,treasury,futures,vk,turnover,breadth,liquidity,investors]=await Promise.all([
   Promise.all(missing.map(async id=>{
    const info=MORNING_SERIES.find(x=>x.id===id);
    try{
@@ -134,7 +135,8 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
     return verifyOfficialKrxTurnover(expectedKr,data.rows);
    }).catch(()=>[]),
   readMorningBreadth(date,{authKey:breadthKey,now,fetchImpl}).catch(()=>[]),
-  readKofiaLiquidity(date,{fetchImpl}).catch(()=>null)
+  readKofiaLiquidity(date,{fetchImpl}).catch(()=>null),
+  readInvestorTrends(date,{mode:'morning',now,fetchImpl}).catch(()=>null)
  ]);
- return {usReferences,treasury,futures,vkospi:vk,turnover,breadth,liquidity,turnoverDate:expectedKr};
+ return {usReferences,treasury,futures,vkospi:vk,turnover,breadth,liquidity,investors,turnoverDate:expectedKr};
 }
