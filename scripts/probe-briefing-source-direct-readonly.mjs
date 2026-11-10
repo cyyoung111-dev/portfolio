@@ -8,7 +8,7 @@ import {readNhClosingStocks,readKrxOfficialClosingStocks} from './closing-extra-
 import {readClosingVkospi} from './closing-vkospi-reference.mjs';
 import {readClosingKrxTurnoverFromGas} from './closing-krx-turnover.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve} from './closing-us-treasury-curve.mjs';
-import {readInvestorTrends} from './briefing-krx-investor-trends.mjs';
+import {readInvestorTrends,verifyInvestorTrendMarket} from './briefing-krx-investor-trends.mjs';
 import {readKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {readFearGreed} from './briefing-fear-greed.mjs';
 import {readMorningBreadth} from './telegram-morning-breadth.mjs';
@@ -90,6 +90,22 @@ async function monitoredFetch(url,options={}){
    }
   }catch{json='READ_FAILED';}
   emit('GAS_HTTP_PROOF',{...info,json,gasStatus,html});
+ }else if(family==='NAVER_STOCK'&&response?.ok){
+  // Classify the provider's actual session/shape without exposing traded amounts.
+  try{
+   const body=await response.clone().json();
+   const asked=parsed.searchParams.get('bizdate'),contents=body?.content,
+    matches=Array.isArray(contents)?contents.filter(x=>x?.bizdate===asked):[];
+   const latest=Array.isArray(contents)?contents.map(x=>x?.bizdate)
+    .filter(x=>typeof x==='string'&&/^\\d{8}$/.test(x)).sort().at(-1):null;
+   const row=matches.length===1?matches[0]:null;
+   emit('NAVER_SOURCE_SCHEMA',{market:source,http:info.http,type:info.type,
+    contentArray:Array.isArray(contents),exactDateRows:matches.length,
+    latestAvailableDate:latest?.slice(0,4)+'-'+latest?.slice(4,6)+'-'+latest?.slice(6,8)||null,
+    hasEmptyTime:row?.time==='',
+    investorCodeCount:Array.isArray(row?.netAmounts)?row.netAmounts.length:0,
+    validated:Boolean(verifyInvestorTrendMarket(date,source,body))});
+  }catch{emit('NAVER_SOURCE_SCHEMA',{market:source,result:'JSON_PARSE_FAILED'});}
  }else if(!response?.ok)
   emit('SOURCE_HTTP',{...info,result:'HTTP_NOT_OK'});
  return response;
@@ -143,19 +159,21 @@ await check('NH_STOCK_SAMSUNG_HYNIX',async()=>{
  const r=await readNhClosingStocks(date,{...gasOpts,onDiagnostic:x=>diag.push(x?.status)});
  return {state:r.filter(x=>['SAMSUNG','SKHYNIX'].includes(x.id)).length===2?'VERIFIED'
   :r.length?'PARTIAL':'NO_VERIFIED_ROW',count:r.length,
-  reasons:diag.filter(x=>typeof x==='string'&&/^[A-Z0-9_]{3,80}$/.test(x)).slice(0,3)};
+  reasons:diag.map(x=>({status:/^[A-Z0-9_]{3,80}$/.test(x?.status||'')?x.status:'OTHER',
+   stocks:Array.isArray(x?.stocks)?x.stocks.filter(y=>['SAMSUNG','SKHYNIX','NVDA','MU'].includes(y?.id))
+    .map(y=>({id:y.id,status:/^[A-Z0-9_]{3,80}$/.test(y?.status||'')?y.status:'OTHER'})):[]})).slice(0,3)};
 });
 for(const d of [date,prior]){
  const now=()=>new Date(d+'T17:08:00+09:00');
  await check('KRX_STOCK_'+d,async()=>{
   if(!endpointValid)return {state:'CONFIG_INVALID'};
   const diag=[];
-  const r=await readKrxOfficialClosingStocks(d,{...gasOpts,now,
+  const r=await readKrxOfficialClosingStocks(d,{...gasOpts,now:()=>new Date(),
    onDiagnostic:x=>diag.push(x?.status)});
   return {state:r.length===2?'VERIFIED':r.length?'PARTIAL':'NO_VERIFIED_ROW',
    verified:r.length,total:2,date:d,reasons:diag.filter(x=>
     typeof x==='string'&&/^[A-Z0-9_]{3,80}$/.test(x)).slice(0,3),
-   syntheticGateOnly:true};
+   syntheticGateOnly:false,receiptValidationClock:'ACTUAL'};
  });
  await check('KRX_TURNOVER_'+d,async()=>{
   if(!endpointValid)return {state:'CONFIG_INVALID'};
