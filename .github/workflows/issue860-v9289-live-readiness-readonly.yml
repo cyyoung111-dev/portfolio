@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify 9.290 exact source and guarded manual release contract offline
         run: node scripts/check-issue860-v9290-live-gate.mjs
       - name: Inspect 9.290 GAS candidate and current web-app by exact read-only dry-run
