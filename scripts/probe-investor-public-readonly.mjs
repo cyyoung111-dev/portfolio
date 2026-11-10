@@ -44,6 +44,22 @@ for(const host of ['m.stock.naver.com','stock.naver.com']){
        .filter(x=>typeof x==='string').slice(0,18);
      const n=x=>typeof x==='string'&&/^-?[0-9][0-9,]*(?:\\.[0-9]+)?$/.test(x)
        ?Number(x.replaceAll(',','')):null;
+     const net=code=>groups.filter(x=>x.investorGubun===code)
+       .reduce((sum,x)=>sum+(n(x.diffValue)||0),0);
+     const groupsByType={
+       foreign:['9000','9001'],
+       institutions:['1000','2000','3000','3100','4000','5000','6000','7000'],
+       individual:['8000'],otherCorporations:['7100']
+     };
+     info.aggregateSanity=Object.fromEntries(Object.entries(groupsByType)
+       .map(([kind,codes])=>{
+         const value=codes.reduce((sum,code)=>sum+net(code),0);
+         return [kind,{sign:Math.sign(value),
+           exponent:value===0?null:Math.floor(Math.log10(Math.abs(value)))}];
+       }));
+     const all=groups.reduce((sum,x)=>sum+(n(x.diffValue)||0),0);
+     const gross=groups.reduce((sum,x)=>sum+Math.abs(n(x.diffValue)||0),0);
+     info.marketBalanceRatio=gross>0?Math.round(Math.abs(all)/gross*1e6)/1e6:null;
      info.priceBalanceCheck={
        candidates:groups.filter(x=>[x.sellPrice,x.buyPrice,x.diffValue].every(
          v=>n(v)!==null)).length,
