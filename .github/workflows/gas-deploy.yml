@@ -86,6 +86,16 @@ on:
         required: true
         default: false
         type: boolean
+      use_9290_close_perf:
+        description: '9.290 스냅샷 병목 개선 승인 SHA 후보. 최초 실행/Writer 상태 검증 후에만 운영'
+        required: true
+        default: false
+        type: boolean
+      approve_9290:
+        description: '9.290 독립 수동 승인. dry_run 선실행 후 live close+writer gate 필요'
+        required: true
+        default: false
+        type: boolean
       confirm_9288_migration:
         description: '실제 9.288 338건 이관·저널 APPLIED 확인 (독립 live GET 필수)'
         required: true
@@ -175,6 +185,8 @@ jobs:
       GAS_9288_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9288 && 'true' || 'false' }}
       GAS_9289_CLOSE_PERF: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9289_close_perf && 'true' || 'false' }}
       GAS_9289_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9289 && 'true' || 'false' }}
+      GAS_9290_CLOSE_PERF: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9290_close_perf && 'true' || 'false' }}
+      GAS_9290_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9290 && 'true' || 'false' }}
       GAS_9289_TRADE_V2_VERIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_9288_migration && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
@@ -199,7 +211,7 @@ jobs:
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Read-only full deployment inventory on manual candidate dry-run
-        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true' || env.GAS_9289_CLOSE_PERF == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true' || env.GAS_9289_CLOSE_PERF == 'true' || env.GAS_9290_CLOSE_PERF == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       # A clean deployment inventory is not proof of idle portfolio Writers.
@@ -211,8 +223,14 @@ jobs:
       - name: Verify live 9.288 and migrated trade v2 before 9.289 production
         if: env.GAS_9289_CLOSE_PERF == 'true' && env.GAS_9289_RELEASE_APPROVAL == 'true' && env.GAS_9289_TRADE_V2_VERIFIED == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue860-v9289-trade-v2-live-gate.mjs
+      - name: Verify published v9.289 close finality, v2 ledger and idle Writer before v9.290
+        id: gas9290_gate
+        if: env.GAS_9290_CLOSE_PERF == 'true' && env.GAS_9290_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        run: node scripts/issue860-v9290-live-gate.mjs
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
+        env:
+          GAS_9290_LIVE_GATE_VERIFIED: ${{ steps.gas9290_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
       # Inspect is a read-only inventory of the CURRENT deployed release;
       # the Issue860 cutover helper only recognizes historical v9.282 blobs.
