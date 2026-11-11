@@ -202,23 +202,33 @@ export async function readYahooClosingUsStocks(date,{
 // The shared morning Yahoo reader intentionally rejects today's candle;
 // this source only accepts a same-day daily row after the KRX close and
 // never promotes it to NH_REGULAR_CLOSE or KRX_OFFICIAL.
+function isKrDailyReferenceWindow(date,instant){
+ if(!Number.isFinite(instant?.getTime?.())||!isOfficialCloseWindow(date,instant))return false;
+ const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',
+  year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',
+  hourCycle:'h23'}).formatToParts(instant).map(x=>[x.type,x.value]));
+ return p.year+'-'+p.month+'-'+p.day!==date
+   ||Number(p.hour)*60+Number(p.minute)>=970;
+}
 export function selectYahooClosingKrDaily(date,item,chart,{now=new Date()}={}){
  const session=closingStockSessions(date);
  if(!session||!['SAMSUNG','SKHYNIX'].includes(item?.id)
-   ||!isOfficialCloseWindow(date,now)||!Number.isFinite(now?.getTime?.()))return null;
+   ||!isKrDailyReferenceWindow(date,now))return null;
  const config=MORNING_SERIES.find(x=>x.id===item.id);
  if(!config||chart?.meta?.symbol!==config.symbol
    ||chart?.meta?.exchangeTimezoneName!=='Asia/Seoul'
    ||!Array.isArray(chart.timestamp)||!Array.isArray(chart.indicators?.quote?.[0]?.close)
    ||chart.timestamp.length!==chart.indicators.quote[0].close.length
    ||chart.timestamp.length<1||chart.timestamp.length>30)return null;
- const rows=[];
+ const rows=[],seen=new Set();
  for(let i=0;i<chart.timestamp.length;i++){
   const ts=chart.timestamp[i],value=chart.indicators.quote[0].close[i];
   if(!Number.isSafeInteger(ts)||ts<=0||ts*1000>now.getTime()
     ||!Number.isFinite(value)||value<=0||value>=100000000)continue;
   const d=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',
    year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(ts*1000));
+  if(seen.has(d))return null; // Duplicate day is ambiguous, not a final close.
+  seen.add(d);
   rows.push({date:d,value});
  }
  const exact=rows.filter(row=>row.date===date);
@@ -233,13 +243,8 @@ export async function readYahooClosingKrStocks(date,{
  now=()=>new Date(),fetchImpl=fetch,onDiagnostic=()=>{}
 }={}){
  const instant=now();
- if(!isOfficialCloseWindow(date,instant))return [];
- // A 16:00-bar might still be settling; do not accept a live Yahoo candle.
- const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',
-  year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',
-  hourCycle:'h23'}).formatToParts(instant).map(x=>[x.type,x.value]));
- if(p.year+'-'+p.month+'-'+p.day===date
-   &&Number(p.hour)*60+Number(p.minute)<970)return [];
+ // A 16:00-bar might still be settling; never accept an intraday daily candle.
+ if(!isKrDailyReferenceWindow(date,instant))return [];
  const result=await Promise.all(STOCKS.filter(x=>x.market==='KR').map(async item=>{
   const config=MORNING_SERIES.find(x=>x.id===item.id);
   if(!config)return null;
