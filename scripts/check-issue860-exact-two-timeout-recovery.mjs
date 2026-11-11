@@ -34,14 +34,28 @@ function scenario(options={}){
   ISSUE507_GATE_RELEASE_ID:options.release||'release_test',
   _issue507GateAtomic_:fn=>fn(props),
   _issue507GateRead_:p=>JSON.parse(p.getProperty('issue507_writer_gate_v1')),
-  _tradeLedgerWriteUnverified_:()=>!!options.unverified,
-  _readPendingTradeSnapshotRebuild:()=>!!options.pending,
+  _issue507GateInside_:false,
+  _tradeLedgerWriteUnverified_:null,
+  _readPendingTradeSnapshotRebuild:null,
   Utilities:{
    DigestAlgorithm:{SHA_256:'SHA_256'},Charset:{UTF_8:'UTF_8'},
    computeDigest:(_,v)=>[...createHash('sha256').update(v).digest()].map(x=>x>127?x-256:x),
    formatDate:()=> '2026-11-11'
   },Date:FakeDate,Logger:{log(){}},JSON,Math,Object,Number
  };
+ // Reproduce 9.289's gated helper behavior. Without internal bypass,
+ // even a read of pending data can admit a new Writer and alter Gate digest.
+ const gatedRead=value=>()=>{
+  if(!context._issue507GateInside_){
+   writes.push('UNWANTED_NESTED_GATE_ADMISSION');
+   const current=JSON.parse(state.issue507_writer_gate_v1);
+   current.active['nested-inspection']={name:'doPost',startedAt:NOW};
+   state.issue507_writer_gate_v1=JSON.stringify(current);
+  }
+  return value;
+ };
+ context._tradeLedgerWriteUnverified_=gatedRead(!!options.unverified);
+ context._readPendingTradeSnapshotRebuild=gatedRead(!!options.pending);
  vm.runInNewContext(source,context,{timeout:750});
  const preview=()=>JSON.parse(JSON.stringify(context.issue860PreviewExactTwoTimeoutRecovery()));
  const commit=()=>JSON.parse(JSON.stringify(context.issue860CommitExactTwoTimeoutRecovery()));
@@ -58,6 +72,8 @@ assert.equal(preview.recordedActive,2);
 assert.equal(preview.status,'MATCHED_NOT_AUTHORIZED');
 assert.equal(preview.financeWrites,0);
 assert.equal(ok.writes.length,0);
+assert.equal(ok.context._issue507GateInside_,false,'preview restores internal flag');
+assert(!ok.writes.includes('UNWANTED_NESTED_GATE_ADMISSION'));
 assert.match(preview.originalGateDigest,/^[a-f0-9]{64}$/);
 assert(!JSON.stringify(preview).includes(tokens[0]));
 assert.throws(()=>ok.commit(),/ISSUE860_EXACT_APPROVAL_REQUIRED/);
@@ -75,6 +91,8 @@ assert.equal(next.completed.length,1);
 assert.equal(JSON.parse(ok.state.issue860_20261110_exact_gate_audit_v1).state,
  'PRUNED_TIMED_OUT_NOT_COMPLETED');
 assert(!ok.writes.some(k=>k.startsWith('issue507_writer_end_v1_')));
+assert(!ok.writes.includes('UNWANTED_NESTED_GATE_ADMISSION'));
+assert.equal(ok.context._issue507GateInside_,false,'commit restores internal flag');
 assert.throws(()=>ok.commit(),/ISSUE860_EXACT_GATE_DRIFT/);
 
 const negatives=[
