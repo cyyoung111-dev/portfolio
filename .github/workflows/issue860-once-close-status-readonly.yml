@@ -25,6 +25,8 @@ on:
   # close + Writer Gate readback, still zero financial writes or deployment.
   # 2026-11-11 after run 42961887690: inspect the published rollback version
   # and writer ACTIVE count following rollback-verified AUTOMATION_DIAG_NETWORK_FAILED.
+  # 2026-11-11 13:55 rollback v9.291 after AUTOMATION_DIAG_NETWORK_FAILED:
+  # independent post-rollback Writer Gate and published automation readback only.
   push:
     branches: [main]
     paths: ['.github/workflows/issue860-once-close-status-readonly.yml']
