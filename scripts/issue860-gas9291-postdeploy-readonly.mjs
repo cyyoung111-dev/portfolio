@@ -34,6 +34,7 @@ export async function verifyGas9291PostDeploy({url,token,fetchImpl=fetch}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)err('AUTH_MISSING');
  const settings=await request(endpoint,token,'getSettings',fetchImpl);
+ if(settings.gasVersion==='9.289')err('PREVIOUS_VERSION_WARM');
  if(settings.gasVersion!=='9.291'||!settings.settings)
   err('WEBAPP_VERSION_MISMATCH');
  const ledger=await request(endpoint,token,'getTrades',fetchImpl);
@@ -48,6 +49,7 @@ export async function verifyGas9291PostDeploy({url,token,fetchImpl=fetch}={}){
   ids.add(tr.id);
  }
  const gate=await request(endpoint,token,'getWriterGateStatus',fetchImpl,'GET');
+ if(gate.gasVersion==='9.289')err('PREVIOUS_VERSION_WARM');
  if(gate.gasVersion!=='9.291'||gate.writerGate?.mode!=='OPEN'||
     gate.writerGate.activeCount!==0||gate.writerGate.repairAuthorized!==false)
   err('WRITER_GATE_NOT_IDLE');
