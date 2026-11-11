@@ -102,7 +102,7 @@ await assert.rejects(()=>collectHanwha({
 // Regression for 2026-11-11: the GAS import may commit before HTTP ACK times out.
 // Only transient read-only preview errors may be retried. Never import twice.
 const exactDate='2026-11-10',exactNav=1234.56;
-function lostAckFixture({readbackFailures=0,explicitPartial=false}={}){
+function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackRejected=false}={}){
  const calls={source:0,preview:0,import:0,valuation:0,delay:0};
  const fetchImpl=async(destination,options={})=>{
   const host=new URL(destination).hostname;
@@ -126,6 +126,7 @@ function lostAckFixture({readbackFailures=0,explicitPartial=false}={}){
    if(calls.preview===1)
     return {ok:true,json:async()=>({status:'ok',
       candidates:[{date:exactDate,nav:exactNav}],updates:[],errors:[],warnings:[]})};
+   if(readbackRejected)return {ok:false,status:401};
    if(calls.preview<=1+readbackFailures)
     throw Object.assign(Error('PRIVATE_TIMEOUT'),{name:'TimeoutError'});
    return {ok:true,json:async()=>({status:'ok',code:'F00002',
@@ -168,5 +169,11 @@ await assert.rejects(()=>collectKb({url,token,now,
  /NAV_IMPORT_UNVERIFIED/);
 assert.deepEqual([partial.calls.import,partial.calls.preview,partial.calls.delay],
  [1,1,0],'explicit partial save must not be certified through retries');
+const denied=lostAckFixture({readbackRejected:true});
+await assert.rejects(()=>collectKb({url,token,now,
+ fetchImpl:denied.fetchImpl,retryDelay:denied.retryDelay,apply:true}),
+ /NAV_IMPORT_UNVERIFIED/);
+assert.deepEqual([denied.calls.import,denied.calls.preview,denied.calls.delay],
+ [1,2,0],'HTTP/auth rejection must not be retried after lost import ACK');
 
-console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, lost-ACK exact readback 3 cases, no duplicate import');
+console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, lost-ACK exact readback 4 cases, no duplicate import');
