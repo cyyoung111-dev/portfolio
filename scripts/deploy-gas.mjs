@@ -7,6 +7,7 @@ import {composeGas9288TradeV2From9287Preview} from './compose-gas9288-trade-v2-f
 import {composeIssue860Gas9289PerfCandidate} from './compose-issue860-gas9289-perf-candidate.mjs';
 import {composeIssue860Gas9290Preview} from './compose-issue860-gas9290-preview.mjs';
 import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.mjs';
+import {assertPublishedReleaseFundNavSupport} from './issue860-fund-nav-release-compat.mjs';
 import {verifyGas9291PostDeploy} from './issue860-gas9291-postdeploy-readonly.mjs';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
@@ -159,6 +160,12 @@ export function assertGasReleaseReady(source) {
   const version = extractExpectedGasVersion(source);
   // Older and newer versions alike require an explicit reviewed source pin.
   // Rollbacks must also be approved rather than bypassing release integrity.
+  // Any new v9.291+ source must certify BOTH private NAV collectors in
+  // the same release. Prevent successful GAS updates from silently stopping
+  // KB/Hanwha scheduled NAV imports due to stale version allowlists.
+  const [major,minor]=version.split('.').map(Number);
+  if(major>9 || (major===9&&minor>=291))
+    assertPublishedReleaseFundNavSupport(version);
   const reviewed = REVIEWED_GAS_SOURCE_BLOBS[version];
   if (!reviewed) throw new Error(`GAS_RELEASE_UNREVIEWED_VERSION: ${version}`);
   const actual = gasSourceBlobSha(source);
