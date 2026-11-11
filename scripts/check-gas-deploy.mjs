@@ -1151,6 +1151,30 @@ for (const path of workflowPaths) {
   assert.doesNotMatch(source, /actions\/setup-node@v4/, `${path}: setup-node@v4 잔존`);
   assert.doesNotMatch(source, /node-version:\s*['"]20['"]/, `${path}: Node 20 잔존`);
 }
+// One required full Quality CI per PR/main is sufficient; an obsolete
+// cache-busting writer must not create another main push and retest loop.
+const cacheWorkflow=YAML.parse(fs.readFileSync('.github/workflows/cache_busting.yml','utf8'));
+assert.deepEqual(Object.keys(cacheWorkflow.on),['workflow_dispatch'],
+ 'cache audit must never react to main pushes');
+assert.deepEqual(cacheWorkflow.permissions,{contents:'read'},
+ 'old cache writer must have no contents:write permission');
+assert.equal(cacheWorkflow.jobs['cache-version-readonly'].steps.some(
+ s=>s.run==='node scripts/check-web-structure.mjs'),true);
+assert.doesNotMatch(JSON.stringify(cacheWorkflow),/git push|git commit|sed -i/,
+ 'PWA verification must not mutate or commit index.html');
+const redirectedRoot=fs.readFileSync('index.html','utf8');
+assert.match(redirectedRoot,/url=\.\/src\/web\/index\.html/);
+assert.doesNotMatch(redirectedRoot,/<script[^>]*src=/i,
+ 'restore build-time cache handling before re-enabling root index rewriting');
+const tradeWorkflow=YAML.parse(fs.readFileSync('.github/workflows/trade-ledger-v2-candidate.yml','utf8'));
+assert(!Object.hasOwn(tradeWorkflow.jobs,'main-baseline-integration-ci'),
+ 'do not run a duplicate main npm run check:ci on each trade PR');
+assert(tradeWorkflow.jobs['trade-v2-candidate']);
+assert(tradeWorkflow.jobs['staged-gas-branch-integration-ci'],
+ 'unique GAS cross-version trade compatibility suite must remain');
+for(const event of ['push','pull_request'])
+ assert(!tradeWorkflow.on[event].paths.includes('package.json'),
+  'an unrelated package update must not spawn trade migration checks');
 assert.match(fs.readFileSync('.github/workflows/gas-deploy.yml', 'utf8'), /actions\/checkout@v7[\s\S]*actions\/setup-node@v7[\s\S]*node-version:\s*['"]24['"]/);
 assert.match(fs.readFileSync('.github/workflows/web-check.yml', 'utf8'), /actions\/checkout@v7[\s\S]*actions\/setup-node@v7[\s\S]*node-version:\s*['"]24['"]/);
 assert.match(fs.readFileSync('.github/workflows/market-briefing-headless.yml', 'utf8'), /actions\/checkout@v7[\s\S]*actions\/setup-node@v7[\s\S]*node-version:\s*['"]24['"]/);
