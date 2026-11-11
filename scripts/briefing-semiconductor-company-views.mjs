@@ -17,6 +17,7 @@ export const SEMI_ISSUER_RELEASES=Object.freeze([
   url:'https://news.skhynix.com/en/q3-2026-business-results/',
   revenueTrillion:104.6155,operatingProfitTrillion:83.3338,
   priorYearQuarterOperatingProfitTrillion:11.3834,
+  priorYearQuarterRevenueTrillion:24.4489,
   netProfitTrillion:39.7756,netCashTrillion:98.7,
   contracted2027And2028CapacityLowerBoundPercent:50
  })
@@ -35,7 +36,7 @@ function verifiedPrice(item,date,period,stocks){
  if(matches.length!==1)return null;
  const q=matches[0];
  if(q.date!==expected||q.label!==item.name||!finitePositive(q.value)
-  ||!['NH_REGULAR_CLOSE','KRX_OFFICIAL'].includes(q.source))return null;
+  ||!['NH_REGULAR_CLOSE','KRX_OFFICIAL','YAHOO_DAILY_REFERENCE'].includes(q.source))return null;
  if(period==='close'&&q.id!==item.id)return null;
  return {date:expected,value:q.value,source:q.source};
 }
@@ -63,6 +64,7 @@ function verifiedBook(item,date,financialEvidence,price){
   &&Math.abs(e.pbrTimes-computedPbr)<=Math.max(0.015,computedPbr*0.0001);
  if(!unpriced&&!independentlyVerified)return null;
  return {bps:e.bpsKrw,pbr:computedPbr,indicative:e.indicative,
+  priceReferenceOnly:price.source==='YAHOO_DAILY_REFERENCE',
   filingDate:e.filingDate,period:e.period};
 }
 export function evaluateSemiconductorCompanyViews({
@@ -78,9 +80,14 @@ export function evaluateSemiconductorCompanyViews({
    ?item.dsProfitTrillion/item.operatingProfitTrillion*100:null;
   const earningsGrowth=item.id==='SKHYNIX'
    ?(item.operatingProfitTrillion/item.priorYearQuarterOperatingProfitTrillion-1)*100:null;
+  // Yahoo completed daily prices are useful for a clearly labelled
+  // reference PBR, never as an official KRX/NH regular-market settlement.
+  const priceLabel=price?.source==='NH_REGULAR_CLOSE'?'NH'
+   :price?.source==='KRX_OFFICIAL'?'KRX':'Yahoo 완료일봉 참고';
   const valueLine=book
-   ?(book.indicative?'보통·우선 합산 참고 BPS ':'검증 BPS ')+num(book.bps)+'원 / '+(book.indicative?'참고 ':'')+'PBR '
-     +round(book.pbr)+'배 ['+book.period+' 연결 · '+price.date+' '+(price.source==='NH_REGULAR_CLOSE'?'NH':'KRX')+']'
+   ?(book.indicative?'보통·우선 합산 참고 BPS ':'검증 BPS ')+num(book.bps)+'원 / '
+     +(book.indicative||book.priceReferenceOnly?'참고 ':'')+'PBR '
+     +round(book.pbr)+'배 ['+book.period+' 연결 · '+price.date+' '+priceLabel+']'
    :price?'종가 '+num(price.value)+'원 ['+price.date+'] / BPS·PBR 미확보'
     :'확정 종가·BPS·PBR 미확보';
   const buffett=item.id==='SAMSUNG'
@@ -99,17 +106,28 @@ export function evaluateSemiconductorCompanyViews({
   const marks=item.id==='SAMSUNG'
    ?'영업익 DS 집중 '+pct(dsShare)+'와 메모리 가격 정상화 충격 점검'
    :'영업이익률 '+pct(margin)+'의 정상화/공급확대 위험 점검';
+  // Fisher's expectation-vs-price and cyclical-sales framing, NOT a quote
+  // or a recommendation. Never infer a price/sales ratio without same-date
+  // shares/market cap and a compatible TTM sales denominator.
+  const fisher=item.id==='SAMSUNG'
+   ?'3Q 영업률 '+pct(margin)+'·DS 이익비중 '+pct(dsShare)
+     +'; 시장 기대 선반영·마진 정상화 확인(적정 P/S 미확보)'
+   :'3Q 매출 YoY +'+pct((item.revenueTrillion
+      /item.priorYearQuarterRevenueTrillion-1)*100)
+     +'·영업률 '+pct(margin)
+     +'; 성장 지속성과 선반영 점검(TTM P/S 미확보)';
   return {id:item.id,name:item.name,asOf:item.date,period:item.period,
    sourceUrl:item.url,sourceBasis:item.basis,
    revenueTrillion:item.revenueTrillion,
    operatingProfitTrillion:item.operatingProfitTrillion,
    operatingMarginPercent:margin,price,book,valueLine,
-   views:{buffett,ackman,lynch,damodaran,marks}};
+   views:{buffett,ackman,lynch,damodaran,marks,fisher}};
  });
 }
 // The market briefing is a constrained channel: preserve exact-date issuer
 // metrics while leaving investor-framework commentary out of Telegram.
-// The original detailed five-framework evaluator stays available offline.
+// The detailed six-framework evaluator stays offline so telegram delivery
+// preserves price/date, official DART evidence and source diagnostics.
 export function formatSemiconductorCompanyMetrics(input={}){
  const evaluated=evaluateSemiconductorCompanyViews(input);
  if(evaluated.length!==2)return [];
@@ -118,9 +136,9 @@ export function formatSemiconductorCompanyMetrics(input={}){
   ...evaluated.map(x=>'• '+x.name+': '+x.valueLine)
  ];
 }
-// Two per-company numeric evidence anchors, then 5 separate frameworks applied
-// to both firms. 5 investors' actual statements are NOT inferred.
-export function formatSemiconductorCompanyFiveViews(input={}){
+// Two per-company numeric anchors, then six framework interpretations.
+ // These are NOT statements or endorsements by the actual investors.
+export function formatSemiconductorCompanySixViews(input={}){
  const a=evaluateSemiconductorCompanyViews(input);
  if(a.length!==2)return [];
  const s=a.find(x=>x.id==='SAMSUNG'),h=a.find(x=>x.id==='SKHYNIX');
@@ -128,7 +146,8 @@ export function formatSemiconductorCompanyFiveViews(input={}){
   +'조/영업익 '+x.operatingProfitTrillion.toFixed(1)+'조/영업률 '
   +pct(x.operatingMarginPercent)+'; '+x.valueLine;
  const pbr=x=>x.book
-  ?(x.book.indicative?'참고 PBR(보통·우선 합산) ':'PBR ')+round(x.book.pbr)+'배 (BPS×1/1.5/2='
+  ?(x.book.indicative||x.book.priceReferenceOnly?'참고 PBR':'PBR')
+    +(x.book.indicative?'(보통·우선 합산) ':' ')+round(x.book.pbr)+'배 (BPS×1/1.5/2='
     +[1,1.5,2].map(y=>num(x.book.bps*y)).join('/')+'원, 적정가 아님)'
   :'PBR·DCF 유보(BPS/FCF 미확보)';
  const bookProvenance='※ '+(s.book
@@ -139,7 +158,7 @@ export function formatSemiconductorCompanyFiveViews(input={}){
    ?(h.book.indicative?'하닉: 복수종류 참고 BPS':'하닉: 단일종류 BPS 검증')
    :'하닉 BPS/PBR 미확보')+'.';
  return [
-  '■ 삼성전자·SK하이닉스 5인 정량 관점 (당일 실제 발언 아님)',
+  '■ 삼성전자·SK하이닉스 6인 정량 관점 (투자철학 적용·당일 실제 발언 아님)',
   '• '+metric(s),
   '• '+metric(h),
   '• 버핏: 삼전 DS 영업익 '+pct(s.operatingProfitTrillion
@@ -153,7 +172,8 @@ export function formatSemiconductorCompanyFiveViews(input={}){
   '• 다모다란: 삼전 '+pbr(s)+'; 하닉 '+pbr(h),
   '• 하워드 막스: 삼전 DS 이익집중·메모리 정상화; 하닉 '+pct(h.operatingMarginPercent)
     +' 고마진 정상화·증설 위험',
+  '• 켄 피셔: 삼전 '+s.views.fisher+'; 하닉 '+h.views.fisher,
   bookProvenance,
-  '※ 삼성 3Q26 10/29 실적 발표·하닉 10/28 잠정 발표. BPS는 표시된 DART 결산일 기준; TTM EPS/FCF/ROIC·장기 PBR 분포 미확보.'
+  '※ 삼성 3Q26 10/29 실적 발표·하닉 10/28 잠정 발표. BPS는 표시된 DART 결산일 기준; Yahoo 주가 사용 시 비공식 참고 PBR만. TTM EPS/FCF/ROIC·장기 PBR 분포 미확보.'
  ];
 }
