@@ -49,7 +49,7 @@ const closing='■ 장후 글로벌 반응 — 미국 지수선물 (지연 시�
  +'S&P500 선물: 7000pt [17:00 KST · Yahoo 참고]\n'
  +'미 국채 2년: 4.00% [2026-11-09]\n'
  +'VKOSPI: 26.05 [2026-11-10 · KRX]\n'
- +'KOSPI 거래대금: 31.20조원 [2026-11-10 · KRX]\n';
+ +'KOSPI 지수 구성종목 거래대금: 31.20조원 [2026-11-10 · KRX]\n';
 const close=summarizeOptionalDelivery('close',closeCounts,closing);
 assert.equal(close.sourced,5);
 assert.equal(close.groups.futures.status,'PARTIAL_DISPLAYED');
