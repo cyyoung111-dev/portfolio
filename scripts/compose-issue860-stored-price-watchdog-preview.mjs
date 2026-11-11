@@ -41,10 +41,16 @@ export function composeIssue860StoredPriceWatchdogPreview(){
      '        || !actualStarted || actualStarted !== Number(owner.startedMs)',
      '        || actualStage !== "PRICE")',
      '        throw new Error("ISSUE860_STORED_PRICE_OWNER_CHANGED");',
+     '      if(typeof owner.verifiedRevision !== "string" || !owner.verifiedRevision',
+     '        || _peekSnapshotIntegritySourceRevisionReadonly_() !== owner.verifiedRevision)',
+     '        throw new Error("ISSUE860_STORED_PRICE_SOURCE_CHANGED");',
      '    }'
     ].join('\n'),'STRICT_OWNER'));
  const helper=`
 function _issue860RecoverStoredPriceWatchdog_() {
+  if(typeof _issue507GateInside_!=='undefined'&&!_issue507GateInside_)
+    return _issue507GateInvoke_('_issue860RecoverStoredPriceWatchdog_',
+      _issue860RecoverStoredPriceWatchdog_,this,arguments);
   // A timed-out PRICE execution cannot reach catch/finally. Its actual
   // financial rows may nonetheless already be committed. Validate them
   // without any PRICE/NAV/Sheet replay, then reserve NAV under the SAME owner.
@@ -87,7 +93,7 @@ function _issue860RecoverStoredPriceWatchdog_() {
       date:date,runId:runId,startedAt:String(props.getProperty('portfolio_close_run_started_at')||''),
       startedMs:startedMs,priceOk:true,priceDate:date,
       priceRows:audit.storedRowCount,fundPending:true,errors:[],
-      issue860VerifiedPriceRecovery:true
+      issue860VerifiedPriceRecovery:true,verifiedRevision:revision
     });
   } catch(e) {
     return {skipped:true,runDate:date,reason:'STORED_PRICE_OWNER_OR_LEASE_CHANGED'};
