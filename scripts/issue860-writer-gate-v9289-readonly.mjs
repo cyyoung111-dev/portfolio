@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// #860 independent live Writer Gate diagnostic for deployed 9.289.
+// #860 independent live Writer Gate diagnostic for reviewed deployed 9.289 / 9.291.
 // Does not change Script Properties or infer terminal execution ownership.
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
@@ -21,13 +21,13 @@ export async function readIssue860WriterGate({
  let payload;
  try{payload=await response.json();}catch{fail('JSON_UNVERIFIED');}
  const g=payload?.writerGate;
- if(payload?.status!=='ok'||payload.gasVersion!=='9.289'||
+ if(payload?.status!=='ok'||!['9.289','9.291'].includes(payload.gasVersion)||
   !g||!['OPEN','DRAINING'].includes(g.mode)||
   !Number.isSafeInteger(g.activeCount)||g.activeCount<0||
   g.activeCount>10000||g.repairAuthorized!==false)
   fail('RESPONSE_UNVERIFIED');
  return {kind:'ISSUE860_9289_WRITER_GATE_READONLY',
-  gasVersion:'9.289',gateMode:g.mode,recordedActive:g.activeCount,
+  gasVersion:payload.gasVersion,gateMode:g.mode,recordedActive:g.activeCount,
   recordedIdle:g.mode==='OPEN'&&g.activeCount===0,
   processTerminalVerified:false,externalWriterExcluded:false,
   snapshotIntegrityVerified:false,
