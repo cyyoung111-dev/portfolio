@@ -16,6 +16,9 @@ on:
   # 2026-11-11 10:38 KST: exact-two stale timeout receipts pruned via owner
   # with rollback backup. Independently read Gate ACTIVE and close persistence
   # exactly once each, without releasing/re-running any finance writer.
+  # 2026-11-11 11:xx KST: owner approved v9.290 if predeploy gates pass.
+  # Recheck persisted close and Writer Gate read-only before any manual deploy.
+  # No NAV/price/snapshot/ScriptProperties writes and no GAS deploy.
   push:
     branches: [main]
     paths: ['.github/workflows/issue860-once-close-status-readonly.yml']
