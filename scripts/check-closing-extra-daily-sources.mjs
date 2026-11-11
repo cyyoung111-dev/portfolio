@@ -184,6 +184,93 @@ assert.match(formatClosingExtra(date,alternative,[]),/엔비디아: 215 USD.*Yah
 assert.equal(validClosingStockReference(date,{...alternative[0],source:'KRX_CARRY'}),false);
 assert.equal(validClosingStockReference(date,{...alternative[0],id:'NVDA'}),false);
 
+// #826: the official NH / KRX 17:00 source can lag until late evening.
+// A strictly dated Korean Yahoo candle may supplement the displayed
+// watch-only quote, but may NEVER become an NH/KRX official close.
+const krDailyTs=d=>Date.parse(d+'T00:00:00Z')/1000;
+const krDailyChart=(symbol,first,last)=>({
+ meta:{symbol,exchangeTimezoneName:'Asia/Seoul'},
+ timestamp:[krDailyTs('2026-10-30'),krDailyTs(date)],
+ indicators:{quote:[{close:[first,last]}]}
+});
+const krItems=[{id:'SAMSUNG'},{id:'SKHYNIX'}];
+const krCharts={
+ '005930.KS':krDailyChart('005930.KS',72000,73500),
+ '000660.KS':krDailyChart('000660.KS',180000,179000)
+};
+const parsedKr=selectYahooClosingKrDaily(date,krItems[0],krCharts['005930.KS'],
+ {now:kstClose()});
+assert.equal(parsedKr.source,'YAHOO_KR_DAILY_REFERENCE');
+assert.equal(parsedKr.date,date);
+assert.equal(parsedKr.changePercent,(73500/72000-1)*100);
+assert.equal(validClosingStockReference(date,parsedKr),true);
+assert.equal(selectYahooClosingKrDaily(date,krItems[0],krCharts['005930.KS'],
+ {now:new Date(date+'T16:05:00+09:00')}),null);
+assert.equal(selectYahooClosingKrDaily(date,krItems[0],{
+ ...krCharts['005930.KS'],meta:{...krCharts['005930.KS'].meta,
+ exchangeTimezoneName:'America/New_York'}},{now:kstClose()}),null);
+assert.equal(selectYahooClosingKrDaily(date,krItems[0],{
+ ...krCharts['005930.KS'],timestamp:[krDailyTs('2026-10-30')]},
+ {now:kstClose()}),null,'timestamp/quote length mismatch rejected');
+assert.equal(selectYahooClosingKrDaily(date,krItems[0],{
+ ...krCharts['005930.KS'],
+ timestamp:[krDailyTs('2026-10-30'),krDailyTs(date),krDailyTs(date)],
+ indicators:{quote:[{close:[72000,73500,73510]}]}
+},{now:kstClose()}),null,'duplicate exact-day candles rejected');
+assert.equal(selectYahooClosingKrDaily(date,krItems[0],{
+ ...krCharts['005930.KS'],
+ indicators:{quote:[{close:[72000,null]}]}
+},{now:kstClose()}),null,'null/unfinished candle rejected');
+let krYahooCalls=0;
+const krYahooDiagnostics=[];
+const yahooKrReference=await readYahooClosingKrStocks(date,{
+ now:kstClose,
+ fetchImpl:async(url,options)=>{
+  krYahooCalls++;
+  assert.equal(options.redirect,'error');
+  assert.equal(options.body,undefined,'reference GET only');
+  assert.match(url,/^https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\//);
+  const symbol=decodeURIComponent(new URL(url).pathname.split('/').at(-1));
+  assert.equal(new URL(url).searchParams.get('interval'),'1d');
+  return {ok:true,headers:{get:()=>null},
+   json:async()=>({chart:{result:[krCharts[symbol]]}})};
+ },
+ onDiagnostic:x=>krYahooDiagnostics.push(x)
+});
+assert.equal(krYahooCalls,2);
+assert.deepEqual(yahooKrReference.map(x=>x.id),['SAMSUNG','SKHYNIX']);
+assert.equal(yahooKrReference[0].source,'YAHOO_KR_DAILY_REFERENCE');
+assert.equal(krYahooDiagnostics[0].status,'BOTH_VERIFIED');
+let prematureFetch=0;
+assert.deepEqual(await readYahooClosingKrStocks(date,{
+ now:()=>new Date(date+'T16:05:00+09:00'),
+ fetchImpl:async()=>{prematureFetch++;throw Error('should not GET before 16:10');}
+}),[]);
+assert.equal(prematureFetch,0);
+const onlyUs=await readClosingStockSources(date,{
+ fetchNh:async()=>[],fetchKrx:async()=>[],fetchKr:async()=>yahooKrReference,
+ fetchUs:async()=>usReference
+});
+assert.equal(onlyUs.length,4);
+assert.deepEqual(onlyUs.map(x=>x.source),[
+ 'YAHOO_KR_DAILY_REFERENCE','YAHOO_KR_DAILY_REFERENCE',
+ 'YAHOO_DAILY_REFERENCE','YAHOO_DAILY_REFERENCE'
+]);
+assert.match(formatClosingExtra(date,onlyUs,[]),
+ /삼성전자: 73,500 원.*Yahoo 국내 일봉 참고 \(공식 종가 아님\)/);
+assert.deepEqual(summarizeCloseCoverage(date,{stocks:onlyUs,expectedUsDate:us}).stocks,
+ {verified:4,total:4});
+const krPreferred=await readClosingStockSources(date,{
+ fetchNh:async()=>[stocks[0]],fetchKrx:async()=>official,
+ fetchKr:async()=>yahooKrReference,fetchUs:async()=>usReference
+});
+assert.deepEqual(krPreferred.map(x=>x.source),[
+ 'NH_REGULAR_CLOSE','KRX_OFFICIAL','YAHOO_DAILY_REFERENCE','YAHOO_DAILY_REFERENCE'
+]);
+assert.equal(validClosingStockReference(date,{...yahooKrReference[0],source:'KRX_CARRY'}),false);
+assert.equal(validClosingStockReference(date,{...yahooKrReference[0],date:us}),false);
+assert.equal(validClosingStockReference(date,{...yahooKrReference[0],id:'NVDA'}),false);
+
 const macrosPayload={
  USDKRW:{label:'원/달러',symbol:'KRW=X',date:us,value:1445.12,changePercent:0.12,source:'Yahoo Finance 일봉'},
  DXY:{label:'DXY',symbol:'DX-Y.NYB',date:us,value:104.5,changePercent:-0.4,source:'Yahoo Finance 일봉'},
