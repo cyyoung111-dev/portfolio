@@ -34,9 +34,18 @@ assert.throws(()=>auditIssue507VersionConsumers({
 
 const first=REQUIRED_OPERATING_CONSUMERS[1];
 const original=fs.readFileSync(first,'utf8');
+assert.ok(original.includes("supportsPublishedFundNavGasVersion('KB',status.gasVersion)"));
 assert.throws(()=>auditIssue507VersionConsumers({
- readText:file=>file===first?original.replaceAll("'9.285'","'9.999'")
-  .replaceAll('"9.285"','"9.999"'):fs.readFileSync(file,'utf8'),
+ readText:file=>file===first?original.replace(
+  "supportsPublishedFundNavGasVersion('KB',status.gasVersion)",
+  "supportsPublishedFundNavGasVersion('UNKNOWN',status.gasVersion)")
+  :fs.readFileSync(file,'utf8'),
+}),/ISSUE507_REQUIRED_CONSUMER_PIN_MISSING/);
+const registryFile='scripts/issue860-fund-nav-release-compat.mjs';
+const registry=fs.readFileSync(registryFile,'utf8');
+assert.throws(()=>auditIssue507VersionConsumers({
+ readText:file=>file===registryFile?registry.replace(
+  "'9.285'","'9.999'"):fs.readFileSync(file,'utf8'),
 }),/ISSUE507_REQUIRED_CONSUMER_PIN_MISSING/);
 
 // Mutate the actual production version allowlist rather than the distant
@@ -74,7 +83,7 @@ const augmented=auditIssue507VersionConsumers({
 assert.ok(augmented.allVersionPins.some(x=>x.file===synthetic&&x.kind==='operational_or_support'));
 assert.equal(augmented.productionPinCount,report.productionPinCount+1);
 assert.ok(report.allVersionPins.every(x=>x.file&&Number.isInteger(x.line)&&
- ['direct','version_constant','version_allowlist'].includes(x.pinType)));
+ ['direct','version_constant','version_allowlist','version_import'].includes(x.pinType)));
 // CLI must publish every location, not just the aggregate.
 const cli=fs.readFileSync('scripts/audit-issue507-version-consumers.mjs','utf8');
 assert.match(cli,/allVersionPins:r\.allVersionPins/);
