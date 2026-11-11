@@ -495,7 +495,8 @@ export async function verifyGas9291LightweightConvergence({
   }catch(error){
    const code=String(error?.message||'');
    if(!['ISSUE860_9291_POSTDEPLOY_NETWORK_OR_TIMEOUT',
-        'ISSUE860_9291_POSTDEPLOY_HTTP_UNVERIFIED'].includes(code)||
+        'ISSUE860_9291_POSTDEPLOY_HTTP_UNVERIFIED',
+        'ISSUE860_9291_POSTDEPLOY_PREVIOUS_VERSION_WARM'].includes(code)||
        attempt===maxChecks)throw error;
    console.log(JSON.stringify({kind:'GAS_9291_POSTDEPLOY_TRANSIENT_READ_RETRY',
      attempt,maxChecks,financialWrites:0}));
