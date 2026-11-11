@@ -189,3 +189,10 @@ html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padd
 .hist-benchmark-stats{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .hist-benchmark-period{font-size:.62rem}
 @media(max-width:720px){.hist-mdd-head{align-items:baseline}.hist-mdd-loss{width:100%}.hist-mdd-trough-eval{flex-basis:100%}.hist-benchmark-card-grid{grid-template-columns:1fr}.hist-benchmark-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 12px;align-items:center}.hist-benchmark-top{grid-column:1}.hist-benchmark-stats{grid-column:2;display:flex;gap:8px;justify-content:flex-end}.hist-benchmark-period{grid-column:1/-1}.hist-benchmark-card details{grid-column:1/-1}}
+
+/* MDD cost and valuation: plain inline facts, not nested dark tiles. */
+.hist-mdd-when{align-items:baseline;gap:6px 16px}
+.hist-mdd-when>strong{font-size:.76rem;white-space:nowrap}
+.hist-mdd-trough-eval,.hist-mdd-when .hist-mdd-trough-eval{flex:0 1 auto;display:inline-flex;align-items:baseline;justify-content:flex-start;gap:5px;padding:0;border:0;background:transparent;border-radius:0;min-width:0}
+.hist-mdd-trough-eval strong{font-size:.76rem}
+@media(max-width:720px){.hist-mdd-trough-eval,.hist-mdd-when .hist-mdd-trough-eval{flex:0 1 auto;padding:0;background:transparent}.hist-mdd-when>strong{flex-basis:100%}.hist-mdd-when{gap:7px 16px}}
