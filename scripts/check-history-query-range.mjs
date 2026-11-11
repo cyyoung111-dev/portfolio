@@ -18,6 +18,7 @@ const fields={
  histCoveragePanel:{innerHTML:''},
  histChartWrap:{innerHTML:''},
  histTableWrap:{innerHTML:''},
+ histBenchmarkCount:{textContent:''},
 };
 const ctx={
  Date,console,
@@ -25,7 +26,10 @@ const ctx={
  _kstDateOffset:(day,offset)=>new Date(Date.parse(day+'T00:00:00Z')
    +offset*86400000).toISOString().slice(0,10),
  $el:id=>fields[id]||null,
- __histState:{lastSuccessfulView:null,loadRequestId:0},
+ __histState:{lastSuccessfulView:null,loadRequestId:0,benchmarks:['KOSPI']},
+ _getHistBenchmarks:()=>ctx.__histState.benchmarks.slice(),
+ _setHistBenchmarks:next=>{ctx.__histState.benchmarks=next.slice();},
+ _renderHistBenchmarkButtons:()=>{},
  _setHistoryStatus:()=>{},
 };
 vm.createContext(ctx);
@@ -87,9 +91,10 @@ assert.equal(ctx.query(fields.histStartMonth.value,fields.histRangeSelect.value,
 ctx.__histState.lastSuccessfulView={
  chartHtml:'EXISTING_CHART',statusHtml:'STATUS',
  coverageHtml:'COVERAGE',tableHtml:'TABLE',
- startMonth:'2025-01',range:'365'
+ startMonth:'2025-01',range:'365',benchmarks:['KOSPI','KOSDAQ','SP500','DOW','NASDAQ','NASDAQ100']
 };
 assert.equal(ctx.restore(),true);
+assert.equal(ctx.__histState.benchmarks.length,6,'restored chart and selected benchmark count must match');
 assert.equal(fields.histStartMonth.value,'2025-01');
 assert.equal(fields.histRangeSelect.value,'custom',
  'legacy January-YTD graph restores with correct custom label');
@@ -99,6 +104,8 @@ assert.equal(ctx.restore(),true);
 assert.equal(fields.histStartMonth.value,'');
 assert.equal(fields.histRangeSelect.value,'180');
 
+ctx.__histState.lastSuccessfulView={...ctx.__histState.lastSuccessfulView,benchmarks:undefined};
+assert.equal(ctx.restore(),false,'legacy chart without benchmark metadata must not show misleading selected count');
 assert.match(render,/<option value="365" selected>1년<\/option>/);
 assert.match(render,/<option value="custom">시작월 지정<\/option>/);
 assert.match(render,/addEventListener\('change', _onHistoryRangeChange\)/);
