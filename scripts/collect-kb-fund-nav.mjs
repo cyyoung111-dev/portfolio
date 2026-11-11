@@ -55,7 +55,8 @@ export async function runPublicSourceOnly({now=new Date(),fetchImpl=fetch}={}){
     sourceRows:rows.length,sameDayExcluded:received.length-rows.length,
     historicalCutoffExclusive:today,from,to,latestDate:rows.at(-1).date,rows};
 }
-export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}){
+export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
+  retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}){
   const endpoint=validateWebAppUrl(url);
   if(typeof token!=='string'||!token.trim())throw Error('NAV_AUTH_MISSING');
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
@@ -131,9 +132,23 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
       if(!/^NAV_IMPORT_(?:HTTP|TIMEOUT|NETWORK|JSON)_UNVERIFIED$/.test(String(error?.message||'')))throw error;
       importAckRecovered=true;
     }
+    // After a lost import ACK, only repeat the READ-ONLY exact NAV preview.
+    // GAS may still be finishing an already-committed write. Never send
+    // collectKbFundNav(import) twice, even if all readbacks are unavailable.
     let check;
-    try {check=await request('previewFundNavImport',{data:JSON.stringify({...input,rows:candidates})});}
-    catch(error) {if(importAckRecovered)throw Error('NAV_IMPORT_UNVERIFIED');throw error;}
+    for(let attempt=0;attempt<(importAckRecovered?3:1);attempt++){
+      try{
+        check=await request('previewFundNavImport',{
+          data:JSON.stringify({...input,rows:candidates})});
+        break;
+      }catch(error){
+        if(!importAckRecovered)throw error;
+        const transient=/^NAV_PREVIEW_(?:HTTP|TIMEOUT|NETWORK|JSON)_UNVERIFIED$/
+          .test(String(error?.message||''));
+        if(!transient||attempt===2)throw Error('NAV_IMPORT_UNVERIFIED');
+        await retryDelay(2000*(attempt+1));
+      }
+    }
     if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
     if(importAckRecovered){
       // A mere row count is insufficient to certify a lost ACK. Verify every
