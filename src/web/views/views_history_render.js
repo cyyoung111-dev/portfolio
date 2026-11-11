@@ -6,16 +6,16 @@ function renderHistoryView(area) {
     <div style="padding:12px 0 8px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
         <div style="font-size:.80rem;font-weight:700;color:var(--text)">📈 손익 그래프</div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <div style="display:flex;background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div class="hist-controls">
+          <div class="hist-mode-controls">
             <button id="histModeDay" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">일별</button>
             <button id="histModeWeek" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">주간</button>
             <button id="histModeMonth" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
           </div>
           <input id="histStartMonth" type="month" title="직접 지정할 시작 연월 (선택)"
-            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem" />
+            class="hist-month-input" />
           <select id="histRangeSelect"
-            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem">
+            class="hist-range-select">
             <option value="90">3개월</option>
             <option value="180">6개월</option>
             <option value="365" selected>1년</option>
@@ -24,7 +24,7 @@ function renderHistoryView(area) {
             <option value="custom">시작월 지정</option>
           </select>
           <details class="hist-filter-details">
-            <summary>비교지수 선택 · ${_getHistBenchmarks().length}개</summary>
+            <summary>비교지수 선택 · <span id="histBenchmarkCount">${_getHistBenchmarks().length}개</span></summary>
           <div id="histBenchmarkMulti" title="비교지수(복수선택) · 선택 기간 수익률과 MDD 표시"
             style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--s2)">
             ${HIST_BENCHMARK_TYPES.map(code => `<button type="button" class="hist-bench-btn" data-history-action="benchmark" data-bench="${code}">${_escapeHtml(formatBenchmarkLabel(code))}</button>`).join('')}

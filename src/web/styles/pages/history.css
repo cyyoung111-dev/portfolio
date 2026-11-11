@@ -136,3 +136,22 @@ html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padd
  .hist-kpi-number{font-size:.95rem}
  .hist-mdd-when{gap:4px 7px}
 }
+
+/* Unified history controls and clear money hierarchy, responsive on narrow phones. */
+.hist-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%}
+.hist-mode-controls{display:flex;align-items:stretch;background:var(--s2);border:1px solid var(--border);border-radius:9px;overflow:hidden;min-height:42px}
+.hist-mode-controls button{min-width:52px;min-height:42px;padding:8px 12px!important}
+.hist-month-input,.hist-range-select,.hist-controls>.hist-filter-details,.hist-query-btn{box-sizing:border-box;min-height:42px;border-radius:9px;font-size:.73rem}
+.hist-month-input,.hist-range-select{background:var(--s2);border:1px solid var(--border);color:var(--text);padding:7px 10px;min-width:0}
+.hist-month-input{width:150px;max-width:100%;color-scheme:dark}
+.hist-range-select{width:115px}
+.hist-controls>.hist-filter-details>summary{min-height:42px;display:flex;align-items:center;box-sizing:border-box}
+.hist-query-btn{min-width:90px;padding:8px 12px}
+.hist-mdd-key-card{align-items:flex-start}
+.hist-mdd-head{flex-wrap:wrap;gap:7px 12px}
+.hist-mdd-loss strong{font-size:.95rem}
+.hist-mdd-trough-eval{display:inline-flex;gap:5px;align-items:baseline}
+.hist-mdd-trough-eval strong{font-size:.76rem;color:var(--text)}
+.hist-extreme-cost{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;font-size:.65rem;color:var(--muted);margin-top:4px}
+.hist-extreme-cost strong{font-size:.75rem;color:var(--text);font-variant-numeric:tabular-nums}
+@media(max-width:720px){.hist-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.hist-mode-controls{grid-column:1/-1}.hist-mode-controls button{flex:1}.hist-month-input,.hist-range-select,.hist-controls>.hist-filter-details,.hist-query-btn{width:100%;min-width:0}.hist-month-input{font-size:.78rem;min-height:46px}.hist-controls>.hist-filter-details{grid-column:1/-1}.hist-controls>.hist-filter-details>summary{min-height:44px}.hist-query-btn{grid-column:1/-1}.hist-admin-details{grid-column:1/-1}.hist-mdd-head{width:100%}.hist-mdd-loss{width:100%}}
