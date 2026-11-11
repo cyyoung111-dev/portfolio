@@ -48,6 +48,8 @@ html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padd
 .hist-mdd-key-card{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:8px 13px;padding:9px 12px!important}
 .hist-mdd-head{display:flex;align-items:center;gap:10px}
 .hist-mdd-value{font-size:.95rem;font-weight:750;color:var(--red-lt);white-space:nowrap}
+.hist-mdd-loss{display:inline-flex;align-items:baseline;gap:5px;flex-wrap:wrap;font-size:.7rem;color:var(--muted)}
+.hist-mdd-loss strong{color:var(--red-lt);font-size:.82rem;font-variant-numeric:tabular-nums}
 .hist-mdd-when{display:flex;flex-wrap:wrap;align-items:center;gap:3px 9px;font-variant-numeric:tabular-nums}
 .hist-mdd-when strong{color:var(--text);font-size:.73rem}
 .hist-mdd-when span{font-size:.62rem;color:var(--muted)}

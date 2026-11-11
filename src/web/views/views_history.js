@@ -81,6 +81,13 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     ? Number(portfolioMddTroughSnapshot.evalAmt || portfolioMddTroughSnapshot.total || portfolioMddTroughSnapshot.eval || 0)
     : NaN;
 
+  // Cashflow-adjusted MDD expressed as trough-date capital-equivalent loss.
+  // This is NOT the raw peak-to-trough valuation difference.
+  const portfolioMddEquivalentLoss = Number.isFinite(portfolioMddTroughEval)
+    && portfolioMddTroughEval > 0 && portfolioMdd.pct < 0 && portfolioMdd.pct > -100
+    ? portfolioMddTroughEval * (-portfolioMdd.pct / 100) / (1 + portfolioMdd.pct / 100)
+    : null;
+
   const validPts = pts.filter(_isVerifiedHistoryPoint);
   if (!validPts.length) {
     wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--amber)">⚠️ 선택 기간의 Snapshot이 모두 오류/충돌 상태라 정상 손익선을 표시할 수 없습니다.</div>';
@@ -291,14 +298,14 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         <div class="hist-kpi-caption">현금흐름 보정 기간수익률</div>
       </div>
       <div class="hist-mdd-key-card" title="현금흐름을 보정한 일별 수익률 지수의 고점 대비 최대 하락률">
-        <div class="hist-mdd-head"><span class="hist-kpi-label">최대 낙폭 · MDD</span><strong class="hist-mdd-value">${portfolioMdd.pct.toFixed(1)}%</strong></div>
+        <div class="hist-mdd-head"><span class="hist-kpi-label">최대 낙폭 · MDD</span><strong class="hist-mdd-value">${portfolioMdd.pct.toFixed(1)}%</strong><span class="hist-mdd-loss">고점 대비 감소액(환산) <strong>${portfolioMddEquivalentLoss === null ? "산출 불가" : "-" + _fmtKrw(portfolioMddEquivalentLoss)}</strong></span></div>
         <div class="hist-mdd-when">
           <strong>${portfolioMdd.troughDate ? _fmtHistDateCompact(portfolioMdd.troughDate) : '하락 없음'}</strong>
           <span>고점 ${portfolioMdd.peakDate ? _fmtHistDateCompact(portfolioMdd.peakDate) : '-'}</span>
         </div>
         <details class="hist-mdd-more">
           <summary>계산 기준</summary>
-          <div class="hist-mdd-detail">수익률 MDD는 현금흐름 보정 기준입니다.${Number.isFinite(portfolioMddTroughEval) && portfolioMdd.troughDate ? ` 최악일 평가금액: ${_fmtKrw(portfolioMddTroughEval)}.` : ''}</div>
+          <div class="hist-mdd-detail">수익률 MDD는 현금흐름 보정 기준입니다. 감소액은 최악일 평가금액과 보정 수익률로 환산한 값이며 실제 고점·저점 평가금액 차이가 아닙니다.${Number.isFinite(portfolioMddTroughEval) && portfolioMdd.troughDate ? ` 최악일 평가금액: ${_fmtKrw(portfolioMddTroughEval)}.` : ''}</div>
         </details>
       </div>
     </div>
