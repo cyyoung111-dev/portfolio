@@ -73,3 +73,64 @@ html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padd
  .hist-extreme-grid{grid-template-columns:1fr}
  .hist-mdd-more{margin-left:0}
 }
+
+/* Portfolio performance polish — responsive in the actual Pages web app. */
+.hist-chart-svg{width:100%;height:auto;overflow:visible}
+.hist-legend-list{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:10px 0 2px}
+.hist-legend-chip{display:inline-flex;align-items:center;gap:6px;min-width:0;min-height:30px;padding:5px 10px;border:1px solid var(--border);border-radius:999px;background:var(--s2);font-size:.67rem;font-variant-numeric:tabular-nums;line-height:1.2}
+.hist-legend-chip strong{font-size:.69rem;font-weight:750;white-space:nowrap}
+.hist-legend-label{color:var(--muted);white-space:nowrap}
+.hist-legend-mark{flex:0 0 14px;width:14px;height:0;border-top:3px solid var(--hist-accent);border-radius:3px}
+.hist-legend-mark.is-dashed{border-top-style:dashed}
+.hist-legend-mark-portfolio{flex:0 0 9px;width:9px;height:9px;border:0;border-radius:50%;background:var(--hist-accent)}
+.hist-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.hist-kpi-grid>.hist-kpi-card{display:flex;flex-direction:column;justify-content:center;gap:5px;min-width:0;padding:12px 14px;background:var(--s2);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.hist-kpi-label{font-size:.69rem;letter-spacing:.005em}
+.hist-kpi-number{display:block;font-size:clamp(1rem,1.65vw,1.28rem);font-weight:780;line-height:1.4;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.hist-kpi-caption{font-size:.61rem;line-height:1.4;color:var(--muted)}
+.hist-kpi-grid>.hist-mdd-key-card{margin-top:0;border-radius:12px;gap:8px 16px;padding:10px 14px!important}
+.hist-mdd-head{gap:9px}
+.hist-mdd-value{font-size:1.02rem}
+.hist-mdd-when strong{font-size:.77rem}
+.hist-mdd-more summary{font-size:.65rem;padding:4px 7px;border-radius:6px;background:var(--s1)}
+.hist-mdd-detail{line-height:1.55}
+.hist-benchmark-details{overflow:hidden;margin-top:12px;border-radius:12px;background:var(--s2)}
+.hist-benchmark-details>summary.hist-benchmark-toggle{display:flex;align-items:center;gap:9px;flex-wrap:wrap;list-style:none;min-height:44px;padding:10px 14px;font-size:.78rem}
+.hist-benchmark-toggle::-webkit-details-marker{display:none}
+.hist-benchmark-toggle::before{content:'›';display:inline-block;font-size:1.15rem;line-height:1;color:var(--muted);transition:transform .15s}
+.hist-benchmark-details[open] .hist-benchmark-toggle::before{transform:rotate(90deg)}
+.hist-benchmark-count{padding:2px 7px;border-radius:99px;background:var(--s1);border:1px solid var(--border);font-size:.63rem;color:var(--muted);font-weight:650}
+.hist-benchmark-summary-note{margin-left:auto;font-size:.63rem;color:var(--muted);font-weight:500}
+.hist-benchmark-details[open]>summary.hist-benchmark-toggle{border-bottom:1px solid var(--border)}
+.hist-benchmark-card-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px}
+.hist-benchmark-card{display:flex;flex-direction:column;gap:9px;min-width:0;padding:13px 14px;border:1px solid var(--border);border-radius:11px;background:var(--s1);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.hist-benchmark-name{display:inline-flex;align-items:center;gap:7px;color:var(--text);font-size:.73rem;font-weight:750;line-height:1.25}
+.hist-benchmark-swatch{width:15px;flex:0 0 15px;border-top:3px solid var(--hist-accent);border-radius:3px}
+.hist-benchmark-swatch.is-dashed{border-top-style:dashed}
+.hist-benchmark-stats{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+.hist-benchmark-change{font-size:1.23rem;font-weight:780;line-height:1.15;color:var(--hist-accent);font-variant-numeric:tabular-nums}
+.hist-benchmark-risk{font-size:.64rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.hist-benchmark-risk b{color:var(--red-lt);font-size:.73rem}
+.hist-benchmark-period{font-size:.63rem;color:var(--muted);font-variant-numeric:tabular-nums;line-height:1.35;overflow-wrap:anywhere}
+.hist-benchmark-source{margin-top:auto;padding-top:7px;border-top:1px solid var(--border);min-width:0}
+.hist-benchmark-source>summary{cursor:pointer;font-size:.62rem;color:var(--muted);padding:3px 0}
+.hist-benchmark-source-body{display:grid;gap:5px;margin-top:8px;font-size:.62rem;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.hist-benchmark-source-body b{color:var(--text);font-weight:650}
+@media(max-width:720px){
+ .hist-benchmark-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:9px}
+ .hist-benchmark-card{padding:11px 12px;gap:7px}
+ .hist-kpi-grid>.hist-kpi-card{padding:11px 12px}
+ .hist-legend-list{gap:6px}
+ .hist-legend-chip{padding:5px 8px;font-size:.63rem}
+ .hist-benchmark-change{font-size:1.05rem}
+ .hist-benchmark-summary-note{display:none}
+}
+@media(max-width:380px){
+ .hist-benchmark-card{padding:10px 9px}
+ .hist-benchmark-risk{font-size:.6rem}
+ .hist-benchmark-risk b{font-size:.66rem}
+ .hist-benchmark-stats{gap:4px 7px}
+ .hist-benchmark-period{font-size:.6rem}
+ .hist-kpi-number{font-size:.95rem}
+ .hist-mdd-when{gap:4px 7px}
+}
