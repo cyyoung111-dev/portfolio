@@ -64,6 +64,22 @@ export function auditIssue507VersionConsumers({
  };
  for(const file of sources){
    const text=readText(file);
+   // KB's GAS version predicate was moved into an audited shared release
+   // compatibility module. Treat a real import+call+approved old version
+   // as an indirect consumer pin; comments or orphaned constants never count.
+   if(file==='scripts/collect-kb-fund-nav.mjs'){
+     const registryFile='scripts/issue860-fund-nav-release-compat.mjs';
+     const imported=text.includes(
+       "import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs'");
+     const usage="supportsPublishedFundNavGasVersion('KB',status.gasVersion)";
+     const registry=readText(registryFile);
+     const versions=registry.match(
+       /const KB_PUBLISHED_GAS_VERSIONS=Object\.freeze\(\[([\s\S]{0,1000}?)\]\)/);
+     if(imported&&text.includes(usage)&&versions&&
+        /['"]9\.285['"]/.test(versions[1]))
+       addPin(file,1+text.slice(0,text.indexOf(usage)).split('\n').length-1,
+         'version_import','KB_PUBLISHED_GAS_VERSIONS');
+   }
    const lines=text.split(/\r?\n/);
    for(let i=0;i<lines.length;i++){
      const line=lines[i];
