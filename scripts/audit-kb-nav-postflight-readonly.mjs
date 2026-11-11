@@ -93,10 +93,17 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
      -Date.parse(latestPublishedDate+'T00:00:00Z'))/86400000;
  const navAwaitingPublication=!officiallyPublished&&officialRows.length>0
    &&publicationLagDays>0&&publicationLagDays<=7;
- const navWorkflowStatus=navVerified?'NAV_DATA_VERIFIED'
+ // A once-valid NAV from an abandoned CLOSE date cannot be reported
+ // healthy indefinitely merely because the public provider is also stale.
+ // Allow a week for long market holidays; older gaps need investigation.
+ const referenceAgeDays=(Date.parse(today+'T00:00:00Z')
+   -Date.parse(referenceDate+'T00:00:00Z'))/86400000;
+ const referenceRecent=referenceAgeDays>=0&&referenceAgeDays<=7;
+ const navWorkflowStatus=!referenceRecent?'NAV_REFERENCE_STALE'
+   :navVerified?'NAV_DATA_VERIFIED'
    :navAwaitingPublication?'OFFICIAL_NAV_AWAITING_PUBLICATION'
    :'NAV_INTEGRITY_UNVERIFIED';
- const navWorkflowPass=navVerified||navAwaitingPublication;
+ const navWorkflowPass=referenceRecent&&(navVerified||navAwaitingPublication);
  return {kind:'KB_NAV_CLOSE_POSTFLIGHT_READ_ONLY',asOfKst:today,
    closeDate:date,officialReferenceDate:referenceDate,latestPublishedDate,officiallyPublished,
    storedNavConfirmed,derivedConfirmed,officialNavMatched:officialNavMatched===true,
