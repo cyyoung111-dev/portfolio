@@ -13,7 +13,7 @@ function renderHistoryView(area) {
             <button id="histModeMonth" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
           </div>
           <input id="histStartMonth" type="month" title="직접 지정할 시작 연월 (선택)"
-            class="hist-month-input" />
+            class="hist-month-input" aria-label="시작 연월" />
           <select id="histRangeSelect"
             class="hist-range-select">
             <option value="90">3개월</option>
@@ -47,7 +47,7 @@ function renderHistoryView(area) {
       <details class="hist-detail-panel"><summary>특정일 손익 조회</summary><div class="hist-detail-panel-body">
         <label for="histDetailDate" style="font-size:.70rem;font-weight:700;color:var(--text)">📅 특정일 손익</label>
         <input id="histDetailDate" type="date" title="조회할 원자료 평가 날짜"
-          style="background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem" />
+          class="hist-detail-date-input" aria-label="특정일 평가 날짜" />
         <span style="font-size:.63rem;color:var(--muted)">상단 기준일과 무관하게 거래·가격·NAV·환율 원자료로 평가합니다.</span>
       </div></details>
       <div id="histDateDetail"></div>

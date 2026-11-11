@@ -219,6 +219,7 @@ function _captureSuccessfulHistoryView() {
     coverageHtml: coverageEl?.innerHTML || '',
     chartHtml: chartWrap.innerHTML,
     tableHtml: tableWrap?.innerHTML || '',
+    benchmarks: _getHistBenchmarks(),
     startMonth: String($el('histStartMonth')?.value || ''),
     range: String($el('histRangeSelect')?.value || '365'),
   };
@@ -227,6 +228,9 @@ function _captureSuccessfulHistoryView() {
 function _restoreSuccessfulHistoryView() {
   const saved = __histState.lastSuccessfulView;
   if (!saved?.chartHtml) return false;
+  // A restored six-series chart must not display the current one-series selector.
+  if (Array.isArray(saved.benchmarks)) _setHistBenchmarks(saved.benchmarks);
+  else if (!Array.isArray(saved.benchmarks)) return false;
   const statusEl = $el('histStatusMsg');
   const coverageEl = $el('histCoveragePanel');
   const chartWrap = $el('histChartWrap');
@@ -244,6 +248,7 @@ function _restoreSuccessfulHistoryView() {
   if (coverageEl) coverageEl.innerHTML = saved.coverageHtml || '';
   chartWrap.innerHTML = saved.chartHtml;
   if (tableWrap) tableWrap.innerHTML = saved.tableHtml || '';
+  _renderHistBenchmarkButtons();
   return true;
 }
 
