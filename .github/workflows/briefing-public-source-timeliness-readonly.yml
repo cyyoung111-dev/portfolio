@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/briefing-public-source-timeliness-readonly.yml'
       - 'scripts/probe-public-market-timeliness-readonly.mjs'
+      - 'scripts/probe-kr-daily-reference-readonly.mjs'
       - 'scripts/qualify-public-market-session.mjs'
   workflow_dispatch:
   schedule:
@@ -46,6 +47,10 @@ jobs:
           node scripts/check-public-market-session-qualification.mjs
           node --check scripts/probe-public-market-timeliness-readonly.mjs
           node scripts/probe-public-market-timeliness-readonly.mjs
+      - name: Prove Korean completed daily reference availability (PUBLIC READ ONLY)
+        run: |
+          node --check scripts/probe-kr-daily-reference-readonly.mjs
+          node scripts/probe-kr-daily-reference-readonly.mjs
       - name: Verify official US Treasury par-yield curve publication lag (READ ONLY)
         run: |
           node --check scripts/probe-us-treasury-curve-readonly.mjs
