@@ -165,22 +165,6 @@ for(const unsafe of [
  assert.equal(rows.filter(x=>x.book).length,0,
   'intraday/noncanonical/stale/ambiguous quote may not produce PBR');
 }
-// A prepriced DART PBR requires a matching SAME-DAY independent reference
-// close, not an earlier mark or a materially different NXT bar.
-const yahooPrepriced=evaluateSemiconductorCompanyViews({date,period:'close',
- stocks:yahooClose,financialEvidence:datedDomestic(date,closingPrices)});
-assert.deepEqual(yahooPrepriced.map(x=>x.book?.pbr),[1.5,2]);
-const conflictingQuotes=yahooClose.map((x,i)=>i
- ?x:{...x,value:x.value+20000});
-const conflict=evaluateSemiconductorCompanyViews({date,period:'close',
- stocks:conflictingQuotes,financialEvidence:datedDomestic(date,closingPrices)});
-assert.equal(conflict[0].book,null,
- 'Yahoo quote must not bypass independent DART same-day PBR crosscheck');
-assert.equal(conflict[1].book?.pbr,2);
-
-// Independent read-only DART evidence may already include an exact-session
-// NH PBR. It must be accepted only if its date and numeric PBR agree with
-// the separate verified close. The prior strict-null requirement discarded it.
 const datedDomestic=(day,prices)=>({...financial,domesticSessionDate:day,
  domestic:financial.domestic.map((r,i)=>({
   ...r,evidence:{...r.evidence,priceDate:day,
@@ -200,6 +184,23 @@ const confirmedClose=evaluateSemiconductorCompanyViews({
  date,period:'close',stocks:closingPrices,financialEvidence:pricedClosing
 });
 assert.deepEqual(confirmedClose.map(r=>r.book?.pbr),[1.5,2]);
+// A prepriced DART PBR requires a matching SAME-DAY independent reference
+// close, not an earlier mark or a materially different NXT bar.
+const yahooPrepriced=evaluateSemiconductorCompanyViews({date,period:'close',
+ stocks:yahooClose,financialEvidence:datedDomestic(date,closingPrices)});
+assert.deepEqual(yahooPrepriced.map(x=>x.book?.pbr),[1.5,2]);
+const conflictingQuotes=yahooClose.map((x,i)=>i
+ ?x:{...x,value:x.value+20000});
+const conflict=evaluateSemiconductorCompanyViews({date,period:'close',
+ stocks:conflictingQuotes,financialEvidence:datedDomestic(date,closingPrices)});
+assert.equal(conflict[0].book,null,
+ 'Yahoo quote must not bypass independent DART same-day PBR crosscheck');
+assert.equal(conflict[1].book?.pbr,2);
+
+// Independent read-only DART evidence may already include an exact-session
+// NH PBR. It must be accepted only if its date and numeric PBR agree with
+// the separate verified close. The prior strict-null requirement discarded it.
+
 for(const unsafe of [
  {...pricedMorning,domesticSessionDate:date},
  {...pricedMorning,domestic:pricedMorning.domestic.map(r=>({
