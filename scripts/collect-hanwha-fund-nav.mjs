@@ -1,3 +1,4 @@
+import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs';
 // F00001 Hanwha C-RPe: class-exact NAV import through v9.284
 // collectHanwhaFundNav (shared FUND/backfill atomic lease).
 // Preview is default. Explicit --apply enables writer only after independent
@@ -43,7 +44,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
  const probe=await request('getAutomationStatus',{},'HANWHA_AUTH_PROBE');
  if(probe.status!=='error'||probe.message!=='인증 실패')throw Error('HANWHA_AUTH_GUARD');
  const state=await request('getAutomationStatus');
- if(state.status!=='ok'||!['9.282','9.283','9.284','9.285','9.289'].includes(state.gasVersion))
+ if(state.status!=='ok'||!supportsPublishedFundNavGasVersion('HANWHA',state.gasVersion))
    throw Error('HANWHA_VERSION_UNVERIFIED');
  const a=state.automation;
  if(!a||a.closeRun?.state==='RUNNING'||a.tradeSnapshotWorkerLastResult?.status==='RUNNING'
