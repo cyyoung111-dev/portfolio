@@ -29,7 +29,7 @@ function cleanRow(line,mode) {
  if(/^• 실수요: .*미연결/u.test(line))return null;
  if(mode==='close'&&line.startsWith('■ 데이터 확인: ')){
    // Preserve the core 6-series score, but hide groups with zero usable data.
-   return line.replace(/ · (?:참고|주요 종목|환율·금리|원자재\/BTC|국채금리·스프레드|VKOSPI|KRX 거래대금|수급|시장자금) 0\/\d+/gu,'');
+   return line.replace(/ · (?:참고|주요 종목|환율·금리|원자재\/BTC|국채금리·스프레드|VKOSPI|KRX (?:지수 구성 )?거래대금|수급|시장자금) 0\/\d+/gu,'');
  }
  return line;
 }
