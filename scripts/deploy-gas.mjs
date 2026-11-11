@@ -446,8 +446,31 @@ export async function verifyAutomationVersionConvergence({
     ||previousVersion===expectedVersion
     ||!Number.isSafeInteger(maxChecks)||maxChecks<1||maxChecks>4)
     throw Error('GAS_AUTOMATION_CONVERGENCE_INVALID');
+  // #860: Apps Script may cold-start a newly published version after
+  // getSettings already confirms the deployment. The heavy authenticated
+  // getAutomationStatus is a READ and can time out once at 60s. Do not
+  // roll back a healthy release on a single transient network response.
+  // Retry only explicitly classified transport/HTTP/non-JSON failures.
+  // Unknown versions, failed auth and data-integrity errors fail immediately.
+  const transientCodes=new Set([
+    'AUTOMATION_DIAG_NETWORK_FAILED',
+    'AUTOMATION_DIAG_HTTP_FAILED',
+    'AUTOMATION_DIAG_NON_JSON'
+  ]);
   for(let check=0;check<maxChecks;check++){
-    const automation=await readAutomation();
+    let automation;
+    try { automation=await readAutomation(); }
+    catch(error) {
+      const code=String(error?.message||'');
+      if(!transientCodes.has(code)||check===maxChecks-1)throw error;
+      console.log(JSON.stringify({
+        kind:'GAS_AUTOMATION_READ_TRANSIENT',
+        errorCode:code,check:check+1,maxChecks,
+        financialWrites:0,deploymentWrites:0
+      }));
+      await pause((check+1)*4000);
+      continue;
+    }
     const actual=String(automation?.gasVersion||'');
     if(actual!==expectedVersion&&actual!==previousVersion)
       throw Error('GAS_AUTOMATION_UNEXPECTED_VERSION');
