@@ -160,12 +160,6 @@ export function assertGasReleaseReady(source) {
   const version = extractExpectedGasVersion(source);
   // Older and newer versions alike require an explicit reviewed source pin.
   // Rollbacks must also be approved rather than bypassing release integrity.
-  // Any new v9.291+ source must certify BOTH private NAV collectors in
-  // the same release. Prevent successful GAS updates from silently stopping
-  // KB/Hanwha scheduled NAV imports due to stale version allowlists.
-  const [major,minor]=version.split('.').map(Number);
-  if(major>9 || (major===9&&minor>=291))
-    assertPublishedReleaseFundNavSupport(version);
   const reviewed = REVIEWED_GAS_SOURCE_BLOBS[version];
   if (!reviewed) throw new Error(`GAS_RELEASE_UNREVIEWED_VERSION: ${version}`);
   const actual = gasSourceBlobSha(source);
@@ -173,6 +167,12 @@ export function assertGasReleaseReady(source) {
   if (!approvedBlobs.includes(actual)) {
     throw new Error(`GAS_RELEASE_SOURCE_NOT_APPROVED: version=${version} actualBlob=${actual} reviewedBlobs=${approvedBlobs.join(',')}`);
   }
+  // Any new v9.291+ source must certify BOTH private NAV collectors in
+  // the same release. Prevent successful GAS updates from silently stopping
+  // KB/Hanwha scheduled NAV imports due to stale version allowlists.
+  const [major,minor]=version.split('.').map(Number);
+  if(major>9 || (major===9&&minor>=291))
+    assertPublishedReleaseFundNavSupport(version);
   return version;
 }
 
