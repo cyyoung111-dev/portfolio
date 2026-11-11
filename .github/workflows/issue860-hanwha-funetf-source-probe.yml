@@ -1,0 +1,28 @@
+name: issue860-hanwha-funetf-source-probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/probe-hanwha-funetf-public.mjs'
+      - 'scripts/check-issue860-hanwha-funetf-probe.mjs'
+      - '.github/workflows/issue860-hanwha-funetf-source-probe.yml'
+permissions:
+  contents: read
+concurrency:
+  group: issue860-hanwha-funetf-source-probe
+  cancel-in-progress: false
+jobs:
+  public-source-only:
+    if: github.repository == 'cyyoung111-dev/portfolio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify exact-class secondary-source contract offline
+        run: node scripts/check-issue860-hanwha-funetf-probe.mjs
+      - name: Probe public Hanwha C-RPe class NAV (READ ONLY)
+        run: node scripts/probe-hanwha-funetf-public.mjs
