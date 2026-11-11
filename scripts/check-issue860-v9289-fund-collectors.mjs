@@ -98,4 +98,75 @@ await assert.rejects(()=>collectHanwha({
  url,token,now,fetchImpl:unavailable.fetchImpl,apply:false
 }),/HANWHA_FUNETF_NETWORK_UNVERIFIED/);
 
-console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, financial writes 0');
+
+// Regression for 2026-11-11: the GAS import may commit before HTTP ACK times out.
+// Only transient read-only preview errors may be retried. Never import twice.
+const exactDate='2026-11-10',exactNav=1234.56;
+function lostAckFixture({readbackFailures=0,explicitPartial=false}={}){
+ const calls={source:0,preview:0,import:0,valuation:0,delay:0};
+ const fetchImpl=async(destination,options={})=>{
+  const host=new URL(destination).hostname;
+  if(host==='www.funetf.co.kr'){
+   calls.source++;
+   return {ok:true,json:async()=>[{gijunYmd:'20261110',gijunGa:exactNav}]};
+  }
+  assert.equal(host,'script.google.com');
+  const action=options.body.get('action');
+  if(action==='getAutomationStatus'){
+   return {ok:true,json:async()=>options.body.get('accessToken')!==token
+    ?{status:'error',message:'인증 실패'}
+    :{status:'ok',gasVersion:'9.291',automation:{
+      gasVersion:'9.291',closeRun:{runDate:exactDate,state:'INCOMPLETE'},
+      tradeLedgerWriteUnverified:false,pendingTradeSnapshotRebuildFrom:'',
+      tradeSnapshotDeferredCount:0, fundAttempt:{state:'DONE'}
+    }}};
+  }
+  if(action==='previewFundNavImport'){
+   calls.preview++;
+   if(calls.preview===1)
+    return {ok:true,json:async()=>({status:'ok',
+      candidates:[{date:exactDate,nav:exactNav}],updates:[],errors:[],warnings:[]})};
+   if(calls.preview<=1+readbackFailures)
+    throw Object.assign(Error('PRIVATE_TIMEOUT'),{name:'TimeoutError'});
+   return {ok:true,json:async()=>({status:'ok',code:'F00002',
+     candidates:[],updates:[],errors:[],warnings:[],
+     identical:[{date:exactDate,existingNav:exactNav,uploadedNav:exactNav}]})};
+  }
+  if(action==='collectKbFundNav'){
+   assert.equal(options.body.get('mode'),'import','no refresh/write on this fixture');
+   calls.import++;
+   if(explicitPartial)
+    return {ok:true,json:async()=>({status:'error',saveState:'partial'})};
+   throw Object.assign(Error('PRIVATE_ACK_LOST'),{name:'TimeoutError'});
+  }
+  if(action==='getFundValuationStatus'){
+   calls.valuation++;
+   return {ok:true,json:async()=>({status:'ok',fundResults:{F00002:{dates:[]}}})};
+  }
+  throw Error('UNEXPECTED_GAS_ACTION');
+ };
+ return {calls,fetchImpl,retryDelay:async()=>{calls.delay++}};
+}
+const recovered=lostAckFixture({readbackFailures:1});
+const recoveredResult=await collectKb({url,token,now,
+ fetchImpl:recovered.fetchImpl,retryDelay:recovered.retryDelay,apply:true});
+assert.equal(recoveredResult.importAckRecovered,true);
+assert.equal(recoveredResult.imported,1);
+assert.deepEqual([recovered.calls.import,recovered.calls.preview,
+ recovered.calls.delay,recovered.calls.valuation],[1,3,1,2],
+ 'one import, initial preview, transient lost-ACK readback then exact success');
+const stillUnverified=lostAckFixture({readbackFailures:3});
+await assert.rejects(()=>collectKb({url,token,now,
+ fetchImpl:stillUnverified.fetchImpl,retryDelay:stillUnverified.retryDelay,apply:true}),
+ /NAV_IMPORT_UNVERIFIED/);
+assert.deepEqual([stillUnverified.calls.import,stillUnverified.calls.preview,
+ stillUnverified.calls.delay],[1,4,2],
+ 'bounded read-only retries must never duplicate the financial import');
+const partial=lostAckFixture({explicitPartial:true});
+await assert.rejects(()=>collectKb({url,token,now,
+ fetchImpl:partial.fetchImpl,retryDelay:partial.retryDelay,apply:true}),
+ /NAV_IMPORT_UNVERIFIED/);
+assert.deepEqual([partial.calls.import,partial.calls.preview,partial.calls.delay],
+ [1,1,0],'explicit partial save must not be certified through retries');
+
+console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, lost-ACK exact readback 3 cases, no duplicate import');
