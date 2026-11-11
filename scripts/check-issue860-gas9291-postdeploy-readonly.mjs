@@ -37,6 +37,10 @@ assert.equal(ok.financialWrites,0);
 const exercise=async(payload,regex)=>{
  await assert.rejects(()=>check(payload),regex);
 };
+await exercise({...good,getSettings:{...good.getSettings,gasVersion:'9.289'}},
+ /PREVIOUS_VERSION_WARM/);
+await exercise({...good,getWriterGateStatus:{...good.getWriterGateStatus,gasVersion:'9.289'}},
+ /PREVIOUS_VERSION_WARM/);
 await exercise({...good,getSettings:{...good.getSettings,gasVersion:'9.290'}},
  /WEBAPP_VERSION_MISMATCH/);
 await exercise({...good,getSettings:{...good.getSettings,settings:null}},
