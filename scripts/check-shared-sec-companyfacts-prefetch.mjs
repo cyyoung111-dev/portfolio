@@ -125,6 +125,22 @@ const noRegression=await recoveryFixture([
 assert.equal(noRegression.fyCalls,2);
 assert.equal(noRegression.result.coverage.referencePbr,1,
  'a failed retry must not erase an already verified company');
+const duplicatedRetry=await recoveryFixture([basePart,{
+ ...fullPart,snapshots:[validMsft,{...validMsft}],
+ verified:2
+}]);
+assert.equal(duplicatedRetry.fyCalls,2);
+assert.equal(duplicatedRetry.result.coverage.referencePbr,0,
+ 'ambiguous duplicate SEC reference rows must not be promoted as recovered');
+const duplicateCannotRegress=await recoveryFixture([
+ {...fullPart,snapshots:[validMsft,{
+  symbol:'AAPL',pbrUnavailableReason:'QUOTE_UNVERIFIED'}]},
+ {...fullPart,snapshots:[validMsft,{...validMsft},
+  {symbol:'AAPL',pbrUnavailableReason:'QUOTE_UNVERIFIED'}],
+  verified:2}
+]);
+assert.equal(duplicateCannotRegress.result.coverage.referencePbr,1,
+ 'an apparent two-row recovery must not replace one unique verified value');
 const structural=await recoveryFixture([{
  ...basePart,snapshots:[{symbol:'MSFT',
   pbrUnavailableReason:'FISCAL_END_OUTSTANDING_SHARES_UNVERIFIED'}]
