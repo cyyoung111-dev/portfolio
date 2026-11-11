@@ -155,3 +155,14 @@ html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padd
 .hist-extreme-cost{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;font-size:.65rem;color:var(--muted);margin-top:4px}
 .hist-extreme-cost strong{font-size:.75rem;color:var(--text);font-variant-numeric:tabular-nums}
 @media(max-width:720px){.hist-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.hist-mode-controls{grid-column:1/-1}.hist-mode-controls button{flex:1}.hist-month-input,.hist-range-select,.hist-controls>.hist-filter-details,.hist-query-btn{width:100%;min-width:0}.hist-month-input{font-size:.78rem;min-height:46px}.hist-controls>.hist-filter-details{grid-column:1/-1}.hist-controls>.hist-filter-details>summary{min-height:44px}.hist-query-btn{grid-column:1/-1}.hist-admin-details{grid-column:1/-1}.hist-mdd-head{width:100%}.hist-mdd-loss{width:100%}}
+
+/* Date controls: preserve native picker text and calendar icon on mobile. */
+.hist-month-input,.hist-detail-date-input{box-sizing:border-box;min-width:0;width:190px;min-height:46px;padding:8px 12px;background:var(--s2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:16px;line-height:1.4;color-scheme:dark}
+.hist-month-input::-webkit-date-and-time-value,.hist-detail-date-input::-webkit-date-and-time-value{text-align:left;min-width:0}
+.hist-month-input::-webkit-calendar-picker-indicator,.hist-detail-date-input::-webkit-calendar-picker-indicator{opacity:1;flex-shrink:0}
+.hist-detail-panel-body{display:grid;grid-template-columns:auto minmax(190px,220px) minmax(0,1fr);align-items:center;gap:10px}
+.hist-mdd-when{width:100%;gap:8px 14px}
+.hist-mdd-trough-eval{padding:5px 8px;background:var(--s1);border-radius:7px}
+.hist-mdd-trough-eval strong{font-size:.85rem}
+@media(max-width:720px){.hist-controls{grid-template-columns:minmax(190px,1.2fr) minmax(125px,1fr)}.hist-month-input{width:100%;min-width:0;font-size:16px;padding:8px 7px}.hist-detail-panel-body{grid-template-columns:1fr;justify-items:stretch}.hist-detail-date-input{width:100%;min-width:0;font-size:16px}.hist-mdd-trough-eval{width:100%;box-sizing:border-box;justify-content:space-between}}
+@media(max-width:360px){.hist-controls{grid-template-columns:1fr}.hist-month-input,.hist-range-select{width:100%}}
