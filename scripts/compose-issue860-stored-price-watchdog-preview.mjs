@@ -46,6 +46,14 @@ export function composeIssue860StoredPriceWatchdogPreview(){
      '        throw new Error("ISSUE860_STORED_PRICE_SOURCE_CHANGED");',
      '    }'
     ].join('\n'),'STRICT_OWNER'));
+ // A live NAV attempt can have reserved a trigger before the earlier PRICE
+// run timed out. Upgrade its same-run owner evidence under ScriptLock without
+// consuming a new attempt or replacing the active UID.
+ s=editFunction(s,'_scheduleFundAfterFailedPortfolioPrice_',f=>
+  once(f,
+   'if (owner && !activeAttempt && owner.date === scheduleDate && owner.runId) {',
+   'if (owner && (!activeAttempt || owner.issue860VerifiedPriceRecovery === true) && owner.date === scheduleDate && owner.runId) {',
+   'ACTIVE_NAV_SAME_OWNER_EVIDENCE'));
  const helper=`
 function _issue860RecoverStoredPriceWatchdog_() {
   if(typeof _issue507GateInside_!=='undefined'&&!_issue507GateInside_)
@@ -60,6 +68,31 @@ function _issue860RecoverStoredPriceWatchdog_() {
   var runId=String(props.getProperty('portfolio_close_run_id')||'');
   var startedMs=Number(props.getProperty('portfolio_close_run_started_ms')||0);
   var age=Date.now()-startedMs;
+  // FUND_PENDING is a legitimate asynchronous phase, not PRICE failure.
+  // Never call runDailyPortfolioClose1900 merely because NAV publication
+  // or the deferred trigger has not completed by the 20:30 watchdog.
+  if(stage==='FUND_PENDING'&&runDate===date) {
+    var last=_portfolioFundState_(props,'portfolio_close_last_result');
+    var summaryMatches=!!last&&last.runId===runId&&last.runDate===date
+      &&last.priceOk===true&&last.priceDate===date
+      &&last.fundOk!==true&&!(last.errors||[]).length
+      &&Number(last.startedMs||0)===startedMs;
+    if(!summaryMatches)return {skipped:true,runDate:date,
+      reason:'FUND_PENDING_OWNER_UNVERIFIED',fundPending:true,
+      closeMarkedComplete:false,priceWriterReplayed:false};
+    var stored=_portfolioFundState_(props,PORTFOLIO_FUND_SCHEDULE_KEY);
+    var reservations=stored?[stored].concat(Array.isArray(stored.additional)?stored.additional:[]):[];
+    var now=Date.now();
+    var hasOwnedReservation=reservations.some(function(item){
+      return item&&item.date===date&&item.triggerId&&item.owner
+        &&item.owner.runId===runId
+        &&(Number(item.until||0)>now||Number(item.activeUntil||0)>now);
+    });
+    return {skipped:true,runDate:date,
+      reason:hasOwnedReservation?'PRICE_COMPLETE_NAV_PENDING':'NAV_RESERVATION_NEEDS_REVIEW',
+      priceOk:true,fundOk:false,fundPending:true,
+      closeMarkedComplete:false,priceWriterReplayed:false};
+  }
   if(stage!=='PRICE'||runDate!==date||!runId||!startedMs||age<0)
     return null;
   if(age<15*60*1000)return {skipped:true,
@@ -100,6 +133,14 @@ function _issue860RecoverStoredPriceWatchdog_() {
   }
   if(!reservation||!reservation.triggerId)
     return {skipped:true,runDate:date,reason:'STORED_PRICE_NAV_RESERVATION_MISSING'};
+  var committed=_portfolioFundState_(props,'portfolio_close_last_result');
+  if(props.getProperty('portfolio_close_stage')!=='FUND_PENDING'
+    ||!committed||committed.runId!==runId||committed.runDate!==date
+    ||committed.priceOk!==true||committed.priceDate!==date
+    ||committed.fundOk===true
+    ||String(committed.fundBusyTriggerId||'')!==String(reservation.triggerId))
+    return {skipped:true,runDate:date,reason:'STORED_PRICE_NAV_HANDOFF_UNVERIFIED',
+      closeMarkedComplete:false,priceWriterReplayed:false};
   return {runDate:date,priceOk:true,fundOk:false,fundPending:true,
     priceEvidence:'RAW_SNAPSHOT_VERIFIED',
     navReservationCreated:reservation.created===true,
