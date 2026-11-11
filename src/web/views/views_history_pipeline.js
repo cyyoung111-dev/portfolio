@@ -300,8 +300,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     if (requestId === __histState.loadRequestId) {
       // Preserve the last verified graph on transient read failure, including the first query.
       // Never present stale data as a successful refresh.
-      const restored = _restoreSuccessfulHistoryView();
-      if (!restored && (retryAttempt || e?.errorCode === 'REVISION_CHANGED')) _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl);
+      const restored = _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl);
       _setHistoryStatus(statusEl, 'error', { message: (e?.message || '조회 실패') + (restored ? ' · 마지막 정상 조회 결과를 유지합니다.' : '') });
     }
   } finally {
