@@ -156,6 +156,8 @@ function _toggleHistBenchmark(type) {
 
 function _renderHistBenchmarkButtons() {
   const selected = new Set(_getHistBenchmarks());
+  const count = document.getElementById('histBenchmarkCount');
+  if (count) count.textContent = selected.size + '개';
   document.querySelectorAll('#histBenchmarkMulti .hist-bench-btn').forEach(btn => {
     const type = btn.dataset?.bench || '';
     const isClear = type === 'CLEAR';
