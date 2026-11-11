@@ -51,7 +51,7 @@ assert(pipelineSource.indexOf('_cachedHistoryDiagnostics(snapshots') < pipelineS
 assert(pipelineSource.indexOf("revisionDecision === 'discard'") < pipelineSource.indexOf('integrityDiagnostics = integrityDiagnostics.concat'),'revision mismatch 진단은 화면 상태 병합 전에 폐기');
 assert.match(pipelineSource,/revisionDecision === 'retry'\) return await loadHistoryChart\(retryAttempt \+ 1\)/,'revision mismatch 재조회는 1회 bounded retry');
 assert.match(pipelineSource,/error\?\.errorCode === 'REVISION_CHANGED'\) throw error/,'재시도 mismatch를 일반 진단 실패로 흡수하면 안 됨');
-assert.match(pipelineSource,/if \(retryAttempt \|\| e\?\.errorCode === 'REVISION_CHANGED'\) _restoreOrClearDiscardedHistoryView/,'재조회 실패는 공통 정상 화면 복원·폐기 처리를 사용');
+assert.match(pipelineSource,/const restored = _restoreOrClearDiscardedHistoryView\(requestId, chartWrap, tableWrap, coverageEl\)/,'모든 조회 실패는 공통 정상 화면 복원·폐기 처리를 사용');
 assert.match(pipelineSource,/if \(retryAttempt && _restoreOrClearDiscardedHistoryView[\s\S]*empty_data[\s\S]*if \(retryAttempt && _restoreOrClearDiscardedHistoryView[\s\S]*empty_range/,'재시도 empty_data와 empty_range는 stale 화면 정리 후 종료');
 const discardSource = pipelineSource.match(/function _restoreOrClearDiscardedHistoryView[\s\S]*?\n}/)?.[0] || '';
 const discardContext = vm.createContext({});
