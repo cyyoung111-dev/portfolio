@@ -130,17 +130,74 @@
     retryAfter = 0;
     if (timer) { clearTimeout(timer); timer = null; }
   }
+  // Immediate, in-memory diagnostic. No consent, GAS write or network call.
+  // The opt-in standalone collector keeps its existing published allowlist.
+  const LOCAL_STAGE_LABELS = Object.freeze({
+    'load.full-update': '전체 업데이트',
+    'load.full-restore': '데이터 복원',
+    'load.full-prices': '가격 재조회',
+    'load.full-render': '화면 재계산',
+    'network.getBootstrap': 'GAS 전체 복원',
+    'network.getSettings': 'GAS 설정 조회',
+    'network.getPrices': 'GAS 현재가 조회',
+    'network.getPriceHistory': 'GAS 가격이력 조회',
+    'price.poll-total': '현재가 총 소요',
+    'price.poll-network': '현재가 네트워크',
+    'price.poll-render': '현재가 화면 반영'
+  });
+  function pftelemetry_renderLocal() {
+    const wrap = document.getElementById('perfLocalSummaryBody');
+    if (!wrap) return;
+    const raw = Array.isArray(window.__PF_LOOKUP_TIMES) ? window.__PF_LOOKUP_TIMES.slice(-60) : [];
+    const latest = new Map();
+    raw.forEach(entry => {
+      if (!entry || !Object.prototype.hasOwnProperty.call(LOCAL_STAGE_LABELS, entry.stage)
+          || !Number.isFinite(entry.ms) || entry.ms < 0 || entry.ms > 120000) return;
+      latest.set(entry.stage, entry);
+    });
+    if (!latest.size) {
+      wrap.textContent = '이 탭의 측정값이 없습니다. 업데이트 또는 현재가 갱신 후 다시 눌러주세요.';
+      return;
+    }
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.fontVariantNumeric = 'tabular-nums';
+    const header = document.createElement('tr');
+    for (const name of ['구간', '최근 소요', '결과']) {
+      const cell = document.createElement('th');
+      cell.textContent = name;
+      header.appendChild(cell);
+    }
+    table.appendChild(header);
+    Object.entries(LOCAL_STAGE_LABELS).forEach(([stage, label]) => {
+      const point = latest.get(stage);
+      if (!point) return;
+      const row = document.createElement('tr');
+      for (const value of [label, point.ms.toLocaleString('ko-KR') + 'ms',
+          point.result === 'error' ? '실패' : '성공']) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        cell.style.padding = '5px 7px';
+        row.appendChild(cell);
+      }
+      table.appendChild(row);
+    });
+    wrap.replaceChildren(table);
+  }
   function pftelemetry_renderSettingsHtml() {
     return '<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:12px">'
       + '<div style="font-size:.74rem;font-weight:700">PC·모바일 조회시간 자동 진단</div>'
       + '<p style="font-size:.66rem;color:var(--muted);margin:7px 0">새 계정 없이 기존 Google 계정의 독립 성능 수집기를 사용합니다. 기기 구분·조회 단계·소요시간·성공 여부만 7일간 전용 스크립트 저장소에 보관합니다. 금융 원본과 무관하며 기기별 동의가 필요합니다.</p>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+      + '<button id="perfLocalSummary" type="button" class="btn-ghost-sm">이 기기 최근 조회시간</button>'
       + '<button id="perfGasEnable" type="button" class="btn-purple-sm">수집 시작·연결 확인</button>'
       + '<button id="perfGasSummary" type="button" class="btn-purple-sm">PC·모바일 비교</button>'
       + '<button id="perfGasStop" type="button" class="btn-ghost-sm">수집 중지</button></div>'
       + '<p id="perfGasStatus" role="status" style="font-size:.65rem;color:var(--muted);margin:7px 0">'
       + (pftelemetry_enabled() ? '수집 사용 중 (기기별 동의 저장)' : '수집 비활성화 · 수집 시작을 눌러 기기별 연결 확인')
-      + '</p><div id="perfGasSummaryBody" style="overflow-x:auto;font-size:.66rem"></div></div>';
+      + '</p><div id="perfLocalSummaryBody" style="overflow-x:auto;font-size:.69rem;margin:8px 0"></div>'
+      + '<p style="font-size:.61rem;color:var(--muted);margin:5px 0">이 기기 최근 조회시간은 현재 탭의 메모리에만 표시하며 전송·저장하지 않습니다. 새로고침 후 기록은 초기화됩니다.</p>'
+      + '<div id="perfGasSummaryBody" style="overflow-x:auto;font-size:.66rem"></div></div>';
   }
   function pftelemetry_status(message) {
     const el = document.getElementById('perfGasStatus');
@@ -184,7 +241,8 @@
   }
   document.addEventListener('click', async e => {
     const id=e.target.closest?.('button')?.id;
-    if (id === 'perfGasStop') { pftelemetry_stop(); pftelemetry_status('수집 중지 · 대기 중인 로그 삭제'); }
+    if (id === 'perfLocalSummary') { pftelemetry_renderLocal(); }
+    else if (id === 'perfGasStop') { pftelemetry_stop(); pftelemetry_status('수집 중지 · 대기 중인 로그 삭제'); }
     else if (id === 'perfGasEnable') {
       pftelemetry_guardConnection();
       if (!pftelemetry_gasReady()) { pftelemetry_status('GAS 연결·접근 토큰을 확인해 주세요.'); return; }
@@ -208,6 +266,6 @@
   });
   document.addEventListener('visibilitychange',() => { if(document.hidden) void pftelemetry_flush(); });
   window.addEventListener('online',() => { void pftelemetry_flush(); });
-  window.PortfolioPerfTelemetry=Object.freeze({record:pftelemetry_record,flush:pftelemetry_flush,renderSettingsHtml:pftelemetry_renderSettingsHtml,enabled:pftelemetry_enabled});
+  window.PortfolioPerfTelemetry=Object.freeze({record:pftelemetry_record,flush:pftelemetry_flush,renderSettingsHtml:pftelemetry_renderSettingsHtml,renderLocal:pftelemetry_renderLocal,enabled:pftelemetry_enabled});
   if (pftelemetry_enabled()) pftelemetry_schedule(60000);
 })();
