@@ -78,6 +78,91 @@ assert.equal(evidence.portfolioWrites,0);
 assert.equal(evidence.telegramSends,0);
 assert.equal(evidence.gasDeployments,0);
 
+// 11/11 operational regression: 07:23 SEC FY PBR 8/9, 10:18 late
+// schedule FY PBR 0/9 while TTM 7/9 and DART 2/2 remained available.
+// Retry only a transient completed US quote/split proof, keep the entire
+// stronger source; never merge partial rows or retry missing FY share facts.
+const baseStatuses=AI_NINE.map(x=>({symbol:x.symbol,
+ status:x.symbol==='MSFT'?'PARTIAL_FY_VALUE':'NO_REPORTED_FY'}));
+const basePart={total:9,verified:0,statuses:baseStatuses,
+ snapshots:[{symbol:'MSFT',pbrUnavailableReason:'QUOTE_UNVERIFIED'}]};
+const validMsft={
+ symbol:'MSFT',source:'SEC_10K_US_GAAP',asOf:'2025-12-31',
+ reportedAt:'2026-02-15',priceDate:'2026-11-06',
+ priceSource:'YAHOO_DAILY_REFERENCE',priceUsd:200,
+ bpsUsd:50,splitAdjustedBpsUsd:50,splitSharesPerOldShare:1,pbrTimes:4
+};
+const fullPart={total:9,verified:1,
+ statuses:baseStatuses.map(x=>x.symbol==='MSFT'
+  ?{symbol:x.symbol,status:'VERIFIED_FY_BPS_PBR'}:x),
+ snapshots:[validMsft]};
+const emptyReads=async()=>({statuses:[],reports:[],rows:[]});
+const recoveryFixture=async (reads,options={})=>{
+ let fyCalls=0,waits=[],dartCalls=0,ttmCalls=0,diagnostics=null;
+ const result=await collectAiFinancialEvidence({
+  now,usSessionDate:'2026-11-06',fetchImpl:async()=>{throw Error('no SEC network in fixture')},
+  readDart:async()=>{dartCalls++;return {statuses:[],rows:[]};},
+  readTtm:async()=>{ttmCalls++;return {statuses:[],reports:[]};},
+  readValues:async()=>reads[Math.min(fyCalls++,reads.length-1)],
+  retryDelay:async ms=>{waits.push(ms);},
+  onSourceStatus:x=>{diagnostics=x;},
+  ...options
+ });
+ return {result,fyCalls,waits,dartCalls,ttmCalls,diagnostics};
+};
+const healed=await recoveryFixture([basePart,fullPart]);
+assert.equal(healed.fyCalls,2);
+assert.deepEqual(healed.waits,[2000]);
+assert.equal(healed.dartCalls,1);
+assert.equal(healed.ttmCalls,1);
+assert.equal(healed.result.coverage.referencePbr,1);
+assert.equal(healed.diagnostics.fyPbr[0].status,'VERIFIED_FY_BPS_PBR');
+const noRegression=await recoveryFixture([
+ {...fullPart,snapshots:[validMsft,
+  {symbol:'AAPL',pbrUnavailableReason:'SPLIT_HISTORY_UNVERIFIED'}]},
+ basePart
+]);
+assert.equal(noRegression.fyCalls,2);
+assert.equal(noRegression.result.coverage.referencePbr,1,
+ 'a failed retry must not erase an already verified company');
+const duplicatedRetry=await recoveryFixture([basePart,{
+ ...fullPart,snapshots:[validMsft,{...validMsft}],
+ verified:2
+}]);
+assert.equal(duplicatedRetry.fyCalls,2);
+assert.equal(duplicatedRetry.result.coverage.referencePbr,0,
+ 'ambiguous duplicate SEC reference rows must not be promoted as recovered');
+const duplicateCannotRegress=await recoveryFixture([
+ {...fullPart,snapshots:[validMsft,{
+  symbol:'AAPL',pbrUnavailableReason:'QUOTE_UNVERIFIED'}]},
+ {...fullPart,snapshots:[validMsft,{...validMsft},
+  {symbol:'AAPL',pbrUnavailableReason:'QUOTE_UNVERIFIED'}],
+  verified:2}
+]);
+assert.equal(duplicateCannotRegress.result.coverage.referencePbr,1,
+ 'an apparent two-row recovery must not replace one unique verified value');
+const structural=await recoveryFixture([{
+ ...basePart,snapshots:[{symbol:'MSFT',
+  pbrUnavailableReason:'FISCAL_END_OUTSTANDING_SHARES_UNVERIFIED'}]
+}]);
+assert.equal(structural.fyCalls,1,'missing FY shares are not a transient quote failure');
+assert.deepEqual(structural.waits,[]);
+const noSource=await recoveryFixture([{
+ ...basePart,snapshots:[],statuses:baseStatuses
+}]);
+assert.equal(noSource.fyCalls,1,'missing filing/unknown source must not trigger retries');
+const thrown=await recoveryFixture([basePart],{
+ readValues:(()=>{let c=0;return async()=>{if(++c===1)return basePart;
+  throw Error('SIMULATED_PROVIDER_OUTAGE');};})()
+});
+assert.equal(thrown.fyCalls,0,'overridden reader owns its own invocation');
+assert.equal(thrown.result.coverage.referencePbr,0);
+assert.ok(!JSON.stringify(thrown).includes('SIMULATED_PROVIDER_OUTAGE'),
+ 'provider errors are not part of protected public artifact');
+const full=await recoveryFixture([fullPart]);
+assert.equal(full.fyCalls,1);
+assert.deepEqual(full.waits,[]);
+
 // Invalid SEC bodies, missing credentials and HTTP failures are NEVER cached.
 let failed=0;
 const notAccepted=sharedSecCompanyFactsFetch(async()=>{
