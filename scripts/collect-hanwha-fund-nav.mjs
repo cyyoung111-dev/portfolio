@@ -61,8 +61,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
  const source=await runPublicHanwhaSource({now,fetchImpl});
  const rows=source.rows.filter(r=>r.date>=from&&r.date<=valuationTo);
  if(!rows.length||rows.length>8)throw Error('HANWHA_SOURCE_RANGE_UNVERIFIED');
+ if(!['HANWHA_PRIMARY','FUNETF_CRPE_SECONDARY'].includes(source.sourceUsed))
+   throw Error('HANWHA_SOURCE_PROVIDER_UNVERIFIED');
+ const usingSecondary=source.sourceUsed==='FUNETF_CRPE_SECONDARY';
  const data={code:CODE,provider:PROVIDER,classCode:CLASS,appendOnly:true,
-   ackWarnings:false,sourceText:'008942 HANWHA C-RPe',rows};
+   ackWarnings:false,sourceText:usingSecondary
+     ?'K55213C50702 FunETF HANWHA C-RPe'
+     :'008942 HANWHA C-RPe',rows};
  const preview=await request('previewFundNavImport',{data:JSON.stringify(data)});
  if(preview.status!=='ok'||preview.code!==CODE
    ||!['candidates','updates','warnings','errors','identical','duplicates','zeroUnits']
@@ -70,6 +75,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
    ||preview.errors.length||preview.updates.length||preview.warnings.length
    ||preview.duplicates.length||preview.zeroUnits.length)
    throw Error('HANWHA_PREVIEW_BLOCKED');
+ // A secondary source must re-prove at least one exact class NAV already
+ // persisted by GAS. Historical overlap is independently audited, but this
+ // recheck protects future source or share-class changes before any write.
+ if(usingSecondary&&!preview.identical.some(item=>
+   rows.some(r=>r.date===item.date&&Number(item.existingNav)===r.nav
+     &&Number(item.uploadedNav)===r.nav)))
+   throw Error('HANWHA_SECONDARY_OFFICIAL_OVERLAP_UNVERIFIED');
  const candidates=preview.candidates.map(r=>({date:r.date,nav:r.nav}));
  if(candidates.length>8||new Set(candidates.map(r=>r.date)).size!==candidates.length
    ||candidates.some(c=>!validDay(c.date)||!Number.isFinite(c.nav)||c.nav<=0

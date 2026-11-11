@@ -8,12 +8,16 @@ import {run as collectHanwha} from './collect-hanwha-fund-nav.mjs';
 const now=new Date('2026-11-11T01:00:00Z');
 const url='https://script.google.com/macros/s/TEST_COLLECTOR_VERSION/exec';
 const token='TEST_TOKEN_DO_NOT_USE_IN_PRODUCTION';
-function fixture(version,code,{sourceNetworkFailure=false}={}){
+function fixture(version,code,{sourceNetworkFailure=false,secondaryNetworkFailure=false,secondaryNoOverlap=false}={}){
  const calls=[];
  const fetchImpl=async(destination,options={})=>{
   const endpoint=new URL(destination);
   if(endpoint.hostname==='www.funetf.co.kr'){
-   calls.push('KB_OFFICIAL_SOURCE');
+   calls.push(code==='F00001'?'FUNETF_CRPE_SECONDARY':'KB_OFFICIAL_SOURCE');
+   if(code==='F00001'){
+    assert.equal(endpoint.searchParams.get('fundCd'),'K55213C50702');
+    if(secondaryNetworkFailure)throw Error('MOCK_SECONDARY_NETWORK_FAILURE');
+   }
    return {ok:true,json:async()=>[{gijunYmd:'20261110',gijunGa:1234.56}]};
   }
   if(endpoint.hostname==='www.hanwhafund.co.kr'){
@@ -44,7 +48,8 @@ function fixture(version,code,{sourceNetworkFailure=false}={}){
   if(action==='previewFundNavImport'){
    return {ok:true,json:async()=>({status:'ok',code,
      candidates:[],updates:[],warnings:[],errors:[],
-     duplicates:[],zeroUnits:[],identical:[]})};
+     duplicates:[],zeroUnits:[],identical:sourceNetworkFailure&&!secondaryNoOverlap
+      ?[{date:'2026-11-10',existingNav:1234.56,uploadedNav:1234.56}]:[]})};
   }
   if(action==='getFundValuationStatus'){
    return {ok:true,json:async()=>({status:'ok',fundResults:{[code]:{dates:[]}}})};
@@ -76,10 +81,21 @@ for(const [kind,runner,code,error] of [
  assert(!unsupported.calls.some(x=>x.includes('OFFICIAL_SOURCE')));
 }
 const offline=fixture('9.289','F00001',{sourceNetworkFailure:true});
-await assert.rejects(
- ()=>collectHanwha({url,token,now,fetchImpl:offline.fetchImpl,apply:false}),
- /HANWHA_SOURCE_NETWORK_UNVERIFIED/);
-assert.equal(offline.calls.filter(x=>x==='HANWHA_OFFICIAL_SOURCE').length,2,
- 'Transport-only retry stays bounded and cannot fabricate NAV');
+const fallback=await collectHanwha({url,token,now,fetchImpl:offline.fetchImpl,apply:false});
+assert.equal(fallback.mode,'DRY_RUN');
+assert.equal(fallback.writerInvoked,false);
+assert.equal(offline.calls.filter(x=>x==='HANWHA_OFFICIAL_SOURCE').length,2);
+assert.equal(offline.calls.filter(x=>x==='FUNETF_CRPE_SECONDARY').length,1);
+assert(!offline.calls.some(x=>x==='collectHanwhaFundNav'));
+const noOverlap=fixture('9.289','F00001',{
+ sourceNetworkFailure:true,secondaryNoOverlap:true});
+await assert.rejects(()=>collectHanwha({
+ url,token,now,fetchImpl:noOverlap.fetchImpl,apply:false
+}),/HANWHA_SECONDARY_OFFICIAL_OVERLAP_UNVERIFIED/);
+const unavailable=fixture('9.289','F00001',{
+ sourceNetworkFailure:true,secondaryNetworkFailure:true});
+await assert.rejects(()=>collectHanwha({
+ url,token,now,fetchImpl:unavailable.fetchImpl,apply:false
+}),/HANWHA_FUNETF_NETWORK_UNVERIFIED/);
 
-console.log('PASS: v9.289 KB/Hanwha class-exact, date-scoped, read-only collector paths; unsupported next version and source outage fail closed; financial writes 0');
+console.log('PASS: primary class source, transport-only FunETF exact C-RPe fallback, overlapping official NAV reproof, future version and unavailable source fail closed; financial writes 0');

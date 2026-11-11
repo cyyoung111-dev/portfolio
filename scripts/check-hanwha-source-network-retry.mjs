@@ -47,14 +47,14 @@ assert.equal(retry.writerInvoked,false);
 calls=0;
 await assert.rejects(()=>runPublicHanwhaSource({now:clock,
  fetchImpl:async()=>{calls++;throw Error('PRIVATE_ACCOUNT_URL');}}),
- e=>e.message==='HANWHA_SOURCE_NETWORK_UNVERIFIED');
-assert.equal(calls,2,'Persistent transport failure must end after 2 attempts');
+ e=>e.message==='HANWHA_FUNETF_NETWORK_UNVERIFIED');
+assert.equal(calls,3,'Two primary attempts and one exact-class secondary attempt only');
 
 calls=0;
 await assert.rejects(()=>runPublicHanwhaSource({now:clock,
  fetchImpl:async()=>{calls++;const e=Error('PRIVATE');e.name='TimeoutError';throw e;}}),
- e=>e.message==='HANWHA_SOURCE_TIMEOUT_UNVERIFIED');
-assert.equal(calls,2);
+ e=>e.message==='HANWHA_FUNETF_NETWORK_UNVERIFIED');
+assert.equal(calls,3,'Two timed-out primary attempts plus one bounded secondary attempt');
 calls=0;
 await assert.rejects(()=>runPublicHanwhaSource({now:clock,
  fetchImpl:async()=>{calls++;return {ok:false,status:403};}}),
@@ -74,7 +74,7 @@ await assert.rejects(()=>runPublicHanwhaSource({now:clock,
 console.log(JSON.stringify({
  kind:'HANWHA_NAV_BOUNDED_TRANSPORT_RETRY',
  firstAttemptSuccessCalls:1,recoveredCalls:2,
- permanentNetworkFailureCalls:2,httpFailureCalls:1,
+ permanentNetworkFailureCalls:3,httpFailureCalls:1,
  exactFundCd:'008942',exactClass:'C-RPe',
  malformedDataFailClosed:true,todaysUnpublishedNavNotImported:true,
  financialWrites:0,gasDeployments:0,telegramSends:0

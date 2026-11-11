@@ -640,7 +640,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  for(const bad of badData)assert.throws(()=>parseHanwhaNav(bad,from,to),/HANWHA_SOURCE_/);
  await assert.rejects(()=>runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),
   fetchImpl:async()=>{throw Error('PRIVATE_ACCOUNT_INFO');}}),e=>
-   e.message==='HANWHA_SOURCE_NETWORK_UNVERIFIED');
+   e.message==='HANWHA_FUNETF_NETWORK_UNVERIFIED'); // Primary and secondary both failed.
  await assert.rejects(()=>runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),
   fetchImpl:async()=>({ok:false,status:403})}),/HANWHA_SOURCE_HTTP_UNVERIFIED/);
  await assert.rejects(()=>runPublicHanwhaSource({now:new Date('2026-11-05T03:15:00Z'),

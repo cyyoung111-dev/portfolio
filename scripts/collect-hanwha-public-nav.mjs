@@ -1,4 +1,5 @@
 import {pathToFileURL} from 'node:url';
+import {readHanwhaFunetf,HANWHA_CRPE_CLASS_ID} from './probe-hanwha-funetf-public.mjs';
 
 export const SOURCE_URL='https://www.hanwhafund.co.kr/api/fund/dailyPrice';
 export const FUND_CD='008942';
@@ -60,7 +61,22 @@ export async function runPublicHanwhaSource({now=new Date(),fetchImpl=fetch}={})
     ?'HANWHA_SOURCE_TIMEOUT_UNVERIFIED':'HANWHA_SOURCE_NETWORK_UNVERIFIED';
   }
  }
- if(!response)throw Error(transportError);
+ if(!response){
+  // The direct Hanwha endpoint has independently failed on the runner.
+  // Secondary FunETF class K55213C50702 was live-verified with 7/7 exact
+  // persisted NAV overlaps (Issue #860, 2026-11-11). Only a primary transport
+  // outage enables this class-pinned fallback; never mask malformed/HTTP data.
+  const secondary=await readHanwhaFunetf({now,fetchImpl});
+  if(secondary.today!==to||!secondary.eligible.length)
+    throw Error('HANWHA_SECONDARY_DATE_UNVERIFIED');
+  const rows=secondary.eligible;
+  return {mode:'SOURCE_ONLY',writerInvoked:false,code:'F00001',
+    lookupCode:HANWHA_CRPE_CLASS_ID,classCode:'C-RPe',
+    provider:'HANWHA_2045_CRPE',
+    sourceUsed:'FUNETF_CRPE_SECONDARY',primaryTransport:transportError,
+    sourceRows:rows.length,sameDayExcluded:secondary.sameDayExcluded,
+    historicalCutoffExclusive:to,from,to,latestDate:rows.at(-1).date,rows};
+ }
  if(!response.ok)throw Error('HANWHA_SOURCE_HTTP_UNVERIFIED');
  let payload;
  try{payload=await response.json();}
@@ -73,6 +89,7 @@ export async function runPublicHanwhaSource({now=new Date(),fetchImpl=fetch}={})
  if(!rows.length)throw Error('HANWHA_SOURCE_NO_PRIOR_DAY_ROWS');
  return {mode:'SOURCE_ONLY',writerInvoked:false,code:'F00001',
   lookupCode:FUND_CD,classCode:'C-RPe',provider:'HANWHA_2045_CRPE',
+  sourceUsed:'HANWHA_PRIMARY',
   sourceRows:rows.length,sameDayExcluded:received.length-rows.length,
   historicalCutoffExclusive:to,from,to,latestDate:rows.at(-1).date,rows};
 }
