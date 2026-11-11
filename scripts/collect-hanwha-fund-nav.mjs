@@ -27,6 +27,12 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
      :action==='getFundValuationStatus'?'VALUATION'
      :action==='collectHanwhaFundNav'?(args.mode==='import'?'IMPORT':'REFRESH')
      :'UNKNOWN';
+   const startedMs=Date.now();
+   const stageAudit=outcome=>{
+     if(!apply)return;
+     console.error('FUND_NAV_STAGE code=F00001 phase='+phase+' outcome='+outcome
+       +' elapsedMs='+Math.max(0,Date.now()-startedMs));
+   };
    let response;
    try{
      response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
@@ -34,12 +40,22 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
        body:new URLSearchParams({action,...args,accessToken:credential}),
        signal:AbortSignal.timeout(180000)});
    }catch(e){
-     throw Error('HANWHA_'+phase+'_'
-       +(['TimeoutError','AbortError'].includes(e?.name)?'TIMEOUT':'NETWORK')+'_UNVERIFIED');
+     const kind=['TimeoutError','AbortError'].includes(e?.name)?'TIMEOUT':'NETWORK';
+     stageAudit(kind);
+     throw Error('HANWHA_'+phase+'_'+kind+'_UNVERIFIED');
    }
-   if(!response?.ok)throw Error('HANWHA_'+phase+'_HTTP_UNVERIFIED');
-   try{return await response.json();}
-   catch{throw Error('HANWHA_'+phase+'_JSON_UNVERIFIED');}
+   if(!response?.ok){stageAudit('HTTP_UNVERIFIED');throw Error('HANWHA_'+phase+'_HTTP_UNVERIFIED');}
+   try{
+     const payload=await response.json();
+     const saved=['success','partial','failed'].includes(payload?.saveState)
+       ?payload.saveState.toUpperCase():'UNREPORTED';
+     stageAudit((payload?.status==='ok'?'ACK_':'REJECTED_')+saved);
+     return payload;
+   }catch(e){
+     const kind=['TimeoutError','AbortError'].includes(e?.name)?'TIMEOUT':'JSON';
+     stageAudit(kind);
+     throw Error('HANWHA_'+phase+'_'+kind+'_UNVERIFIED');
+   }
  };
  const probe=await request('getAutomationStatus',{},'HANWHA_AUTH_PROBE');
  if(probe.status!=='error'||probe.message!=='인증 실패')throw Error('HANWHA_AUTH_GUARD');

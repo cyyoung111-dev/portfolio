@@ -69,19 +69,32 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
       :action==='getFundValuationStatus'?'VALUATION'
       :action==='collectKbFundNav'?(args.mode==='import'?'IMPORT':'REFRESH')
       :'UNKNOWN';
+    const startedMs=Date.now();
+    const stageAudit=outcome=>{
+      if(!apply)return;
+      console.error('FUND_NAV_STAGE code=F00002 phase='+phase+' outcome='+outcome
+        +' elapsedMs='+Math.max(0,Date.now()-startedMs));
+    };
     let r;
     try {
       r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:credential}),signal:AbortSignal.timeout(300000)});
     } catch(error) {
       const kind=['TimeoutError','AbortError'].includes(error?.name)?'TIMEOUT':'NETWORK';
+      stageAudit(kind);
       // A timed-out import/refresh may already have committed. No blind retry.
       throw Error('NAV_'+phase+'_'+kind+'_UNVERIFIED');
     }
-    if(!r.ok)throw Error('NAV_'+phase+'_HTTP_UNVERIFIED');
-    try{return await r.json();}
-    catch(error){
+    if(!r.ok){stageAudit('HTTP_UNVERIFIED');throw Error('NAV_'+phase+'_HTTP_UNVERIFIED');}
+    try{
+      const payload=await r.json();
+      const saved=['success','partial','failed'].includes(payload?.saveState)
+        ?payload.saveState.toUpperCase():'UNREPORTED';
+      stageAudit((payload?.status==='ok'?'ACK_':'REJECTED_')+saved);
+      return payload;
+    }catch(error){
       const kind=['TimeoutError','AbortError'].includes(error?.name)?'TIMEOUT'
         :error?.name==='TypeError'?'NETWORK':'JSON';
+      stageAudit(kind);
       throw Error('NAV_'+phase+'_'+kind+'_UNVERIFIED');
     }
   };
