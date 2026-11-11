@@ -15,8 +15,8 @@ const d=selectOfficialKrxTurnover(date,'KOSDAQ',payload.KOSDAQ);
 assert.equal(k.valueKrw,20250000000000);
 assert.equal(d.valueKrw,6300000000000);
 assert.deepEqual(verifyOfficialKrxTurnover(date,[k,d]),[k,d]);
-assert.match(formatKrxTurnover(date,[k,d]),/KOSPI 거래대금: 20\.25조원/);
-assert.match(formatKrxTurnover(date,[k,d]),/KOSDAQ 거래대금: 6\.30조원/);
+assert.match(formatKrxTurnover(date,[k,d]),/KOSPI 지수 구성종목 거래대금: 20\.25조원/);
+assert.match(formatKrxTurnover(date,[k,d]),/KOSDAQ 지수 구성종목 거래대금: 6\.30조원/);
 assert.deepEqual(verifyOfficialKrxTurnover(date,[k,k]),[]);
 assert.deepEqual(verifyOfficialKrxTurnover(date,[{...k,date:'2026-10-30'}]),[]);
 assert.equal(selectOfficialKrxTurnover(date,'KOSPI',{OutBlock_1:[

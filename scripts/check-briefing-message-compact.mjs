@@ -44,7 +44,7 @@ const close=[
  '■ 원자재·BTC (Yahoo 완료 일봉 참고 · 실시간/공식 정산가 아님)',
  'WTI: 검증된 완료 일봉 미확보',
  'BTC: 70,000.00 USD [2026-11-09 · UTC 일봉]',
- '■ 데이터 확인: 핵심지수 3/6 (국내 1/3 · 미국 2/3) · 참고 0/3 · 주요 종목 0/4 · KRX 거래대금 0/2 · 수급 1/1 · 시장자금 0/2',
+ '■ 데이터 확인: 핵심지수 3/6 (국내 1/3 · 미국 2/3) · 참고 0/3 · 주요 종목 0/4 · KRX 지수 구성 거래대금 0/2 · 수급 1/1 · 시장자금 0/2',
  '미확보: KOSDAQ · VKOSPI 외 17개',
  '미연결 참고지표: 3개'
 ].join('\n');
@@ -56,7 +56,7 @@ assert.match(cc,/수급 1\/1/);
 for(const text of ['KOSDAQ:','VKOSPI:','미 국채 2년:','장단기금리차',
  '유효한 최근 거래값 미확보','확보 0/4',
  '■ 장후 글로벌 반응','■ 미국 국채금리','미확보:','미연결 참고지표:',
- '참고 0/3','시장자금 0/2','KRX 거래대금 0/2'])
+ '참고 0/3','시장자금 0/2','KRX 지수 구성 거래대금 0/2'])
  assert.ok(!cc.includes(text),'no placeholder or zero-only section: '+text);
 assert.match(cc,/■ 원자재·BTC/,'one valid item retains the section');
 assert.throws(()=>compactBriefingForDelivery(123,{mode:'close'}),/COMPACT_INPUT_INVALID/);

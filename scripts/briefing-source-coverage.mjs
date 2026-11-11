@@ -27,7 +27,7 @@ const extraMarkets=Object.freeze([
  ['WTI','WTI','CL=F'],['BRENT','Brent','BZ=F'],['GOLD','금','GC=F'],
  ['COPPER','구리','HG=F'],['BTC','BTC','BTC-USD']
 ]);
-const turnoverMarkets=Object.freeze([['KOSPI','코스피 거래대금'],['KOSDAQ','코스닥 거래대금']]);
+const turnoverMarkets=Object.freeze([['KOSPI','코스피 지수 구성종목 거래대금'],['KOSDAQ','코스닥 지수 구성종목 거래대금']]);
 // These sources are connected to both briefings. Missing today's data is
 // NO_VERIFIED_ROW, never a permanently hard-coded NOT_CONNECTED status.
 const unwired=Object.freeze([]);
@@ -186,7 +186,7 @@ export function formatCloseCoverageSummary(coverage){
       +' · 원자재/BTC '+coverage.markets.verified+'/5'
       +' · 국채금리·스프레드 '+coverage.treasury.verified+'/3'
       +' · VKOSPI '+coverage.volatility.verified+'/1'
-      +' · KRX 거래대금 '+coverage.turnover.verified+'/2'
+      +' · KRX 지수 구성 거래대금 '+coverage.turnover.verified+'/2'
       +' · 수급 '+coverage.investors.verified+'/1'
       +' · 시장자금 '+coverage.liquidity.verified+'/2',
     '미확보: '+(missing.length

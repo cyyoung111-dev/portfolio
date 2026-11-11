@@ -15,7 +15,7 @@ const CONF=Object.freeze({
   futures:{max:4,re:/^(?:S&P500 선물|NASDAQ100 선물|다우 선물|러셀2000 선물): [0-9]/m},
   treasury:{max:3,re:/^미 국채 (?:2년|3년|10년): [0-9]/m},
   vkospi:{max:1,re:/^VKOSPI: [0-9]/m},
-  turnover:{max:2,re:/^(?:KOSPI|KOSDAQ) 거래대금: [0-9]/m},
+  turnover:{max:2,re:/^(?:KOSPI|KOSDAQ) 지수 구성종목 거래대금: [0-9]/m},
   liquidity:{max:2,re:/^시장자금: (?:예탁금|신용융자)/m},
   investors:{max:2,re:/^시장 수급 \[/m}
  })
