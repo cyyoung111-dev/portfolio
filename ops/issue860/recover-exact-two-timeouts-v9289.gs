@@ -43,9 +43,17 @@ function _issue860ExactInspect_(props) {
  return {raw:raw,gate:gate,digest:_issue860ExactSha_(raw),
    backupKey:backupKey,auditKey:auditKey};
 }
+function _issue860ExactInternal_(fn) {
+ // Existing GAS 9.289 helpers may be Writer-gate wrapped. Inspecting their
+ // pending status must not create a new Active record or change the preview hash.
+ var previous=_issue507GateInside_;
+ _issue507GateInside_=true;
+ try{return fn();}
+ finally{_issue507GateInside_=previous;}
+}
 // Reproducible read-only digest; no approval or mutation.
 function issue860PreviewExactTwoTimeoutRecovery() {
- var preview=_issue507GateAtomic_(function(props){
+ var preview=_issue860ExactInternal_(function(){return _issue507GateAtomic_(function(props){
    var x=_issue860ExactInspect_(props);
    return {kind:'ISSUE860_EXACT_TWO_TIMEOUT_PREVIEW',
      status:'MATCHED_NOT_AUTHORIZED',gasVersion:'9.289',
@@ -53,7 +61,7 @@ function issue860PreviewExactTwoTimeoutRecovery() {
      exactFunctionAndTimeMatched:true,originalGateDigest:x.digest,
      producerReceiptsPresent:false,processUidVerified:false,
      authorizationRequired:true,financeWrites:0,scriptPropertyWrites:0};
- });
+ });});
  if(typeof Logger!=='undefined')Logger.log(JSON.stringify(preview));
  return preview;
 }
@@ -64,7 +72,7 @@ function issue860PreviewExactTwoTimeoutRecovery() {
 // "approvedDateKst":"YYYY-MM-DD","expectedGateDigest":"<preview hash>"}
 // This never calls a finance writer and never claims close completion.
 function issue860CommitExactTwoTimeoutRecovery() {
- var result=_issue507GateAtomic_(function(props){
+ var result=_issue860ExactInternal_(function(){return _issue507GateAtomic_(function(props){
   var x=_issue860ExactInspect_(props);
   var raw=props.getProperty('issue860_20261110_exact_gate_approval_v1'),a;
   try{a=raw?JSON.parse(raw):null;}catch(err){a=null;}
@@ -105,7 +113,7 @@ function issue860CommitExactTwoTimeoutRecovery() {
    recordedActiveImmediatelyAfterPrune:0,backupRetained:true,
    closeMarkedComplete:false,processUidVerified:false,
    financialWrites:0,producerEndReceiptsForged:0};
- });
+ });});
  if(typeof Logger!=='undefined')Logger.log(JSON.stringify(result));
  return result;
 }
