@@ -47,6 +47,16 @@ assert.equal(assess({officialRows:[],fundRow:null}).navWorkflowPass,false,
 assert.equal(assess({officialRows:[{date:'2026-10-25',nav:1}],
  fundRow:null}).navWorkflowPass,false,
  'stale public provider cannot defer import indefinitely');
+const staleAsOf=assess({
+ today:'2026-11-07',
+ close:{...close,runDate:'2026-10-27',runStale:true,
+  expectedRunDate:'2026-10-27',expectedSnapshotDate:'2026-10-27'},
+ officialRows:[{date:'2026-10-27',nav:100}],
+ fundRow:{...verified,date:'2026-10-27'},officialNavMatched:true
+});
+assert.equal(staleAsOf.navWorkflowPass,false,
+ 'old exact but abandoned NAV date cannot produce a green current preflight');
+assert.equal(staleAsOf.navWorkflowStatus,'NAV_REFERENCE_STALE');
 assert.equal(assess({fundRow:{...verified,snapshotState:'WRITE_REQUIRED'}}).navWorkflowPass,false,
  'unverified derived Snapshot remains blocking even when close is pending');
 assert.equal(assess({officialNavMatched:false}).navWorkflowPass,false,
