@@ -56,8 +56,13 @@ async function fetchFromGsheet(dateStr, options) {
   // Read-only quotes must never reuse a writer's getPrices(persist=1) request.
   // Requests with the same date/connection but different persistence contracts
   // are independent, while same-mode requests still share one in-flight call.
+  // Exact-day and windowed price requests must never share an in-flight result.
+  const historyWindowStart = typeof options?.historyWindowStart === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(options.historyWindowStart)
+    && options.historyWindowStart <= dateStr ? options.historyWindowStart : '';
   const requestKey = targetUrl + '|' + generation + '|' + dateStr
-    + '|p=' + (options?.persist ? '1' : '0');
+    + '|p=' + (options?.persist ? '1' : '0')
+    + '|h=' + historyWindowStart;
   const forceFresh = !!options?.forceFresh;
   // 다른 연결의 in-flight 요청은 재사용하거나 기다리지 않습니다.
   if (forceFresh && _inFlightFetches[requestKey]) {
@@ -124,6 +129,10 @@ async function _fetchFromGsheetInner(dateStr, options) {
     window._gsheetPriceTargetCount = epItems.length + epNoCode.length;
     // ★ isToday: 오늘 날짜면 주말 여부 관계없이 getPrices(실시간) 우선 시도
     const isToday = (dateStr === getDateStr(0));
+    // Only bounded holiday fallback may select the latest within a date range.
+    const historyWindowStart = typeof options?.historyWindowStart === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(options.historyWindowStart)
+      && options.historyWindowStart <= dateStr ? options.historyWindowStart : '';
 
     const codeToName = {};
     epItems.forEach(i => { codeToName[i.code] = i.name; });
@@ -230,22 +239,30 @@ async function _fetchFromGsheetInner(dateStr, options) {
           } catch(e) {}
         }
       } else {
-        // 과거 날짜 → getPriceHistory
+        // Exact historical dates preserve manual override precedence. A
+        // 5-day holiday window selects the latest dated close per holding.
         const data = await requestGsheetActionJson(
           'getPriceHistory',
-          { from: dateStr, to: dateStr, codes },
+          { from: historyWindowStart || dateStr, to: dateStr, codes },
           { timeoutMs: 20000, retry: 1, targetUrl }
         );
         if (!isCurrentConnection()) return null;
         if (data && data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const list = data.prices[i.code] || [];
-            const entry = pickLatestPreferManual(list);
+            const dated = historyWindowStart
+              ? list.filter(e => /^\d{4}-\d{2}-\d{2}$/.test(String(e?.date || ''))
+                && e.date >= historyWindowStart && e.date <= dateStr)
+              : list;
+            const entry = historyWindowStart
+              ? pickLatestOnOrBefore(dated, dateStr) : pickLatestPreferManual(dated);
             if (entry && entry.price > 0) {
-              codeResults[i.code] = Math.round(entry.price);  // ★ 코드 키로 저장
-              if (entry.savedAt) priceMeta[i.code] = { savedAt: entry.savedAt };
-            }
-            else missingCodes.push({ name: i.name, code: i.code });
+              codeResults[i.code] = Math.round(entry.price);
+              priceMeta[i.code] = historyWindowStart
+                ? { savedAt: entry.savedAt || '', sourceDate: entry.date,
+                    isFallback: entry.date !== dateStr }
+                : (entry.savedAt ? { savedAt: entry.savedAt } : {});
+            } else missingCodes.push({ name: i.name, code: i.code });
           });
         }
       }
@@ -405,7 +422,10 @@ function _priceLookupDetail(kind) {
       'price.poll-network': '현재가 네트워크/응답',
       'price.poll-render': '현재가 화면 반영',
       'price.poll-total': '현재가 총 소요',
-      'load.full-update': '전체 업데이트'
+      'load.full-update': '전체 업데이트',
+      'load.full-restore': '전체 데이터 복원',
+      'load.full-prices': '가격 재조회',
+      'load.full-render': '화면 재계산'
     };
     const clientRows = Object.entries(clientLabels).map(([stage, label]) => {
       const ms = latestMs(stage);
@@ -500,12 +520,16 @@ async function quickFetchByDate() {
     // local edits against the pinned server master before any authoritative
     // pull. Skipping it while pending strands an empty page forever.
     setStatusLabel('⏳ 로컬 자료 보존·GAS 데이터 복원 중...', 'loading');
+    const restoreStartedAt = Date.now();
     const settingsLoaded = typeof loadSettings === 'function'
       ? await loadSettings(
           message => setStatusLabel('⏳ ' + message, 'loading'),
           { forcePortfolioRestore: true }
         )
       : false;
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('load.full-restore', Date.now() - restoreStartedAt,
+        settingsLoaded ? 'ok' : 'error');
     if (!settingsLoaded) {
       const detail = typeof getGsheetSettingsLoadFailure === 'function'
         ? getGsheetSettingsLoadFailure() : '';
@@ -542,6 +566,7 @@ async function quickFetchByDate() {
 
     setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + (settingsLoaded ? ' · GAS 데이터 확인 완료' : ''), 'loading');
     // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
+    const priceStartedAt = Date.now();
     let results = await fetchFromGsheet(targetDate, { forceFresh: true, persist: true });
     let usedDate = targetDate;
     if (targetDate === getDateStr(0)) {
@@ -549,15 +574,16 @@ async function quickFetchByDate() {
       if (resolvedDate && resolvedDate < targetDate) usedDate = resolvedDate;
     }
 
-    // 오늘 날짜 조회 시 주말/공휴일 fallback (최대 5일 전)
+    // Holiday fallback: one bounded historical request, not five
+    // sequential GAS round trips.
     if ((!results || Object.keys(results).length === 0) && targetDate === getDateStr(0)) {
-      for (let d = 1; d <= 5; d++) {
-        const fb = getDateStr(d);
-        results = await fetchFromGsheet(fb);
-        if (results && Object.keys(results).length > 0) { usedDate = fb; break; }
-      }
+      results = await fetchFromGsheet(getDateStr(1), { historyWindowStart: getDateStr(5) });
+      usedDate = results?.__gsheetResolvedPriceDate || getDateStr(1);
     }
 
+    if (typeof _recordLookupPerf === 'function')
+      _recordLookupPerf('load.full-prices', Date.now() - priceStartedAt,
+        results && Object.keys(results).length ? 'ok' : 'error');
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDate === getDateStr(0));
       const isFallback = (usedDate !== targetDate);
@@ -579,7 +605,10 @@ async function quickFetchByDate() {
         note = `↩ 요청일 ${targetDate.replace(/-/g,'.')} 데이터 없음 · ${usedDate.replace(/-/g,'.')} 사용`;
       }
       setStatusLabel(_priceStatusLayout(primary, meta, note), 'ok');
+      const renderStartedAt = Date.now();
       refreshAll();
+      if (typeof _recordLookupPerf === 'function')
+        _recordLookupPerf('load.full-render', Date.now() - renderStartedAt);
     } else {
       setStatusLabel('❌ 자료 복원 완료 · ' + targetDate + ' 가격 조회 결과 없음 · 보유종목 코드와 가격 원천을 확인해주세요' + restoreWarning, 'error');
       try { refreshAll(); } catch(e) {}
@@ -677,13 +706,10 @@ async function autoLoadPrices() {
       usedDateStr = resolvedDate;
     }
 
-    // 주말/공휴일 fallback (최대 5일 전)
+    // Same one-request fallback for initial automatic price restoration.
     if (!results || Object.keys(results).length === 0) {
-      for (let d = 1; d <= 5; d++) {
-        const fb = getDateStr(d);
-        results = await fetchFromGsheet(fb);
-        if (results && Object.keys(results).length > 0) { usedDateStr = fb; break; }
-      }
+      results = await fetchFromGsheet(getDateStr(1), { historyWindowStart: getDateStr(5) });
+      usedDateStr = results?.__gsheetResolvedPriceDate || getDateStr(1);
     }
 
     if (results && Object.keys(results).length > 0) {
