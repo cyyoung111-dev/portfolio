@@ -5,7 +5,7 @@ import {normalizeWatchOnlyCloses,PROPOSED_GAS_HANDLER,GAS_WATCH_ACTION} from './
 import {
  closingStockSessions,normalizeClosingNhStocks,readNhClosingStocks,describeClosingNhStockRead,
  validClosingStockReference,normalizeKrxOfficialClosingStocks,readKrxOfficialClosingStocks,
- readYahooClosingUsStocks,readClosingStockSources,
+ readYahooClosingUsStocks,readYahooClosingKrStocks,selectYahooClosingKrDaily,readClosingStockSources,
  validateClosingMacro,readClosingMacros,formatClosingExtra
 } from './closing-extra-daily-sources.mjs';
 import {summarizeCloseCoverage} from './briefing-source-coverage.mjs';
@@ -168,13 +168,13 @@ const badUs=await readYahooClosingUsStocks(date,{
 });
 assert.deepEqual(badUs,[],'provider identity must be verified');
 const blended=await readClosingStockSources(date,{
- fetchNh:async()=>[stocks[0]],fetchKrx:async()=>official,fetchUs:async()=>usReference
+ fetchNh:async()=>[stocks[0]],fetchKrx:async()=>official,fetchKr:async()=>[],fetchUs:async()=>usReference
 });
 assert.deepEqual(blended.map(x=>x.id),['SAMSUNG','SKHYNIX','NVDA','MU']);
 assert.deepEqual(blended.map(x=>x.source),
  ['NH_REGULAR_CLOSE','KRX_OFFICIAL','YAHOO_DAILY_REFERENCE','YAHOO_DAILY_REFERENCE']);
 const alternative=await readClosingStockSources(date,{
- fetchNh:async()=>[],fetchKrx:async()=>official,fetchUs:async()=>usReference
+ fetchNh:async()=>[],fetchKrx:async()=>official,fetchKr:async()=>[],fetchUs:async()=>usReference
 });
 assert.equal(alternative.length,4);
 assert.deepEqual(summarizeCloseCoverage(date,{stocks:alternative,expectedUsDate:us}).stocks,
