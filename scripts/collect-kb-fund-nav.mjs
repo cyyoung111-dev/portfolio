@@ -1,4 +1,5 @@
 import {pathToFileURL} from 'node:url';
+import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs';
 import {classifyFundError} from './diagnose-backfill-status.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 export const sourceUrl='https://www.funetf.co.kr/api/public/product/view/fundnav';
