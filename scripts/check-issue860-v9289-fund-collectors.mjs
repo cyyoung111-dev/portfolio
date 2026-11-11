@@ -63,7 +63,7 @@ for(const [kind,runner,code,error] of [
  ['KB',collectKb,'F00002',/NAV_VERSION/],
  ['HANWHA',collectHanwha,'F00001',/HANWHA_VERSION_UNVERIFIED/],
 ]){
- for(const version of ['9.285','9.289']){
+ for(const version of ['9.285','9.289','9.291']){
   const f=fixture(version,code);
   const result=await runner({url,token,now,fetchImpl:f.fetchImpl,apply:false});
   assert.equal(result.mode,'DRY_RUN',kind+' '+version);
@@ -98,4 +98,4 @@ await assert.rejects(()=>collectHanwha({
  url,token,now,fetchImpl:unavailable.fetchImpl,apply:false
 }),/HANWHA_FUNETF_NETWORK_UNVERIFIED/);
 
-console.log('PASS: primary class source, transport-only FunETF exact C-RPe fallback, overlapping official NAV reproof, future version and unavailable source fail closed; financial writes 0');
+console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, financial writes 0');
