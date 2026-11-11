@@ -368,14 +368,14 @@ function _renderHistorySourceCoverage(el, summary, snapshots) {
     carried > 0 ? `펀드 ${carried}건은 직전 확정 공시일 NAV × 해당일 좌수로 이월 평가했습니다(해당일 NAV 확정 아님).` : '펀드는 평가일 좌수로 재계산합니다.',
     stockCarried > 0 ? `일반 종목 ${stockCarried}건은 해당일 확정 종가가 없어 직전 확정 종가로 이월 평가했습니다. 휴장 확인이 되지 않은 이월도 포함될 수 있으며, 추후 확정 종가가 들어오면 다시 계산합니다.` : ''
   ].filter(Boolean).join(' ');
-  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid ${warning ? 'var(--c-amber-35,var(--border))' : 'var(--border)'};border-radius:9px;background:var(--s2);font-size:.67rem;line-height:1.55">
-    <b style="color:${warning ? 'var(--amber)' : 'var(--green)'}">원자료 기준 자동 손익 · 계산 완료 ${complete}일${missing ? ` · 원자료 부족 ${missing}일 제외` : ''}</b><br>
-    <span style="color:var(--muted)">기존 Snapshot 대신 거래·확정가격·펀드 NAV·환율로 재구성했습니다. ${_escapeHtml(explanation)}</span>
+  el.insertAdjacentHTML('afterbegin', `<details class="hist-source-coverage">
+    <summary style="color:${warning ? 'var(--amber)' : 'var(--green)'}">원자료 기준 자동 손익 · ${complete}일 계산 완료${missing ? ` · ${missing}일 제외` : ''} · 자세히</summary>
+    <div class="hist-source-coverage-body"><span style="color:var(--muted)">기존 Snapshot 대신 거래·확정가격·펀드 NAV·환율로 재구성했습니다. ${_escapeHtml(explanation)}</span>
     ${missing ? `<br><span style="color:var(--amber)">제외일 예시: ${_escapeHtml(sampleText)}${missing > samples.length ? ' 외 추가 날짜' : ''}</span>` : ''}
     ${fundSampleText ? `<br><span style="color:var(--muted)">펀드 NAV 이월 예시: ${_escapeHtml(fundSampleText)}${carried > fundSamples.length ? ' 외 추가 건' : ''}</span>` : ''}
     ${priceSampleText ? `<br><span style="color:var(--muted)">일반 종가 이월 예시: ${_escapeHtml(priceSampleText)}${stockCarried > priceSamples.length ? ' 외 추가 건' : ''}</span>` : ''}
     ${excludedNonTrade ? `<br><span style="color:var(--amber)">거래원장으로 과거 보유시점을 재구성할 수 없는 코드 없는 TDF/직접펀드 ${excludedNonTrade}개는 자동 손익에서 제외됩니다${excludedNames.length ? ': ' + _escapeHtml(excludedNames.join(', ')) : ''}. F코드/좌수 또는 거래 원자료가 필요합니다.</span>` : ''}
-  </div>`);
+    </div></details>`);
 }
 
 function _renderHistoryNavWarnings(el, snapshots) {

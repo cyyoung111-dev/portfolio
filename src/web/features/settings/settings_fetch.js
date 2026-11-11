@@ -351,7 +351,7 @@ function _priceLookupSummary() {
     `<button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>`,
     ...(meta.cacheHit ? ['60초 캐시'] : []),
   ];
-  return `<span class="price-status-chips">${chips.map(label => label.startsWith('<button') ? label : `<span class="price-status-chip">${label}</span>`).join('')}</span>`;
+  return `<details class="price-status-diagnostics" style="display:inline-block;max-width:100%"><summary style="cursor:pointer;color:var(--muted);font-size:.68rem">조회 상세 · 왕복 ${roundTrip}</summary><span class="price-status-chips">${chips.map(label => label.startsWith('<button') ? label : `<span class="price-status-chip">${label}</span>`).join('')}</span></details>`;
 }
 
 function _priceLookupDetail(kind) {
@@ -530,11 +530,13 @@ async function quickFetchByDate() {
       try { refreshAll(); } catch(e) {}
       return;
     }
-    try { refreshAll(); } catch(e) { console.warn('GAS 복원 후 화면 갱신 실패:', e); }
+    // Delay the expensive full view repaint until the price request completes.
+    // Restore has already reconciled the ledger; avoid rendering it twice.
     if ((Array.isArray(rawTrades) ? rawTrades.length : 0) === 0
         && (Array.isArray(rawHoldings) ? rawHoldings.length : 0) === 0
         && (!fundDirect || Object.keys(fundDirect).length === 0)) {
       setStatusLabel('⚠️ 연결된 GAS에 거래·보유 자료가 없습니다 · 구글시트 연결을 확인해주세요', 'error');
+      try { refreshAll(); } catch(e) {}
       return;
     }
 
@@ -580,9 +582,12 @@ async function quickFetchByDate() {
       refreshAll();
     } else {
       setStatusLabel('❌ 자료 복원 완료 · ' + targetDate + ' 가격 조회 결과 없음 · 보유종목 코드와 가격 원천을 확인해주세요' + restoreWarning, 'error');
+      try { refreshAll(); } catch(e) {}
     }
   } catch(e) {
     setStatusLabel('❌ 조회 실패: ' + e.message, 'error');
+    // A successfully restored ledger must remain visible if price refresh fails.
+    try { refreshAll(); } catch(ignore) {}
   } finally {
     _fullPortfolioUpdateInProgress = false;
     btn.disabled = false;
