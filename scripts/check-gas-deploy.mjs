@@ -332,6 +332,55 @@ await assert.rejects(()=>verifyAutomationVersionConvergence({
   expectedVersion:'9.287',previousVersion:'9.284',pause:async()=>{}
 }),/GAS_AUTOMATION_VERSION_MISMATCH/);
 assert.equal(persistentReads,3);
+// One 60-second cold-start/transport failure should not force a rollback
+// when the subsequent authenticated read and fresh settings both converge.
+let transientReads=0, transientSettings=0, transientPauses=[];
+const coldRecovery=await verifyAutomationVersionConvergence({
+  readAutomation:async()=>{
+    transientReads++;
+    if(transientReads===1)throw Error('AUTOMATION_DIAG_NETWORK_FAILED');
+    return {gasVersion:'9.291'};
+  },
+  readSettings:async()=>{transientSettings++;return {gasVersion:'9.291'};},
+  expectedVersion:'9.291',previousVersion:'9.289',
+  pause:async ms=>transientPauses.push(ms)
+});
+assert.equal(coldRecovery.attempts,2);
+assert.equal(transientReads,2);
+assert.equal(transientSettings,1);
+assert.deepEqual(transientPauses,[4000]);
+let failureReads=0, failurePauses=[];
+await assert.rejects(()=>verifyAutomationVersionConvergence({
+  readAutomation:async()=>{
+    failureReads++;
+    throw Error('AUTOMATION_DIAG_NETWORK_FAILED');
+  },
+  readSettings:async()=>{throw Error('SHOULD_NOT_BE_CALLED');},
+  expectedVersion:'9.291',previousVersion:'9.289',
+  pause:async ms=>failurePauses.push(ms)
+}),/AUTOMATION_DIAG_NETWORK_FAILED/);
+assert.equal(failureReads,3,'persistent network outage must still block release');
+assert.deepEqual(failurePauses,[4000,8000]);
+let authReads=0;
+await assert.rejects(()=>verifyAutomationVersionConvergence({
+  readAutomation:async()=>{
+    authReads++;
+    throw Error('AUTOMATION_DIAG_AUTH_DISABLED');
+  },
+  readSettings:async()=>{throw Error('SHOULD_NOT_BE_CALLED');},
+  expectedVersion:'9.291',previousVersion:'9.289',pause:async()=>{}
+}),/AUTOMATION_DIAG_AUTH_DISABLED/);
+assert.equal(authReads,1,'authentication failure never retries or gets swallowed');
+let corruptReads=0;
+await assert.rejects(()=>verifyAutomationVersionConvergence({
+  readAutomation:async()=>{
+    corruptReads++;
+    throw Error('AUTOMATION_DIAG_BAD_LEDGER_WRITE');
+  },
+  readSettings:async()=>{throw Error('SHOULD_NOT_BE_CALLED');},
+  expectedVersion:'9.291',previousVersion:'9.289',pause:async()=>{}
+}),/AUTOMATION_DIAG_BAD_LEDGER_WRITE/);
+assert.equal(corruptReads,1,'data integrity failures must block immediately');
 await assert.rejects(()=>verifyAutomationVersionConvergence({
   readAutomation:async()=>({gasVersion:'9.285'}),
   readSettings:async()=>({gasVersion:'9.287'}),
