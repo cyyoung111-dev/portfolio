@@ -304,7 +304,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         <div class="hist-mdd-head"><span class="hist-kpi-label">최대 낙폭 · MDD</span><strong class="hist-mdd-value">${portfolioMdd.pct.toFixed(1)}%</strong><span class="hist-mdd-loss">고점 대비 감소액(환산) <strong>${portfolioMddEquivalentLoss === null ? "산출 불가" : "-" + _fmtKrw(portfolioMddEquivalentLoss)}</strong></span></div>
         <div class="hist-mdd-when">
           <strong>최대 낙폭일 ${portfolioMdd.troughDate ? _fmtHistDateCompact(portfolioMdd.troughDate) : '하락 없음'}</strong>
-          <span>고점 ${portfolioMdd.peakDate ? _fmtHistDateCompact(portfolioMdd.peakDate) : '-'}</span><span class="hist-mdd-trough-eval">최대 낙폭일 매입원가 <strong>${Number.isFinite(portfolioMddTroughCost) ? _fmtKrw(portfolioMddTroughCost) : '-'}</strong></span><span class="hist-mdd-trough-eval">평가금액 <strong>${Number.isFinite(portfolioMddTroughEval) ? _fmtKrw(portfolioMddTroughEval) : '-'}</strong></span>
+          <span class="hist-mdd-trough-eval">매입원가 <strong>${Number.isFinite(portfolioMddTroughCost) ? _fmtKrw(portfolioMddTroughCost) : '-'}</strong></span><span class="hist-mdd-trough-eval">평가금액 <strong>${Number.isFinite(portfolioMddTroughEval) ? _fmtKrw(portfolioMddTroughEval) : '-'}</strong></span>
         </div>
         <details class="hist-mdd-more">
           <summary>계산 기준</summary>
@@ -359,11 +359,11 @@ function _drawHistoryTable(wrap, snapshots) {
     return `<article class="hist-extreme-card">
       <span class="hist-extreme-title">${label}</span>
       <strong class="hist-extreme-primary" style="color:${color}">${item ? fmt(item.evalAmt) : '-'}</strong>
-      <span class="hist-extreme-date">${item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음'}</span><div class="hist-extreme-cost">매입원가 <strong>${Number.isFinite(costAmt) ? fmt(costAmt) : '-'}</strong></div>
+      <span class="hist-extreme-date">${item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음'}</span>
       <details class="hist-extreme-details">
         <summary>수익률·상세 보기</summary>
         <div class="hist-extreme-values">
-          
+          ${metric('매입원가', Number.isFinite(costAmt) ? fmt(costAmt) : '-')}
           ${metric('수익률', Number.isFinite(returnPct) ? `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%` : '-', Number.isFinite(returnPct) ? (returnPct >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)')}
         </div>
       </details>
