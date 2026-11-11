@@ -22,6 +22,7 @@ const helper=extract('_issue860RecoverStoredPriceWatchdog_');
 const watchdog=extract('runPortfolioCloseWatchdog2030');
 const scheduler=extract('_scheduleFundAfterFailedPortfolioPrice_');
 assert.match(scheduler,/ISSUE860_STORED_PRICE_OWNER_CHANGED/);
+assert.match(scheduler,/ISSUE860_STORED_PRICE_SOURCE_CHANGED/);
 assert.match(scheduler,/actualStage !== "PRICE"/);
 assert.match(watchdog,/var priceRecovery=_issue860RecoverStoredPriceWatchdog_\(\);/);
 assert(!/saveDailyPriceHistory|writeSnapshotRows|batchUpsertPriceHistory/.test(helper));
@@ -50,6 +51,7 @@ const ctx={
   assert.equal(owner.priceDate,date);
   assert.equal(owner.fundPending,true);
   assert.equal(owner.issue860VerifiedPriceRecovery,true);
+  assert.equal(owner.verifiedRevision,'rev-1');
   return {created:true,triggerId:'tr_test'};
  },
  _issue507GateInside_:true
