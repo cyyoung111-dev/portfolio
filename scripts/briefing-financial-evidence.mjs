@@ -195,3 +195,32 @@ export function fitAiFinancialEvidenceForBudget(evidence,availableChars){
  }
  return selected;
 }
+
+// #826: verify publication of the PRE-VERIFIED SEC/DART appendix in the
+// final Telegram text, not merely successful artifact loading. This is a
+// fixed-shape aggregate diagnostic; never emit prices, monetary facts,
+// filings, user data or the message. Call only AFTER Telegram API confirms.
+export function auditSentFinancialEvidence(message,expectedUsDate){
+ const unavailable={status:'NOT_DISPLAYED',counts:null,domesticLine:false};
+ if(typeof message!=='string'||message.length>4000
+   ||!day(expectedUsDate))return unavailable;
+ const rows=message.split('\n');
+ const heading='■ 공시 재무 근거 (미국 '+expectedUsDate+' 종가 참고)';
+ const headings=rows.filter(x=>x.startsWith('■ 공시 재무 근거'));
+ const counters=rows.filter(x=>x.startsWith('• 검증 범위: 미국 TTM '));
+ if(!headings.length&&!counters.length)return unavailable;
+ const failed={status:'UNVERIFIED_RENDER',counts:null,domesticLine:false};
+ if(headings.length!==1||headings[0]!==heading||counters.length!==1)
+  return failed;
+ const m=/^• 검증 범위: 미국 TTM (\d+)\/9·FY만 (\d+)\/9·FY PBR (\d+)\/9, 국내 DART BPS (\d+)\/2$/.exec(counters[0]);
+ if(!m)return failed;
+ const [ttm,fyOnly,referencePbr,domestic]=m.slice(1).map(Number);
+ if(![ttm,fyOnly,referencePbr].every(x=>Number.isSafeInteger(x)&&x>=0&&x<=9)
+   ||!Number.isSafeInteger(domestic)||domestic<0||domestic>2
+   ||ttm+fyOnly>9||ttm+fyOnly+referencePbr+domestic===0)return failed;
+ const domesticLines=rows.filter(x=>x.startsWith('• 국내: '));
+ if(domesticLines.length>1)return failed;
+ const domesticLine=domesticLines.length===1;
+ return {status:domesticLine?'DISPLAYED':'PARTIAL_DISPLAYED',
+  counts:{ttm,fyOnly,referencePbr,domestic},domesticLine};
+}

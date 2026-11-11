@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {buildAiFinancialEvidence,formatAiFinancialEvidence}
+import {buildAiFinancialEvidence,formatAiFinancialEvidence,auditSentFinancialEvidence}
  from './briefing-financial-evidence.mjs';
 import {collectAiFinancialEvidence}
  from './collect-ai-financial-evidence-readonly.mjs';
@@ -181,6 +181,40 @@ if(closeWithEvidence.includes('■ 공시 재무 근거'))
 else assert.equal(closeWithEvidence,closeNoEvidence);
 assert.ok(closeWithEvidence.length<=3900 || closeWithEvidence===closeNoEvidence,
  'optional evidence must not push close above budget');
+
+// Actual SEND diagnostics must reflect the delivered text, not only a
+// successfully downloaded SEC/DART artifact. No issuer prices are logged.
+const sentPanel=formatAiFinancialEvidence(verified).join('\n');
+const liveAudit=auditSentFinancialEvidence(sentPanel,usSessionDate);
+assert.deepEqual(liveAudit,{
+ status:'DISPLAYED',
+ counts:{ttm:2,fyOnly:1,referencePbr:2,domestic:2},
+ domesticLine:true
+});
+assert.deepEqual(auditSentFinancialEvidence('No sentPanel',usSessionDate),{
+ status:'NOT_DISPLAYED',counts:null,domesticLine:false
+});
+const shortPanel=sentPanel.split('\n').slice(0,2).join('\n');
+assert.equal(auditSentFinancialEvidence(shortPanel,usSessionDate).status,
+ 'PARTIAL_DISPLAYED');
+assert.equal(auditSentFinancialEvidence(sentPanel,'2026-11-04').status,
+ 'UNVERIFIED_RENDER','a mismatched US regular session cannot be credited');
+assert.equal(auditSentFinancialEvidence(sentPanel+'\n'+sentPanel,usSessionDate).status,
+ 'UNVERIFIED_RENDER','duplicated coverage can never prove one send');
+assert.equal(auditSentFinancialEvidence(
+ '■ 공시 재무 근거 (미국 '+usSessionDate+' 종가 참고)',usSessionDate
+).status,'UNVERIFIED_RENDER','orphan heading is not data evidence');
+assert.equal(auditSentFinancialEvidence(
+ sentPanel.replace('미국 TTM 2/9','미국 TTM 99/9'),usSessionDate
+).status,'UNVERIFIED_RENDER','counts above source universe refused');
+const printedMorning=auditSentFinancialEvidence(morningWithEvidence,usSessionDate);
+assert.equal(printedMorning.status,
+ morningWithEvidence.includes('■ 공시 재무 근거')
+  ?'DISPLAYED':'NOT_DISPLAYED');
+const printedClose=auditSentFinancialEvidence(closeWithEvidence,usSessionDate);
+assert.equal(printedClose.status,
+ closeWithEvidence.includes('■ 공시 재무 근거')
+  ?'DISPLAYED':'NOT_DISPLAYED');
 
 let ordered=[];
 const asyncResult=await collectAiFinancialEvidence({

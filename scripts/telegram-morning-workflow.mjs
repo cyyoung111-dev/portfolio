@@ -9,6 +9,7 @@ import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
 import {MORNING_SERIES,expectedMorningDate} from './telegram-morning-report.mjs';
 import {fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
+import {auditSentFinancialEvidence} from './briefing-financial-evidence.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,
   loadPrefetch=loadPrefetchedNight,recoverReference=fetchNightReference,
@@ -178,6 +179,9 @@ export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,a
     ||typeof payload.message!=='string'||!payload.message.length||payload.message.length>4000
     ||(lateTest&&!payload.message.startsWith(`[수동 지연 발송 테스트 · ${window.date} · 정규 장전 발송 아님]\n`)))throw Error('TELEGRAM_PREPARED_INVALID');
   await send(token,chatId,payload.message);
+  console.log(JSON.stringify({kind:'MORNING_FINANCIAL_SENT_AUDIT',
+    date:window.date,...auditSentFinancialEvidence(payload.message,
+      expectedMorningDate('SPX',window.date))}));
   // Diagnostic only after Telegram send confirmation; no score or payload log.
   console.log(JSON.stringify({kind:'CNN_FEAR_GREED_DELIVERY',briefing:'morning',
     date:window.date,status:fearGreedDisplayStatus(payload.message)}));

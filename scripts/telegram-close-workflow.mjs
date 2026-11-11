@@ -18,7 +18,7 @@ import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures,selectCurrentFuturesRows} from './closing-current-futures.mjs';
 import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
-import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
+import {fitAiFinancialEvidenceForBudget,auditSentFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {readKofiaLiquidity,formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {readInvestorTrends,formatInvestorTrends} from './briefing-krx-investor-trends.mjs';
 import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
@@ -490,6 +490,9 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
     },outgoing);
   }
   await send(token,chatId,outgoing);
+  console.log(JSON.stringify({kind:'CLOSE_FINANCIAL_SENT_AUDIT',
+    date:window.date,...auditSentFinancialEvidence(outgoing,
+     expectedMorningDate('SPX',window.date))}));
   // Only successful sends are logged, and only verified source counts/status.
   // Never include quote values, dates of private records or message content.
   if(optionalDisplay)console.log(JSON.stringify({
