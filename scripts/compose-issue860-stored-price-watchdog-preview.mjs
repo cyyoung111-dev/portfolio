@@ -76,7 +76,10 @@ function _issue860RecoverStoredPriceWatchdog_() {
     return audit.storedRowCount>0
       ?{skipped:true,runDate:date,reason:'STORED_PRICE_PRESENT_BUT_NOT_VALID'}
       :null; // Missing physical PRICE is eligible for the existing retry.
-  if(_peekSnapshotIntegritySourceRevisionReadonly_()!==revision)
+  var afterRevision='';
+  try{afterRevision=_peekSnapshotIntegritySourceRevisionReadonly_();}
+  catch(e){return {skipped:true,runDate:date,reason:'STORED_PRICE_REVISION_UNVERIFIED'};}
+  if(afterRevision!==revision)
     return {skipped:true,runDate:date,reason:'STORED_PRICE_REVISION_CHANGED'};
   var reservation;
   try {
