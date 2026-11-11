@@ -129,8 +129,10 @@ if (!historyRenderSource.includes('id="histModeDay"')
     || !historyUtilsSource.includes("if (mode === 'week')")
     || !historyUtilsSource.includes("if (mode === 'month')")
     || !historyChartSource.includes('slice(0, 10)')
-    || !historyChartSource.includes('가장 높은 날')
-    || !historyChartSource.includes('가장 낮은 날')
+    || !historyChartSource.includes("extremeCard('최고 평가액'")
+    || !historyChartSource.includes("extremeCard('최저 평가액'")
+    || !historyChartSource.includes('hist-extreme-grid')
+    || !historyChartSource.includes('hist-extreme-details')
     || !historyChartSource.includes('최근 스냅샷 (최대 10일 · 일별 기준)')) {
   console.error('❌ 일별 손익 그래프와 평가금액 고점·저점 및 최근 10일 스냅샷 표시가 누락됐습니다.');
   process.exit(1);

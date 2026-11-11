@@ -273,7 +273,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         <span style="width:8px;height:8px;border-radius:999px;background:${pnlColor}"></span>
         <span style="color:var(--muted)">나의 손익</span>
         <span style="color:${portfolioDeltaColor};font-weight:700">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</span>
-        <span style="color:var(--red-lt);font-weight:700">수익률 MDD ${portfolioMdd.pct.toFixed(1)}%</span>
+
       </span>
       ${hasBench ? `
       ${benchLines.map(line => {
@@ -286,7 +286,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
           <span style="width:14px;border-top:2px ${line.dash ? 'dashed' : 'solid'} ${line.color}"></span>
           <span style="color:var(--muted)">${line.displayType}</span>
           <span style="color:${line.color};font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>
-          <span style="color:var(--red-lt);font-weight:700">MDD ${line.mdd.pct.toFixed(1)}%</span>
+
         </span>`;
       }).join('')}` : ''}
     </div>
@@ -300,12 +300,16 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         <div style="font-size:.88rem;font-weight:700;color:${portfolioDeltaColor}">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</div>
         <div style="font-size:.61rem;color:var(--muted);margin-top:3px">현금흐름 보정 기간수익률</div>
       </div>
-      <div class="hist-mdd-key-card" title="추가 매수·매도 순현금흐름을 보정한 일별 수익률 지수의 직전 고점 대비 최대 하락률">
-        <div class="hist-kpi-label">최대 낙폭일 · MDD</div>
-        <div class="hist-kpi-value" style="color:var(--red-lt)">${portfolioMdd.troughDate ? _fmtHistDateCompact(portfolioMdd.troughDate) : '해당 없음'}</div>
-        <div class="hist-mdd-value">${portfolioMdd.pct.toFixed(1)}%</div>
-        <div class="hist-kpi-note">직전 고점 ${portfolioMdd.peakDate ? _fmtHistDateCompact(portfolioMdd.peakDate) : '-'}</div>
-        ${Number.isFinite(portfolioMddTroughEval) && portfolioMdd.troughDate ? `<div class="hist-kpi-note">해당일 평가금액 ${_fmtKrw(portfolioMddTroughEval)}</div>` : ''}
+      <div class="hist-mdd-key-card" title="현금흐름을 보정한 일별 수익률 지수의 고점 대비 최대 하락률">
+        <div class="hist-mdd-head"><span class="hist-kpi-label">최대 낙폭 · MDD</span><strong class="hist-mdd-value">${portfolioMdd.pct.toFixed(1)}%</strong></div>
+        <div class="hist-mdd-when">
+          <strong>${portfolioMdd.troughDate ? _fmtHistDateCompact(portfolioMdd.troughDate) : '하락 없음'}</strong>
+          <span>고점 ${portfolioMdd.peakDate ? _fmtHistDateCompact(portfolioMdd.peakDate) : '-'}</span>
+        </div>
+        <details class="hist-mdd-more">
+          <summary>상세</summary>
+          <div class="hist-mdd-detail">수익률 MDD는 현금흐름 보정 기준입니다.${Number.isFinite(portfolioMddTroughEval) && portfolioMdd.troughDate ? ` 최악일 평가금액: ${_fmtKrw(portfolioMddTroughEval)}.` : ''}</div>
+        </details>
       </div>
     </div>
     ${hasBench ? `<details class="hist-benchmark-details">
@@ -335,13 +339,7 @@ function _drawHistoryTable(wrap, snapshots) {
     .filter(item => Number.isFinite(item.evalAmt) && _isVerifiedHistoryPoint(item.snapshot));
   const highest = valid.reduce((best, item) => !best || item.evalAmt > best.evalAmt ? item : best, null);
   const lowest = valid.reduce((best, item) => !best || item.evalAmt < best.evalAmt ? item : best, null);
-  const verifiedDailySnapshots = snapshots.filter(_isVerifiedHistoryPoint);
-  const mddSeries = _buildCashflowAdjustedReturnIndex(
-    verifiedDailySnapshots, typeof rawTrades !== 'undefined' ? rawTrades : []);
-  const worstDrawdown = _calcHistoryMdd(mddSeries, 'returnIndex');
-  const worstDrawdownSnapshot = worstDrawdown.troughDate
-    ? valid.find(item => _normalizeHistDate(item.snapshot?.date || '') === worstDrawdown.troughDate)
-    : null;
+
   const extremeCard = (label, item, color) => {
     const costAmt = item ? Number(item.snapshot.costAmt ?? item.snapshot.cost) : NaN;
     const returnPct = item && Number.isFinite(costAmt) && costAmt > 0
@@ -349,32 +347,25 @@ function _drawHistoryTable(wrap, snapshots) {
       : NaN;
     const metric = (metricLabel, value, valueColor = 'var(--text)') => `<div class="hist-extreme-metric"><span>${metricLabel}</span><b style="color:${valueColor}">${value}</b></div>`;
     return `<article class="hist-extreme-card">
-      <div class="hist-extreme-title" style="color:${color}">${label}</div>
-      <div class="hist-extreme-values">
-        ${metric('날짜', item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음')}
-        ${metric('평가금액', item ? fmt(item.evalAmt) : '-', color)}
-        ${metric('매입원가', Number.isFinite(costAmt) ? fmt(costAmt) : '-')}
-        ${metric('수익률', Number.isFinite(returnPct) ? `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%` : '-', Number.isFinite(returnPct) ? (returnPct >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)')}
-      </div>
+      <span class="hist-extreme-title">${label}</span>
+      <strong class="hist-extreme-primary" style="color:${color}">${item ? fmt(item.evalAmt) : '-'}</strong>
+      <span class="hist-extreme-date">${item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음'}</span>
+      <details class="hist-extreme-details">
+        <summary>매입원가·수익률 보기</summary>
+        <div class="hist-extreme-values">
+          ${metric('매입원가', Number.isFinite(costAmt) ? fmt(costAmt) : '-')}
+          ${metric('수익률', Number.isFinite(returnPct) ? `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%` : '-', Number.isFinite(returnPct) ? (returnPct >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)')}
+        </div>
+      </details>
     </article>`;
   };
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   __histState.debugByDate = diagnostics;
   let html = `
-    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">기준설정일 이후 평가금액 <span title="아래 최고·최저는 입출금 영향을 포함한 평가금액 기준이며, 위 MDD의 현금흐름 보정 수익률 고점·저점과 다를 수 있습니다.">ⓘ</span></div>
+    <div class="hist-extreme-heading">기간 최고·최저 평가금액 <span title="평가금액은 입출금을 포함합니다. 위 MDD의 현금흐름 보정 수익률 고점·저점과 다를 수 있습니다.">ⓘ</span></div>
     <div class="hist-extreme-grid">
-      ${extremeCard('가장 높은 날', highest, 'var(--green)')}
-      ${extremeCard('가장 낮은 날', lowest, 'var(--blue-lt)')}
-      <article class="hist-extreme-card hist-extreme-mdd">
-        <div class="hist-extreme-title" style="color:var(--red-lt)">최대 낙폭 시점</div>
-        <div class="hist-extreme-values">
-          <div class="hist-extreme-metric"><span>MDD 최악일</span><b>${worstDrawdown.troughDate ? _fmtHistDateCompact(worstDrawdown.troughDate) : '하락 없음'}</b></div>
-          <div class="hist-extreme-metric"><span>수익률 MDD</span><b style="color:var(--red-lt)">${worstDrawdown.pct.toFixed(1)}%</b></div>
-          <div class="hist-extreme-metric"><span>직전 고점일</span><b>${worstDrawdown.peakDate ? _fmtHistDateCompact(worstDrawdown.peakDate) : '-'}</b></div>
-          <div class="hist-extreme-metric"><span>최악일 평가금액</span><b>${worstDrawdownSnapshot ? fmt(worstDrawdownSnapshot.evalAmt) : '-'}</b></div>
-        </div>
-        <small class="hist-extreme-explain">수익률 MDD는 현금흐름 보정 기준입니다. 최고·최저 평가금액과 다른 날짜일 수 있습니다.</small>
-      </article>
+      ${extremeCard('최고 평가액', highest, 'var(--green)')}
+      ${extremeCard('최저 평가액', lowest, 'var(--blue-lt)')}
     </div>
     <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 10일 · 일별 기준)</div>
     <div style="overflow-x:auto">
