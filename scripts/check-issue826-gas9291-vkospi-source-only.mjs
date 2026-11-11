@@ -20,6 +20,10 @@ assert.equal(release.manifest.candidateVersion,'9.291');
 assert.equal(release.manifest.sourceGitBlob,ISSUE826_REVIEWED_GAS_9291_BLOB);
 assert.equal(gitBlobSha(main),ISSUE826_REVIEWED_GAS_9291_BLOB,
  'source must be the reviewed generated v9.291 release, not base file');
+assert.match(main,/ISSUE860_PREVERIFIED_EXPECTED_ROWS/,
+ 'v9.291 already has the no-duplicate Snapshot integrity optimization');
+assert.match(main,/diagnoseSnapshotIntegrity\(ss, snapshotDate, undefined, undefined, expected\)/,
+ 'do not add a redundant patch to the already optimized PRICE step');
 const result=composeIssue826Gas9291VkospiSourceOnly(main);
 assert.equal(result.deployable,false);
 assert.equal(result.sourceOnly,true);
