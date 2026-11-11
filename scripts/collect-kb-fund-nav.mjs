@@ -55,7 +55,8 @@ export async function runPublicSourceOnly({now=new Date(),fetchImpl=fetch}={}){
     sourceRows:rows.length,sameDayExcluded:received.length-rows.length,
     historicalCutoffExclusive:today,from,to,latestDate:rows.at(-1).date,rows};
 }
-export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}){
+export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
+  retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}){
   const endpoint=validateWebAppUrl(url);
   if(typeof token!=='string'||!token.trim())throw Error('NAV_AUTH_MISSING');
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
@@ -63,7 +64,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
   const from=offset(-31),to=today;
   // Only predefined operation/error enums reach public Actions logs. Never
   // expose GAS response bodies, raw exceptions, credentials or fund values.
-  const request=async(action,args={},credential=token)=>{
+  const request=async(action,args={},credential=token,timeoutMs=300000)=>{
     const phase=action==='getAutomationStatus'?'STATUS'
       :action==='previewFundNavImport'?'PREVIEW'
       :action==='getFundValuationStatus'?'VALUATION'
@@ -77,7 +78,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
     };
     let r;
     try {
-      r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:credential}),signal:AbortSignal.timeout(300000)});
+      r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({action,...args,accessToken:credential}),signal:AbortSignal.timeout(timeoutMs)});
     } catch(error) {
       const kind=['TimeoutError','AbortError'].includes(error?.name)?'TIMEOUT':'NETWORK';
       stageAudit(kind);
@@ -131,9 +132,25 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
       if(!/^NAV_IMPORT_(?:HTTP|TIMEOUT|NETWORK|JSON)_UNVERIFIED$/.test(String(error?.message||'')))throw error;
       importAckRecovered=true;
     }
+    // After a lost import ACK, only repeat the READ-ONLY exact NAV preview.
+    // GAS may still be finishing an already-committed write. Each proof is
+    // bounded to 90s; HTTP rejects (including auth) are not retried. Never send
+    // collectKbFundNav(import) twice, even if all readbacks are unavailable.
     let check;
-    try {check=await request('previewFundNavImport',{data:JSON.stringify({...input,rows:candidates})});}
-    catch(error) {if(importAckRecovered)throw Error('NAV_IMPORT_UNVERIFIED');throw error;}
+    for(let attempt=0;attempt<(importAckRecovered?3:1);attempt++){
+      try{
+        check=await request('previewFundNavImport',{
+          data:JSON.stringify({...input,rows:candidates})},token,
+          importAckRecovered?90000:300000);
+        break;
+      }catch(error){
+        if(!importAckRecovered)throw error;
+        const transient=/^NAV_PREVIEW_(?:TIMEOUT|NETWORK|JSON)_UNVERIFIED$/
+          .test(String(error?.message||''));
+        if(!transient||attempt===2)throw Error('NAV_IMPORT_UNVERIFIED');
+        await retryDelay(2000*(attempt+1));
+      }
+    }
     if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
     if(importAckRecovered){
       // A mere row count is insufficient to certify a lost ACK. Verify every
