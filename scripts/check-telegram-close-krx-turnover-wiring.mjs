@@ -19,12 +19,12 @@ const full=summarizeCloseCoverage(day,{nh,turnover:[kospi,kosdaq],expectedUsDate
 assert.deepEqual(full.turnover,{verified:2,total:2});
 assert.deepEqual(full.statuses.filter(x=>x.id.startsWith('KRX_TURNOVER_'))
  .map(x=>x.status),['VERIFIED','VERIFIED']);
-assert.match(formatCloseCoverageSummary(full),/KRX 거래대금 2\/2/);
+assert.match(formatCloseCoverageSummary(full),/KRX 지수 구성 거래대금 2\/2/);
 const msg=formatClose(day,nh,[],[],[],[],[],[],now(),[],[],null,null,[kospi,kosdaq]);
-assert.match(msg,/KOSPI 거래대금: 20\.25조원 \[2026-11-06 · KRX\]/);
-assert.match(msg,/KOSDAQ 거래대금: 6\.30조원 \[2026-11-06 · KRX\]/);
+assert.match(msg,/KOSPI 지수 구성종목 거래대금: 20\.25조원 \[2026-11-06 · KRX\]/);
+assert.match(msg,/KOSDAQ 지수 구성종목 거래대금: 6\.30조원 \[2026-11-06 · KRX\]/);
 assert.ok(msg.length<=3900);
-assert.match(msg,/KRX 거래대금 2\/2/);
+assert.match(msg,/KRX 지수 구성 거래대금 2\/2/);
 for(const invalid of [
  [{...kospi,date:'2026-11-05'},kosdaq],
  [{...kospi,source:'YAHOO_DAILY_REFERENCE'},kosdaq],
@@ -36,7 +36,7 @@ for(const invalid of [
  const result=summarizeCloseCoverage(day,{nh,turnover:invalid,expectedUsDate:us});
  if(invalid.length===2&&rows.length===0)assert.equal(result.turnover.verified,0);
  const printed=formatClose(day,nh,[],[],[],[],[],[],now(),[],[],null,null,invalid);
- if(rows.length===0)assert.doesNotMatch(printed,/KOSPI 거래대금: \d/);
+ if(rows.length===0)assert.doesNotMatch(printed,/KOSPI 지수 구성종목 거래대금: \d/);
 }
 const partial=summarizeCloseCoverage(day,{nh,turnover:[kospi],expectedUsDate:us});
 assert.equal(partial.turnover.verified,1);
@@ -69,8 +69,8 @@ assert.equal(prepared.ready,true);assert.equal(calls,1);
 assert.equal(prepared.turnoverCount,2);
 assert.equal(prepared.reportInputs.turnover.length,2);
 assert.equal(prepared.coverage.turnover.verified,2);
-assert.match(prepared.message,/KOSPI 거래대금: 20\.25조원/);
-assert.match(prepared.message,/KRX 거래대금 2\/2/);
+assert.match(prepared.message,/KOSPI 지수 구성종목 거래대금: 20\.25조원/);
+assert.match(prepared.message,/KRX 지수 구성 거래대금 2\/2/);
 let sends=0;
 const received=[];
 const sent=await deliverClose(prepared,{now,send:async(_token,_chat,text)=>{
@@ -78,7 +78,7 @@ const sent=await deliverClose(prepared,{now,send:async(_token,_chat,text)=>{
 }});
 assert.equal(sent.status,'SENT');
 assert.equal(sends,1);
-assert.match(received[0],/KOSDAQ 거래대금: 6\.30조원/);
+assert.match(received[0],/KOSDAQ 지수 구성종목 거래대금: 6\.30조원/);
 assert.ok(received[0].length<=4000);
 assert.deepEqual(prepared.reportInputs.turnover,[kospi,kosdaq]);
 for(const mutation of [
@@ -94,8 +94,8 @@ for(const mutation of [
 assert.equal(sends,1,'no forged stale or duplicate rows reach Telegram');
 const partialPrepared=await prepareClose({...options,fetchTurnover:async()=>[kospi]});
 assert.equal(partialPrepared.coverage.turnover.verified,1);
-assert.match(partialPrepared.message,/KOSPI 거래대금: 20\.25조원/);
-assert.match(partialPrepared.message,/KOSDAQ 거래대금: 공식 당일 자료 미확보/);
+assert.match(partialPrepared.message,/KOSPI 지수 구성종목 거래대금: 20\.25조원/);
+assert.match(partialPrepared.message,/KOSDAQ 지수 구성종목 거래대금: 공식 당일 자료 미확보/);
 const failure=await prepareClose({...options,fetchTurnover:async()=>{
  throw Error('SECRET_PROVIDER_ERROR');
 }});
@@ -103,7 +103,7 @@ assert.equal(failure.ready,true,'optional turnover failure cannot block core clo
 assert.equal(failure.turnoverCount,0);
 assert.equal(failure.coverage.turnover.verified,0);
 assert.deepEqual(failure.coverage.groupErrors,['TURNOVER']);
-assert.match(failure.message,/KRX 거래대금 0\/2/);
+assert.match(failure.message,/KRX 지수 구성 거래대금 0\/2/);
 assert.doesNotMatch(JSON.stringify(failure),/SECRET_PROVIDER_ERROR/);
 assert.equal((await deliverClose(failure,{now,send:async()=>{sends++;}})).status,'SENT');
 assert.equal(sends,2);
@@ -111,5 +111,5 @@ const stale=await prepareClose({...options,fetchTurnover:async()=>[
  {...kospi,date:us},kosdaq]});
 assert.equal(stale.coverage.turnover.verified,0,
  'a mismatched day must reject the whole turnover source group');
-assert.doesNotMatch(stale.message,/KOSPI 거래대금: \d/);
+assert.doesNotMatch(stale.message,/KOSPI 지수 구성종목 거래대금: \d/);
 console.log('CLOSE_KRX_TURNOVER_WIRING_PASS connected, official-date, partial, stale, provider-failure, send-revalidation');
