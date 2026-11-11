@@ -86,7 +86,10 @@ async function exercise(payload=good,expectCalls=3){
    return {ok:true,json:async()=>payload[action]};
   }
  });
- assert.deepEqual(seen.slice(),['getAutomationStatus','getTrades','getWriterGateStatus'].slice(0,expectCalls));
+ const expectedSequence=expectCalls===4
+  ?['getAutomationStatus','getTrades','diagnoseSnapshotIntegrity','getWriterGateStatus']
+  :['getAutomationStatus','getTrades','getWriterGateStatus'];
+ assert.deepEqual(seen,expectedSequence.slice(0,seen.length));
  return result;
 }
 const success=await exercise();
@@ -116,9 +119,71 @@ for(const [value,pattern] of [
 ]){
  await assert.rejects(()=>exercise(value),pattern);
 }
+// Close PRICE timeout must not block a safe *repair* deployment when the
+// real RAW Snapshot audit independently matches trade/price/NAV/FX sources.
+// It remains INCOMPLETE and the old fund attempt must never be called DONE.
+const empty=[];
+const rawDiagnostic={
+ date,status:'VALID',expectedRowCount:39,storedRowCount:39,
+ totalEvalDifference:0,
+ missingCodes:[],unexpectedCodes:[],duplicateKeys:[],conflictKeys:[],
+ qtyMismatches:[],costAmtMismatches:[],evalUnitMismatches:[],
+ evalAmtMismatches:[],sourceMismatches:[],sourceDataErrors:[],
+ priceIntegrity:[{status:'VALID'}],
+ fundNavStates:[{code:'F00001',sourceDate:'2026-11-08',
+   valueDate:'2026-11-08',temporary:true}]
+};
+const rawProof={status:'ok',diagnostics:[rawDiagnostic],
+ diagnostic:{...rawDiagnostic}};
+const recoverable={
+ ...base,automation:{
+  ...base.automation,overallStatus:'INCOMPLETE',
+  expectedSnapshotDate:date,
+  portfolioClose:{...base.automation.portfolioClose,
+   runDate:'2026-11-09',priceDate:'2026-11-09'},
+  closeRun:{runDate:date,state:'INCOMPLETE',stage:'PRICE'},
+  fundAttempt:{state:'DONE',date:'2026-11-09'}
+ }
+};
+const safeRepair={...good,getAutomationStatus:recoverable,
+ diagnoseSnapshotIntegrity:rawProof};
+const repair=await exercise(safeRepair,4);
+assert.equal(repair.status,'VERIFIED');
+assert.equal(repair.releaseSafety,'REPAIR_WITH_INDEPENDENT_RAW_SNAPSHOT_PROOF');
+assert.equal(repair.closeFinality,'INCOMPLETE');
+assert.equal(repair.fundFinality,'PENDING_UNVERIFIED');
+assert.equal(repair.closeState,'INCOMPLETE');
+assert.equal(repair.callCount,4);
+assert.equal(repair.snapshotAudit.storedRows,39);
+assert.equal(repair.snapshotAudit.carryRows,1);
+assert.equal(repair.financialWrites,0);
+for(const [payload,pattern] of [
+ [{...safeRepair,diagnoseSnapshotIntegrity:{...rawProof,
+  diagnostic:{...rawDiagnostic,status:'PARTIAL'},
+  diagnostics:[{...rawDiagnostic,status:'PARTIAL'}]}},/SNAPSHOT_NOT_VERIFIED/],
+ [{...safeRepair,diagnoseSnapshotIntegrity:{...rawProof,
+  diagnostic:{...rawDiagnostic,duplicateKeys:['private']},
+  diagnostics:[{...rawDiagnostic,duplicateKeys:['private']}]}},/SNAPSHOT_NOT_VERIFIED/],
+ [{...safeRepair,diagnoseSnapshotIntegrity:{...rawProof,
+  diagnostic:{...rawDiagnostic,priceIntegrity:[{status:'PRICE_SUSPICIOUS'}]},
+  diagnostics:[{...rawDiagnostic,priceIntegrity:[{status:'PRICE_SUSPICIOUS'}]}]}},/SNAPSHOT_NOT_VERIFIED/],
+ [{...safeRepair,getAutomationStatus:{...recoverable,
+  automation:{...recoverable.automation,
+   pendingTradeSnapshotRebuildFrom:'2026-11-10'}}},/DATA_NOT_SETTLED/],
+ [{...safeRepair,getAutomationStatus:{...recoverable,
+  automation:{...recoverable.automation,
+   expectedSnapshotDate:'2026-11-09'}}},/DATA_NOT_SETTLED/],
+ [{...safeRepair,getWriterGateStatus:{...good.getWriterGateStatus,
+  writerGate:{...good.getWriterGateStatus.writerGate,activeCount:1}}},/WRITER_GATE_NOT_IDLE/],
+ [{...safeRepair,getAutomationStatus:{...recoverable,
+  automation:{...recoverable.automation,closeRun:{
+    runDate:date,state:'INCOMPLETE',stage:'FUND_PENDING'}}}},/CLOSE_NOT_SETTLED/]
+])await assert.rejects(()=>exercise(payload,4),pattern);
+
 console.log(JSON.stringify({kind:'ISSUE860_9290_MANUAL_GATE_PASS',
  reviewedSourceSha:manifest.candidateSourceGitBlob,
  manualApprovalMandatory:true,published9289Mandatory:true,
- closeAndFundSameDateRequired:true,ledgerV2ProofRequired:true,
+ closeAndFundSameDateRequiredForCOMPLETE:true,
+ repairRequiresIndependentRawSnapshot:true,ledgerV2ProofRequired:true,
  writerIdleRequired:true,apiCalls:3,financialWrites:0,deployments:0,
  telegramSends:0}));
