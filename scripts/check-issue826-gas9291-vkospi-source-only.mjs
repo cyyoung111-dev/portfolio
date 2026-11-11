@@ -76,8 +76,8 @@ assert.match(good.calls[0].url,/\/svc\/apis\/idx\/drvprod_dd_trd\?basDd=20261110
 assert.deepEqual(good.calls.map(x=>x.authRole),['primary']);
 assert.equal(good.calls[0].method,'get');
 assert.equal(good.writes.length,2,'in-memory CacheService only');
-assert.ok(good.writes[1].keys.every(x=>x.includes('vkospi_day_v3_')));
-assert.ok(good.writes[0].key.startsWith('vkospi_v3_'));
+assert.ok(good.writes[0].keys.every(x=>x.includes('vkospi_day_v3_')));
+assert.ok(good.writes[1].key.startsWith('vkospi_v3_'));
 const wrongDate=run({rows:[{...okRow,BAS_DD:'20261109'}]});
 assert.deepEqual(wrongDate.points,[]);
 const wrongName=run({rows:[{...okRow,IDX_NM:'KOSPI 200'}]});
