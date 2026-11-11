@@ -187,6 +187,16 @@ async function loadHistoryChart(retryAttempt = 0) {
     }
     const initialRenderMs = performance.now() - initialRenderStartedAt;
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
+    // Benchmark reads and snapshot integrity checks are independent read-only requests.
+    // Start the benchmark request before integrity diagnosis to avoid serial network waits.
+    const benchmarkTypes = Array.from(new Set(
+      _getHistBenchmarks()
+        .map(v => String(v || '').toUpperCase().trim())
+        .filter(v => HIST_BENCHMARK_TYPES.includes(v))
+    ));
+    const benchmarkRead = _loadBenchmarkBundle(
+      benchmarkTypes, snapshots[0].date, snapshots[snapshots.length - 1].date
+    ).then(value => ({ value }), error => ({ error }));
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
     const cachedDates = new Set(integrityDiagnostics.map(item => item.date));
     const datesToDiagnose = sourceRecomputed ? [] : snapshots.filter(snapshot => !cachedDates.has(snapshot.date));
@@ -242,21 +252,15 @@ async function loadHistoryChart(retryAttempt = 0) {
     const latestSnapshotDate = snapshots[snapshots.length-1].date || '';
     const latestDate = _fmtHistDateCompact(latestSnapshotDate);
     const snapshotGap = _getHistorySnapshotGap(latestSnapshotDate);
-    const benchmarkTypes = Array.from(new Set(
-      _getHistBenchmarks()
-        .map(v => String(v || '').toUpperCase().trim())
-        .filter(v => HIST_BENCHMARK_TYPES.includes(v))
-    ));
+
     _setHistoryStatus(statusEl, 'loading', {
       step: 2,
       total: 2,
       message: benchmarkTypes.length ? `비교지수 ${benchmarkTypes.length}개 조회 중...` : '그래프 작성 중...'
     });
-    const benchBundle = await _loadBenchmarkBundle(
-      benchmarkTypes,
-      snapshots[0].date,
-      snapshots[snapshots.length - 1].date
-    );
+    const benchmarkResult = await benchmarkRead;
+    if (benchmarkResult.error) throw benchmarkResult.error;
+    const benchBundle = benchmarkResult.value;
     if (requestId !== __histState.loadRequestId) return;
     const benchSeriesMap = benchBundle.seriesMap;
     const benchMetaMap = benchBundle.metaMap;
