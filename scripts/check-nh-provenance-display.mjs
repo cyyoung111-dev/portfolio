@@ -97,8 +97,11 @@ chartCtx._drawHistoryChart(wrap,snapshots,'day',{
   types:['KOSPI','SP500'],seriesMap:bundle.seriesMap,metaMap:bundle.metaMap,
   portfolioSnapshots:snapshots
 });
-assert.match(wrap.innerHTML,/Yahoo \+ KRX · 2026-10-29/,'mixed provider and actual source date must appear');
-assert.match(wrap.innerHTML,/3,420 · 실제 조회값/,'latest KOSPI raw close, not next-date carry');
-assert.match(wrap.innerHTML,/원천 미확인 · 2026-10-29/,'untagged index must not appear as NH');
-assert.match(wrap.innerHTML,/5,850 · 실제 조회값/,'untagged index original price still visible');
+// The compact responsive cards keep exact source/date/price in an expandable
+// details section rather than requiring the old long headline text.
+assert.match(wrap.innerHTML,/class="hist-benchmark-source"/);
+assert.match(wrap.innerHTML,/조회값 <b>3,420<\/b>[\s\S]*?기준일 <b>2026-10-29<\/b>[\s\S]*?원천 Yahoo \+ KRX/,
+ 'KOSPI actual 10/29 close and mixed provider must stay linked');
+assert.match(wrap.innerHTML,/조회값 <b>5,850<\/b>[\s\S]*?기준일 <b>2026-10-29<\/b>[\s\S]*?원천 원천 미확인/,
+ 'untagged SP500 must not masquerade as NH; show actual original price');
 console.log('PASS: production benchmark loader, single index and SVG output with mixed origins/date/values');
