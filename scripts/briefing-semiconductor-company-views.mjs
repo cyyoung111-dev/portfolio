@@ -147,7 +147,7 @@ export function formatSemiconductorCompanySixViews(input={}){
   +pct(x.operatingMarginPercent)+'; '+x.valueLine;
  const pbr=x=>x.book
   ?(x.book.indicative||x.book.priceReferenceOnly?'참고 PBR':'PBR')
-    +(x.book.indicative?'(보통·우선 합산) ':' ')+round(x.book.pbr)+'배 (BPS×1/1.5/2=
+    +(x.book.indicative?'(보통·우선 합산) ':' ')+round(x.book.pbr)+'배 (BPS×1/1.5/2='
     +[1,1.5,2].map(y=>num(x.book.bps*y)).join('/')+'원, 적정가 아님)'
   :'PBR·DCF 유보(BPS/FCF 미확보)';
  const bookProvenance='※ '+(s.book
