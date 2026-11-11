@@ -21,6 +21,8 @@ on:
   # No NAV/price/snapshot/ScriptProperties writes and no GAS deploy.
   # 2026-11-11 11:31 KST screen: 11:24:53 doPost ran 70.463s and completed.
   # Verify if transient 11:25:21 ACTIVE=1 has returned to 0 (GET only).
+  # 2026-11-11 12:17 KST: final post secondary NAV source recovery predeploy
+  # close + Writer Gate readback, still zero financial writes or deployment.
   push:
     branches: [main]
     paths: ['.github/workflows/issue860-once-close-status-readonly.yml']
