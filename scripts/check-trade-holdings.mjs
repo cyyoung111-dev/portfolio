@@ -394,4 +394,53 @@ if(viewContext.__donutModel().total!==5000)
   console.log('PASS #507 exact trade cost survives normal and pinned holdings sync; write gate unchanged');
 }
 
+// A nonempty impossible date is as unsafe as a missing date: trade order,
+// dividend entitlement and post-edit Snapshot reconstruction use its key.
+// Run production UI repair logic in memory; never touch the live ledger.
+{
+  const rows=[
+    {id:'valid-leap',date:'2024-02-29',qty:1},
+    {id:'valid-dotted',date:'2026.02.01',qty:2},
+    {id:'bad-day',date:'2026-02-30',qty:3},
+    {id:'bad-leap',date:'2025/02/29',qty:4},
+    {id:'missing',date:'',qty:5}
+  ];
+  const input={value:'2026-02-30'},toasts=[];
+  let writes=0,confirms=0;
+  const ctx=vm.createContext({
+    rawTrades:rows,
+    _portfolioTradeDateKey:context._portfolioTradeDateKey,
+    $el:id=>id==='tradeMissingDateInput'?input:null,
+    document:{querySelectorAll:()=>[]},
+    showToast:(msg,level)=>toasts.push({msg,level}),
+    confirm:()=>{confirms++;return true;},
+    _commitTrades:()=>{writes++;},
+    setTimeout,clearTimeout,Map
+  });
+  vm.runInContext(tradesViewSource
+    +'\nglobalThis.__checkDate=_tradeRepairDateIsValid;'
+    +'\nglobalThis.__missing=_getTradesMissingDate;'
+    +'\nglobalThis.__apply=tradeFillMissingDates;',ctx);
+  for(const d of ['2024-02-29','2026.02.01','2026/2/1','2026-02-28']){
+    if(!ctx.__checkDate(d))throw Error('Valid historical trade day incorrectly rejected '+d);
+  }
+  for(const d of ['','2025-02-29','2026-02-30','2026-13-01','2026-00-01',
+    '2026-01-00','2026-1-99','2026-11-31','not a date']){
+    if(ctx.__checkDate(d))throw Error('Impossible historical trade day was accepted '+d);
+  }
+  if(ctx.__missing().map(x=>x.id).join(',')!=='bad-day,bad-leap,missing')
+    throw Error('Both invalid existing trade dates and missing days must be offered for repair');
+  ctx.__apply();
+  if(writes!==0||rows[2].date!=='2026-02-30'||confirms!==0)
+    throw Error('Invalid bulk date unexpectedly mutated financial records');
+  input.value='2026-02-28';
+  ctx.__apply();
+  if(writes!==1||confirms!==1||rows.slice(2).some(x=>x.date!=='2026-02-28')
+    ||rows[0].date!=='2024-02-29'||rows[1].date!=='2026.02.01')
+    throw Error('Date repair did not preserve valid legacy trades');
+  if(ctx.__missing().length!==0)
+    throw Error('Date repair remained incomplete after valid calendar correction');
+  console.log('PASS #734 calendar-verified trade-date repair, leap years and zero writes on bad input');
+}
+
 console.log('✅ 거래 저장·전량 매도·마지막 거래 삭제의 보유현황 반영 검사 통과');

@@ -81,8 +81,21 @@ function _buildTradesSummaryHTML() {
     </div>`;
 }
 
+// Historical imports may contain a nonempty but impossible calendar day.
+ // Repair it using the existing ledger date normalizer, without changing
+ // otherwise valid legacy dotted/slashed dates or writing any record.
+function _tradeRepairDateIsValid(value) {
+  const day = _portfolioTradeDateKey(value);
+  if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const [year, month, date] = day.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, date));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === date;
+}
+
 function _getTradesMissingDate() {
-  return rawTrades.filter(t => t && !t.date);
+  return rawTrades.filter(t => t && !_tradeRepairDateIsValid(t.date));
 }
 
 function _buildTradeDateRepairHTML() {
@@ -93,13 +106,13 @@ function _buildTradeDateRepairHTML() {
     <div id="tradeDateRepair" style="background:var(--c-red-08);border:1px solid var(--c-red-30);border-radius:10px;padding:10px 12px;margin-bottom:10px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div>
-          <div style="font-size:.76rem;font-weight:700;color:var(--red-lt)">⚠️ 날짜 없는 거래 ${missing.length}건</div>
+          <div style="font-size:.76rem;font-weight:700;color:var(--red-lt)">⚠️ 날짜 누락·오류 거래 ${missing.length}건</div>
           <div style="font-size:.66rem;color:var(--muted);margin-top:2px">실현손익·스냅샷 원가 계산이 날짜순 정렬에 의존하므로 날짜를 보정해주세요.</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input type="date" id="tradeMissingDateInput" value="${_escapeHtml(defaultDate)}"
             style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem">
-          <button data-trade-action="select-missing-dates" class="btn-outline-sm">날짜없음 선택</button>
+          <button data-trade-action="select-missing-dates" class="btn-outline-sm">날짜 누락·오류 선택</button>
           <button data-trade-action="fill-missing-dates" class="btn-danger">날짜 일괄 지정</button>
         </div>
       </div>
@@ -203,7 +216,7 @@ function _buildTradesTableHTML(list) {
       : null;
     const pC = pnl === null ? '' : pnl >= 0 ? 'var(--green)' : 'var(--red)';
     const pS = pnl === null ? '' : pnl >= 0 ? '+' : '';
-    const noDate = !date;
+    const noDate = !_tradeRepairDateIsValid(date);
     const acctColor = ACCT_COLORS[acct] || 'var(--muted)';
     return `
       <tr data-trade-id="${tradeIdEsc}"${noDate ? ' data-trade-no-date="1"' : ''} style="border-bottom:1px solid var(--border);background:${noDate?'var(--c-red-04)':'transparent'};cursor:pointer">
@@ -228,7 +241,7 @@ function _buildTradesTableHTML(list) {
         </td>
         <td style="padding:8px 10px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums">${(t.qty||0).toLocaleString()}</td>
         <td class="col-hide-mobile" style="padding:8px 10px;text-align:center;font-size:.70rem;color:var(--muted);white-space:nowrap">
-          ${date ? _escapeHtml(date) : '<span style="color:var(--red-lt);font-size:.60rem">날짜없음</span>'}
+          ${!noDate ? _escapeHtml(date) : '<span style="color:var(--red-lt);font-size:.60rem">' + (date ? '날짜오류: ' + _escapeHtml(date) : '날짜없음') + '</span>'}
         </td>
         <td style="padding:8px 10px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums">
           ${price.toLocaleString()}
@@ -455,8 +468,8 @@ function tradeSelectMissingDateRows() {
 
 function tradeFillMissingDates() {
   const date = String($el('tradeMissingDateInput')?.value || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    showToast('지정할 날짜를 선택해주세요', 'warn');
+  if (!_tradeRepairDateIsValid(date)) {
+    showToast('실제 존재하는 날짜를 선택해주세요', 'warn');
     return;
   }
   const checkedIds = [...document.querySelectorAll('.trade-check:checked')]
@@ -472,12 +485,12 @@ function tradeFillMissingDates() {
     return;
   }
   if (targets.length > 1) {
-    const scope = checkedSet.size > 0 ? '선택한 날짜 없는 거래' : '모든 날짜 없는 거래';
+    const scope = checkedSet.size > 0 ? '선택한 날짜 누락·오류 거래' : '모든 날짜 누락·오류 거래';
     if (!confirm(`${scope} ${targets.length}건의 날짜를 ${date}로 일괄 지정할까요?`)) return;
   }
   targets.forEach(t => { t.date = date; });
   _commitTrades();
-  showToast(`날짜 없는 거래 ${targets.length}건에 ${date}를 지정했습니다`, 'ok');
+  showToast(`날짜 누락·오류 거래 ${targets.length}건에 ${date}를 지정했습니다`, 'ok');
 }
 
 function _updateTradeSelBar() {
