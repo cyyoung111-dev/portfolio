@@ -33,7 +33,7 @@
     "check:market-briefing-runtime": "node scripts/check-market-briefing-runtime.mjs",
     "check:market-briefing-runtime-loader": "node scripts/check-market-briefing-runtime-loader.mjs",
     "check:toss-current-price-pipeline": "node scripts/check-current-price-pipeline.mjs",
-    "check:price-polling": "node scripts/check-price-polling.mjs",
+    "check:price-polling": "node scripts/check-price-polling.mjs && node scripts/check-holiday-window-fallback.mjs",
     "check:market-safety": "node scripts/check-market-safety.mjs",
     "check:storage-migration": "node scripts/check-storage-migration.mjs",
     "check:reference-regression": "node scripts/check-reference-regression.mjs",
