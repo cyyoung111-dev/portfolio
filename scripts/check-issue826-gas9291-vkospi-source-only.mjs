@@ -5,10 +5,21 @@ import {gitBlobSha,CURRENT_INDEX_ENDPOINT,PROPOSED_DERIVATIVE_ENDPOINT}
  from './compose-gas-vkospi-derivative-proposal.mjs';
 import {composeIssue826Gas9291VkospiSourceOnly,ISSUE826_REVIEWED_GAS_9291_BLOB}
  from './compose-issue826-gas9291-vkospi-source-only.mjs';
+import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.mjs';
 
-const main=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const oldBase=fs.readFileSync('src/gas/apps_script.gs','utf8');
+assert.equal(gitBlobSha(oldBase),'954fd4aeae767ddac0cb161d3a81003b5b699d1c');
+assert.match(oldBase.slice(0,600),/Google Apps Script  v9\.285/);
+assert.notEqual(gitBlobSha(oldBase),ISSUE826_REVIEWED_GAS_9291_BLOB,
+ 'old v9.285 source MUST NOT masquerade as published v9.291');
+assert.throws(()=>composeIssue826Gas9291VkospiSourceOnly(oldBase),
+ /ISSUE826_GAS_9291_SOURCE_DRIFT/);
+const release=composeIssue860Gas9291Preview();
+const main=release.source;
+assert.equal(release.manifest.candidateVersion,'9.291');
+assert.equal(release.manifest.sourceGitBlob,ISSUE826_REVIEWED_GAS_9291_BLOB);
 assert.equal(gitBlobSha(main),ISSUE826_REVIEWED_GAS_9291_BLOB,
- 'source must be the actual reviewed v9.291 Git blob');
+ 'source must be the reviewed generated v9.291 release, not base file');
 const result=composeIssue826Gas9291VkospiSourceOnly(main);
 assert.equal(result.deployable,false);
 assert.equal(result.sourceOnly,true);
@@ -92,4 +103,4 @@ assert.equal(denied.points,undefined);
 assert.match(denied.error||'',/KRX AUTH_KEY/);
 assert.deepEqual(denied.calls.map(x=>x.authRole),['primary','backup']);
 // No test has touched a live GAS/Sheet/KRX endpoint.
-console.log('ISSUE826_GAS_9291_VKOSPI_SOURCE_ONLY_PASS exact SHA, derivative endpoint, v3 cache, 6 fixtures, zero live writes');
+console.log('ISSUE826_GAS_9291_VKOSPI_SOURCE_ONLY_PASS exact SHA, derivative endpoint, v3 cache, 6 fixtures, zero live writes; old 9.285 base rejected');
