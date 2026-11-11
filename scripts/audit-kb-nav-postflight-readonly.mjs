@@ -81,6 +81,22 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
  } else {
    verdict='NAV_AND_CLOSE_VERIFIED';pass=true;
  }
+ // The NAV collection job must not fail merely because its independent
+ // GAS CLOSE is incomplete. Preserve 'pass' as the stricter full
+ // NAV-and-CLOSE finality verdict for reporting; this separate result
+ // verifies only the published source vs exact persisted NAV and valuation.
+ // It never modifies CLOSE, retries a writer, or invents a publication.
+ const navVerified=officiallyPublished&&latestPublishedDate===referenceDate
+   &&storedNavConfirmed&&officialNavMatched===true&&derivedConfirmed;
+ const publicationLagDays=latestPublishedDate==='-'?Infinity
+   :(Date.parse(referenceDate+'T00:00:00Z')
+     -Date.parse(latestPublishedDate+'T00:00:00Z'))/86400000;
+ const navAwaitingPublication=!officiallyPublished&&officialRows.length>0
+   &&publicationLagDays>0&&publicationLagDays<=7;
+ const navWorkflowStatus=navVerified?'NAV_DATA_VERIFIED'
+   :navAwaitingPublication?'OFFICIAL_NAV_AWAITING_PUBLICATION'
+   :'NAV_INTEGRITY_UNVERIFIED';
+ const navWorkflowPass=navVerified||navAwaitingPublication;
  return {kind:'KB_NAV_CLOSE_POSTFLIGHT_READ_ONLY',asOfKst:today,
    closeDate:date,officialReferenceDate:referenceDate,latestPublishedDate,officiallyPublished,
    storedNavConfirmed,derivedConfirmed,officialNavMatched:officialNavMatched===true,
@@ -89,7 +105,8 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
    expectedSnapshotDate:close.expectedSnapshotDate||'-',
    runStale:close.runStale,snapshotStale:close.snapshotStale,
    closeDateVerified,priceOk:close.priceOk,fundOk:close.fundOk,closeComplete,
-   verdict,pass,financialWrites:0,gasDeployments:0,telegramSends:0};
+   verdict,pass,navWorkflowStatus,navWorkflowPass,
+   financialWrites:0,gasDeployments:0,telegramSends:0};
 }
 
 export async function readKbValuation({url,token,from,to,fetchImpl=fetch}) {
@@ -189,13 +206,17 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
        +' · NAV='+result.storedNavConfirmed
        +' · exactOfficialNAV='+result.officialNavMatched
        +' · derived='+result.derivedConfirmed
+       +' · NAV-only='+result.navWorkflowStatus
        +' · close='+result.closeState
        +' · stage='+result.fundCloseCheckpointEvidence.closeStage
        +' · fundAttempt='+result.fundCloseCheckpointEvidence.fundAttemptState
        +' · fundFailure='+result.fundCloseCheckpointEvidence.fundFailureClass
        +' · lastFundWork='+result.fundCloseCheckpointEvidence.fundWorkStage+'\n');
    }
-   if(!result.pass)process.exitCode=1;
+   // Close finality remains separately INCOMPLETE and visible in the
+   // postflight verdict. Only NAV integrity/unpublished status determines
+   // whether this optional audit fails the NAV collector workflow.
+   if(!result.navWorkflowPass)process.exitCode=1;
  }catch(error){
    const code=String(error?.message||'');
    console.error(/^KB_POSTFLIGHT_[A-Z_]+$/.test(code)
