@@ -23,6 +23,10 @@ async function read(payload=base){
 }
 const result=await read();
 assert.equal(result.recordedIdle,true);
+const live291=await read({...base,gasVersion:'9.291'});
+assert.equal(live291.gasVersion,'9.291','Published 9.291 must be accepted');
+assert.equal(live291.recordedIdle,true);
+assert.equal(live291.financeWrites,0);
 assert.equal(result.readyForGAS9290Deploy,false);
 assert.equal(result.processTerminalVerified,false);
 assert.equal(result.financialWrites,undefined);
@@ -30,6 +34,8 @@ assert.equal(result.financeWrites,0);
 assert(!JSON.stringify(result).includes(token));
 for(const payload of [
  {...base,gasVersion:'9.288'},
+ {...base,gasVersion:'9.290'},
+ {...base,gasVersion:'9.292'},
  {...base,writerGate:{...base.writerGate,mode:'UNKNOWN'}},
  {...base,writerGate:{...base.writerGate,activeCount:-1}},
  {...base,writerGate:{...base.writerGate,repairAuthorized:true}},

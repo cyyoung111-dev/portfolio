@@ -57,6 +57,17 @@ assert.equal(afterPerf289.gasVersion,'9.289',
  'Known deployed v9.289 requires the same sanitized persisted-status diagnostic');
 assert.equal(afterPerf289.requestCount,1);
 assert.equal(afterPerf289.financialWrites,0);
+const afterCurrent291=await readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.291',
+  automation:{...data.automation,gasVersion:'9.291'}})
+})});
+assert.equal(afterCurrent291.gasVersion,'9.291','Published 9.291 must pass sanitized status audit');
+assert.equal(afterCurrent291.requestCount,1);
+assert.equal(afterCurrent291.financialWrites,0);
+await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.292',
+  automation:{...data.automation,gasVersion:'9.292'}})
+})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed next GAS release must be rejected');
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.290',
   automation:{...data.automation,gasVersion:'9.290'}})
