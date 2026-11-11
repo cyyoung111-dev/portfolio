@@ -67,9 +67,44 @@ export async function verifyGas9291PostDeploy({url,token,fetchImpl=fetch}={}){
   apiReads:3
  };
 }
+// A new published version may temporarily serve one old warm execution
+// even after the deployment API and an earlier readback verified 9.291.
+// Re-read only: no GAS deploy, no price/NAV writer, no cache mutation.
+export async function verifyGas9291PostDeployWithRetry({
+ verify,delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),maxChecks=4
+}={}){
+ if(typeof verify!=='function'||typeof delay!=='function'||
+    !Number.isSafeInteger(maxChecks)||maxChecks<1||maxChecks>4)
+  err('RETRY_CONTRACT_INVALID');
+ const retriable=new Set([
+  'ISSUE860_9291_POSTDEPLOY_PREVIOUS_VERSION_WARM',
+  'ISSUE860_9291_POSTDEPLOY_NETWORK_OR_TIMEOUT',
+  'ISSUE860_9291_POSTDEPLOY_HTTP_UNVERIFIED'
+ ]);
+ for(let attempt=1;attempt<=maxChecks;attempt++){
+  try{
+   const result=await verify();
+   if(result?.status!=='VERIFIED'||result.deployedVersion!=='9.291'||
+      result.tradeLedgerVersion!==2||result.writerGate!=='OPEN'||
+      result.recordedActive!==0||result.financialWrites!==0)
+    err('RETRY_RESULT_INVALID');
+   return {...result,readbackAttempts:attempt,onlyReadOperations:true};
+  }catch(e){
+   const reason=String(e?.message||'');
+   if(!retriable.has(reason)||attempt===maxChecks)throw e;
+   console.log(JSON.stringify({kind:'ISSUE860_9291_READBACK_RETRY',
+    attempt,maxChecks,reason:reason.replace('ISSUE860_9291_POSTDEPLOY_',''),
+    financialWrites:0,deployments:0}));
+   await delay(attempt*3000);
+  }
+ }
+ err('RETRY_RESULT_INVALID');
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
- try{console.log(JSON.stringify(await verifyGas9291PostDeploy({
-  url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+ try{console.log(JSON.stringify(await verifyGas9291PostDeployWithRetry({
+  verify:()=>verifyGas9291PostDeploy({
+   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+  })
  })));}
  catch(e){let m=String(e?.message||'');
   console.error(/^ISSUE860_9291_POSTDEPLOY_[A-Z_]+$/.test(m)?m:'ISSUE860_9291_POSTDEPLOY_UNVERIFIED');
