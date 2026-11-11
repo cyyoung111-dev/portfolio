@@ -13,6 +13,9 @@ on:
   # 2026-11-10 post v9.289 publish: exactly one sanitized status GET, no trigger/writer changes.
   # 2026-11-10 22:22 KST: on-demand single read-only persisted finality check after watchdog.
   # 2026-11-10 23:56 KST: final post-close independent persisted finality verification, zero writes.
+  # 2026-11-11 10:38 KST: exact-two stale timeout receipts pruned via owner
+  # with rollback backup. Independently read Gate ACTIVE and close persistence
+  # exactly once each, without releasing/re-running any finance writer.
   push:
     branches: [main]
     paths: ['.github/workflows/issue860-once-close-status-readonly.yml']
@@ -34,6 +37,13 @@ jobs:
           node-version: '24'
       - name: Prove one-shot sanitized diagnostic contract offline
         run: node scripts/check-issue860-close-single-status-readonly.mjs
+      - name: Verify live Writer Gate GET contract offline (no writes)
+        run: node scripts/check-issue860-writer-gate-v9289-readonly.mjs
+      - name: Read current Writer Gate active count after owner repair (GET only)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue860-writer-gate-v9289-readonly.mjs
       - name: Read exactly one stored GAS close status (no workbook inventory)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
