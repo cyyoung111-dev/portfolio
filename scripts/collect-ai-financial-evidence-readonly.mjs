@@ -17,7 +17,11 @@ const verifiedValueCount=source=>{
  const snapshots=Array.isArray(source?.snapshots)?source.snapshots:[];
  const statuses=Array.isArray(source?.statuses)?source.statuses:[];
  return statuses.filter(x=>x?.status==='VERIFIED_FY_BPS_PBR'
+  &&statuses.filter(y=>y?.symbol===x.symbol).length===1
+  &&snapshots.filter(v=>v?.symbol===x.symbol).length===1
   &&snapshots.some(v=>v?.symbol===x.symbol
+   &&v.source==='SEC_10K_US_GAAP'
+   &&v.priceSource==='YAHOO_DAILY_REFERENCE'
    &&Number.isFinite(v.pbrTimes)&&v.pbrTimes>0)).length;
 };
 const hasTransientPbrGap=source=>
