@@ -25,6 +25,8 @@ on:
   # close + Writer Gate readback, still zero financial writes or deployment.
   # 2026-11-11 after run 42961887690: inspect the published rollback version
   # and writer ACTIVE count following rollback-verified AUTOMATION_DIAG_NETWORK_FAILED.
+  # 2026-11-11 KST: read-only actual published v9.291 after exact
+  # reader release allowlist correction. No financial write or GAS deployment.
   # 2026-11-11 13:55 rollback v9.291 after AUTOMATION_DIAG_NETWORK_FAILED:
   # independent post-rollback Writer Gate and published automation readback only.
   push:
@@ -50,12 +52,12 @@ jobs:
         run: node scripts/check-issue860-close-single-status-readonly.mjs
       - name: Verify live Writer Gate GET contract offline (no writes)
         run: node scripts/check-issue860-writer-gate-v9289-readonly.mjs
-      - name: Read current Writer Gate active count after owner repair (GET only)
+      - name: Read current published Writer Gate (one GET, no writes)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue860-writer-gate-v9289-readonly.mjs
-      - name: Read exactly one stored GAS close status (no workbook inventory)
+      - name: Read current v9.291 stored close status (one POST, no writes)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
