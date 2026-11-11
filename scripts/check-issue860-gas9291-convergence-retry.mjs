@@ -16,6 +16,10 @@ assert.equal(reads,2);
 assert.deepEqual(pauses,[2000]);
 assert.equal(ok.attempts,2);
 assert.equal(ok.result.closeFinality,'NOT_CHECKED_BY_LIGHTWEIGHT_PROBE');
+const warm=await verifyGas9291LightweightConvergence({
+ verify:async()=>{if(++reads===3)throw Error('ISSUE860_9291_POSTDEPLOY_PREVIOUS_VERSION_WARM');return clean;},
+ pause:async()=>{},maxChecks:2});
+assert.equal(warm.attempts,2);
 let wrongReads=0,wrongWaits=0;
 await assert.rejects(()=>verifyGas9291LightweightConvergence({
  verify:async()=>{wrongReads++;throw Error('ISSUE860_9291_POSTDEPLOY_WEBAPP_VERSION_MISMATCH');},
