@@ -1,43 +1,23 @@
+# Legacy cache-busting process kept for an optional human-readable audit.
+# Previously this ran on EVERY main push and attempted to rewrite root
+# index.html. That file only redirects to src/web/index.html and has no local
+# script src references, so each run did zero useful cache work and risked
+# creating a new main commit -> fresh CI/Pages/GAS eligibility cycle.
+# The actual PWA versioned assets and service-worker cache names are checked
+# in src/web/index.html + src/web/sw.js by full quality-check on every PR.
 name: Cache Busting
-
 on:
-  push:
-    branches:
-      - main          # main 브랜치에 push할 때 자동 실행
-                      # 브랜치명이 다르면 여기를 수정하세요 (예: master)
-
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  cache-bust:
+  cache-version-readonly:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      # 현재 날짜+시간을 버전으로 사용 (KST 기준)
-      - name: Set version string
-        id: version
-        run: echo "ver=$(TZ=Asia/Seoul date +'%Y%m%d%H%M')" >> $GITHUB_OUTPUT
-
-      # index.html의 로컬 .js 스크립트에 ?v=버전 자동 삽입
-      # CDN(https://)은 건드리지 않음
-      - name: Inject version query
-        run: |
-          VER="${{ steps.version.outputs.ver }}"
-          # 기존 ?v=... 제거 후 새 버전 삽입
-          sed -i \
-            -e 's|\.js?v=[^"]*|.js|g' \
-            -e '/src="https:\/\//! s|\.js"|.js?v='"$VER"'"|g' \
-            index.html
-          echo "✅ 버전 적용: $VER"
-          grep "?v=" index.html | head -5
-
-      # 변경된 index.html을 커밋 & push
-      - name: Commit and push
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          # 변경사항이 없으면 커밋 스킵
-          git diff --cached --quiet || git commit -m "chore: cache bust ?v=${{ steps.version.outputs.ver }}"
-          git push
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify PWA cache version contract without committing
+        run: node scripts/check-web-structure.mjs
