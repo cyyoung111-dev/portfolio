@@ -21,7 +21,9 @@ assert.match(bench,/point\.source\|\|data\?\.seriesMeta/);
 assert.match(chart,/sourceSet = \[\.\.\.new Set/);
 assert.match(chart,/latestRaw\?\.value/);
 assert.match(chart,/_escapeHtml\(line\.sourceLabel\)/);
-assert.match(chart,/실제 조회값/);
+assert.match(chart,/class="hist-benchmark-source"/,'actual price/provider retained in expanded details');
+assert.match(chart,/line\.latestPrice\.toLocaleString/,'source raw close still formatted');
+assert.match(chart,/line\.latestDate/,'actual source date retained');
 console.log('NH diagnostic numeric and benchmark origin PASS');
 
 
