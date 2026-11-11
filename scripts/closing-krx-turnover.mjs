@@ -71,7 +71,7 @@ export function formatKrxTurnover(date,rows=[]){
  const verified=verifyOfficialKrxTurnover(date,rows);
  return Object.keys(MARKET).map(market=>{
   const row=verified.find(x=>x.market===market);
-  return market+' 지수 구성종목 거래대금: '(row?(row.valueKrw/1000000000000).toFixed(2)
+  return market+' 지수 구성종목 거래대금: '+(row?(row.valueKrw/1000000000000).toFixed(2)
     +'조원 ['+date+' · KRX]':'공식 당일 자료 미확보');
  }).join('\n');
 }
