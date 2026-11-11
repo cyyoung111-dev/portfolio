@@ -139,7 +139,8 @@ assert.deepEqual(
   '일별 누락은 휴장일과 마감 전 당일을 제외해야 합니다.',
 );
 
-assert.match(viewSource, /metric\('매입원가'/, '가장 높은 날·가장 낮은 날 카드에는 매입원가가 있어야 합니다.');
+assert.match(viewSource, /hist-extreme-cost[^\n]*매입원가/, '최고·최저 평가액 카드 기본 영역에 매입원가가 보여야 합니다.');
+assert.doesNotMatch(viewSource, /metric\('매입원가'/, '상세 영역에서 매입원가를 중복 표시하지 않습니다.');
 assert.match(viewSource, /metric\('수익률'/, '가장 높은 날·가장 낮은 날 카드에는 수익률이 있어야 합니다.');
 assert.match(viewSource, /\(item\.evalAmt - costAmt\) \/ costAmt \* 100/, '요약 카드 수익률은 평가금액과 매입원가로 계산해야 합니다.');
 assert.match(viewSource, /수익률 MDD/, '나의 MDD는 평가금액 최고·최저와 구분되는 수익률 지표임을 표시해야 합니다.');
