@@ -2,6 +2,8 @@ name: issue860-gas9291-predeploy-dryrun
 on:
   workflow_dispatch:
   # One-time autonomous non-writing rehearsal when this workflow is merged.
+  # 2026-11-11: post #1141/#1142 repaired release verifier rehearsal;
+  # verified previous v9.289; no GAS content, Sheet, or deployment writes.
   push:
     branches: [main]
     paths:
