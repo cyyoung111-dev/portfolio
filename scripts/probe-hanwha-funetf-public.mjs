@@ -17,7 +17,7 @@ function kstDay(now) {
 function shift(day,n) {
  return new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
 }
-export async function probeHanwhaFunetf({now=new Date(),fetchImpl=fetch}={}) {
+export async function readHanwhaFunetf({now=new Date(),fetchImpl=fetch}={}) {
  const today=kstDay(now),from=shift(today,-14);
  if(!dateRe.test(today)||!dateRe.test(from))throw Error('HANWHA_FUNETF_DATE');
  const endpoint=new URL(sourceUrl);
@@ -44,12 +44,16 @@ export async function probeHanwhaFunetf({now=new Date(),fetchImpl=fetch}={}) {
  catch{throw Error('HANWHA_FUNETF_SCHEMA_OR_RANGE_UNVERIFIED');}
  const eligible=published.filter(r=>r.date<today);
  if(!eligible.length)throw Error('HANWHA_FUNETF_PRIOR_PUBLICATION_MISSING');
+ return {today,eligible,sameDayExcluded:published.length-eligible.length};
+}
+export async function probeHanwhaFunetf({now=new Date(),fetchImpl=fetch}={}) {
+ const {today,eligible,sameDayExcluded}=await readHanwhaFunetf({now,fetchImpl});
  // For now, do not write and do not expose prices. The production primary
  // can be supplemented only after exact class+overlapping-date/value proof.
  return {kind:'HANWHA_FUNETF_SECONDARY_SOURCE_READ_ONLY',
   code:'F00001',fundClass:'C-RPe',fundId:HANWHA_CRPE_CLASS_ID,
   asOfKst:today,latestEligibleDate:eligible.at(-1).date,
-  eligibleRows:eligible.length,sameDayExcluded:published.length-eligible.length,
+  eligibleRows:eligible.length,sameDayExcluded,
   matchToPersistedOfficialNavVerified:false,importAuthorized:false,
   financialWrites:0,gasCalls:0,gasDeployments:0};
 }
