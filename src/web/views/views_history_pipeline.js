@@ -138,7 +138,7 @@ async function loadHistoryChart(retryAttempt = 0) {
       _kstTodayStr()
     );
     const historyStartedAt = performance.now();
-    const data = await _historyRequestJson('getHistorySource', { from: fromStr }, { timeoutMs: 45000, retry: 0, preserveError: true });
+    const data = await _historyRequestJson('getHistorySource', { from: fromStr }, { timeoutMs: 45000, retry: 1, delayMs: 350, preserveError: true });
     const getHistoryMs = performance.now() - historyStartedAt;
     if (requestId !== __histState.loadRequestId) return;
     if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');
@@ -298,8 +298,11 @@ async function loadHistoryChart(retryAttempt = 0) {
 
   } catch(e) {
     if (requestId === __histState.loadRequestId) {
-      if (retryAttempt || e?.errorCode === 'REVISION_CHANGED') _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl);
-      _setHistoryStatus(statusEl, 'error', { message: e.message });
+      // Preserve the last verified graph on transient read failure, including the first query.
+      // Never present stale data as a successful refresh.
+      const restored = _restoreSuccessfulHistoryView();
+      if (!restored && (retryAttempt || e?.errorCode === 'REVISION_CHANGED')) _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl);
+      _setHistoryStatus(statusEl, 'error', { message: (e?.message || '조회 실패') + (restored ? ' · 마지막 정상 조회 결과를 유지합니다.' : '') });
     }
   } finally {
     if (requestId === __histState.loadRequestId && queryBtn) {
