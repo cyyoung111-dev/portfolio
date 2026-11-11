@@ -14,7 +14,8 @@ function validDate(s){
 export function assertReleaseSnapshotProof(payload,date){
  if(!validDate(date)||payload?.status!=='ok'||!Array.isArray(payload.diagnostics)||
    payload.diagnostics.length!==1||!payload.diagnostic||
-   payload.diagnostic!==payload.diagnostics[0])
+   payload.diagnostic.date!==payload.diagnostics[0].date||
+   payload.diagnostic.status!==payload.diagnostics[0].status)
   throw Error('ISSUE860_9290_GATE_SNAPSHOT_PROOF_SCHEMA');
  const d=payload.diagnostic;
  if(d.date!==date||d.status!=='VALID'||
