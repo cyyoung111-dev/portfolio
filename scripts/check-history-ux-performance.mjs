@@ -41,6 +41,12 @@ assert.ok(fullUpdate.includes('Delay the expensive full view repaint'));
 assert.ok(fullUpdate.includes('let results = await fetchFromGsheet(targetDate, { forceFresh: true, persist: true })'));
 assert.match(fullUpdate,/if \(results && Object\.keys\(results\)\.length > 0\)[\s\S]*?refreshAll\(\)/);
 assert.match(fullUpdate,/가격 조회 결과 없음[\s\S]*?refreshAll\(\)/);
-const successPath=fullUpdate.slice(fullUpdate.indexOf('// Delay the expensive'),fullUpdate.indexOf('let results = await fetchFromGsheet'));
-assert.doesNotMatch(successPath,/refreshAll\(\)[\s\S]*?\}\s*(?:if|setStatusLabel)/);
+// The empty-data early return intentionally refreshes the view; the normal
+// post-restore path must not repaint before the price network request.
+const successPath=fullUpdate.slice(
+  fullUpdate.indexOf("setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + (settingsLoaded"),
+  fullUpdate.indexOf('let results = await fetchFromGsheet')
+);
+assert.ok(successPath.includes('GAS 데이터 확인 완료'));
+assert.doesNotMatch(successPath,/refreshAll\(\)/);
 console.log('HISTORY_UX_PERFORMANCE_CONTRACT_OK: MDD trough, collapsed details, one success redraw');
