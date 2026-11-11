@@ -25,3 +25,34 @@ html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padd
 .hist-extreme-metric span{display:block;font-size:.58rem;color:var(--muted);white-space:nowrap}
 .hist-extreme-metric b{display:block;overflow:hidden;font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:720px){.hist-extreme-grid{grid-template-columns:1fr}.hist-extreme-card{align-items:flex-start;flex-direction:column;gap:7px}.hist-extreme-values{grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.hist-extreme-metric b{overflow:visible;white-space:normal;word-break:keep-all}}
+
+/* Portfolio history: reduce above-the-fold clutter without hiding audit details. */
+.hist-filter-details,.hist-detail-panel,.hist-benchmark-details,.hist-source-coverage{border:1px solid var(--border);border-radius:9px;background:var(--s2);min-width:0}
+.hist-filter-details{display:inline-block;vertical-align:top}
+.hist-filter-details>summary,.hist-detail-panel>summary,.hist-benchmark-details>summary,.hist-source-coverage>summary{padding:9px 12px;cursor:pointer;font-size:.70rem;font-weight:700;color:var(--text)}
+.hist-filter-details[open]>summary,.hist-benchmark-details[open]>summary,.hist-source-coverage[open]>summary{border-bottom:1px solid var(--border)}
+.hist-filter-details #histBenchmarkMulti{margin:0 8px 8px}
+.hist-admin-details button{margin:0 8px 8px}
+.hist-detail-panel{margin:0 0 10px}
+.hist-detail-panel-body{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 12px 10px}
+.hist-source-coverage{margin:0 0 10px}
+.hist-source-coverage-body{padding:9px 12px;font-size:.67rem;line-height:1.55;color:var(--muted)}
+.hist-kpi-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px;font-variant-numeric:tabular-nums}
+.hist-kpi-grid>div{min-width:0;background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:10px 12px}
+.hist-kpi-label{font-size:.62rem;color:var(--muted)}
+.hist-kpi-value{font-size:.91rem;font-weight:750;line-height:1.35;margin:3px 0}
+.hist-mdd-value{font-size:.82rem;font-weight:750;color:var(--red-lt)}
+.hist-kpi-note{font-size:.61rem;color:var(--muted);margin-top:3px}
+.hist-benchmark-details{margin-top:9px}
+.hist-benchmark-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:9px}
+.hist-extreme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.hist-extreme-mdd{grid-column:1/-1;flex-wrap:wrap}
+.hist-extreme-mdd .hist-extreme-values{grid-template-columns:repeat(4,minmax(0,1fr))}
+.hist-extreme-explain{display:block;width:100%;font-size:.59rem;color:var(--muted)}
+@media(max-width:720px){
+ .hist-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .hist-kpi-grid .hist-mdd-key-card{grid-column:1/-1}
+ .hist-extreme-grid{grid-template-columns:1fr}
+ .hist-extreme-mdd .hist-extreme-values{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .hist-benchmark-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
