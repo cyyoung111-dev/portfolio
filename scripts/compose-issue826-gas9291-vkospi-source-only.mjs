@@ -1,12 +1,15 @@
-// #826: source-only proposal for reviewed, *currently published* GAS v9.291.
+// #826: source-only patch against the exact *generated release* GAS v9.291.
 // This is not a release. In particular, it does not update the GAS version,
 // create a release pin, call Apps Script, read credentials or write any data.
 // The future guarded v9.292 release must separately integrate this patch.
 import {gitBlobSha,CURRENT_INDEX_ENDPOINT,PROPOSED_DERIVATIVE_ENDPOINT}
  from './compose-gas-vkospi-derivative-proposal.mjs';
+import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.mjs';
 
-export const ISSUE826_REVIEWED_GAS_9291_BLOB='954fd4aeae767ddac0cb161d3a81003b5b699d1c';
-export function composeIssue826Gas9291VkospiSourceOnly(source){
+// src/gas/apps_script.gs is the v9.285 base; it is NOT this release.
+// The v9.291 source is generated from the reviewed v9.290 + watchdog chain.
+export const ISSUE826_REVIEWED_GAS_9291_BLOB='e9311667d513c1e43a8ed1af326a3ecdb9d1ca70';
+export function composeIssue826Gas9291VkospiSourceOnly(source=composeIssue860Gas9291Preview().source){
  if(typeof source!=='string'||gitBlobSha(source)!==ISSUE826_REVIEWED_GAS_9291_BLOB)
   throw Error('ISSUE826_GAS_9291_SOURCE_DRIFT');
  const start=source.indexOf('function _readVkospiPointsFromKrx(');
