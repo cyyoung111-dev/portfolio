@@ -157,8 +157,7 @@ assert.match(yahooSix,/Yahoo 주가 사용 시 비공식 참고 PBR만/);
 for(const unsafe of [
  yahooClose.map(x=>({...x,date:'2026-11-05'})),
  yahooClose.map(x=>({...x,source:'NAVER_LIVE_NXT'})),
- yahooClose.map(x=>({...x,source:'Yahoo Finance 일봉'})),
- [...yahooClose,yahooClose[0]]
+ yahooClose.map(x=>({...x,source:'Yahoo Finance 일봉'}))
 ]){
  const rows=evaluateSemiconductorCompanyViews({date,period:'close',
   stocks:unsafe,financialEvidence:financial});
@@ -184,6 +183,12 @@ const confirmedClose=evaluateSemiconductorCompanyViews({
  date,period:'close',stocks:closingPrices,financialEvidence:pricedClosing
 });
 assert.deepEqual(confirmedClose.map(r=>r.book?.pbr),[1.5,2]);
+const duplicateYahoo=evaluateSemiconductorCompanyViews({date,period:'close',
+ stocks:[...yahooClose,yahooClose[0]],financialEvidence:financial});
+assert.equal(duplicateYahoo[0].book,null,
+ 'duplicate Samsung price must fail even for nonofficial Yahoo reference');
+assert.equal(duplicateYahoo[1].book?.pbr,2,
+ 'duplicate Samsung must not erase independent SK hynix DART evidence');
 // A prepriced DART PBR requires a matching SAME-DAY independent reference
 // close, not an earlier mark or a materially different NXT bar.
 const yahooPrepriced=evaluateSemiconductorCompanyViews({date,period:'close',
