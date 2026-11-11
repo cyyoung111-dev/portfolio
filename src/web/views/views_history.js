@@ -237,7 +237,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     : '').join('');
 
   wrap.innerHTML = `
-    <svg width="${W}" height="${H}" style="display:block;max-width:100%;font-variant-numeric:tabular-nums">
+    <svg class="hist-chart-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="선택 기간 손익 및 비교지수 변화 추이" style="display:block;max-width:100%;font-variant-numeric:tabular-nums">
       <defs>
         <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="${lastPt.pnl >= 0 ? '#22c55e' : '#ef4444'}" stop-opacity="0.35"/>
@@ -259,46 +259,36 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       ${benchLineSvg}
       <!-- 마지막 포인트 dot -->
       ${!_isVerifiedHistoryPoint(lastPt) ? '' : `<circle data-history-action="marker-date" data-date="${_escapeHtml(lastPt.rawDate)}" cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="6" fill="${pnlColor}" stroke="var(--s1)" stroke-width="2" style="cursor:pointer"><title>${_escapeHtml(lastPt.rawDate)} · 손익 ${_escapeHtml(_fmtKrw(lastPt.pnl))} · 최신 저장 스냅샷 (선택하여 상세 보기)</title></circle>`}
-      <!-- 범례 -->
-      <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
-      <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
-      ${hasBench ? benchLines.map((line, i) => {
-        const sx = PAD.left + 72 + i * 100;
-        return `<line x1="${sx}" y1="${PAD.top + 10}" x2="${sx + 14}" y2="${PAD.top + 10}" stroke="${line.color}" stroke-width="2"${line.dash ? ` stroke-dasharray="${line.dash}"` : ''}/>
-      <text x="${sx + 18}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${line.chartDisplayType}</text>`;
-      }).join('') : ''}
+      <!-- 지수 범례는 그래프 하단의 반응형 칩에서 표시합니다. -->
     </svg>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.68rem">
-      <span title="현금흐름 반영 MDD 구간: ${_escapeHtml(portfolioMdd.troughDate ? `${portfolioMdd.peakDate || '-'} → ${portfolioMdd.troughDate}` : '선택 기간 내 하락 없음')}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
-        <span style="width:8px;height:8px;border-radius:999px;background:${pnlColor}"></span>
-        <span style="color:var(--muted)">나의 손익</span>
-        <span style="color:${portfolioDeltaColor};font-weight:700">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</span>
-
+    <div class="hist-legend-list" aria-label="선택한 비교지수 수익률">
+      <span class="hist-legend-chip" title="현금흐름 반영 MDD 구간: ${_escapeHtml(portfolioMdd.troughDate ? `${portfolioMdd.peakDate || '-'} → ${portfolioMdd.troughDate}` : '선택 기간 내 하락 없음')}">
+        <span class="hist-legend-mark hist-legend-mark-portfolio" style="--hist-accent:${pnlColor}"></span>
+        <span class="hist-legend-label">나의 손익</span>
+        <strong style="color:${portfolioDeltaColor}">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</strong>
       </span>
-      ${hasBench ? `
-      ${benchLines.map(line => {
+      ${hasBench ? benchLines.map(line => {
         const last = line.pts[line.pts.length - 1];
         const delta = last ? (last.idx - 100) : 0;
         const mddTitle = line.mdd?.troughDate
-          ? `${line.mdd.peakDate || '-'} → ${line.mdd.troughDate}`
-          : '선택 기간 내 하락 없음';
-        return `<span title="MDD 구간: ${_escapeHtml(mddTitle)}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
-          <span style="width:14px;border-top:2px ${line.dash ? 'dashed' : 'solid'} ${line.color}"></span>
-          <span style="color:var(--muted)">${line.displayType}</span>
-          <span style="color:${line.color};font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>
-
+          ? `${line.mdd.peakDate || '-'} → ${line.mdd.troughDate}` : '선택 기간 내 하락 없음';
+        return `<span class="hist-legend-chip" title="MDD 구간: ${_escapeHtml(mddTitle)}">
+          <span class="hist-legend-mark ${line.dash ? 'is-dashed' : ''}" style="--hist-accent:${line.color}"></span>
+          <span class="hist-legend-label">${_escapeHtml(line.displayType)}</span>
+          <strong style="color:${line.color}">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</strong>
         </span>`;
-      }).join('')}` : ''}
+      }).join('') : ''}
     </div>
     <div class="hist-kpi-grid">
-      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">현재 손익</div>
-        <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${pSign(lastPt.pnl)}${_fmtKrw(lastPt.pnl)}</div>
+      <div class="hist-kpi-card">
+        <div class="hist-kpi-label">현재 손익</div>
+        <strong class="hist-kpi-number" style="color:${pnlColor}">${pSign(lastPt.pnl)}${_fmtKrw(lastPt.pnl)}</strong>
+        <div class="hist-kpi-caption">최신 평가 기준</div>
       </div>
-      <div title="평가금액÷거래기준 매입원가로 만든 수익률 지수의 고점 대비 최대 하락률" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">나의 손익 변화 <span title="매수·매도 순현금흐름을 제외한 기간수익률">ⓘ</span></div>
-        <div style="font-size:.88rem;font-weight:700;color:${portfolioDeltaColor}">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</div>
-        <div style="font-size:.61rem;color:var(--muted);margin-top:3px">현금흐름 보정 기간수익률</div>
+      <div class="hist-kpi-card" title="매수·매도 순현금흐름을 제외한 기간수익률">
+        <div class="hist-kpi-label">나의 손익 변화 <span title="매수·매도 순현금흐름을 제외한 기간수익률">ⓘ</span></div>
+        <strong class="hist-kpi-number" style="color:${portfolioDeltaColor}">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</strong>
+        <div class="hist-kpi-caption">현금흐름 보정 기간수익률</div>
       </div>
       <div class="hist-mdd-key-card" title="현금흐름을 보정한 일별 수익률 지수의 고점 대비 최대 하락률">
         <div class="hist-mdd-head"><span class="hist-kpi-label">최대 낙폭 · MDD</span><strong class="hist-mdd-value">${portfolioMdd.pct.toFixed(1)}%</strong></div>
@@ -307,25 +297,35 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
           <span>고점 ${portfolioMdd.peakDate ? _fmtHistDateCompact(portfolioMdd.peakDate) : '-'}</span>
         </div>
         <details class="hist-mdd-more">
-          <summary>상세</summary>
+          <summary>계산 기준</summary>
           <div class="hist-mdd-detail">수익률 MDD는 현금흐름 보정 기준입니다.${Number.isFinite(portfolioMddTroughEval) && portfolioMdd.troughDate ? ` 최악일 평가금액: ${_fmtKrw(portfolioMddTroughEval)}.` : ''}</div>
         </details>
       </div>
     </div>
     ${hasBench ? `<details class="hist-benchmark-details">
-      <summary>비교지수 상세 · ${benchLines.length}개 (원천·기준일·MDD)</summary>
+      <summary class="hist-benchmark-toggle"><span>비교지수 분석</span><span class="hist-benchmark-count">${benchLines.length}개 지수</span><span class="hist-benchmark-summary-note">수익률 · 낙폭 · 원천</span></summary>
       <div class="hist-benchmark-card-grid">
       ${benchLines.map(line => {
         const last = line.pts[line.pts.length - 1];
         const delta = last ? (last.idx - 100) : 0;
-        return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">${line.displayType} 변화</div>
-        <div style="font-size:.61rem;color:var(--muted)">${_escapeHtml(line.sourceLabel)} · ${_escapeHtml(line.latestDate||"날짜 미확인")}</div>
-        <div style="font-size:.64rem;font-weight:600;color:var(--text)">${line.latestPrice?line.latestPrice.toLocaleString("ko-KR",{maximumFractionDigits:4}):"값 미확보"} · 실제 조회값</div>
-        <div style="font-size:.88rem;font-weight:700;color:${line.color}">${(delta >= 0 ? '+' : '') + delta.toFixed(1)}%</div>
-        <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">MDD ${line.mdd.pct.toFixed(1)}%</div>
-        ${line.mdd?.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(line.mdd.peakDate)} → ${_fmtHistDateCompact(line.mdd.troughDate)}</div>` : ''}
-      </div>`;
+        return `<article class="hist-benchmark-card" style="--hist-accent:${line.color}">
+          <div class="hist-benchmark-top">
+            <span class="hist-benchmark-name"><i class="hist-benchmark-swatch ${line.dash ? 'is-dashed' : ''}"></i>${_escapeHtml(line.displayType)}</span>
+          </div>
+          <div class="hist-benchmark-stats">
+            <strong class="hist-benchmark-change">${(delta >= 0 ? '+' : '') + delta.toFixed(1)}%</strong>
+            <span class="hist-benchmark-risk">MDD <b>${line.mdd.pct.toFixed(1)}%</b></span>
+          </div>
+          <div class="hist-benchmark-period">${line.mdd?.troughDate ? `${_fmtHistDateCompact(line.mdd.peakDate)} → ${_fmtHistDateCompact(line.mdd.troughDate)}` : '기간 내 하락 없음'}</div>
+          <details class="hist-benchmark-source">
+            <summary>종가·원천</summary>
+            <div class="hist-benchmark-source-body">
+              <div>조회값 <b>${line.latestPrice ? line.latestPrice.toLocaleString("ko-KR",{maximumFractionDigits:4}) : '미확보'}</b></div>
+              <div>기준일 <b>${_escapeHtml(line.latestDate || '날짜 미확인')}</b></div>
+              <div>원천 ${_escapeHtml(line.sourceLabel)}</div>
+            </div>
+          </details>
+        </article>`;
       }).join('')}
       </div>
     </details>` : ''}`;

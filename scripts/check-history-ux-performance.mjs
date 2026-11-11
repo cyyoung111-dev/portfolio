@@ -56,4 +56,23 @@ assert.doesNotMatch(successPath,/refreshAll\(\)/);
 assert.match(css,/\.hist-extreme-grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 assert.match(css,/@media\(max-width:720px\)[\s\S]*?\.hist-extreme-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 assert.doesNotMatch(css,/hist-extreme-mdd/);
-console.log('HISTORY_UX_PERFORMANCE_CONTRACT_OK: one compact MDD, two mini extrema cards, expandable details, one render');
+// Responsive website UI: one clear legend, two headline KPIs, compact six-index cards.
+assert.match(hist,/class="hist-chart-svg"/);
+assert.match(hist,/aria-label="선택 기간 손익 및 비교지수 변화 추이"/);
+assert.match(hist,/class="hist-legend-list"/);
+assert.doesNotMatch(hist,/<!-- 범례 -->/,'duplicate inline SVG legend should be removed');
+assert.equal((hist.match(/class="hist-kpi-card"/g)||[]).length,2);
+assert.match(hist,/class="hist-benchmark-card"/);
+assert.match(hist,/class="hist-benchmark-source"/);
+assert.match(hist,/class="hist-benchmark-source-body"/);
+assert.match(hist,/line\.latestPrice\.toLocaleString/);
+assert.match(hist,/line\.latestDate/);
+assert.match(hist,/line\.sourceLabel/);
+assert.match(hist,/line\.mdd\.pct\.toFixed\(1\)/);
+assert.match(css,/\.hist-legend-list\{display:flex/);
+assert.match(css,/\.hist-kpi-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+assert.match(css,/\.hist-benchmark-card-grid\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+assert.match(css,/@media\(max-width:720px\)\{[\s\S]*?\.hist-benchmark-card-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+assert.match(css,/\.hist-benchmark-source>summary\{cursor:pointer/);
+
+console.log('HISTORY_UX_PERFORMANCE_CONTRACT_OK: responsive chart and benchmark cards, compact MDD, preserved source data');
