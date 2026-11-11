@@ -673,7 +673,13 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.equal(coverage.env.FIDELITY_ARCHIVE_STATUS,'${{ steps.fidelity-archive.outcome }}');
  assert.match(coverage.run,/PUBLIC_KB_NAV_UNAVAILABLE/);
  assert.match(coverage.run,/PUBLIC_HANWHA_NAV_UNAVAILABLE/);
- assert.match(coverage.run,/PUBLIC_FIDELITY_NAV_UNAVAILABLE/);
+ assert.match(coverage.run,/PUBLIC_FIDELITY_OPTIONAL_UNAVAILABLE/);
+ assert.doesNotMatch(coverage.run,/PUBLIC_FIDELITY_NAV_UNAVAILABLE/,
+  'optional Fidelity source must not be required for KB/Hanwha import');
+ const optionalBlock=coverage.run.split('PUBLIC_FIDELITY_OPTIONAL_UNAVAILABLE')[1]
+  ?.split('PUBLIC_NAV_ALL_SOURCES_UNAVAILABLE')[0]||'';
+ assert.doesNotMatch(optionalBlock,/incomplete=1/,
+  'optional Fidelity publication cannot fail mandatory held-fund sources');
  assert.match(coverage.run,/PUBLIC_NAV_ALL_SOURCES_UNAVAILABLE/);
  assert.match(coverage.run,/KB_SOURCE_STATUS.*!=/);
  assert.match(coverage.run,/HANWHA_SOURCE_STATUS.*!=/);

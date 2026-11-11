@@ -92,8 +92,8 @@ jobs:
           echo "KB public NAV: ${KB_SOURCE_STATUS} / archive: ${KB_ARCHIVE_STATUS}" >> "${GITHUB_STEP_SUMMARY}"
           echo "Hanwha public NAV: ${HANWHA_SOURCE_STATUS} / archive: ${HANWHA_ARCHIVE_STATUS}" >> "${GITHUB_STEP_SUMMARY}"
           echo "Fidelity public NAV: ${FIDELITY_SOURCE_STATUS} / archive: ${FIDELITY_ARCHIVE_STATUS}" >> "${GITHUB_STEP_SUMMARY}"
-          # Both held funds must be sourced and archived. A partial source job
-          # is not green, but the independent private collector still runs.
+          # Only KB and Hanwha automatic NAV sources are mandatory.
+          # Fidelity manual-NAV reference is advisory and cannot fail them.
           incomplete=0
           if [ "${KB_SOURCE_STATUS}" != "success" ] || [ "${KB_ARCHIVE_STATUS}" != "success" ]; then
             echo "PUBLIC_KB_NAV_UNAVAILABLE"
@@ -103,9 +103,11 @@ jobs:
             echo "PUBLIC_HANWHA_NAV_UNAVAILABLE"
             incomplete=1
           fi
+          # F00003 is source-only reference (manual NAV), not a held
+          # automatic KB/Hanwha import. Missing its archive is a warning,
+          # never grounds for failing the independent NAV collector.
           if [ "${FIDELITY_SOURCE_STATUS}" != "success" ] || [ "${FIDELITY_ARCHIVE_STATUS}" != "success" ]; then
-            echo "PUBLIC_FIDELITY_NAV_UNAVAILABLE"
-            incomplete=1
+            echo "PUBLIC_FIDELITY_OPTIONAL_UNAVAILABLE"
           fi
           if [ "${KB_SOURCE_STATUS}" != "success" ] && [ "${HANWHA_SOURCE_STATUS}" != "success" ] && [ "${FIDELITY_SOURCE_STATUS}" != "success" ]; then
             echo "PUBLIC_NAV_ALL_SOURCES_UNAVAILABLE"

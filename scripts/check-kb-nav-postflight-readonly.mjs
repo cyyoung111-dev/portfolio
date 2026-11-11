@@ -36,6 +36,33 @@ assert.equal(assess({fundRow:{...verified,snapshotState:'WRITE_REQUIRED'}}).verd
 assert.equal(assess({fundRow:{...verified,unitsApplied:false}}).pass,false);
 assert.equal(assess().verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
 assert.equal(assess().pass,false);
+assert.equal(assess().navWorkflowPass,true,
+ 'official exact NAV must not fail merely because separate GAS CLOSE is incomplete');
+assert.equal(assess().navWorkflowStatus,'NAV_DATA_VERIFIED');
+assert.equal(notPublished.navWorkflowPass,true,
+ 'not-yet-published NAV should be a bounded warning, never a false red import');
+assert.equal(notPublished.navWorkflowStatus,'OFFICIAL_NAV_AWAITING_PUBLICATION');
+assert.equal(assess({officialRows:[],fundRow:null}).navWorkflowPass,false,
+ 'zero official source rows is not proof of expected nonpublication');
+assert.equal(assess({officialRows:[{date:'2026-10-25',nav:1}],
+ fundRow:null}).navWorkflowPass,false,
+ 'stale public provider cannot defer import indefinitely');
+const staleAsOf=assess({
+ today:'2026-11-07',
+ close:{...close,runDate:'2026-10-27',runStale:true,
+  expectedRunDate:'2026-10-27',expectedSnapshotDate:'2026-10-27'},
+ officialRows:[{date:'2026-10-27',nav:100}],
+ fundRow:{...verified,date:'2026-10-27'},officialNavMatched:true
+});
+assert.equal(staleAsOf.navWorkflowPass,false,
+ 'old exact but abandoned NAV date cannot produce a green current preflight');
+assert.equal(staleAsOf.navWorkflowStatus,'NAV_REFERENCE_STALE');
+assert.equal(assess({fundRow:{...verified,snapshotState:'WRITE_REQUIRED'}}).navWorkflowPass,false,
+ 'unverified derived Snapshot remains blocking even when close is pending');
+assert.equal(assess({officialNavMatched:false}).navWorkflowPass,false,
+ 'mismatched official NAV must fail the protected import audit');
+assert.equal(assess({close:{...close,runStale:true}}).navWorkflowPass,true,
+ 'independent NAV proof survives an unrelated stale close marker');
 const healthy=assess({close:{...close,state:'COMPLETE',fundOk:true}});
 assert.equal(healthy.verdict,'NAV_AND_CLOSE_VERIFIED');
 assert.equal(healthy.pass,true);
@@ -48,6 +75,8 @@ const staleProof=assess({close:oldClose,fundRow:priorRow,
 assert.equal(staleProof.verdict,'CLOSE_DATE_STALE_OR_UNVERIFIED');
 assert.equal(staleProof.pass,false);
 assert.equal(staleProof.closeComplete,false);
+assert.equal(staleProof.navWorkflowPass,false,
+ 'stale close pointing to older NAV must not hide newer published official NAV');
 assert.equal(assess({close:{...oldClose,runStale:false},fundRow:priorRow,
  officialRows:[{date:oldDate,nav:1},...source]}).pass,false,
  'expected newest session must reject an older COMPLETED close');
@@ -239,11 +268,24 @@ assert.deepEqual(post.needs,['collect','hanwha-collect']);
 assert.equal(post.environment,'portfolio-production-gas');
 assert.match(post.if,/always\(\)/);
 assert.match(post.steps.at(-1).run,/audit-kb-nav-postflight-readonly[.]mjs/);
+const publicStatus=workflow.jobs['source-public'].steps.find(s=>
+ s.name==='Record public source coverage without blocking private writer');
+assert.ok(publicStatus,'mandatory public NAV status audit must remain');
+assert.match(publicStatus.run,/PUBLIC_KB_NAV_UNAVAILABLE/);
+assert.match(publicStatus.run,/PUBLIC_HANWHA_NAV_UNAVAILABLE/);
+assert.match(publicStatus.run,/PUBLIC_FIDELITY_OPTIONAL_UNAVAILABLE/);
+assert.doesNotMatch(publicStatus.run,/PUBLIC_FIDELITY_NAV_UNAVAILABLE/,
+ 'optional Fidelity archive must not fail KB/Hanwha operations');
+const afterFidelity=publicStatus.run.split('PUBLIC_FIDELITY_OPTIONAL_UNAVAILABLE')[1]||'';
+assert.doesNotMatch(afterFidelity.split('fi')[0],/incomplete=1/,
+ 'optional source warning cannot flip mandatory held-fund result');
 assert.equal(post.steps.at(-1).env.GAS_ACCESS_TOKEN.includes('secrets.GAS_ACCESS_TOKEN'),true);
 const script=fs.readFileSync('scripts/audit-kb-nav-postflight-readonly.mjs','utf8');
 assert.doesNotMatch(script,/action:['"](?:collectKbFundNav|collectHanwhaFundNav|resumeIncompletePortfolioClose)['"]/);
 assert.match(script,/action:'getFundValuationStatus'/);
 assert.match(script,/action:'previewFundNavImport'/);
+assert.match(script,/if\(!result\.navWorkflowPass\)process\.exitCode=1/,
+ 'postflight exit must reflect NAV-only integrity, not unrelated CLOSE finality');
 // The public source may be submitted only to read-only GAS preview.
 let requestAction='';
 const preview=await readKbExactNavPreview({
