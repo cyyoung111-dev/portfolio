@@ -64,7 +64,8 @@ for(const [kind,runner,code,error] of [
   assert.equal(result.mode,'DRY_RUN',kind+' '+version);
   assert.equal(result.candidates,0);
   assert(f.calls.includes('previewFundNavImport'));
-  assert(f.calls.includes('getFundValuationStatus'));
+  // KB DRY_RUN returns after preview; Hanwha also checks derived status.
+  assert.equal(f.calls.includes('getFundValuationStatus'),kind==='HANWHA');
   assert(f.calls.includes(kind+'_OFFICIAL_SOURCE'));
   assert(!f.calls.some(x=>/collect.*FundNav|resumeIncompletePortfolioClose/.test(x)));
  }
