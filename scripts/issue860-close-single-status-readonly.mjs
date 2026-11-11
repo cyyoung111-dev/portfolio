@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // #860: exactly one authenticated production GAS status read.
+// Reviewed published releases include 9.291; unreviewed 9.290/9.292 remain blocked.
 // No workbook inventory, retry, finance write, deployment or raw response logging.
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
@@ -28,7 +29,7 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
  catch{throw Error('ISSUE860_STATUS_JSON');}
  const a=payload?.automation;
  if(payload?.status!=='ok'||!a||typeof a!=='object'
-    ||!['9.284','9.287','9.288','9.289'].includes(payload.gasVersion)
+    ||!['9.284','9.287','9.288','9.289','9.291'].includes(payload.gasVersion)
     ||a.gasVersion!==payload.gasVersion)
   throw Error('ISSUE860_STATUS_VERSION_OR_SCHEMA');
  let close,checkpoint;
