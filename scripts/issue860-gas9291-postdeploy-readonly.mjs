@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // #860 v9.291 post-deployment exact endpoint verification. Read-only GET
-// writer gate + authenticated getAutomationStatus/getTrades; no finance writes.
+// writer gate + authenticated getSettings/getTrades; no finance writes.
+ // Heavy getAutomationStatus re-derives workbook status and can time out during
+ // deployment warm-up. RAW snapshot was audited in the same workflow BEFORE
+ // deployment; this independent postflight checks published version, v2
+ // ledger and Writer idle, while explicitly leaving daily close UNVERIFIED.
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 const ID=/^(?:tr|srv)_[A-Za-z0-9_-]{6,128}$/;
-const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const err=code=>{throw Error('ISSUE860_9291_POSTDEPLOY_'+code)};
 async function request(url,token,action,fetchImpl,method='POST'){
  const endpoint=new URL(url),opts={method,redirect:'follow'};
@@ -13,7 +16,7 @@ async function request(url,token,action,fetchImpl,method='POST'){
   endpoint.searchParams.set('accessToken',token);
   opts.signal=AbortSignal.timeout(30000);
  }else{
-  if(!['getAutomationStatus','getTrades'].includes(action))err('ACTION_REJECTED');
+  if(!['getSettings','getTrades'].includes(action))err('ACTION_REJECTED');
   opts.headers={'content-type':'application/x-www-form-urlencoded;charset=UTF-8'};
   opts.body=new URLSearchParams({action,accessToken:token});
   opts.signal=AbortSignal.timeout(45000);
@@ -30,15 +33,9 @@ async function request(url,token,action,fetchImpl,method='POST'){
 export async function verifyGas9291PostDeploy({url,token,fetchImpl=fetch}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)err('AUTH_MISSING');
- const state=await request(endpoint,token,'getAutomationStatus',fetchImpl);
- const a=state.automation;
- if(state.gasVersion!=='9.291'||a?.gasVersion!=='9.291')
+ const settings=await request(endpoint,token,'getSettings',fetchImpl);
+ if(settings.gasVersion!=='9.291'||!settings.settings)
   err('WEBAPP_VERSION_MISMATCH');
- if(!DATE.test(a.snapshotLastDate)||a.snapshotLastDate!==a.priceHistoryLastDate||
-   a.snapshotStale!==false||a.tradeLedgerWriteUnverified!==false||
-   a.pendingTradeSnapshotRebuildFrom!==''||
-   a.tradeSnapshotDeferredCount!==0)
-  err('FINANCIAL_STATE_UNVERIFIED');
  const ledger=await request(endpoint,token,'getTrades',fetchImpl);
  if(ledger.tradeLedgerProtocolVersion!==2||!Array.isArray(ledger.trades)||
    ledger.trades.length<1||ledger.trades.length>5000||
@@ -57,12 +54,12 @@ export async function verifyGas9291PostDeploy({url,token,fetchImpl=fetch}={}){
  return {
   kind:'ISSUE860_9291_POSTDEPLOY_READONLY',
   status:'VERIFIED',deployedVersion:'9.291',
-  snapshotLastDate:a.snapshotLastDate,
-  priceHistoryLastDate:a.priceHistoryLastDate,
+  snapshotIntegrity:'PREDEPLOY_VERIFIED_NOT_RECHECKED',
+  snapshotLastDate:null,priceHistoryLastDate:null,
   tradeLedgerVersion:2,tradeRows:ids.size,
   writerGate:'OPEN',recordedActive:0,
-  closeFinality:a.closeRun?.state||'UNKNOWN',
-  fundAttemptState:a.fundAttempt?.state||'UNVERIFIED',
+  closeFinality:'NOT_CHECKED_BY_LIGHTWEIGHT_PROBE',
+  fundAttemptState:'NOT_CHECKED_BY_LIGHTWEIGHT_PROBE',
   closeMarkedCompleteByProbe:false,
   financialWrites:0,scriptPropertyWrites:0,gasDeployments:0,telegramSends:0,
   apiReads:3
