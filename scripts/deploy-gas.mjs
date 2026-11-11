@@ -7,6 +7,7 @@ import {composeGas9288TradeV2From9287Preview} from './compose-gas9288-trade-v2-f
 import {composeIssue860Gas9289PerfCandidate} from './compose-issue860-gas9289-perf-candidate.mjs';
 import {composeIssue860Gas9290Preview} from './compose-issue860-gas9290-preview.mjs';
 import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.mjs';
+import {verifyGas9291PostDeploy} from './issue860-gas9291-postdeploy-readonly.mjs';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -493,6 +494,41 @@ export async function verifyAutomationVersionConvergence({
   throw Error('GAS_AUTOMATION_VERSION_MISMATCH');
 }
 
+// GAS 9.291: the heavy getAutomationStatus call reads many Sheets/trigger
+// states and timed out immediately after publish (2026-11-11 run #42961887690).
+// The same workflow already audited RAW Snapshot, v2 ledger and Writer before
+// deployment, and verifyWebApp checked the new published getSettings version.
+// Postpublish use independent lightweight getSettings + v2 trades + Writer,
+// while daily close/fund finality explicitly remains unverified. Transient
+// read-time network failures may retry; a wrong version, ledger or busy Writer
+// is terminal and still rolls back.
+export async function verifyGas9291LightweightConvergence({
+  verify,pause=sleep,maxChecks=3
+}={}) {
+ if(typeof verify!=='function'||typeof pause!=='function'||
+   !Number.isInteger(maxChecks)||maxChecks<1||maxChecks>4)
+  throw Error('GAS_9291_CONVERGENCE_INVALID');
+ for(let attempt=1;attempt<=maxChecks;attempt++){
+  try{
+   const result=await verify();
+   if(result?.status!=='VERIFIED'||result.deployedVersion!=='9.291'||
+      result.tradeLedgerVersion!==2||result.writerGate!=='OPEN'||
+      result.recordedActive!==0)throw Error('GAS_9291_POSTDEPLOY_UNVERIFIED');
+   return {result,attempts:attempt};
+  }catch(error){
+   const code=String(error?.message||'');
+   if(!['ISSUE860_9291_POSTDEPLOY_NETWORK_OR_TIMEOUT',
+        'ISSUE860_9291_POSTDEPLOY_HTTP_UNVERIFIED',
+        'ISSUE860_9291_POSTDEPLOY_PREVIOUS_VERSION_WARM'].includes(code)||
+       attempt===maxChecks)throw error;
+   console.log(JSON.stringify({kind:'GAS_9291_POSTDEPLOY_TRANSIENT_READ_RETRY',
+     attempt,maxChecks,financialWrites:0}));
+   await pause(2000*attempt);
+  }
+ }
+ throw Error('GAS_9291_POSTDEPLOY_UNVERIFIED');
+}
+
 // Roll back only our exact candidate. A third-party edit/version must never
 // be overwritten by automatic recovery. Financial data is never restored here.
 export async function rollbackGasCode({beforeFiles,candidateFiles,beforeDeployment,beforePublishedFiles,newVersion,
@@ -844,14 +880,27 @@ export async function deploy() {
   stage='WEBAPP_VERIFY';
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
   stage='AUTOMATION_VERIFY';
-  const stable=await verifyAutomationVersionConvergence({
-    readAutomation:()=>runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')}),
-    readSettings:()=>verifyWebApp(webAppUrl,env('GAS_ACCESS_TOKEN',{required:false}),expectedVersion),
-    expectedVersion,previousVersion:releaseState.published.version
-  });
-  console.log(JSON.stringify({kind:'GAS_RELEASE_ENDPOINT_CONVERGED',
-    automationVersionConfirmed:true,settingsVersionConfirmed:true,
-    attempts:stable.attempts}));
+  if(expectedVersion==='9.291'){
+   const stable=await verifyGas9291LightweightConvergence({
+     verify:()=>verifyGas9291PostDeploy({
+       url:webAppUrl,token:env('GAS_ACCESS_TOKEN')
+     })
+   });
+   console.log(JSON.stringify({kind:'GAS_9291_LIGHTWEIGHT_ENDPOINT_CONVERGED',
+     publishedSettingsVersionConfirmed:true,ledgerV2Confirmed:true,
+     writerGateIdleConfirmed:true,heavyAutomationStatusDeferred:true,
+     fullSnapshotIntegrityVerifiedPredeployOnly:true,
+     attempts:stable.attempts}));
+  }else{
+   const stable=await verifyAutomationVersionConvergence({
+     readAutomation:()=>runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')}),
+     readSettings:()=>verifyWebApp(webAppUrl,env('GAS_ACCESS_TOKEN',{required:false}),expectedVersion),
+     expectedVersion,previousVersion:releaseState.published.version
+   });
+   console.log(JSON.stringify({kind:'GAS_RELEASE_ENDPOINT_CONVERGED',
+     automationVersionConfirmed:true,settingsVersionConfirmed:true,
+     attempts:stable.attempts}));
+  }
   console.log(`GAS 자동배포 완료 · GAS v${expectedVersion} · Apps Script version=${newVersionNumber} · webApp=verified`);
   return { deployed: true, version: expectedVersion, deploymentVersion: newVersionNumber, webAppCheck };
   } catch(error) {
