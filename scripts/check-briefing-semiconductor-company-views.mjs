@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {SEMI_ISSUER_RELEASES,evaluateSemiconductorCompanyViews,
- formatSemiconductorCompanyFiveViews,formatSemiconductorCompanyMetrics}
+ formatSemiconductorCompanySixViews,formatSemiconductorCompanyMetrics}
  from './briefing-semiconductor-company-views.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import {formatClose} from './telegram-close-workflow.mjs';
@@ -51,8 +51,8 @@ assert.match(rows[0].valueLine,/참고 PBR 1.50배/);
 assert.doesNotMatch(rows[0].valueLine,/검증 BPS/);
 assert.match(rows[1].valueLine,/검증 BPS 100,000원/);
 assert.match(rows[1].valueLine,/PBR 2.00배/);
-const view=formatSemiconductorCompanyFiveViews({date,stocks:morningPrices,financialEvidence:financial}).join('\n');
-for(const name of ['버핏','애크먼','린치','다모다란','막스','삼성전자','SK하이닉스'])
+const view=formatSemiconductorCompanySixViews({date,stocks:morningPrices,financialEvidence:financial}).join('\n');
+for(const name of ['버핏','애크먼','린치','다모다란','막스','켄 피셔','삼성전자','SK하이닉스'])
  assert.ok(view.includes(name),name);
 assert.match(view,/84.4조/);
 assert.match(view,/98.7조/);
@@ -66,25 +66,32 @@ assert.match(view,/BPS는 표시된 DART 결산일 기준/);
 assert.doesNotMatch(view,/3Q26 기업 잠정 발표\(10\/28~29\)/);
 assert.match(view,/분기 EPS/);
 assert.doesNotMatch(view,/확정 FCF|확정 ROIC|PER [0-9]+배/);
-assert.ok(view.length<1300,'must fit within full Telegram daily market briefing');
+assert.ok(view.length<1900,'six-view report is offline; it must never displace Telegram data');
+assert.match(view,/6인 정량 관점/);
+assert.match(view,/TTM P\/S 미확보/);
+assert.match(view,/매출 YoY \+[0-9]+/);
+assert.equal(rows[0].views.fisher.includes('적정 P/S 미확보'),true);
+assert.equal(rows[1].views.fisher.includes('TTM P/S 미확보'),true);
+assert.equal(Object.keys(rows[0].views).length,6);
+assert.equal(Object.keys(rows[1].views).length,6);
 
 const missing=evaluateSemiconductorCompanyViews({date,stocks:morningPrices,financialEvidence:null});
 assert.equal(missing.length,2);
 assert.ok(missing.every(x=>x.book===null));
 assert.ok(missing.every(x=>x.price));
-const unverifiedViews=formatSemiconductorCompanyFiveViews({date,
+const unverifiedViews=formatSemiconductorCompanySixViews({date,
  stocks:morningPrices}).join('\n');
 assert.match(unverifiedViews,/BPS·PBR 미확보/);
 assert.match(unverifiedViews,/삼성 BPS\/PBR 미확보/);
 assert.match(unverifiedViews,/하닉 BPS\/PBR 미확보/);
 assert.doesNotMatch(unverifiedViews,/하닉: 단일종류 BPS 검증/,
  'without DART evidence the footer must not certify Hynix BPS');
-const onlySamsung=formatSemiconductorCompanyFiveViews({date,stocks:morningPrices,
+const onlySamsung=formatSemiconductorCompanySixViews({date,stocks:morningPrices,
  financialEvidence:{...financial,domestic:[financial.domestic[0],
  {...financial.domestic[1],evidence:null}]}}).join('\n');
 assert.match(onlySamsung,/삼성 BPS\/PBR: 지배자본÷보통·우선 합산/);
 assert.match(onlySamsung,/하닉 BPS\/PBR 미확보/);
-const onlyHynix=formatSemiconductorCompanyFiveViews({date,stocks:morningPrices,
+const onlyHynix=formatSemiconductorCompanySixViews({date,stocks:morningPrices,
  financialEvidence:{...financial,domestic:[{...financial.domestic[0],evidence:null},
  financial.domestic[1]]}}).join('\n');
 assert.match(onlyHynix,/삼성 BPS\/PBR 미확보/);
@@ -132,6 +139,44 @@ const official=evaluateSemiconductorCompanyViews({date,period:'close',
  stocks:krxClose,financialEvidence:financial});
 assert.equal(official[0].book.pbr,1.5);
 assert.match(official[0].valueLine,/KRX/);
+// Canonical Yahoo *completed* daily references are admissible for an
+// explicitly NON-OFFICIAL PBR estimate, never an NH/KRX close assertion.
+const yahooClose=closingPrices.map(x=>({...x,source:'YAHOO_DAILY_REFERENCE'}));
+const yahooValues=evaluateSemiconductorCompanyViews({date,period:'close',
+ stocks:yahooClose,financialEvidence:financial});
+assert.deepEqual(yahooValues.map(x=>x.book?.pbr),[1.5,2]);
+assert.ok(yahooValues.every(x=>x.book.priceReferenceOnly===true));
+assert.match(yahooValues[0].valueLine,/참고 PBR 1\.50배/);
+assert.match(yahooValues[0].valueLine,/Yahoo 완료일봉 참고/);
+assert.doesNotMatch(yahooValues[0].valueLine,/NH\]|KRX\]/);
+const yahooSix=formatSemiconductorCompanySixViews({date,period:'close',
+ stocks:yahooClose,financialEvidence:financial}).join('\n');
+assert.match(yahooSix,/6인 정량 관점/);
+assert.match(yahooSix,/켄 피셔:/);
+assert.match(yahooSix,/Yahoo 주가 사용 시 비공식 참고 PBR만/);
+for(const unsafe of [
+ yahooClose.map(x=>({...x,date:'2026-11-05'})),
+ yahooClose.map(x=>({...x,source:'NAVER_LIVE_NXT'})),
+ yahooClose.map(x=>({...x,source:'Yahoo Finance 일봉'})),
+ [...yahooClose,yahooClose[0]]
+]){
+ const rows=evaluateSemiconductorCompanyViews({date,period:'close',
+  stocks:unsafe,financialEvidence:financial});
+ assert.equal(rows.filter(x=>x.book).length,0,
+  'intraday/noncanonical/stale/ambiguous quote may not produce PBR');
+}
+// A prepriced DART PBR requires a matching SAME-DAY independent reference
+// close, not an earlier mark or a materially different NXT bar.
+const yahooPrepriced=evaluateSemiconductorCompanyViews({date,period:'close',
+ stocks:yahooClose,financialEvidence:datedDomestic(date,closingPrices)});
+assert.deepEqual(yahooPrepriced.map(x=>x.book?.pbr),[1.5,2]);
+const conflictingQuotes=yahooClose.map((x,i)=>i
+ ?x:{...x,value:x.value+20000});
+const conflict=evaluateSemiconductorCompanyViews({date,period:'close',
+ stocks:conflictingQuotes,financialEvidence:datedDomestic(date,closingPrices)});
+assert.equal(conflict[0].book,null,
+ 'Yahoo quote must not bypass independent DART same-day PBR crosscheck');
+assert.equal(conflict[1].book?.pbr,2);
 
 // Independent read-only DART evidence may already include an exact-session
 // NH PBR. It must be accepted only if its date and numeric PBR agree with
@@ -147,7 +192,7 @@ const confirmedMorning=evaluateSemiconductorCompanyViews({
 });
 assert.deepEqual(confirmedMorning.map(r=>r.book?.pbr),[1.5,2],
  'matching exact-day independently priced DART PBR must be displayed');
-assert.match(formatSemiconductorCompanyFiveViews({
+assert.match(formatSemiconductorCompanySixViews({
  date,stocks:morningPrices,financialEvidence:pricedMorning
 }).join('\n'),/참고 PBR 1\.50배/);
 const pricedClosing=datedDomestic(date,closingPrices);
@@ -180,7 +225,7 @@ assert.ok(evaluateSemiconductorCompanyViews({date,period:'close',stocks:morningP
 const marketMorning=formatFullMorningBriefing(date,null,morningPrices,{
  now:new Date('2026-11-06T07:45:00+09:00'),financialEvidence:null});
 assert.match(marketMorning,/삼성전자·SK하이닉스 정량 지표/);
-assert.doesNotMatch(marketMorning,/5인 정량 관점|• 버핏:|• 다모다란:|• 하워드 막스:/);
+assert.doesNotMatch(marketMorning,/6인 정량 관점|• 버핏:|• 다모다란:|• 하워드 막스:|• 켄 피셔:/);
 assert.equal(formatSemiconductorCompanyMetrics({
  date,stocks:morningPrices,financialEvidence:pricedMorning
 }).length,3);
@@ -191,6 +236,6 @@ assert.ok(marketMorning.length<=3900);
 const marketClose=formatClose(date,[],[],[],closingPrices,[],[],[],
  new Date('2026-11-06T17:00:00+09:00'));
 assert.match(marketClose,/삼성전자·SK하이닉스 정량 지표/);
-assert.doesNotMatch(marketClose,/5인 정량 관점|• 버핏:|• 하워드 막스:/);
+assert.doesNotMatch(marketClose,/6인 정량 관점|• 버핏:|• 하워드 막스:|• 켄 피셔:/);
 assert.ok(marketClose.length<=4000);
 console.log('SEMICONDUCTOR_METRICS_PASS compact_telegram=true detailed_helper_preserved=true book_price_date=exact');
