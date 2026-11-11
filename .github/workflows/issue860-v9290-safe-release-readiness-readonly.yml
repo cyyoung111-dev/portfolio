@@ -24,7 +24,11 @@ jobs:
           node-version: '24'
       - name: Read-only source contract
         run: |
-          npm ci --ignore-scripts
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+          fi
           node scripts/check-issue860-v9290-live-gate.mjs
       - name: Prove release safety separately from close finality (READ ONLY)
         env:
