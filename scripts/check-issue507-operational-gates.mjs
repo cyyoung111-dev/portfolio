@@ -102,10 +102,10 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,85,
-  'migration inventory: all 85 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,89,
-  'migration inventory: all 89 secret-consuming jobs must be protected');
+assert.equal(protectedWorkflowNames.length,86,
+  'migration inventory: all 86 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
+assert.equal(protectedJobs,90,
+  'migration inventory: all 90 secret-consuming jobs must be protected');
 assert.ok(protectedWorkflowNames.includes('issue734-postmigration-live-readonly.yml'),
   'new postmigration v2/holdings read-only audit must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-postmigration-readiness-readonly.yml'),
@@ -118,6 +118,8 @@ assert.ok(protectedWorkflowNames.includes('gas9287-fund-hotfix-review-artifact.y
   'fund hotfix protected project/deployment readiness must be gated');
 assert.ok(protectedWorkflowNames.includes('issue860-close-processes-readonly.yml'),
   'one-shot process audit must use protected GAS Environment');
+assert.ok(protectedWorkflowNames.includes('issue860-v9290-safe-release-readiness-readonly.yml'),
+  'new recovery deploy safety proof must remain protected and read-only');
 assert.ok(protectedWorkflowNames.includes('issue860-hanwha-secondary-nav-crosscheck.yml'),
   'new Hanwha private NAV read-only crosscheck must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-once-close-status-readonly.yml'),
