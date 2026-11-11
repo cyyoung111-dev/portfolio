@@ -1,5 +1,5 @@
-import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs';
 // F00001 Hanwha C-RPe: class-exact NAV import through v9.284
+import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs';
 // collectHanwhaFundNav (shared FUND/backfill atomic lease).
 // Preview is default. Explicit --apply enables writer only after independent
 // source, class, dates, preview, snapshot/units and active-lease checks.
