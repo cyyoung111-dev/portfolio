@@ -1,4 +1,3 @@
-import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs';
 import {pathToFileURL} from 'node:url';
 import {classifyFundError} from './diagnose-backfill-status.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
