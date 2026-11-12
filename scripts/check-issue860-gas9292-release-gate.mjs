@@ -81,6 +81,18 @@ const good=assessGas9292PostDeploy({settings,ledger,gate:remoteGate});
 assert.equal(good.status,'VERIFIED');
 assert.equal(good.tradeLedgerVersion,2);
 assert.equal(good.gateOwnerDiagnosticsAvailable,true);
+assert.equal(good.reconciliationState,'NO_EXPIRED_ACTIVE_LEASES');
+const awaiting=assessGas9292PostDeploy({settings,ledger,gate:{
+ ...remoteGate,writerGate:{...remoteGate.writerGate,
+  timeoutRetirementCandidates:1,
+  activeOwners:[{...owner,ageMinutes:57,retirementEligible:true}]}
+}});
+assert.equal(awaiting.status,'VERIFIED',
+ 'a published source with old receipts may only reconcile at the next writer');
+assert.equal(awaiting.reconciliationState,'AWAITING_NEXT_NORMAL_WRITER');
+assert.equal(awaiting.timeoutRetirementCandidates,1);
+assert.equal(awaiting.recordedActive,1,'postdeploy GET never invents idle state');
+assert.equal(awaiting.financeWrites,0);
 for(const invalid of [
  {...remoteGate,gasVersion:'9.291'},
  {...remoteGate,writerGate:{...remoteGate.writerGate,

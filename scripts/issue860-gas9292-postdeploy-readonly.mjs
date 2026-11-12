@@ -56,12 +56,20 @@ export function assessGas9292PostDeploy({settings,ledger,gate}={}){
     ||typeof owner.terminalReceiptPresent!=='boolean'
     ||typeof owner.retirementEligible!=='boolean')fail('GATE_OWNER_UNVERIFIED');
  }
- if(g.activeOwners.some(x=>x.retirementEligible))
-  fail('EXPIRED_ACTIVE_NOT_RECONCILED');
+ const expiringOwners=g.activeOwners.filter(x=>x.retirementEligible);
+ if(expiringOwners.length!==g.timeoutRetirementCandidates)
+  fail('GATE_EXPIRY_COUNT_MISMATCH');
+ // This GET endpoint is read-only. Old v9.291 ACTIVE leases can remain at
+ // publish time; they are retired by the NEXT normal, Gate-locked writer
+ // admission. Never claim their cleanup happened or rollback a healthy
+ // publication merely because the next writer has not run yet.
  if(JSON.stringify(g).includes('"token"'))fail('GATE_TOKEN_EXPOSED');
  return {kind:'ISSUE860_9292_POSTDEPLOY_READONLY',status:'VERIFIED',
   gasVersion:'9.292',tradeLedgerVersion:2,tradeRows:ids.size,
   gateMode:'OPEN',recordedActive:g.activeCount,
+  timeoutRetirementCandidates:g.timeoutRetirementCandidates,
+  reconciliationState:expiringOwners.length
+   ?'AWAITING_NEXT_NORMAL_WRITER':'NO_EXPIRED_ACTIVE_LEASES',
   expiredUnconfirmedCount:g.expiredUnconfirmedCount,
   gateOwnerDiagnosticsAvailable:true,readOnlyStatusNoWriterToken:true,
   closeFinality:'REQUIRES_INDEPENDENT_DAILY_STATUS_READ',
