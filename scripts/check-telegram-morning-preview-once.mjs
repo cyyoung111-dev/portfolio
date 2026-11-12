@@ -6,14 +6,14 @@ import {parseNasdaqDailyHistorical,readNasdaqDailyHistorical}
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 const date='2026-11-12',usDate='2026-11-11';
 const nasdaqPayload={data:{tradesTable:{rows:[
- {date:'11/11/2026',close:'$225.50'},
+ {date:'11/11/2026',close:'$245.50'},
  {date:'11/10/2026',close:'$210.00'}
 ]}}};
 const usNow=new Date('2026-11-12T11:20:00+09:00');
 const nasdaq=parseNasdaqDailyHistorical('NBIS',usDate,nasdaqPayload,usNow);
 assert.equal(nasdaq?.source,'NASDAQ_DAILY_REFERENCE');
-assert.equal(nasdaq?.value,225.5);
-assert.ok(nasdaq.changePercent>7);
+assert.equal(nasdaq?.value,245.5);
+assert.ok(nasdaq.changePercent>10);
 assert.equal(parseNasdaqDailyHistorical('NBIS',usDate,
  {data:{tradesTable:{rows:[{date:'11/10/2026',close:'$225.50'}]}}},usNow),null);
 assert.equal(parseNasdaqDailyHistorical('NBIS',usDate,nasdaqPayload,
@@ -23,7 +23,7 @@ const row=await readNasdaqDailyHistorical('NBIS',usDate,{
   assert.match(String(url),/api[.]nasdaq[.]com\/api\/quote\/NBIS\/historical/);
   return {ok:true,json:async()=>nasdaqPayload};
  }});
-assert.equal(row?.value,225.5);
+assert.equal(row?.value,245.5);
 const picked=selectAiEventHighlights({expectedUsDate:usDate,prices:[{
  symbol:'NBIS',label:'네비우스',date:usDate,unit:'USD',...nasdaq
 }]});
