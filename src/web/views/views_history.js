@@ -665,7 +665,7 @@ async function diagnosePortfolioReceiptsReadOnly() {
           && !isGsheetConnectionCurrent(target, generation)) return;
       const identityOk = response?.operationId === record.id
         && response?.kind === record.action;
-      const state = response?.status === 'ok' && identityOk
+      const state = response?.status === 'ok' && (identityOk || response.receiptState === 'BUSY')
         ? String(response.receiptState || 'UNAVAILABLE') : 'UNAVAILABLE';
       result.push(record.action + ': ' +
         (['COMPLETE','NOT_FOUND','FAILED','PARTIAL','BUSY','CHANGED','UNAVAILABLE']
@@ -730,7 +730,7 @@ function renderGsheetView(area) {
           <div style="font-size:.72rem;font-weight:700;margin-bottom:6px">PC 거래·보유 복원 진단 · 읽기 전용</div>
           <div style="font-size:.66rem;color:var(--muted);margin-bottom:7px">위 자동화 정상 여부와 별도입니다. 이 기기의 미전송 기록만 상태·건수로 표시하며 거래 데이터·토큰은 보여주지 않습니다.</div>
           <div style="font-size:.69rem;line-height:1.9">복원 상태: <b>${restored ? '완료' : '미완료'}</b> · 오류: <b>${d.reason}</b></div>
-          <div style="font-size:.69rem;line-height:1.9">미전송 보존: <b>${d.pending ? '있음' : '없음'}</b> · 거래 <b>${d.trades}</b>건 · 보유 <b>${d.holdings}</b>건 · 시도 영수증 <b>${d.attempted}</b>건 · 미확인 <b>${d.unconfirmed}</b>건</div>
+          <div style="font-size:.69rem;line-height:1.9">복구사본 보존: <b>${d.pending ? '있음' : '없음'}</b> · 거래원장 전체 <b>${d.trades}</b>건 · 보유자료 <b>${d.holdings}</b>건 · 시도 영수증 <b>${d.attempted}</b>건 · 미확인 <b>${d.unconfirmed}</b>건</div>
           <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px">${d.needsLegacyReview ? '구버전 기록: 별도 대조 필요 · ' : ''}${d.receiptProtocol ? '영수증 프로토콜 있음 · ' : ''}자료 삭제·자동 승인·강제 동기화는 수행하지 않습니다.</div>
           <button data-status-action="portfolio-receipt-readonly" class="btn-purple-sm">서버 영수증 상태 조회 · 읽기 전용</button>
           <div id="portfolioReceiptDiagnosis" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">조회 전입니다.</div>
