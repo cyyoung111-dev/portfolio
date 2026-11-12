@@ -64,10 +64,17 @@ const afterCurrent291=await readIssue860Once({url,token,fetchImpl:async()=>({
 assert.equal(afterCurrent291.gasVersion,'9.291','Published 9.291 must pass sanitized status audit');
 assert.equal(afterCurrent291.requestCount,1);
 assert.equal(afterCurrent291.financialWrites,0);
-await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
+const afterGate292=await readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.292',
-  automation:{...data.automation,gasVersion:'9.292'}})
-})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed next GAS release must be rejected');
+  automation:{...data.automation,gasVersion:'9.292',
+   priceCloseState:'COMPLETE',fundCloseState:'PENDING',
+   fundReservationVerified:true}})
+})});
+assert.equal(afterGate292.gasVersion,'9.292');
+assert.equal(afterGate292.priceCloseState,'COMPLETE');
+assert.equal(afterGate292.fundCloseState,'PENDING');
+assert.equal(afterGate292.fundReservationVerified,true);
+assert.equal(afterGate292.financialWrites,0);
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.290',
   automation:{...data.automation,gasVersion:'9.290'}})
