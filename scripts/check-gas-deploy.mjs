@@ -678,6 +678,7 @@ function runRealDiagnostics({
     _getLatestDateInColumn: () => '2026-10-14',
     _getOfficialKrxPriceHistoryLastDate: () => '2026-10-14',
     _portfolioCloseRunState: () => ({state:'COMPLETE'}),
+    _portfolioClosePendingFundReservation_: () => false, // synthetic status fixture with completed NAV
     _fundAttemptDiagnosticState_: () => null,
     _expectedConfirmedSnapshotDate: () => '2026-10-14',
     _expectedPortfolioCloseRunDate: () => '2026-10-14',
