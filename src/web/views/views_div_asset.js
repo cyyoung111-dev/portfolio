@@ -75,7 +75,11 @@ function calcDividends() {
     //   아직 이벤트가 없는 미래 지급월은 기존 perShare 평균값으로 예상치를 채워 연간 전망을 유지합니다.
     let annualDiv = 0;
     let actualDiv = 0; // declared/event-confirmed payout, NOT proven cash receipt
-    let receivedDiv = 0; // only explicit manual payment confirmation
+    let receivedDiv = 0; // gross amount with explicit payment confirmation
+    let netReceivedDiv = 0; // ONLY bank net amounts explicitly typed by user
+    let withheldTaxDiv = 0; // ONLY withholding amounts explicitly typed by user
+    let netReceivedCount = 0, withheldTaxCount = 0;
+    const uniqueDividendEvents = new Set();
     const monthlyDiv = {}; // month → 실제+예상 배당금
     const actualMonths = new Set();
     events.forEach(ev => {
@@ -84,6 +88,9 @@ function calcDividends() {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(evDate) || !amount || amount <= 0) return;
       const payDate = String(ev?.payDate || '').slice(0, 10);
       const cashflowDate = /^\d{4}-\d{2}-\d{2}$/.test(payDate) ? payDate : evDate;
+      const dividendKey = [evDate,payDate,amount].join('|');
+      if (uniqueDividendEvents.has(dividendKey)) return;
+      uniqueDividendEvents.add(dividendKey);
       // 확정 배당의 귀속 연도는 배당기준일이 아니라 실제 지급일을 우선합니다.
       if (Number(cashflowDate.slice(0, 4)) !== thisYear) return;
       const month = Number(cashflowDate.slice(5, 7));
@@ -95,7 +102,19 @@ function calcDividends() {
       actualMonths.add(month);
       actualDiv += div;
       if (ev?.receivedConfirmed === true && /^\d{4}-\d{2}-\d{2}$/.test(payDate)
-          && payDate <= _kstTodayStr()) receivedDiv += div;
+          && payDate <= _kstTodayStr()) {
+        receivedDiv += div;
+        // Manual gross receipt confirmation is not bank net deposit proof.
+        // Imported historical events without these amounts remain unknown.
+        if (typeof ev.netReceived === 'number'
+            && Number.isFinite(ev.netReceived) && ev.netReceived >= 0) {
+          netReceivedDiv += ev.netReceived; netReceivedCount++;
+        }
+        if (typeof ev.withheldTax === 'number'
+            && Number.isFinite(ev.withheldTax) && ev.withheldTax >= 0) {
+          withheldTaxDiv += ev.withheldTax; withheldTaxCount++;
+        }
+      }
       annualDiv += div;
       monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
     });
@@ -117,7 +136,9 @@ function calcDividends() {
     const totalQty = currentQtyMap[name] || 0;
 
     if (annualDiv > 0 || totalQty > 0) {
-      result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv, receivedDiv });
+      result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv,
+        actualDiv, receivedDiv, netReceivedDiv, withheldTaxDiv,
+        netReceivedCount, withheldTaxCount });
     }
   });
 
@@ -167,6 +188,10 @@ function renderDivView(area, skipFetch) {
   // 올해 지난달까지 누적 수령액
   // Forecast months are NOT evidence of a cash deposit, even after month-end.
   const receivedSoFar = divRows.reduce((sum,r)=>sum+(r.receivedDiv||0),0);
+  const netReceivedSoFar = divRows.reduce((sum,r)=>sum+(r.netReceivedDiv||0),0);
+  const netReceivedEntries = divRows.reduce((sum,r)=>sum+(r.netReceivedCount||0),0);
+  const withheldTaxSoFar = divRows.reduce((sum,r)=>sum+(r.withheldTaxDiv||0),0);
+  const taxRecordedEntries = divRows.reduce((sum,r)=>sum+(r.withheldTaxCount||0),0);
   const remainingYear = Math.max(0,totalAnnual-receivedSoFar);
   const selectedMonth = _divSelectedMonth;
   const selectedMonthTotal = selectedMonth ? monthly[selectedMonth - 1] : totalAnnual;
@@ -223,12 +248,12 @@ function renderDivView(area, skipFetch) {
     <div class="div-stat-card">
       <div class="div-stat-label">📅 월 평균 (세전)</div>
       <div class="div-stat-value c-green">${fmtW(monthlyAvg)}</div>
-      <div class="div-stat-sub">세후 ${fmtW(monthlyAfter)}/월</div>
+      <div class="div-stat-sub">세후(15.4% 가정) ${fmtW(monthlyAfter)}/월</div>
     </div>
     <div class="div-stat-card">
       <div class="div-stat-label">🏦 세후 연간 (15.4%)</div>
       <div class="div-stat-value c-amber">${fmtW(totalAfterTax)}</div>
-      <div class="div-stat-sub">일반계좌 기준</div>
+      <div class="div-stat-sub">일반계좌 가정치 · 실제 계좌별 세금과 다름</div>
     </div>
     <div class="div-stat-card">
       <div class="div-stat-label">📊 배당수익률</div>
@@ -236,9 +261,9 @@ function renderDivView(area, skipFetch) {
       <div class="div-stat-sub">투자원금 대비 연간</div>
     </div>
     <div class="div-stat-card">
-      <div class="div-stat-label">✅ 올해 입금 확인 (수동)</div>
+      <div class="div-stat-label">✅ 올해 입금 확인 (수동·세전)</div>
       <div class="div-stat-value c-green">${fmtW(Math.round(receivedSoFar))}</div>
-      <div class="div-stat-sub">미입금 확인·예상 ${fmtW(Math.round(remainingYear))} · 지급일 경과만으로 수령 확정하지 않음</div>
+      <div class="div-stat-sub">세후 실입금 직접기록 ${netReceivedEntries}건 ${netReceivedEntries ? fmtW(Math.round(netReceivedSoFar)) : '미입력'} · 원천징수 직접기록 ${taxRecordedEntries}건 ${taxRecordedEntries ? fmtW(Math.round(withheldTaxSoFar)) : '미입력'} · 미입금 확인·예상 ${fmtW(Math.round(remainingYear))}</div>
     </div>
   </div>
 
