@@ -83,10 +83,40 @@ export async function verifyGas9292PostDeploy({url,token,fetchImpl=fetch}={}){
  const gate=await request(endpoint,token,'getWriterGateStatus',fetchImpl,'GET');
  return assessGas9292PostDeploy({settings,ledger,gate});
 }
+// During Apps Script web-app publication, a served 9.291 warm instance may
+// outlive a confirmed 9.292 readback. Retry ONLY that exact older-version
+// result; never retry writes, unexpected version, ledger/Gate integrity errors.
+export async function verifyGas9292PostDeployWithRetry({
+ verify,delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),maxAttempts=5
+}={}){
+ if(typeof verify!=='function'||typeof delay!=='function'
+   ||!Number.isSafeInteger(maxAttempts)||maxAttempts<1||maxAttempts>5)
+  fail('RETRY_CONTRACT_INVALID');
+ for(let attempt=1;attempt<=maxAttempts;attempt++){
+  try{
+   const state=await verify();
+   if(state?.status!=='VERIFIED'||state.gasVersion!=='9.292'
+     ||state.gateMode!=='OPEN'||state.tradeLedgerVersion!==2
+     ||state.financeWrites!==0||state.gasDeployments!==0)
+    fail('RETRY_RESULT_UNVERIFIED');
+   return {...state,readbackAttempts:attempt};
+  }catch(e){
+   if(String(e?.message||'')!=='ISSUE860_9292_POSTDEPLOY_PREVIOUS_VERSION_WARM'
+     ||attempt===maxAttempts)throw e;
+   console.log(JSON.stringify({kind:'ISSUE860_9292_WARM_INSTANCE_READ_RETRY',
+     attempt,maxAttempts,reason:'PREVIOUS_VERSION_WARM',readOnly:true,
+     financeWrites:0,gasDeployments:0}));
+   await delay(attempt*3000);
+  }
+ }
+ fail('RETRY_EXHAUSTED');
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
-  console.log(JSON.stringify(await verifyGas9292PostDeploy({
-   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+  console.log(JSON.stringify(await verifyGas9292PostDeployWithRetry({
+   verify:()=>verifyGas9292PostDeploy({
+    url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+   })
   })));
  }catch(e){
   const m=String(e?.message||'');
