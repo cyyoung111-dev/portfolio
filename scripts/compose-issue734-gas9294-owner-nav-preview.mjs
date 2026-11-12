@@ -48,8 +48,22 @@ export function composeIssue734Gas9294OwnerNavPreview(){
     '    fundPending:true,errors:[]};',
     '}'
   ].join('\n');
+  // The pre-replay prune normally clears a valid PRICE/Snapshot date.
+  // That is unsafe when the exact CLOSE owner still awaits a NAV handoff.
+  const pruneGuard=[
+    'function _issue734PendingCloseOwnerRequiresNav_(props, date) {',
+    "  if (String(props.getProperty('portfolio_close_run_date') || '') !== date) return false;",
+    "  var runId = String(props.getProperty('portfolio_close_run_id') || '');",
+    "  var stage = String(props.getProperty('portfolio_close_stage') || '');",
+    "  var last = _portfolioFundState_(props,'portfolio_close_last_result');",
+    '  return !(runId && stage === "COMPLETE" && last',
+    '    && last.runDate === date && last.runId === runId',
+    '    && last.priceOk === true && last.fundOk === true',
+    '    && !(last.errors && last.errors.length));',
+    '}'
+  ].join('\n');
   let source=once(parent,'function _retryOnePendingKrxClose_(',
-    helper+'\nfunction _retryOnePendingKrxClose_(','HELPER');
+    helper+'\n'+pruneGuard+'\nfunction _retryOnePendingKrxClose_(','HELPER_INSERT
   source=rewriteFunction(source,'function _retryOnePendingKrxClose_(',block=>{
     block=once(block,
       '    _portfolioFundAtomic_(function(sharedProps) {\n      var ss = getss();',
@@ -98,6 +112,14 @@ export function composeIssue734Gas9294OwnerNavPreview(){
       reserve,'NAV_RESERVATION_BEFORE_QUEUE_CLEAR');
     return block;
   });
+  source=rewriteFunction(source,'function _pruneVerifiedHistoricalKrxPending_(',block=>{
+    return once(block,
+      '      try {\n        var proof=_verifyCompletedKrxPendingDate_(ss,date);',
+      '      // Never prune an exact CLOSE owner while NAV reservation/finality is unverified.\n'+
+      '      if (_issue734PendingCloseOwnerRequiresNav_(sharedProps,date)) return;\n'+
+      '      try {\n        var proof=_verifyCompletedKrxPendingDate_(ss,date);',
+      'PRUNE_NAV_OWNER_GUARD');
+  });
   source=once(source,
     '//  📊 포트폴리오 대시보드 — Google Apps Script  v9.293',
     '//  📊 포트폴리오 대시보드 — Google Apps Script  v9.294','VERSION_BANNER');
@@ -110,7 +132,8 @@ export function composeIssue734Gas9294OwnerNavPreview(){
     parentVersion:'9.293',candidateVersion:'9.294',
     parentGitBlob:PARENT_BLOB,candidateGitBlob:blob(source),
     changedFunctions:['_issue734RecoveredCloseReservationOwner_',
-      '_retryOnePendingKrxClose_'],noChangeToPriceWriter:true,
+      '_issue734PendingCloseOwnerRequiresNav_',
+      '_retryOnePendingKrxClose_','_pruneVerifiedHistoricalKrxPending_'],noChangeToPriceWriter:true,
     requiresExactDateOwner:true,queuedUntilReservationReadback:true,
     independentNavFinality:true,deployable:false,sourceOnly:true,
     manualReleaseRequired:true,financeWrites:0,gasDeployments:0
