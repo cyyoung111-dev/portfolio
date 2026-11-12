@@ -21,14 +21,9 @@ for(const x of [parent,successor]){
 }
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const stages=workflow.jobs.deploy.steps;
-const p=stages.findIndex(s=>String(s.name||'').includes('9.287 settled close and legacy ledger'));
-const deploy=stages.findIndex(s=>s.name==='Deploy GAS');
-assert(p>0&&p<deploy);
-assert.equal(stages[p].run,'node scripts/issue734-v9288-live-readiness-readonly.mjs');
-assert.match(String(stages[p].if),/GAS_9288_TRADE_V2 == 'true'/);
-assert.match(String(stages[p].if),/GAS_9288_RELEASE_APPROVAL == 'true'/);
-assert.match(String(stages[p].if),/GAS_DEPLOY_DRY_RUN != 'true'/);
-assert(!stages[p]['continue-on-error']);
+assert(!stages.some(s=>String(s.name||'').includes('9.287 settled close and legacy ledger')),
+ 'retired 9.288 manual preflight must not appear in current release workflow');
+assert(stages.some(s=>s.id==='gas9293_gate'),'current 9.293 live proof remains protected');
 const url='https://script.google.com/macros/s/TEST_DEPLOYMENT_EXAMPLE/exec';
 const token='mock_private_test_token_123';
 const date='2026-11-09';
