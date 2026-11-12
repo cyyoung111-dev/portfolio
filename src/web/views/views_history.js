@@ -678,6 +678,72 @@ async function diagnosePortfolioReceiptsReadOnly() {
   status.textContent = result.join(' · ') + ' · 거래·보유 원본 변경 없음';
 }
 
+let _pcFailedTradeReceiptRepairBusy=false;
+let _pcFailedTradeReceiptRepairStatus='서버·PC 원장이 완전히 일치할 때만 PC의 실패 영수증을 정리할 수 있습니다.';
+async function reconcileFailedTradeReceiptFromUI() {
+  if(_pcFailedTradeReceiptRepairBusy)return;
+  const target=String(GSHEET_API_URL||'').trim();
+  const generation=typeof getGsheetConnectionGeneration==='function'
+    ?getGsheetConnectionGeneration():null;
+  const statusText=text=>{
+    _pcFailedTradeReceiptRepairStatus=text;
+    const el=document.getElementById('portfolioFailedReceiptRepairStatus');
+    if(el)el.textContent=text;
+  };
+  _pcFailedTradeReceiptRepairBusy=true;
+  const button=document.getElementById('btn-reconcile-failed-v2-receipt');
+  if(button)button.disabled=true;
+  statusText('서버 영수증과 PC·서버 전체 거래원장을 읽기 전용으로 두 번 대조 중...');
+  try{
+    const result=await _reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+      targetUrl:target
+    });
+    if(typeof isGsheetConnectionCurrent==='function'
+        &&!isGsheetConnectionCurrent(target,generation)) {
+      statusText('연결 변경 감지 · 복구 결과 적용 중단');
+      return;
+    }
+    if(!result.ok) {
+      const reasons={
+        LOCAL_DIRTY_JOURNAL_PRESENT:'이 PC에 별도의 미전송 거래 변경이 있어 안전 복구를 중단했습니다.',
+        LOCAL_SYNC_BUSY:'다른 저장 작업이 진행 중이므로 안전 복구를 중단했습니다.',
+        SERVER_AND_PC_LEDGER_DIFFER:'PC 저장요청과 서버 거래원장 내용이 다릅니다. 원본을 보존하고 복구를 중단했습니다.',
+        LOCAL_UNSENT_CHANGE_DIFFERS_FROM_FAILED_RECEIPT:'PC 거래 내용이 이전 실패 요청과 다릅니다. 원본을 보존했습니다.',
+        SERVER_RECEIPT_NOT_STABLE_FAILED:'서버 영수증이 더 이상 동일한 FAILED 상태가 아닙니다.'
+      };
+      const code=String(result.code||'UNKNOWN').replace(/[^A-Z0-9_]/g,'');
+      statusText((reasons[code]||'안전 복구 전 검증이 완료되지 않았습니다.')
+        +' ['+code+'] · 서버 금융자료 변경 없음');
+      return;
+    }
+    statusText('서버·PC 거래 '+result.serverCount+
+      '건 일치 · 실패 영수증 원본 백업 및 PC 완료표시 저장됨 · 가격/원장 복원 확인 중...');
+    // The full PC ledger was proven equal to the remote ledger twice.
+    // Authoritative reload is safe and must not upload a stale local ledger.
+    const restored=typeof loadSettings==='function'
+      ?await loadSettings(undefined,{forcePortfolioRestore:true}):false;
+    if(!restored){
+      statusText('서버·PC 전체 거래 일치, PC 실패 영수증 안전 정리 완료. '
+        +'다른 설정 복원 문제가 남았습니다. 삭제·강제 재전송하지 마세요.');
+      return;
+    }
+    if(typeof recomputeRows==='function')recomputeRows();
+    if(typeof renderSummary==='function')renderSummary();
+    if(typeof renderView==='function')renderView(true);
+    statusText('PC 실패 영수증 정리 및 GAS 거래·보유·가격 복원 완료. '
+      +'서버 거래원장 변경 없음 · 실제 시세 표시를 확인하세요.');
+    if(typeof showToast==='function')
+      showToast('PC 거래원장 일치 검증 · 영수증 복구 완료','ok',5000);
+  }catch(ignore){
+    statusText('검증 또는 복원 과정 중 오류 발생 · 서버 데이터는 변경하지 않았습니다. '
+      +'PC 로컬 기록을 삭제하지 마세요.');
+  }finally{
+    _pcFailedTradeReceiptRepairBusy=false;
+    const current=document.getElementById('btn-reconcile-failed-v2-receipt');
+    if(current)current.disabled=false;
+  }
+}
+
 function renderGsheetView(area) {
   const currentUrl = GSHEET_API_URL || '';
   const isLinked = !!currentUrl;
@@ -734,6 +800,11 @@ function renderGsheetView(area) {
           <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px">${d.needsLegacyReview ? '구버전 기록: 별도 대조 필요 · ' : ''}${d.receiptProtocol ? '영수증 프로토콜 있음 · ' : ''}자료 삭제·자동 승인·강제 동기화는 수행하지 않습니다.</div>
           <button data-status-action="portfolio-receipt-readonly" class="btn-purple-sm">서버 영수증 상태 조회 · 읽기 전용</button>
           <div id="portfolioReceiptDiagnosis" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">조회 전입니다.</div>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:.67rem;color:var(--muted);margin-bottom:7px">실패한 거래 V2 영수증은 원본을 백업하고, PC 거래 전체와 서버 원장 전체가 두 번 완전히 일치할 때만 이 기기의 완료표시를 복구합니다. 서버 금융 원장에는 쓰지 않습니다. 일치하지 않으면 아무것도 삭제하지 않습니다.</div>
+            <button id="btn-reconcile-failed-v2-receipt" data-status-action="portfolio-receipt-reconcile" class="btn-purple-sm">PC 거래원장 대사 후 안전 복구</button>
+            <div id="portfolioFailedReceiptRepairStatus" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">${typeof _escapeHtml==='function'?_escapeHtml(_pcFailedTradeReceiptRepairStatus):'준비됨'}</div>
+          </div>
         </div>`;
       })() : ''}
 
