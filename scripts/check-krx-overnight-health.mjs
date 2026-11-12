@@ -20,6 +20,34 @@ const good={
   historical2310:slot('2026-10-18'),historical0030:slot('2026-10-19'),
 };
 assert.equal(assess(good).status,'HEALTHY');
+assert.equal(assess(good).snapshotDateAlignment,'DATES_MATCH');
+assert.equal(assess(good).alertFocus,'NONE');
+// Actual 2026-11-13 07:51 class of incident: complete price-date storage
+// is different from authenticated GAS CLOSE owner/terminal proof.
+const orphan20261112={
+ ...good,gasVersion:'9.293',overallStatus:'INCOMPLETE',
+ officialKrxPriceHistoryLastDate:'2026-11-12',
+ snapshotLastDate:'2026-11-12',
+ historical2310:slot('2026-11-12','NO_WORK'),
+ historical0030:slot('2026-11-13','SUCCEEDED'),
+ close:{state:'INCOMPLETE',stage:'PRICE',runDate:'2026-11-12',
+   priceOk:true,fundOk:true,fundState:'DONE',fundErrorCode:'NONE'}
+};
+const observed=assessKrxOvernightHealth(orphan20261112,{
+ now:new Date('2026-11-13T07:51:00+09:00')});
+assert.equal(observed.status,'ACTION_REQUIRED',
+ 'never mask a persistently incomplete CLOSE marker');
+assert.deepEqual(observed.issues,['AUTOMATION_NOT_NORMAL']);
+assert.equal(observed.snapshotDateAlignment,'DATES_MATCH');
+assert.equal(observed.alertFocus,'PERSISTED_CLOSE_FINALITY_UNVERIFIED');
+assert.equal(observed.fundCloseCheckpointEvidence.closeState,'INCOMPLETE');
+const rawDateDrift=assessKrxOvernightHealth({
+ ...orphan20261112,snapshotLastDate:'2026-11-11'
+},{now:new Date('2026-11-13T07:51:00+09:00')});
+assert.equal(rawDateDrift.alertFocus,'MIXED_OR_UNVERIFIED');
+assert.equal(rawDateDrift.snapshotDateAlignment,'SNAPSHOT_BEHIND_OFFICIAL');
+assert(rawDateDrift.issues.includes('KRX_SNAPSHOT_STALE'));
+
 
 const time=new Date('2026-10-19T02:40:00+09:00');
 const workerLog={status:'RUNNING',at:'2026-10-18T17:35:00.000Z',
