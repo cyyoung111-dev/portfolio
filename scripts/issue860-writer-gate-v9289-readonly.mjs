@@ -21,12 +21,12 @@ export async function readIssue860WriterGate({
  let payload;
  try{payload=await response.json();}catch{fail('JSON_UNVERIFIED');}
  const g=payload?.writerGate;
- if(payload?.status!=='ok'||!['9.289','9.291','9.292'].includes(payload.gasVersion)||
+ if(payload?.status!=='ok'||!['9.289','9.291','9.292','9.293'].includes(payload.gasVersion)||
   !g||!['OPEN','DRAINING'].includes(g.mode)||
   !Number.isSafeInteger(g.activeCount)||g.activeCount<0||
   g.activeCount>10000||g.repairAuthorized!==false)
   fail('RESPONSE_UNVERIFIED');
- const v9292=payload.gasVersion==='9.292';
+ const v9292=['9.292','9.293'].includes(payload.gasVersion);
  const safeOwners=[];
  if(v9292) {
   if(!Array.isArray(g.activeOwners)||g.activeOwners.length!==g.activeCount
