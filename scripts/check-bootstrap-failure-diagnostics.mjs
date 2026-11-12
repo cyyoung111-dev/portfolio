@@ -2376,6 +2376,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
       }
     });
     vm.runInContext(
+      helper('function _tradeV2NormalizeCode(')+'\n'+
       helper('function _tradeV2BrowserCanonical(')+'\n'+
       helper('async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite('),ctx);
     return {ctx,storage,calls};
