@@ -781,8 +781,20 @@ function saveTrade() {
   if (trade.assetType === '펀드' || trade.assetType === 'TDF') trade.fund = true;
 
   if (isEditing) {
-    const idx = rawTrades.findIndex(t => t.id === _editingTradeId);
-    if (idx !== -1) rawTrades[idx] = trade;
+    // Legacy number/string IDs must refer to the same immutable transaction.
+    // An ID removed by another edit must NEVER produce a silent successful UI
+    // close or a misleading commit with an unchanged ledger.
+    const idx = rawTrades.findIndex(t =>
+      t?.id != null && String(t.id) === String(_editingTradeId));
+    if (idx === -1) {
+      err.textContent='❌ 수정할 원본 거래가 사라졌습니다. 다시 조회해주세요';
+      err.style.display='block';
+      return;
+    }
+    // The DOM selection ID may be text while legacy ledger ID is numeric.
+    // Retain the persisted ID exactly; never change identity during an edit.
+    trade.id = rawTrades[idx].id;
+    rawTrades[idx] = trade;
   } else {
     rawTrades.push(trade);
   }
