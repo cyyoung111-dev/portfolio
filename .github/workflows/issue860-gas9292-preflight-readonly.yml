@@ -1,6 +1,7 @@
 name: issue860-gas9292-preflight-readonly
 
 # One-shot live 9.291 CLOSE / v2 ledger / Writer Gate check after PR merge.
+# 2026-11-12 #860: repeat bounded close/ledger preflight and exact GAS 9.292 dry-run after correcting inventory and postdeploy transition.
 # Reads only: no deploy, no writer repair, no price/NAV/Snapshot mutation.
 on:
   workflow_dispatch:
