@@ -200,6 +200,13 @@ assert.equal(accounted.monthlyTaxCount[1],1);
 assert.equal(accounted.accountAnnualDiv['일반'],400);
 assert.equal(accounted.accountAnnualDiv['ISA'],600);
 assert.equal(accounted.unallocatedAnnualDiv,0);
+accountCtx.DIVDATA['테스트 종목'].events.push({
+  date:'2026-01-02',payDate:'2026-01-15',amount:100,
+  receivedConfirmed:true,source:'PUBLIC_DATA'
+});
+assert.equal(accountCtx.calcDividends()[0].netReceivedDiv,846,
+ 'duplicate confirmed gross cannot erase an earlier real bank receipt');
+accountCtx.DIVDATA['테스트 종목'].events.pop();
 const planSource=fs.readFileSync('src/web/views/views_plan_overview.js','utf8');
 const planStart=planSource.indexOf('function _getPlanDividendEntries(');
 const planEnd=planSource.indexOf('\n}',planStart)+2;
