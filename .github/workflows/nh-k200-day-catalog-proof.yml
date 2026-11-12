@@ -1,0 +1,42 @@
+name: NH futures official public settlement catalog proof
+on:
+  push:
+    branches: [main]
+    paths: ['ops/nh-k200-day-catalog-trigger.txt']
+permissions:
+  contents: read
+concurrency:
+  group: nh-k200-public-catalog-proof
+  cancel-in-progress: false
+jobs:
+  catalog:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify exactly one date-scoped source-inspection sentinel
+        id: gate
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          f='ops/nh-k200-day-catalog-trigger.txt'
+          deny() { echo "NH_K200_CATALOG_DENIED_$1"; echo "verified=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] || deny PREV_SHA
+          [[ "$BEFORE" == "$(git rev-parse HEAD^)" ]] || deny MULTI_COMMIT
+          [[ "$(git diff --name-only HEAD^ HEAD)" == "$f" ]] || deny OTHER_FILE
+          [[ "$(git ls-files --stage "$f" | awk '{print $1}')" == '100644' ]] || deny MODE
+          [[ "$(wc -l < "$f")" == '2' ]] || deny LINES
+          [[ "$(sed -n '1p' "$f")" == 'catalog_kind=krfuture_public_only' ]] || deny PURPOSE
+          [[ "$(sed -n '2p' "$f")" == 'catalog_date=2026-11-12' ]] || deny DATE
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
+      - name: Inspect NH futures public API catalog without credentials
+        if: steps.gate.outputs.verified == 'true'
+        run: node scripts/nh-k200-day-settlement-catalog-proof.mjs
