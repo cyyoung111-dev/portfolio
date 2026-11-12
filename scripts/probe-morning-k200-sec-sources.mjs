@@ -11,8 +11,25 @@ const KRX_URL='https://data-dbg.krx.co.kr/svc/apis/drv/fut_bydd_trd';
 const NH_MASTER='https://www.nhplug.com/instruments/m_future.mst';
 const SEC_TICKERS='https://www.sec.gov/files/company_tickers.json';
 const SEC_ROOT='https://data.sec.gov/submissions/CIK';
-const K200_CODE=/^KR[0-9A-Z]{10}$/;
-const NAME=/^(?:코스피|KOSPI)\s*200\s*선물\s*(?:20)?(\d{2})[.\s/-]?(03|06|09|12)$/i;
+// KRX regular futures sometimes use the exchange's short "A..." contract
+// code rather than the twelve-character ISIN. Both need independent expiry
+// validation; short exchange codes must NEVER be labeled an ISIN.
+const K200_CODE=/^(?:KR[0-9A-Z]{10}|A[0-9A-Z]{7}|K[0-9A-Z]{8})$/;
+function parseK200Month(raw) {
+ const name=typeof raw==='string'?raw.trim():'';
+ // Observed KRX naming convention: "코스피200 F 202612 (정규)".
+ const modern=/^(?:코스피|KOSPI)\s*200\s*F\s+(20\d{2})(03|06|09|12)\s*\((?:정규|주간)\)$/i.exec(name);
+ if(modern)return modern[1]+'-'+modern[2];
+ // Keep the legacy fixture/older metadata shape read-only.
+ const legacy=/^(?:코스피|KOSPI)\s*200\s*선물\s*(?:20)?(\d{2})[.\s/-]?(03|06|09|12)$/i.exec(name);
+ return legacy?'20'+legacy[1]+'-'+legacy[2]:null;
+}
+function krxShortCodeToNh(code) {
+ if(typeof code!=='string')return null;
+ if(/^A[0-9A-Z]{7}$/.test(code))return 'K'+code;
+ if(/^K[0-9A-Z]{8}$/.test(code))return code;
+ return null;
+}
 const validDay=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)
  &&Number.isFinite(Date.parse(d+'T00:00:00Z'))
  &&new Date(d+'T00:00:00Z').toISOString().slice(0,10)===d;
@@ -63,12 +80,15 @@ export function inspectKrxFuturesSchema(payload, requestedDate){
  const nameContainsK200=r=>/(?:코스피\s*200|KOSPI\s*200)/i.test(r?.ISU_NM||'');
  const tested=sameDate.filter(r=>session(r)&&product(r));
  const widths={missing:0,short:0,twelve:0,other:0};
+ const preciseWidths={six:0,seven:0,eight:0,nine:0,ten:0,eleven:0,twelve:0,other:0};
  for(const r of tested){
   const len=typeof r?.ISU_CD==='string'?r.ISU_CD.length:0;
   if(len===0)widths.missing++;
   else if(len<12)widths.short++;
   else if(len===12)widths.twelve++;
   else widths.other++;
+  const widthKey=({6:'six',7:'seven',8:'eight',9:'nine',10:'ten',11:'eleven',12:'twelve'})[len]||'other';
+  preciseWidths[widthKey]++;
  }
  const settleNonempty=r=>typeof r?.SETL_PRC==='string'
   &&r.SETL_PRC.trim().length>0&&r.SETL_PRC!=='-';
@@ -79,12 +99,12 @@ export function inspectKrxFuturesSchema(payload, requestedDate){
   k200NameRows:sameDate.filter(nameContainsK200).length,
   inspectedRows:tested.length,
   validCodeRows:tested.filter(r=>K200_CODE.test(r.ISU_CD||'')).length,
-  validContractNameRows:tested.filter(r=>NAME.test(r.ISU_NM||'')).length,
+  validContractNameRows:tested.filter(r=>!!parseK200Month(r.ISU_NM)).length,
   nonemptySettlementRows:tested.filter(settleNonempty).length,
   validTickSettlementRows:tested.filter(r=>tick(r.SETL_PRC)).length,
   fullyVerifiedRows:tested.filter(r=>K200_CODE.test(r.ISU_CD||'')
-   &&NAME.test(r.ISU_NM||'')&&tick(r.SETL_PRC)).length,
-  codeWidthCounts:widths
+   &&!!parseK200Month(r.ISU_NM)&&tick(r.SETL_PRC)).length,
+  codeWidthCounts:widths,preciseCodeLengths:preciseWidths
  });
 }
 
@@ -100,14 +120,13 @@ export function summarizeKrxDaySettlement(payload,requestedDate){
   &&/^(?:코스피\s*200\s*선물|KOSPI\s*200\s*FUT)/i.test(r.PROD_NM||''));
  if(!dated.length)return 'KRX_K200_REGULAR_NOT_MATCHED';
  const good=dated.filter(r=>K200_CODE.test(r.ISU_CD||'')
-  &&NAME.test(r.ISU_NM||'')&&tick(r.SETL_PRC));
+  &&!!parseK200Month(r.ISU_NM)&&tick(r.SETL_PRC));
  if(!good.length)return 'KRX_SETTLEMENT_IDENTITY_UNVERIFIED';
  if(new Set(good.map(r=>r.ISU_CD)).size!==good.length)
   return 'KRX_DUPLICATE_CONTRACT_CODE';
  const months=new Map();
  for(const row of good){
-  const match=NAME.exec(row.ISU_NM);
-  const month='20'+match[1]+'-'+match[2];
+  const month=parseK200Month(row.ISU_NM);
   months.set(month,(months.get(month)||0)+1);
  }
  return [...months.values()].some(count=>count!==1)
@@ -123,16 +142,24 @@ export function compareKrxNhIdentity(krxRows,masterBuffer,requestedDate){
   const pairs=new Set(nh.map(x=>x.contractMonth));
   const official=krxRows.OutBlock_1.filter(x=>
    x?.BAS_DD===requestedDate.replaceAll('-','')
-   &&NAME.test(x.ISU_NM||'')&&tick(x.SETL_PRC));
-  const krxMonths=new Set(official.map(x=>{
-   const m=NAME.exec(x.ISU_NM);
-   return '20'+m[1]+'-'+m[2];
-  }));
-  if(!nh.length||!official.length)return {status:'NH_K200_MASTER_UNAVAILABLE',contractMapped:false};
+   &&K200_CODE.test(x.ISU_CD||'')
+   &&parseK200Month(x.ISU_NM)&&tick(x.SETL_PRC)
+   &&(x.MKT_NM==='정규'||x.MKT_NM==='정규시장'||x.MKT_NM==='주간'));
+  const krxMonths=new Set(official.map(x=>parseK200Month(x.ISU_NM)));
+  if(!nh.length||!official.length)return {status:'NH_K200_MASTER_UNAVAILABLE',contractMapped:false,exactCodeMatches:0};
+  const matchRecords=official.filter(x=>{
+   const nhCode=krxShortCodeToNh(x.ISU_CD);
+   return nhCode&&nh.filter(n=>n.code===nhCode
+     &&n.contractMonth===parseK200Month(x.ISU_NM)).length===1;
+  });
+  if(matchRecords.length &&new Set(matchRecords.map(x=>x.ISU_CD)).size===matchRecords.length){
+   // Exact public code + contract month evidence; still not proof of the
+   // active overnight contract or 07:40 availability.
+   return {status:'CROSS_SOURCE_PUBLIC_CODE_AND_MONTH_MATCHED',
+    contractMapped:false,exactCodeMatches:matchRecords.length};
+  }
   if([...pairs].some(month=>krxMonths.has(month)))
-   // Coexistence of the same contract month in two vendor lists does not
-   // prove a 1:1 code identity or timestamp availability for 07:40.
-   return {status:'PRODUCT_EXPIRY_CROSS_SOURCE_CANDIDATE',contractMapped:false};
+   return {status:'PRODUCT_EXPIRY_CROSS_SOURCE_CANDIDATE',contractMapped:false,exactCodeMatches:0};
   return {status:'KRX_NH_EXPIRY_NOT_MATCHED',contractMapped:false};
  }catch{return {status:'NH_K200_MASTER_UNAVAILABLE',contractMapped:false};}
 }
