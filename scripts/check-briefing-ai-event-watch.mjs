@@ -74,6 +74,7 @@ assert.equal(calls,38);
 // Partial provider coverage must not masquerade as a ranked Top-3.
 let partialRaw='';
 const partial=await collectEarlyAiWatch({now:nowEarly,
+ fetchImpl:async()=>({ok:false,status:503}),
  fetchDaily:async(label,symbol)=>['MU','CRWV'].includes(symbol)
   ?{label,symbol,date:usDate,value:100,changePercent:20,source:'Yahoo Finance 일봉'}
   :null,
