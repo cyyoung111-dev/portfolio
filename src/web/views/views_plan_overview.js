@@ -68,8 +68,8 @@ function _buildPlanCashflowOverview() {
       ${item('올해 배당 공시 (세전)', fmt(Math.round(actual)), '지급 이벤트 합계 · 실제 입금확인과 구분', 'var(--gold)')}
       ${item('올해 은행 실입금', bankNetCount ? fmt(Math.round(bankNet)) : '미등록', bankNetCount ? `직접 확인된 ${bankNetCount}건의 순입금액` : '실입금 증빙 입력 필요 · 0원 아님', 'var(--green)')}
       ${item('올해 실제 원천세', actualTaxCount ? fmt(Math.round(actualTax)) : '미등록', actualTaxCount ? `직접 확인된 ${actualTaxCount}건` : '계좌별 실제 세금 미등록', 'var(--amber)')}
-      ${item('향후 예상 배당', fmt(Math.max(0, Math.round(annual-actual))), '연간 예상 - 올해 확정', 'var(--green)')}
-      ${item('현재 사용 가능 월 배당', fmt(afterTaxMonthly), '일반계좌 세후 참고액만 포함', 'var(--amber)')}
+      ${item('연간 전망 중 미공시분', fmt(Math.max(0, Math.round(annual-actual))), '연간 전망 - 올해 지급 공시', 'var(--green)')}
+      ${item('일반계좌 예상 월배당 (세후)', fmt(afterTaxMonthly), '15.4% 가정 참고액 · 실제 입금과 구분', 'var(--amber)')}
       ${item('ISA 내부 연간 배당', fmt(dividendFlow.isaInternal), 'ISA 내부 재투자 가능액', 'var(--purple-lt)')}
       ${item('연금저축 내부 배당', fmt(dividendFlow.pensionSavingsInternal), '55세 전 생활비에서 제외', 'var(--purple-lt)')}
       ${item('IRP 내부 연간 배당', fmt(dividendFlow.irpInternal), '55세 전 생활비에서 제외', 'var(--purple-lt)')}
