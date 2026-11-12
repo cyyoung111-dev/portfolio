@@ -286,6 +286,143 @@ async function _preflightTradeV2Receipt(targetUrl,generation,baselineOverride) {
   }
 }
 
+// Terminal FAILED is not permission to replay or discard a v2 transaction.
+// This opt-in local-only recovery is allowed ONLY when the original attempted
+// full payload, current browser ledger and TWO authoritative remote readbacks
+// are byte-equivalent after the production v2 canonicalization rules.
+// Remote calls are read-only. The failed receipt is archived before updating
+// its LOCAL terminal marker; if any doubt remains, leave it untouched.
+async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
+  const targetUrl=String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation=typeof getGsheetConnectionGeneration==='function'
+    ?getGsheetConnectionGeneration():null;
+  const isCurrent=()=>!!targetUrl&&(typeof isGsheetConnectionCurrent!=='function'
+    ||isGsheetConnectionCurrent(targetUrl,generation));
+  const fail=(code,details={})=>({ok:false,code,...details,remoteWrites:0});
+  if(!isCurrent())return fail('CONNECTION_CHANGED');
+  if(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty())
+    return fail('LOCAL_DIRTY_JOURNAL_PRESENT');
+  if(typeof _getPendingExplicitEmptyTradeSync==='function'
+      &&_getPendingExplicitEmptyTradeSync(targetUrl))
+    return fail('PENDING_EXPLICIT_DELETE');
+  if(typeof _isPortfolioRemoteSyncPending==='function'&&_isPortfolioRemoteSyncPending())
+    return fail('LOCAL_SYNC_BUSY');
+  const records=_readPortfolioRecoveryReceipts();
+  const record=records?.[targetUrl]?.syncTradesV2;
+  if(!record||record.action!=='syncTradesV2'||record.attempted!==true
+      ||!record.id||!record.params
+      ||record.params.tradeLedgerProtocolVersion!=='2')
+    return fail('FAILED_V2_RECEIPT_NOT_FOUND');
+  if(record.readbackConfirmedRevision)return fail('ALREADY_RECONCILED');
+  if(!Array.isArray(rawTrades)||!rawTrades.length)
+    return fail('LOCAL_LEDGER_UNAVAILABLE');
+  let attemptedRows;
+  try {
+    attemptedRows=JSON.parse(record.params.data);
+    if(!Array.isArray(attemptedRows)||attemptedRows.length!==rawTrades.length)
+      return fail('LOCAL_AND_RECEIPT_COUNT_DIFFER', {
+        localCount:rawTrades.length,
+        attemptedCount:Array.isArray(attemptedRows)?attemptedRows.length:0
+      });
+  }catch(ignore){return fail('ATTEMPTED_ROWS_UNREADABLE');}
+  if(typeof _tradeV2BrowserSha256!=='function'
+      ||typeof _tradeV2BrowserCanonical!=='function')
+    return fail('V2_CANONICALIZER_UNAVAILABLE');
+  const digest=async rows=>{
+    const ids=new Set();
+    for(const trade of rows){
+      const id=String(trade?.id||'');
+      if(!/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(id)||ids.has(id))
+        throw Error('UNIQUE_ID_CHECK');
+      ids.add(id);
+    }
+    return _tradeV2BrowserSha256(rows.slice().sort((a,b)=>
+      String(a.date||'').localeCompare(String(b.date||'')))
+      .map(_tradeV2BrowserCanonical));
+  };
+  let attemptedRevision,localRevision;
+  try {
+    attemptedRevision=await digest(attemptedRows);
+    localRevision=await digest(rawTrades);
+  }catch(ignore){return fail('LOCAL_V2_CANONICAL_INVALID');}
+  if(localRevision!==attemptedRevision)
+    return fail('LOCAL_UNSENT_CHANGE_DIFFERS_FROM_FAILED_RECEIPT',{
+      localCount:rawTrades.length,attemptedCount:attemptedRows.length
+    });
+  const requestOptions={targetUrl,generation,timeoutMs:20000,retry:0,preserveError:true};
+  const receiptQuery=()=>requestGsheetFormJson('getPortfolioSyncReceipt',{
+    ...record.params,kind:record.action,operationId:record.id
+  },requestOptions);
+  const sameFailedReceipt=r=>r?.status==='ok'
+    &&r.kind===record.action&&r.operationId===record.id
+    &&r.receiptState==='FAILED';
+  let initialReceipt;
+  try{initialReceipt=await receiptQuery();}
+  catch(ignore){return fail('SERVER_RECEIPT_QUERY_FAILED');}
+  if(!isCurrent())return fail('CONNECTION_CHANGED');
+  if(!sameFailedReceipt(initialReceipt))
+    return fail('SERVER_RECEIPT_NOT_STABLE_FAILED');
+  const checkRemote=async()=>{
+    const readback=await requestGsheetActionJson('getTrades',{},requestOptions);
+    if(!isCurrent())throw Error('CONNECTION_CHANGED');
+    if(readback?.status!=='ok'||readback.tradeLedgerProtocolVersion!==2
+        ||!/^[0-9a-f]{64}$/.test(String(readback.ledgerRevision||''))
+        ||!Array.isArray(readback.trades))
+      throw Error('SERVER_LEDGER_UNVERIFIED');
+    const verified=await digest(readback.trades);
+    if(verified!==readback.ledgerRevision)
+      throw Error('SERVER_LEDGER_REVISION_MISMATCH');
+    return {hash:verified,count:readback.trades.length};
+  };
+  let remote1,remote2;
+  try{remote1=await checkRemote();}
+  catch(ignore){return fail('SERVER_LEDGER_UNVERIFIED');}
+  if(remote1.hash!==attemptedRevision||remote1.count!==attemptedRows.length)
+    return fail('SERVER_AND_PC_LEDGER_DIFFER',{
+      serverCount:remote1.count,localCount:rawTrades.length
+    });
+  try{
+    remote2=await checkRemote();
+    if(!sameFailedReceipt(await receiptQuery()))return fail('SERVER_RECEIPT_CHANGED');
+  }catch(ignore){return fail('SECOND_READBACK_UNVERIFIED');}
+  if(!isCurrent())return fail('CONNECTION_CHANGED');
+  if(remote2.hash!==attemptedRevision||remote2.count!==attemptedRows.length)
+    return fail('SERVER_CHANGED_DURING_VERIFICATION');
+  // Do not discard unverified newer edits or any concurrent local request.
+  const latest=_readPortfolioRecoveryReceipts()?.[targetUrl]?.syncTradesV2;
+  if(!latest||JSON.stringify(latest)!==JSON.stringify(record)
+      ||(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty())
+      ||(typeof _isPortfolioRemoteSyncPending==='function'&&_isPortfolioRemoteSyncPending())
+      ||(Array.isArray(rawTrades)?await digest(rawTrades):'')!==attemptedRevision)
+    return fail('LOCAL_STATE_CHANGED_DURING_VERIFICATION');
+  // Keep full original failed input in durable, local-only backup. Never
+  // mutate it or the financial server; fail if the backup cannot be read.
+  const archiveKey='pf_v6_failed_trade_v2_recovery_archive';
+  const oldArchive=lsGet(archiveKey,{});
+  const archive=oldArchive&&typeof oldArchive==='object'
+    &&!Array.isArray(oldArchive)?oldArchive:{};
+  const saved=JSON.parse(JSON.stringify(record));
+  const proposed={...archive,[targetUrl]:{
+    priorReceipt:saved,verifiedRevision:attemptedRevision,
+    verifiedRowCount:attemptedRows.length,archivedAt:new Date().toISOString()
+  }};
+  try{lsSave(archiveKey,proposed);}
+  catch(ignore){return fail('LOCAL_BACKUP_WRITE_FAILED');}
+  if(JSON.stringify(lsGet(archiveKey,{}))!==JSON.stringify(proposed))
+    return fail('LOCAL_BACKUP_READBACK_FAILED');
+  record.completed=true;
+  record.readbackConfirmedRevision=attemptedRevision;
+  if(!_savePortfolioRecoveryReceipts(records))
+    return fail('LOCAL_TERMINAL_MARKER_SAVE_FAILED');
+  const persisted=_readPortfolioRecoveryReceipts()?.[targetUrl]?.syncTradesV2;
+  if(persisted?.completed!==true
+      ||persisted.readbackConfirmedRevision!==attemptedRevision)
+    return fail('LOCAL_TERMINAL_MARKER_READBACK_FAILED');
+  return {ok:true,code:'MATCHED_FAILED_RECEIPT_RECONCILED_LOCAL_ONLY',
+    revision:attemptedRevision,serverCount:remote2.count,
+    localCount:rawTrades.length,remoteWrites:0};
+}
+
 function _readPortfolioRecoveryReceipts() {
   const value = lsGet(PORTFOLIO_RECOVERY_RECEIPTS_KEY, {});
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
