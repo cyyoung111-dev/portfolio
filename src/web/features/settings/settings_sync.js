@@ -300,12 +300,29 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     ||isGsheetConnectionCurrent(targetUrl,generation));
   const fail=(code,details={})=>({ok:false,code,...details,remoteWrites:0});
   if(!isCurrent())return fail('CONNECTION_CHANGED');
-  if(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty())
-    return fail('LOCAL_DIRTY_JOURNAL_PRESENT');
+  const dirty=typeof _getPortfolioRemoteDirty==='function'
+    ?_getPortfolioRemoteDirty():null;
+  // An interrupted normal save always creates a full dirty journal. Merely
+  // finding one is not a data mismatch; never delete or replay it blindly.
+  // A dirty recovery is allowed only after verifying financial source rows
+  // AND the separate fund settings / holdings against the GAS readbacks.
+  if(dirty&&(dirty.target!==targetUrl||dirty.receiptProtocol!==1
+      ||dirty.legacyUntracked===true||!Array.isArray(dirty.trades)
+      ||!Array.isArray(dirty.holdings)||!dirty.epoch))
+    return fail('DIRTY_JOURNAL_FORMAT_UNVERIFIED');
+  if(dirty&&(dirty.tradeV2DeleteIds||[]).length)
+    return fail('PENDING_TRADE_DELETE_INTENT');
   if(typeof _getPendingExplicitEmptyTradeSync==='function'
       &&_getPendingExplicitEmptyTradeSync(targetUrl))
     return fail('PENDING_EXPLICIT_DELETE');
-  if(typeof _isPortfolioRemoteSyncPending==='function'&&_isPortfolioRemoteSyncPending())
+  const activeSync=typeof _saveHoldingsGasTimer!=='undefined'
+      &&!!_saveHoldingsGasTimer
+    ||typeof _portfolioRemoteSyncQueuesByTarget!=='undefined'
+      &&_portfolioRemoteSyncQueuesByTarget.has(targetUrl)
+    ||typeof _pendingExplicitEmptyTradeSyncFlightsByTarget!=='undefined'
+      &&_pendingExplicitEmptyTradeSyncFlightsByTarget.has(targetUrl);
+  if(activeSync||(!dirty&&typeof _isPortfolioRemoteSyncPending==='function'
+      &&_isPortfolioRemoteSyncPending()))
     return fail('LOCAL_SYNC_BUSY');
   const records=_readPortfolioRecoveryReceipts();
   const record=records?.[targetUrl]?.syncTradesV2;
@@ -349,6 +366,52 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     return fail('LOCAL_UNSENT_CHANGE_DIFFERS_FROM_FAILED_RECEIPT',{
       localCount:rawTrades.length,attemptedCount:attemptedRows.length
     });
+  // The pinned full local journal is financial data, not just a restart
+  // marker. Preserve it if it differs from the receipt or live PC memory.
+  const initialDirty=dirty?JSON.stringify(dirty):'';
+  if(dirty){
+    try{
+      if(dirty.trades.length!==attemptedRows.length
+          ||await digest(dirty.trades)!==attemptedRevision
+          ||JSON.stringify(rawHoldings)!==JSON.stringify(dirty.holdings)
+          ||JSON.stringify(fundDirect||{})!==JSON.stringify(dirty.fundDirect||{}))
+        return fail('DIRTY_SNAPSHOT_DIFFERS_FROM_PC_OR_RECEIPT');
+    }catch(ignore){return fail('DIRTY_CANONICAL_UNVERIFIED');}
+  }
+  // The server's getHoldings is aggregated by name; the PC stores
+  // per-account holdings. Match the exact quantity and cost by holding,
+  // then independently require current fundDirect settings to match.
+  const holdingSignature=(rows,funds,local)=>{
+    if(!Array.isArray(rows))throw Error('INVALID_HOLDINGS');
+    const entries=new Map();
+    for(const h of rows){
+      const name=String(h?.name||'').trim(),qty=Number(h?.qty||0);
+      if(!name||!Number.isFinite(qty)||qty<0)throw Error('INVALID_HOLDING_ROW');
+      if(!(qty>0))continue;
+      const hasExact=h.costAmt!==undefined&&h.costAmt!==null&&h.costAmt!=='';
+      const cost=hasExact?Number(h.costAmt):Number(h.cost||0)*qty;
+      if(!Number.isFinite(cost)||cost<0)throw Error('INVALID_HOLDING_COST');
+      const old=entries.get(name)||{name,qty:0,costAmt:0};
+      old.qty+=qty;old.costAmt+=cost;entries.set(name,old);
+    }
+    if(local){
+      for(const [name,f] of Object.entries(funds||{})){
+        const cost=Number(f?.cost||0);
+        if(!(cost>0)||entries.has(name))continue;
+        entries.set(name,{name,qty:1,costAmt:cost});
+      }
+    }
+    return [...entries.values()].sort((a,b)=>a.name.localeCompare(b.name));
+  };
+  const sameHoldings=(a,b)=>a.length===b.length&&a.every((x,i)=>
+    x.name===b[i].name&&Math.abs(x.qty-b[i].qty)<1e-7
+    &&Math.abs(x.costAmt-b[i].costAmt)<0.000001);
+  const settingsFunds=object=>JSON.stringify(Object.entries(object||{})
+    .map(([name,x])=>[name,Number(x?.cost||0),Number(x?.eval||0),String(x?.type||'')])
+    .sort((a,b)=>a[0].localeCompare(b[0])));
+  const expectedHoldings=dirty
+    ?holdingSignature(dirty.holdings,dirty.fundDirect,true):null;
+  const expectedFunds=dirty?settingsFunds(dirty.fundDirect):null;
   const requestOptions={targetUrl,generation,timeoutMs:20000,retry:0,preserveError:true};
   const receiptQuery=()=>requestGsheetFormJson('getPortfolioSyncReceipt',{
     ...record.params,kind:record.action,operationId:record.id
@@ -372,11 +435,31 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     const verified=await digest(readback.trades);
     if(verified!==readback.ledgerRevision)
       throw Error('SERVER_LEDGER_REVISION_MISMATCH');
+    if(dirty){
+      const response=await requestGsheetActionJson('getHoldings',{},requestOptions);
+      if(!isCurrent())throw Error('CONNECTION_CHANGED');
+      if(response?.status!=='ok'||!Array.isArray(response.holdings))
+        throw Error('SERVER_HOLDINGS_UNVERIFIED');
+      const actualHoldings=holdingSignature(response.holdings,null,false);
+      if(!sameHoldings(expectedHoldings,actualHoldings))
+        throw Error('SERVER_AND_PC_HOLDINGS_DIFFER');
+      const settings=await requestGsheetActionJson('getSettings',{},requestOptions);
+      if(!isCurrent())throw Error('CONNECTION_CHANGED');
+      if(settings?.status!=='ok'||!settings.settings
+          ||typeof settings.settings!=='object')
+        throw Error('SERVER_FUND_SETTINGS_UNVERIFIED');
+      if(settingsFunds(settings.settings.fundDirect)!==expectedFunds)
+        throw Error('SERVER_AND_PC_FUND_SETTINGS_DIFFER');
+    }
     return {hash:verified,count:readback.trades.length};
   };
   let remote1,remote2;
   try{remote1=await checkRemote();}
-  catch(ignore){return fail('SERVER_LEDGER_UNVERIFIED');}
+  catch(error){
+    const code=String(error?.message||'');
+    return fail(/^SERVER_(?:HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
+      ?code:'SERVER_LEDGER_UNVERIFIED');
+  }
   if(remote1.hash!==attemptedRevision||remote1.count!==attemptedRows.length)
     return fail('SERVER_AND_PC_LEDGER_DIFFER',{
       serverCount:remote1.count,localCount:rawTrades.length
@@ -384,15 +467,28 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
   try{
     remote2=await checkRemote();
     if(!sameFailedReceipt(await receiptQuery()))return fail('SERVER_RECEIPT_CHANGED');
-  }catch(ignore){return fail('SECOND_READBACK_UNVERIFIED');}
+  }catch(error){
+    const code=String(error?.message||'');
+    return fail(/^SERVER_(?:HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
+      ?code:'SECOND_READBACK_UNVERIFIED');
+  }
   if(!isCurrent())return fail('CONNECTION_CHANGED');
   if(remote2.hash!==attemptedRevision||remote2.count!==attemptedRows.length)
     return fail('SERVER_CHANGED_DURING_VERIFICATION');
   // Do not discard unverified newer edits or any concurrent local request.
   const latest=_readPortfolioRecoveryReceipts()?.[targetUrl]?.syncTradesV2;
+  const currentDirty=typeof _getPortfolioRemoteDirty==='function'
+    ?_getPortfolioRemoteDirty():null;
   if(!latest||JSON.stringify(latest)!==JSON.stringify(record)
-      ||(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty())
-      ||(typeof _isPortfolioRemoteSyncPending==='function'&&_isPortfolioRemoteSyncPending())
+      ||(dirty
+        ?JSON.stringify(currentDirty)!==initialDirty
+        :!!currentDirty)
+      ||(dirty&&(
+        JSON.stringify(rawHoldings)!==JSON.stringify(dirty.holdings)
+        ||JSON.stringify(fundDirect||{})!==JSON.stringify(dirty.fundDirect||{})))
+      ||(typeof _saveHoldingsGasTimer!=='undefined'&&!!_saveHoldingsGasTimer)
+      ||(typeof _portfolioRemoteSyncQueuesByTarget!=='undefined'
+          &&_portfolioRemoteSyncQueuesByTarget.has(targetUrl))
       ||(Array.isArray(rawTrades)?await digest(rawTrades):'')!==attemptedRevision)
     return fail('LOCAL_STATE_CHANGED_DURING_VERIFICATION');
   // Keep full original failed input in durable, local-only backup. Never
@@ -403,7 +499,11 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     &&!Array.isArray(oldArchive)?oldArchive:{};
   const saved=JSON.parse(JSON.stringify(record));
   const proposed={...archive,[targetUrl]:{
-    priorReceipt:saved,verifiedRevision:attemptedRevision,
+    priorReceipt:saved,priorDirtyJournal:dirty
+      ?JSON.parse(JSON.stringify(dirty)):null,
+    priorHoldingsReceipt:dirty
+      ?JSON.parse(JSON.stringify(records?.[targetUrl]?.syncHoldings||null)):null,
+    verifiedRevision:attemptedRevision,
     verifiedRowCount:attemptedRows.length,archivedAt:new Date().toISOString()
   }};
   try{lsSave(archiveKey,proposed);}
@@ -418,6 +518,17 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
   if(persisted?.completed!==true
       ||persisted.readbackConfirmedRevision!==attemptedRevision)
     return fail('LOCAL_TERMINAL_MARKER_READBACK_FAILED');
+  if(dirty){
+    if(typeof _clearPortfolioRemoteDirty!=='function'
+        ||!_clearPortfolioRemoteDirty(dirty.epoch,targetUrl)
+        ||(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty()))
+      return fail('VERIFIED_DIRTY_JOURNAL_ARCHIVED_BUT_NOT_CLEARED');
+    // Removal is only allowed after original journal and receipt are backed
+    // up, and exact server financial ledgers and fund settings were verified.
+    const archived=lsGet(archiveKey,{})?.[targetUrl];
+    if(!archived?.priorDirtyJournal||archived.priorDirtyJournal.epoch!==dirty.epoch)
+      return fail('LOCAL_DIRTY_ARCHIVE_READBACK_FAILED');
+  }
   return {ok:true,code:'MATCHED_FAILED_RECEIPT_RECONCILED_LOCAL_ONLY',
     revision:attemptedRevision,serverCount:remote2.count,
     localCount:rawTrades.length,remoteWrites:0};
