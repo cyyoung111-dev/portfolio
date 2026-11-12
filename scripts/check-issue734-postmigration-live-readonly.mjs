@@ -6,7 +6,7 @@ const url='https://script.google.com/macros/s/MOCK_DEPLOYMENT/exec';
 const token='MOCK_PRIVATE_TOKEN_FOR_TEST';
 const trades=Array.from({length:338},(_,i)=>({id:'srv_'+i.toString(16).padStart(32,'0'),
  date:'2026-11-10',code:'005930',qty:1,price:100}));
-const good={getTrades:{status:'ok',tradeLedgerProtocolVersion:2,
+const good={getTrades:{status:'ok',gasVersion:'9.292',tradeLedgerProtocolVersion:2,
  ledgerRevision:'b'.repeat(64),trades},
  getHoldings:{status:'ok',holdings:[{code:'005930',qty:100}]}};
 async function test(payload=good){
@@ -30,6 +30,7 @@ assert.equal(out.mobileBrowserE2EVerified,false);
 assert(!JSON.stringify(out).includes(token));
 assert(!JSON.stringify(out).includes('srv_'));
 for(const [change,pattern] of [
+ [{getTrades:{...good.getTrades,gasVersion:'9.293'}},/GAS_VERSION_UNVERIFIED/],
  [{getTrades:{...good.getTrades,tradeLedgerProtocolVersion:1}},/TRADE_LEDGER_UNVERIFIED/],
  [{getTrades:{...good.getTrades,trades:[...trades.slice(0,-1),trades[0]]}},/TRADE_ID_INVALID/],
  [{getTrades:{...good.getTrades,ledgerRevision:'wrong'}},/TRADE_LEDGER_UNVERIFIED/],

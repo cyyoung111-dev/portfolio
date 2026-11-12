@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// #734 read-only postmigration contract: actual GAS v9.289 getTrades + getHoldings.
+// #734 read-only postmigration contract: actual reviewed GAS v9.292 getTrades + getHoldings.
 // No synthetic financial writes, browser changes, migration reruns or raw PII logs.
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
@@ -24,7 +24,7 @@ export async function inspectIssue734LiveProtocol({url,token,fetchImpl=fetch}={}
    fail('JSON_UNVERIFIED');}
  };
  const trades=await read('getTrades');
- if(!['9.288','9.289','9.290'].includes(trades.gasVersion)&&trades.gasVersion!==undefined)
+ if(!['9.288','9.289','9.290','9.291','9.292'].includes(trades.gasVersion)&&trades.gasVersion!==undefined)
   fail('GAS_VERSION_UNVERIFIED');
  if(trades.tradeLedgerProtocolVersion!==2
   ||typeof trades.ledgerRevision!=='string'
