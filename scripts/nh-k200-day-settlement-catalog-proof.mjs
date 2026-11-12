@@ -9,7 +9,7 @@ const pathRule=/^\/krfuture\/(?:quote|inquiry)\/v\d+\/[a-zA-Z0-9_/-]+$/;
 export function analyzeNhFutureCatalog(spec){
  if(!spec||typeof spec!=='object'||Array.isArray(spec)
   ||typeof spec.openapi!=='string'||!spec.openapi.startsWith('3.')
-  ||!spec.paths||typeof spec.paths!=='object'
+  ||!spec.paths||typeof spec.paths!=='object'||Array.isArray(spec.paths)
   ||Object.keys(spec.paths).length>1500)return null;
  const defs=spec.components?.schemas||{};
  const resolve=(node,seen=new Set())=>{
