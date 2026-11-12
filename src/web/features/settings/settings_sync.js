@@ -435,11 +435,31 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     const verified=await digest(readback.trades);
     if(verified!==readback.ledgerRevision)
       throw Error('SERVER_LEDGER_REVISION_MISMATCH');
+    if(dirty){
+      const response=await requestGsheetActionJson('getHoldings',{},requestOptions);
+      if(!isCurrent())throw Error('CONNECTION_CHANGED');
+      if(response?.status!=='ok'||!Array.isArray(response.holdings))
+        throw Error('SERVER_HOLDINGS_UNVERIFIED');
+      const actualHoldings=holdingSignature(response.holdings,null,false);
+      if(!sameHoldings(expectedHoldings,actualHoldings))
+        throw Error('SERVER_AND_PC_HOLDINGS_DIFFER');
+      const settings=await requestGsheetActionJson('getSettings',{},requestOptions);
+      if(!isCurrent())throw Error('CONNECTION_CHANGED');
+      if(settings?.status!=='ok'||!settings.settings
+          ||typeof settings.settings!=='object')
+        throw Error('SERVER_FUND_SETTINGS_UNVERIFIED');
+      if(settingsFunds(settings.settings.fundDirect)!==expectedFunds)
+        throw Error('SERVER_AND_PC_FUND_SETTINGS_DIFFER');
+    }
     return {hash:verified,count:readback.trades.length};
   };
   let remote1,remote2;
   try{remote1=await checkRemote();}
-  catch(ignore){return fail('SERVER_LEDGER_UNVERIFIED');}
+  catch(error){
+    const code=String(error?.message||'');
+    return fail(/^SERVER_(?:HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
+      ?code:'SERVER_LEDGER_UNVERIFIED');
+  }
   if(remote1.hash!==attemptedRevision||remote1.count!==attemptedRows.length)
     return fail('SERVER_AND_PC_LEDGER_DIFFER',{
       serverCount:remote1.count,localCount:rawTrades.length
@@ -447,15 +467,28 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
   try{
     remote2=await checkRemote();
     if(!sameFailedReceipt(await receiptQuery()))return fail('SERVER_RECEIPT_CHANGED');
-  }catch(ignore){return fail('SECOND_READBACK_UNVERIFIED');}
+  }catch(error){
+    const code=String(error?.message||'');
+    return fail(/^SERVER_(?:HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
+      ?code:'SECOND_READBACK_UNVERIFIED');
+  }
   if(!isCurrent())return fail('CONNECTION_CHANGED');
   if(remote2.hash!==attemptedRevision||remote2.count!==attemptedRows.length)
     return fail('SERVER_CHANGED_DURING_VERIFICATION');
   // Do not discard unverified newer edits or any concurrent local request.
   const latest=_readPortfolioRecoveryReceipts()?.[targetUrl]?.syncTradesV2;
+  const currentDirty=typeof _getPortfolioRemoteDirty==='function'
+    ?_getPortfolioRemoteDirty():null;
   if(!latest||JSON.stringify(latest)!==JSON.stringify(record)
-      ||(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty())
-      ||(typeof _isPortfolioRemoteSyncPending==='function'&&_isPortfolioRemoteSyncPending())
+      ||(dirty
+        ?JSON.stringify(currentDirty)!==initialDirty
+        :!!currentDirty)
+      ||(dirty&&(
+        JSON.stringify(rawHoldings)!==JSON.stringify(dirty.holdings)
+        ||JSON.stringify(fundDirect||{})!==JSON.stringify(dirty.fundDirect||{})))
+      ||(typeof _saveHoldingsGasTimer!=='undefined'&&!!_saveHoldingsGasTimer)
+      ||(typeof _portfolioRemoteSyncQueuesByTarget!=='undefined'
+          &&_portfolioRemoteSyncQueuesByTarget.has(targetUrl))
       ||(Array.isArray(rawTrades)?await digest(rawTrades):'')!==attemptedRevision)
     return fail('LOCAL_STATE_CHANGED_DURING_VERIFICATION');
   // Keep full original failed input in durable, local-only backup. Never
@@ -466,7 +499,11 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     &&!Array.isArray(oldArchive)?oldArchive:{};
   const saved=JSON.parse(JSON.stringify(record));
   const proposed={...archive,[targetUrl]:{
-    priorReceipt:saved,verifiedRevision:attemptedRevision,
+    priorReceipt:saved,priorDirtyJournal:dirty
+      ?JSON.parse(JSON.stringify(dirty)):null,
+    priorHoldingsReceipt:dirty
+      ?JSON.parse(JSON.stringify(records?.[targetUrl]?.syncHoldings||null)):null,
+    verifiedRevision:attemptedRevision,
     verifiedRowCount:attemptedRows.length,archivedAt:new Date().toISOString()
   }};
   try{lsSave(archiveKey,proposed);}
@@ -481,6 +518,17 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
   if(persisted?.completed!==true
       ||persisted.readbackConfirmedRevision!==attemptedRevision)
     return fail('LOCAL_TERMINAL_MARKER_READBACK_FAILED');
+  if(dirty){
+    if(typeof _clearPortfolioRemoteDirty!=='function'
+        ||!_clearPortfolioRemoteDirty(dirty.epoch,targetUrl)
+        ||(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty()))
+      return fail('VERIFIED_DIRTY_JOURNAL_ARCHIVED_BUT_NOT_CLEARED');
+    // Removal is only allowed after original journal and receipt are backed
+    // up, and exact server financial ledgers and fund settings were verified.
+    const archived=lsGet(archiveKey,{})?.[targetUrl];
+    if(!archived?.priorDirtyJournal||archived.priorDirtyJournal.epoch!==dirty.epoch)
+      return fail('LOCAL_DIRTY_ARCHIVE_READBACK_FAILED');
+  }
   return {ok:true,code:'MATCHED_FAILED_RECEIPT_RECONCILED_LOCAL_ONLY',
     revision:attemptedRevision,serverCount:remote2.count,
     localCount:rawTrades.length,remoteWrites:0};
