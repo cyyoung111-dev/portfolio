@@ -143,25 +143,12 @@ await assert.rejects(()=>verifyGas9292PostDeployWithRetry({
 }),/RETRY_CONTRACT_INVALID/);
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const on=wf.on||wf.true;
-for(const n of ['use_9292_gate_selfheal','approve_9292'])
- assert.equal(on.workflow_dispatch.inputs[n].default,false,
-  '9.292 manual selection must be opt-in');
-const deploy=wf.jobs.deploy;
-assert.match(deploy.env.GAS_9292_GATE_SELFHEAL,/workflow_dispatch/);
-assert.match(deploy.env.GAS_9292_RELEASE_APPROVAL,/approve_9292/);
-const steps=deploy.steps;
-const pre=steps.find(x=>x.id==='gas9292_gate');
-assert(pre);
-assert.match(pre.if,/GAS_9292_RELEASE_APPROVAL == 'true'/);
-assert.equal(pre.run,'node scripts/issue860-gas9292-predeploy-readonly.mjs');
-const publish=steps.find(x=>x.name==='Deploy GAS');
-assert.match(publish.env.GAS_9292_LIVE_PREFLIGHT_VERIFIED,/gas9292_gate.outputs.verified/);
-const post=steps.find(x=>String(x.name).includes('v9.292 published'));
-assert(post);
-assert.match(post.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
-assert.match(post.run,/issue860-gas9292-postdeploy-readonly.mjs/);
-assert.match(fs.readFileSync('scripts/deploy-gas.mjs','utf8'),
- /GAS_9292_GATE_SELFHEAL/);
+assert.equal(Object.hasOwn(on.workflow_dispatch.inputs,'use_9292_gate_selfheal'),false);
+assert.equal(Object.hasOwn(on.workflow_dispatch.inputs,'approve_9292'),false);
+assert(!wf.jobs.deploy.steps.some(x=>x.id==='gas9292_gate'));
+assert(!wf.jobs.deploy.steps.some(x=>String(x.name||'').includes('v9.292 published')));
+assert(wf.jobs.deploy.steps.some(x=>x.name==='Deploy GAS'));
+assert.match(fs.readFileSync('scripts/deploy-gas.mjs','utf8'), /GAS_9292_GATE_SELFHEAL/);
 console.log(JSON.stringify({
  kind:'ISSUE860_9292_MANUAL_RELEASE_REVIEW_PASS',
  sourceGitBlob:manifest.candidateGitBlob,

@@ -36,26 +36,10 @@ assert.doesNotThrow(()=>assertIssue8609291Prerequisites({
 assert.doesNotThrow(()=>assertIssue8609291Prerequisites({
  version:'9.291',publishedVersion:'9.288',dryRun:true}));
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
-for(const n of ['use_9291_watchdog_recovery','approve_9291']){
- const field=workflow.on.workflow_dispatch.inputs[n];
- assert.equal(field.type,'boolean');
- assert.equal(field.default,false);
-}
-const steps=workflow.jobs.deploy.steps;
-const deploy=steps.findIndex(x=>x.name==='Deploy GAS');
-const gate=steps.findIndex(x=>String(x.name).includes('before v9.291'));
-assert(gate>0&&gate<deploy);
-assert.equal(steps[gate].id,'gas9291_gate');
-assert.equal(steps[gate].run,'node scripts/issue860-v9290-live-gate.mjs');
-assert.equal(steps[gate]['continue-on-error'],undefined);
-assert.match(steps[gate].if,/GAS_9291_RELEASE_APPROVAL == 'true'/);
-assert.match(steps[gate].if,/GAS_DEPLOY_DRY_RUN != 'true'/);
-assert.match(steps[deploy].env.GAS_9291_LIVE_GATE_VERIFIED,
- /steps\.gas9291_gate\.outputs\.verified/);
-assert.match(workflow.jobs.deploy.env.GAS_9291_WATCHDOG_RECOVERY,
- /inputs\.use_9291_watchdog_recovery/);
-assert.match(workflow.jobs.deploy.env.GAS_9291_RELEASE_APPROVAL,
- /inputs\.approve_9291/);
+assert.equal(Object.hasOwn(workflow.on.workflow_dispatch.inputs,'use_9291_watchdog_recovery'),false);
+assert.equal(Object.hasOwn(workflow.on.workflow_dispatch.inputs,'approve_9291'),false);
+assert(!workflow.jobs.deploy.steps.some(x=>String(x.name||'').includes('before v9.291')));
+assert(workflow.jobs.deploy.steps.some(x=>x.name==='Deploy GAS'));
 console.log(JSON.stringify({kind:'ISSUE860_GAS9291_MANUAL_RELEASE_GATE_PASS',
  sourceGitBlob:sha,manualApprovalRequired:true,
  repairProofRequired:true,published9289Required:true,

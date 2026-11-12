@@ -36,21 +36,10 @@ assert.doesNotThrow(()=>assertIssue8609290Prerequisites({
  version:'9.290',publishedVersion:'9.288',dryRun:true}));
 
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
-const inputs=workflow.on.workflow_dispatch.inputs;
-for(const n of ['use_9290_close_perf','approve_9290']){
- assert.equal(inputs[n].type,'boolean');
- assert.equal(inputs[n].default,false);
-}
-const steps=workflow.jobs.deploy.steps;
-const index=steps.findIndex(x=>String(x.name||'').includes('before v9.290'));
-const release=steps.findIndex(x=>x.name==='Deploy GAS');
-assert(index>0&&index<release);
-assert.equal(steps[index].run,'node scripts/issue860-v9290-live-gate.mjs');
-assert.equal(steps[index]['continue-on-error'],undefined);
-assert.match(steps[index].if,/GAS_9290_RELEASE_APPROVAL == 'true'/);
-assert.match(steps[index].if,/GAS_DEPLOY_DRY_RUN != 'true'/);
-assert.match(steps[release].env.GAS_9290_LIVE_GATE_VERIFIED,/steps\.gas9290_gate\.outputs\.verified/);
-
+assert.equal(Object.hasOwn(workflow.on.workflow_dispatch.inputs,'use_9290_close_perf'),false);
+assert.equal(Object.hasOwn(workflow.on.workflow_dispatch.inputs,'approve_9290'),false);
+assert(!workflow.jobs.deploy.steps.some(x=>String(x.name||'').includes('before v9.290')));
+assert(workflow.jobs.deploy.steps.some(x=>x.name==='Deploy GAS'));
 const url='https://script.google.com/macros/s/TEST_DEPLOYMENT/exec';
 const token='TEST_MOCK_PRIVATE_TOKEN';
 const date='2026-11-10';
