@@ -139,7 +139,7 @@ export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
 }
-export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram,onSourceDiagnostic=()=>{},financialEvidence=null,financialEvidenceNow=null}={}) {
+export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram,onSourceDiagnostic=()=>{},financialEvidence=null,financialEvidenceNow=null,watchEvidence=null}={}) {
   if(Number(attempt)!==1)throw new Error('TELEGRAM_RETRY_BLOCKED');
   if(event==='test') { await send(token,chatId,'텔레그램 브리핑 연결 시험입니다. 실제 시장 브리핑은 아닙니다.',{fetchImpl}); return {status:'TEST_SENT'}; }
   if(event!=='schedule')throw new Error('TELEGRAM_EVENT_INVALID');
@@ -213,7 +213,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   const currentEvidence=typeof financialEvidenceNow==='function'
     ?financialEvidenceNow():financialEvidence;
   const message=formatMorningBriefing(first.date,reference,values,{
-    now:now(),fearGreed,supplements,financialEvidence:currentEvidence});
+    now:now(),fearGreed,supplements,financialEvidence:currentEvidence,watchEvidence});
   const display=summarizeOptionalDelivery('morning',{
     futures:(supplementRows.futures||[]).length,
     treasury:(supplementRows.treasury||[]).length,
