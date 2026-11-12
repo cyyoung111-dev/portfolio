@@ -538,21 +538,85 @@ function deleteSelectedTrades() {
   });
 }
 
+// A multi-row account transfer changes both source and destination holdings.
+// Validate the complete resulting timeline BEFORE mutating the live ledger;
+// checking one row at a time can reject valid paired transfers or overlook a
+// later sale in the account the buy was moved FROM.
+function _validateTradeBulkAccountTransfer(trades, ids, targetAcct) {
+  if (!Array.isArray(trades) || !(ids instanceof Set) || ids.size === 0 || !targetAcct)
+    return {ok:false,reason:'INVALID_SELECTION'};
+  const matched=new Set(), affected=new Set();
+  const proposed=trades.map(t => {
+    const id=t?.id!=null?String(t.id):'';
+    if(!ids.has(id))return t;
+    if(matched.has(id))return t; // duplicated server IDs fail below
+    matched.add(id);
+    affected.add(String(t.acct||'')+'||'+String(t.name||''));
+    affected.add(String(targetAcct)+'||'+String(t.name||''));
+    return {...t,acct:targetAcct};
+  });
+  if(matched.size!==ids.size ||
+      trades.filter(t=>ids.has(String(t?.id||''))).length!==ids.size)
+    return {ok:false,reason:'SELECTED_IDS_STALE_OR_DUPLICATE'};
+  for(const key of affected){
+    let balance=0;
+    const ordered=proposed.map((t,index)=>({t,index}))
+      .filter(({t})=>String(t.acct||'')+'||'+String(t.name||'')===key)
+      .sort((a,b)=>String(_portfolioTradeDateKey(a.t.date)||'')
+        .localeCompare(String(_portfolioTradeDateKey(b.t.date)||''))||a.index-b.index);
+    for(const {t} of ordered){
+      const day=String(_portfolioTradeDateKey(t.date)||'');
+      const amount=Number(t.qty), ratio=Number(t.ratio);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(day))
+        return {ok:false,reason:'INVALID_DATE',day};
+      if(t.tradeType==='buy'){
+        if(!Number.isFinite(amount)||amount<=0)
+          return {ok:false,reason:'INVALID_BUY',day};
+        balance+=amount;
+      }else if(t.tradeType==='sell'){
+        if(!Number.isFinite(amount)||amount<=0||amount>balance+1e-8)
+          return {ok:false,reason:'OVERSOLD_AFTER_ACCOUNT_TRANSFER',day};
+        balance-=amount;
+      }else if(t.tradeType==='split'||t.tradeType==='reverse_split'){
+        if(!Number.isFinite(ratio)||ratio<=0||balance<=0)
+          return {ok:false,reason:'INVALID_CORPORATE_ACTION',day};
+        balance=t.tradeType==='split'?balance*ratio:balance/ratio;
+      }else return {ok:false,reason:'UNKNOWN_TRADE_TYPE',day};
+      if(!Number.isFinite(balance)||balance< -1e-8)
+        return {ok:false,reason:'INVALID_BALANCE',day};
+    }
+  }
+  const changed=proposed.filter((t,index)=>t!==trades[index] &&
+    t.acct!==trades[index].acct).length;
+  return {ok:true,changed,proposed};
+}
+
 // ★ [계좌별 taxType] 선택된 거래이력 계좌 일괄 변경
 function changeSelectedTradesAcct() {
   const newAcct = $el('tradeBulkAcctSelect')?.value || '';
   if (!newAcct) { showToast('변경할 계좌를 선택해주세요', 'warn'); return; }
   const checked = document.querySelectorAll('.trade-check:checked');
   if (checked.length === 0) { showToast('계좌를 변경할 거래를 선택해주세요', 'warn'); return; }
-  const ids = [...checked].map(cb => String(cb.dataset.id)).filter(id => id && id !== 'undefined');
-  if (!confirm(`선택한 ${ids.length}건의 계좌를 "${newAcct}"(으)로 변경할까요?`)) return;
-  const idSet = new Set(ids);
-  let changed = 0;
-  rawTrades.forEach(t => {
-    const rid = t.id != null ? String(t.id) : null;
-    if (rid && idSet.has(rid)) { t.acct = newAcct; changed++; }
-  });
-  if (changed === 0) { showToast('변경된 항목이 없습니다', 'warn'); return; }
+  const ids = [...checked].map(cb => String(cb.dataset.id))
+    .filter(id => id && id !== 'undefined');
+  if (ids.length!==checked.length || new Set(ids).size!==ids.length) {
+    showToast('선택한 거래 ID가 유효하지 않습니다. 새로고침 후 다시 선택해주세요.', 'error');
+    return;
+  }
+  const proposal=_validateTradeBulkAccountTransfer(rawTrades,new Set(ids),newAcct);
+  if(!proposal.ok){
+    showToast('계좌 변경을 중단했습니다: '+(proposal.day||proposal.reason)
+      +' 거래 이후 보유수량 또는 원본 ID를 확인해주세요.', 'error');
+    return;
+  }
+  if(proposal.changed===0){showToast('변경할 거래가 없습니다', 'warn');return;}
+  if (!confirm(`선택한 ${proposal.changed}건의 계좌를 "${newAcct}"(으)로 변경할까요?`)) return;
+  // Assign only after full validation and confirmation. A successful
+  // remote ledger commit still requires the normal v2 CAS + receipt readback.
+  rawTrades.splice(0,rawTrades.length,...proposal.proposed.map((t,index)=>
+    t!==rawTrades[index] && t.acct!==rawTrades[index].acct &&
+    typeof getAccountId==='function'
+      ?{...t,accountId:getAccountId(newAcct)}:t));
   _commitTrades();
-  showToast(`${changed}건의 계좌를 "${newAcct}"으로 변경했습니다`, 'ok');
+  showToast(`${proposal.changed}건을 로컬에 반영했습니다 · 서버 저장 확인 중`, 'ok');
 }
