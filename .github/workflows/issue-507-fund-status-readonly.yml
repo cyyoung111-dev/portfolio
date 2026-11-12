@@ -1,4 +1,6 @@
 name: issue-507-fund-status-readonly
+# 2026-11-13 source-only live check of latest 32-day NAV states after
+# recent-close KB publication-lag deferral; same protected read-only steps.
 on:
   workflow_dispatch:
   # One bounded read-only production diagnosis after the workflow revision lands.
