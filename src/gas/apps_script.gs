@@ -2399,7 +2399,9 @@ function handleSaveKrxAuthKey(rawKey) {
   try {
     var key = (rawKey || '').toString().trim();
     var props = PropertiesService.getScriptProperties();
-    if (!key || key === '-') {
+    // A blank save request must not become an irreversible deletion.
+    if (!key) return jsonError('KRX_EMPTY_KEY_REJECTED');
+    if (key === '-') {
       props.deleteProperty('krx_auth_key');
       props.deleteProperty('krx_api_key');
       return jsonOk({ saved: false, cleared: true });
@@ -2448,7 +2450,8 @@ function handleSavePublicDataApiKey(rawKey) {
   try {
     var key = (rawKey || '').toString().trim();
     var props = PropertiesService.getScriptProperties();
-    if (!key || key === '-') {
+    if (!key) return jsonError('PUBLIC_DATA_EMPTY_KEY_REJECTED');
+    if (key === '-') {
       props.deleteProperty('public_data_api_key');
       props.deleteProperty('public_listed_api_key');
       props.deleteProperty('public_dividend_api_key');
