@@ -89,6 +89,48 @@ for(const [bad,expected] of [
  assert.equal(result.result,undefined);
  assert.equal(result.error?.message,expected);
 }
+// Separate transient GET errors from postdeployment mutation failures.
+// All reports remain fixed enums; neither bearer nor NH credentials escape.
+for(const [phase,kind] of [
+ ['AUTH_PROBE','NETWORK_OR_TIMEOUT'],
+ ['SETTINGS','HTTP_UNVERIFIED'],
+ ['CONFIG_WRITE','JSON_UNVERIFIED'],
+ ['LEGACY_CLEANUP','NETWORK_OR_TIMEOUT'],
+ ['CODE_MASTER','HTTP_UNVERIFIED']
+]){
+ const sourceError='PRIVATE_NH_AND_GAS_ACCESS_SECRET';
+ const bad=async(_requestUrl,opts)=>{
+   const action=opts.body.get('action');
+   const denied=opts.body.get('accessToken')!==token;
+   const currentPhase=action==='getSettings'?(denied?'AUTH_PROBE':'SETTINGS')
+     :({saveNhConfig:'CONFIG_WRITE',retireLegacyMarketData:'LEGACY_CLEANUP',
+       getCodeListReadOnly:'CODE_MASTER'}[action]||'UNKNOWN');
+   if(currentPhase===phase){
+     if(kind==='NETWORK_OR_TIMEOUT')throw Error(sourceError);
+     if(kind==='HTTP_UNVERIFIED')return {ok:false,status:503};
+     return {ok:true,json:async()=>{throw Error(sourceError)}};
+   }
+   let payload={status:'ok'};
+   if(denied)payload={status:'error'};
+   else if(action==='getSettings')payload={status:'ok',gasVersion:'9.293',
+     settings:{apiKeyStatus:{nh:{enabled:phase!=='CONFIG_WRITE'}}}};
+   else if(action==='saveNhConfig')payload={status:'ok',nh:{enabled:true}};
+   else if(action==='retireLegacyMarketData')payload={status:'ok',retired:true};
+   else if(action==='getCodeListReadOnly')payload={status:'ok',readOnly:true,
+     gasVersion:'9.293',codes:[{code:'005930',type:'주식',currency:'KRW'}]};
+   else if(action==='getPrices')payload={status:'ok',
+     priceLookup:{currentProvider:'NH',tossResultCount:1},
+     prices:{'005930':76000}};
+   else throw Error('UNEXPECTED_STAGE');
+   return {ok:true,json:async()=>payload};
+ };
+ let code='';
+ try{await activateNhRuntime({url,token,key,secret,request:bad});}
+ catch(e){code=e.message;}
+ assert.equal(code,'NH_RUNTIME_'+phase+'_'+kind,
+   'NH failure must identify only its exact phase and transport classification');
+ assert(!code.includes(sourceError)&&!code.includes(token)&&!code.includes(secret));
+}
 console.log(JSON.stringify({kind:'NH_POSTDEPLOY_SAMPLE_VERIFIED_OPTIONAL_DIAGNOSTIC_PENDING_PASS',
  scenarios:6,primaryNHFailuresStillBlock:true,
  deepTimeoutPreservesIncompleteStatus:true,
