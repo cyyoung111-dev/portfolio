@@ -2593,3 +2593,44 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
     longerReadOnlyTimeoutVerified:true,holdingsAndFundMismatchBlocked:true,
     originalReceiptArchived:true,serverWrites:0,mobileWrites:0}));
 }
+
+
+// Regression: user mobile price update reported "보유 63건" even though
+// trade-ledger replay had 61 positive account/holding groups including two
+// direct funds. A dashboard count must not add those same funds again.
+{
+  const source = fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
+  const start = source.indexOf('function _pricePortfolioSummary() {');
+  const end = source.indexOf('\n}',start);
+  assert(start>=0&&end>start,'status summary function missing');
+  const code=source.slice(start,end+2);
+  const rows=[
+    {name:'한화 LIFEPLUS TDF 2045'},
+    {name:'KB 밸류포커스 (주식)'},
+    ...Array.from({length:59},(_,i)=>({name:'주식 '+i}))
+  ];
+  const initial={rawTrades:Array.from({length:338},()=>({})),
+    rawHoldings:rows,
+    fundDirect:{
+      '한화 LIFEPLUS TDF 2045':{cost:1,eval:2},
+      'KB 밸류포커스 (주식)':{cost:1,eval:2}
+    },
+    window:{_gsheetMissingCodes:[]},_escapeHtml:x=>String(x)};
+  const ctx=vm.createContext(initial);
+  vm.runInContext(code,ctx);
+  const html=ctx._pricePortfolioSummary();
+  assert.match(html,/거래 338건/);
+  assert.match(html,/보유 61건/,'already-held funds cannot be counted twice');
+  assert.doesNotMatch(html,/보유 63건/);
+  ctx.rawHoldings=[{name:'국내주식'}];
+  assert.match(ctx._pricePortfolioSummary(),/보유 3건/,
+    'legacy separate funds still count if they are not in rawHoldings');
+  ctx.fundDirect={};
+  assert.match(ctx._pricePortfolioSummary(),/보유 1건/);
+  ctx.rawHoldings=[];
+  assert.match(ctx._pricePortfolioSummary(),/보유 0건/);
+  assert.equal(initial.rawTrades.length,338);
+  assert.equal(rows.length,61,'do not change underlying positions');
+  console.log(JSON.stringify({kind:'MOBILE_HOLDINGS_COUNT_NO_DOUBLE_FUNDS_PASS',
+    rawHoldings:61,fundEntries:2,displayedCount:61,financeWrites:0}));
+}
