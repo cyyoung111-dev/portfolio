@@ -85,6 +85,15 @@ assert.equal(JSON.parse(partialRaw).events.length,0);
 const loaded=loadEarlyAiWatch(date,{now:()=>new Date('2026-11-12T07:44:00+09:00'),
  readFile:()=>content});
 assert.equal(loaded.expectedUsDate,usDate);
+assert.deepEqual(loaded.skhyQuote,{
+ symbol:'SKHY',label:'SK하이닉스 ADR',date:usDate,value:100,
+ source:'YAHOO_DAILY_REFERENCE'
+});
+const poisoned=JSON.parse(content);
+poisoned.skhyQuote={...poisoned.skhyQuote,date:'2026-11-10'};
+assert.equal(loadEarlyAiWatch(date,{
+ now:()=>new Date('2026-11-12T07:44:00+09:00'),
+ readFile:()=>JSON.stringify(poisoned)}),null);
 assert.ok(loaded.events.some(x=>x.symbol==='MU'));
 assert.equal(loadEarlyAiWatch(date,{now:nowEarly,readFile:()=>content}),null);
 assert.equal(loadEarlyAiWatch(date,{now:()=>new Date('2026-11-12T07:44:00+09:00'),
