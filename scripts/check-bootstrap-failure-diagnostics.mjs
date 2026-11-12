@@ -2228,3 +2228,68 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
     falseProfitSuppressed:true,localCostRetained:true,normalDisplayRestored:true,
     sourceWrites:0,remoteCalls:0}));
 }
+
+
+// External integration view must distinguish automated GAS status from
+// the current device's stranded financial receipt; no writes or raw data.
+{
+  const history = fs.readFileSync('src/web/views/views_history.js','utf8');
+  const getTopFunction = (signature) => {
+    const start = history.indexOf(signature);
+    if (start < 0) throw Error('missing receipt diagnostic function: '+signature);
+    const end = history.indexOf('\n}\n',start);
+    if (end < 0) throw Error('unterminated receipt diagnostic function');
+    return history.slice(start,end+2);
+  };
+  const local = getTopFunction('function _portfolioLocalReceiptSummary() {');
+  const remote = getTopFunction('async function diagnosePortfolioReceiptsReadOnly() {');
+  const status = {textContent:''};
+  const url = 'https://fixture.invalid/exec';
+  const dirty = {trades:[{name:'SENSITIVE_LEDGER'}],holdings:[{name:'SENSITIVE_HOLD'}],
+    receiptProtocol:1,receiptScope:'test-scope',legacyUntracked:false};
+  const record = {action:'syncHoldings',id:'pr_mock_receipt',scope:'test-scope',
+    attempted:true,completed:false,params:{data:'SENSITIVE_LEDGER'}};
+  let calls = 0;
+  const ctx = vm.createContext({
+    GSHEET_API_URL:url,
+    getGsheetSettingsLoadFailure:()=> '미동기화 거래·보유 확인 · SYNC_RECEIPT_FAILED · PORTFOLIO_SYNC_FAILED',
+    _getPortfolioRemoteDirty:()=>dirty,
+    _readPortfolioRecoveryReceipts:()=>({[url]:{syncHoldings:record}}),
+    document:{getElementById:id=>id==='portfolioReceiptDiagnosis'?status:null},
+    getGsheetConnectionGeneration:()=>1,
+    isGsheetConnectionCurrent:(target,g)=>target===url&&g===1,
+    requestGsheetFormJson:async(action,params,opts)=>{
+      calls++;
+      assert.equal(action,'getPortfolioSyncReceipt',
+        'receipt diagnostic may NEVER submit a financial save action');
+      assert.equal(opts.retry,0);
+      assert.equal(params.kind,'syncHoldings');
+      assert.equal(params.operationId,'pr_mock_receipt');
+      return {status:'ok',kind:'syncHoldings',operationId:'pr_mock_receipt',receiptState:'FAILED'};
+    }
+  });
+  vm.runInContext(local+'\n'+remote,ctx);
+  const summary = ctx._portfolioLocalReceiptSummary();
+  assert.equal(summary.pending,true);
+  assert.equal(summary.trades,1);
+  assert.equal(summary.holdings,1);
+  assert.equal(summary.attempted,1);
+  assert.equal(summary.unconfirmed,1);
+  assert.match(summary.reason,/SYNC_RECEIPT_FAILED/);
+  assert.doesNotMatch(JSON.stringify(summary),/SENSITIVE_LEDGER|fixture\.invalid|pr_mock_receipt/);
+  await ctx.diagnosePortfolioReceiptsReadOnly();
+  assert.equal(calls,1);
+  assert.match(status.textContent,/syncHoldings: FAILED/);
+  assert.match(status.textContent,/원본 변경 없음/);
+  assert.doesNotMatch(status.textContent,/SENSITIVE_LEDGER|fixture\.invalid|pr_mock_receipt/);
+  ctx._readPortfolioRecoveryReceipts=()=>({[url]:{}});
+  await ctx.diagnosePortfolioReceiptsReadOnly();
+  assert.equal(calls,1,'no receipt must not probe or write');
+  assert.match(status.textContent,/조회 가능한 영수증 기록이 없습니다/);
+  const eventCode=fs.readFileSync('src/web/app/event_delegation.js','utf8');
+  assert.match(eventCode,/portfolio-receipt-readonly.*diagnosePortfolioReceiptsReadOnly/);
+  assert.match(history,/PC 거래·보유 복원 진단 · 읽기 전용/);
+  console.log(JSON.stringify({kind:'ISSUE734_PC_RECEIPT_DIAGNOSTIC_PASS',
+    reportedLocalCounts:true,serverReceiptReadOnly:true,sensitiveFieldsOmitted:true,
+    remoteReads:1,financeWrites:0}));
+}
