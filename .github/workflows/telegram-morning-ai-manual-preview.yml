@@ -1,0 +1,87 @@
+name: Telegram morning AI manual preview (once-only)
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Explicit one-time real-data AI morning preview to existing Telegram chat'
+        type: choice
+        required: true
+        default: preview_only
+        options: [preview_only, send_once]
+  push:
+    branches: [main]
+    paths: ['ops/telegram-morning-preview-trigger.txt']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: telegram-morning-ai-manual-preview
+  cancel-in-progress: false
+  queue: max
+jobs:
+  preview:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'send_once'))
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify push is only today's dedicated preview sentinel
+        if: github.event_name == 'push'
+        id: sentinel
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          file='ops/telegram-morning-preview-trigger.txt'
+          deny() { echo "AI_PREVIEW_PUSH_DENIED_$1"; echo "verified=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          [[ "$PUSH_BEFORE" =~ ^[0-9a-f]{40}$ ]] || deny PREV_SHA
+          [[ "$PUSH_BEFORE" == "$(git rev-parse HEAD^)" ]] || deny MULTI_COMMIT
+          [[ "$(git diff --name-only HEAD^ HEAD)" == "$file" ]] || deny NOT_ONLY_SENTINEL
+          [[ "$(git ls-files --stage "$file" | awk '{print $1}')" == '100644' ]] || deny FILE_MODE
+          [[ "$(wc -c < "$file")" -lt 200 ]] || deny TOO_LONG
+          [[ "$(wc -l < "$file")" == '2' ]] || deny EXTRA_LINES
+          [[ "$(sed -n '1p' "$file")" == "preview_date=$(TZ=Asia/Seoul date +%F)" ]] || deny DATE
+          [[ "$(sed -n '2p' "$file")" == "preview_mode=send_once" ]] || deny MODE
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
+      - name: Prepare actual 38-company market briefing (no Telegram send yet)
+        id: prepare
+        if: github.event_name == 'workflow_dispatch' || steps.sentinel.outputs.verified == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          TELEGRAM_PREVIEW_AUTHORIZED: 'true'
+        run: node scripts/telegram-morning-preview-once.mjs prepare
+      - name: Reserve independent one-time manual preview claim
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}
+          path: .telegram-runtime/manual-preview-claim.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Send actual revised briefing to Telegram once
+        if: steps.prepare.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_PREVIEW_AUTHORIZED: 'true'
+        run: node scripts/telegram-morning-preview-once.mjs send
+      - name: Record API-confirmed manual preview SENT proof
+        if: steps.prepare.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}-sent
+          path: .telegram-runtime/manual-preview-sent.json
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
