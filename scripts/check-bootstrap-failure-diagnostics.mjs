@@ -2249,7 +2249,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
     receiptProtocol:1,receiptScope:'test-scope',legacyUntracked:false};
   const record = {action:'syncHoldings',id:'pr_mock_receipt',scope:'test-scope',
     attempted:true,completed:false,params:{data:'SENSITIVE_LEDGER'}};
-  let calls = 0;
+  let calls = 0, serverState = 'FAILED';
   const ctx = vm.createContext({
     GSHEET_API_URL:url,
     getGsheetSettingsLoadFailure:()=> '미동기화 거래·보유 확인 · SYNC_RECEIPT_FAILED · PORTFOLIO_SYNC_FAILED',
@@ -2265,7 +2265,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
       assert.equal(opts.retry,0);
       assert.equal(params.kind,'syncHoldings');
       assert.equal(params.operationId,'pr_mock_receipt');
-      return {status:'ok',kind:'syncHoldings',operationId:'pr_mock_receipt',receiptState:'FAILED'};
+      return serverState==='BUSY' ? {status:'ok',receiptState:'BUSY'} : {status:'ok',kind:'syncHoldings',operationId:'pr_mock_receipt',receiptState:serverState};
     }
   });
   vm.runInContext(local+'\n'+remote,ctx);
@@ -2282,14 +2282,20 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   assert.match(status.textContent,/syncHoldings: FAILED/);
   assert.match(status.textContent,/원본 변경 없음/);
   assert.doesNotMatch(status.textContent,/SENSITIVE_LEDGER|fixture\.invalid|pr_mock_receipt/);
+  for (const state of ['BUSY','UNKNOWN','CONFLICT','COMPLETE']) {
+    serverState=state;
+    await ctx.diagnosePortfolioReceiptsReadOnly();
+    assert.match(status.textContent,new RegExp('syncHoldings: '+state),
+      'server receipt state must not be hidden by UNAVAILABLE');
+  }
   ctx._readPortfolioRecoveryReceipts=()=>({[url]:{}});
   await ctx.diagnosePortfolioReceiptsReadOnly();
-  assert.equal(calls,1,'no receipt must not probe or write');
+  assert.equal(calls,5,'no receipt must not probe or write');
   assert.match(status.textContent,/조회 가능한 영수증 기록이 없습니다/);
   const eventCode=fs.readFileSync('src/web/app/event_delegation.js','utf8');
   assert.match(eventCode,/portfolio-receipt-readonly.*diagnosePortfolioReceiptsReadOnly/);
   assert.match(history,/PC 거래·보유 복원 진단 · 읽기 전용/);
   console.log(JSON.stringify({kind:'ISSUE734_PC_RECEIPT_DIAGNOSTIC_PASS',
     reportedLocalCounts:true,serverReceiptReadOnly:true,sensitiveFieldsOmitted:true,
-    remoteReads:1,financeWrites:0}));
+    remoteReads:5,financeWrites:0}));
 }
