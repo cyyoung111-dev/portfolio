@@ -64,6 +64,8 @@ jobs:
         if: github.event_name != 'push' || steps.verify_sentinel.outputs.verified == 'true'
         timeout-minutes: 2
         continue-on-error: true
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: node scripts/telegram-ai-watch-prefetch.mjs
       - name: Prefetch verified 06:00 NH night from existing 07:30 GAS proxy
         env:
