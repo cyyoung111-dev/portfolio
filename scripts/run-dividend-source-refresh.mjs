@@ -1,7 +1,7 @@
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {pathToFileURL} from 'node:url';
 // Explicitly reviewed deployed sources. Do not accept unknown future GAS builds.
-const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292']);
+const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292','9.293']);
 export async function runDividendRefresh({url:rawUrl,token,fetchImpl=fetch,asOf=new Date()}) {
 const url=validateWebAppUrl(rawUrl);
 const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(asOf);
