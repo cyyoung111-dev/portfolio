@@ -61,6 +61,21 @@ const moved=[{...buy,date:'2026-11-03'},sell];
 assert.equal(firstAffected(original,moved),'2026-11-02',
  'move date must include both old and new dates in replay');
 assert.deepEqual(recompute(moved),old);
+// The new #734 atomic account transfer changes source/destination ownership
+// without changing a security's quantity or realized P&L. The earliest
+// historical replay still MUST include the old purchase date.
+const transferred=[{...buy,acct:'IRP'}, {...sell,acct:'IRP'}];
+assert.equal(firstAffected(original,transferred),'2026-11-02',
+ 'moving a paired buy/sell account must replay both portfolios from the buy');
+assert.deepEqual(recompute(transferred),old,
+ 'same paired trades and prices must not change aggregate P&L or valuation');
+const priceCorrected=[buy,{...sell,price:150}];
+assert.equal(firstAffected(original,priceCorrected),'2026-11-04',
+ 'corrected historical sale must update realized P&L from its trade date');
+assert.deepEqual(recompute(priceCorrected),{
+ qty:6,cost:600,evalAmt:840,unrealized:240,
+ realized:200,realizedBasis:400
+});
 const laterSale=[buy,{...sell,date:'2026-11-05'}];
 assert.equal(firstAffected(original,laterSale),'2026-11-04',
  'moving sale into future preserves old impact date');
@@ -106,4 +121,4 @@ console.log(JSON.stringify({kind:'ISSUE734_TRADE_RECALC_SHADOW_PASS',
  earliestDeletedSale:firstAffected(original,removedSale),
  exactDeployedGasVersion:'9.292',sourceLinked:true,
  historicalRebuildCheckpointProtected:true,
- scenarios:9,realFinancialWrites:0,remoteCalls:0}));
+ scenarios:11,realFinancialWrites:0,remoteCalls:0}));
