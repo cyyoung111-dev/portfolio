@@ -50,6 +50,44 @@ export function previousKrxTradingDate(date){
  }
  return null;
 }
+// Expose aggregate schema counts only; no prices, securities, contract
+// identifiers, names, credentials, or portfolio constituents in CI logs.
+// Used to distinguish KRX access issues from identity/label parser drift.
+export function inspectKrxFuturesSchema(payload, requestedDate){
+ const rows=payload?.OutBlock_1;
+ if(!validDay(requestedDate)||!Array.isArray(rows)||rows.length>10000)
+  return null;
+ const sameDate=rows.filter(r=>r?.BAS_DD===requestedDate.replaceAll('-',''));
+ const session=r=>r?.MKT_NM==='정규'||r?.MKT_NM==='정규시장'||r?.MKT_NM==='주간';
+ const product=r=>/^(?:코스피\s*200\s*선물|KOSPI\s*200\s*FUT)/i.test(r?.PROD_NM||'');
+ const nameContainsK200=r=>/(?:코스피\s*200|KOSPI\s*200)/i.test(r?.ISU_NM||'');
+ const tested=sameDate.filter(r=>session(r)&&product(r));
+ const widths={missing:0,short:0,twelve:0,other:0};
+ for(const r of tested){
+  const len=typeof r?.ISU_CD==='string'?r.ISU_CD.length:0;
+  if(len===0)widths.missing++;
+  else if(len<12)widths.short++;
+  else if(len===12)widths.twelve++;
+  else widths.other++;
+ }
+ const settleNonempty=r=>typeof r?.SETL_PRC==='string'
+  &&r.SETL_PRC.trim().length>0&&r.SETL_PRC!=='-';
+ return Object.freeze({
+  totalRows:rows.length,exactDateRows:sameDate.length,
+  regularSessionRows:sameDate.filter(session).length,
+  k200ProductRows:sameDate.filter(product).length,
+  k200NameRows:sameDate.filter(nameContainsK200).length,
+  inspectedRows:tested.length,
+  validCodeRows:tested.filter(r=>K200_CODE.test(r.ISU_CD||'')).length,
+  validContractNameRows:tested.filter(r=>NAME.test(r.ISU_NM||'')).length,
+  nonemptySettlementRows:tested.filter(settleNonempty).length,
+  validTickSettlementRows:tested.filter(r=>tick(r.SETL_PRC)).length,
+  fullyVerifiedRows:tested.filter(r=>K200_CODE.test(r.ISU_CD||'')
+   &&NAME.test(r.ISU_NM||'')&&tick(r.SETL_PRC)).length,
+  codeWidthCounts:widths
+ });
+}
+
 // A KRX standard ISU_CD and an NH 9-character vendor contract code are
 // different identifiers. Same month alone is NOT a verified code mapping.
 export function summarizeKrxDaySettlement(payload,requestedDate){
@@ -127,6 +165,7 @@ export async function probePublicSources({env=process.env,now=new Date(),
   if(response.data){
    krx=response.data;
    result.krx=summarizeKrxDaySettlement(krx,prior);
+   result.krxSchema=inspectKrxFuturesSchema(krx,prior);
   }
  }
  if(krx && result.krx==='KRX_DAY_SETTLEMENT_CANDIDATES_ONLY'){

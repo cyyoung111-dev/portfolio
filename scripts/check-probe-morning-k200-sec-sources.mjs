@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {probeAuthorized,previousKrxTradingDate,summarizeKrxDaySettlement,
- compareKrxNhIdentity,probePublicSources} from './probe-morning-k200-sec-sources.mjs';
+ compareKrxNhIdentity,inspectKrxFuturesSchema,probePublicSources} from './probe-morning-k200-sec-sources.mjs';
 const today='2026-11-12',prior='2026-11-11';
 const env={GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',
  GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'push',
@@ -16,6 +16,28 @@ assert.equal(probeAuthorized({env:{...env,MARKET_SOURCE_PROBE_DATE:'2026-11-11'}
 const krx={OutBlock_1:[{BAS_DD:'20261111',PROD_NM:'코스피200 선물',
  MKT_NM:'정규',ISU_CD:'KR4101SC0000',ISU_NM:'코스피200 선물 2612',SETL_PRC:'836.55'}]};
 assert.equal(summarizeKrxDaySettlement(krx,prior),'KRX_DAY_SETTLEMENT_CANDIDATES_ONLY');
+
+const stats=inspectKrxFuturesSchema(krx,prior);
+assert.equal(stats.totalRows,1);
+assert.equal(stats.exactDateRows,1);
+assert.equal(stats.regularSessionRows,1);
+assert.equal(stats.k200ProductRows,1);
+assert.equal(stats.k200NameRows,1);
+assert.equal(stats.inspectedRows,1);
+assert.equal(stats.validCodeRows,1);
+assert.equal(stats.validContractNameRows,1);
+assert.equal(stats.validTickSettlementRows,1);
+assert.equal(stats.fullyVerifiedRows,1);
+assert.equal(stats.codeWidthCounts.twelve,1);
+assert.equal(inspectKrxFuturesSchema(krx,'bad'),null);
+const partialSchema=inspectKrxFuturesSchema({...krx,OutBlock_1:[
+ {...krx.OutBlock_1[0],ISU_NM:'unknown-2612',SETL_PRC:'-',ISU_CD:'12345'}]},prior);
+assert.equal(partialSchema.inspectedRows,1);
+assert.equal(partialSchema.validCodeRows,0);
+assert.equal(partialSchema.validContractNameRows,0);
+assert.equal(partialSchema.nonemptySettlementRows,0);
+assert.equal(partialSchema.fullyVerifiedRows,0);
+
 assert.equal(summarizeKrxDaySettlement({...krx,OutBlock_1:[]},prior),'KRX_ROWS_EMPTY');
 assert.equal(summarizeKrxDaySettlement({...krx,OutBlock_1:[
  {...krx.OutBlock_1[0],BAS_DD:'20261110'}]},prior),'KRX_K200_REGULAR_NOT_MATCHED');
@@ -53,6 +75,8 @@ const fakeFetch=async (url,opts)=>{
 const probe=await probePublicSources({env,now,fetchImpl:fakeFetch});
 assert.equal(probe.status,'READ_ONLY');
 assert.equal(probe.krx,'KRX_DAY_SETTLEMENT_CANDIDATES_ONLY');
+assert.equal(probe.krxSchema.fullyVerifiedRows,1);
+assert.equal(probe.krxSchema.codeWidthCounts.twelve,1);
 assert.equal(probe.nhMaster,'PRODUCT_EXPIRY_CROSS_SOURCE_CANDIDATE');
 assert.equal(probe.contractMapped,false);
 assert.equal(probe.sec,'HTTP_200');
