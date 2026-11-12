@@ -29,7 +29,7 @@ jobs:
           node-version: '24'
       - name: Verify 9.292 generated source and maintenance release contracts
         run: |
-          npm ci --ignore-scripts
+          if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --no-package-lock --no-audit --no-fund --ignore-scripts; fi
           node scripts/check-issue860-gas9292-close-state-preview.mjs
           node scripts/check-issue860-gas9292-release-gate.mjs
       - name: Verify live 9.291 settled close, v2 ledger, bounded Writer Gate (GET/POST only)
