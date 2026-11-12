@@ -1,43 +1,9 @@
 name: issue860-once-close-status-readonly
 on:
   workflow_dispatch:
-  # 2026-11-10 20:30+ KST independent finality readback: one authenticated status GET, no writes.
-  # Additional one-shot status check after second (automation-mismatch) deployment failure.
-  # One-shot production rollback-status verification after the failed
-  # v9.287 publish. This reads getAutomationStatus only; no writer or retry.
-  # The new protected diagnostic self-file is the only automatic trigger.
-  # 2026-11-09 close recovery readback: one sanitized authenticated GET after merge.
-  # Post-FUND_DEFERRED_DONE 21:00:16 KST: second one-shot COMPLETE confirmation; no writes.
-  # 2026-11-12 22:10 KST: one protected post-backfill read-only observation for #734.
-  # Never invoke backfill/close writers from this workflow; verify actual close state.
-  # 2026-11-12 20:30+ KST: read current persisted close after 19h START;
-  # official 11/12 priceHistory 37 present but Snapshot 11/12 absent in Sheets.
-  # One protected read-only status/Gate check, no close writer, restore or NAV rerun.
-  # 2026-11-12: independent new 9.292 deployed Gate and close readback following transient old version warm.
-  # Final postdeploy published 9.292 + ledger + Gate read-only check; retry ONLY previous warm web instance, never writes.
-  # 2026-11-12: owner-requested final persisted CLOSE and Writer Gate readback after 11/11 WATCHDOG_OK.
-  # 2026-11-12: one-shot live follow-up of persisted ACTIVE=1 after 10:20; read-only gate and close, no writes.
-  # No NAV rerun, no Snapshot write, no GAS deploy and no auto retry.
-  # No schedule, no retry, no GAS writer, and no workbook-wide inventory.
-  # 2026-11-10 post v9.289 publish: exactly one sanitized status GET, no trigger/writer changes.
-  # 2026-11-10 22:22 KST: on-demand single read-only persisted finality check after watchdog.
-  # 2026-11-10 23:56 KST: final post-close independent persisted finality verification, zero writes.
-  # 2026-11-11 10:38 KST: exact-two stale timeout receipts pruned via owner
-  # with rollback backup. Independently read Gate ACTIVE and close persistence
-  # exactly once each, without releasing/re-running any finance writer.
-  # 2026-11-11 11:xx KST: owner approved v9.290 if predeploy gates pass.
-  # Recheck persisted close and Writer Gate read-only before any manual deploy.
-  # No NAV/price/snapshot/ScriptProperties writes and no GAS deploy.
-  # 2026-11-11 11:31 KST screen: 11:24:53 doPost ran 70.463s and completed.
-  # Verify if transient 11:25:21 ACTIVE=1 has returned to 0 (GET only).
-  # 2026-11-11 12:17 KST: final post secondary NAV source recovery predeploy
-  # close + Writer Gate readback, still zero financial writes or deployment.
-  # 2026-11-11 after run 42961887690: inspect the published rollback version
-  # and writer ACTIVE count following rollback-verified AUTOMATION_DIAG_NETWORK_FAILED.
-  # 2026-11-11 KST: read-only actual published v9.291 after exact
-  # reader release allowlist correction. No financial write or GAS deployment.
-  # 2026-11-11 13:55 rollback v9.291 after AUTOMATION_DIAG_NETWORK_FAILED:
-  # independent post-rollback Writer Gate and published automation readback only.
+  # One protected main-only readback of the CURRENT GAS 9.293 and exact-day
+  # Snapshot/Writer Gate; legacy versions remain reviewable in Git history.
+  # No scripts.run, NAV import, Snapshot replay, or other financial writes.
   push:
     branches: [main]
     paths: ['.github/workflows/issue860-once-close-status-readonly.yml']
@@ -66,7 +32,7 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue860-writer-gate-v9289-readonly.mjs
-      - name: Read stored close 9.291/9.292 (one POST, no writes)
+      - name: Read persisted 9.293 close (one POST, no writes)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
@@ -78,8 +44,8 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/diagnose-nov12-snapshot-readonly.mjs
-      - name: Verify published 9.292 source, trade ledger and Gate (bounded warm-read retry only)
+      - name: Verify published 9.293 source, trade ledger and Gate (read only)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue860-gas9292-postdeploy-readonly.mjs
+        run: node scripts/issue734-gas9293-postdeploy-readonly.mjs
