@@ -2,6 +2,7 @@ name: issue507 GAS deployment inventory — read only
 
 on:
   workflow_dispatch:
+  # 2026-11-12 #860: independent post-fix immutable v9.291 source inventory reread after PR #1176, no writes.
   # An inventory read can be triggered exactly once by promotion of this
   # audited workflow itself; other main pushes remain excluded.
   push:
