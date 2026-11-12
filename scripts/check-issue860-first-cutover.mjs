@@ -352,17 +352,14 @@ for(const state of [{mode:'DRAINING',firstCutoverAbortReady:true},{mode:'UNINITI
 }
 
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
-assert.equal(workflow.on.workflow_dispatch.inputs.first_gate_phase.default,'none');
-assert.deepEqual(workflow.on.workflow_dispatch.inputs.first_gate_phase.options,['none','bootstrap','finalize','abort','inspect']);
+assert.equal(Object.hasOwn(workflow.on.workflow_dispatch.inputs,'first_gate_phase'),false,
+ 'retired 9.282 first-cutover command must not appear in operator UI');
+assert.equal(workflow.jobs.deploy.env.GAS_FIRST_GATE_PHASE,'none');
 const steps=workflow.jobs.deploy.steps;
-const special=steps.find(s=>s.run==='node scripts/issue860-first-cutover.mjs');
-assert.equal(special.if,"env.GAS_FIRST_GATE_PHASE != 'none' && env.GAS_FIRST_GATE_PHASE != 'inspect'");
-const inspect=steps.find(s=>s.name==='Inspect current GAS deployment inventory (read-only)');
-assert.equal(inspect.if,"env.GAS_FIRST_GATE_PHASE == 'inspect' && env.GAS_DEPLOY_DRY_RUN == 'true'");
-assert.equal(inspect['continue-on-error'],undefined);
-const rejectInspect=steps.find(s=>s.name==='Reject write-enabled inspect');
-assert.equal(rejectInspect.if,"env.GAS_FIRST_GATE_PHASE == 'inspect' && env.GAS_DEPLOY_DRY_RUN != 'true'");
-assert.equal(special['continue-on-error'],undefined);
+assert.ok(!steps.some(t=>t.run==='node scripts/issue860-first-cutover.mjs'),
+ 'retired first-gate maintenance must not be callable from current release');
+assert.ok(!steps.some(t=>String(t.name||'').includes('write-enabled inspect')),
+ 'old inspect/abort controls must not be callable from current release');
 for(const name of ['Deploy GAS','Read-only release state before any deployment write'])
  assert.equal(steps.find(s=>s.name===name).if,"env.GAS_FIRST_GATE_PHASE == 'none'");
 for(const s of steps.filter(s=>/Activate NH|Verify KRX 37/.test(s.name)))assert.match(s.if,/GAS_FIRST_GATE_PHASE == 'none'/);
