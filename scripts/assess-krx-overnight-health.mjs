@@ -225,6 +225,21 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   const snapshot=data.snapshotLastDate;
   if (official==='-' || snapshot==='-') issues.push('LAST_DATE_UNAVAILABLE');
   else if (snapshot < official) issues.push('KRX_SNAPSHOT_STALE');
+  // Date alignment is an operational signal, NOT a proof of per-code
+  // official source, Snapshot row contents, or CLOSE ownership.
+  const snapshotDateAlignment=(official==='-'||snapshot==='-')?'UNVERIFIED'
+    :snapshot<official?'SNAPSHOT_BEHIND_OFFICIAL'
+    :snapshot===official?'DATES_MATCH':'SNAPSHOT_AHEAD_OF_KRX';
+  const closeEvidence=describeFundCloseCheckpoint(data);
+  // Retain ACTION_REQUIRED whenever the persisted CLOSE is incomplete.
+  // Narrowly label the actual Nov12/13 case so users do not mistake the
+  // red overnight workflow for another lost financial Snapshot.
+  const alertFocus=issues.length===1&&issues[0]==='AUTOMATION_NOT_NORMAL'
+    &&closeEvidence.closeState==='INCOMPLETE'
+    &&snapshotDateAlignment!=='SNAPSHOT_BEHIND_OFFICIAL'
+    &&data.pendingCount===0
+      ?'PERSISTED_CLOSE_FINALITY_UNVERIFIED'
+    :issues.length===0?'NONE':'MIXED_OR_UNVERIFIED';
   // The overnight 00:30 KRX producer cannot receive T-1 official bars
   // before the following KRX trading day's 08:00 publication. This is not
   // healthy/completed; keep the pending/failed evidence and never write data.
@@ -235,12 +250,13 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
     publicationWaitTargetDate:publicationWaiting?data.pendingDates[0]:null,
     gasVersion:String(data.gasVersion||''),
     issues,
+    snapshotDateAlignment,alertFocus,
     historicalSlotStates:slotStates,
     // Supplemental provenance of a checkpoint, not Apps Script Executions.
     historicalSlotReasons,
     historicalSlotRunDates,
     workerCheckpointEvidence:describeWorkerCheckpointEvidence(data,{now}),
-    fundCloseCheckpointEvidence:describeFundCloseCheckpoint(data),
+    fundCloseCheckpointEvidence:closeEvidence,
     lastBackfillFailureClass:safeBucket(
       data.latestBackfill?.failureClass,BACKFILL_FAILURE_CLASSES),
     lastHistoricalFailureClass:safeBucket(
@@ -280,6 +296,8 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| 거래일 확인 불가 대기 | '+result.pendingSessionCounts.unknown+'건 |',
         '| 공식 KRX 마지막 날 | '+result.officialKrxPriceHistoryLastDate+' |',
         '| Snapshot 마지막 날 | '+result.snapshotLastDate+' |',
+        '| 종가/Snapshot 날짜 정렬 (내용 증명 아님) | '+result.snapshotDateAlignment+' |',
+        '| 주된 점검 상태 (원인 확정 아님) | '+result.alertFocus+' |',
         '| 점검 코드 | '+(result.issues.join(', ')||'없음')+' |',
         '| 23:10 결과 | '+result.historicalSlotStates['2310']+' |',
         '| 23:10 기록일·사유 | '+result.historicalSlotRunDates['2310']+
