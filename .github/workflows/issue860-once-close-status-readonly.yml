@@ -69,6 +69,13 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue860-close-single-status-readonly.mjs
+      - name: Validate Nov12 exact-day Snapshot diagnostic as read only
+        run: node scripts/check-nov12-snapshot-readonly.mjs
+      - name: Diagnose 2026-11-12 Snapshot 39 expected versus stored (read-only only)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/diagnose-nov12-snapshot-readonly.mjs
       - name: Verify published 9.292 source, trade ledger and Gate (bounded warm-read retry only)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
