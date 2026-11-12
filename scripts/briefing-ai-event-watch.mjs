@@ -91,6 +91,11 @@ export function formatAiEventHighlights({expectedUsDate,events=[]}={}){
    +' / USD '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
    +' — '+(SECTOR_LABEL[x.sector]||'AI 관련주')+' 변동'
    +(x.source==='NASDAQ_DAILY_REFERENCE'?' [Nasdaq 참고]':x.source==='YAHOO_DAILY_REFERENCE'?' [Yahoo 참고]':'')
+   +(x.filing?.symbol===x.symbol&&x.filing.source==='SEC_EDGAR_SUBMISSIONS'
+     &&['8-K','10-Q','10-K','6-K','20-F','40-F'].includes(x.filing.form)
+     &&validDay(x.filing.filed)&&x.filing.filed<=expectedUsDate
+     &&/^0\d{9}-\d{2}-\d{6}$/.test(x.filing.accession||'')
+       ?' · SEC '+x.filing.form+' 공시 ['+x.filing.filed+']':'')
    +(Number.isFinite(x.relativeToNdxPp)?' · 나스닥100 대비 '
      +(x.relativeToNdxPp>=0?'+':'')+x.relativeToNdxPp.toFixed(2)+'%p':'') ),
   '※ 주가 변동만 검증됨. 실적·계약·공시 원인은 별도 확인 전 단정하지 않습니다.'];
