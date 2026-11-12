@@ -7,7 +7,7 @@ import {composeIssue860Gas9292CloseStatePreview} from './compose-issue860-gas929
 import {assertGasReleaseReady,gasSourceBlobSha,
  assertIssue507ManualReleasePermission,assertIssue8609292Prerequisites} from './deploy-gas.mjs';
 import {assessGas9292Preflight} from './issue860-gas9292-predeploy-readonly.mjs';
-import {assessGas9292PostDeploy} from './issue860-gas9292-postdeploy-readonly.mjs';
+import {assessGas9292PostDeploy,verifyGas9292PostDeployWithRetry} from './issue860-gas9292-postdeploy-readonly.mjs';
 import {assertPublishedReleaseFundNavSupport} from './issue860-fund-nav-release-compat.mjs';
 
 const {parent,source,manifest}=composeIssue860Gas9292CloseStatePreview();
@@ -106,6 +106,41 @@ for(const invalid of [
 ])assert.throws(()=>assessGas9292PostDeploy({
  settings,ledger,gate:invalid}));
 
+// A completed 9.292 deployment can intermittently serve the previous
+// web-app instance. Only that exact stale-version response may be retried.
+let tries=0;const delays=[];
+const recovered=await verifyGas9292PostDeployWithRetry({
+ verify:async()=>{
+  tries++;
+  if(tries<3)throw Error('ISSUE860_9292_POSTDEPLOY_PREVIOUS_VERSION_WARM');
+  return good;
+ },
+ delay:async ms=>{delays.push(ms);},maxAttempts:5
+});
+assert.equal(tries,3);
+assert.equal(recovered.gasVersion,'9.292');
+assert.equal(recovered.readbackAttempts,3);
+assert.deepEqual(delays,[3000,6000]);
+assert.equal(recovered.gasDeployments,0);
+assert.equal(recovered.financeWrites,0);
+let structuralTries=0;
+await assert.rejects(()=>verifyGas9292PostDeployWithRetry({
+ verify:async()=>{structuralTries++;throw Error('ISSUE860_9292_POSTDEPLOY_LEDGER_V2_UNVERIFIED');},
+ delay:async()=>{throw Error('UNSAFE_RETRY');}
+}),/LEDGER_V2_UNVERIFIED/);
+assert.equal(structuralTries,1,'financial integrity failure must never retry');
+let exhausted=0;
+await assert.rejects(()=>verifyGas9292PostDeployWithRetry({
+ verify:async()=>{exhausted++;throw Error('ISSUE860_9292_POSTDEPLOY_PREVIOUS_VERSION_WARM');},
+ delay:async()=>{},maxAttempts:3
+}),/PREVIOUS_VERSION_WARM/);
+assert.equal(exhausted,3,'persistent old publication must still fail');
+await assert.rejects(()=>verifyGas9292PostDeployWithRetry({
+ verify:async()=>({...good,gasVersion:'9.291'}),delay:async()=>{}
+}),/RETRY_RESULT_UNVERIFIED/);
+await assert.rejects(()=>verifyGas9292PostDeployWithRetry({
+ verify:async()=>good,maxAttempts:6
+}),/RETRY_CONTRACT_INVALID/);
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const on=wf.on||wf.true;
 for(const n of ['use_9292_gate_selfheal','approve_9292'])
