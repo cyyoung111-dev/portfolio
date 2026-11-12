@@ -363,6 +363,7 @@ export async function selfTest(){
     _ensureDailyTriggers:()=>({}),_getLatestLifecycleValidSnapshotDate:()=>'-',
     _getLatestDateInColumn:()=>'-',_getOfficialKrxPriceHistoryLastDate:()=>'-',
     _portfolioCloseRunState:()=>({state:'NEVER_RUN'}),
+    _portfolioClosePendingFundReservation_:()=>false, // legacy no-close status fixture
     _fundAttemptDiagnosticState_:()=>null,
     _expectedConfirmedSnapshotDate:()=>'-',
     _expectedPortfolioCloseRunDate:()=>'-',_isPortfolioCloseRunStale:()=>false,
