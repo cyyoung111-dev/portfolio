@@ -49,14 +49,16 @@ export function selectAiEventHighlights({expectedUsDate,prices=[],marketChangePe
  const ranked=[];
  for(const item of AI_EVENT_WATCH){
   const found=prices.filter(row=>row?.symbol===item.symbol&&row?.label===item.label
-   &&row?.date===expectedUsDate&&row?.source==='YAHOO_DAILY_REFERENCE'
-   &&row?.unit==='USD'&&Number.isFinite(row.value)&&row.value>0
+   &&row?.date===expectedUsDate
+   &&row?.unit==='USD'&&['YAHOO_DAILY_REFERENCE','NASDAQ_DAILY_REFERENCE'].includes(row?.source)
+   &&Number.isFinite(row.value)&&row.value>0
    &&Number.isFinite(row.changePercent)&&Math.abs(row.changePercent)<=300);
   if(found.length!==1)continue;
   const move=found[0].changePercent,threshold=THRESHOLD[item.tier];
   if(Math.abs(move)<threshold)continue;
   const relative=ndx===null?null:move-ndx;
-  ranked.push({...item,date:expectedUsDate,value:found[0].value,changePercent:move,
+  ranked.push({...item,date:expectedUsDate,source:found[0].source,
+   value:found[0].value,changePercent:move,
    relativeToNdxPp:relative,score:Math.abs(move)/threshold});
  }
  ranked.sort((a,b)=>b.score-a.score||Math.abs(b.changePercent)-Math.abs(a.changePercent)
@@ -88,6 +90,7 @@ export function formatAiEventHighlights({expectedUsDate,events=[]}={}){
   ...verified.map(x=>'• '+x.label+' ('+x.symbol+') '+pct(x.changePercent)
    +' / USD '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
    +' — '+(SECTOR_LABEL[x.sector]||'AI 관련주')+' 변동'
+   +(x.source==='NASDAQ_DAILY_REFERENCE'?' [Nasdaq 참고]':x.source==='YAHOO_DAILY_REFERENCE'?' [Yahoo 참고]':'')
    +(Number.isFinite(x.relativeToNdxPp)?' · 나스닥100 대비 '
      +(x.relativeToNdxPp>=0?'+':'')+x.relativeToNdxPp.toFixed(2)+'%p':'') ),
   '※ 주가 변동만 검증됨. 실적·계약·공시 원인은 별도 확인 전 단정하지 않습니다.'];

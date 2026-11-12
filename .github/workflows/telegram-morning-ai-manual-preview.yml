@@ -46,7 +46,10 @@ jobs:
           [[ "$(git diff --name-only HEAD^ HEAD)" == "$file" ]] || deny NOT_ONLY_SENTINEL
           [[ "$(git ls-files --stage "$file" | awk '{print $1}')" == '100644' ]] || deny FILE_MODE
           [[ "$(wc -c < "$file")" -lt 200 ]] || deny TOO_LONG
-          [[ "$(wc -l < "$file")" == '2' ]] || deny EXTRA_LINES
+          [[ "$(wc -l < "$file")" == '2' || "$(wc -l < "$file")" == '3' ]] || deny EXTRA_LINES
+          if [[ "$(wc -l < "$file")" == '3' ]]; then
+            [[ "$(sed -n '3p' "$file")" =~ ^preview_nonce=[0-9]{1,3}$ ]] || deny NONCE
+          fi
           [[ "$(sed -n '1p' "$file")" == "preview_date=$(TZ=Asia/Seoul date +%F)" ]] || deny DATE
           [[ "$(sed -n '2p' "$file")" == "preview_mode=send_once" ]] || deny MODE
           echo 'verified=true' >> "$GITHUB_OUTPUT"
