@@ -3,6 +3,19 @@
 //  의존: data.js, settings.js
 // ════════════════════════════════════════════════════════════════
 // ── 상단 요약 카드
+// A failed GAS bootstrap does not prove any live quote or market valuation.
+// The local ledger remains visible for inspection, but average acquisition
+// costs must never be presented as verified current prices or net worth.
+function _portfolioPricingUnavailable() {
+  const connected = typeof GSHEET_API_URL !== 'undefined' && !!GSHEET_API_URL;
+  if (!connected) return false;
+  const failed = typeof getGsheetSettingsLoadFailure === 'function'
+    && !!getGsheetSettingsLoadFailure();
+  const restoring = typeof _gsPortfolioRestoreRequired !== 'undefined'
+    && _gsPortfolioRestoreRequired === true;
+  return !!(failed || restoring);
+}
+
 function renderSummary() {
   const total = rows.reduce((s,r) => s+r.evalAmt, 0);
   const cost  = rows.reduce((s,r) => s+r.costAmt, 0);
@@ -53,6 +66,20 @@ function renderSummary() {
     loanSub.textContent = LOAN.balance > 0
       ? `고정 ${LOAN.annualRate}% · ${LOAN.remainingMonths}개월 남음`
       : '부동산 탭에서 입력';
+  }
+  // Keep original raw cost, loan and real-estate records unchanged. Only mask
+  // market-dependent values until the pending financial restore is verified.
+  if (_portfolioPricingUnavailable()) {
+    if ($el('s-total')) $el('s-total').textContent = '평가 확인 필요';
+    if ($el('s-total-sub')) $el('s-total-sub').textContent = 'GAS 복원 미완료 · 현재가 미검증';
+    if ($el('s-pnl')) $el('s-pnl').textContent = '—';
+    if ($el('s-pnl-pct')) $el('s-pnl-pct').textContent = '—';
+    if ($el('s-net')) {
+      $el('s-net').textContent = '평가 확인 필요';
+      $el('s-net').className = 'val';
+    }
+    if ($el('s-net-sub')) $el('s-net-sub').textContent =
+      '현재가 확인 전 · 금융자산 포함 순자산 계산 보류';
   }
 }
 
