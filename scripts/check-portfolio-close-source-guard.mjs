@@ -1417,8 +1417,6 @@ const wdVm=vm.createContext({
 installKrxTarget(wdVm);
 vm.runInContext(extract('_hasForeignHeldItemsForCloseWatchdog_'),wdVm);
 vm.runInContext(extract('runPortfolioCloseWatchdog2030'),wdVm);
-// This legacy isolated holiday test does not exercise deferred NAV reservations.
-wdVm._portfolioClosePendingFundReservation_=()=>false;
 for(const market of ['UK','LSE','EU','US','JP','HK','NASDAQ']) {
   heldMarketItems=[{code:'foreign',currency:'KRW',market}];
   assert.equal(wdVm._hasForeignHeldItemsForCloseWatchdog_('2026-10-08'),true,
@@ -1914,7 +1912,6 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
   });
   for(const name of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_',
     'runPortfolioCloseWatchdog2030'])vm.runInContext(extract(name),ctx);
-  ctx._portfolioClosePendingFundReservation_=()=>false; // unrelated holiday/queue fixture
   const skipped=ctx.runPortfolioCloseWatchdog2030();
   assert.equal(skipped.skipped,true);
   assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
@@ -2083,7 +2080,6 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
   });
   for(const name of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_',
     'runPortfolioCloseWatchdog2030'])vm.runInContext(extract(name),ctx);
-  ctx._portfolioClosePendingFundReservation_=()=>false; // unrelated foreign market fixture
   assert.throws(()=>ctx.runPortfolioCloseWatchdog2030(),/holiday foreign market unavailable/,
     '휴장·해외 개장일 재시도 실패를 정상으로 숨기지 않음');
   assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],

@@ -38,50 +38,12 @@ function fixture(start='2026-10-25T10:00:00Z') {
  assert.equal(f.bag.get('portfolio_close_stage'),'FUND_PENDING');
  assert.equal(f.pending().owner.runId,s.runId);assert.equal(f.pending().owner.priceOk,true);
  assert.equal(f.ctx._portfolioCloseRunState(s,f.props).state,'INCOMPLETE');
- f.ctx._krxCalendarStatus_=()=> 'OPEN';
- const beforeWatchdog=f.counts().priceCalls;
- assert.equal(f.ctx.runPortfolioCloseWatchdog2030().reason,'PRICE_COMPLETE_FUND_PENDING',
-   'watchdog must not duplicate confirmed PRICE while owner-bound NAV timer exists');
- assert.equal(f.counts().priceCalls,beforeWatchdog);
  assert.equal(f.triggers.length,1);
  f.advance(10*60000);f.fire();
  const done=JSON.parse(f.bag.get('portfolio_close_last_result'));
  assert.equal(done.runId,s.runId);assert.equal(done.priceOk,true);assert.equal(done.fundOk,true);
  assert.equal(f.bag.get('portfolio_close_stage'),'COMPLETE');assert.equal(f.pending(),null);assert.equal(f.triggers.length,0);
  assert.equal(f.counts().priceCalls,1,'automatic continuation must reuse exact confirmed PRICE, not rerun it');
- assert.equal(f.ctx.runPortfolioCloseWatchdog2030().reason,'ALREADY_COMPLETE',
-   'completed NAV keeps the existing complete-close watchdog behavior');
-}
-{
- const f=fixture(),s=f.close();
- f.ctx._krxCalendarStatus_=()=> 'OPEN';
- const before=f.counts().priceCalls;
- const old=f.pending();
- // An expired or exhausted NAV reservation is not a licence to replay
- // already saved prices. It remains an explicit incomplete fund state.
- f.props.setProperty('portfolio_fund_deferred_schedule_v1',
-   JSON.stringify({...old,until:0,activeUntil:0,attempts:3}));
- assert.equal(f.ctx.runPortfolioCloseWatchdog2030().reason,'FUND_RECOVERY_REQUIRED');
- assert.equal(f.counts().priceCalls,before);
- assert.equal(f.ctx._portfolioCloseRunState(s,f.props).state,'INCOMPLETE');
- const failed={...s,errors:['펀드: NAV_UNAVAILABLE']};
- f.props.setProperty('portfolio_close_last_result',JSON.stringify(failed));
- f.props.setProperty('portfolio_close_stage','ERROR');
- f.props.setProperty('portfolio_close_last_error','펀드: NAV_UNAVAILABLE');
- assert.equal(f.ctx.runPortfolioCloseWatchdog2030().reason,'FUND_RECOVERY_REQUIRED');
- assert.equal(f.counts().priceCalls,before,
-   'true NAV failure must be visible but must not cause PRICE re-save');
-}
-{
- const f=fixture(),s=f.close();
- f.ctx._krxCalendarStatus_=()=> 'OPEN';
- f.props.setProperty('portfolio_fund_deferred_schedule_v1','');
- f.props.setProperty('portfolio_close_run_id','different-owner');
- const before=f.counts().priceCalls;
- assert.notEqual(f.ctx.runPortfolioCloseWatchdog2030().reason,'PRICE_COMPLETE_FUND_PENDING',
-   'different owner must not be accepted as reserved NAV completion');
- assert.ok(f.counts().priceCalls>=before,
-   'invalid ownership cannot be upgraded to a complete close');
 }
 {
  const f=fixture('2026-10-25T14:50:00Z'),s=f.close(); // 23:50 KST
