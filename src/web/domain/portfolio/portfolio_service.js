@@ -176,20 +176,23 @@ function computeRows(holdings) {
       const fundTaxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '';
       return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector, code:code || '', currency:'KRW', fxRate:1, taxType: fundTaxType};
     }
-    // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환) ③ 취득단가
-    const pRaw = (code && savedPrices[code]) || savedPrices[nn] || savedPrices[h.name] || h.cost;
-    // ★ [환율 연동] 외화 종목 현재가는 원화로 환산
-    // pRaw: GAS에서 받은 외화 단가 → fxRate 곱해 원화로 환산
-    // h.cost: syncHoldingsFromTrades()에서 t.price(이미 원화)로 채워짐 → 환율 곱하면 이중 환산 버그
-    const priceKrw = hasFx ? Math.round(pRaw * fxRate) : pRaw;
-    const evalAmt  = priceKrw * h.qty;
+    // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환)
+    // 가격이 없으면 반올림된 취득단가를 시장가격처럼 사용하지 않습니다.
+    const quote = [code && savedPrices[code], savedPrices[nn], savedPrices[h.name]]
+      .map(Number).find(price => Number.isFinite(price) && price > 0);
+    const hasVerifiedQuote = quote !== undefined;
+    const pRaw = hasVerifiedQuote ? quote : h.cost;
     // 거래 합계가 있으면 반올림된 평균단가×수량 대신 실제 거래원가를 사용합니다.
-    // 레거시 보유현황은 costAmt가 없으므로 기존 계산으로 호환합니다.
     const hasStoredCostAmt = h.costAmt !== undefined && h.costAmt !== null && h.costAmt !== '';
     const storedCostAmt = hasStoredCostAmt ? Number(h.costAmt) : Number.NaN;
     const costAmt = Number.isFinite(storedCostAmt)
       ? storedCostAmt
-      : h.cost * h.qty;  // ★ h.cost는 이미 원화 — fxRate 곱하지 않음
+      : h.cost * h.qty;
+    // 시세 미조회 시 실제 정확한 원가 자체를 임시 평가 기준으로 보존.
+    // h.cost*qty 사용은 매수단가 반올림 손익(운영 PC +538원)을 발생시킵니다.
+    // 외화 취득단가는 이미 KRW이므로 이중 환산하지 않습니다.
+    const priceKrw = hasVerifiedQuote && hasFx ? Math.round(quote * fxRate) : pRaw;
+    const evalAmt  = hasVerifiedQuote ? priceKrw * h.qty : costAmt;
     const type = getEPType(ep, h.type);
     // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정
     const taxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '';
@@ -197,6 +200,7 @@ function computeRows(holdings) {
       ...h, name:nn, type, taxType, sector, code,
       price:    priceKrw,
       priceRaw: pRaw,
+      priceUnverified: !hasVerifiedQuote,
       evalAmt, costAmt,
       pnl:  evalAmt - costAmt,
       pct:  costAmt > 0 ? (evalAmt - costAmt) / costAmt * 100 : 0,
