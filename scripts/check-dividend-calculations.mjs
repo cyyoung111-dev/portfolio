@@ -172,4 +172,58 @@ assert.equal(forged['005930'].events[0].withheldTax,undefined);
 
 assert.match(source,/올해 입금 확인 \(수동·세전\)/);
 assert.doesNotMatch(source,/올해 수령 \(/);
+// #734 P1–P3: cash is never inferred from a provider event, and a later
+// account transfer must not reclassify an earlier entitlement.
+const accountCtx=vm.createContext({
+  DIVDATA:{'테스트 종목':{perShare:0,months:[],events:[
+    {date:'2026-01-02',payDate:'2026-01-15',amount:100,source:'SEIBRO',
+     receivedConfirmed:true,netReceived:846,withheldTax:154},
+    {date:'2026-01-02',payDate:'2026-01-15',amount:200,source:'PUBLIC_DATA',
+     receivedConfirmed:false}
+  ]}},
+  EDITABLE_PRICES:[],
+  rawHoldings:[{name:'테스트 종목',acct:'ISA',qty:10}],
+  rawTrades:[{name:'테스트 종목',acct:'일반'},{name:'테스트 종목',acct:'ISA'}],
+  _kstYear:()=>2026,_kstTodayStr:()=> '2026-11-04',
+  getQtyAtDate:(name,day,acct)=> acct === '일반' ? 4 : acct === 'ISA' ? 6 : 10,
+  getEP:()=>null, getDivRefDate:(y,m)=>y+'-'+String(m).padStart(2,'0')+'-01',
+});
+vm.runInContext(source,accountCtx);
+const accounted=accountCtx.calcDividends()[0];
+assert.equal(accounted.annualDiv,1000,'same event with changed amount must replace, not double count');
+assert.equal(accounted.monthlyDeclaredGross[1],1000);
+assert.equal(accounted.monthlyReceivedGross[1],1000);
+assert.equal(accounted.monthlyNetReceived[1],846);
+assert.equal(accounted.monthlyWithheldTax[1],154);
+assert.equal(accounted.monthlyNetCount[1],1);
+assert.equal(accounted.monthlyTaxCount[1],1);
+assert.equal(accounted.accountAnnualDiv['일반'],400);
+assert.equal(accounted.accountAnnualDiv['ISA'],600);
+assert.equal(accounted.unallocatedAnnualDiv,0);
+const planSource=fs.readFileSync('src/web/views/views_plan_overview.js','utf8');
+const planStart=planSource.indexOf('function _getPlanDividendEntries(');
+const planEnd=planSource.indexOf('\n}',planStart)+2;
+assert(planStart>=0&&planEnd>planStart);
+const planCtx=vm.createContext({
+  rows:[{name:'테스트 종목',acct:'ISA',qty:10}],
+  ACCT_TAX_TYPES:{'일반':'일반','ISA':'ISA'}
+});
+vm.runInContext(planSource.slice(planStart,planEnd),planCtx);
+const entries=planCtx._getPlanDividendEntries([accounted]);
+assert.equal(entries.find(e=>e.acct==='일반')?.amount,400,
+  'past general-account dividend cannot move into current ISA');
+assert.equal(entries.find(e=>e.acct==='ISA')?.amount,600);
+assert.equal(entries.reduce((sum,e)=>sum+e.amount,0),accounted.annualDiv);
+accountCtx.DIVDATA['테스트 종목'].events[0].receivedConfirmed=false;
+const corrected=accountCtx.calcDividends()[0];
+assert.equal(corrected.annualDiv,2000,'latest unconfirmed source correction replaces stale amount');
+assert.equal(corrected.netReceivedCount,0,'source correction never fabricates bank deposit');
+assert.match(source,/월별 배당 현금흐름/);
+assert.match(source,/m\.netCount \? fmtW\(Math\.round\(m\.net\)\) : '미등록'/,
+  'missing bank evidence must be labeled missing, not zero');
+console.log(JSON.stringify({kind:'ISSUE734_DIVIDEND_CASHFLOW_SOURCE_PASS',
+  historicalGeneralGross:400,historicalIsaGross:600,
+  declaredGross:1000,bankNetConfirmed:846,verifiedTax:154,
+  correctionDeduplicated:true,financeWrites:0,remoteCalls:0}));
+
 console.log('PASS: declared distribution vs manually verified deposit and actual editor save');
