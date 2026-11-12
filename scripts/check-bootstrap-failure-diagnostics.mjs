@@ -2467,6 +2467,43 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   assert.equal(dirtyArchive.priorDirtyJournal.trades.length,2);
   assert.equal(dirtyArchive.priorDirtyJournal.holdings.length,1);
   assert.equal(dirtyArchive.priorDirtyJournal.fundDirect['direct-fund'].cost,200);
+  // Interrupted local-only cleanup must be resumable from durable archive
+  // without ever uploading a trade, suppressing a real unsent change or
+  // treating the terminal receipt alone as enough proof.
+  const interrupted=prepareDirty();
+  const goodClear=interrupted.ctx._clearPortfolioRemoteDirty;
+  let failOnce=true;
+  interrupted.ctx._clearPortfolioRemoteDirty=(epoch,target)=>{
+    if(failOnce){failOnce=false;return false;}
+    return goodClear(epoch,target);
+  };
+  const firstAttempt=await interrupted.ctx
+    ._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url});
+  assert.equal(firstAttempt.code,'VERIFIED_DIRTY_JOURNAL_ARCHIVED_BUT_NOT_CLEARED');
+  assert.equal(interrupted.storage.get('portfolio_recovery_receipts_v1')[url]
+    .syncTradesV2.completed,true);
+  assert(interrupted.storage.get('pf_v6_failed_trade_v2_recovery_archive')[url]
+    .priorDirtyJournal);
+  const nextAttempt=await interrupted.ctx
+    ._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url});
+  assert.equal(nextAttempt.ok,true);
+  assert.equal(nextAttempt.code,'ARCHIVED_DIRTY_JOURNAL_CLEANUP_RESUMED');
+  assert.equal(interrupted.ctx._getPortfolioRemoteDirty(),null);
+  assert(interrupted.calls.every(action=>
+    ['getPortfolioSyncReceipt','getTrades','getHoldings','getSettings'].includes(action)));
+  const tampered=prepareDirty();
+  const tamperedClear=tampered.ctx._clearPortfolioRemoteDirty;
+  tampered.ctx._clearPortfolioRemoteDirty=()=>false;
+  assert.equal((await tampered.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'VERIFIED_DIRTY_JOURNAL_ARCHIVED_BUT_NOT_CLEARED');
+  const archiveEntry=tampered.storage
+    .get('pf_v6_failed_trade_v2_recovery_archive');
+  archiveEntry[url].priorDirtyJournal.holdings[0].costAmt=999;
+  tampered.storage.set('pf_v6_failed_trade_v2_recovery_archive',archiveEntry);
+  tampered.ctx._clearPortfolioRemoteDirty=tamperedClear;
+  assert.equal((await tampered.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'ARCHIVED_DIRTY_RECOVERY_PROOF_MISMATCH');
+  assert.notEqual(tampered.ctx._getPortfolioRemoteDirty(),null);
   const wrongHoldings=prepareDirty();
   wrongHoldings.ctx._remoteHoldings[0].costAmt=900;
   assert.equal((await wrongHoldings.ctx
@@ -2508,6 +2545,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   assert.match(viewSource,/PC 거래원장 대사 후 안전 복구/);
   console.log(JSON.stringify({kind:'ISSUE734_PC_FAILED_V2_LOCAL_RECONCILIATION_PASS',
     successAfterTwoReadbacks:true,mismatchBlocked:true,dirtyBlocked:true,
-    fullDirtyVerifiedAndArchived:true,holdingsAndFundMismatchBlocked:true,
+    fullDirtyVerifiedAndArchived:true,interruptedCleanupResumed:true,
+    archiveTamperingBlocksResume:true,holdingsAndFundMismatchBlocked:true,
     originalReceiptArchived:true,serverWrites:0,mobileWrites:0}));
 }
