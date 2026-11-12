@@ -8,6 +8,7 @@ import {AI_EVENT_WATCH,selectAiEventHighlights} from './briefing-ai-event-watch.
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
+import {verifiedSkhyQuote} from './briefing-skhy-adr-parity.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
@@ -90,7 +91,8 @@ async function readManualWatch({date,now=new Date(),fetchDaily=fetchDatedDaily,f
   verified:verified.length,total:COUNT}));
  const events=verified.length>=coverageMin
   ?selectAiEventHighlights({expectedUsDate,prices:verified}):[];
- return {expectedUsDate,verified:verified.length,total:COUNT,events};
+ return {expectedUsDate,verified:verified.length,total:COUNT,events,
+  skhyQuote:verifiedSkhyQuote(verified,expectedUsDate)};
 }
 export function makeManualPreviewMessage(date,body,watch,now=new Date()){
  if(typeof body!=='string'||!body.startsWith('[한국장 장전 종합 브리핑 | '+date+']'))
@@ -132,7 +134,8 @@ export async function prepare({now=()=>new Date(),env=process.env,
  await collectCore({
   now,fetchImpl,event:'schedule',attempt:1,allowLateTest:true,
   referenceFetch:async()=>reference,watchEvidence:{
-   expectedUsDate:watch.expectedUsDate,events:watch.events},
+   expectedUsDate:watch.expectedUsDate,events:watch.events,
+   skhyQuote:watch.skhyQuote},
   send:async(_token,_chat,body)=>{captured=body;}
  });
  const message=makeManualPreviewMessage(current.date,captured,watch,now());
