@@ -34,7 +34,8 @@ for(const [name,fn] of before){
  if(updated.replaceAll("gasVersion: '9.292'","gasVersion: '9.291'")!==fn)changed.push(name);
 }
 assert.deepEqual(changed.sort(),['_getAutomationStatusData',
- '_issue507GateInvoke_','_issue507GateReconcile_'].sort());
+ '_issue507GateInvoke_','_issue507GateReconcile_',
+ '_issue507GateStatusRequest_'].sort());
 for(const name of ['runDailyPortfolioClose1900','runPortfolioCloseWatchdog2030',
  '_issue860RecoverStoredPriceWatchdog_','runDeferredFundAfterPortfolioCloseFailure',
  '_recordPortfolioCloseStage','_portfolioCloseRunState','saveDailyPriceHistory',
@@ -207,9 +208,48 @@ assert.equal(ingress._issue507GateInside_,false);
 assert.equal(ingress._issue507GateInvoke_('doGet',()=>{},null,[{parameter:{
  action:'getWriterGateStatus'}}]).status,'ok');
 
+// Read-only authenticated endpoint reveals age and original function, never
+// the opaque token. It must not clear or mutate the lingering active record.
+const gateRead=gateFixture();
+const recorded=JSON.parse(gateRead.props.getProperty('issue507_writer_gate_v1'));
+const statusCtx=vm.createContext({
+  _issue507GateInside_:false,ISSUE507_GATE_API_VERSION:'9.292',
+  _isAuthorizedRequest:p=>p?.accessToken==='secret',
+  _issue507GateAtomic_:fn=>fn(gateRead.props),
+  _issue507GateRead_:p=>JSON.parse(p.getProperty('issue507_writer_gate_v1')),
+  _issue507GateEndKey_:token=>'issue507_writer_end_v1_'+token,
+  jsonOk:value=>({status:'ok',...value}),
+  jsonError:()=>({status:'error'}),
+  Utilities:{formatDate:(date,tz,format)=>{
+   assert.equal(tz,'Asia/Seoul');assert.equal(format,'yyyy-MM-dd HH:mm:ss');
+   return new Date(date.getTime()+9*3600000).toISOString().slice(0,19).replace('T',' ');
+  }},Date:Clock,JSON,Number,Object
+});
+vm.runInContext(after.get('_issue507GateStatusRequest_'),statusCtx);
+const unauthorized=statusCtx._issue507GateStatusRequest_({accessToken:'wrong'});
+assert.equal(unauthorized.status,'error');
+const status=statusCtx._issue507GateStatusRequest_({accessToken:'secret'});
+assert.equal(status.status,'ok');
+assert.equal(status.gasVersion,'9.292');
+assert.equal(status.writerGate.mode,'OPEN');
+assert.equal(status.writerGate.activeCount,2);
+assert.equal(status.writerGate.timeoutRetirementCandidates,1);
+assert.equal(status.writerGate.activeOwners.length,2);
+assert.equal(status.writerGate.activeOwners[0].functionName,'runDailyPortfolioClose1900');
+assert.equal(status.writerGate.activeOwners[0].ageMinutes,46);
+assert.equal(status.writerGate.activeOwners[0].retirementEligible,true);
+assert.equal(status.writerGate.activeOwners[1].retirementEligible,false);
+assert.equal(status.writerGate.expiredUnconfirmedCount,0);
+assert(!JSON.stringify(status).includes('"token"')&&
+ !JSON.stringify(status).includes('"old"')&&!JSON.stringify(status).includes('"fresh"'),
+ 'opaque Gate writer keys must never be visible');
+assert.equal(gateRead.props.getProperty('issue507_writer_gate_v1'),
+ JSON.stringify(recorded),'read-only Gate endpoint must not mutate live Gate');
+
 console.log(JSON.stringify({kind:'ISSUE860_9292_CLOSE_STATE_SOURCE_ONLY_PASS',
  originalVersion:'9.291',candidateVersion:'9.292',
- testedScenarios:16,protectedFinancialFunctions:9,
+ testedScenarios:18,protectedFinancialFunctions:9,
+ gateDiagnosticsAuthAndReadOnly:true,
  gateTimeoutArchivedUnconfirmed:true,statusReadNoWriterToken:true,
  parentBlob:manifest.parentGitBlob,candidateBlob:manifest.candidateGitBlob,
  ownerBoundNavPending:true,realNavErrorsPreserved:true,
