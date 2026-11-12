@@ -77,5 +77,5 @@ assert(selector>orphan,'CURRENT_DATE_QUEUE_MUST_PRECEDE_CANDIDATE_PICK');
 assert.match(wrap,/if \(acquired !== 'ACQUIRED'\) return/);
 assert.match(wrap,/_portfolioFundAtomic_\(function\(sharedProps\)/);
 console.log(JSON.stringify({kind:'ISSUE734_GAS9293_ORPHAN_BACKFILL_PREVIEW_PASS',
- regressionCases:12,queueOnly:true,liveWriteAuthorized:false,
+ regressionCases:12,candidateGitBlob:manifest.candidateGitBlob,queueOnly:true,liveWriteAuthorized:false,
  productionFinanceWrites:0,gasDeployments:0}));
