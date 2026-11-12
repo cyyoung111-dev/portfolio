@@ -1,0 +1,39 @@
+name: issue860-gas9292-preflight-readonly
+
+# One-shot live 9.291 CLOSE / v2 ledger / Writer Gate check after PR merge.
+# Reads only: no deploy, no writer repair, no price/NAV/Snapshot mutation.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue860-gas9292-preflight-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue860-gas9292-preflight-readonly
+  cancel-in-progress: false
+
+jobs:
+  live:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify 9.292 generated source and maintenance release contracts
+        run: |
+          npm ci --ignore-scripts
+          node scripts/check-issue860-gas9292-close-state-preview.mjs
+          node scripts/check-issue860-gas9292-release-gate.mjs
+      - name: Verify live 9.291 settled close, v2 ledger, bounded Writer Gate (GET/POST only)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue860-gas9292-predeploy-readonly.mjs
