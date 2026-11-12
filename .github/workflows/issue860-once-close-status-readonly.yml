@@ -1,4 +1,5 @@
 name: issue860-once-close-status-readonly
+# Standalone Node core-only contract (no npm install); recheck 9.293 live once.
 on:
   workflow_dispatch:
   # One protected main-only readback of the CURRENT GAS 9.293 and exact-day
