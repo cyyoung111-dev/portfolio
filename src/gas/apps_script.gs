@@ -13362,6 +13362,17 @@ function _getAutomationStatusData() {
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
   var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
   var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
+  // Publish separate PRICE vs NAV completion. Do not promote the integrated
+  // CLOSE to COMPLETE before its own NAV marker has reconciled.
+  var priceCloseComplete = !!portfolioClose && portfolioClose.priceOk === true
+    && !!_normalizeDate(portfolioClose.priceDate)
+    && Number(portfolioClose.priceRows) > 0 && !!portfolioClose.runId
+    && String(portfolioClose.runId) === String(props.getProperty('portfolio_close_run_id') || '')
+    && String(portfolioClose.runDate) === String(closeRun.runDate || '');
+  var fundClosePending = !portfolioCloseRunStale
+    && !fundLastError
+    && _portfolioClosePendingFundReservation_(portfolioClose, props,
+      _normalizeDate(portfolioClose && portfolioClose.runDate || ''));
   var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
   var pendingTradeSnapshotRebuild = parseProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
   var pendingTradeSnapshotRebuildFrom = pendingTradeSnapshotRebuild && _normalizeDate(pendingTradeSnapshotRebuild.from || '') || '';
@@ -13390,7 +13401,7 @@ function _getAutomationStatusData() {
       || hasDuplicateHistoricalBackfillTriggers || hasDuplicateMidnightBackfillTriggers
       || hasDuplicateMorningBackfillTriggers) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
-  else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
+  else if (closeRun.state === 'INCOMPLETE') overallStatus = fundClosePending ? 'WARNING' : 'INCOMPLETE';
   else if (fundLastError || ((portfolioCloseLastError || closeErrors.length) && !publicationWaitOnly)) overallStatus = 'ERROR';
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
     || pendingTradeSnapshotRebuildFrom || tradeLedgerWriteUnverified || tradeSnapshotDeferred.dates.length
@@ -13434,6 +13445,10 @@ function _getAutomationStatusData() {
     historical0030Checkpoint: parseProperty('portfolio_close_historical_0030_checkpoint_v1'),
     portfolioClose: portfolioClose,
     closeRun: closeRun,
+    priceCloseState: priceCloseComplete ? 'COMPLETE' : 'INCOMPLETE',
+    fundCloseState: portfolioClose && portfolioClose.fundOk === true
+      ? 'DONE' : fundClosePending ? 'PENDING' : 'NOT_COMPLETE',
+    fundCloseReservationVerified: fundClosePending,
     krxPublication: krxPublication,
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
     portfolioCloseRunStale: portfolioCloseRunStale,
@@ -14912,6 +14927,35 @@ function _hasForeignHeldItemsForCloseWatchdog_(dateStr) {
     return code && !_isFundCode(code) && !_isKrxDailyCloseTarget_(item);
   });
 }
+// A valid, owner-bound NAV reservation is a follow-up to a confirmed PRICE
+// write, not grounds for replaying that financial write at 20:30.
+// Never treat missing, expired or wrong-owner reservations as successful NAV.
+function _portfolioClosePendingFundReservation_(last, props, runDate) {
+  if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_portfolioClosePendingFundReservation_', _portfolioClosePendingFundReservation_, this, arguments);
+  if (!last || last.priceOk !== true || last.fundOk === true
+      || !last.runId || last.runDate !== runDate || !last.fundBusyTriggerId
+      || !_normalizeDate(last.priceDate) || !(Number(last.priceRows) > 0)
+      || String(props.getProperty('portfolio_close_run_id') || '') !== String(last.runId)
+      || String(props.getProperty('portfolio_close_run_date') || '') !== runDate
+      || String(props.getProperty('portfolio_close_stage') || '') !== 'FUND_PENDING'
+      || (Array.isArray(last.errors) && last.errors.length)
+      || props.getProperty('portfolio_close_last_error')) return false;
+  try {
+    var root = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+    var reservations = root ? [root].concat(Array.isArray(root.additional) ? root.additional : []) : [];
+    var now = Date.now();
+    return reservations.some(function(item) {
+      return item && item.date === runDate
+        && String(item.triggerId || '') === String(last.fundBusyTriggerId)
+        && item.owner && String(item.owner.runId || '') === String(last.runId)
+        && Number(item.owner.startedMs || 0) === Number(last.startedMs || 0)
+        && ((Number(item.until || 0) > now && Number(item.attempts || 0) < 3)
+            || Number(item.activeUntil || 0) > now);
+    });
+  } catch (unverifiedReservation) {
+    return false;
+  }
+}
 function runPortfolioCloseWatchdog2030() {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('runPortfolioCloseWatchdog2030', runPortfolioCloseWatchdog2030, this, arguments);
   var todayStr = today();
@@ -14932,6 +14976,16 @@ function runPortfolioCloseWatchdog2030() {
   if (healthy) {
     _appendPortfolioCloseSyncLog('WATCHDOG_OK', todayStr, '', '통합 마감 완료 확인');
     return { runDate:todayStr, skipped:true, reason:'ALREADY_COMPLETE', priceDate:last.priceDate };
+  }
+  // The PRICE/Snapshot was committed but NAV runs in a separate reserved
+  // execution. A watchdog replay would overwrite the original run owner,
+  // duplicate the PRICE write and strand the NAV success marker.
+  if (lastDate === todayStr && lastSuccessDateValid
+      && _portfolioClosePendingFundReservation_(last, props, todayStr)) {
+    _appendPortfolioCloseSyncLog('WATCHDOG_NAV_PENDING', todayStr, '',
+      '종가 확정·소유권 검증된 펀드 후속 예약 진행 중, PRICE 재실행 생략');
+    return {runDate:todayStr, skipped:true, reason:'PRICE_COMPLETE_FUND_PENDING',
+      priceOk:true, fundOk:false, priceDate:last.priceDate};
   }
   // 한국 휴장일에도 오늘 마감 실패/중단을 재시도합니다. 해외장이 열린 날의
   // 해외 보유분 역시 KRX 휴장 여부와 독립적으로 복구합니다.
