@@ -106,6 +106,16 @@ on:
         required: true
         default: false
         type: boolean
+      use_9292_gate_selfheal:
+        description: '9.292 종가/NAV 상태 분리 및 Writer Gate 만료 자동 복구 (9.291 기준)'
+        required: true
+        default: false
+        type: boolean
+      approve_9292:
+        description: '9.292 명시적 운영 배포 승인. 먼저 dry_run=true 후 실운영 읽기 전용 검증'
+        required: true
+        default: false
+        type: boolean
       confirm_9288_migration:
         description: '실제 9.288 338건 이관·저널 APPLIED 확인 (독립 live GET 필수)'
         required: true
@@ -199,6 +209,8 @@ jobs:
       GAS_9290_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9290 && 'true' || 'false' }}
       GAS_9291_WATCHDOG_RECOVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9291_watchdog_recovery && 'true' || 'false' }}
       GAS_9291_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9291 && 'true' || 'false' }}
+      GAS_9292_GATE_SELFHEAL: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9292_gate_selfheal && 'true' || 'false' }}
+      GAS_9292_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9292 && 'true' || 'false' }}
       GAS_9289_TRADE_V2_VERIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_9288_migration && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
@@ -223,7 +235,7 @@ jobs:
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Read-only full deployment inventory on manual candidate dry-run
-        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true' || env.GAS_9289_CLOSE_PERF == 'true' || env.GAS_9290_CLOSE_PERF == 'true' || env.GAS_9291_WATCHDOG_RECOVERY == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true' || env.GAS_9289_CLOSE_PERF == 'true' || env.GAS_9290_CLOSE_PERF == 'true' || env.GAS_9291_WATCHDOG_RECOVERY == 'true' || env.GAS_9292_GATE_SELFHEAL == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       # A clean deployment inventory is not proof of idle portfolio Writers.
@@ -243,15 +255,23 @@ jobs:
         id: gas9291_gate
         if: env.GAS_9291_WATCHDOG_RECOVERY == 'true' && env.GAS_9291_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue860-v9290-live-gate.mjs
+      - name: Verify live settled 9.291 close, v2 ledger and bounded Gate before 9.292
+        id: gas9292_gate
+        if: env.GAS_9292_GATE_SELFHEAL == 'true' && env.GAS_9292_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        run: node scripts/issue860-gas9292-predeploy-readonly.mjs
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         env:
           GAS_9290_LIVE_GATE_VERIFIED: ${{ steps.gas9290_gate.outputs.verified || 'false' }}
           GAS_9291_LIVE_GATE_VERIFIED: ${{ steps.gas9291_gate.outputs.verified || 'false' }}
+          GAS_9292_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9292_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
       - name: Verify real GAS v9.291 published ledger, Snapshot and Writer idle
         if: env.GAS_9291_WATCHDOG_RECOVERY == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue860-gas9291-postdeploy-readonly.mjs
+      - name: Verify GAS v9.292 published Gate owner diagnostics and ledger (read-only)
+        if: env.GAS_9292_GATE_SELFHEAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        run: node scripts/issue860-gas9292-postdeploy-readonly.mjs
       # Inspect is a read-only inventory of the CURRENT deployed release;
       # the Issue860 cutover helper only recognizes historical v9.282 blobs.
       - name: Inspect current GAS deployment inventory (read-only)

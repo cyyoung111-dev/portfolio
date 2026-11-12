@@ -140,6 +140,36 @@ export function composeIssue860Gas9292CloseStatePreview() {
     _issue507GateSave_(props,s);
   }`,
      'ATOMIC_STALE_TOKEN_AUDIT_AND_RETIRE'));
+ // Authenticated read-only Gate health should tell an operator WHAT is
+ // occupying the Gate, not merely a count. Never expose owner tokens.
+ source=editFunction(source,'_issue507GateStatusRequest_',f=>
+   once(f,
+     "      var s=_issue507GateRead_(props);",
+     `      var s=_issue507GateRead_(props);
+      var now=Date.now(),timeoutMs=45*60*1000;
+      var owners=Object.keys(s.active).map(function(token) {
+        var owner=s.active[token],ms=now-Number(owner.startedAt||0);
+        var receiptPresent=!!props.getProperty(_issue507GateEndKey_(token));
+        return {
+          functionName:String(owner.name||'UNKNOWN').slice(0,100),
+          startedKst:Utilities.formatDate(new Date(owner.startedAt),
+            'Asia/Seoul','yyyy-MM-dd HH:mm:ss'),
+          ageMinutes:Math.max(0,Math.floor(ms/60000)),
+          terminalReceiptPresent:receiptPresent,
+          retirementEligible:ms>timeoutMs&&!receiptPresent
+        };
+      });`,
+     'GATE_OWNER_SAFE_DIAGNOSTIC'));
+ source=editFunction(source,'_issue507GateStatusRequest_',f=>
+   once(f,
+     "        activeCount:Object.keys(s.active).length,finished:s.finished,",
+     `        activeCount:Object.keys(s.active).length,finished:s.finished,
+        activeOwners:owners,
+        timeoutRetirementCandidates:owners.filter(function(e){
+          return e.retirementEligible;
+        }).length,
+        expiredUnconfirmedCount:Number(s.expiredUnconfirmedCount||0),`,
+     'GATE_STATUS_STRUCTURED_OWNERS'));
  const count=source.split("gasVersion: '9.291'").length-1;
  assert(count>=5&&count<=20,'ISSUE860_9292_VERSION_COUNT_'+count);
  source=source.replaceAll("gasVersion: '9.291'","gasVersion: '9.292'");
@@ -149,10 +179,11 @@ export function composeIssue860Gas9292CloseStatePreview() {
   parentVersion:'9.291',candidateVersion:'9.292',
   parentGitBlob:PARENT_SHA,candidateGitBlob:hash(source),
   changedFunctions:['_getAutomationStatusData','_issue507GateInvoke_',
-    '_issue507GateReconcile_'],
+    '_issue507GateReconcile_','_issue507GateStatusRequest_'],
   changedFinancialWriters:[],changedWatchdogFunctions:[],
   timeoutGateRetirementMinutes:45,expiredProducerReceiptFaked:false,
   readOnlyStatusDoesNotEnterGate:true,
+  gateOwnerReadOnlyDiagnostics:true,
   navPublicationSeparate:true,existingCloseCompletePreserved:true,
   sourceOnly:true,deployable:false,
   financeWrites:0,gasRequests:0,gasDeployments:0
