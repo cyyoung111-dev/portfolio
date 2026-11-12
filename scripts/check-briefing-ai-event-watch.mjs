@@ -51,6 +51,16 @@ const early=await collectEarlyAiWatch({now:nowEarly,fetchDaily:mockDaily,
 assert.equal(early.status,'WATCH_VERIFIED_OPTIONAL');
 assert.equal(early.verified,25);
 assert.equal(calls,25);
+// Partial provider coverage must not masquerade as a ranked Top-3.
+let partialRaw='';
+const partial=await collectEarlyAiWatch({now:nowEarly,
+ fetchDaily:async(label,symbol)=>['MU','CRWV'].includes(symbol)
+  ?{label,symbol,date:usDate,value:100,changePercent:20,source:'Yahoo Finance 일봉'}
+  :null,
+ mkdir:()=>{},writeFile:(_path,value)=>{partialRaw=value;}});
+assert.equal(partial.verified,2);
+assert.equal(partial.selected,0);
+assert.equal(JSON.parse(partialRaw).events.length,0);
 const loaded=loadEarlyAiWatch(date,{now:()=>new Date('2026-11-12T07:44:00+09:00'),
  readFile:()=>content});
 assert.equal(loaded.expectedUsDate,usDate);
