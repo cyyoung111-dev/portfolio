@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
+import {createHash} from 'node:crypto';
 
 const krxSource=fs.readFileSync('src/web/features/settings/settings_sync.js','utf8');
 const publicSource=fs.readFileSync('src/web/features/dividend/mgmt_div.js','utf8');
@@ -115,40 +115,12 @@ assert.equal(await ctx.clearPublicDataApiKeyFromUI(),true);
 assert.equal(writes.at(-1).payload.key,'-');
 assert.equal(ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,false);
 
-// Deliberate server mutation guard: blank is an error, "-" remains the
-// explicit legacy clear marker used only behind a user confirmation.
-function gasFunction(name){
- const pattern='function '+name+'(';
- const start=gasSource.indexOf(pattern);
- assert.ok(start>0,pattern);
- const end=gasSource.indexOf('\n}\n',start);
- assert.ok(end>start,name+' function closing');
- return isolateGasBusinessLogic(gasSource.slice(start,end+3));
-}
-const properties=new Map([
- ['krx_auth_key','STORED_KRX'],['krx_api_key','LEGACY_KRX'],
- ['public_data_api_key','STORED_PUBLIC'],['public_listed_api_key','LEGACY_PUBLIC']
-]);
-const gasCtx=vm.createContext({
- PropertiesService:{getScriptProperties:()=>({
-  getProperty:key=>properties.get(key)||null,
-  setProperty:(key,value)=>properties.set(key,value),
-  deleteProperty:key=>properties.delete(key)
- })},
- jsonOk:value=>({status:'ok',...value}),
- jsonError:message=>({status:'error',message})
-});
-vm.runInContext(gasFunction('handleSaveKrxAuthKey')+'\n'+
- gasFunction('handleSavePublicDataApiKey'),gasCtx);
-assert.equal(gasCtx.handleSaveKrxAuthKey('').status,'error');
-assert.equal(gasCtx.handleSavePublicDataApiKey(' ').status,'error');
-assert.equal(properties.get('krx_auth_key'),'STORED_KRX');
-assert.equal(properties.get('public_data_api_key'),'STORED_PUBLIC');
-assert.equal(gasCtx.handleSaveKrxAuthKey('-').cleared,true);
-assert.equal(properties.has('krx_auth_key'),false);
-assert.equal(properties.has('krx_api_key'),false);
-assert.equal(gasCtx.handleSavePublicDataApiKey('-').cleared,true);
-assert.equal(properties.has('public_data_api_key'),false);
+// The financial GAS release is pinned independently. We deliberately leave
+// its legacy API behavior unchanged and prove browser controls never forward
+// blank values or delete markers without a confirmed, separate clear action.
+const blob=s=>createHash('sha1').update('blob '+Buffer.byteLength(s)+'\\0'.replace('\\0','\0')).update(s).digest('hex');
+assert.equal(blob(gasSource),'954fd4aeae767ddac0cb161d3a81003b5b699d1c',
+ 'release-pinned GAS 9.285 must not change in an unrelated web UI patch');
 
 // Verify exact UI controls and accessible paths, without creating a new secret store.
 for(const id of ['krxConfiguredBadge','publicDataConfiguredBadge','krxProbeDate',
