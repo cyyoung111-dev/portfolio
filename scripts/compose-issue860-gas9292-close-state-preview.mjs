@@ -1,6 +1,7 @@
 // #860: diagnostic-only successor to reviewed, already-deployed GAS 9.291.
-// CLOSE PRICE and NAV publication are independently visible; neither
-// financial writer nor the 9.291 watchdog recovery path is changed.
+// CLOSE PRICE and NAV publication are independently visible. Read-only
+// automation diagnostics bypass writer admission and expired execution leases
+// are archived as UNCONFIRMED before retirement; no finance writers change.
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.mjs';
@@ -84,6 +85,61 @@ export function composeIssue860Gas9292CloseStatePreview() {
      'READONLY_DIAGNOSTIC_FIELDS');
    return f;
  });
+ // Prevent status probes from allocating Writer Gate tokens. These endpoints
+ // are authenticated metadata reads, not financial writers.
+ source=editFunction(source,'_issue507GateInvoke_',f=>
+   once(f,
+     "  if(_issue507GateInside_)return fn.apply(self,args);",
+     `  if ((name==='doPost'||name==='doGet') && args[0]
+      && args[0].parameter && args[0].parameter.action==='getAutomationStatus') {
+    var wasInside=_issue507GateInside_;
+    _issue507GateInside_=true;
+    try { return fn.apply(self,args); }
+    finally { _issue507GateInside_=wasInside; }
+  }
+  if(_issue507GateInside_)return fn.apply(self,args);`,
+     'AUTHENTICATED_READ_NO_WRITER_TOKEN'));
+ // Apps Script has a documented six-minute standard and up to 30-minute
+ // runtime for some Workspace accounts. Keep a 45-minute upper bound before
+ // retiring a stranded execution receipt, with durable UNCONFIRMED audit.
+ // This is NOT proof that the business operation completed successfully.
+ source=editFunction(source,'_issue507GateReconcile_',f=>
+   once(f,
+     '  if(ended.length)_issue507GateSave_(props,s);',
+     `  if(ended.length)_issue507GateSave_(props,s);
+  var now=Date.now(),maxProcessAgeMs=45*60*1000;
+  var expired=[];
+  Object.keys(s.active).forEach(function(token) {
+    var owner=s.active[token];
+    if(!owner || !Number.isFinite(owner.startedAt)
+       || now-owner.startedAt<=maxProcessAgeMs) return;
+    // A terminal producer receipt is handled above; never mask one.
+    if(props.getProperty(_issue507GateEndKey_(token))) return;
+    var key='issue507_writer_expired_unconfirmed_v1_'+token;
+    var prior=props.getProperty(key);
+    if(prior) {
+      var saved=JSON.parse(prior);
+      if(saved.releaseId!==s.releaseId||saved.token!==token
+         ||saved.name!==owner.name||saved.startedAt!==owner.startedAt
+         ||saved.state!=='EXPIRED_UNCONFIRMED')
+        throw new Error('GATE_EXPIRED_AUDIT_CONFLICT');
+    } else {
+      var evidence=JSON.stringify({releaseId:s.releaseId,token:token,
+        name:owner.name,startedAt:owner.startedAt,expiredAt:now,
+        state:'EXPIRED_UNCONFIRMED',producerReceipt:false});
+      props.setProperty(key,evidence);
+      if(props.getProperty(key)!==evidence)
+        throw new Error('GATE_EXPIRED_AUDIT_WRITE_UNVERIFIED');
+    }
+    // Expiry is a separate terminal *lease* state, not an ENDED receipt.
+    // Leave financial journals, NAV markers and CLOSE statuses untouched.
+    delete s.active[token];expired.push(token);
+  });
+  if(expired.length) {
+    s.expiredUnconfirmedCount=Number(s.expiredUnconfirmedCount||0)+expired.length;
+    _issue507GateSave_(props,s);
+  }`,
+     'ATOMIC_STALE_TOKEN_AUDIT_AND_RETIRE'));
  const count=source.split("gasVersion: '9.291'").length-1;
  assert(count>=5&&count<=20,'ISSUE860_9292_VERSION_COUNT_'+count);
  source=source.replaceAll("gasVersion: '9.291'","gasVersion: '9.292'");
@@ -92,8 +148,11 @@ export function composeIssue860Gas9292CloseStatePreview() {
  return {parent,source,manifest:{
   parentVersion:'9.291',candidateVersion:'9.292',
   parentGitBlob:PARENT_SHA,candidateGitBlob:hash(source),
-  changedFunctions:['_getAutomationStatusData'],
+  changedFunctions:['_getAutomationStatusData','_issue507GateInvoke_',
+    '_issue507GateReconcile_'],
   changedFinancialWriters:[],changedWatchdogFunctions:[],
+  timeoutGateRetirementMinutes:45,expiredProducerReceiptFaked:false,
+  readOnlyStatusDoesNotEnterGate:true,
   navPublicationSeparate:true,existingCloseCompletePreserved:true,
   sourceOnly:true,deployable:false,
   financeWrites:0,gasRequests:0,gasDeployments:0
