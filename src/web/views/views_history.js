@@ -605,6 +605,10 @@ function renderGsheetView(area) {
   const isLinked = !!currentUrl;
   const publicDataKey = window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured ? 'configured' : '';
   const krxAuthKey = window.GAS_API_KEY_STATUS?.krxAuthKeyConfigured ? 'configured' : '';
+  const krxDiag = window.__PF_KRX_SOURCE_CHECK?.url === currentUrl
+    ? window.__PF_KRX_SOURCE_CHECK : null;
+  const krxProbeDate = typeof getDefaultKrxProbeDate === 'function'
+    ? getDefaultKrxProbeDate() : '';
   const accessTokenConfigured = typeof getGsheetAccessToken === 'function' && !!getGsheetAccessToken();
   const serverAuthEnabled = !!window.GAS_API_KEY_STATUS?.requestAuthenticationEnabled;
   const legacyPending = typeof _pendingLegacyJournal === 'function' && !!_pendingLegacyJournal();
@@ -694,15 +698,16 @@ function renderGsheetView(area) {
             <div style="font-size:.72rem;font-weight:700;color:var(--text)">🧾 공공데이터포털 API 인증키</div>
             <div style="font-size:.62rem;color:var(--muted);margin-top:2px">KRX상장종목정보(종목코드)와 주식배당정보 조회에 사용됩니다.</div>
           </div>
-          <span style="font-size:.62rem;color:${publicDataKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicDataKey ? '키 저장됨' : '키 미설정'}</span>
+          <span id="publicDataConfiguredBadge" style="font-size:.62rem;color:${publicDataKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicDataKey ? '키 저장됨 (GAS)' : '키 미설정 (GAS)'}</span>
         </div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
           <input id="publicDataKeyInput" type="password" value="" placeholder="공공데이터포털 Encoding 인증키"
             style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
           />
-          <button id="btn-save-public-data-key" class="btn-purple-sm">키 저장</button>
+          <button id="btn-save-public-data-key" class="btn-purple-sm">키 저장·교체</button>
+           ${publicDataKey ? '<button id="btn-clear-public-data-key" class="btn-del-sm">GAS 키 삭제</button>' : ''}
         </div>
-        <div id="publicDataKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${publicDataKey ? '공공데이터포털 API 키가 저장되어 있습니다.' : '공공데이터 키가 없으면 GOOGLEFINANCE fallback을 사용합니다.'}</div>
+        <div id="publicDataKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${publicDataKey ? 'GAS 키 저장 확인 · 실제 배당·종목 조회 성공은 별도 확인이 필요합니다.' : '키 미설정 · 공식 종목명·배당 자동조회가 제한될 수 있습니다.'} 빈 입력으로는 삭제되지 않습니다.</div>
       </div>
 
       <!-- KRX AUTH_KEY 입력 -->
@@ -710,22 +715,30 @@ function renderGsheetView(area) {
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
           <div>
             <div style="font-size:.72rem;font-weight:700;color:var(--text)">🔑 KRX Open API AUTH_KEY</div>
-            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">가격소스를 KRX 우선으로 사용할 때 GAS의 KRX 종가 조회에 사용됩니다.</div>
+            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">GAS Script Properties에 저장되며 공식 종가·지수·시장 자료 조회에 사용됩니다. GitHub Actions 키와 별도입니다.</div>
           </div>
-          <span style="font-size:.62rem;color:${krxAuthKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${krxAuthKey ? '키 저장됨' : '키 미설정'}</span>
+          <span id="krxConfiguredBadge" style="font-size:.62rem;color:${krxAuthKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${krxAuthKey ? '키 저장됨 (GAS)' : '키 미설정 (GAS)'}</span>
         </div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
           <input id="krxAuthKeyInput" type="password" value="" placeholder="KRX Open API AUTH_KEY"
             style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
           />
-          <button id="btn-save-krx-auth-key" class="btn-purple-sm">키 저장</button>
+          <button id="btn-save-krx-auth-key" class="btn-purple-sm">키 저장·교체</button>
+           ${krxAuthKey ? '<button id="btn-clear-krx-auth-key" class="btn-del-sm">GAS 키 삭제</button>' : ''}
         </div>
-        <div id="krxAuthKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${krxAuthKey ? 'KRX AUTH_KEY가 저장되어 있습니다.' : 'KRX AUTH_KEY가 없으면 GOOGLEFINANCE 또는 기존 fallback을 사용합니다.'}</div>
+        <div id="krxAuthKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${krxAuthKey ? 'GAS 키 저장 확인 · 공식 조회 성공 여부는 별도 검증합니다.' : 'GAS 키 미설정 · 공식 KRX API 조회가 제한될 수 있습니다.'} 빈 입력으로는 삭제되지 않습니다.</div>
+         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px">
+           <input id="krxProbeDate" type="date" value="${krxProbeDate}" aria-label="KRX 공식 조회 검증 거래일"
+             style="background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:6px;color:var(--text);font-size:.70rem"/>
+           <button id="btn-diagnose-krx" class="btn-purple-sm">GAS KRX 실제 조회</button>
+         </div>
+         <div id="krxSourceStatus" role="status" style="margin-top:7px;font-size:.68rem;color:var(--muted);min-height:1.3em">${krxDiag ? (krxDiag.verified ? '실제 조회 성공' : '실제 조회 미확인') + ' · 마지막 확인 ' + krxDiag.checkedAt + ' KST · 거래일 ' + krxDiag.sourceDate : '실제 조회: 미확인 · 마지막 확인: 없음 · 원천: GAS → KRX 공식 API'}</div>
+         <div style="margin-top:5px;font-size:.64rem;color:var(--muted)">휴장일·미게시 거래일은 조회되지 않을 수 있습니다. GitHub Secrets와 분리 관리하며 <a href="https://github.com/cyyoung111-dev/portfolio/actions/workflows/optional-krx-gas-smoke.yml" target="_blank" rel="noopener noreferrer">GitHub KRX 독립 테스트</a>는 별도로 확인합니다.</div>
       </div>
 
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="font-size:.72rem;font-weight:700">NH PLUG 국내·미국 현재가·종가</div>
-        <div id="nhConfigStatus" style="font-size:.68rem;margin:8px 0">${window.GAS_API_KEY_STATUS?.nh?.enabled ? 'NH 설정됨 · 연결상태 확인 가능' : 'NH 운영 연결 필요'}</div>
+        <div id="nhConfigStatus" style="font-size:.68rem;margin:8px 0">${window.GAS_API_KEY_STATUS?.nh?.enabled ? 'NH GAS 설정됨 · 실제 현재가·종가 표본은 연결상태 확인 필요' : 'NH GAS 운영 설정 미확인 · 연결상태 확인 필요'}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <input id="nhAppKeyInput" type="password" autocomplete="new-password" placeholder="NH App Key" />
           <input id="nhAppSecretInput" type="password" autocomplete="new-password" placeholder="NH App Secret" />
