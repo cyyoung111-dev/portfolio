@@ -75,7 +75,8 @@ export function formatAiEventHighlights({expectedUsDate,events=[]}={}){
  if(!verified.length)return [];
  return ['■ AI 밸류체인 주요 변동 ('+expectedUsDate+' 미국 정규장)',
   ...verified.map(x=>'• '+x.label+' ('+x.symbol+') '+pct(x.changePercent)
-   +' / 
+   +' / USD '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
+   +' — '+(SECTOR_LABEL[x.sector]||'AI 관련주')+' 변동'
    +(Number.isFinite(x.relativeToNdxPp)?' · 나스닥100 대비 '
      +(x.relativeToNdxPp>=0?'+':'')+x.relativeToNdxPp.toFixed(2)+'%p':'') ),
   '※ 주가 변동만 검증됨. 실적·계약·공시 원인은 별도 확인 전 단정하지 않습니다.'];
