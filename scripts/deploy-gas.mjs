@@ -7,6 +7,8 @@ import {composeGas9288TradeV2From9287Preview} from './compose-gas9288-trade-v2-f
 import {composeIssue860Gas9289PerfCandidate} from './compose-issue860-gas9289-perf-candidate.mjs';
 import {composeIssue860Gas9290Preview} from './compose-issue860-gas9290-preview.mjs';
 import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.mjs';
+import {composeIssue860Gas9292CloseStatePreview} from './compose-issue860-gas9292-close-state-preview.mjs';
+import {verifyGas9292PostDeploy} from './issue860-gas9292-postdeploy-readonly.mjs';
 import {assertPublishedReleaseFundNavSupport} from './issue860-fund-nav-release-compat.mjs';
 import {verifyGas9291PostDeploy} from './issue860-gas9291-postdeploy-readonly.mjs';
 
@@ -44,6 +46,10 @@ const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   // #860 guarded one-time successor: 9.290 Snapshot performance plus
   // no duplicate PRICE on async FUND_PENDING / timeout RAW recovery.
   // Explicit manual release only, exact source and live gate mandatory.
+  // Writer Gate self-reconciliation + independent PRICE/NAV finality,
+  // exactly composed from the previously reviewed 9.291 production source.
+  // Never deploy automatically; require operator dispatch and live preflight.
+  '9.292': 'a1fc71cd26616be250b4e07cceacbc73995be98e',
   '9.291': 'e9311667d513c1e43a8ed1af326a3ecdb9d1ca70',
   // #860 full-source-only CI reviewed successor. Never deploy automatically.
   '9.290': 'fa12c26b6b6d5f85d6d0e9f17d650a8824d0316c',
@@ -630,7 +636,7 @@ export function summarizeGasReleaseFailure(error,stage) {
 }
 
 // Deployment approval for first stateful gate release is separate from merge.
-export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,approved9289=false,approved9290=false,approved9291=false,dryRun=false,diagnosticOnly=false}={}) {
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,approved9289=false,approved9290=false,approved9291=false,approved9292=false,dryRun=false,diagnosticOnly=false}={}) {
   if(dryRun||diagnosticOnly)return;
   if(version==='9.282'&&(eventName!=='workflow_dispatch'||approved!==true))
     throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
@@ -652,6 +658,8 @@ export function assertIssue507ManualReleasePermission({version,eventName,approve
     throw Error('GAS_9290_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.291'&&(eventName!=='workflow_dispatch'||approved9291!==true))
     throw Error('GAS_9291_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  if(version==='9.292'&&(eventName!=='workflow_dispatch'||approved9292!==true))
+    throw Error('GAS_9292_EXPLICIT_MANUAL_RELEASE_REQUIRED');
 }
 // A future 9.289 MUST not bypass the separate 9.288 trade migration.
 // The verified live GET is performed by a protected workflow step before deploy;
@@ -687,6 +695,18 @@ export function assertIssue8609291Prerequisites({
  if(liveGateVerified!==true)
   throw Error('GAS_9291_REQUIRES_LIVE_IDLE_LEDGER_AND_RAW_SNAPSHOT_PROOF');
 }
+// 9.292 repairs the long-lived Writer lease without replaying completed
+// financial rows. Requiring idle=0 would block the exact fix for leaked leases.
+// Instead independently verify a *settled* v9.291 CLOSE and v2 ledger, a
+// bounded existing Gate (0/1 active) and that no new financial writer changes.
+export function assertIssue8609292Prerequisites({
+ version,publishedVersion,liveCloseGateVerified=false,dryRun=false,diagnosticOnly=false
+}={}) {
+ if(version!=='9.292'||dryRun||diagnosticOnly)return;
+ if(publishedVersion!=='9.291')throw Error('GAS_9292_REQUIRES_PUBLISHED_9291');
+ if(liveCloseGateVerified!==true)
+   throw Error('GAS_9292_REQUIRES_SETTLED_CLOSE_AND_BOUNDED_GATE_PROOF');
+}
 export function assertWriterGateReleaseTransition(publishedSource,candidateSource) {
   if(publishedSource.includes('var ISSUE507_GATE_RELEASE_ID=') &&
      !candidateSource.includes('var ISSUE507_GATE_RELEASE_ID='))throw Error('GAS_GATE_REMOVAL_ROLLBACK_BLOCKED');
@@ -721,11 +741,14 @@ export async function deploy() {
   const perf9289 = process.env.GAS_9289_CLOSE_PERF === 'true';
   const perf9290 = process.env.GAS_9290_CLOSE_PERF === 'true';
   const perf9291 = process.env.GAS_9291_WATCHDOG_RECOVERY === 'true';
-  if (Number(fund9287)+Number(trade9288)+Number(perf9289)+Number(perf9290)+Number(perf9291)>1)
+  const perf9292 = process.env.GAS_9292_GATE_SELFHEAL === 'true';
+  if (Number(fund9287)+Number(trade9288)+Number(perf9289)+Number(perf9290)+Number(perf9291)+Number(perf9292)>1)
     throw Error('GAS_RELEASE_CANDIDATES_MUTUALLY_EXCLUSIVE');
   if (trade9288 && !dryRun && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
     throw Error('GAS_9288_EXPLICIT_MANUAL_RELEASE_REQUIRED');
-  const source = perf9291
+  const source = perf9292
+    ? composeIssue860Gas9292CloseStatePreview().source
+    : perf9291
     ? composeIssue860Gas9291Preview().source
     : perf9290
     ? composeIssue860Gas9290Preview().candidate
@@ -736,7 +759,7 @@ export async function deploy() {
     : fund9287
       ? composeFundSnapshot9287SourcePreview().candidate
       : fs.readFileSync(SOURCE_PATH, 'utf8');
-  if (fund9287 || trade9288 || perf9289 || perf9290 || perf9291) assertGasReleaseReady(source); // exact candidate blob even in dry-run
+  if (fund9287 || trade9288 || perf9289 || perf9290 || perf9291 || perf9292) assertGasReleaseReady(source); // exact candidate blob even in dry-run
   // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
@@ -751,7 +774,8 @@ export async function deploy() {
     approved9288:process.env.GAS_9288_RELEASE_APPROVAL==='true',
     approved9289:process.env.GAS_9289_RELEASE_APPROVAL==='true',
     approved9290:process.env.GAS_9290_RELEASE_APPROVAL==='true',
-    approved9291:process.env.GAS_9291_RELEASE_APPROVAL==='true',dryRun,
+    approved9291:process.env.GAS_9291_RELEASE_APPROVAL==='true',
+    approved9292:process.env.GAS_9292_RELEASE_APPROVAL==='true',dryRun,
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
@@ -804,6 +828,11 @@ export async function deploy() {
   assertIssue8609291Prerequisites({
     version:expectedVersion,publishedVersion:releaseState.published.version,
     liveGateVerified:process.env.GAS_9291_LIVE_GATE_VERIFIED==='true',
+    dryRun,diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
+  });
+  assertIssue8609292Prerequisites({
+    version:expectedVersion,publishedVersion:releaseState.published.version,
+    liveCloseGateVerified:process.env.GAS_9292_LIVE_PREFLIGHT_VERIFIED==='true',
     dryRun,diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   if(!dryRun && (!releaseState.head.approved || !releaseState.published.approved))throw Error('GAS_RELEASE_STATE_UNAPPROVED');
@@ -887,7 +916,12 @@ export async function deploy() {
   stage='WEBAPP_VERIFY';
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
   stage='AUTOMATION_VERIFY';
-  if(expectedVersion==='9.291'){
+  if(expectedVersion==='9.292'){
+   const fresh=await verifyGas9292PostDeploy({
+     url:webAppUrl,token:env('GAS_ACCESS_TOKEN')
+   });
+   console.log(JSON.stringify(fresh));
+  }else if(expectedVersion==='9.291'){
    const stable=await verifyGas9291LightweightConvergence({
      verify:()=>verifyGas9291PostDeploy({
        url:webAppUrl,token:env('GAS_ACCESS_TOKEN')
