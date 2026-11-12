@@ -57,6 +57,27 @@ const master=Buffer.concat([header,record('KA016C000',name)]);
 const comparison=compareKrxNhIdentity(krx,master,prior);
 assert.equal(comparison.status,'PRODUCT_EXPIRY_CROSS_SOURCE_CANDIDATE');
 assert.equal(comparison.contractMapped,false);
+
+const modern={OutBlock_1:[{BAS_DD:'20261111',PROD_NM:'코스피200 선물',
+ MKT_NM:'정규',ISU_CD:'A016C000',
+ ISU_NM:'코스피200 F 202612 (정규)',SETL_PRC:'836.55'}]};
+assert.equal(summarizeKrxDaySettlement(modern,prior),'KRX_DAY_SETTLEMENT_CANDIDATES_ONLY');
+const modernStats=inspectKrxFuturesSchema(modern,prior);
+assert.equal(modernStats.validCodeRows,1);
+assert.equal(modernStats.validContractNameRows,1);
+assert.equal(modernStats.fullyVerifiedRows,1);
+assert.equal(modernStats.preciseCodeLengths.eight,1);
+const exact=compareKrxNhIdentity(modern,master,prior);
+assert.equal(exact.status,'CROSS_SOURCE_PUBLIC_CODE_AND_MONTH_MATCHED');
+assert.equal(exact.exactCodeMatches,1);
+assert.equal(exact.contractMapped,false,
+ 'public master code match does not prove the active NH overnight contract');
+assert.equal(summarizeKrxDaySettlement({...modern,OutBlock_1:[
+ {...modern.OutBlock_1[0],ISU_NM:'코스피200 F 202701 (정규)'}]},prior),
+ 'KRX_SETTLEMENT_IDENTITY_UNVERIFIED','reject nonquarter month');
+assert.equal(compareKrxNhIdentity({...modern,OutBlock_1:[
+ {...modern.OutBlock_1[0],ISU_CD:'A016D000'}]},master,prior).contractMapped,false);
+
 const latestSec={cik:723125,filings:{recent:{
  form:['8-K'],filingDate:[prior],
  accessionNumber:['0000723125-26-012345']
