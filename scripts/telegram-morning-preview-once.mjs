@@ -8,6 +8,7 @@ import {AI_EVENT_WATCH,selectAiEventHighlights} from './briefing-ai-event-watch.
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
+import {addOfficialSecFilings} from './briefing-ai-official-sec-events.mjs';
 import {verifiedSkhyQuote} from './briefing-skhy-adr-parity.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 
@@ -89,8 +90,9 @@ async function readManualWatch({date,now=new Date(),fetchDaily=fetchDatedDaily,f
   yahoo:verified.filter(x=>x.source==='YAHOO_DAILY_REFERENCE').length,
   nasdaq:verified.filter(x=>x.source==='NASDAQ_DAILY_REFERENCE').length,
   verified:verified.length,total:COUNT}));
- const events=verified.length>=coverageMin
+ const selected=verified.length>=coverageMin
   ?selectAiEventHighlights({expectedUsDate,prices:verified}):[];
+ const events=await addOfficialSecFilings(selected,{usDate:expectedUsDate,now,fetchImpl});
  return {expectedUsDate,verified:verified.length,total:COUNT,events,
   skhyQuote:verifiedSkhyQuote(verified,expectedUsDate)};
 }

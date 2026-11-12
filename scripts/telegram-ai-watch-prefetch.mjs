@@ -8,6 +8,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {AI_EVENT_WATCH,selectAiEventHighlights} from './briefing-ai-event-watch.mjs';
 import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
 import {verifiedSkhyQuote} from './briefing-skhy-adr-parity.mjs';
+import {addOfficialSecFilings,verifiedSecFiling} from './briefing-ai-official-sec-events.mjs';
 
 export const WATCH_PATH='.telegram-runtime/ai-watch-morning.json';
 function kstClock(now){
@@ -65,8 +66,9 @@ export async function collectEarlyAiWatch({now=()=>new Date(),fetchDaily=fetchDa
  const verified=prices.filter(Boolean);
  // A thin or provider-biased partial sample is not a valid Top-3 ranking.
  const enoughCoverage=verified.length>=Math.ceil(AI_EVENT_WATCH.length*0.6);
- const events=enoughCoverage
+ const selected=enoughCoverage
   ?selectAiEventHighlights({expectedUsDate:usDate,prices:verified}):[];
+ const events=await addOfficialSecFilings(selected,{usDate,now:instant,fetchImpl});
  const payload={schemaVersion:1,date:clock.date,expectedUsDate:usDate,
   verified:verified.length,total:AI_EVENT_WATCH.length,events,
   skhyQuote:verifiedSkhyQuote(verified,usDate)};
@@ -89,7 +91,8 @@ export function loadEarlyAiWatch(date,{path=WATCH_PATH,now=()=>new Date(),
    ||!Number.isInteger(value.verified)||!Number.isInteger(value.total)
    ||value.total!==AI_EVENT_WATCH.length||value.verified<0||value.verified>value.total
    ||value.events.some(x=>x?.date!==usDate||
-    !AI_EVENT_WATCH.some(item=>item.symbol===x.symbol&&item.label===x.label))
+    !AI_EVENT_WATCH.some(item=>item.symbol===x.symbol&&item.label===x.label)
+    ||(x.filing!=null&&!verifiedSecFiling(x.filing,{symbol:x.symbol,usDate})))
    ||(value.skhyQuote!=null&&!verifiedSkhyQuote([value.skhyQuote],usDate)))
    return null;
   return {expectedUsDate:usDate,events:value.events,

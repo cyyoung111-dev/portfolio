@@ -62,6 +62,7 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
           TELEGRAM_PREVIEW_AUTHORIZED: 'true'
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: node scripts/telegram-morning-preview-once.mjs prepare
       - name: Reserve independent one-time manual preview claim
         if: steps.prepare.outputs.ready == 'true'

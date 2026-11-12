@@ -8,6 +8,7 @@ import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
 import {formatFearGreed} from './briefing-fear-greed.mjs';
 import {formatAiEventHighlights} from './briefing-ai-event-watch.mjs';
+import {verifiedK200NightChange,formatK200NightChange} from './briefing-k200-night-change.mjs';
 import {calculateSkhyParity,formatSkhyParity} from './briefing-skhy-adr-parity.mjs';
 
 export const MORNING_SERIES = Object.freeze([
@@ -220,16 +221,21 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   }).length;
   const lines=['[한국장 장전 종합 브리핑 | '+date+']','기준: 07:30 KST · 기준일별 종가 / 외부 참고값만 출처 표시','',
   '■ 1. 오늘의 결론 / 시장 국면',regime(map),'',
-  '■ 2. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id,options)),
+  // First show the last completed US session and semiconductor leadership.
+  '■ 2. 밤사이 미국장 / 반도체',
+  ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id,options)),'',
+  '■ 3. 전일 한국장',...['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'].map(id=>entry(map,id,options)),
   ...(options.supplements?.turnover?[options.supplements.turnover]:[]),
   ...(options.supplements?.breadth?[options.supplements.breadth]:[]),
   ...(options.supplements?.investors?[options.supplements.investors]:[]),'',
-  '■ 3. 밤사이 미국장 / 반도체',
-  ...['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].map(id=>entry(map,id,options)),'',
-  '■ 4. 코스피200 야간선물 (06:00)',
+    '■ 4. 코스피200 야간선물 (06:00)',
   reference && Number.isFinite(reference.value) && reference.value>0
     ?'코스피200 야간선물: '+reference.value.toFixed(2)+'pt [06:00 확인 · '+reference.tradingDate+'] · 마지막 체결값, 거래소 정산가 아님'
     :'코스피200 야간선물: 당일 참고값 미확보',
+  ...(formatK200NightChange(verifiedK200NightChange(reference,
+    options?.nightBaseline,{date}))
+    ?[formatK200NightChange(verifiedK200NightChange(reference,
+      options?.nightBaseline,{date}))]:[]),
   ...(options.supplements?.futures?[options.supplements.futures]:[]),'',
   '■ 5. 환율 / 금리 / 변동성',
   ...['USDKRW','DXY','UST10Y'].map(id=>entry(map,id,options)),
