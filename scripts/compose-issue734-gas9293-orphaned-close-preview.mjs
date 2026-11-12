@@ -9,7 +9,7 @@ import {composeIssue860Gas9292CloseStatePreview} from './compose-issue860-gas929
 const PARENT_BLOB='a1fc71cd26616be250b4e07cceacbc73995be98e';
 const blob=s=>{
  const bytes=Buffer.from(s,'utf8');
- return createHash('sha1').update('blob '+bytes.length+'\\0').update(bytes).digest('hex');
+ return createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 };
 function once(source,before,after,label){
  assert.equal(source.split(before).length,2,'ISSUE734_9293_SOURCE_DRIFT_'+label);
@@ -52,10 +52,10 @@ function _issue734SeedOrphanedCurrentClose_(ss, props, runDate) {
   return { queued:saved === true, reason:saved ? 'ORPHANED_DAY_QUEUED':'QUEUE_NOT_SAVED' };
 }
 `;
- source=once(source,target,helper+'\\n'+target,'HELPER_INSERT');
+ source=once(source,target,helper+'\n'+target,'HELPER_INSERT');
  source=once(source,
   '        _seedRecentMissingKrxSnapshotDays_(ss, sharedProps, runDate);',
-  '        _seedRecentMissingKrxSnapshotDays_(ss, sharedProps, runDate);\\n' +
+  '        _seedRecentMissingKrxSnapshotDays_(ss, sharedProps, runDate);\n' +
   '        _issue734SeedOrphanedCurrentClose_(ss, sharedProps, runDate);',
   'LEASED_CURRENT_DAY_ADMISSION');
  source=once(source,
