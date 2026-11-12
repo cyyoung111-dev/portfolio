@@ -600,6 +600,84 @@ async function loadAutomationStatusFromGsheet() {
 // ════════════════════════════════════════════════════════════════
 //  renderGsheetView — 구글시트 연동 설정 탭
 // ════════════════════════════════════════════════════════════════
+// PC-local ledger/receipt diagnostics are intentionally read-only:
+// no token, GAS URL, trade row, receipt ID or source payload is displayed.
+function _portfolioLocalReceiptSummary() {
+  const dirty = typeof _getPortfolioRemoteDirty === 'function'
+    ? _getPortfolioRemoteDirty() : null;
+  const target = typeof GSHEET_API_URL === 'string' ? GSHEET_API_URL : '';
+  const records = typeof _readPortfolioRecoveryReceipts === 'function'
+    ? (_readPortfolioRecoveryReceipts()?.[target] || {}) : {};
+  const receipts = Object.values(records).filter(r => r && typeof r === 'object');
+  const failure = typeof getGsheetSettingsLoadFailure === 'function'
+    ? String(getGsheetSettingsLoadFailure() || '') : '';
+  // Failure codes and stage labels only; never pass through arbitrary data.
+  const reason = failure.match(/(SYNC_RECEIPT_[A-Z_]+|PORTFOLIO_SYNC_FAILED|LEGACY_SAVE_UNCONFIRMED|HOLDINGS_SAVE_TIMEOUT|TRADES_SAVE_TIMEOUT|MASTER_VALIDATION_FAILED)/g);
+  return {
+    pending: !!dirty,
+    trades: Array.isArray(dirty?.trades) ? dirty.trades.length : 0,
+    holdings: Array.isArray(dirty?.holdings) ? dirty.holdings.length : 0,
+    needsLegacyReview: dirty?.legacyUntracked === true,
+    receiptProtocol: dirty?.receiptProtocol === 1,
+    attempted: receipts.filter(r => r.attempted === true).length,
+    unconfirmed: receipts.filter(r => r.attempted === true && r.completed !== true).length,
+    reason: reason?.join(' / ') || (failure ? '복원 단계 오류 · 상세코드 없음' : '없음')
+  };
+}
+
+async function diagnosePortfolioReceiptsReadOnly() {
+  const status = document.getElementById('portfolioReceiptDiagnosis');
+  if (!status) return;
+  const target = String(GSHEET_API_URL || '').trim();
+  const generation = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration() : 0;
+  const dirty = typeof _getPortfolioRemoteDirty === 'function'
+    ? _getPortfolioRemoteDirty() : null;
+  const records = typeof _readPortfolioRecoveryReceipts === 'function'
+    ? (_readPortfolioRecoveryReceipts()?.[target] || {}) : {};
+  const pending = Object.values(records).filter(r =>
+    r?.attempted === true && (
+      r.completed !== true || (dirty && r.scope === dirty.receiptScope)
+    ) && ['syncHoldings','syncTrades','syncTradesV2'].includes(r.action)
+      && typeof r.id === 'string' && r.id.length > 0 && r.params
+  );
+  if (!target || !pending.length) {
+    status.textContent = dirty
+      ? 'PC에 미동기화 자료가 있으나 조회 가능한 영수증 기록이 없습니다. 자동 삭제·재전송하지 않습니다.'
+      : '조회할 미완료 영수증이 없습니다.';
+    return;
+  }
+  status.textContent = '서버 영수증을 읽기 전용으로 조회 중...';
+  const result = [];
+  for (const record of pending.slice(0, 5)) {
+    if (typeof isGsheetConnectionCurrent === 'function'
+        && !isGsheetConnectionCurrent(target, generation)) {
+      status.textContent = '연결이 변경되어 조회를 중단했습니다.';
+      return;
+    }
+    try {
+      // GAS getPortfolioSyncReceipt is a READ-ONLY receipt inquiry although
+      // the authenticated transport uses POST. Do not invoke a sync action.
+      const response = await requestGsheetFormJson('getPortfolioSyncReceipt', {
+        ...(record.params || {}), kind:record.action, operationId:record.id
+      }, {targetUrl:target, generation, timeoutMs:15000, retry:0, preserveError:true});
+      if (typeof isGsheetConnectionCurrent === 'function'
+          && !isGsheetConnectionCurrent(target, generation)) return;
+      const identityOk = response?.operationId === record.id
+        && response?.kind === record.action;
+      const state = response?.status === 'ok' && identityOk
+        ? String(response.receiptState || 'UNAVAILABLE') : 'UNAVAILABLE';
+      result.push(record.action + ': ' +
+        (['COMPLETE','NOT_FOUND','FAILED','PARTIAL','BUSY','CHANGED','UNAVAILABLE']
+          .includes(state) ? state : 'UNAVAILABLE'));
+    } catch (_) {
+      result.push(record.action + ': NETWORK_ERROR');
+    }
+  }
+  // A status-only report: never display receipt IDs, payloads, target URL or tokens.
+  status.textContent = result.join(' · ') + ' · 거래·보유 원본 변경 없음';
+}
+
 function renderGsheetView(area) {
   const currentUrl = GSHEET_API_URL || '';
   const isLinked = !!currentUrl;
@@ -644,6 +722,20 @@ function renderGsheetView(area) {
         </div>
         <div id="automationStatusBody" style="font-size:.68rem;color:var(--muted);min-height:2.4em">상태 조회 전입니다.</div>
       </div>
+
+      <!-- PC financial restore diagnostic, distinct from GAS automation status. -->
+      ${isLinked ? (() => {
+        const d = _portfolioLocalReceiptSummary();
+        return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+          <div style="font-size:.72rem;font-weight:700;margin-bottom:6px">PC 거래·보유 복원 진단 · 읽기 전용</div>
+          <div style="font-size:.66rem;color:var(--muted);margin-bottom:7px">위 자동화 정상 여부와 별도입니다. 이 기기의 미전송 기록만 상태·건수로 표시하며 거래 데이터·토큰은 보여주지 않습니다.</div>
+          <div style="font-size:.69rem;line-height:1.9">복원 상태: <b>${restored ? '완료' : '미완료'}</b> · 오류: <b>${d.reason}</b></div>
+          <div style="font-size:.69rem;line-height:1.9">미전송 보존: <b>${d.pending ? '있음' : '없음'}</b> · 거래 <b>${d.trades}</b>건 · 보유 <b>${d.holdings}</b>건 · 시도 영수증 <b>${d.attempted}</b>건 · 미확인 <b>${d.unconfirmed}</b>건</div>
+          <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px">${d.needsLegacyReview ? '구버전 기록: 별도 대조 필요 · ' : ''}${d.receiptProtocol ? '영수증 프로토콜 있음 · ' : ''}자료 삭제·자동 승인·강제 동기화는 수행하지 않습니다.</div>
+          <button data-status-action="portfolio-receipt-readonly" class="btn-purple-sm">서버 영수증 상태 조회 · 읽기 전용</button>
+          <div id="portfolioReceiptDiagnosis" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">조회 전입니다.</div>
+        </div>`;
+      })() : ''}
 
       <!-- Minimal lookup performance collector, disabled until consent. -->
       ${window.PortfolioPerfTelemetry?.renderSettingsHtml?.() || ''}
