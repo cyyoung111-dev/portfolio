@@ -330,7 +330,15 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
       ||!record.id||!record.params
       ||record.params.tradeLedgerProtocolVersion!=='2')
     return fail('FAILED_V2_RECEIPT_NOT_FOUND');
-  if(record.readbackConfirmedRevision)return fail('ALREADY_RECONCILED');
+  // A crash can occur after persisting the terminal receipt but before
+  // clearing the separately archived dirty snapshot. Resume only this
+  // finishing step, with all remote financial source readbacks still required.
+  const finishingArchivedDirty=!!(dirty&&record.readbackConfirmedRevision);
+  if(record.readbackConfirmedRevision&&!finishingArchivedDirty)
+    return fail('ALREADY_RECONCILED');
+  if(finishingArchivedDirty&&(record.completed!==true
+      ||!/^[0-9a-f]{64}$/.test(String(record.readbackConfirmedRevision))))
+    return fail('TERMINAL_RECEIPT_MARKER_INVALID');
   if(!Array.isArray(rawTrades)||!rawTrades.length)
     return fail('LOCAL_LEDGER_UNAVAILABLE');
   let attemptedRows;
@@ -494,6 +502,25 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
   // Keep full original failed input in durable, local-only backup. Never
   // mutate it or the financial server; fail if the backup cannot be read.
   const archiveKey='pf_v6_failed_trade_v2_recovery_archive';
+  if(finishingArchivedDirty){
+    const backup=lsGet(archiveKey,{})?.[targetUrl];
+    if(!backup?.priorDirtyJournal||!backup?.priorReceipt
+        ||backup.priorReceipt.id!==record.id
+        ||backup.priorReceipt.action!==record.action
+        ||backup.priorReceipt.attempted!==true
+        ||backup.priorReceipt.completed===true
+        ||backup.verifiedRevision!==attemptedRevision
+        ||record.readbackConfirmedRevision!==attemptedRevision
+        ||JSON.stringify(backup.priorDirtyJournal)!==initialDirty)
+      return fail('ARCHIVED_DIRTY_RECOVERY_PROOF_MISMATCH');
+    if(typeof _clearPortfolioRemoteDirty!=='function'
+        ||!_clearPortfolioRemoteDirty(dirty.epoch,targetUrl)
+        ||(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty()))
+      return fail('VERIFIED_DIRTY_JOURNAL_ARCHIVED_BUT_NOT_CLEARED');
+    return {ok:true,code:'ARCHIVED_DIRTY_JOURNAL_CLEANUP_RESUMED',
+      revision:attemptedRevision,serverCount:remote2.count,
+      localCount:rawTrades.length,remoteWrites:0};
+  }
   const oldArchive=lsGet(archiveKey,{});
   const archive=oldArchive&&typeof oldArchive==='object'
     &&!Array.isArray(oldArchive)?oldArchive:{};
