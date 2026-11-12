@@ -111,6 +111,8 @@ confirmed=true;
 assert.equal(await ctx.clearKrxAuthKeyFromUI(),true);
 assert.equal(writes.at(-1).payload.key,'-');
 assert.equal(ctx.GAS_API_KEY_STATUS.krxAuthKeyConfigured,false);
+assert.match(elements.krxSourceStatus.textContent,/실제 조회: 미확인/,
+ 'replacing or clearing GAS credentials must invalidate any old live-source proof');
 assert.equal(ctx.GAS_API_KEY_STATUS.publicDataApiKeyConfigured,true);
 assert.equal(await ctx.clearPublicDataApiKeyFromUI(),true);
 assert.equal(writes.at(-1).payload.key,'-');
