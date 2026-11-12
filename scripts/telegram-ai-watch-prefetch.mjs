@@ -6,6 +6,7 @@ import {fetchDatedDaily} from './telegram-morning-briefing.mjs';
 import {expectedMorningDate} from './telegram-morning-report.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {AI_EVENT_WATCH,selectAiEventHighlights} from './briefing-ai-event-watch.mjs';
+import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
 
 export const WATCH_PATH='.telegram-runtime/ai-watch-morning.json';
 function kstClock(now){
@@ -52,6 +53,11 @@ export async function collectEarlyAiWatch({now=()=>new Date(),fetchDaily=fetchDa
       source:'YAHOO_DAILY_REFERENCE'};
      break;
     }catch{/* optional source unavailable */}
+   }
+   if(!prices[index]){
+    const row=await readNasdaqDailyHistorical(item.symbol,usDate,
+      {now:instant,fetchImpl:limitedFetch});
+    if(row)prices[index]={...row,label:item.label,unit:'USD'};
    }
   }
  }));
