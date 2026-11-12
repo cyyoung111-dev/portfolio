@@ -41,7 +41,7 @@ const fakeFetch=async url=>{
  return {ok:true,json:async()=>({total_count:0,artifacts:[]})};
 };
 const fetchDaily=async (label,symbol)=>({
- label,symbol,date:usDate,value:120,
+ label,symbol,date:usDate,value:symbol==='SKHY'?142.25:120,
  changePercent:symbol==='MU'?11:symbol==='CRWV'?12:1,
  source:'Yahoo Finance 일봉'
 });
@@ -50,7 +50,11 @@ const rows=[
  {label:'NASDAQ100',symbol:'^NDX',date:usDate,value:28000,changePercent:2,
   source:'NH_INDEX_DAILY'},
  {label:'SOX',symbol:'^SOX',date:usDate,value:10000,changePercent:4},
- {label:'VIX',symbol:'^VIX',date:usDate,value:18,changePercent:-2}
+ {label:'VIX',symbol:'^VIX',date:usDate,value:18,changePercent:-2},
+ {label:'SK하이닉스',symbol:'000660.KS',date:usDate,
+  value:1277000,changePercent:5.36,source:'NH_REGULAR_CLOSE'},
+ {label:'원/달러',symbol:'KRW=X',date:usDate,
+  value:1333.6,changePercent:0.2,source:'Yahoo Finance 일봉'}
 ];
 const fakeCore=async options=>{
  const body=formatFullMorningBriefing(date,null,rows,{
@@ -68,6 +72,8 @@ assert.equal(prepared.highlighted,2);
 const message=files.get('.telegram-runtime/manual-preview-message.txt');
 assert.match(message,/^\[수동 검증 테스트 · 2026-11-12/);
 assert.match(message,/AI 밸류체인 주요 변동/);
+assert.match(message,/SK하이닉스 ADR 환산 비교/);
+assert.match(message,/원주 약 1,897,046원/);
 assert.match(message,/코어위브/);
 assert.match(message,/마이크론/);
 assert.match(message,/AI 추적 확인: 38\/38개사/);
