@@ -451,8 +451,15 @@ function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
 
 function _pricePortfolioSummary() {
   const tradeCount = Array.isArray(rawTrades) ? rawTrades.length : 0;
-  const holdingCount = (Array.isArray(rawHoldings) ? rawHoldings.length : 0)
-    + ((fundDirect && typeof fundDirect === 'object') ? Object.keys(fundDirect).length : 0);
+  // A trade-derived holding row already includes a direct fund (F00001/02).
+  // Count fundDirect only for legacy holdings that do NOT contain that fund.
+  // This count is UI metadata; it must not change positions or valuation.
+  const holdings = Array.isArray(rawHoldings) ? rawHoldings : [];
+  const holdingNames = new Set(holdings.map(h => String(h?.name || '').trim()));
+  const separateFunds = (fundDirect && typeof fundDirect === 'object')
+    ? Object.keys(fundDirect).filter(name => !holdingNames.has(String(name).trim())).length
+    : 0;
+  const holdingCount = holdings.length + separateFunds;
   const missing = Array.isArray(window._gsheetMissingCodes) ? window._gsheetMissingCodes : [];
   const missingStr = missing.map(item => `${item.code || ''} ${item.name || ''}`.trim()).filter(Boolean).join(', ');
   const missingChip = `<button type="button" data-status-action="gsheet" class="price-status-chip is-action${missing.length ? ' is-missing' : ''}" title="${_escapeHtml(missingStr ? '미조회 종목: ' + missingStr : '미조회 종목 없음')}">미조회 ${missing.length}개</button>`;
