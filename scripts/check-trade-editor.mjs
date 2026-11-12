@@ -123,6 +123,8 @@ assert.equal(legacyIdString.saved,true,
  'a string dataset ID must update a numeric legacy ID, not silently skip');
 assert.equal(legacyIdString.trades.length,2);
 assert.equal(legacyIdString.trades[0].qty,12);
+assert.equal(legacyIdString.trades[0].id,1,
+ 'legacy immutable numeric ID must retain its original type after string UI selection');
 assert.equal(legacyIdString.holdings[0].qty,4);
 const expandPastBuy=run([historicBuy,laterSale],12,'2026-02-01',{type:'buy',editId:1});
 assert.equal(expandPastBuy.saved,true,'valid historical buy correction is accepted');
