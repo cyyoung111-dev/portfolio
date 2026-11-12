@@ -1264,13 +1264,15 @@ const dividendApproval=recurringDividend.jobs.refresh.steps.find(s=>
  s.name==='Require explicit approval for manual dividend refresh');
 assert.ok(dividendApproval&&dividendApproval.run.includes("!= 'REFRESH'"),
  'manual dividend refresh must fail without explicit approval');
-// Preserve the existing two different kinds of read-only audit triggers:
-// KRX follows actual deployment completions; usage metrics follow audit-code
-// updates (not unrelated GAS deploys).
+// Historical 2026-09/10 KRX diagnostics are on-demand, not subscribers to
+// unrelated modern GAS validate-only runs. Keep read-only manual fallback.
 const krxAudit=YAML.parse(fs.readFileSync(
  '.github/workflows/krx-holiday-september-readonly.yml','utf8'));
-assert.ok(Object.hasOwn(krxAudit.on||{},'workflow_run'),
- 'KRX read-only audit still follows its gated production deploy');
+assert.ok(!Object.hasOwn(krxAudit.on||{},'workflow_run'),
+ 'historical KRX audit must not follow unrelated GAS validation runs');
+assert.ok(Object.hasOwn(krxAudit.on||{},'workflow_dispatch'));
+assert.deepEqual(krxAudit.on.push.paths,
+ ['.github/workflows/krx-holiday-september-readonly.yml']);
 const usageAudit=YAML.parse(fs.readFileSync(
  '.github/workflows/gas-deployment-usage-metrics-readonly.yml','utf8'));
 assert.ok(Object.hasOwn(usageAudit.on||{},'push'));
