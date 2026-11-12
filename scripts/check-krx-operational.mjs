@@ -897,6 +897,66 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  await assert.rejects(()=>run({...args,fetchImpl:duplicate.fetchImpl}),/NAV_DERIVED_SCHEMA/);
  assert.equal(duplicate.refreshes,0);
 }
+// #734: A recent close NAV often publishes the following morning. The
+// authenticated GAS state calls this NAV_MISSING (not UNPUBLISHED) after
+// midnight. Defer ONLY that exact close date, never synthesize NAV or write.
+{
+ const {run,isRecentUnpublishedKbCloseDay}=await import('./collect-kb-fund-nav.mjs');
+ const day={date:'2026-11-12',code:'F00002',navState:'NAV_MISSING',
+  publicationExpected:true,valuationRequired:true,unitsApplied:true,
+  reconciled:true,evaluationState:'NOT_CREATED',snapshotState:'WRITE_REQUIRED'};
+ const args={closeDate:'2026-11-12',today:'2026-11-13',
+  latestPublishedDate:'2026-11-11'};
+ assert.equal(isRecentUnpublishedKbCloseDay(day,args),true);
+ const bad=[
+  [{...day,navState:'NAV_MISSING',date:'2026-11-11'},args],
+  [{...day,publicationExpected:false},args],
+  [{...day,unitsApplied:false},args],
+  [{...day,reconciled:false},args],
+  [{...day,navState:'UNVERIFIED'},args],
+  [{...day,navState:'EXISTING_CONFIRMED'},args],
+  [day,{...args,latestPublishedDate:'2026-11-12'}],
+  [day,{...args,today:'2026-11-14'}],
+  [day,{...args,closeDate:'2026-11-11'}],
+  [{...day,evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'},args],
+ ];
+ for(const [row,ctx] of bad)assert.equal(
+   isRecentUnpublishedKbCloseDay(row,ctx),false,'lag never masks stale/unverified data');
+ const observed=[];
+ const navSource=[{gijunYmd:'20261111',gijunGa:1994.86}];
+ const latest=(today='2026-11-13',state=day,source=navSource)=>({
+   url:'https://script.google.com/macros/s/Test/exec',token:'MOCK_TOKEN',
+   now:new Date(today+'T00:00:00Z'),apply:true,
+   fetchImpl:async(_url,opts)=>{
+     if(!opts.body)return {ok:true,json:async()=>source};
+     const p=Object.fromEntries(opts.body);observed.push(p.action);
+     if(p.accessToken==='NAV_AUTH_PROBE')return {
+       ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+     if(p.action==='getAutomationStatus')return {ok:true,json:async()=>({
+       status:'ok',gasVersion:'9.293',automation:{
+        closeRun:{state:'INCOMPLETE',runDate:'2026-11-12'}}})};
+     if(p.action==='previewFundNavImport')return {ok:true,json:async()=>({
+       status:'ok',candidates:[],updates:[],warnings:[],errors:[]})};
+     if(p.action==='getFundValuationStatus')return {ok:true,json:async()=>({
+       status:'ok',fundResults:{F00002:{dates:[state]}}})};
+     throw Error('MUST_NOT_CALL_FINANCE_WRITE');
+   }
+ });
+ const deferred=await run(latest());
+ assert.equal(deferred.mode,'DEFERRED');
+ assert.equal(deferred.complete,false);
+ assert.equal(deferred.reason,'OFFICIAL_NAV_AWAITING_PUBLICATION');
+ assert.deepEqual(deferred.waitingDates,['2026-11-12']);
+ assert.equal(deferred.financialWritesNotAuthorized,true);
+ assert(!observed.includes('collectKbFundNav'),'no NAV writes before publication');
+ for(const config of [
+  latest('2026-11-14'), // stale two-day non-Friday gap
+  latest('2026-11-13',{...day,unitsApplied:false}),
+  latest('2026-11-13',{...day,date:'2026-11-11'}),
+  latest('2026-11-13',day,[...navSource,{gijunYmd:'20261112',gijunGa:2001.22}])
+ ])await assert.rejects(()=>run(config),/NAV_DERIVED_NAV_STATE_UNVERIFIED/,
+   'unsupported NAV must stay a hard stop');
+}
 // A real 2026-11-04 collector reported NAV_IMPORT_HTTP_UNVERIFIED while
 // the same NAV was visible in the source workbook. Never send a second
 // import for a lost ACK: prove the exact existing date+NAV via read-only
