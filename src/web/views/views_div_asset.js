@@ -125,7 +125,7 @@ function calcDividends() {
       const ref = String(ev?.date || '').slice(0,10);
       const pay = String(ev?.payDate || '').slice(0,10);
       const amount = Number(ev?.amount);
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(ref) || !(amount > 0)) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ref) || !(amount > 0)) return;
       const eventKey = ref + '|' + pay;
       const old = uniqueEvents.get(eventKey);
       if (!old || (ev.receivedConfirmed === true && old.receivedConfirmed !== true)
