@@ -2405,8 +2405,93 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   const dirty=setup();
   dirty.ctx._getPortfolioRemoteDirty=()=>({trades:tradeRows});
   assert.equal((await dirty.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
-    targetUrl:url})).code,'LOCAL_DIRTY_JOURNAL_PRESENT');
-  assert.equal(dirty.calls.length,0,'dirty financial journal must never be replayed');
+    targetUrl:url})).code,'DIRTY_JOURNAL_FORMAT_UNVERIFIED');
+  assert.equal(dirty.calls.length,0,'invalid dirty journal must never be replayed');
+  // Real PC has full dirty journal despite the failed v2 receipt. A dirty
+  // marker must not cause permanent block IF all trade, holding and direct
+  // fund source records match independently verified GAS authoritative reads.
+  const prepareDirty=()=>{
+    const f=setup();
+    const holdings=[{name:'fixture-ETF',code:'123456',acct:'ISA',
+      qty:8,cost:100,costAmt:800,assetType:'ETF'}];
+    const funds={'direct-fund':{cost:200,eval:210,type:'TDF'}};
+    let journal={target:url,epoch:1,receiptProtocol:1,
+      receiptScope:'task-fixture',legacyUntracked:false,tradeV2DeleteIds:[],
+      trades:clone(tradeRows),holdings:clone(holdings),fundDirect:clone(funds)};
+    f.ctx.rawHoldings=clone(holdings);
+    f.ctx.fundDirect=clone(funds);
+    f.ctx._getPortfolioRemoteDirty=()=>journal;
+    f.ctx._isPortfolioRemoteSyncPending=()=>!!journal;
+    f.ctx._clearPortfolioRemoteDirty=(epoch,target)=>{
+      assert.equal(epoch,1);assert.equal(target,url);
+      journal=null;return true;
+    };
+    f.ctx._remoteHoldings=[
+      {name:'fixture-ETF',qty:8,costAmt:800},
+      {name:'direct-fund',qty:1,costAmt:200}
+    ];
+    f.ctx._remoteFunds=clone(funds);
+    f.ctx.requestGsheetActionJson=async(action)=>{
+      f.calls.push(action);
+      assert.ok(['getTrades','getHoldings','getSettings'].includes(action),
+        'must never write to financial server');
+      if(action==='getHoldings')return {
+        status:'ok',holdings:clone(f.ctx._remoteHoldings)
+      };
+      if(action==='getSettings')return {
+        status:'ok',settings:{fundDirect:clone(f.ctx._remoteFunds)}
+      };
+      const rows=clone(f.ctx._remoteRows||tradeRows);
+      return {status:'ok',tradeLedgerProtocolVersion:2,
+        ledgerRevision:await digest(rows.map(t=>[
+          t.id,t.date,t.tradeType,t.acct,t.name,t.code,t.qty,t.price,
+          t.assetType,'','','','',''
+        ])),trades:rows};
+    };
+    return f;
+  };
+  const verifiedDirty=prepareDirty();
+  const dirtyResult=await verifiedDirty.ctx
+    ._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url});
+  assert.equal(dirtyResult.ok,true);
+  assert.equal(dirtyResult.remoteWrites,0);
+  assert.equal(verifiedDirty.ctx._getPortfolioRemoteDirty(),null);
+  assert.deepEqual(verifiedDirty.calls,[
+    'getPortfolioSyncReceipt',
+    'getTrades','getHoldings','getSettings',
+    'getTrades','getHoldings','getSettings',
+    'getPortfolioSyncReceipt'
+  ]);
+  const dirtyArchive=verifiedDirty.storage
+    .get('pf_v6_failed_trade_v2_recovery_archive')[url];
+  assert.equal(dirtyArchive.priorDirtyJournal.trades.length,2);
+  assert.equal(dirtyArchive.priorDirtyJournal.holdings.length,1);
+  assert.equal(dirtyArchive.priorDirtyJournal.fundDirect['direct-fund'].cost,200);
+  const wrongHoldings=prepareDirty();
+  wrongHoldings.ctx._remoteHoldings[0].costAmt=900;
+  assert.equal((await wrongHoldings.ctx
+    ._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url})).code,
+    'SERVER_AND_PC_HOLDINGS_DIFFER');
+  assert.notEqual(wrongHoldings.ctx._getPortfolioRemoteDirty(),null);
+  assert.equal(wrongHoldings.storage.has('pf_v6_failed_trade_v2_recovery_archive'),false);
+  const wrongFunds=prepareDirty();
+  wrongFunds.ctx._remoteFunds['direct-fund'].cost=300;
+  assert.equal((await wrongFunds.ctx
+    ._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url})).code,
+    'SERVER_AND_PC_FUND_SETTINGS_DIFFER');
+  assert.notEqual(wrongFunds.ctx._getPortfolioRemoteDirty(),null);
+  const localJournalMismatch=prepareDirty();
+  localJournalMismatch.ctx.rawHoldings[0].costAmt=900;
+  assert.equal((await localJournalMismatch.ctx
+    ._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url})).code,
+    'DIRTY_SNAPSHOT_DIFFERS_FROM_PC_OR_RECEIPT');
+  assert.equal(localJournalMismatch.calls.length,0);
+  const pendingDelete=prepareDirty();
+  pendingDelete.ctx._getPortfolioRemoteDirty().tradeV2DeleteIds=['tr_deleted'];
+  assert.equal((await pendingDelete.ctx
+    ._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url})).code,
+    'PENDING_TRADE_DELETE_INTENT');
+  assert.equal(pendingDelete.calls.length,0);
   const local=setup();
   local.ctx.rawTrades=[{...tradeRows[0],qty:9},tradeRows[1]];
   assert.equal((await local.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
@@ -2423,5 +2508,6 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   assert.match(viewSource,/PC 거래원장 대사 후 안전 복구/);
   console.log(JSON.stringify({kind:'ISSUE734_PC_FAILED_V2_LOCAL_RECONCILIATION_PASS',
     successAfterTwoReadbacks:true,mismatchBlocked:true,dirtyBlocked:true,
+    fullDirtyVerifiedAndArchived:true,holdingsAndFundMismatchBlocked:true,
     originalReceiptArchived:true,serverWrites:0,mobileWrites:0}));
 }
