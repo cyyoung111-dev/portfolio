@@ -9,6 +9,7 @@ on:
   # 2026-11-09 close recovery readback: one sanitized authenticated GET after merge.
   # Post-FUND_DEFERRED_DONE 21:00:16 KST: second one-shot COMPLETE confirmation; no writes.
   # 2026-11-12: owner-requested final persisted CLOSE and Writer Gate readback after 11/11 WATCHDOG_OK.
+  # 2026-11-12: verify whether 09:42 recorded ACTIVE=1 resolved without a manual UI check.
   # No NAV rerun, no Snapshot write, no GAS deploy and no auto retry.
   # No schedule, no retry, no GAS writer, and no workbook-wide inventory.
   # 2026-11-10 post v9.289 publish: exactly one sanitized status GET, no trigger/writer changes.
