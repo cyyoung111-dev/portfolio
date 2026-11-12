@@ -9,6 +9,7 @@ on:
   # 2026-11-09 close recovery readback: one sanitized authenticated GET after merge.
   # Post-FUND_DEFERRED_DONE 21:00:16 KST: second one-shot COMPLETE confirmation; no writes.
   # 2026-11-12: independent new 9.292 deployed Gate and close readback following transient old version warm.
+  # Final postdeploy published 9.292 + ledger + Gate read-only check; retry ONLY previous warm web instance, never writes.
   # 2026-11-12: owner-requested final persisted CLOSE and Writer Gate readback after 11/11 WATCHDOG_OK.
   # 2026-11-12: one-shot live follow-up of persisted ACTIVE=1 after 10:20; read-only gate and close, no writes.
   # No NAV rerun, no Snapshot write, no GAS deploy and no auto retry.
@@ -65,3 +66,8 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue860-close-single-status-readonly.mjs
+      - name: Verify published 9.292 source, trade ledger and Gate (bounded warm-read retry only)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue860-gas9292-postdeploy-readonly.mjs
