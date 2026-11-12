@@ -2504,6 +2504,49 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   assert.equal((await tampered.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
     targetUrl:url})).code,'ARCHIVED_DIRTY_RECOVERY_PROOF_MISMATCH');
   assert.notEqual(tampered.ctx._getPortfolioRemoteDirty(),null);
+  const timedOut=prepareDirty();
+  const timedOutRead=timedOut.ctx.requestGsheetActionJson;
+  timedOut.ctx.requestGsheetActionJson=async (action,params,opts)=>{
+    if(action==='getTrades') {
+      assert.equal(opts.timeoutMs,60000,'slow full ledger must have a 60s read-only timeout');
+      assert.equal(opts.retry,0,'never auto-retry a stateful operation');
+      return {status:'error',errorCode:'CLIENT_TIMEOUT'};
+    }
+    return timedOutRead(action,params,opts);
+  };
+  assert.equal((await timedOut.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'SERVER_TRADES_TIMEOUT');
+  assert.notEqual(timedOut.ctx._getPortfolioRemoteDirty(),null);
+  assert.equal(timedOut.storage.has('pf_v6_failed_trade_v2_recovery_archive'),false);
+  const schemaBad=prepareDirty();
+  const oldSchemaRead=schemaBad.ctx.requestGsheetActionJson;
+  schemaBad.ctx.requestGsheetActionJson=async (action,params,opts)=>{
+    if(action==='getTrades')return {status:'ok',tradeLedgerProtocolVersion:2,
+      ledgerRevision:'bad',trades:clone(tradeRows)};
+    return oldSchemaRead(action,params,opts);
+  };
+  assert.equal((await schemaBad.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'SERVER_TRADES_SCHEMA_UNVERIFIED');
+  assert.notEqual(schemaBad.ctx._getPortfolioRemoteDirty(),null);
+  const hashBad=prepareDirty();
+  const oldHashRead=hashBad.ctx.requestGsheetActionJson;
+  hashBad.ctx.requestGsheetActionJson=async(action,params,opts)=>{
+    if(action==='getTrades')return {status:'ok',tradeLedgerProtocolVersion:2,
+      ledgerRevision:'0'.repeat(64),trades:clone(tradeRows)};
+    return oldHashRead(action,params,opts);
+  };
+  assert.equal((await hashBad.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'SERVER_TRADES_HASH_MISMATCH');
+  assert.notEqual(hashBad.ctx._getPortfolioRemoteDirty(),null);
+  const authBad=prepareDirty();
+  const oldAuthRead=authBad.ctx.requestGsheetActionJson;
+  authBad.ctx.requestGsheetActionJson=async(action,params,opts)=>
+    action==='getTrades'
+    ?{status:'error',errorCode:'HTTP_403'}
+    :oldAuthRead(action,params,opts);
+  assert.equal((await authBad.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'SERVER_TRADES_AUTH_REJECTED');
+  assert.notEqual(authBad.ctx._getPortfolioRemoteDirty(),null);
   const wrongHoldings=prepareDirty();
   wrongHoldings.ctx._remoteHoldings[0].costAmt=900;
   assert.equal((await wrongHoldings.ctx
@@ -2546,6 +2589,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   console.log(JSON.stringify({kind:'ISSUE734_PC_FAILED_V2_LOCAL_RECONCILIATION_PASS',
     successAfterTwoReadbacks:true,mismatchBlocked:true,dirtyBlocked:true,
     fullDirtyVerifiedAndArchived:true,interruptedCleanupResumed:true,
-    archiveTamperingBlocksResume:true,holdingsAndFundMismatchBlocked:true,
+    archiveTamperingBlocksResume:true,readbackFailureCodesVerified:true,
+    longerReadOnlyTimeoutVerified:true,holdingsAndFundMismatchBlocked:true,
     originalReceiptArchived:true,serverWrites:0,mobileWrites:0}));
 }
