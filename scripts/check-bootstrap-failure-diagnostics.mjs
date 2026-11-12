@@ -2176,3 +2176,55 @@ for(const emptyTradeHistory of [false,true]) {
 }
 console.log('PASS: stock/asset resync blocks provisional codes and local writes until GAS restore is verified');
 
+
+
+// PC #734 regression: a stranded sync receipt must never manufacture a +538
+// profit or present acquisition-price fallback as a verified market valuation.
+{
+  const sys=fs.readFileSync('src/web/views/views_system.js','utf8');
+  const table=fs.readFileSync('src/web/shared/table/views_table.js','utf8');
+  const cells=new Map(['s-total','s-total-sub','s-cost','s-pnl','s-pnl-pct','s-net',
+    's-net-sub','s-realestate','s-realestate-sub','loan-summary-bal',
+    'loan-summary-sub'].map(id=>[id,{textContent:'',innerHTML:'',className:''}]));
+  const view=vm.createContext({
+    GSHEET_API_URL:'https://fixture.invalid/exec',
+    getGsheetSettingsLoadFailure:()=> '미동기화 거래·보유 확인 · SYNC_RECEIPT_FAILED · PORTFOLIO_SYNC_FAILED',
+    _gsPortfolioRestoreRequired:true,
+    rows:[{acct:'ISA',type:'ETF',name:'test',code:'123456',fund:false,qty:5,cost:80,
+      costAmt:400,price:100,evalAmt:500,pnl:100,pct:25,currency:'KRW'}],
+    LOAN:{balance:20,annualRate:4.4,remainingMonths:10},
+    REAL_ESTATE:{currentValue:1000,purchasePrice:600,name:'test property'},
+    $el:id=>cells.get(id)||null,
+    fmt:x=>String(x),fmtW:x=>String(x),pColor:()=> 'green',
+    pSign:x=>x>=0?'+':'-',getTableState:()=>({filters:{},sortCol:null,sortDir:'asc'}),
+    applyFiltersAndSort:data=>data,_escapeHtml:x=>String(x),SECTOR_COLORS:{},ACCT_COLORS:{},
+    window:{},fetch:()=>{throw Error('network forbidden');}
+  });
+  vm.runInContext(sys.slice(0,sys.indexOf('const TAB_DEFAULTS')),view);
+  vm.runInContext(table,view);
+  view.renderSummary();
+  assert.equal(cells.get('s-cost').textContent,'400',
+    'local purchase cost remains available for inspection');
+  assert.equal(cells.get('s-total').textContent,'평가 확인 필요');
+  assert.equal(cells.get('s-pnl').textContent,'—');
+  assert.equal(cells.get('s-pnl-pct').textContent,'—');
+  assert.equal(cells.get('s-net').textContent,'평가 확인 필요');
+  assert.match(cells.get('s-net-sub').textContent,/순자산 계산 보류/);
+  const pending=view.buildTableInnerCore(view.rows,'accts',null);
+  assert.match(pending,/미검증/);
+  assert.match(pending,/가격·평가액·손익 표시 보류/);
+  assert.doesNotMatch(pending,/\+100\s*\(/,
+    'total P&L from cost fallback must not be shown as an actual return');
+  view.getGsheetSettingsLoadFailure=()=> '';
+  view._gsPortfolioRestoreRequired=false;
+  view.renderSummary();
+  assert.equal(cells.get('s-total').textContent,'500',
+    'verified restoration unblocks normal valuation');
+  assert.equal(cells.get('s-pnl-pct').innerHTML.includes('25.0%'),true);
+  const restored=view.buildTableInnerCore(view.rows,'accts',null);
+  assert.doesNotMatch(restored,/가격·평가액·손익 표시 보류/);
+  assert.match(restored,/평가 <b>500<\/b>/);
+  console.log(JSON.stringify({kind:'ISSUE734_PC_UNVERIFIED_VALUATION_PASS',
+    falseProfitSuppressed:true,localCostRetained:true,normalDisplayRestored:true,
+    sourceWrites:0,remoteCalls:0}));
+}
