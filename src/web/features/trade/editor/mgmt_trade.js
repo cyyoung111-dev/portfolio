@@ -791,6 +791,9 @@ function saveTrade() {
       err.style.display='block';
       return;
     }
+    // The DOM selection ID may be text while legacy ledger ID is numeric.
+    // Retain the persisted ID exactly; never change identity during an edit.
+    trade.id = rawTrades[idx].id;
     rawTrades[idx] = trade;
   } else {
     rawTrades.push(trade);
