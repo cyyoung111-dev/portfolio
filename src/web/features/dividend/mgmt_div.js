@@ -149,7 +149,7 @@ function addDivManualEventRow(event) {
   row.innerHTML = `
     <label class="lbl-60-muted-mt">배당 기준일<input type="date" data-div-event="date" value="${_escapeHtml(String(event?.date || '').slice(0, 10))}" class="input-full-73" style="margin-top:3px"/></label>
     <label class="lbl-60-muted-mt">지급일<input type="date" data-div-event="payDate" value="${_escapeHtml(String(event?.payDate || '').slice(0, 10))}" class="input-full-73" style="margin-top:3px"/></label>
-    <label class="lbl-60-muted-mt">주당 금액<input type="number" min="0" step="any" data-div-event="amount" value="${Number(event?.amount || 0) || ''}" placeholder="원" class="input-full-73" style="margin-top:3px"/><span style="display:flex;align-items:center;gap:4px;margin-top:4px;white-space:nowrap;font-size:.59rem"><input type="checkbox" data-div-event="receivedConfirmed" ${event?.receivedConfirmed === true ? 'checked' : ''}/> 입금 확인</span></label>
+    <label class="lbl-60-muted-mt">주당 금액<input type="number" min="0" step="any" data-div-event="amount" value="${Number(event?.amount || 0) || ''}" placeholder="원" class="input-full-73" style="margin-top:3px"/><span style="display:flex;align-items:center;gap:4px;margin-top:4px;white-space:nowrap;font-size:.59rem"><input type="checkbox" data-div-event="receivedConfirmed" ${event?.receivedConfirmed === true ? 'checked' : ''}/> 입금 확인 (수동)</span><input type="number" min="0" step="any" data-div-event="netReceived" value="${event?.netReceived != null && Number.isFinite(Number(event.netReceived)) ? Number(event.netReceived) : ''}" placeholder="세후 실입금 총액(원)" title="해당 배당 이벤트 전체 실제 입금액, 주당 금액 아님" class="input-full-73" style="margin-top:4px"/><input type="number" min="0" step="any" data-div-event="withheldTax" value="${event?.withheldTax != null && Number.isFinite(Number(event.withheldTax)) ? Number(event.withheldTax) : ''}" placeholder="원천징수 총액(원)" title="해당 배당 이벤트 전체 실제 원천징수액, 주당 금액 아님" class="input-full-73" style="margin-top:4px"/></label>
     <button type="button" data-div-action="manual-event-remove" class="btn-cancel-sm" title="배당 건 삭제">−</button>`;
   container.appendChild(row);
 }
@@ -173,15 +173,40 @@ async function saveDivManualEditor() {
   const freq = $el('dv_freq_manual')?.value || '-';
   const months = String($el('dv_months_manual')?.value || '').split(',')
     .map(m => Number(m.trim())).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
-  const events = [...document.querySelectorAll('#divManualEvents .div-manual-event-row')].map(row => ({
-    date: row.querySelector('[data-div-event="date"]')?.value || '',
-    payDate: row.querySelector('[data-div-event="payDate"]')?.value || '',
-    amount: Number(row.querySelector('[data-div-event="amount"]')?.value || 0),
-    receivedConfirmed: row.querySelector('[data-div-event="receivedConfirmed"]')?.checked === true,
-    source: 'MANUAL',
-  })).filter(event => event.date || event.payDate || event.amount).sort((a, b) => a.date.localeCompare(b.date));
+  const events = [...document.querySelectorAll('#divManualEvents .div-manual-event-row')].map(row => {
+    const netText = String(row.querySelector('[data-div-event="netReceived"]')?.value || '').trim();
+    const taxText = String(row.querySelector('[data-div-event="withheldTax"]')?.value || '').trim();
+    return {
+      date: row.querySelector('[data-div-event="date"]')?.value || '',
+      payDate: row.querySelector('[data-div-event="payDate"]')?.value || '',
+      amount: Number(row.querySelector('[data-div-event="amount"]')?.value || 0),
+      receivedConfirmed: row.querySelector('[data-div-event="receivedConfirmed"]')?.checked === true,
+      ...(netText !== '' ? {netReceived:Number(netText)} : {}),
+      ...(taxText !== '' ? {withheldTax:Number(taxText)} : {}),
+      source: 'MANUAL',
+    };
+  }).filter(event => event.date || event.payDate || event.amount).sort((a, b) => a.date.localeCompare(b.date));
   if (events.some(event => !/^\d{4}-\d{2}-\d{2}$/.test(event.date) || event.amount <= 0)) {
     showToast('각 배당 건의 기준일과 주당 금액을 확인해주세요', 'error'); return;
+  }
+  // One code and payment event is one economic dividend, regardless of
+  // repeated UI rows. Do not silently sum duplicated events into cashflow.
+  const uniqueDividendKeys = new Set();
+  for (const ev of events) {
+    const key = [ev.date,ev.payDate,ev.amount].join('|');
+    if (uniqueDividendKeys.has(key)) {
+      showToast('동일한 배당 기준일·지급일·주당 금액이 중복됐습니다.', 'error'); return;
+    }
+    uniqueDividendKeys.add(key);
+  }
+  if (events.some(ev =>
+      (ev.netReceived !== undefined
+        && (!Number.isFinite(ev.netReceived) || ev.netReceived < 0))
+      || (ev.withheldTax !== undefined
+        && (!Number.isFinite(ev.withheldTax) || ev.withheldTax < 0))
+      || (!ev.receivedConfirmed
+        && (ev.netReceived !== undefined || ev.withheldTax !== undefined)))) {
+    showToast('세후 실입금·원천징수 총액은 입금 확인된 건에만 0원 이상으로 입력해주세요.', 'error'); return;
   }
   // Never equate an event or elapsed pay date with actual receipt.
   if (events.some(event => event.receivedConfirmed

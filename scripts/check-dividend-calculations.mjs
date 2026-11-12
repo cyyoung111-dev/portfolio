@@ -35,6 +35,21 @@ assert.equal(rows[0].receivedDiv, 0,
 context.DIVDATA['테스트 종목'].events[0].receivedConfirmed = true;
 assert.equal(context.calcDividends()[0].receivedDiv, 1_000,
   'explicitly confirmed cash receipt must use historical entitlement units');
+assert.equal(context.calcDividends()[0].netReceivedCount,0,
+  'gross checkbox is NOT proof of actual net cash');
+context.DIVDATA['테스트 종목'].events[0].netReceived = 846;
+context.DIVDATA['테스트 종목'].events[0].withheldTax = 154;
+assert.equal(context.calcDividends()[0].netReceivedDiv,846);
+assert.equal(context.calcDividends()[0].withheldTaxDiv,154);
+context.DIVDATA['테스트 종목'].events.push({
+ ...context.DIVDATA['테스트 종목'].events[0],source:'OTHER_PROVIDER'
+});
+assert.equal(context.calcDividends()[0].actualDiv,1000,
+ 'same economic provider event cannot count twice');
+assert.equal(context.calcDividends()[0].receivedDiv,1000,
+ 'duplicate cash receipt must not be counted twice');
+assert.equal(context.calcDividends()[0].netReceivedDiv,846);
+context.DIVDATA['테스트 종목'].events.pop();
 context.DIVDATA['테스트 종목'].events[0].receivedConfirmed = false;
 context.DIVDATA['테스트 종목'].events[1].receivedConfirmed = true;
 assert.equal(context.calcDividends()[0].receivedDiv, 0,
@@ -78,7 +93,8 @@ const manualFields={
   'dv_months_manual':{value:''},
   'divManualModal':{style:{}},
 };
-const eventInput={date:'2026-01-02',payDate:'2026-12-01',amount:'100',receivedConfirmed:true};
+const eventInput={date:'2026-01-02',payDate:'2026-12-01',amount:'100',
+ receivedConfirmed:true,netReceived:'846',withheldTax:'154'};
 const eventRow={querySelector:selector=>{
   const key=selector.match(/data-div-event="([^"]+)"/)?.[1];
   return key==='receivedConfirmed'?{checked:eventInput[key]}:{value:eventInput[key]||''};
@@ -105,6 +121,20 @@ assert.equal(writes,1);
 assert.equal(manualCtx.DIVDATA['005930'].events[0].receivedConfirmed,true,
   'manual receipt marker must survive the actual event save path');
 assert.equal(manualCtx.DIVDATA['005930'].events[0].payDate,'2026-01-15');
+assert.equal(manualCtx.DIVDATA['005930'].events[0].netReceived,846);
+assert.equal(manualCtx.DIVDATA['005930'].events[0].withheldTax,154);
+eventInput.receivedConfirmed=false;
+manualCtx.__setDividendName('테스트 종목');
+await manualCtx.saveDivManualEditor();
+assert.equal(writes,1,'cash amounts without payment confirmation must not save');
+assert.match(messages.at(-1),/세후 실입금/);
+eventInput.receivedConfirmed=true;
+manualCtx.document.querySelectorAll=()=>[eventRow,eventRow];
+manualCtx.__setDividendName('테스트 종목');
+await manualCtx.saveDivManualEditor();
+assert.equal(writes,1,'duplicate manual events must not save twice');
+assert.match(messages.at(-1),/중복/);
+manualCtx.document.querySelectorAll=()=>[eventRow];
 
 const persisted=JSON.parse(JSON.stringify(manualCtx.DIVDATA));
 const persistenceSource=fs.readFileSync('src/web/features/settings/settings_persistence_utils.js','utf8');
@@ -113,6 +143,8 @@ manualCtx.DIVDATA['005930'].events[0].receivedConfirmed=false; // simulate stale
 manualCtx._applyDivData(persisted); // same normalization as live GAS restoration
 assert.equal(manualCtx.DIVDATA['005930'].events[0].receivedConfirmed,true,
   'verified cash deposit must survive actual _applyDivData reload');
+assert.equal(manualCtx.DIVDATA['005930'].events[0].netReceived,846);
+assert.equal(manualCtx.DIVDATA['005930'].events[0].withheldTax,154);
 assert.equal(manualCtx._normalizeDivData({'005930':{events:[{date:'2026-01-02',
   payDate:'2026-01-15',amount:100,receivedConfirmed:'true'}]}})['005930'].events[0].receivedConfirmed,false,
   'untrusted string values cannot forge a payment receipt');
@@ -121,7 +153,23 @@ context.EDITABLE_PRICES=[{name:'테스트 종목',code:'005930'}];
 context.getQtyAtDate=()=>10;
 assert.equal(context.calcDividends()[0].receivedDiv,1_000,
   'restored manual receipt must appear in the actual portfolio dividend view');
+assert.equal(context.calcDividends()[0].netReceivedDiv,846);
+assert.equal(context.calcDividends()[0].withheldTaxDiv,154);
+const ignored=manualCtx._normalizeDivData({'005930':{events:[{
+ date:'2026-01-02',payDate:'2026-01-15',amount:100,
+ receivedConfirmed:false,netReceived:846,withheldTax:154
+}]}});
+assert.equal(ignored['005930'].events[0].netReceived,undefined,
+ 'unconfirmed deposited cash must never survive normalization');
+assert.equal(ignored['005930'].events[0].withheldTax,undefined);
+const forged=manualCtx._normalizeDivData({'005930':{events:[{
+ date:'2026-01-02',payDate:'2026-01-15',amount:100,
+ receivedConfirmed:true,netReceived:'846',withheldTax:'154'
+}]}});
+assert.equal(forged['005930'].events[0].netReceived,undefined,
+ 'untrusted string is not a verified net payment');
+assert.equal(forged['005930'].events[0].withheldTax,undefined);
 
-assert.match(source,/올해 입금 확인 \(수동\)/);
+assert.match(source,/올해 입금 확인 \(수동·세전\)/);
 assert.doesNotMatch(source,/올해 수령 \(/);
 console.log('PASS: declared distribution vs manually verified deposit and actual editor save');
