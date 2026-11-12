@@ -2053,8 +2053,10 @@ async function diagnoseKrxSourceFromUI() {
   const status=$el('krxSourceStatus');
   const date=String($el('krxProbeDate')?.value||'').trim();
   const setStatus=(message,ok)=>{if(status){status.textContent=message;status.style.color=ok?'var(--green-lt)':'var(--amber)';}};
+  const parsedDate=Date.parse(date+'T00:00:00Z');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)
-    ||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date) {
+    ||!Number.isFinite(parsedDate)
+    ||new Date(parsedDate).toISOString().slice(0,10)!==date) {
     setStatus('조회할 KRX 거래일을 선택하세요.',false);return null;
   }
   if(!GSHEET_API_URL||typeof requestGsheetActionJson!=='function') {
