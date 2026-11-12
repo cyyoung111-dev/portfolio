@@ -56,7 +56,10 @@ export async function collectEarlyAiWatch({now=()=>new Date(),fetchDaily=fetchDa
   }
  }));
  const verified=prices.filter(Boolean);
- const events=selectAiEventHighlights({expectedUsDate:usDate,prices:verified});
+ // A thin or provider-biased partial sample is not a valid Top-3 ranking.
+ const enoughCoverage=verified.length>=Math.ceil(AI_EVENT_WATCH.length*0.6);
+ const events=enoughCoverage
+  ?selectAiEventHighlights({expectedUsDate:usDate,prices:verified}):[];
  const payload={schemaVersion:1,date:clock.date,expectedUsDate:usDate,
   verified:verified.length,total:AI_EVENT_WATCH.length,events};
  try{
