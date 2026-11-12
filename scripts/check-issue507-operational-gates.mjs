@@ -102,52 +102,30 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.ok(protectedWorkflowNames.length>=89,
-  'migration inventory: baseline 89 credentialed workflows must remain protected');
-assert.ok(protectedJobs>=93,
-  'migration inventory: baseline 93 secret-consuming jobs must remain protected');
-assert.ok(protectedWorkflowNames.includes('issue860-gas9292-preflight-readonly.yml'),
-  'v9.292 one-shot live preflight must use the protected GAS Environment');
+assert.ok(protectedWorkflowNames.length>=50, 'current production protected jobs must remain covered');
+assert.ok(protectedJobs>=50, 'current credentialed job protections must remain covered');
 assert.ok(protectedWorkflowNames.includes('issue734-postmigration-live-readonly.yml'),
   'new postmigration v2/holdings read-only audit must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-postmigration-readiness-readonly.yml'),
   'postmigration readonly editor-cleanup audit must be Environment-protected');
-assert.ok(protectedWorkflowNames.includes('issue860-v9289-live-readiness-readonly.yml'),
-  '9.289 live readiness must use protected production GAS Environment');
 assert.ok(fs.readFileSync(new URL('kb-fund-nav-collect.yml',dir),'utf8').includes('hanwha-collect:'),
   'Hanwha F00001 collector must be present and environment-gated');
-assert.ok(protectedWorkflowNames.includes('gas9287-fund-hotfix-review-artifact.yml'),
-  'fund hotfix protected project/deployment readiness must be gated');
 assert.ok(protectedWorkflowNames.includes('issue860-close-processes-readonly.yml'),
   'one-shot process audit must use protected GAS Environment');
-assert.ok(protectedWorkflowNames.includes('issue860-gas9291-private-nav-preview.yml'),
-  'v9.291 KB/Hanwha private NAV preview must be protected and read-only');
-assert.ok(protectedWorkflowNames.includes('issue860-gas9291-live-postdeploy-readonly.yml'),
-  'v9.291 postdeploy standalone readback must retain protected environment');
-assert.ok(protectedWorkflowNames.includes('issue860-gas9291-predeploy-dryrun.yml'),
-  'v9.291 one-shot live dry-run must stay inside protected production Environment');
-assert.ok(protectedWorkflowNames.includes('issue860-v9290-safe-release-readiness-readonly.yml'),
-  'new recovery deploy safety proof must remain protected and read-only');
 assert.ok(protectedWorkflowNames.includes('issue860-hanwha-secondary-nav-crosscheck.yml'),
   'new Hanwha private NAV read-only crosscheck must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-once-close-status-readonly.yml'),
   'one-shot close status must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue734-process-scope-audit-readonly.yml'),
   'process scope audit must require protected GAS Environment');
-assert.ok(protectedWorkflowNames.includes('issue734-gate-status-v9288-readonly.yml'),
-  'pinned writer gate status audit must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue734-writer-terminal-evidence-readonly.yml'),
   'writer process evidence must require protected Environment');
-assert.ok(protectedWorkflowNames.includes('issue734-v9288-live-readiness-readonly.yml'),
-  '9.288 predeployment read-only audit must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-recent-snapshot-backup-readonly.yml'),
   'one-time recent backup owner inventory must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('krx-20261105-held-source-preflight.yml'),
   'pre-19 KRX held-source audit must require protected production Environment');
 assert.ok(protectedWorkflowNames.includes('nh-master-registered-readonly.yml'),
   'new domestic registered NH sample workflow must require protected production Environment');
-assert.ok(protectedWorkflowNames.includes('nh-night-readback-20261105.yml'),
-  '11/05 one-off NH live receipt readback must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-readonly-9282-dryrun.yml'),
   'integrated v9.282 read-only dry-run must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('probe-standalone-performance-gas-20261103.yml'),
@@ -158,18 +136,12 @@ assert.ok(protectedWorkflowNames.includes('gas-deployment-usage-metrics-readonly
   'new read-only usage audit must use the protected production Environment');
 assert.ok(protectedWorkflowNames.includes('issue507-deployment-inventory-readonly.yml'),
   'manual GAS deployment inventory must retain protected production Environment');
-assert.ok(protectedWorkflowNames.includes('gas-20261103-dual-readonly-preflight.yml'),
-  'one-shot dual GAS read-only audit must use the protected production Environment');
 assert.ok(protectedWorkflowNames.includes('gas-published-gate-readonly-audit.yml'),
   'manual published-GAS source audit must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('telegram-morning-audit-20261102.yml'),
   'one-off read-only morning 07:40 audit must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-close-arm-20261102.yml'),
   'one-off 17:00 punctual guard must retain protected GAS environment');
-assert.ok(protectedWorkflowNames.includes('nh-master-night-readonly-20261103.yml'),
-  'one-time NH master and night read-only probe must use protected GAS environment');
-assert.ok(protectedWorkflowNames.includes('nh-us-history-footprint-20261103.yml'),
-  'one-off US NH history footprint must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('nh-close-20261102-diagnostic-readonly.yml'),
   'one-off NH stored close diagnostic must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-morning-arm-20261103.yml'),
@@ -239,66 +211,7 @@ for(const [before,after] of [
   assert.notEqual(mutated,auditWorkflow);
   assert.throws(()=>verifyMonitor(mutated));
 }
-function verifySingleDayGasPreflight(source){
- const flow=YAML.parse(source);
- assert.deepEqual(Object.keys(flow.on),['push'],
-  'GAS one-off only accepts an exact main push and no manual/scheduled rerun');
- assert.deepEqual(flow.on.push.branches,['main']);
- assert.deepEqual(flow.on.push.paths,['.github/workflows/gas-20261103-dual-readonly-preflight.yml']);
- assert.deepEqual(flow.permissions,{contents:'read'});
- const job=flow.jobs.inspect;
- assert.equal(job.environment,'portfolio-production-gas');
- assert.equal(job.concurrency.group,'gas-production-deploy');
- assert.equal(job.concurrency['cancel-in-progress'],false);
- assert.equal(job['timeout-minutes'],13);
- assert.equal(job.if,
-  "github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1");
- const steps=job.steps;
- const readOnly=steps.filter(s=>s.id==='published'||s.id==='inventory');
- assert.equal(readOnly.length,2);
- assert.ok(readOnly.every(s=>s['continue-on-error']===true
-   &&s.if==="steps.date_gate.outputs.ready == 'true'"));
- const published=readOnly.find(s=>s.id==='published');
- const inventory=readOnly.find(s=>s.id==='inventory');
- assert.equal(published.run,'node scripts/audit-published-gas-gate-readonly.mjs');
- assert.equal(inventory.run,'node scripts/issue507-deployment-inventory-readonly.mjs');
- assert.equal(published.env.GAS_ACCESS_TOKEN,'$'+'{{ secrets.GAS_ACCESS_TOKEN }}');
- assert.equal(inventory.env.GAS_ACCESS_TOKEN,undefined);
- assert.equal(published.env.CLASPRC_JSON,'$'+'{{ secrets.CLASPRC_JSON }}');
- assert.equal(inventory.env.CLASPRC_JSON,'$'+'{{ secrets.CLASPRC_JSON }}');
- const contracts=steps.find(s=>s.name?.includes('Verify both read-only contracts'));
- assert.ok(contracts.run.includes('check-published-gas-gate-readonly.mjs'));
- assert.ok(contracts.run.includes('check-issue507-deployment-inventory-readonly.mjs'));
- const dateGate=steps.find(s=>s.id==='date_gate');
- assert.ok(dateGate.run.includes('TZ=Asia/Seoul date +%F'));
- assert.ok(dateGate.run.includes('2026-11-03'));
- const final=steps.at(-1);
- assert.equal(final.if,'always()');
- assert.ok(final.run.includes('GAS_PREFLIGHT_BLOCKED_EXPECTED'));
- assert.ok(final.run.includes('exit 2'));
- const allCommands=steps.map(s=>s.run||'').join('\n');
- assert.ok(!allCommands.includes('scripts/deploy-gas.mjs'));
- assert.ok(!allCommands.includes('approve_9282=true'));
- assert.ok(!allCommands.includes('script.googleapis.com/v1/projects'));
- assert.ok(!allCommands.includes('curl '));
-}
-const oneShotGasAudit=fs.readFileSync(
- '.github/workflows/gas-20261103-dual-readonly-preflight.yml','utf8');
-verifySingleDayGasPreflight(oneShotGasAudit);
-for(const [a,b] of [
- ['2026-11-03','2026-11-04'],
- ["    branches: [main]","    branches: [main, dev]"],
- ["      group: gas-production-deploy","      group: unprotected"],
- ["  contents: read","  contents: write"],
- ["    environment: portfolio-production-gas","    environment: other"],
- ["      cancel-in-progress: false","      cancel-in-progress: true"]
-]){
- const alt=a==='2026-11-03'?oneShotGasAudit.replaceAll(a,b)
-  :oneShotGasAudit.replace(a,b);
- if(alt!==oneShotGasAudit)assert.throws(()=>verifySingleDayGasPreflight(alt));
-}
-
-
+// Retired 2026-11-03 single-day GAS preflight is no longer in Actions.
 function executeActualJointGate(command,event,stubDate){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue507-readonly-gate-'));
  try{

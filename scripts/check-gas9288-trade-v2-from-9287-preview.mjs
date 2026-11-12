@@ -70,8 +70,8 @@ assert(candidate.includes("var ISSUE507_GATE_API_VERSION='9.288'"));
 assert.equal((candidate.match(/gasVersion: '9\.288'/g)||[]).length,9);
 assert.equal((candidate.match(/gasVersion: '9\.287'/g)||[]).length,0);
 assert.equal((candidate.match(/gasVersion: '9\.286'/g)||[]).length,0);
-assert(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8').includes('approve_9288:'),
- '9.288 requires explicit manual workflow approval input');
+assert(!fs.readFileSync('.github/workflows/gas-deploy.yml','utf8').includes('approve_9288:'),
+ '9.288 manual approval retired from current workflow');
 assert(fs.readFileSync('scripts/deploy-gas.mjs','utf8').includes("'9.288': '9e8584032daf896c5cffedb02041b604ee82ed07'"),
  '9.288 release must use exact reviewed candidate blob');
 console.log('GAS9288_TRADE_V2_SOURCE_ONLY_PASS '+JSON.stringify({

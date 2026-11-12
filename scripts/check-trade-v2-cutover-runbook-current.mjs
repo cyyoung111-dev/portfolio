@@ -35,8 +35,8 @@ assert.match(doc,/"approvedDate": "<실제 실행일 YYYY-MM-DD \(KST\)>"/);
 assert.match(doc,/v9\.289/);
 assert.doesNotMatch(doc,/현재 \`scripts\/deploy-gas\.mjs\`는 v9\.288 소스를 \*승인하지 않으며\*/);
 assert.doesNotMatch(doc,/"approvedDate": "2026-11-10"/);
-assert.match(yml,/use_9288_trade_v2:\s*\n[\s\S]*?default:\s*false/);
-assert.match(yml,/approve_9288:\s*\n[\s\S]*?default:\s*false/);
+assert.doesNotMatch(yml,/use_9288_trade_v2:/,'legacy source selector retired');
+assert.doesNotMatch(yml,/approve_9288:/,'legacy deployment selector retired');
 for(const [name,flag] of [['unapproved',false],['approved',true]]){
  const args={version:'9.288',eventName:'workflow_dispatch',approved9288:flag};
  if(flag)assert.doesNotThrow(()=>assertIssue507ManualReleasePermission(args));

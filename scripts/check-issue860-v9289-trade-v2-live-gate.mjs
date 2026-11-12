@@ -39,21 +39,11 @@ assert.doesNotThrow(()=>assertIssue8609289Prerequisites({
  version:'9.288',publishedVersion:'9.287'}));
 const x=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 const y=YAML.parse(x);
-for(const flag of ['use_9289_close_perf','approve_9289','confirm_9288_migration']){
- assert.equal(y.on.workflow_dispatch.inputs[flag].default,false);
- assert.equal(y.on.workflow_dispatch.inputs[flag].type,'boolean');
-}
-assert.match(x,/GAS_9289_CLOSE_PERF/);
-assert.match(x,/GAS_9289_RELEASE_APPROVAL/);
-assert.match(x,/GAS_9289_TRADE_V2_VERIFIED/);
-assert.match(x,/node scripts\/issue860-v9289-trade-v2-live-gate\.mjs/);
-const gate=y.jobs.deploy.steps.find(s=>String(s.name||'').includes('9.289'));
-const codeIndex=y.jobs.deploy.steps.findIndex(s=>s===gate);
-const deployIndex=y.jobs.deploy.steps.findIndex(s=>s.name==='Deploy GAS');
-assert(gate&&codeIndex>0&&codeIndex<deployIndex);
-assert(String(gate.if).includes("GAS_DEPLOY_DRY_RUN != 'true'"));
-assert(String(gate.if).includes("GAS_9289_CLOSE_PERF == 'true'"));
-assert.equal(gate['continue-on-error'],undefined);
+for(const flag of ['use_9289_close_perf','approve_9289','confirm_9288_migration'])
+ assert.equal(Object.hasOwn(y.on.workflow_dispatch.inputs,flag),false);
+assert(!y.jobs.deploy.steps.some(s=>String(s.name||'').includes('9.289')),
+ 'retired 9.289 release gate must not be callable from current operator workflow');
+assert(y.jobs.deploy.steps.some(s=>s.id==='gas9293_gate'));
 const url='https://script.google.com/macros/s/TEST_DEPLOYMENT_TOKEN/exec';
 const token='private-mock-token-only';
 const rows=Array.from({length:338},(_,i)=>({

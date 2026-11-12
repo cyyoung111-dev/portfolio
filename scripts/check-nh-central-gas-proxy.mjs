@@ -262,7 +262,10 @@ const denied=await readbackOnce({now:clock,url,token,report:()=>{},
 assert.equal(denied.ok,false);
 assert.equal(rejects,2,'denied one-time bootstrap must never reach NH price query');
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
-assert.ok(wf.jobs.deploy.steps.some(x=>x.name.includes('central NH 06:00 readback')
- && x.run==='node scripts/nh-central-probe-20261030.mjs'&&x['continue-on-error']===true));
+assert.ok(!wf.jobs.deploy.steps.some(x=>String(x.name||'').includes('central NH 06:00 readback')),
+ '2026-10-30 one-time probe must not run on every GAS deployment');
+assert.ok(wf.jobs.deploy.steps.some(x=>x.name==='Activate NH current prices after real GAS deployment'
+ && x.run==='node scripts/activate-nh-gas-runtime.mjs'),
+ 'current NH activation step must remain available');
 
 console.log('Central NH GAS no-direct-OAuth, date, bearer isolation, workflows PASS');

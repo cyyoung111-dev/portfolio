@@ -29,8 +29,8 @@ const releaseWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8')
 const readbackSource=fs.readFileSync('scripts/nh-index-primary-readback.mjs','utf8');
 assert.doesNotMatch(releaseWorkflow,/run:\s*node scripts\/nh-index-probe\.mjs/,
  'historical six-code NH exploration must not repeat on every main release');
-assert.match(releaseWorkflow,/run:\s*node scripts\/nh-index-primary-readback\.mjs/,
- 'keep verified SPX, COMP and NDX post-release readback');
+assert.doesNotMatch(releaseWorkflow,/run:\s*node scripts\/nh-index-primary-readback\.mjs/,
+ 'historical NH index acceptance probe must not repeat on current GAS release');
 assert.match(readbackSource,/benchmarks:'SP500,NASDAQ,NASDAQ100',from:'2026-10-22',to:'2026-10-29',fresh:'0'/,
  'historical verified index readback must not bypass the shared GAS cache');
 assert.doesNotMatch(readbackSource,/fresh:'1'/,

@@ -77,10 +77,9 @@ await assert.rejects(()=>runCoverage({
 const deployment=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 const generic=fs.readFileSync('.github/workflows/krx-operational-diagnostics.yml','utf8');
 const deployedAt=deployment.indexOf('run: node scripts/deploy-gas.mjs');
-const probeAt=deployment.indexOf('run: node scripts/diagnose-krx-held-coverage.mjs');
-assert.ok(deployedAt>0&&probeAt>deployedAt,
-  '37-code coverage must follow the live GAS deployment');
-assert.match(deployment,/name: Verify KRX 37-code source coverage after live GAS deployment\n\s+if: github\.event_name == 'workflow_dispatch' && !inputs\.dry_run/, 'KRX live deployment check must require explicit non-dry manual deploy');
+assert.ok(deployedAt>0,'current GAS deploy must remain callable');
+assert.ok(!deployment.includes('run: node scripts/diagnose-krx-held-coverage.mjs'),
+ 'obsolete Oct 2026 KRX one-off readback must not run on current GAS deployment');
 assert.doesNotMatch(generic,/node scripts\/diagnose-krx-held-coverage\.mjs/);
 const holidayWorkflow=fs.readFileSync('.github/workflows/krx-holiday-september-readonly.yml','utf8');
 assert.match(holidayWorkflow,/node scripts\/diagnose-krx-held-coverage\.mjs --dates "2026-10-16"/);

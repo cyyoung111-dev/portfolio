@@ -20,114 +20,13 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      first_gate_phase:
-        description: '최초 gate 전환 전용: bootstrap=유지보수 게시, finalize=검증된 DRAINING 후보 게시. 일반 배포는 none'
-        required: true
-        default: none
-        type: choice
-        options: [none, bootstrap, finalize, abort, inspect]
       dry_run:
-        description: 'Google API 인증·대상 확인만 하고 실제 배포하지 않음'
+        description: '검증만 실행 · 실제 배포 안 함 (권장)'
         required: true
         default: true
         type: boolean
-      approve_9282:
-        description: 'GAS v9.282 수동 운영 배포 명시 승인 (승인 전 false)'
-        required: true
-        default: false
-        type: boolean
-      approve_9283:
-        description: 'GAS v9.283 별도 수동 운영 배포 명시 승인 (승인 전 false)'
-        required: true
-        default: false
-        type: boolean
-      approve_9284:
-        description: 'GAS v9.284 전체 릴리스 수동 운영 배포 별도 명시 승인 (기본 false)'
-        required: true
-        default: false
-        type: boolean
-      approve_9285:
-        description: 'GAS v9.285 펀드 전용 릴리스 수동 배포 승인 (기본 false, 소스·호환성 검증 별도)'
-        required: true
-        default: false
-        type: boolean
-      approve_9286:
-        description: 'GAS v9.286 통합 릴리스 수동 운영 배포 별도 승인 (기본 false, 원장 마이그레이션 사전검증 필수)'
-        required: true
-        default: false
-        type: boolean
-      use_9287_fund_hotfix:
-        description: '9.287 펀드·Snapshot 단독 후보 소스 선택 (거래원장 v2 제외)'
-        required: true
-        default: false
-        type: boolean
-      approve_9287:
-        description: '9.287 후보 실운영 배포 별도 승인. 먼저 dry_run=true 실행'
-        required: true
-        default: false
-        type: boolean
-      use_9288_trade_v2:
-        description: '검토된 9.287 기반 9.288 거래원장 v2 후보 선택; 원본 이관은 별도 수동 작업'
-        required: true
-        default: false
-        type: boolean
-      approve_9288:
-        description: '9.288 정확 소스 수동 배포 별도 명시 승인 (원장 Writer 격리/마감 확인 필요)'
-        required: true
-        default: false
-        type: boolean
-      use_9289_close_perf:
-        description: '9.289 마감 성능·계측 후보; 9.288 배포·거래원장 이관 완료 후에만'
-        required: true
-        default: false
-        type: boolean
-      approve_9289:
-        description: '9.289 별도 수동 실운영 배포 승인 (먼저 dry_run)'
-        required: true
-        default: false
-        type: boolean
-      use_9290_close_perf:
-        description: '9.290 스냅샷 병목 개선 승인 SHA 후보. 최초 실행/Writer 상태 검증 후에만 운영'
-        required: true
-        default: false
-        type: boolean
-      approve_9290:
-        description: '9.290 독립 수동 승인. dry_run 선실행 후 live close+writer gate 필요'
-        required: true
-        default: false
-        type: boolean
-      use_9291_watchdog_recovery:
-        description: '9.291 통합 개선 (Snapshot 성능 + 20:30 FUND_PENDING 가격 중복 실행 방지)'
-        required: true
-        default: false
-        type: boolean
-      approve_9291:
-        description: '9.291 명시적 운영 배포 승인. 먼저 dry_run=true 실행 후 안전성 재검증'
-        required: true
-        default: false
-        type: boolean
-      use_9292_gate_selfheal:
-        description: '9.292 종가/NAV 상태 분리 및 Writer Gate 만료 자동 복구 (9.291 기준)'
-        required: true
-        default: false
-        type: boolean
-      approve_9292:
-        description: '9.292 명시적 운영 배포 승인. 먼저 dry_run=true 후 실운영 읽기 전용 검증'
-        required: true
-        default: false
-        type: boolean
-      use_9293_orphaned_close:
-        description: '9.293 누락 당일 Snapshot 야간 복구 큐 후보 (9.292 후속, 별도 검증)'
-        required: true
-        default: false
-        type: boolean
       approve_9293:
-        description: '9.293 운영 배포 명시적 승인 (사전 dry-run 및 read-only Gate 검사 필수)'
-        required: true
-        default: false
-        type: boolean
-      confirm_9288_migration:
-        description: '실제 9.288 338건 이관·저널 APPLIED 확인 (독립 live GET 필수)'
+        description: '운영 배포 승인 · dry_run을 끌 때만 켜기'
         required: true
         default: false
         type: boolean
@@ -203,27 +102,10 @@ jobs:
       GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
       GAS_DEPLOY_DRY_RUN: ${{ inputs.dry_run || false }}
-      GAS_FIRST_GATE_PHASE: ${{ inputs.first_gate_phase || 'none' }}
-      GAS_9282_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9282 && 'true' || 'false' }}
-      GAS_9283_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9283 && 'true' || 'false' }}
-      GAS_9284_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9284 && 'true' || 'false' }}
-      GAS_9285_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9285 && 'true' || 'false' }}
-      GAS_9286_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9286 && 'true' || 'false' }}
-      GAS_9287_FUND_HOTFIX: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9287_fund_hotfix && 'true' || 'false' }}
-      GAS_9287_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9287 && 'true' || 'false' }}
-      GAS_9288_TRADE_V2: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9288_trade_v2 && 'true' || 'false' }}
-      GAS_9288_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9288 && 'true' || 'false' }}
-      GAS_9289_CLOSE_PERF: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9289_close_perf && 'true' || 'false' }}
-      GAS_9289_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9289 && 'true' || 'false' }}
-      GAS_9290_CLOSE_PERF: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9290_close_perf && 'true' || 'false' }}
-      GAS_9290_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9290 && 'true' || 'false' }}
-      GAS_9291_WATCHDOG_RECOVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9291_watchdog_recovery && 'true' || 'false' }}
-      GAS_9291_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9291 && 'true' || 'false' }}
-      GAS_9292_GATE_SELFHEAL: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9292_gate_selfheal && 'true' || 'false' }}
-      GAS_9292_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9292 && 'true' || 'false' }}
-      GAS_9293_ORPHANED_CLOSE: ${{ github.event_name == 'workflow_dispatch' && inputs.use_9293_orphaned_close && 'true' || 'false' }}
+      GAS_FIRST_GATE_PHASE: none
+      # Historical release candidates are retired from the operator UI.
+      GAS_9293_ORPHANED_CLOSE: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
       GAS_9293_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9293 && 'true' || 'false' }}
-      GAS_9289_TRADE_V2_VERIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_9288_migration && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -247,30 +129,10 @@ jobs:
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Read-only full deployment inventory on manual candidate dry-run
-        if: (env.GAS_9287_FUND_HOTFIX == 'true' || env.GAS_9288_TRADE_V2 == 'true' || env.GAS_9289_CLOSE_PERF == 'true' || env.GAS_9290_CLOSE_PERF == 'true' || env.GAS_9291_WATCHDOG_RECOVERY == 'true' || env.GAS_9292_GATE_SELFHEAL == 'true' || env.GAS_9293_ORPHANED_CLOSE == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        if: env.GAS_9293_ORPHANED_CLOSE == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
         continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
-      # A clean deployment inventory is not proof of idle portfolio Writers.
-      # Read actual current v9.287 state and legacy 338-row ledger before
-      # approving a *separate* 9.288 production write. No write or retry.
-      - name: Verify live 9.287 settled close and legacy ledger before 9.288 production
-        if: env.GAS_9288_TRADE_V2 == 'true' && env.GAS_9288_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue734-v9288-live-readiness-readonly.mjs
-      - name: Verify live 9.288 and migrated trade v2 before 9.289 production
-        if: env.GAS_9289_CLOSE_PERF == 'true' && env.GAS_9289_RELEASE_APPROVAL == 'true' && env.GAS_9289_TRADE_V2_VERIFIED == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue860-v9289-trade-v2-live-gate.mjs
-      - name: Verify published v9.289 close finality, v2 ledger and idle Writer before v9.290
-        id: gas9290_gate
-        if: env.GAS_9290_CLOSE_PERF == 'true' && env.GAS_9290_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue860-v9290-live-gate.mjs
-      - name: Verify live v9.289 RAW data, v2 ledger and idle Writer before v9.291
-        id: gas9291_gate
-        if: env.GAS_9291_WATCHDOG_RECOVERY == 'true' && env.GAS_9291_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue860-v9290-live-gate.mjs
-      - name: Verify live settled 9.291 close, v2 ledger and bounded Gate before 9.292
-        id: gas9292_gate
-        if: env.GAS_9292_GATE_SELFHEAL == 'true' && env.GAS_9292_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue860-gas9292-predeploy-readonly.mjs
+      # Historical 9.287-9.292 manual release gates are no longer selectable.
       - name: Verify current 9.292 missing-day proof and idle Gate before 9.293
         id: gas9293_gate
         if: env.GAS_9293_ORPHANED_CLOSE == 'true' && env.GAS_9293_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
@@ -278,33 +140,11 @@ jobs:
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         env:
-          GAS_9290_LIVE_GATE_VERIFIED: ${{ steps.gas9290_gate.outputs.verified || 'false' }}
-          GAS_9291_LIVE_GATE_VERIFIED: ${{ steps.gas9291_gate.outputs.verified || 'false' }}
-          GAS_9292_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9292_gate.outputs.verified || 'false' }}
           GAS_9293_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9293_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
-      - name: Verify real GAS v9.291 published ledger, Snapshot and Writer idle
-        if: env.GAS_9291_WATCHDOG_RECOVERY == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue860-gas9291-postdeploy-readonly.mjs
-      - name: Verify GAS v9.292 published Gate owner diagnostics and ledger (read-only)
-        if: env.GAS_9292_GATE_SELFHEAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue860-gas9292-postdeploy-readonly.mjs
       - name: Verify real published 9.293 Gate and trade ledger (read-only)
         if: env.GAS_9293_ORPHANED_CLOSE == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue734-gas9293-postdeploy-readonly.mjs
-      # Inspect is a read-only inventory of the CURRENT deployed release;
-      # the Issue860 cutover helper only recognizes historical v9.282 blobs.
-      - name: Inspect current GAS deployment inventory (read-only)
-        if: env.GAS_FIRST_GATE_PHASE == 'inspect' && env.GAS_DEPLOY_DRY_RUN == 'true'
-        run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: First writer gate maintenance cutover (never resumes writers)
-        if: env.GAS_FIRST_GATE_PHASE != 'none' && env.GAS_FIRST_GATE_PHASE != 'inspect'
-        run: node scripts/issue860-first-cutover.mjs
-      - name: Reject write-enabled inspect
-        if: env.GAS_FIRST_GATE_PHASE == 'inspect' && env.GAS_DEPLOY_DRY_RUN != 'true'
-        run: exit 2
-      # A successful deployment must not conceal failure to activate the
-      # primary NH price source. Historical readback probes below are optional.
       - name: Activate NH current prices after real GAS deployment
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         env:
@@ -314,34 +154,3 @@ jobs:
           # Manual deployments retain the full, explicit sample readback.
           NH_RUNTIME_SKIP_READBACK_IF_ACTIVE: ${{ github.event_name == 'workflow_run' && 'true' || 'false' }}
         run: node scripts/activate-nh-gas-runtime.mjs
-      - name: One-time 2026-10-30 central NH 06:00 readback (no new token)
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
-        continue-on-error: true
-        run: node scripts/nh-central-probe-20261030.mjs
-      # The fixed 2026-10-29 six-code exploration is retained as a diagnostic
-      # script, not repeated on every unrelated main push / GAS no-op deploy.
-      # Reintroduce only via an explicitly scoped, reviewed read-only workflow.
-      - name: Read-only Shinhan 2026-10-30 public index EOD evidence
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
-        continue-on-error: true
-        run: node scripts/shinhan-index-live-readback-20261030.mjs
-      - name: One-time 2026-10-30 combined GAS Yahoo and Shinhan EOD readback
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
-        continue-on-error: true
-        run: node scripts/domestic-crosschecked-live-readback-20261030.mjs
-      - name: Read-only closing EOD provider end-to-end sample (no Telegram)
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
-        continue-on-error: true
-        run: node scripts/domestic-eod-integration-readback-20261030.mjs
-      - name: Verify NH SP500 NASDAQ NASDAQ100 primary index series
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
-        continue-on-error: true
-        run: node scripts/nh-index-primary-readback.mjs
-      - name: One-time KRX 2026-10-30 official domestic close readback (read-only)
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && github.event_name == 'workflow_run'
-        continue-on-error: true
-        run: node scripts/krx-domestic-close-readback-20261030.mjs
-      - name: Verify KRX 37-code source coverage after live GAS deployment
-        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run && env.GAS_FIRST_GATE_PHASE == 'none'
-        continue-on-error: true
-        run: node scripts/diagnose-krx-held-coverage.mjs --dates "2026-10-12,2026-10-13"
