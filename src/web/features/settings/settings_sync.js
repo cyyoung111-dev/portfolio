@@ -1968,40 +1968,136 @@ async function lookupNameByCode(code) {
 }
 
 function getKrxAuthKey() {
+  // All server-side API credentials live in GAS Script Properties; never in localStorage.
   return '';
 }
 
-async function saveKrxAuthKeyFromUI() {
-  const input = $el('krxAuthKeyInput');
-  const key = String(input?.value || '').trim();
-  const status = $el('krxAuthKeyStatus');
-  const setStatus = (msg, ok) => {
-    if (!status) return;
-    status.style.color = ok ? 'var(--green-lt)' : 'var(--amber)';
-    status.textContent = msg;
-  };
-
-  if (GSHEET_API_URL && typeof requestGsheetFormJson === 'function') {
-    setStatus('KRX AUTH_KEY를 GAS에 저장 중...', true);
-    const data = await requestGsheetFormJson(
-      'saveKrxAuthKey',
-      { key: key || '-' },
-      { timeoutMs: 10000, retry: 1 }
-    );
-    if (data && data.status === 'ok') {
-      if (input) input.value = '';
-      if (typeof lsRemove === 'function') lsRemove('krx_auth_key');
-      showToast(key ? 'KRX AUTH_KEY 저장 완료 (GAS 동기화)' : 'KRX AUTH_KEY 삭제 완료 (GAS 동기화)', key ? 'ok' : 'warn');
-      setStatus(key ? 'KRX 우선 가격 조회에 사용할 수 있습니다. 다른 브라우저에서도 설정 복원됩니다.' : 'KRX AUTH_KEY가 비어 있습니다.', !!key);
-      return;
-    }
-    showToast('KRX AUTH_KEY를 저장하지 못했습니다. 브라우저에는 키를 보관하지 않습니다', 'warn', 5000);
-    setStatus('GAS 저장 실패 · 키 원문은 브라우저에 저장하지 않았습니다.', false);
-    return;
+// KST previous weekday is a suggestion only. KRX holiday dates are editable.
+function getDefaultKrxProbeDate(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(now).map(p => [p.type, p.value]));
+  const current = Date.parse(parts.year + '-' + parts.month + '-' + parts.day + 'T00:00:00Z');
+  for(let i=1;i<=7;i++) {
+    const d=new Date(current-i*86400000);
+    if(d.getUTCDay()!==0&&d.getUTCDay()!==6)return d.toISOString().slice(0,10);
   }
+  return '';
+}
 
-  showToast('GAS 연결 후 서버 측에 저장할 수 있습니다', 'warn');
-  setStatus('보안을 위해 API 키를 브라우저에 저장하지 않습니다.', false);
+function _setGASKeyConfigured(type, configured) {
+  const current=window.GAS_API_KEY_STATUS||{};
+  window.GAS_API_KEY_STATUS={...current,[type]:configured===true};
+  const badge=$el(type==='krxAuthKeyConfigured'?'krxConfiguredBadge':'publicDataConfiguredBadge');
+  if(badge) {
+    badge.textContent=configured?'키 저장됨 (GAS)':'키 미설정 (GAS)';
+    badge.style.color=configured?'var(--green-lt)':'var(--amber)';
+  }
+}
+
+async function saveKrxAuthKeyFromUI() {
+  const input=$el('krxAuthKeyInput');
+  const key=String(input?.value||'').trim();
+  const status=$el('krxAuthKeyStatus');
+  const inform=(message,ok)=>{if(status){status.textContent=message;status.style.color=ok?'var(--green-lt)':'var(--amber)';}};
+  if(!key||key==='-') {
+    inform('빈 입력은 저장하거나 삭제하지 않습니다. 삭제하려면 별도 삭제 버튼을 사용하세요.',false);
+    return false;
+  }
+  if(!GSHEET_API_URL||typeof requestGsheetFormJson!=='function') {
+    inform('GAS 연결 확인 후 저장할 수 있습니다.',false);return false;
+  }
+  inform('KRX 인증키를 GAS에 저장 중…',true);
+  const target=String(GSHEET_API_URL);
+  const data=await requestGsheetFormJson('saveKrxAuthKey',{key},{timeoutMs:10000,retry:0});
+  if(target!==String(GSHEET_API_URL)) {
+    inform('GAS 연결이 변경되어 응답을 적용하지 않았습니다.',false);return false;
+  }
+  if(data?.status==='ok'&&data.saved===true&&data.cleared===false) {
+    if(input)input.value='';
+    if(typeof lsRemove==='function')lsRemove('krx_auth_key');
+    window.__PF_KRX_SOURCE_CHECK=null;
+    _setGASKeyConfigured('krxAuthKeyConfigured',true);
+    inform('GAS 키 저장됨 · 실제 KRX API 조회는 아래 연결 진단으로 확인하세요.',true);
+    if(typeof showToast==='function')showToast('KRX 키를 GAS에 저장했습니다','ok');
+    return true;
+  }
+  inform('GAS 저장 미확인 · 기존 키 상태를 변경하지 않았습니다.',false);
+  return false;
+}
+
+async function clearKrxAuthKeyFromUI() {
+  const status=$el('krxAuthKeyStatus');
+  if(typeof window.confirm!=='function'
+      ||!window.confirm('GAS에 저장된 KRX 인증키를 삭제하시겠습니까? GitHub Secrets는 삭제되지 않습니다.'))return false;
+  if(!GSHEET_API_URL||typeof requestGsheetFormJson!=='function') {
+    if(status)status.textContent='GAS 연결 확인 후 삭제할 수 있습니다.';return false;
+  }
+  const target=String(GSHEET_API_URL);
+  // The legacy GAS API uses "-" as an explicit removal marker. Never send it
+  // from the regular save action; this path requires a separate button+confirm.
+  const data=await requestGsheetFormJson('saveKrxAuthKey',{key:'-'},{timeoutMs:10000,retry:0});
+  if(target!==String(GSHEET_API_URL))return false;
+  if(data?.status==='ok'&&data.cleared===true&&data.saved===false) {
+    window.__PF_KRX_SOURCE_CHECK=null;
+    _setGASKeyConfigured('krxAuthKeyConfigured',false);
+    if(status)status.textContent='GAS의 KRX 키를 삭제했습니다. GitHub Secrets는 그대로 유지됩니다.';
+    if(typeof showToast==='function')showToast('GAS KRX 키 삭제 완료','warn');
+    return true;
+  }
+  if(status)status.textContent='GAS 키 삭제 실패 · 기존 설정 유지';
+  return false;
+}
+
+async function diagnoseKrxSourceFromUI() {
+  const status=$el('krxSourceStatus');
+  const date=String($el('krxProbeDate')?.value||'').trim();
+  const setStatus=(message,ok)=>{if(status){status.textContent=message;status.style.color=ok?'var(--green-lt)':'var(--amber)';}};
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date) {
+    setStatus('조회할 KRX 거래일을 선택하세요.',false);return null;
+  }
+  if(!GSHEET_API_URL||typeof requestGsheetActionJson!=='function') {
+    setStatus('GAS 웹앱이 먼저 연결되어야 합니다.',false);return null;
+  }
+  const url=String(GSHEET_API_URL);
+  const generation=typeof getGsheetConnectionGeneration==='function'
+    ?getGsheetConnectionGeneration():null;
+  setStatus(date+' 공식 정규장 자료를 GAS에서 읽기 전용 조회 중…',true);
+  let data;
+  try{
+    data=await requestGsheetActionJson('getKrxSourceDiagnostics',{date},
+      {timeoutMs:35000,retry:0,preserveError:true});
+  }catch{data=null;}
+  if(url!==String(GSHEET_API_URL)
+     ||(generation!==null&&generation!==getGsheetConnectionGeneration())) {
+    setStatus('연결이 변경되어 조회 결과를 폐기했습니다.',false);return null;
+  }
+  const checkedAt=new Intl.DateTimeFormat('ko-KR',{
+    timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',hour12:false
+  }).format(new Date());
+  const markets=Array.isArray(data?.markets)?data.markets:[];
+  const validMarkets=['KOSPI','KOSDAQ','ETF'];
+  const confirmed=markets.filter(x=>validMarkets.includes(x?.market)
+    &&x.httpStatus===200&&x.parseStatus==='ROWS'
+    &&Number.isSafeInteger(x.exactDateRows)&&x.exactDateRows>0);
+  const all=confirmed.length===3;
+  const partial=confirmed.length>0&&!all;
+  const configured=data?.keyConfigured===true;
+  const validResponse=data?.status==='ok'&&data.requestedDate===date
+    &&configured&&markets.length===3&&new Set(markets.map(x=>x.market)).size===3;
+  const healthy=validResponse&&all;
+  const summary=healthy
+    ?'GAS → KRX 공식 API 조회 확인 (3/3 시장)'
+    :validResponse&&partial
+    ?'일부 확인 ('+confirmed.length+'/3 시장) · 누락 시장 점검 필요'
+    :configured?'GAS 키는 있으나 공식 일봉 조회 미확인':'GAS 인증키 또는 진단 응답 미확인';
+  window.__PF_KRX_SOURCE_CHECK={
+    url,sourceDate:date,checkedAt,verified:healthy,summary
+  };
+  setStatus(summary+' · 거래일 '+date+' · 확인 '+checkedAt+' KST',healthy);
+  return window.__PF_KRX_SOURCE_CHECK;
 }
 
 async function saveNhConfigFromUI() {
