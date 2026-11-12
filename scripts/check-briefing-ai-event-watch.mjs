@@ -5,11 +5,12 @@ import {collectEarlyAiWatch,loadEarlyAiWatch} from './telegram-ai-watch-prefetch
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 
 const date='2026-11-12',usDate='2026-11-11';
-assert.equal(AI_EVENT_WATCH.length,25,'23 requested issuers + NVDA and AVGO');
+assert.equal(AI_EVENT_WATCH.length,38,'25 existing + eight primary + four secondary + Lumentum');
 assert.equal(new Set(AI_EVENT_WATCH.map(x=>x.symbol)).size,AI_EVENT_WATCH.length);
 for(const symbol of ['MU','SKHY','TSM','SNDK','CRWV','IREN','MSFT','AMZN','GOOGL',
  'META','SPCX','AMD','INTC','ARM','QCOM','ANET','AAPL','TSLA','PLTR','BE',
- 'GEV','ORCL','ASML','NVDA','AVGO'])
+ 'GEV','ORCL','ASML','NVDA','AVGO','NBIS','VRT','ETN','MRVL','ALAB',
+ 'CEG','APLD','COHR','LITE','LRCX','WDC','NOW','DDOG'])
  assert.ok(AI_EVENT_WATCH.some(x=>x.symbol===symbol),symbol);
 const make=(symbol,changePercent,session=usDate)=>{
  const item=AI_EVENT_WATCH.find(x=>x.symbol===symbol);
@@ -26,6 +27,25 @@ assert.equal(events.length,3);
 assert.ok(events.some(x=>x.symbol==='MU'));
 assert.ok(!events.some(x=>x.symbol==='TSM'));
 assert.ok(!events.some(x=>x.symbol==='SNDK'));
+// New primary and secondary coverage are fully selectable when their move is material.
+const addedSymbols=['NBIS','VRT','ETN','MRVL','ALAB','CEG','APLD','COHR',
+ 'LITE','LRCX','WDC','NOW','DDOG'];
+assert.equal(addedSymbols.length,13);
+for(const symbol of addedSymbols){
+ const item=AI_EVENT_WATCH.find(x=>x.symbol===symbol);
+ const single=selectAiEventHighlights({
+   expectedUsDate:usDate,prices:[make(symbol,12)],marketChangePercent:1
+ });
+ assert.equal(single.length,1,'new symbol must be selectable: '+symbol);
+ assert.equal(single[0].sector,item.sector);
+}
+const optics=selectAiEventHighlights({
+ expectedUsDate:usDate,prices:[make('LITE',12),make('COHR',12),make('VRT',7)]
+});
+assert.equal(optics.length,3);
+assert.ok(optics.some(x=>x.symbol==='LITE'));
+assert.ok(optics.some(x=>x.symbol==='COHR'));
+
 assert.equal(new Set(events.map(x=>x.sector)).size,3);
 const output=formatAiEventHighlights({expectedUsDate:usDate,events});
 assert.ok(output.join('\n').includes('미국 정규장'));
@@ -49,8 +69,8 @@ const early=await collectEarlyAiWatch({now:nowEarly,fetchDaily:mockDaily,
  fetchImpl:async()=>{throw Error('unused');},mkdir:()=>{},
  writeFile:(_path,value)=>{content=value;}});
 assert.equal(early.status,'WATCH_VERIFIED_OPTIONAL');
-assert.equal(early.verified,25);
-assert.equal(calls,25);
+assert.equal(early.verified,38);
+assert.equal(calls,38);
 // Partial provider coverage must not masquerade as a ranked Top-3.
 let partialRaw='';
 const partial=await collectEarlyAiWatch({now:nowEarly,
