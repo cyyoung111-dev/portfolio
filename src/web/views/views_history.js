@@ -668,7 +668,7 @@ async function diagnosePortfolioReceiptsReadOnly() {
       const state = response?.status === 'ok' && (identityOk || response.receiptState === 'BUSY')
         ? String(response.receiptState || 'UNAVAILABLE') : 'UNAVAILABLE';
       result.push(record.action + ': ' +
-        (['COMPLETE','NOT_FOUND','FAILED','PARTIAL','BUSY','CHANGED','UNAVAILABLE']
+        (['COMPLETE','NOT_FOUND','FAILED','PARTIAL','BUSY','CHANGED','UNKNOWN','CONFLICT','UNAVAILABLE']
           .includes(state) ? state : 'UNAVAILABLE'));
     } catch (_) {
       result.push(record.action + ': NETWORK_ERROR');
