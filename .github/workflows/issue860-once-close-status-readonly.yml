@@ -8,6 +8,8 @@ on:
   # The new protected diagnostic self-file is the only automatic trigger.
   # 2026-11-09 close recovery readback: one sanitized authenticated GET after merge.
   # Post-FUND_DEFERRED_DONE 21:00:16 KST: second one-shot COMPLETE confirmation; no writes.
+  # 2026-11-12 22:10 KST: one protected post-backfill read-only observation for #734.
+  # Never invoke backfill/close writers from this workflow; verify actual close state.
   # 2026-11-12 20:30+ KST: read current persisted close after 19h START;
   # official 11/12 priceHistory 37 present but Snapshot 11/12 absent in Sheets.
   # One protected read-only status/Gate check, no close writer, restore or NAV rerun.
