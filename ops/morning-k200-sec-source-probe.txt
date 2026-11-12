@@ -1,2 +1,2 @@
-probe_date=1970-01-01
-probe_type=disabled
+probe_date=2026-11-12
+probe_type=readonly_k200_sec
