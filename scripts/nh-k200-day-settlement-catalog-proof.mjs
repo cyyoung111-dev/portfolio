@@ -33,7 +33,7 @@ export function analyzeNhFutureCatalog(spec){
     const label=prefix?prefix+'.'+key:key;
     const hint=String(field?.description||field?.title||'');
     if(keywords.test(key)||keywords.test(hint))fields.push(label);
-    if(depth<7 && typeof field==='object' && field && (field.properties||field.$ref))
+    if(depth<7 && typeof field==='object' && field && (field.properties||field.$ref||field.items||field.allOf))
      fields.push(...collect(field,depth+1,new Set([...seen,key]),label));
    }
   }
