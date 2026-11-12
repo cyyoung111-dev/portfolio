@@ -1993,6 +1993,10 @@ function _setGASKeyConfigured(type, configured) {
     badge.textContent=configured?'키 저장됨 (GAS)':'키 미설정 (GAS)';
     badge.style.color=configured?'var(--green-lt)':'var(--amber)';
   }
+  if(type==='krxAuthKeyConfigured') {
+    const source=$el('krxSourceStatus');
+    if(source)source.textContent='실제 조회: 미확인 · 마지막 확인: 없음 · 원천: GAS → KRX 공식 API';
+  }
 }
 
 async function saveKrxAuthKeyFromUI() {
