@@ -61,6 +61,7 @@ jobs:
       # Optional public market watch runs before the existing 07:30 NH
       # prefetch. Errors or absent quotes never suppress guarded delivery.
       - name: Optional early AI watch (read-only, fail-open)
+        if: github.event_name != 'push' || steps.verify_sentinel.outputs.verified == 'true'
         timeout-minutes: 2
         continue-on-error: true
         run: node scripts/telegram-ai-watch-prefetch.mjs
