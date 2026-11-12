@@ -300,12 +300,29 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     ||isGsheetConnectionCurrent(targetUrl,generation));
   const fail=(code,details={})=>({ok:false,code,...details,remoteWrites:0});
   if(!isCurrent())return fail('CONNECTION_CHANGED');
-  if(typeof _getPortfolioRemoteDirty==='function'&&_getPortfolioRemoteDirty())
-    return fail('LOCAL_DIRTY_JOURNAL_PRESENT');
+  const dirty=typeof _getPortfolioRemoteDirty==='function'
+    ?_getPortfolioRemoteDirty():null;
+  // An interrupted normal save always creates a full dirty journal. Merely
+  // finding one is not a data mismatch; never delete or replay it blindly.
+  // A dirty recovery is allowed only after verifying financial source rows
+  // AND the separate fund settings / holdings against the GAS readbacks.
+  if(dirty&&(dirty.target!==targetUrl||dirty.receiptProtocol!==1
+      ||dirty.legacyUntracked===true||!Array.isArray(dirty.trades)
+      ||!Array.isArray(dirty.holdings)||!dirty.epoch))
+    return fail('DIRTY_JOURNAL_FORMAT_UNVERIFIED');
+  if(dirty&&(dirty.tradeV2DeleteIds||[]).length)
+    return fail('PENDING_TRADE_DELETE_INTENT');
   if(typeof _getPendingExplicitEmptyTradeSync==='function'
       &&_getPendingExplicitEmptyTradeSync(targetUrl))
     return fail('PENDING_EXPLICIT_DELETE');
-  if(typeof _isPortfolioRemoteSyncPending==='function'&&_isPortfolioRemoteSyncPending())
+  const activeSync=typeof _saveHoldingsGasTimer!=='undefined'
+      &&!!_saveHoldingsGasTimer
+    ||typeof _portfolioRemoteSyncQueuesByTarget!=='undefined'
+      &&_portfolioRemoteSyncQueuesByTarget.has(targetUrl)
+    ||typeof _pendingExplicitEmptyTradeSyncFlightsByTarget!=='undefined'
+      &&_pendingExplicitEmptyTradeSyncFlightsByTarget.has(targetUrl);
+  if(activeSync||(!dirty&&typeof _isPortfolioRemoteSyncPending==='function'
+      &&_isPortfolioRemoteSyncPending()))
     return fail('LOCAL_SYNC_BUSY');
   const records=_readPortfolioRecoveryReceipts();
   const record=records?.[targetUrl]?.syncTradesV2;
@@ -349,6 +366,52 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     return fail('LOCAL_UNSENT_CHANGE_DIFFERS_FROM_FAILED_RECEIPT',{
       localCount:rawTrades.length,attemptedCount:attemptedRows.length
     });
+  // The pinned full local journal is financial data, not just a restart
+  // marker. Preserve it if it differs from the receipt or live PC memory.
+  const initialDirty=dirty?JSON.stringify(dirty):'';
+  if(dirty){
+    try{
+      if(dirty.trades.length!==attemptedRows.length
+          ||await digest(dirty.trades)!==attemptedRevision
+          ||JSON.stringify(rawHoldings)!==JSON.stringify(dirty.holdings)
+          ||JSON.stringify(fundDirect||{})!==JSON.stringify(dirty.fundDirect||{}))
+        return fail('DIRTY_SNAPSHOT_DIFFERS_FROM_PC_OR_RECEIPT');
+    }catch(ignore){return fail('DIRTY_CANONICAL_UNVERIFIED');}
+  }
+  // The server's getHoldings is aggregated by name; the PC stores
+  // per-account holdings. Match the exact quantity and cost by holding,
+  // then independently require current fundDirect settings to match.
+  const holdingSignature=(rows,funds,local)=>{
+    if(!Array.isArray(rows))throw Error('INVALID_HOLDINGS');
+    const entries=new Map();
+    for(const h of rows){
+      const name=String(h?.name||'').trim(),qty=Number(h?.qty||0);
+      if(!name||!Number.isFinite(qty)||qty<0)throw Error('INVALID_HOLDING_ROW');
+      if(!(qty>0))continue;
+      const hasExact=h.costAmt!==undefined&&h.costAmt!==null&&h.costAmt!=='';
+      const cost=hasExact?Number(h.costAmt):Number(h.cost||0)*qty;
+      if(!Number.isFinite(cost)||cost<0)throw Error('INVALID_HOLDING_COST');
+      const old=entries.get(name)||{name,qty:0,costAmt:0};
+      old.qty+=qty;old.costAmt+=cost;entries.set(name,old);
+    }
+    if(local){
+      for(const [name,f] of Object.entries(funds||{})){
+        const cost=Number(f?.cost||0);
+        if(!(cost>0)||entries.has(name))continue;
+        entries.set(name,{name,qty:1,costAmt:cost});
+      }
+    }
+    return [...entries.values()].sort((a,b)=>a.name.localeCompare(b.name));
+  };
+  const sameHoldings=(a,b)=>a.length===b.length&&a.every((x,i)=>
+    x.name===b[i].name&&Math.abs(x.qty-b[i].qty)<1e-7
+    &&Math.abs(x.costAmt-b[i].costAmt)<0.000001);
+  const settingsFunds=object=>JSON.stringify(Object.entries(object||{})
+    .map(([name,x])=>[name,Number(x?.cost||0),Number(x?.eval||0),String(x?.type||'')])
+    .sort((a,b)=>a[0].localeCompare(b[0])));
+  const expectedHoldings=dirty
+    ?holdingSignature(dirty.holdings,dirty.fundDirect,true):null;
+  const expectedFunds=dirty?settingsFunds(dirty.fundDirect):null;
   const requestOptions={targetUrl,generation,timeoutMs:20000,retry:0,preserveError:true};
   const receiptQuery=()=>requestGsheetFormJson('getPortfolioSyncReceipt',{
     ...record.params,kind:record.action,operationId:record.id
