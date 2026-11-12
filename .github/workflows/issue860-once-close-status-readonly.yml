@@ -8,6 +8,9 @@ on:
   # The new protected diagnostic self-file is the only automatic trigger.
   # 2026-11-09 close recovery readback: one sanitized authenticated GET after merge.
   # Post-FUND_DEFERRED_DONE 21:00:16 KST: second one-shot COMPLETE confirmation; no writes.
+  # 2026-11-12 20:30+ KST: read current persisted close after 19h START;
+  # official 11/12 priceHistory 37 present but Snapshot 11/12 absent in Sheets.
+  # One protected read-only status/Gate check, no close writer, restore or NAV rerun.
   # 2026-11-12: independent new 9.292 deployed Gate and close readback following transient old version warm.
   # Final postdeploy published 9.292 + ledger + Gate read-only check; retry ONLY previous warm web instance, never writes.
   # 2026-11-12: owner-requested final persisted CLOSE and Writer Gate readback after 11/11 WATCHDOG_OK.
