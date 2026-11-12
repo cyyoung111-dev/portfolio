@@ -257,13 +257,17 @@ export async function inspectGasDeploymentsReadOnly({
      throw Error('source');
     const classified=classifyPublishedGateSource(code[0].source);
     // The historical gate-only detector intentionally recognizes <=9.282.
-    // An exact pinned full GAS release (including manual 9.288/9.289) is reviewed only if
+    // An exact pinned full GAS release (including 9.291/9.292) is reviewed only if
     // it matches the SAME exact full-file Git blob as production deployment.
     // This never authorizes running an endpoint or proves writer inactivity.
     let exactReviewedRelease=false;
     try{
       const approvedVersion=assertGasReleaseReady(code[0].source.replace(/\r\n/g,'\n'));
-      exactReviewedRelease=['9.283','9.284','9.285','9.287','9.288','9.289'].includes(approvedVersion);
+      // Include both the currently published v9.291 and reviewed successor
+       // v9.292, but ONLY after assertGasReleaseReady checks the immutable
+       // full-file Git blob SHA. Never accept a header/version string alone.
+       exactReviewedRelease=['9.283','9.284','9.285','9.287','9.288','9.289',
+         '9.291','9.292'].includes(approvedVersion);
     }catch{}
     sourceAudit.successful++;
     if(classified.knownLegacyBaseline){

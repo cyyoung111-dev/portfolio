@@ -5,6 +5,8 @@ import YAML from 'yaml';
 import {scanDeploymentReferences,loadTrackedRuntimeSources} from './issue507-deployment-reference-analysis.mjs';
 import {inspectGasDeploymentsReadOnly,
  inspectUnreviewedGasSourceSignals} from './issue507-deployment-inventory-readonly.mjs';
+import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.mjs';
+import {composeIssue860Gas9292CloseStatePreview} from './compose-issue860-gas9292-close-state-preview.mjs';
 
 const scriptId='TEST_SCRIPT_IDENTIFIER_12345';
 const expectedDeploymentId='TEST_EXPECTED_DEPLOYMENT_123';
@@ -327,6 +329,38 @@ assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGAC
  assert.equal(reviewed.releaseAuthorized,false);
  assert.equal(reviewed.allActorsAndVersionsTerminatedVerified,false);
  assert.equal(reviewed.externalSheetsWritersExcludedVerified,false);
+ // Regression: exact published v9.291 and manually reviewed v9.292
+ // are recognized through the full source pin, never a version string.
+ const sourceCases=[
+  {name:'9.291',source:composeIssue860Gas9291Preview().source},
+  {name:'9.292',source:composeIssue860Gas9292CloseStatePreview().source}
+ ];
+ for(const candidate of sourceCases){
+  const files={scriptId,files:[
+   {name:'Code',type:'SERVER_JS',source:candidate.source},
+   {name:'appsscript',type:'JSON',source:'{}'}
+  ]};
+  const match=await setup({'':{deployments:[
+     item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
+   reviewedDetails,{'336':files}).run({verifyDetails:true,verifySource:true});
+  assert.equal(match.status,'INVENTORY_ONLY',
+    candidate.name+' exact approved blob must pass inventory classification');
+  assert.equal(match.expectedDeploymentSourceClassification,'REVIEWED_FULL_RELEASE_SOURCE');
+  assert.equal(match.sourceKnownReviewedFullReleaseCount,1);
+  assert.equal(match.sourceUnreviewedCount,0);
+  assert.equal(match.releaseAuthorized,false,
+    'inventory classification does not authorize deployment or writer isolation');
+  const tampered={scriptId,files:[
+   {name:'Code',type:'SERVER_JS',source:candidate.source+'\n// unreviewed source drift'},
+   {name:'appsscript',type:'JSON',source:'{}'}
+  ]};
+  const mismatch=await setup({'':{deployments:[
+     item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
+   reviewedDetails,{'336':tampered}).run({verifyDetails:true,verifySource:true});
+  assert.equal(mismatch.status,'BLOCKED');
+  assert.equal(mismatch.reason,'VERSIONED_SOURCE_UNVERIFIED');
+  assert.equal(mismatch.sourceUnreviewedCount,1);
+ }
  // Google REST may canonicalize line endings independently of a Git checkout.
  // CRLF is the sole harmless normalization; any changed executable still fails.
  const reviewedCRLF={scriptId,files:[
