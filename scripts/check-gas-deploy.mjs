@@ -988,8 +988,9 @@ if (hasStackedKrxRecovery) {
 }
 
 const issue507ReleaseWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
-assert.match(issue507ReleaseWorkflow,/approve_9282:\s*\n(?:.|\n)*?default:\s*false/);
-assert.match(issue507ReleaseWorkflow,/GAS_9282_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9282/);
+assert.match(issue507ReleaseWorkflow,/approve_9293:\s*\n(?:.|\n)*?default:\s*false/);
+assert.match(issue507ReleaseWorkflow,/GAS_9293_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9293/);
+assert.doesNotMatch(issue507ReleaseWorkflow,/approve_9282:/,'retired release must not appear in operator form');
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
 assert.match(deployScript,/assertIssue507ManualReleasePermission\(\{/);
 assert.match(deployScript,/assertWriterGateReleaseTransition\(deployedTarget\.source,source\)/);
@@ -1121,14 +1122,10 @@ assert.doesNotMatch(workflow, /GOOGLE_OAUTH_CLIENT_ID|GOOGLE_OAUTH_CLIENT_SECRET
 assert.match(workflow, /GAS_SCRIPT_ID/);
 assert.match(workflow, /GAS_WEB_APP_URL/);
 assert.match(workflow, /GAS_AUTO_DEPLOY_ENABLED/, 'automatic release must require administrator opt-in');
-assert.match(workflow,/approve_9283:\s*[\s\S]*?default: false/,'GAS 9.283 manual approval must default to false');
-assert.match(workflow,/GAS_9283_RELEASE_APPROVAL:/,'GAS 9.283 dispatch approval must be explicit');
-assert.match(workflow,/approve_9284:\s*[\s\S]*?default: false/,'GAS 9.284 manual approval must default to false');
-assert.match(workflow,/GAS_9284_RELEASE_APPROVAL:/,'GAS 9.284 dispatch approval must be explicit');
-assert.match(workflow,/approve_9285:\s*[\s\S]*?default: false/,'GAS 9.285 manual approval must default to false');
-assert.match(workflow,/GAS_9285_RELEASE_APPROVAL:/,'GAS 9.285 dispatch approval must be explicit');
-assert.match(workflow,/approve_9286:\s*[\s\S]*?default: false/,'GAS 9.286 manual approval must default to false');
-assert.match(workflow,/GAS_9286_RELEASE_APPROVAL:/,'GAS 9.286 dispatch approval must be explicit');
+assert.doesNotMatch(workflow,/approve_9283:/,'obsolete v9.283 release must be hidden from manual form');
+assert.doesNotMatch(workflow,/approve_9284:/,'obsolete v9.284 release must be hidden from manual form');
+assert.doesNotMatch(workflow,/approve_9285:/,'obsolete v9.285 release must be hidden from manual form');
+assert.doesNotMatch(workflow,/approve_9286:/,'obsolete v9.286 release must be hidden from manual form');
 assert.doesNotMatch(workflow, /github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED/, 'auto production deployment on push is forbidden');
 assert.match(workflow, /deploy:\s*[\s\S]*concurrency:/);
 assert.match(workflow, /gas-deploy-dry-run/);
