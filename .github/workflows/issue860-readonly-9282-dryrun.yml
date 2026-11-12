@@ -1,0 +1,65 @@
+name: Issue860 v9.285 deployment inventory and read-only dry-run
+# Recheck exact 9.284 published-source classification once after merge.
+
+on:
+  workflow_dispatch:
+  # Exactly one initial main-push inspection when this workflow is merged.
+  # No schedule or unrelated main-push trigger.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue860-readonly-9282-dryrun.yml'
+      - 'scripts/issue860-first-cutover.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit-dryrun:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Same lock as production writes and both existing audits. Repeated clicks
+    # cannot overlap; no existing run is cancelled. No workflow_call or schedule.
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout immutable dispatched main
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install offline test dependencies
+        run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts
+      - name: Verify read-only contracts offline
+        run: |
+          node scripts/check-issue860-readonly-9282-dryrun.mjs
+          node scripts/check-issue507-deployment-inventory-readonly.mjs
+          node scripts/check-published-gas-gate-readonly.mjs
+          node scripts/check-gas-deploy.mjs
+      - name: Re-audit and dry-run only (no runtime endpoint calls)
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        env:
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+          GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GAS_DEPLOY_DRY_RUN: 'true'
+          GAS_9282_RELEASE_APPROVAL: 'false'
+          GAS_9283_RELEASE_APPROVAL: 'false'
+          GAS_9284_RELEASE_APPROVAL: 'false'
+          GAS_9285_RELEASE_APPROVAL: 'false'
+          GAS_ISSUE860_ONE_SHOT_DRYRUN: ${{ github.event_name == 'push' && 'true' || 'false' }}
+        run: node scripts/issue860-readonly-9282-dryrun.mjs
+      # The historical 9.282 cutover inspect is intentionally not called.
+      # It recognizes only 9.281/9.282, so a reviewed 9.285 full source
+      # gives BEFORE_SOURCE regardless of actual inventory cleanliness.
+      # The prior authenticated exact-main GET-only audit is authoritative.
