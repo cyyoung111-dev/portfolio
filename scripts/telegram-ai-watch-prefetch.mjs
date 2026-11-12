@@ -7,6 +7,7 @@ import {expectedMorningDate} from './telegram-morning-report.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {AI_EVENT_WATCH,selectAiEventHighlights} from './briefing-ai-event-watch.mjs';
 import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
+import {verifiedSkhyQuote} from './briefing-skhy-adr-parity.mjs';
 
 export const WATCH_PATH='.telegram-runtime/ai-watch-morning.json';
 function kstClock(now){
@@ -67,7 +68,8 @@ export async function collectEarlyAiWatch({now=()=>new Date(),fetchDaily=fetchDa
  const events=enoughCoverage
   ?selectAiEventHighlights({expectedUsDate:usDate,prices:verified}):[];
  const payload={schemaVersion:1,date:clock.date,expectedUsDate:usDate,
-  verified:verified.length,total:AI_EVENT_WATCH.length,events};
+  verified:verified.length,total:AI_EVENT_WATCH.length,events,
+  skhyQuote:verifiedSkhyQuote(verified,usDate)};
  try{
   mkdir('.telegram-runtime',{recursive:true});
   writeFile(path,JSON.stringify(payload),{flag:'wx',mode:0o600});
@@ -87,9 +89,11 @@ export function loadEarlyAiWatch(date,{path=WATCH_PATH,now=()=>new Date(),
    ||!Number.isInteger(value.verified)||!Number.isInteger(value.total)
    ||value.total!==AI_EVENT_WATCH.length||value.verified<0||value.verified>value.total
    ||value.events.some(x=>x?.date!==usDate||
-    !AI_EVENT_WATCH.some(item=>item.symbol===x.symbol&&item.label===x.label)))
+    !AI_EVENT_WATCH.some(item=>item.symbol===x.symbol&&item.label===x.label))
+   ||(value.skhyQuote!=null&&!verifiedSkhyQuote([value.skhyQuote],usDate)))
    return null;
-  return {expectedUsDate:usDate,events:value.events};
+  return {expectedUsDate:usDate,events:value.events,
+   skhyQuote:value.skhyQuote||null};
  }catch{return null;}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){

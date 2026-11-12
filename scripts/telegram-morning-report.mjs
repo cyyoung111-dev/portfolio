@@ -8,6 +8,7 @@ import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
 import {formatFearGreed} from './briefing-fear-greed.mjs';
 import {formatAiEventHighlights} from './briefing-ai-event-watch.mjs';
+import {calculateSkhyParity,formatSkhyParity} from './briefing-skhy-adr-parity.mjs';
 
 export const MORNING_SERIES = Object.freeze([
   {id:'KOSPI',label:'KOSPI',symbol:'^KS11'},
@@ -301,6 +302,28 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
           break;
         }
       }
+    }
+  }
+  // Optional independently dated SKHY ADR to KRX share comparison. This is
+  // never a forecast for the KRX opening price or a synchronized market quote.
+  const parity=formatSkhyParity(calculateSkhyParity({
+    skhyQuote:options?.watchEvidence?.skhyQuote,
+    ordinaryClose:map.get('000660.KS'),fxClose:map.get('KRW=X'),
+    usDate:expectedMorningDate('NVDA',date,options?.now||null),
+    ordinaryDate:expectedMorningDate('SKHYNIX',date,options?.now||null),
+    fxDate:expectedMorningDate('USDKRW',date,options?.now||null)
+  }));
+  if(parity.length){
+    const candidate=lines.slice();
+    const insertAt=candidate.indexOf('■ 4. 코스피200 야간선물 (06:00)');
+    if(insertAt>=0){
+      candidate.splice(insertAt,0,...parity,'');
+      if(candidate.join('\n').length>3900){
+        const note=candidate.findIndex(line=>line.startsWith('• 실수요: 빅테크 CAPEX'));
+        if(note>=0)candidate.splice(note,1);
+      }
+      if(candidate.join('\n').length<=3900)
+        lines.splice(0,lines.length,...candidate);
     }
   }
   let message=lines.join('\n');
