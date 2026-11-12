@@ -1,8 +1,35 @@
 import assert from 'node:assert/strict';
 import {prepare,send,makeManualPreviewMessage} from './telegram-morning-preview-once.mjs';
-import {AI_EVENT_WATCH} from './briefing-ai-event-watch.mjs';
+import {AI_EVENT_WATCH,selectAiEventHighlights} from './briefing-ai-event-watch.mjs';
+import {parseNasdaqDailyHistorical,readNasdaqDailyHistorical}
+ from './briefing-nasdaq-daily-reference.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 const date='2026-11-12',usDate='2026-11-11';
+const nasdaqPayload={data:{tradesTable:{rows:[
+ {date:'11/11/2026',close:'$225.50'},
+ {date:'11/10/2026',close:'$210.00'}
+]}}};
+const usNow=new Date('2026-11-12T11:20:00+09:00');
+const nasdaq=parseNasdaqDailyHistorical('NBIS',usDate,nasdaqPayload,usNow);
+assert.equal(nasdaq?.source,'NASDAQ_DAILY_REFERENCE');
+assert.equal(nasdaq?.value,225.5);
+assert.ok(nasdaq.changePercent>7);
+assert.equal(parseNasdaqDailyHistorical('NBIS',usDate,
+ {data:{tradesTable:{rows:[{date:'11/10/2026',close:'$225.50'}]}}},usNow),null);
+assert.equal(parseNasdaqDailyHistorical('NBIS',usDate,nasdaqPayload,
+ new Date('2026-11-11T12:00:00-05:00')),null);
+const row=await readNasdaqDailyHistorical('NBIS',usDate,{
+ now:usNow,fetchImpl:async url=>{
+  assert.match(String(url),/api[.]nasdaq[.]com\/api\/quote\/NBIS\/historical/);
+  return {ok:true,json:async()=>nasdaqPayload};
+ }});
+assert.equal(row?.value,225.5);
+const picked=selectAiEventHighlights({expectedUsDate:usDate,prices:[{
+ symbol:'NBIS',label:'네비우스',date:usDate,unit:'USD',...nasdaq
+}]});
+assert.equal(picked.length,1);
+assert.equal(picked[0].source,'NASDAQ_DAILY_REFERENCE');
+
 const now=()=>new Date(date+'T11:20:00+09:00');
 const env={GITHUB_REPOSITORY:'cyyoung111-dev/portfolio',GITHUB_REF:'refs/heads/main',
  GITHUB_RUN_ATTEMPT:'1',GITHUB_EVENT_NAME:'push',GITHUB_RUN_ID:'99001',
