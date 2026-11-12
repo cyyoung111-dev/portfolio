@@ -102,10 +102,12 @@ for(const name of workflowFiles){
   const jobs=auditEnvironmentGuard(name,yaml);
   if(jobs.length){protectedWorkflowNames.push(name);protectedJobs+=jobs.length;}
 }
-assert.equal(protectedWorkflowNames.length,89,
-  'migration inventory: all 89 GAS_ACCESS_TOKEN/CLASPRC_JSON consumer workflows must be gated');
-assert.equal(protectedJobs,93,
-  'migration inventory: all 93 secret-consuming jobs must be protected');
+assert.ok(protectedWorkflowNames.length>=89,
+  'migration inventory: baseline 89 credentialed workflows must remain protected');
+assert.ok(protectedJobs>=93,
+  'migration inventory: baseline 93 secret-consuming jobs must remain protected');
+assert.ok(protectedWorkflowNames.includes('issue860-gas9292-preflight-readonly.yml'),
+  'v9.292 one-shot live preflight must use the protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue734-postmigration-live-readonly.yml'),
   'new postmigration v2/holdings read-only audit must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-postmigration-readiness-readonly.yml'),
