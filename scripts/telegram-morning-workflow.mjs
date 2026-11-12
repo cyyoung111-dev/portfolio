@@ -10,6 +10,7 @@ import {MORNING_SERIES,expectedMorningDate} from './telegram-morning-report.mjs'
 import {fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {auditSentFinancialEvidence} from './briefing-financial-evidence.mjs';
+import {loadEarlyAiWatch} from './telegram-ai-watch-prefetch.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,
   loadPrefetch=loadPrefetchedNight,recoverReference=fetchNightReference,
@@ -95,6 +96,8 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
     source:referenceOrigin,recovery:recoveryDiagnostic}));
   const result=await run({now,fetchImpl,event:'schedule',attempt,allowLateTest:lateTest,
     financialEvidenceNow:()=>financialState.value,
+     // Read-only optional early capture; null never blocks 07:40 delivery.
+     watchEvidence:lateTest?null:loadEarlyAiWatch(window.date,{now}),
     referenceFetch:async()=>reference,send:async(_token,_chat,text)=>{message=text;},
     onSourceDiagnostic:entry=>{
       if(entry?.kind==='OPTIONAL_DISPLAY_AUDIT'&&entry.briefing==='morning'){

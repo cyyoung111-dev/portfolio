@@ -58,6 +58,13 @@ jobs:
       # The runner is already alive at 07:20. GAS v9.281 supports an
       # authenticated read of the 06:00 reference from 07:30 KST.
       # A failed read MUST NOT cancel the original 07:40 recovery or send.
+      # Optional public market watch runs before the existing 07:30 NH
+      # prefetch. Errors or absent quotes never suppress guarded delivery.
+      - name: Optional early AI watch (read-only, fail-open)
+        if: github.event_name != 'push' || steps.verify_sentinel.outputs.verified == 'true'
+        timeout-minutes: 2
+        continue-on-error: true
+        run: node scripts/telegram-ai-watch-prefetch.mjs
       - name: Prefetch verified 06:00 NH night from existing 07:30 GAS proxy
         env:
           TELEGRAM_MORNING_SENTINEL_VERIFIED: ${{ github.event_name == 'push' && steps.verify_sentinel.outputs.verified || 'false' }}

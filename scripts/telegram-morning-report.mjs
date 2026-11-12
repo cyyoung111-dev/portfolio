@@ -7,6 +7,7 @@ import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
 // Original multi-asset morning briefing structure, rendered in one Telegram message.
 // Numbers are sourced from dated observations only. Missing inputs remain missing.
 import {formatFearGreed} from './briefing-fear-greed.mjs';
+import {formatAiEventHighlights} from './briefing-ai-event-watch.mjs';
 
 export const MORNING_SERIES = Object.freeze([
   {id:'KOSPI',label:'KOSPI',symbol:'^KS11'},
@@ -271,6 +272,37 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
   if(trendLines.length&&trendAt>=0
     &&lines.join('\n').length+trendLines.join('\n').length+2<=3700)
    lines.splice(trendAt,0,...trendLines,'');
+  // Optional early-armed watch highlights: a material US price move, not
+  // a claim that news, orders or earnings have changed. Never replace core rows.
+  const expectedWatchDate=expectedMorningDate('NVDA',date,options?.now||null);
+  const watch=options?.watchEvidence;
+  if(watch?.expectedUsDate===expectedWatchDate&&Array.isArray(watch.events)){
+    const ndx=evidence(map,'NDX');
+    const events=watch.events.map(row=>({
+      ...row,relativeToNdxPp:ndx&&Number.isFinite(ndx.changePercent)
+        ?row.changePercent-ndx.changePercent:null
+    }));
+    const watchLines=formatAiEventHighlights({
+      expectedUsDate:expectedWatchDate,events
+    });
+    const watchAt=lines.indexOf('■ 8. AI 산업·반도체 종합평가 (전일 일봉 기반)');
+    if(watchLines.length&&watchAt>=0){
+      // Prefer 3 events, gracefully reduce to 1 before dropping the section.
+      // Never displace source dates, NH night reference, prices or QC.
+      for(let count=watchLines.length-2;count>=1;count--){
+        const chosen=[watchLines[0],...watchLines.slice(1,1+count),watchLines.at(-1)];
+        const candidate=lines.slice(),genericIndex=candidate.findIndex(line=>
+          line.startsWith('• 실수요: 빅테크 CAPEX'));
+        if(genericIndex>=0)candidate.splice(genericIndex,1);
+        const insertAt=candidate.indexOf('■ 8. AI 산업·반도체 종합평가 (전일 일봉 기반)');
+        candidate.splice(insertAt,0,...chosen,'');
+        if(candidate.join('\n').length<=3900){
+          lines.splice(0,lines.length,...candidate);
+          break;
+        }
+      }
+    }
+  }
   let message=lines.join('\n');
   // Preserve VERIFIED supplemental market readings before generic commentary.
   // These notes are interpretations/disclaimers, not missing source values.
