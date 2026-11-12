@@ -1,0 +1,50 @@
+name: Morning K200 settlement and SEC source proof (read-only)
+on:
+  push:
+    branches: [main]
+    paths: ['ops/morning-k200-sec-source-probe.txt']
+permissions:
+  contents: read
+concurrency:
+  group: morning-k200-sec-source-proof
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify exact date-scoped single-file diagnostic request
+        id: gate
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          f='ops/morning-k200-sec-source-probe.txt'
+          deny() { echo "K200_SEC_DIAG_DENIED_$1"; echo "verified=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          [[ "$PUSH_BEFORE" =~ ^[0-9a-f]{40}$ ]] || deny SHA
+          [[ "$PUSH_BEFORE" == "$(git rev-parse HEAD^)" ]] || deny MULTI_COMMIT
+          [[ "$(git diff --name-only HEAD^ HEAD)" == "$f" ]] || deny FILE
+          [[ "$(git ls-files --stage "$f" | awk '{print $1}')" == '100644' ]] || deny MODE
+          [[ "$(wc -c < "$f")" -lt 130 ]] || deny SIZE
+          [[ "$(wc -l < "$f")" == '2' ]] || deny LINES
+          [[ "$(sed -n '1p' "$f")" == "probe_date=$(TZ=Asia/Seoul date +%F)" ]] || deny DATE
+          [[ "$(sed -n '2p' "$f")" == 'probe_type=readonly_k200_sec' ]] || deny PURPOSE
+          echo "verified=true" >> "$GITHUB_OUTPUT"
+      - name: Test KRX previous-day data availability and SEC submissions
+        if: steps.gate.outputs.verified == 'true'
+        env:
+          MARKET_SOURCE_PROBE_APPROVED: 'true'
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: |
+          export MARKET_SOURCE_PROBE_DATE="$(TZ=Asia/Seoul date +%F)"
+          node scripts/probe-morning-k200-sec-sources.mjs
