@@ -1769,7 +1769,9 @@ function saveHoldings(options) {
   }
   // pending 실패 뒤 새 거래가 생겨도 성공 전에는 repair token을 지우지 않습니다.
   // debounce는 아래 _retryPendingExplicitEmptyTradeSync()의 rawTrades>0 분기로 현재 원장을 재전송합니다.
-  _markPortfolioRemoteDirty();
+  // Persist explicit selected-deletion IDs with the v2 preimage. Otherwise
+  // a successful local partial delete is rejected remotely as an omission.
+  _markPortfolioRemoteDirty(options?.deletedTradeIds);
   const remoteSyncTarget = _currentGsheetSyncTarget();
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
@@ -1915,6 +1917,7 @@ function _commitTrades(options) {
   // 거래 편집 직후에는 거래이력이 보유현황의 단일 기준이므로 마지막 거래 삭제까지 반영합니다.
   syncHoldingsFromTrades({ clearWhenEmpty: true });
   saveHoldings({
+    deletedTradeIds: Array.isArray(options?.deletedTradeIds) ? options.deletedTradeIds : [],
     allowEmptyTradeSync: options?.allowEmptyTradeSync === true,
     emptyTradeSyncFrom: options?.emptyTradeSyncFrom || ''
   });

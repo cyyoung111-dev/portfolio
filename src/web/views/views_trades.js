@@ -514,8 +514,11 @@ function deleteSelectedTrades() {
   if (!confirm(`선택한 ${ids.length}건을 삭제할까요?`)) return;
   const idSet  = new Set(ids);
   const before = rawTrades.length;
-  const deletedFrom = rawTrades
-    .filter(t => t?.id != null && idSet.has(String(t.id)))
+  // The v2 ledger rejects undeclared deletion. Carry the *actual* removed
+  // server row IDs through the local-save journal; do not infer deletions
+  // from a partially loaded browser ledger.
+  const removedTrades = rawTrades.filter(t => t?.id != null && idSet.has(String(t.id)));
+  const deletedFrom = removedTrades
     .map(t => _portfolioTradeDateKey(t.date))
     .filter(day => /^\d{4}-\d{2}-\d{2}$/.test(day))
     .sort()[0] || '';
@@ -529,6 +532,7 @@ function deleteSelectedTrades() {
     return;
   }
   _commitTrades({
+    deletedTradeIds: removedTrades.map(t => String(t.id)),
     allowEmptyTradeSync: before > 0 && rawTrades.length === 0,
     emptyTradeSyncFrom: before > 0 && rawTrades.length === 0 ? deletedFrom : ''
   });
