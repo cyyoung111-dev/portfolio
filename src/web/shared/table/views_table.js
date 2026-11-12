@@ -39,6 +39,8 @@ function buildTableInner(rawData, tableId, extraCol) {
 function buildTableInnerCore(rawData, tableId, extraCol) {
   const st = getTableState(tableId);
   const data = applyFiltersAndSort(rawData, tableId);
+  const valuationUnverified = typeof _portfolioPricingUnavailable === 'function'
+    && _portfolioPricingUnavailable();
 
   const hasFilters = Object.keys(st.filters).length > 0;
   const filteredBadge = hasFilters
@@ -83,7 +85,9 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
     const pC2 = pColor(r.pnl), pS2 = pSign(r.pnl);
     const currency = (r.currency || 'KRW').toUpperCase();
     const isForeign = currency !== 'KRW';
-    const priceCell = r.fund
+    const priceCell = valuationUnverified
+      ? '<span class="c-muted" title="GAS 전체 복원이 완료되지 않아 현재가를 확인할 수 없습니다.">미검증</span>'
+      : r.fund
       ? `<span style='color:var(--cyan)'>${r.price.toLocaleString()}</span>`
       : r.price
         ? `${r.price.toLocaleString()}${isForeign ? `<span style="font-size:.60rem;color:var(--amber);margin-left:3px;font-weight:700">${currency}</span>` : ''}`
@@ -107,9 +111,9 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
       <td class="num">${costCell}</td>
       <td class="num">${costAmtCell}</td>
       <td class="num">${priceCell}</td>
-      <td class="num">${fmtW(r.evalAmt)}</td>
-      <td class="num" style="color:${pC2}">${pS2}${fmt(r.pnl)}</td>
-      <td class="num" style="color:${pC2}">${pS2}${r.pct.toFixed(1)}%</td>
+      <td class="num">${valuationUnverified ? '—' : fmtW(r.evalAmt)}</td>
+      <td class="num" style="color:${pC2}">${valuationUnverified ? '—' : pS2+fmt(r.pnl)}</td>
+      <td class="num" style="color:${pC2}">${valuationUnverified ? '—' : pS2+r.pct.toFixed(1)+'%'}</td>
     </tr>`);
   });
 
@@ -121,7 +125,9 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
   <div class="tbl-wrap">
     <div class="tbl-head">
       <h3>종목 목록 ${filteredBadge}</h3>
-      <div class="tsum">평가 <b>${fmt(totalEval)}</b> &nbsp; 손익 <span style="color:${pC}">${pS}${fmt(totalPnl)} (${pS}${totalPct.toFixed(1)}%)</span> <span class="txt-muted-68">(단위:원)</span></div>
+      <div class="tsum">${valuationUnverified
+        ? 'GAS 복원 미완료 · 가격·평가액·손익 표시 보류'
+        : `평가 <b>${fmt(totalEval)}</b> &nbsp; 손익 <span style="color:${pC}">${pS}${fmt(totalPnl)} (${pS}${totalPct.toFixed(1)}%)</span> <span class="txt-muted-68">(단위:원)</span>`}</div>
     </div>
     <div class="overflow-x-auto"><table><thead><tr>${headerCols}</tr></thead><tbody>`;
   html += rowsHtml.join('');
