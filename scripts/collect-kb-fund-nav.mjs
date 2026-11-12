@@ -55,6 +55,25 @@ export async function runPublicSourceOnly({now=new Date(),fetchImpl=fetch}={}){
     sourceRows:rows.length,sameDayExcluded:received.length-rows.length,
     historicalCutoffExclusive:today,from,to,latestDate:rows.at(-1).date,rows};
 }
+// Latest-close NAV still awaiting official publication is not a bad writer.
+// A narrow read-only deferral is permitted; stale history stays fail-closed.
+export function isRecentUnpublishedKbCloseDay(row,{closeDate,today,latestPublishedDate}={}){
+ if(!row||typeof row.date!=='string'||row.date!==closeDate
+   ||!/^\d{4}-\d{2}-\d{2}$/.test(today||'')
+   ||!/^\d{4}-\d{2}-\d{2}$/.test(closeDate||'')
+   ||!/^\d{4}-\d{2}-\d{2}$/.test(latestPublishedDate||'')
+   ||row.date<=latestPublishedDate||row.date>today
+   ||row.publicationExpected!==true||row.valuationRequired!==true
+   ||row.unitsApplied!==true||row.reconciled!==true
+   ||!['UNPUBLISHED','NAV_MISSING'].includes(row.navState))return false;
+ const ageDays=(Date.parse(today+'T00:00:00Z')
+   -Date.parse(closeDate+'T00:00:00Z'))/86400000;
+ const weekday=new Date(closeDate+'T00:00:00Z').getUTCDay();
+ const maxLagDays=weekday===5?3:1;
+ return Number.isSafeInteger(ageDays)&&ageDays>=0&&ageDays<=maxLagDays
+   &&['WRITE_REQUIRED','NOT_CREATED'].some(t=>
+     row.evaluationState===t||row.snapshotState===t);
+}
 export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}){
   const endpoint=validateWebAppUrl(url);
@@ -179,7 +198,11 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
     ['WRITE_REQUIRED','NOT_CREATED'].includes(d.evaluationState)
     ||['WRITE_REQUIRED','NOT_CREATED'].includes(d.snapshotState));
   const pending=(await valuation()).filter(needsWrite);
-  for(const day of pending){
+  const isWaiting=d=>isRecentUnpublishedKbCloseDay(d,{
+    closeDate:valuationTo,today,latestPublishedDate:rows.at(-1).date
+  });
+  const eligible=pending.filter(day=>!isWaiting(day));
+  for(const day of eligible){
     // Never write an unpublished/unknown NAV or a row without reconciled units.
     // Fixed error enums reveal which admission check stopped the writer
     // without logging NAV amounts, positions, dates or private GAS responses.
@@ -193,12 +216,21 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
     if(r.status!=='ok')throw Error('NAV_DERIVED_'+classifyFundError(r.message));
   }
   const final=await valuation();
-  if(final.some(d=>needsWrite(d)||(d.valuationRequired===false
-     ?d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED'
-     :!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
-      ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState))))
+  if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||
+    (d.valuationRequired===false
+      ?d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED'
+      :!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
+       ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))))
     throw Error('NAV_DERIVED_PENDING');
-  return {mode:'APPLY',sourceRows:rows.length,candidates:candidates.length,imported:candidates.length,derivedRepaired:pending.length,importAckRecovered};
+  const waiting=final.filter(d=>needsWrite(d)&&isWaiting(d));
+  if(waiting.length)return {mode:'DEFERRED',complete:false,
+    reason:'OFFICIAL_NAV_AWAITING_PUBLICATION',sourceRows:rows.length,
+    candidates:candidates.length,imported:candidates.length,
+    derivedRepaired:eligible.length,waitingDates:waiting.map(d=>d.date),
+    importAckRecovered,financialWritesNotAuthorized:true};
+  return {mode:'APPLY',complete:true,sourceRows:rows.length,
+    candidates:candidates.length,imported:candidates.length,
+    derivedRepaired:eligible.length,importAckRecovered};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
   try{console.log(JSON.stringify(process.argv.includes('--source-only')
