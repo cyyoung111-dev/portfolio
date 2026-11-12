@@ -287,14 +287,20 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
     });
     const watchAt=lines.indexOf('■ 8. AI 산업·반도체 종합평가 (전일 일봉 기반)');
     if(watchLines.length&&watchAt>=0){
-      // Only the generic industry caveat may yield space, not financial rows,
-      // the NH night reference, market prices, source dates or QC.
-      const candidate=lines.slice(),genericIndex=candidate.findIndex(line=>
-        line.startsWith('• 실수요: 빅테크 CAPEX'));
-      if(genericIndex>=0)candidate.splice(genericIndex,1);
-      const insertAt=candidate.indexOf('■ 8. AI 산업·반도체 종합평가 (전일 일봉 기반)');
-      candidate.splice(insertAt,0,...watchLines,'');
-      if(candidate.join('\n').length<=3900)lines.splice(0,lines.length,...candidate);
+      // Prefer 3 events, gracefully reduce to 1 before dropping the section.
+      // Never displace source dates, NH night reference, prices or QC.
+      for(let count=watchLines.length-2;count>=1;count--){
+        const chosen=[watchLines[0],...watchLines.slice(1,1+count),watchLines.at(-1)];
+        const candidate=lines.slice(),genericIndex=candidate.findIndex(line=>
+          line.startsWith('• 실수요: 빅테크 CAPEX'));
+        if(genericIndex>=0)candidate.splice(genericIndex,1);
+        const insertAt=candidate.indexOf('■ 8. AI 산업·반도체 종합평가 (전일 일봉 기반)');
+        candidate.splice(insertAt,0,...chosen,'');
+        if(candidate.join('\n').length<=3900){
+          lines.splice(0,lines.length,...candidate);
+          break;
+        }
+      }
     }
   }
   let message=lines.join('\n');
