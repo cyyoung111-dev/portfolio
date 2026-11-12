@@ -7,6 +7,7 @@ import {expectedMorningDate} from './telegram-morning-report.mjs';
 import {AI_EVENT_WATCH,selectAiEventHighlights} from './briefing-ai-event-watch.mjs';
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
+import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
@@ -75,9 +76,18 @@ async function readManualWatch({date,now=new Date(),fetchDaily=fetchDatedDaily,f
      break;
     }catch{/* Fail closed on missing provider, without affecting core market. */}
    }
+   if(!prices[i]){
+    const secondary=await readNasdaqDailyHistorical(item.symbol,expectedUsDate,
+      {now,fetchImpl:shortFetch});
+    if(secondary)prices[i]={...secondary,label:item.label,unit:'USD'};
+   }
   }
  }));
  const verified=prices.filter(Boolean);
+ console.log(JSON.stringify({kind:'AI_MANUAL_WATCH_SOURCE_COVERAGE',date,
+  yahoo:verified.filter(x=>x.source==='YAHOO_DAILY_REFERENCE').length,
+  nasdaq:verified.filter(x=>x.source==='NASDAQ_DAILY_REFERENCE').length,
+  verified:verified.length,total:COUNT}));
  const events=verified.length>=coverageMin
   ?selectAiEventHighlights({expectedUsDate,prices:verified}):[];
  return {expectedUsDate,verified:verified.length,total:COUNT,events};
