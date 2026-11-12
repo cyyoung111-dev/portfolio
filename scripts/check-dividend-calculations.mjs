@@ -124,10 +124,17 @@ assert.equal(manualCtx.DIVDATA['005930'].events[0].payDate,'2026-01-15');
 assert.equal(manualCtx.DIVDATA['005930'].events[0].netReceived,846);
 assert.equal(manualCtx.DIVDATA['005930'].events[0].withheldTax,154);
 eventInput.receivedConfirmed=false;
+manualCtx.__setDividendName('테스트 종목');
 await manualCtx.saveDivManualEditor();
 assert.equal(writes,1,'cash amounts without payment confirmation must not save');
 assert.match(messages.at(-1),/세후 실입금/);
 eventInput.receivedConfirmed=true;
+manualCtx.document.querySelectorAll=()=>[eventRow,eventRow];
+manualCtx.__setDividendName('테스트 종목');
+await manualCtx.saveDivManualEditor();
+assert.equal(writes,1,'duplicate manual events must not save twice');
+assert.match(messages.at(-1),/중복/);
+manualCtx.document.querySelectorAll=()=>[eventRow];
 
 const persisted=JSON.parse(JSON.stringify(manualCtx.DIVDATA));
 const persistenceSource=fs.readFileSync('src/web/features/settings/settings_persistence_utils.js','utf8');
