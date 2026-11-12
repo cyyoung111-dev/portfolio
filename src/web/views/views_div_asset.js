@@ -128,10 +128,12 @@ function calcDividends() {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ref) || !(amount > 0)) return;
       const eventKey = ref + '|' + pay;
       const old = uniqueEvents.get(eventKey);
-      if (!old || (ev.receivedConfirmed === true && old.receivedConfirmed !== true)
-          || (ev.receivedConfirmed === old.receivedConfirmed)) {
-        uniqueEvents.set(eventKey, ev);
-      }
+      // A duplicate provider update may omit verified bank evidence. Never
+      // replace a richer manual receipt with a poorer confirmed flag alone.
+      const rank = item => item?.receivedConfirmed !== true ? 0 :
+        1 + (typeof item.netReceived === 'number' && Number.isFinite(item.netReceived) ? 2 : 0)
+          + (typeof item.withheldTax === 'number' && Number.isFinite(item.withheldTax) ? 1 : 0);
+      if (!old || rank(ev) >= rank(old)) uniqueEvents.set(eventKey, ev);
     });
     [...uniqueEvents.values()].forEach(ev => {
       const evDate = String(ev?.date || '').slice(0, 10);
