@@ -433,25 +433,39 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
   if(!isCurrent())return fail('CONNECTION_CHANGED');
   if(!sameFailedReceipt(initialReceipt))
     return fail('SERVER_RECEIPT_NOT_STABLE_FAILED');
+  // GAS can be cold and 338-row authoritative reads may exceed the normal
+  // 20s UI timeout. These are READ-ONLY requests; do not retry any writes.
+  const financialReadOptions={...requestOptions,timeoutMs:60000,retry:0};
   const checkRemote=async()=>{
-    const readback=await requestGsheetActionJson('getTrades',{},requestOptions);
+    let readback;
+    try{readback=await requestGsheetActionJson('getTrades',{},financialReadOptions);}
+    catch(ignore){throw Error('SERVER_TRADES_NETWORK_UNVERIFIED');}
     if(!isCurrent())throw Error('CONNECTION_CHANGED');
-    if(readback?.status!=='ok'||readback.tradeLedgerProtocolVersion!==2
+    if(readback?.status!=='ok') {
+      const code=String(readback?.errorCode||'');
+      if(code==='CLIENT_TIMEOUT')throw Error('SERVER_TRADES_TIMEOUT');
+      if(code==='HTTP_401'||code==='HTTP_403'||readback?.message==='인증 실패')
+        throw Error('SERVER_TRADES_AUTH_REJECTED');
+      throw Error('SERVER_TRADES_RESPONSE_UNVERIFIED');
+    }
+    if(readback.tradeLedgerProtocolVersion!==2
         ||!/^[0-9a-f]{64}$/.test(String(readback.ledgerRevision||''))
         ||!Array.isArray(readback.trades))
-      throw Error('SERVER_LEDGER_UNVERIFIED');
-    const verified=await digest(readback.trades);
+      throw Error('SERVER_TRADES_SCHEMA_UNVERIFIED');
+    let verified;
+    try{verified=await digest(readback.trades);}
+    catch(ignore){throw Error('SERVER_TRADES_CANONICAL_UNVERIFIED');}
     if(verified!==readback.ledgerRevision)
-      throw Error('SERVER_LEDGER_REVISION_MISMATCH');
+      throw Error('SERVER_TRADES_HASH_MISMATCH');
     if(dirty){
-      const response=await requestGsheetActionJson('getHoldings',{},requestOptions);
+      const response=await requestGsheetActionJson('getHoldings',{},financialReadOptions);
       if(!isCurrent())throw Error('CONNECTION_CHANGED');
       if(response?.status!=='ok'||!Array.isArray(response.holdings))
         throw Error('SERVER_HOLDINGS_UNVERIFIED');
       const actualHoldings=holdingSignature(response.holdings,null,false);
       if(!sameHoldings(expectedHoldings,actualHoldings))
         throw Error('SERVER_AND_PC_HOLDINGS_DIFFER');
-      const settings=await requestGsheetActionJson('getSettings',{},requestOptions);
+      const settings=await requestGsheetActionJson('getSettings',{},financialReadOptions);
       if(!isCurrent())throw Error('CONNECTION_CHANGED');
       if(settings?.status!=='ok'||!settings.settings
           ||typeof settings.settings!=='object')
@@ -465,7 +479,7 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
   try{remote1=await checkRemote();}
   catch(error){
     const code=String(error?.message||'');
-    return fail(/^SERVER_(?:HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
+    return fail(/^SERVER_(?:TRADES_(?:TIMEOUT|NETWORK_UNVERIFIED|AUTH_REJECTED|RESPONSE_UNVERIFIED|SCHEMA_UNVERIFIED|CANONICAL_UNVERIFIED|HASH_MISMATCH)|HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
       ?code:'SERVER_LEDGER_UNVERIFIED');
   }
   if(remote1.hash!==attemptedRevision||remote1.count!==attemptedRows.length)
@@ -477,7 +491,7 @@ async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite(options) {
     if(!sameFailedReceipt(await receiptQuery()))return fail('SERVER_RECEIPT_CHANGED');
   }catch(error){
     const code=String(error?.message||'');
-    return fail(/^SERVER_(?:HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
+    return fail(/^SERVER_(?:TRADES_(?:TIMEOUT|NETWORK_UNVERIFIED|AUTH_REJECTED|RESPONSE_UNVERIFIED|SCHEMA_UNVERIFIED|CANONICAL_UNVERIFIED|HASH_MISMATCH)|HOLDINGS_UNVERIFIED|AND_PC_HOLDINGS_DIFFER|FUND_SETTINGS_UNVERIFIED|AND_PC_FUND_SETTINGS_DIFFER)$/.test(code)
       ?code:'SECOND_READBACK_UNVERIFIED');
   }
   if(!isCurrent())return fail('CONNECTION_CHANGED');
