@@ -29,7 +29,7 @@ assert.ok(!events.some(x=>x.symbol==='SNDK'));
 assert.equal(new Set(events.map(x=>x.sector)).size,3);
 const output=formatAiEventHighlights({expectedUsDate:usDate,events});
 assert.ok(output.join('\n').includes('미국 정규장'));
-assert.ok(output.join('\n').includes('추가 확인'));
+assert.ok(output.join('\n').includes('별도 확인'));
 assert.ok(output.join('\n').includes('나스닥100 대비'));
 assert.deepEqual(formatAiEventHighlights({expectedUsDate:usDate,events:[]}),[]);
 assert.deepEqual(selectAiEventHighlights({expectedUsDate:usDate,prices:[
