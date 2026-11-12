@@ -2,7 +2,6 @@
 // #860 single protected status read offline contract. No GAS network/Sheets access.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import YAML from 'yaml';
 import {readIssue860Once} from './issue860-close-single-status-readonly.mjs';
 
 const url='https://script.google.com/macros/s/EXAMPLE_DEPLOYMENT/exec';
@@ -128,18 +127,14 @@ for(const [name,reason] of [['TimeoutError','TIMEOUT'],['Error','NETWORK']]){
  }}),new RegExp('ISSUE860_STATUS_'+reason));
  assert.equal(n,1,'single request; do not retry a busy GAS service');
 }
-const current=YAML.parse(fs.readFileSync(
- '.github/workflows/issue860-once-close-status-readonly.yml','utf8'));
-assert.deepEqual(current.on.push.paths,
- ['.github/workflows/issue860-once-close-status-readonly.yml']);
-assert.equal(current.jobs.status.environment,'portfolio-production-gas');
-const actual=current.jobs.status.steps;
-assert(actual.some(x=>x.run==='node scripts/issue860-close-single-status-readonly.mjs'));
-assert(actual.some(x=>x.run==='node scripts/issue734-gas9293-postdeploy-readonly.mjs'));
-assert(!actual.some(x=>x.run==='node scripts/issue860-gas9292-postdeploy-readonly.mjs'),
- 'obsolete 9.292-only live read must not falsely fail on current production 9.293');
-assert(actual.every(x=>!String(x.run||'').includes('resumeIncompletePortfolioClose')),
- 'current operational readback must not contain a legacy writer replay');
+// The protected one-shot runs with Node only; no package installation.
+const current=fs.readFileSync('.github/workflows/issue860-once-close-status-readonly.yml','utf8');
+assert(current.includes("paths: ['.github/workflows/issue860-once-close-status-readonly.yml']"));
+assert.match(current,/environment: portfolio-production-gas/);
+assert.match(current,/run: node scripts\/issue860-close-single-status-readonly\.mjs/);
+assert.match(current,/run: node scripts\/issue734-gas9293-postdeploy-readonly\.mjs/);
+assert.doesNotMatch(current,/run: node scripts\/issue860-gas9292-postdeploy-readonly\.mjs/);
+assert.doesNotMatch(current,/run:.*resumeIncompletePortfolioClose/);
 console.log(JSON.stringify({kind:'ISSUE860_SINGLE_STATUS_OFFLINE_PASS',
  responseSanitized:true,authenticatedOneRequest:true,timeoutBounded:true,
  ownerProofNotInvented:true,financialWrites:0,realGasRequests:0}));
