@@ -300,37 +300,54 @@ function getPublicDataApiKey() {
 }
 
 async function savePublicDataApiKeyFromUI() {
-  const input = $el('publicDataKeyInput') || $el('divPublicKeyInput');
-  const key = String(input?.value || '').trim();
-  const status = $el('publicDataKeyStatus') || $el('divFetchStatus');
-  const setStatus = (msg, ok) => {
-    if (!status) return;
-    status.style.color = ok ? 'var(--green-lt)' : 'var(--amber)';
-    status.textContent = msg;
-  };
-
-  if (GSHEET_API_URL && typeof requestGsheetFormJson === 'function') {
-    setStatus('공공데이터 API 키를 GAS에 저장 중...', true);
-    const data = await requestGsheetFormJson(
-      'savePublicDataApiKey',
-      { key: key || '-' },
-      { timeoutMs: 10000, retry: 1 }
-    );
-    if (data && data.status === 'ok') {
-      if (input) input.value = '';
-      if (typeof lsRemove === 'function') lsRemove(DIV_PUBLIC_KEY);
-      showToast(key ? '공공데이터 API 키 저장 완료 (GAS 동기화)' : '공공데이터 API 키 삭제 완료 (GAS 동기화)', key ? 'ok' : 'warn');
-      setStatus(key ? '공공데이터 우선 조회가 활성화됩니다. 다른 브라우저에서도 설정 복원됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.', !!key);
-      return;
-    }
-    const reason = data && data.message ? ` · ${data.message}` : '';
-    showToast('공공데이터 API 키를 저장하지 못했습니다. 브라우저에는 키를 보관하지 않습니다', 'warn', 5000);
-    setStatus(`GAS 저장 실패${reason} · 구글시트 연동 URL/배포 버전을 확인하세요.`, false);
-    return;
+  const input=$el('publicDataKeyInput')||$el('divPublicKeyInput');
+  const key=String(input?.value||'').trim();
+  const status=$el('publicDataKeyStatus')||$el('divFetchStatus');
+  const inform=(message,ok)=>{if(status){status.textContent=message;status.style.color=ok?'var(--green-lt)':'var(--amber)';}};
+  if(!key||key==='-') {
+    inform('빈 입력은 저장하거나 삭제하지 않습니다. 삭제하려면 별도 삭제 버튼을 사용하세요.',false);
+    return false;
   }
+  if(!GSHEET_API_URL||typeof requestGsheetFormJson!=='function') {
+    inform('GAS 연결 후 서버에 저장할 수 있습니다.',false);return false;
+  }
+  const target=String(GSHEET_API_URL);
+  inform('공공데이터 인증키를 GAS에 저장 중…',true);
+  const data=await requestGsheetFormJson('savePublicDataApiKey',{key},
+    {timeoutMs:10000,retry:0});
+  if(target!==String(GSHEET_API_URL))return false;
+  if(data?.status==='ok'&&data.saved===true&&data.cleared===false){
+    if(input)input.value='';
+    if(typeof lsRemove==='function')lsRemove(DIV_PUBLIC_KEY);
+    if(typeof _setGASKeyConfigured==='function')_setGASKeyConfigured('publicDataApiKeyConfigured',true);
+    inform('GAS 키 저장됨 · 실제 배당·종목 조회 성공은 별도 확인이 필요합니다.',true);
+    if(typeof showToast==='function')showToast('공공데이터 키를 GAS에 저장했습니다','ok');
+    return true;
+  }
+  inform('GAS 저장 실패 또는 응답 미확인 · 기존 설정 유지',false);
+  return false;
+}
 
-  showToast('GAS 연결 후 서버 측에 저장할 수 있습니다', 'warn');
-  setStatus('보안을 위해 API 키를 브라우저에 저장하지 않습니다.', false);
+async function clearPublicDataApiKeyFromUI() {
+  const status=$el('publicDataKeyStatus')||$el('divFetchStatus');
+  if(typeof window.confirm!=='function'
+    ||!window.confirm('GAS에 저장된 공공데이터 API 키를 삭제하시겠습니까? 배당·종목정보 연동에 영향을 줄 수 있습니다.'))return false;
+  if(!GSHEET_API_URL||typeof requestGsheetFormJson!=='function'){
+    if(status)status.textContent='GAS 연결 확인 후 삭제할 수 있습니다.';return false;
+  }
+  const target=String(GSHEET_API_URL);
+  const data=await requestGsheetFormJson('savePublicDataApiKey',{key:'-'},
+    {timeoutMs:10000,retry:0});
+  if(target!==String(GSHEET_API_URL))return false;
+  if(data?.status==='ok'&&data.cleared===true&&data.saved===false) {
+    if(typeof lsRemove==='function')lsRemove(DIV_PUBLIC_KEY);
+    if(typeof _setGASKeyConfigured==='function')_setGASKeyConfigured('publicDataApiKeyConfigured',false);
+    if(status)status.textContent='GAS 공공데이터 키 삭제 완료 · 기존 배당정보는 유지됩니다.';
+    if(typeof showToast==='function')showToast('GAS 공공데이터 키 삭제 완료','warn');
+    return true;
+  }
+  if(status)status.textContent='키 삭제 실패 · 기존 설정 유지';
+  return false;
 }
 
 async function _fetchDividendSource(action, codeItems, extraParams, requestOptions) {
