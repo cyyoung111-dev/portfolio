@@ -146,6 +146,55 @@ assert.equal(dayOf.scheduleCount,1);
 const noId=scenario({propsPatch:{portfolio_close_run_id:''}});
 assert.equal(noId.scheduleCount,0);
 
+// Actual pre-replay prune must preserve an orphan whose NAV reservation failed,
+// even when 39/39 PRICE/Snapshot evidence itself is already verified.
+const prune=extract('_pruneVerifiedHistoricalKrxPending_');
+const navGuard=extract('_issue734PendingCloseOwnerRequiresNav_');
+assert.match(prune,/_issue734PendingCloseOwnerRequiresNav_\(sharedProps,date\)/);
+function pruneScenario(complete){
+ const state=new Map(Object.entries({
+   ...owner,
+   portfolio_close_stage:complete?'COMPLETE':'ERROR',
+   portfolio_close_last_result:JSON.stringify(complete
+     ?{...unreserved.last,runDate:DAY,runId:owner.portfolio_close_run_id,
+       priceOk:true,priceDate:DAY,fundOk:true,errors:[]}
+     :unreserved.last),
+   lease:JSON.stringify({token:'lease-uid',until:clock+600000}),
+   pending:JSON.stringify([DAY])
+ }));
+ const props={
+   getProperty:k=>state.has(k)?state.get(k):null,
+   setProperty:(k,v)=>state.set(k,String(v)),
+   deleteProperty:k=>state.delete(k)
+ };
+ const ctx={
+   Date:{now:()=>clock},
+   PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'lease',
+   PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY:'cursor',
+   PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'pending',
+   _portfolioFundAtomic_:fn=>fn(props),
+   _portfolioFundState_:(p,k)=>{
+     try{return JSON.parse(p.getProperty(k)||'null')}catch{return null}
+   },
+   _readPendingKrxCloseDates_:()=>JSON.parse(props.getProperty('pending')),
+   _krxCalendarStatus_:()=> 'OPEN',
+   _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:37}),
+   getss:()=>({})
+ };
+ vm.runInNewContext([navGuard,prune].join('\n'),ctx);
+ const result=JSON.parse(JSON.stringify(
+   ctx._pruneVerifiedHistoricalKrxPending_('lease-uid',NEXT)));
+ return {result,pending:JSON.parse(props.getProperty('pending'))};
+}
+const stillNeedsNav=pruneScenario(false);
+assert.equal(stillNeedsNav.result.cleared,0);
+assert.deepEqual(stillNeedsNav.pending,[DAY],
+ 'a scheduled retry must still see the orphan after NAV reservation fails');
+const fullyClosed=pruneScenario(true);
+assert.equal(fullyClosed.result.cleared,1);
+assert.deepEqual(fullyClosed.pending,[],
+ 'a separately confirmed same-owner COMPLETE may be pruned');
+
 console.log(JSON.stringify({kind:'ISSUE734_GAS9294_CLOSE_NAV_OWNER_PREVIEW_PASS',
- scenarios:8,candidateBlob:manifest.candidateGitBlob,
+ scenarios:10,candidateBlob:manifest.candidateGitBlob,
  sourceOnly:true,financeWrites:0,gasDeployments:0}));
