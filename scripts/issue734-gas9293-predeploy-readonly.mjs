@@ -18,7 +18,9 @@ export function assessGas9293Preflight({published,close,snapshot}={}){
  // This one-shot emergency recovery intentionally accepts an incomplete
  // CLOSE. A settled COMPLETE requirement would deadlock the defect it fixes.
  if(close?.gasVersion!=='9.292'
-    ||close.observedKstDate!=='2026-11-12'
+    // The Nov 12 orphan remains valid for a bounded post-midnight release
+    // on Nov 13; date-scoped missing Snapshot and owner proofs still apply.
+    ||!['2026-11-12','2026-11-13'].includes(close.observedKstDate)
     ||close.closeRunDate!=='2026-11-12'
     ||close.closeState!=='INCOMPLETE'||close.closeStage!=='PRICE'
     ||close.snapshotLastDate!=='2026-11-11'

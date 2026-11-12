@@ -60,6 +60,12 @@ const good=assessGas9293Preflight({published,close,snapshot});
 assert.equal(good.status,'VERIFIED');
 assert.equal(good.unrecoveredRows,39);
 assert.equal(good.financeWrites,0);
+assert.equal(assessGas9293Preflight({
+ published,close:{...close,observedKstDate:'2026-11-13'},snapshot
+}).status,'VERIFIED','post-midnight KST must not block Nov12 scoped repair');
+assert.throws(()=>assessGas9293Preflight({
+ published,close:{...close,observedKstDate:'2026-11-14'},snapshot
+}),/ISSUE734_9293_PREFLIGHT_ORPHANED_CLOSE_STATE_CHANGED/);
 for(const invalid of [
  {published:{...published,tradeRows:337}},
  {published:{...published,recordedActive:1}},
