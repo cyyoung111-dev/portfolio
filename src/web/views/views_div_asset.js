@@ -252,6 +252,21 @@ function renderDivView(area, skipFetch) {
   const withheldTaxSoFar = divRows.reduce((sum,r)=>sum+(r.withheldTaxDiv||0),0);
   const taxRecordedEntries = divRows.reduce((sum,r)=>sum+(r.withheldTaxCount||0),0);
   const remainingYear = Math.max(0,totalAnnual-receivedSoFar);
+  // Real cashflow covers historical payments even when zero-current-qty is hidden.
+  const cashMonths = Array.from({length:12},()=>({declared:0,confirmedGross:0,net:0,tax:0,netCount:0,taxCount:0}));
+  allDivRows.forEach(r => cashMonths.forEach((m,i) => {
+    const month=i+1;
+    m.declared += Number(r.monthlyDeclaredGross?.[month] || 0);
+    m.confirmedGross += Number(r.monthlyReceivedGross?.[month] || 0);
+    m.net += Number(r.monthlyNetReceived?.[month] || 0);
+    m.tax += Number(r.monthlyWithheldTax?.[month] || 0);
+    m.netCount += Number(r.monthlyNetCount?.[month] || 0);
+    m.taxCount += Number(r.monthlyTaxCount?.[month] || 0);
+  }));
+  const cashTotal = cashMonths.reduce((a,m)=>({
+    declared:a.declared+m.declared,confirmedGross:a.confirmedGross+m.confirmedGross,
+    net:a.net+m.net,tax:a.tax+m.tax,netCount:a.netCount+m.netCount,taxCount:a.taxCount+m.taxCount
+  }),{declared:0,confirmedGross:0,net:0,tax:0,netCount:0,taxCount:0});
   const selectedMonth = _divSelectedMonth;
   const selectedMonthTotal = selectedMonth ? monthly[selectedMonth - 1] : totalAnnual;
 
@@ -325,6 +340,27 @@ function renderDivView(area, skipFetch) {
       <div class="div-stat-sub">세후 실입금 직접기록 ${netReceivedEntries}건 ${netReceivedEntries ? fmtW(Math.round(netReceivedSoFar)) : '미입력'} · 원천징수 직접기록 ${taxRecordedEntries}건 ${taxRecordedEntries ? fmtW(Math.round(withheldTaxSoFar)) : '미입력'} · 미입금 확인·예상 ${fmtW(Math.round(remainingYear))}</div>
     </div>
   </div>
+
+  <!-- ── Verified bank cashflow versus published gross dividend ── -->
+  <section aria-label="배당 현금흐름 검증" style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:7px">
+      <strong style="font-size:.81rem">월별 배당 현금흐름 · 실입금 확인</strong>
+      <span style="font-size:.66rem;color:var(--muted)">${cashTotal.netCount ? `은행 실입금 직접기록 ${cashTotal.netCount}건` : '은행 실입금 내역 미등록'}</span>
+    </div>
+    <div style="font-size:.64rem;color:var(--muted);margin-bottom:9px">공시 세전금액은 입금 증명이 아닙니다. 실제 세후 입금액·원천세는 사용자가 확인한 금액만 집계하며, 미등록은 0원으로 간주하지 않습니다. 아래 수치는 지급일 기준이며 지급일 미등록 건은 기준일을 사용한 참고값입니다.</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-size:.72rem">
+      <span>공시·등록 세전 <b>${fmtW(Math.round(cashTotal.declared))}</b></span>
+      <span>수동 입금확인 세전 <b>${fmtW(Math.round(cashTotal.confirmedGross))}</b></span>
+      <span>은행 실입금 <b>${cashTotal.netCount ? fmtW(Math.round(cashTotal.net)) : '미등록'}</b></span>
+      <span>실제 원천세 <b>${cashTotal.taxCount ? fmtW(Math.round(cashTotal.tax)) : '미등록'}</b></span>
+    </div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table style="width:100%;min-width:490px;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.70rem">
+        <thead><tr style="background:var(--s2);color:var(--muted)"><th style="padding:6px;text-align:left">월</th><th style="padding:6px;text-align:right">공시 세전</th><th style="padding:6px;text-align:right">입금확인 세전</th><th style="padding:6px;text-align:right">은행 실입금</th><th style="padding:6px;text-align:right">원천세</th></tr></thead>
+        <tbody>${cashMonths.map((m,i)=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 6px">${i+1}월</td><td style="padding:5px 6px;text-align:right">${m.declared ? fmtW(Math.round(m.declared)) : '–'}</td><td style="padding:5px 6px;text-align:right">${m.confirmedGross ? fmtW(Math.round(m.confirmedGross)) : '–'}</td><td style="padding:5px 6px;text-align:right">${m.netCount ? fmtW(Math.round(m.net)) : '미등록'}</td><td style="padding:5px 6px;text-align:right">${m.taxCount ? fmtW(Math.round(m.tax)) : '미등록'}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+  </section>
 
   <!-- ── 월별 필터 + 바 차트 ── -->
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
