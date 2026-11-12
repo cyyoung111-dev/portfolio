@@ -247,7 +247,7 @@ function exportPortfolioExcel() {
     ['전체 예상 배당 세전', Math.round(annualDividend),'배당 현황 합계'],
     ['일반계좌 예상 배당 세전', Math.round(dividendFlow.normalGross),''],
     ['일반계좌 참고 세후 배당', Math.round(dividendFlow.normalAfterTax),'15.4% 단순 원천징수 참고'],
-    ['현재 사용 가능 월 배당', Math.round(dividendFlow.availableMonthly),'일반계좌 참고 세후액만 포함'],
+    ['일반계좌 예상 월배당(세후 가정)', Math.round(dividendFlow.availableMonthly),'일반계좌 참고 세후액만 포함'],
     ['ISA 내부 예상 배당', Math.round(dividendFlow.isaInternal),'즉시 생활비에 포함하지 않음'],
     ['연금저축 내부 예상 배당', Math.round(dividendFlow.pensionSavingsInternal),'즉시 생활비에 포함하지 않음'],
     ['IRP 내부 예상 배당', Math.round(dividendFlow.irpInternal),'즉시 생활비에 포함하지 않음'],

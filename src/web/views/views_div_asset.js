@@ -39,10 +39,15 @@ function calcDividends() {
   // 보유 종목별 계좌 집계 (펀드 제외)
   const acctMap = {};
   const currentQtyMap = {};
+  const currentAccountQty = {};
   rawHoldings.filter(h => !h.fund && h.name).forEach(h => {
     if (!acctMap[h.name]) acctMap[h.name] = [];
     if (h.acct && !acctMap[h.name].includes(h.acct)) acctMap[h.name].push(h.acct);
     currentQtyMap[h.name] = (currentQtyMap[h.name] || 0) + (Number(h.qty) || 0);
+    if (h.acct) {
+      currentAccountQty[h.name] ||= {};
+      currentAccountQty[h.name][h.acct] = (currentAccountQty[h.name][h.acct] || 0) + (Number(h.qty) || 0);
+    }
   });
 
   // ★ [버그수정] new Date() 로컬 타임존 → _kstYear() 으로 교체
@@ -79,18 +84,63 @@ function calcDividends() {
     let netReceivedDiv = 0; // ONLY bank net amounts explicitly typed by user
     let withheldTaxDiv = 0; // ONLY withholding amounts explicitly typed by user
     let netReceivedCount = 0, withheldTaxCount = 0;
-    const uniqueDividendEvents = new Set();
-    const monthlyDiv = {}; // month → 실제+예상 배당금
+    const monthlyDiv = {}; // month → declared + projected gross
+    const monthlyDeclaredGross = {}, monthlyReceivedGross = {};
+    const monthlyNetReceived = {}, monthlyWithheldTax = {};
+    const monthlyNetCount = {}, monthlyTaxCount = {};
+    const accountAnnualDiv = {}; // gross by entitlement-date account, never bank deposits
+    let unallocatedAnnualDiv = 0;
+    const accountNames = new Set(accts);
+    const ledgerAvailable = typeof rawTrades !== 'undefined' && Array.isArray(rawTrades);
+    if (ledgerAvailable) rawTrades.forEach(t => {
+      if (t?.name === name && t.acct) accountNames.add(t.acct);
+    });
+    // Historical dividends belong to the account that owned the units on
+    // entitlement date; current holdings must never reassign past income.
+    const attributeGross = (date, gross, qty) => {
+      if (!(qty > 0) || !(gross > 0)) return;
+      const splits = [];
+      for (const acct of accountNames) {
+        const units = ledgerAvailable && typeof getQtyAtDate === 'function'
+          ? Number(getQtyAtDate(name, date, acct)) || 0
+          : Number(currentAccountQty[name]?.[acct]) || 0;
+        if (units > 0) splits.push({acct,units});
+      }
+      const sum = splits.reduce((total, part) => total + part.units, 0);
+      // Neither tax category nor bank net payments may be inferred if the
+      // historical account allocation disagrees with the total entitlement.
+      if (!sum || Math.abs(sum - qty) > Math.max(0.000001, qty * 1e-8)) {
+        unallocatedAnnualDiv += gross;
+        return;
+      }
+      splits.forEach(({acct,units}) => {
+        accountAnnualDiv[acct] = (accountAnnualDiv[acct] || 0) + gross * units / sum;
+      });
+    };
     const actualMonths = new Set();
+    // A corrected source amount for the same date/payment is a REPLACEMENT,
+    // never an additional payment. Explicit user-confirmed records win.
+    const uniqueEvents = new Map();
     events.forEach(ev => {
+      const ref = String(ev?.date || '').slice(0,10);
+      const pay = String(ev?.payDate || '').slice(0,10);
+      const amount = Number(ev?.amount);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ref) || !(amount > 0)) return;
+      const eventKey = ref + '|' + pay;
+      const old = uniqueEvents.get(eventKey);
+      // A duplicate provider update may omit verified bank evidence. Never
+      // replace a richer manual receipt with a poorer confirmed flag alone.
+      const rank = item => item?.receivedConfirmed !== true ? 0 :
+        1 + (typeof item.netReceived === 'number' && Number.isFinite(item.netReceived) ? 2 : 0)
+          + (typeof item.withheldTax === 'number' && Number.isFinite(item.withheldTax) ? 1 : 0);
+      if (!old || rank(ev) >= rank(old)) uniqueEvents.set(eventKey, ev);
+    });
+    [...uniqueEvents.values()].forEach(ev => {
       const evDate = String(ev?.date || '').slice(0, 10);
       const amount = Number(ev?.amount || 0);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(evDate) || !amount || amount <= 0) return;
       const payDate = String(ev?.payDate || '').slice(0, 10);
       const cashflowDate = /^\d{4}-\d{2}-\d{2}$/.test(payDate) ? payDate : evDate;
-      const dividendKey = [evDate,payDate,amount].join('|');
-      if (uniqueDividendEvents.has(dividendKey)) return;
-      uniqueDividendEvents.add(dividendKey);
       // 확정 배당의 귀속 연도는 배당기준일이 아니라 실제 지급일을 우선합니다.
       if (Number(cashflowDate.slice(0, 4)) !== thisYear) return;
       const month = Number(cashflowDate.slice(5, 7));
@@ -101,18 +151,25 @@ function calcDividends() {
       const div = amount * qty;
       actualMonths.add(month);
       actualDiv += div;
+      monthlyDeclaredGross[month] = (monthlyDeclaredGross[month] || 0) + div;
+      attributeGross(evDate, div, qty);
       if (ev?.receivedConfirmed === true && /^\d{4}-\d{2}-\d{2}$/.test(payDate)
           && payDate <= _kstTodayStr()) {
         receivedDiv += div;
+        monthlyReceivedGross[month] = (monthlyReceivedGross[month] || 0) + div;
         // Manual gross receipt confirmation is not bank net deposit proof.
         // Imported historical events without these amounts remain unknown.
         if (typeof ev.netReceived === 'number'
             && Number.isFinite(ev.netReceived) && ev.netReceived >= 0) {
           netReceivedDiv += ev.netReceived; netReceivedCount++;
+          monthlyNetReceived[month] = (monthlyNetReceived[month] || 0) + ev.netReceived;
+          monthlyNetCount[month] = (monthlyNetCount[month] || 0) + 1;
         }
         if (typeof ev.withheldTax === 'number'
             && Number.isFinite(ev.withheldTax) && ev.withheldTax >= 0) {
           withheldTaxDiv += ev.withheldTax; withheldTaxCount++;
+          monthlyWithheldTax[month] = (monthlyWithheldTax[month] || 0) + ev.withheldTax;
+          monthlyTaxCount[month] = (monthlyTaxCount[month] || 0) + 1;
         }
       }
       annualDiv += div;
@@ -129,6 +186,7 @@ function calcDividends() {
         const div = dd.perShare * qty;
         annualDiv += div;
         monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
+        attributeGross(refDate, div, qty);
       }
     });
 
@@ -138,7 +196,10 @@ function calcDividends() {
     if (annualDiv > 0 || totalQty > 0) {
       result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv,
         actualDiv, receivedDiv, netReceivedDiv, withheldTaxDiv,
-        netReceivedCount, withheldTaxCount });
+        netReceivedCount, withheldTaxCount, monthlyDeclaredGross,
+        monthlyReceivedGross, monthlyNetReceived, monthlyWithheldTax,
+        monthlyNetCount, monthlyTaxCount, accountAnnualDiv,
+        unallocatedAnnualDiv });
     }
   });
 
@@ -193,6 +254,21 @@ function renderDivView(area, skipFetch) {
   const withheldTaxSoFar = divRows.reduce((sum,r)=>sum+(r.withheldTaxDiv||0),0);
   const taxRecordedEntries = divRows.reduce((sum,r)=>sum+(r.withheldTaxCount||0),0);
   const remainingYear = Math.max(0,totalAnnual-receivedSoFar);
+  // Real cashflow covers historical payments even when zero-current-qty is hidden.
+  const cashMonths = Array.from({length:12},()=>({declared:0,confirmedGross:0,net:0,tax:0,netCount:0,taxCount:0}));
+  allDivRows.forEach(r => cashMonths.forEach((m,i) => {
+    const month=i+1;
+    m.declared += Number(r.monthlyDeclaredGross?.[month] || 0);
+    m.confirmedGross += Number(r.monthlyReceivedGross?.[month] || 0);
+    m.net += Number(r.monthlyNetReceived?.[month] || 0);
+    m.tax += Number(r.monthlyWithheldTax?.[month] || 0);
+    m.netCount += Number(r.monthlyNetCount?.[month] || 0);
+    m.taxCount += Number(r.monthlyTaxCount?.[month] || 0);
+  }));
+  const cashTotal = cashMonths.reduce((a,m)=>({
+    declared:a.declared+m.declared,confirmedGross:a.confirmedGross+m.confirmedGross,
+    net:a.net+m.net,tax:a.tax+m.tax,netCount:a.netCount+m.netCount,taxCount:a.taxCount+m.taxCount
+  }),{declared:0,confirmedGross:0,net:0,tax:0,netCount:0,taxCount:0});
   const selectedMonth = _divSelectedMonth;
   const selectedMonthTotal = selectedMonth ? monthly[selectedMonth - 1] : totalAnnual;
 
@@ -266,6 +342,27 @@ function renderDivView(area, skipFetch) {
       <div class="div-stat-sub">세후 실입금 직접기록 ${netReceivedEntries}건 ${netReceivedEntries ? fmtW(Math.round(netReceivedSoFar)) : '미입력'} · 원천징수 직접기록 ${taxRecordedEntries}건 ${taxRecordedEntries ? fmtW(Math.round(withheldTaxSoFar)) : '미입력'} · 미입금 확인·예상 ${fmtW(Math.round(remainingYear))}</div>
     </div>
   </div>
+
+  <!-- ── Verified bank cashflow versus published gross dividend ── -->
+  <section aria-label="배당 현금흐름 검증" style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:7px">
+      <strong style="font-size:.81rem">월별 배당 현금흐름 · 실입금 확인</strong>
+      <span style="font-size:.66rem;color:var(--muted)">${cashTotal.netCount ? `은행 실입금 직접기록 ${cashTotal.netCount}건` : '은행 실입금 내역 미등록'}</span>
+    </div>
+    <div style="font-size:.64rem;color:var(--muted);margin-bottom:9px">공시 세전금액은 입금 증명이 아닙니다. 실제 세후 입금액·원천세는 사용자가 확인한 금액만 집계하며, 미등록은 0원으로 간주하지 않습니다. 아래 수치는 지급일 기준이며 지급일 미등록 건은 기준일을 사용한 참고값입니다.</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-size:.72rem">
+      <span>공시·등록 세전 <b>${fmtW(Math.round(cashTotal.declared))}</b></span>
+      <span>수동 입금확인 세전 <b>${fmtW(Math.round(cashTotal.confirmedGross))}</b></span>
+      <span>은행 실입금 <b>${cashTotal.netCount ? fmtW(Math.round(cashTotal.net)) : '미등록'}</b></span>
+      <span>실제 원천세 <b>${cashTotal.taxCount ? fmtW(Math.round(cashTotal.tax)) : '미등록'}</b></span>
+    </div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table style="width:100%;min-width:490px;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.70rem">
+        <thead><tr style="background:var(--s2);color:var(--muted)"><th style="padding:6px;text-align:left">월</th><th style="padding:6px;text-align:right">공시 세전</th><th style="padding:6px;text-align:right">입금확인 세전</th><th style="padding:6px;text-align:right">은행 실입금</th><th style="padding:6px;text-align:right">원천세</th></tr></thead>
+        <tbody>${cashMonths.map((m,i)=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 6px">${i+1}월</td><td style="padding:5px 6px;text-align:right">${m.declared ? fmtW(Math.round(m.declared)) : '–'}</td><td style="padding:5px 6px;text-align:right">${m.confirmedGross ? fmtW(Math.round(m.confirmedGross)) : '–'}</td><td style="padding:5px 6px;text-align:right">${m.netCount ? fmtW(Math.round(m.net)) : '미등록'}</td><td style="padding:5px 6px;text-align:right">${m.taxCount ? fmtW(Math.round(m.tax)) : '미등록'}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+  </section>
 
   <!-- ── 월별 필터 + 바 차트 ── -->
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
