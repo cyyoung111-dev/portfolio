@@ -1,5 +1,7 @@
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {pathToFileURL} from 'node:url';
+// Only explicitly reviewed GAS releases with the same dividend endpoints.
+const VERIFIED_DIVIDEND_GAS_VERSIONS=new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292']);
 export async function runDividendRefresh({url:rawUrl,token,fetchImpl=fetch,asOf=new Date()}) {
 const url=validateWebAppUrl(rawUrl);
 const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(asOf);
@@ -13,7 +15,7 @@ async function call(action,args={},access=token) {
  const deny=await call('getDividendSettings',{},'DIVIDEND_BAD_AUTH_PROBE');
  if(deny.status==='ok')throw Error('DIVIDEND_AUTH_NOT_ENFORCED');
  const state=await call('getAutomationStatus');
- if(state.status!=='ok'||!['9.281','9.282','9.283','9.284','9.285'].includes(state.gasVersion))throw Error('DIVIDEND_VERSION');
+ if(state.status!=='ok'||!VERIFIED_DIVIDEND_GAS_VERSIONS.has(state.gasVersion))throw Error('DIVIDEND_VERSION');
  const refreshed=await call('refreshEtfDividends',{force:'1'});
  if(refreshed.status!=='ok'||(!(refreshed.saved===true&&refreshed.refreshed===true)&&!(refreshed.skipped===true&&refreshed.reason==='NO_TARGETS')))throw Error('DIVIDEND_ETF_REFRESH_FAILED');
  const etfCodes=refreshed.targetCodes;
@@ -21,7 +23,7 @@ async function call(action,args={},access=token) {
  let cached=await call('getDividendSettings');
  if(cached.status!=='ok'||!cached.divData)throw Error('DIVIDEND_READBACK_FAILED');
  const catalog=await call('getCodeListReadOnly');
- if(catalog.status!=='ok'||catalog.readOnly!==true||!['9.281','9.282','9.283','9.284','9.285'].includes(catalog.gasVersion)||!Array.isArray(catalog.codes)) {
+ if(catalog.status!=='ok'||catalog.readOnly!==true||!VERIFIED_DIVIDEND_GAS_VERSIONS.has(catalog.gasVersion)||catalog.gasVersion!==state.gasVersion||!Array.isArray(catalog.codes)) {
   const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'READ_FAILED';
   throw Error('DIVIDEND_MASTER_'+reason);
  }
