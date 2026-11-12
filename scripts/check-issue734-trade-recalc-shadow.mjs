@@ -98,8 +98,11 @@ for(const guard of [
 assert(handler.indexOf('_setPendingTradeSnapshotRebuild(affectedFrom)')<
  handler.indexOf('sh.clearContents()'),
  'durable pending replay checkpoint must precede ledger mutation');
-assert.match(handler,
- /if \\(affectedFrom \\|\\| pendingSnapshotRebuild\\) \\{\\s*_recordTradeLedgerFingerprint_\\(ss\\);\\s*_clearPendingTradeSnapshotRebuild\\(\\);/,
+assert(handler.includes([
+ 'if (affectedFrom || pendingSnapshotRebuild) {',
+ '      _recordTradeLedgerFingerprint_(ss);',
+ '      _clearPendingTradeSnapshotRebuild();'
+ ].join('\\n')),
  'rebuild cannot clear pending checkpoint before recording its fingerprint');
 console.log(JSON.stringify({kind:'ISSUE734_TRADE_RECALC_SHADOW_PASS',
  originalPnl:old.realized,editedPnl:changed.realized,
