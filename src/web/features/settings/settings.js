@@ -18,7 +18,7 @@ const SECTOR_LABELS = {
 
 // Editable price list - grouped by sector
 // Format: {name, code, sector, currentPrice}
-// 종가 조회: 구글시트 GOOGLEFINANCE 사용 (Apps Script 웹앱 연동)
+// 종가 조회: NH/검증된 KRX·Yahoo 정규장 종가 경로. GOOGLEFINANCE는 구형 보조 경로 표기만 유지.
 
 // ── 구글 시트 API URL (브라우저 재시작해도 유지)
 let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
