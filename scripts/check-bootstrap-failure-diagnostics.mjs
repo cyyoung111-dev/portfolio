@@ -2185,7 +2185,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   const table=fs.readFileSync('src/web/shared/table/views_table.js','utf8');
   const cells=new Map(['s-total','s-total-sub','s-cost','s-pnl','s-pnl-pct','s-net',
     's-net-sub','s-realestate','s-realestate-sub','loan-summary-bal',
-    'loan-summary-sub'].map(id=>[id,{textContent:'',innerHTML:'',className:''}]));
+    'loan-summary-sub'].map(id=>[id,{textContent:'',innerHTML:'',className:'',style:{}}]));
   const view=vm.createContext({
     GSHEET_API_URL:'https://fixture.invalid/exec',
     getGsheetSettingsLoadFailure:()=> '미동기화 거래·보유 확인 · SYNC_RECEIPT_FAILED · PORTFOLIO_SYNC_FAILED',
