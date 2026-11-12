@@ -37,9 +37,20 @@ export async function activateNhRuntime({url,token,key,secret,request=fetch,repo
   if(endpoint.protocol!=='https:'||endpoint.hostname!=='script.google.com'||!/^\/macros\/s\/[^/]+\/exec$/.test(endpoint.pathname)||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('NH_RUNTIME_GAS_URL_INVALID');
   if(!token)throw Error('NH_RUNTIME_GAS_AUTH_NOT_CONFIGURED');
   const call=async(action,accessToken=token,data,timeoutMs=90000)=>{
-    let result;
-    try{const response=await request(endpoint.href,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action,accessToken,...(data?{data:JSON.stringify(data)}:{})}),redirect:'follow',signal:AbortSignal.timeout(timeoutMs)});if(!response.ok)throw Error();result=await response.json();}catch{throw Error('NH_RUNTIME_GAS_REQUEST_FAILED');}
-    return result;
+    // Distinguish independently verified operations without logging URLs,
+    // bearer tokens, NH credentials or GAS private response bodies.
+    const phase=action==='getSettings'?(accessToken===token?'SETTINGS':'AUTH_PROBE')
+      :({saveNhConfig:'CONFIG_WRITE',retireLegacyMarketData:'LEGACY_CLEANUP',
+        getCodeListReadOnly:'CODE_MASTER',diagnoseNhMarketData:'DEEP_DIAGNOSTIC'}[action]||'UNKNOWN');
+    let response;
+    try{response=await request(endpoint.href,{method:'POST',
+      headers:{'content-type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({action,accessToken,...(data?{data:JSON.stringify(data)}:{})}),
+      redirect:'follow',signal:AbortSignal.timeout(timeoutMs)});}
+    catch{throw Error('NH_RUNTIME_'+phase+'_NETWORK_OR_TIMEOUT');}
+    if(!response?.ok)throw Error('NH_RUNTIME_'+phase+'_HTTP_UNVERIFIED');
+    try{return await response.json();}
+    catch{throw Error('NH_RUNTIME_'+phase+'_JSON_UNVERIFIED');}
   };
   const denied=await call('getSettings',token+'-DENY-PROBE');
   if(denied?.status!=='error')throw Error('NH_RUNTIME_GAS_AUTH_NOT_ENFORCED');

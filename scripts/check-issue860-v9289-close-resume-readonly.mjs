@@ -49,4 +49,32 @@ const done=await resumeClose({url,token,readOnly:true,fetchImpl,
 assert.equal(done.complete,false,'summary alone cannot approve deployment');
 assert.equal(done.preflightState,'AWAIT_INDEPENDENT_DEPLOY_GATE');
 assert.equal(gasCalls,0);
+// Real 9.293 source status (11/12 backfilled 39 Snapshot rows) must be
+// inspectable without opening the superseded financial resume protocol.
+const modern=await resumeClose({url,token,readOnly:true,fetchImpl,
+ statusReader:async()=>({gasVersion:'9.293',close:{
+   state:'INCOMPLETE',stage:'PRICE',runDate:'2026-11-12',
+   priceOk:true,fundOk:true,fundAttemptDate:'2026-11-12',
+   fundErrorPresent:false,fundWarningPresent:false
+ }}),emit:x=>events.push(x)});
+assert.equal(modern.mode,'READ_ONLY');
+assert.equal(modern.complete,false);
+assert.equal(modern.closeMarkerComplete,false);
+assert.equal(modern.preflightState,'BLOCKED_PERSISTED_CLOSE_INCOMPLETE');
+assert.equal(modern.priceReplayAllowed,false);
+assert.equal(modern.navReplayAllowed,false);
+assert(events.some(x=>x.phase==='MODERN_CLOSE_READ_ONLY_STATUS'
+  &&x.version==='9.293'&&x.financialWrites===0));
+const modernDone=await resumeClose({url,token,readOnly:true,fetchImpl,
+ statusReader:async()=>({gasVersion:'9.293',close:{
+   state:'COMPLETE',stage:'COMPLETE',runDate:'2026-11-12',
+   priceOk:true,fundOk:true,fundAttemptDate:'2026-11-12',
+   fundErrorPresent:false,fundWarningPresent:false
+ }})});
+assert.equal(modernDone.closeMarkerComplete,true);
+assert.equal(modernDone.complete,false,
+ 'even COMPLETE GAS marker is not independent process/owner verification');
+await assert.rejects(()=>resumeClose({url,token,readOnly:false,
+ fetchImpl,statusReader:read('9.293')}),/RESUME_VERSION/);
+assert.equal(gasCalls,0,'modern versions must never reach legacy PRICE/NAV writer');
 console.log('PASS v9.289 read-only persisted CLOSE; no PRICE/NAV replay, no preview, no GAS writes; manual deploy gate required');

@@ -30,6 +30,26 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
     priceReplayAllowed:false,navReplayAllowed:false,
     status:initial};
  }
+ // Modern releases have an immutable persisted close marker, not the
+ // legacy resumeIncompletePortfolioClose preview/apply protocol. Status is
+ // safe to inspect on 9.293; financial replay is NEVER admitted from here.
+ if(readOnly&&['9.291','9.292','9.293'].includes(initial.gasVersion)){
+  const close=initial.close||{};
+  const matching=close.state==='COMPLETE'&&close.stage==='COMPLETE'
+    &&close.priceOk===true&&close.fundOk===true
+    &&close.runDate===close.fundAttemptDate
+    &&close.fundErrorPresent===false&&close.fundWarningPresent===false;
+  const preflightState=matching
+    ?'PERSISTED_CLOSE_MARKER_COMPLETE_INDEPENDENT_PROOF_REQUIRED'
+    :'BLOCKED_PERSISTED_CLOSE_INCOMPLETE';
+  emit({phase:'MODERN_CLOSE_READ_ONLY_STATUS',requestState:'CHECKED',
+    version:initial.gasVersion,preflightState,
+    priceReplayAllowed:false,navReplayAllowed:false,
+    financialWrites:0,gasDeployments:0});
+  return {mode:'READ_ONLY',complete:false,closeMarkerComplete:matching,
+    continueReady:null,scheduleReady:null,preflightState,
+    priceReplayAllowed:false,navReplayAllowed:false,status:initial};
+ }
  if(!['9.281','9.282','9.283','9.284','9.285'].includes(initial.gasVersion))throw Error('RESUME_VERSION');
  if(!readOnly&&initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
  const waitingFundDone=status=>status.close.krxPublicationWaiting && status.close.fundOk===true
