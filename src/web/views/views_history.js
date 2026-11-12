@@ -705,7 +705,13 @@ async function reconcileFailedTradeReceiptFromUI() {
     }
     if(!result.ok) {
       const reasons={
-        LOCAL_DIRTY_JOURNAL_PRESENT:'이 PC에 별도의 미전송 거래 변경이 있어 안전 복구를 중단했습니다.',
+        DIRTY_JOURNAL_FORMAT_UNVERIFIED:'복구사본 형식이 검증되지 않아 원본을 보존했습니다.',
+        DIRTY_SNAPSHOT_DIFFERS_FROM_PC_OR_RECEIPT:'복구사본·PC·기존 저장요청의 내용이 달라 원본을 보존했습니다.',
+        PENDING_TRADE_DELETE_INTENT:'미확인 거래 삭제 이력이 있어 자동 복구를 중단했습니다.',
+        SERVER_AND_PC_HOLDINGS_DIFFER:'서버 보유수량·매입원가와 PC 복구사본이 달라 원본을 보존했습니다.',
+        SERVER_AND_PC_FUND_SETTINGS_DIFFER:'펀드 설정이 달라 자동 복구를 중단했습니다.',
+        SERVER_HOLDINGS_UNVERIFIED:'서버 보유현황을 확인할 수 없어 자동 복구를 중단했습니다.',
+        SERVER_FUND_SETTINGS_UNVERIFIED:'서버 펀드 설정을 확인할 수 없어 자동 복구를 중단했습니다.',
         LOCAL_SYNC_BUSY:'다른 저장 작업이 진행 중이므로 안전 복구를 중단했습니다.',
         SERVER_AND_PC_LEDGER_DIFFER:'PC 저장요청과 서버 거래원장 내용이 다릅니다. 원본을 보존하고 복구를 중단했습니다.',
         LOCAL_UNSENT_CHANGE_DIFFERS_FROM_FAILED_RECEIPT:'PC 거래 내용이 이전 실패 요청과 다릅니다. 원본을 보존했습니다.',
@@ -801,7 +807,7 @@ function renderGsheetView(area) {
           <button data-status-action="portfolio-receipt-readonly" class="btn-purple-sm">서버 영수증 상태 조회 · 읽기 전용</button>
           <div id="portfolioReceiptDiagnosis" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">조회 전입니다.</div>
           <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
-            <div style="font-size:.67rem;color:var(--muted);margin-bottom:7px">실패한 거래 V2 영수증은 원본을 백업하고, PC 거래 전체와 서버 원장 전체가 두 번 완전히 일치할 때만 이 기기의 완료표시를 복구합니다. 서버 금융 원장에는 쓰지 않습니다. 일치하지 않으면 아무것도 삭제하지 않습니다.</div>
+            <div style="font-size:.67rem;color:var(--muted);margin-bottom:7px">실패한 거래 V2 영수증과 PC 복구사본을 보존하며, PC·서버 전체 거래와 보유현황·펀드 설정이 일치할 때만 이 기기의 완료표시를 복구합니다. 서버 금융 원장에는 쓰지 않습니다. 일치하지 않으면 아무것도 삭제하지 않습니다.</div>
             <button id="btn-reconcile-failed-v2-receipt" data-status-action="portfolio-receipt-reconcile" class="btn-purple-sm">PC 거래원장 대사 후 안전 복구</button>
             <div id="portfolioFailedReceiptRepairStatus" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">${typeof _escapeHtml==='function'?_escapeHtml(_pcFailedTradeReceiptRepairStatus):'준비됨'}</div>
           </div>
