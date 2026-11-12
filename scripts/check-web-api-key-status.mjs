@@ -28,6 +28,7 @@ const writes=[],reads=[],removed=[];
 let confirmed=false,readReply=null,writeReply=null;
 const ctx=vm.createContext({
  console,URL,URLSearchParams,
+ DIV_PUBLIC_KEY:'public_data_api_key',
  $el:id=>elements[id]||null,
  lsRemove:key=>removed.push(key),
  showToast:()=>{},
