@@ -1,0 +1,2 @@
+catalog_kind=disabled
+catalog_date=1970-01-01
