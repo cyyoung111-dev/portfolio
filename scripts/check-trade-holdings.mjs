@@ -16,6 +16,34 @@ const context = {
 };
 vm.runInNewContext(source, context, { filename: 'src/web/domain/portfolio/portfolio_service.js' });
 
+// Missing market quotes must not create phantom P&L from rounded purchase
+// unit prices (observed PC: 507,931,244 minus 507,930,706 equals 538).
+context.normName = x => String(x || '').trim();
+context.normalizeStockCode = x => String(x || '').trim();
+context.exchangeRates = {USD:1400};
+context.savedPrices = {};
+context.getEP = () => ({code:'123456',currency:'KRW',assetType:'ETF'});
+{
+  const holding={acct:'ISA',name:'TEST ETF',qty:3,cost:100,costAmt:299,assetType:'ETF'};
+  const noQuote=context.computeRows([holding])[0];
+  if(noQuote.evalAmt!==299||noQuote.pnl!==0||noQuote.costAmt!==299
+      ||noQuote.priceUnverified!==true)
+    throw Error('ISSUE734_ROUNDED_COST_FALLBACK_PHANTOM_PROFIT');
+  context.savedPrices['123456']=120;
+  const quoted=context.computeRows([holding])[0];
+  if(quoted.evalAmt!==360||quoted.pnl!==61||quoted.priceUnverified!==false)
+    throw Error('ISSUE734_VALID_QUOTE_VALUATION_REGRESSION');
+  delete context.savedPrices['123456'];
+  context.getEP=()=>({code:'123456',currency:'USD',assetType:'ETF'});
+  const usdUnquoted=context.computeRows([holding])[0];
+  if(usdUnquoted.evalAmt!==299||usdUnquoted.pnl!==0||usdUnquoted.price!==100)
+    throw Error('ISSUE734_UNQUOTED_FOREIGN_PRICE_DOUBLE_CONVERSION');
+  context.getEP=()=>null;
+  console.log(JSON.stringify({kind:'ISSUE734_ACCURATE_COST_FALLBACK_PASS',
+    noQuoteUnrealizedPnl:0,quotePnl:61,foreignNoDoubleFx:true,
+    remoteCalls:0,financeWrites:0}));
+}
+
 context.syncHoldingsFromTrades({ clearWhenEmpty: true });
 if (context.rawHoldings.length !== 0) {
   console.error('❌ 마지막 거래 삭제 후 보유현황이 비워지지 않았습니다.');
