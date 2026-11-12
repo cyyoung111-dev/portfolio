@@ -14,6 +14,15 @@ export const AI_EVENT_WATCH = Object.freeze([
   ['PLTR','팔란티어','SOFTWARE','medium'],['BE','블룸에너지','POWER','volatile'],
   ['GEV','GE버노바','POWER','medium'],['ORCL','오라클','CLOUD','medium'],
   ['ASML','ASML','EQUIPMENT','large'],
+  // Additional upstream AI capacity, power, interconnect and software beneficiaries.
+  ['NBIS','네비우스','NEOCLOUD','volatile'],['VRT','버티브','COOLING','medium'],
+  ['ETN','이튼','POWER','large'],['MRVL','마벨','NETWORK','medium'],
+  ['ALAB','아스테라랩스','INTERCONNECT','volatile'],['CEG','컨스텔레이션에너지','POWER','medium'],
+  ['APLD','어플라이드디지털','DATA_CENTER','volatile'],['COHR','코히런트','OPTICAL','medium'],
+  ['LITE','루멘텀','OPTICAL','medium'],
+  // Secondary observation list: all four are also checked daily, not just saved.
+  ['LRCX','램리서치','EQUIPMENT','large'],['WDC','웨스턴디지털','STORAGE','medium'],
+  ['NOW','서비스나우','SOFTWARE','large'],['DDOG','데이터독','SOFTWARE','medium'],
   // Existing briefing core companies retained, not removed from original coverage.
   ['NVDA','엔비디아','GPU','large'],['AVGO','브로드컴','NETWORK','medium']
 ].map(([symbol,label,sector,tier])=>Object.freeze({symbol,label,sector,tier})));
@@ -27,7 +36,9 @@ const SECTOR_LABEL=Object.freeze({
  MEMORY:'메모리',FOUNDRY:'파운드리',NAND:'낸드',NEOCLOUD:'네오클라우드',
  HYPERSCALER:'하이퍼스케일러',SPACE:'우주·AI인프라',CPU:'CPU·설계',
  NETWORK:'네트워크',PLATFORM:'플랫폼',SOFTWARE:'소프트웨어',
- POWER:'전력',CLOUD:'클라우드',EQUIPMENT:'반도체 장비',GPU:'AI 반도체'
+ POWER:'전력',CLOUD:'클라우드',EQUIPMENT:'반도체 장비',GPU:'AI 반도체',
+ COOLING:'전력·냉각',INTERCONNECT:'반도체 연결',DATA_CENTER:'데이터센터',
+ OPTICAL:'광통신',STORAGE:'데이터 저장'
 });
 
 // Pure selector: a large stock move is an OBSERVATION, not proof of earnings
