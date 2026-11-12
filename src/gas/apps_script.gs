@@ -14987,6 +14987,23 @@ function runPortfolioCloseWatchdog2030() {
     return {runDate:todayStr, skipped:true, reason:'PRICE_COMPLETE_FUND_PENDING',
       priceOk:true, fundOk:false, priceDate:last.priceDate};
   }
+  // Missing/exhausted NAV reservations need fund-specific attention, not
+  // another write of already confirmed prices and Snapshot.
+  var ownerPriceConfirmed = !!last && lastDate === todayStr && lastSuccessDateValid
+    && last.priceOk === true && last.fundOk !== true
+    && Number(last.priceRows) > 0 && !!last.runId
+    && String(props.getProperty('portfolio_close_run_id') || '') === String(last.runId)
+    && String(props.getProperty('portfolio_close_run_date') || '') === todayStr
+    && (state.stage === 'FUND_PENDING' || state.stage === 'ERROR')
+    && errors.every(function(reason) { return /^펀드:/.test(String(reason)); })
+    && (!props.getProperty('portfolio_close_last_error')
+      || /^펀드:/.test(String(props.getProperty('portfolio_close_last_error'))));
+  if (ownerPriceConfirmed) {
+    _appendPortfolioCloseSyncLog('WATCHDOG_FUND_RECOVERY_REQUIRED', todayStr, '',
+      '당일 종가 확정·NAV 예약 미확인 또는 소진, PRICE 재저장 없이 펀드 오류 별도 확인 필요');
+    return {runDate:todayStr, skipped:true, reason:'FUND_RECOVERY_REQUIRED',
+      priceOk:true, fundOk:false, priceDate:last.priceDate};
+  }
   // 한국 휴장일에도 오늘 마감 실패/중단을 재시도합니다. 해외장이 열린 날의
   // 해외 보유분 역시 KRX 휴장 여부와 독립적으로 복구합니다.
   var attemptedToday = lastDate === todayStr || _normalizeDate(state && state.runDate || '') === todayStr;
