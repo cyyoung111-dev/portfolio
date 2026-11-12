@@ -39,10 +39,15 @@ function calcDividends() {
   // 보유 종목별 계좌 집계 (펀드 제외)
   const acctMap = {};
   const currentQtyMap = {};
+  const currentAccountQty = {};
   rawHoldings.filter(h => !h.fund && h.name).forEach(h => {
     if (!acctMap[h.name]) acctMap[h.name] = [];
     if (h.acct && !acctMap[h.name].includes(h.acct)) acctMap[h.name].push(h.acct);
     currentQtyMap[h.name] = (currentQtyMap[h.name] || 0) + (Number(h.qty) || 0);
+    if (h.acct) {
+      currentAccountQty[h.name] ||= {};
+      currentAccountQty[h.name][h.acct] = (currentAccountQty[h.name][h.acct] || 0) + (Number(h.qty) || 0);
+    }
   });
 
   // ★ [버그수정] new Date() 로컬 타임존 → _kstYear() 으로 교체
@@ -79,18 +84,61 @@ function calcDividends() {
     let netReceivedDiv = 0; // ONLY bank net amounts explicitly typed by user
     let withheldTaxDiv = 0; // ONLY withholding amounts explicitly typed by user
     let netReceivedCount = 0, withheldTaxCount = 0;
-    const uniqueDividendEvents = new Set();
-    const monthlyDiv = {}; // month → 실제+예상 배당금
+    const monthlyDiv = {}; // month → declared + projected gross
+    const monthlyDeclaredGross = {}, monthlyReceivedGross = {};
+    const monthlyNetReceived = {}, monthlyWithheldTax = {};
+    const monthlyNetCount = {}, monthlyTaxCount = {};
+    const accountAnnualDiv = {}; // gross by entitlement-date account, never bank deposits
+    let unallocatedAnnualDiv = 0;
+    const accountNames = new Set(accts);
+    const ledgerAvailable = typeof rawTrades !== 'undefined' && Array.isArray(rawTrades);
+    if (ledgerAvailable) rawTrades.forEach(t => {
+      if (t?.name === name && t.acct) accountNames.add(t.acct);
+    });
+    // Historical dividends belong to the account that owned the units on
+    // entitlement date; current holdings must never reassign past income.
+    const attributeGross = (date, gross, qty) => {
+      if (!(qty > 0) || !(gross > 0)) return;
+      const splits = [];
+      for (const acct of accountNames) {
+        const units = ledgerAvailable && typeof getQtyAtDate === 'function'
+          ? Number(getQtyAtDate(name, date, acct)) || 0
+          : Number(currentAccountQty[name]?.[acct]) || 0;
+        if (units > 0) splits.push({acct,units});
+      }
+      const sum = splits.reduce((total, part) => total + part.units, 0);
+      // Neither tax category nor bank net payments may be inferred if the
+      // historical account allocation disagrees with the total entitlement.
+      if (!sum || Math.abs(sum - qty) > Math.max(0.000001, qty * 1e-8)) {
+        unallocatedAnnualDiv += gross;
+        return;
+      }
+      splits.forEach(({acct,units}) => {
+        accountAnnualDiv[acct] = (accountAnnualDiv[acct] || 0) + gross * units / sum;
+      });
+    };
     const actualMonths = new Set();
+    // A corrected source amount for the same date/payment is a REPLACEMENT,
+    // never an additional payment. Explicit user-confirmed records win.
+    const uniqueEvents = new Map();
     events.forEach(ev => {
+      const ref = String(ev?.date || '').slice(0,10);
+      const pay = String(ev?.payDate || '').slice(0,10);
+      const amount = Number(ev?.amount);
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(ref) || !(amount > 0)) return;
+      const eventKey = ref + '|' + pay;
+      const old = uniqueEvents.get(eventKey);
+      if (!old || (ev.receivedConfirmed === true && old.receivedConfirmed !== true)
+          || (ev.receivedConfirmed === old.receivedConfirmed)) {
+        uniqueEvents.set(eventKey, ev);
+      }
+    });
+    [...uniqueEvents.values()].forEach(ev => {
       const evDate = String(ev?.date || '').slice(0, 10);
       const amount = Number(ev?.amount || 0);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(evDate) || !amount || amount <= 0) return;
       const payDate = String(ev?.payDate || '').slice(0, 10);
       const cashflowDate = /^\d{4}-\d{2}-\d{2}$/.test(payDate) ? payDate : evDate;
-      const dividendKey = [evDate,payDate,amount].join('|');
-      if (uniqueDividendEvents.has(dividendKey)) return;
-      uniqueDividendEvents.add(dividendKey);
       // 확정 배당의 귀속 연도는 배당기준일이 아니라 실제 지급일을 우선합니다.
       if (Number(cashflowDate.slice(0, 4)) !== thisYear) return;
       const month = Number(cashflowDate.slice(5, 7));
@@ -101,18 +149,25 @@ function calcDividends() {
       const div = amount * qty;
       actualMonths.add(month);
       actualDiv += div;
+      monthlyDeclaredGross[month] = (monthlyDeclaredGross[month] || 0) + div;
+      attributeGross(evDate, div, qty);
       if (ev?.receivedConfirmed === true && /^\d{4}-\d{2}-\d{2}$/.test(payDate)
           && payDate <= _kstTodayStr()) {
         receivedDiv += div;
+        monthlyReceivedGross[month] = (monthlyReceivedGross[month] || 0) + div;
         // Manual gross receipt confirmation is not bank net deposit proof.
         // Imported historical events without these amounts remain unknown.
         if (typeof ev.netReceived === 'number'
             && Number.isFinite(ev.netReceived) && ev.netReceived >= 0) {
           netReceivedDiv += ev.netReceived; netReceivedCount++;
+          monthlyNetReceived[month] = (monthlyNetReceived[month] || 0) + ev.netReceived;
+          monthlyNetCount[month] = (monthlyNetCount[month] || 0) + 1;
         }
         if (typeof ev.withheldTax === 'number'
             && Number.isFinite(ev.withheldTax) && ev.withheldTax >= 0) {
           withheldTaxDiv += ev.withheldTax; withheldTaxCount++;
+          monthlyWithheldTax[month] = (monthlyWithheldTax[month] || 0) + ev.withheldTax;
+          monthlyTaxCount[month] = (monthlyTaxCount[month] || 0) + 1;
         }
       }
       annualDiv += div;
@@ -129,6 +184,7 @@ function calcDividends() {
         const div = dd.perShare * qty;
         annualDiv += div;
         monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
+        attributeGross(refDate, div, qty);
       }
     });
 
@@ -138,7 +194,10 @@ function calcDividends() {
     if (annualDiv > 0 || totalQty > 0) {
       result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv,
         actualDiv, receivedDiv, netReceivedDiv, withheldTaxDiv,
-        netReceivedCount, withheldTaxCount });
+        netReceivedCount, withheldTaxCount, monthlyDeclaredGross,
+        monthlyReceivedGross, monthlyNetReceived, monthlyWithheldTax,
+        monthlyNetCount, monthlyTaxCount, accountAnnualDiv,
+        unallocatedAnnualDiv });
     }
   });
 
