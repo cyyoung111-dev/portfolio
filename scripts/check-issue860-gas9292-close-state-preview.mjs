@@ -209,7 +209,8 @@ assert.equal(ingress._issue507GateInvoke_('doGet',()=>{},null,[{parameter:{
 
 console.log(JSON.stringify({kind:'ISSUE860_9292_CLOSE_STATE_SOURCE_ONLY_PASS',
  originalVersion:'9.291',candidateVersion:'9.292',
- testedScenarios:16,protectedFinancialFunctions:9,\n gateTimeoutArchivedUnconfirmed:true,statusReadNoWriterToken:true,
+ testedScenarios:16,protectedFinancialFunctions:9,
+ gateTimeoutArchivedUnconfirmed:true,statusReadNoWriterToken:true,
  parentBlob:manifest.parentGitBlob,candidateBlob:manifest.candidateGitBlob,
  ownerBoundNavPending:true,realNavErrorsPreserved:true,
  closeCompleteNotFaked:true,financeWrites:0,gasRequests:0,deployments:0}));
