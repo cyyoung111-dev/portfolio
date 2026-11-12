@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // #860: exactly one authenticated production GAS status read.
-// Reviewed published releases include 9.291; unreviewed 9.290/9.292 remain blocked.
+// Reviewed published releases include 9.291 and exact pinned 9.292; unreviewed 9.290 remains blocked.
 // No workbook inventory, retry, finance write, deployment or raw response logging.
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
@@ -29,7 +29,7 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
  catch{throw Error('ISSUE860_STATUS_JSON');}
  const a=payload?.automation;
  if(payload?.status!=='ok'||!a||typeof a!=='object'
-    ||!['9.284','9.287','9.288','9.289','9.291'].includes(payload.gasVersion)
+    ||!['9.284','9.287','9.288','9.289','9.291','9.292'].includes(payload.gasVersion)
     ||a.gasVersion!==payload.gasVersion)
   throw Error('ISSUE860_STATUS_VERSION_OR_SCHEMA');
  let close,checkpoint;
@@ -59,6 +59,11 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
   pendingKrxDatesCount:Array.isArray(a.pendingKrxCloseDates)
     ?a.pendingKrxCloseDates.length:null,
   closeState:close.state,closeStage:close.stage,closeRunDate:close.runDate,
+  priceCloseState:['COMPLETE','INCOMPLETE'].includes(a.priceCloseState)
+    ?a.priceCloseState:'UNVERIFIED',
+  fundCloseState:['DONE','PENDING','NOT_COMPLETE'].includes(a.fundCloseState)
+    ?a.fundCloseState:'UNVERIFIED',
+  fundReservationVerified:a.fundReservationVerified===true,
   priceOk:close.priceOk,fundOk:close.fundOk,
   fundAttemptState:close.fundState,fundAttemptDate:close.fundAttemptDate,
   fundFailureClass:close.fundErrorCode,
