@@ -2299,3 +2299,129 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
     reportedLocalCounts:true,serverReceiptReadOnly:true,sensitiveFieldsOmitted:true,
     remoteReads:5,financeWrites:0}));
 }
+
+
+// #734 Terminal FAILED v2 recovery: only an exact, twice-verified
+// server == attempted == PC ledger may update this device's receipt marker.
+// No server write, manual price fill, journal deletion, or mobile state touch.
+{
+  const {createHash}=await import('node:crypto');
+  const syncSource=fs.readFileSync('src/web/features/settings/settings_sync.js','utf8');
+  const helper=(startText)=>{
+    const i=syncSource.indexOf(startText);
+    assert(i>=0,'production reconciliation helper missing '+startText);
+    const j=syncSource.indexOf('\n}\n',i);
+    assert(j>i);
+    return syncSource.slice(i,j+2);
+  };
+  const digest=async value=>createHash('sha256')
+    .update(JSON.stringify(value)).digest('hex');
+  const url='https://fixture.invalid/exec';
+  const tradeRows=[{
+    id:'tr_test001',date:'2026-11-02',tradeType:'buy',acct:'ISA',
+    name:'fixture-ETF',code:'123456',qty:10,price:100,assetType:'ETF'
+  },{
+    id:'tr_test002',date:'2026-11-03',tradeType:'sell',acct:'ISA',
+    name:'fixture-ETF',code:'123456',qty:2,price:110,assetType:'ETF'
+  }];
+  const clone=x=>JSON.parse(JSON.stringify(x));
+  const canonicalItems=tradeRows.map(t=>[
+    t.id,t.date,t.tradeType,t.acct,t.name,t.code,t.qty,t.price,
+    t.assetType,'','','','',''
+  ]);
+  const revision=await digest(canonicalItems);
+  const freshReceipt=()=>({
+    action:'syncTradesV2',id:'pr_fixture_v2_failed',attempted:true,
+    completed:false,scope:'scope-original',params:{
+      data:JSON.stringify(tradeRows),intents:'[]',
+      tradeLedgerProtocolVersion:'2',expectedLedgerRevision:'a'.repeat(64)
+    }
+  });
+  const setup=()=>{
+    const records={[url]:{syncTradesV2:freshReceipt(),syncHoldings:{
+      action:'syncHoldings',attempted:true,completed:true,id:'pr_finished'
+    }}};
+    const storage=new Map([['portfolio_recovery_receipts_v1',clone(records)]]);
+    const calls=[],ctx=vm.createContext({
+      GSHEET_API_URL:url,rawTrades:clone(tradeRows),
+      getGsheetConnectionGeneration:()=>1,
+      isGsheetConnectionCurrent:(target,generation)=>target===url&&generation===1,
+      _getPortfolioRemoteDirty:()=>null,
+      _getPendingExplicitEmptyTradeSync:()=>null,
+      _isPortfolioRemoteSyncPending:()=>false,
+      _readPortfolioRecoveryReceipts:()=>clone(storage.get('portfolio_recovery_receipts_v1')),
+      _savePortfolioRecoveryReceipts:next=>{
+        storage.set('portfolio_recovery_receipts_v1',clone(next));return true;
+      },
+      lsGet:(key,defaultValue)=>storage.has(key)?clone(storage.get(key)):defaultValue,
+      lsSave:(key,value)=>{storage.set(key,clone(value));return true;},
+      _tradeV2BrowserSha256:digest,
+      requestGsheetFormJson:async(action,input)=>{
+        calls.push(action);
+        assert.equal(action,'getPortfolioSyncReceipt','must not write financial server');
+        assert.equal(input.operationId,'pr_fixture_v2_failed');
+        return {status:'ok',kind:'syncTradesV2',
+          operationId:input.operationId,receiptState:ctx._remoteReceiptState||'FAILED'};
+      },
+      requestGsheetActionJson:async(action)=>{
+        calls.push(action);
+        assert.equal(action,'getTrades','must not write financial server');
+        const rows=clone(ctx._remoteRows||tradeRows);
+        const hash=await digest(rows.map(t=>[
+          t.id,t.date,t.tradeType,t.acct,t.name,t.code,t.qty,t.price,
+          t.assetType,'','','','',''
+        ]));
+        return {status:'ok',tradeLedgerProtocolVersion:2,
+          ledgerRevision:hash,trades:rows};
+      }
+    });
+    vm.runInContext(
+      helper('function _tradeV2NormalizeCode(')+'\n'+
+      helper('function _tradeV2BrowserCanonical(')+'\n'+
+      helper('async function _reconcileFailedTradeV2ReceiptWithoutRemoteWrite('),ctx);
+    return {ctx,storage,calls};
+  };
+  const good=setup();
+  const result=await good.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({targetUrl:url});
+  assert.equal(result.ok,true);
+  assert.equal(result.code,'MATCHED_FAILED_RECEIPT_RECONCILED_LOCAL_ONLY');
+  assert.equal(result.remoteWrites,0);
+  assert.deepEqual(good.calls,[
+    'getPortfolioSyncReceipt','getTrades','getTrades','getPortfolioSyncReceipt'
+  ],'strict two readbacks and receipt proof, no POST sync operation');
+  const archived=good.storage.get('pf_v6_failed_trade_v2_recovery_archive')[url];
+  assert.equal(archived.priorReceipt.completed,false,'original failed receipt retained');
+  assert.equal(archived.verifiedRevision,revision);
+  const marker=good.storage.get('portfolio_recovery_receipts_v1')[url].syncTradesV2;
+  assert.equal(marker.completed,true);
+  assert.equal(marker.readbackConfirmedRevision,revision);
+  assert.equal(good.storage.get('portfolio_recovery_receipts_v1')[url].syncHoldings.completed,true);
+  const changed=setup();
+  changed.ctx._remoteRows=[{...tradeRows[0],qty:9},tradeRows[1]];
+  assert.equal((await changed.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'SERVER_AND_PC_LEDGER_DIFFER');
+  assert.equal(changed.storage.has('pf_v6_failed_trade_v2_recovery_archive'),false);
+  assert.equal(changed.storage.get('portfolio_recovery_receipts_v1')[url].syncTradesV2.completed,false);
+  const dirty=setup();
+  dirty.ctx._getPortfolioRemoteDirty=()=>({trades:tradeRows});
+  assert.equal((await dirty.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'LOCAL_DIRTY_JOURNAL_PRESENT');
+  assert.equal(dirty.calls.length,0,'dirty financial journal must never be replayed');
+  const local=setup();
+  local.ctx.rawTrades=[{...tradeRows[0],qty:9},tradeRows[1]];
+  assert.equal((await local.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'LOCAL_UNSENT_CHANGE_DIFFERS_FROM_FAILED_RECEIPT');
+  assert.equal(local.calls.length,0);
+  const noProof=setup();
+  noProof.ctx._remoteReceiptState='CONFLICT';
+  assert.equal((await noProof.ctx._reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
+    targetUrl:url})).code,'SERVER_RECEIPT_NOT_STABLE_FAILED');
+  assert.equal(noProof.storage.has('pf_v6_failed_trade_v2_recovery_archive'),false);
+  const eventSource=fs.readFileSync('src/web/app/event_delegation.js','utf8');
+  const viewSource=fs.readFileSync('src/web/views/views_history.js','utf8');
+  assert.match(eventSource,/portfolio-receipt-reconcile.*reconcileFailedTradeReceiptFromUI/);
+  assert.match(viewSource,/PC 거래원장 대사 후 안전 복구/);
+  console.log(JSON.stringify({kind:'ISSUE734_PC_FAILED_V2_LOCAL_RECONCILIATION_PASS',
+    successAfterTwoReadbacks:true,mismatchBlocked:true,dirtyBlocked:true,
+    originalReceiptArchived:true,serverWrites:0,mobileWrites:0}));
+}

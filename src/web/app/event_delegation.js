@@ -202,6 +202,7 @@ function registerGlobalEventDelegation() {
       if (action === 'gsheet' && typeof switchView === 'function') switchView('gsheet');
       else if (action === 'automation-refresh' && typeof loadAutomationStatusFromGsheet === 'function') loadAutomationStatusFromGsheet();
       else if (action === 'portfolio-receipt-readonly' && typeof diagnosePortfolioReceiptsReadOnly === 'function') diagnosePortfolioReceiptsReadOnly();
+      else if (action === 'portfolio-receipt-reconcile' && typeof reconcileFailedTradeReceiptFromUI === 'function') reconcileFailedTradeReceiptFromUI();
       return;
     }
 
