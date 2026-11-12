@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// #860 independent live Writer Gate diagnostic for reviewed deployed 9.289 / 9.291.
+// #860 independent live Writer Gate diagnostic for reviewed deployed 9.289 / 9.291 / 9.292.
 // Does not change Script Properties or infer terminal execution ownership.
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
@@ -21,14 +21,38 @@ export async function readIssue860WriterGate({
  let payload;
  try{payload=await response.json();}catch{fail('JSON_UNVERIFIED');}
  const g=payload?.writerGate;
- if(payload?.status!=='ok'||!['9.289','9.291'].includes(payload.gasVersion)||
+ if(payload?.status!=='ok'||!['9.289','9.291','9.292'].includes(payload.gasVersion)||
   !g||!['OPEN','DRAINING'].includes(g.mode)||
   !Number.isSafeInteger(g.activeCount)||g.activeCount<0||
   g.activeCount>10000||g.repairAuthorized!==false)
   fail('RESPONSE_UNVERIFIED');
+ const v9292=payload.gasVersion==='9.292';
+ const safeOwners=[];
+ if(v9292) {
+  if(!Array.isArray(g.activeOwners)||g.activeOwners.length!==g.activeCount
+    ||!Number.isSafeInteger(g.timeoutRetirementCandidates)
+    ||g.timeoutRetirementCandidates<0||g.timeoutRetirementCandidates>g.activeCount
+    ||!Number.isSafeInteger(g.expiredUnconfirmedCount)||g.expiredUnconfirmedCount<0)
+   fail('OWNER_SCHEMA_UNVERIFIED');
+  for(const item of g.activeOwners) {
+   if(!item||typeof item.functionName!=='string'||!item.functionName
+     ||item.functionName.length>100
+     ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/.test(item.startedKst)
+     ||!Number.isSafeInteger(item.ageMinutes)||item.ageMinutes<0
+     ||typeof item.terminalReceiptPresent!=='boolean'
+     ||typeof item.retirementEligible!=='boolean')
+    fail('OWNER_SCHEMA_UNVERIFIED');
+   safeOwners.push({functionName:item.functionName,startedKst:item.startedKst,
+    ageMinutes:item.ageMinutes,terminalReceiptPresent:item.terminalReceiptPresent,
+    retirementEligible:item.retirementEligible});
+  }
+ }
  return {kind:'ISSUE860_9289_WRITER_GATE_READONLY',
   gasVersion:payload.gasVersion,gateMode:g.mode,recordedActive:g.activeCount,
   recordedIdle:g.mode==='OPEN'&&g.activeCount===0,
+  activeOwners:safeOwners,timeoutRetirementCandidates:v9292?g.timeoutRetirementCandidates:null,
+  expiredUnconfirmedCount:v9292?g.expiredUnconfirmedCount:null,
+  opaqueOwnerTokensExposed:false,
   processTerminalVerified:false,externalWriterExcluded:false,
   snapshotIntegrityVerified:false,
   readyForGAS9290Deploy:false,
