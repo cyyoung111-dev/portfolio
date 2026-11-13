@@ -266,11 +266,11 @@ assert.deepEqual(selectLegacyArtifacts([legacyArt,sealedA,sealedB]),[legacyArt])
 assert.throws(()=>selectLegacyArtifacts([legacyArt,sealedA]),
  /ENCRYPTED_RECOVERY_ARTIFACT_MISSING/);
 assert.deepEqual(selectLegacyArtifacts([sealedA,sealedB]),[]);
-const requests=[];
+const pruneRequests=[];
 const mockArtifacts=[legacyArt,sealedA,sealedB];
 const fetchPrune=async (url,opts)=>{
  const u=new URL(url),suffix=u.pathname;
- requests.push({path:suffix,method:opts.method});
+ pruneRequests.push({path:suffix,method:opts.method});
  if(suffix.endsWith('/actions/artifacts'))return {
   ok:true,json:async()=>({artifacts:mockArtifacts})};
  if(/\/actions\/runs\/[0-9]+$/.test(suffix)){
@@ -289,11 +289,11 @@ const dry=await pruneLegacy({token:'TEST_GITHUB_TOKEN_123456789',
  fetchImpl:fetchPrune,deleteEnabled:false});
 assert.equal(dry.legacyCandidateCount,1);
 assert.equal(dry.deletedCount,0);
-assert.equal(requests.filter(x=>x.method==='DELETE').length,0);
+assert.equal(pruneRequests.filter(x=>x.method==='DELETE').length,0);
 const executed=await pruneLegacy({token:'TEST_GITHUB_TOKEN_123456789',
  fetchImpl:fetchPrune,deleteEnabled:true});
 assert.equal(executed.deletedCount,1);
-assert.deepEqual(requests.filter(x=>x.method==='DELETE').map(x=>x.path),[
+assert.deepEqual(pruneRequests.filter(x=>x.method==='DELETE').map(x=>x.path),[
  '/repos/cyyoung111-dev/portfolio/actions/artifacts/1001'
 ]);
 assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
