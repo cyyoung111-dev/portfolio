@@ -243,7 +243,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
  if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||(
    d.valuationRequired===true &&
    (!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
-     ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))))
+     ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState))))))
     throw Error('HANWHA_DERIVED_PENDING');
  const waiting=final.filter(d=>needsWrite(d)&&isWaiting(d));
  if(waiting.length)return {mode:'DEFERRED',complete:false,code:CODE,
