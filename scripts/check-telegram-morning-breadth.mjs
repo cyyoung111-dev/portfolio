@@ -46,6 +46,27 @@ assert.deepEqual(await readMorningBreadth(day,{authKey:'',fetchImpl,now}),[]);
 assert.equal(called,2,'no unauthorized KRX calls without a configured key');
 assert.deepEqual(await readMorningBreadth(day,{authKey:'TEST_KRX_KEY_123456789',
  fetchImpl,now:()=>new Date(day+'T05:00:00+09:00')}),[]);
+let transientCount=0;
+const after503=await readMorningBreadth(day,{
+ authKey:'TEST_KRX_KEY_123456789',now,fetchImpl:async(url)=>{
+  transientCount++;
+  if(url.includes('stk_bydd_trd')&&transientCount===1)return {ok:false,status:503};
+  return {ok:true,headers:{get:()=>null},
+   json:async()=>url.includes('stk_bydd_trd')?kospi:kosdaq};
+ }
+});
+assert.equal(after503.length,2,'transient 503 may retry and recover');
+assert.equal(transientCount,3,'one additional GET for the failed market only');
+let deniedCount=0;
+const denied=await readMorningBreadth(day,{
+ authKey:'TEST_KRX_KEY_123456789',now,fetchImpl:async url=>{
+  deniedCount++;return url.includes('stk_bydd_trd')?{ok:false,status:401}
+   :{ok:true,headers:{get:()=>null},json:async()=>kosdaq};
+ }
+});
+assert.equal(denied.length,1);
+assert.equal(deniedCount,2,'401 permission issue must not be retried');
+
 assert.equal(called,2);
 const message=formatFullMorningBriefing(day,null,[],{
  now:now(),supplements:{breadth:formatMorningBreadth(day,[a,b])}});

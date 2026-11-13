@@ -119,6 +119,33 @@ assert.match(report,/미국 선물 참고: ES/);
 assert.match(report,/■ QC: 기준 거래일과 일치한 일봉 0\/21/);
 assert.ok(report.length<=3900, 'Telegram maximum length');
 
+// GAS retrieval is preferred, but transient missing/partial rows can
+// recover from two exact-date official KRX index endpoints with no GAS write.
+const {readMorningTurnover}=await import('./telegram-morning-supplements.mjs');
+const official=[
+ {id:'KRX_TURNOVER_KOSPI',market:'KOSPI',date:expected,valueKrw:20000000000000,
+  source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'},
+ {id:'KRX_TURNOVER_KOSDAQ',market:'KOSDAQ',date:expected,valueKrw:5000000000000,
+  source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'}
+];
+let fallbackCount=0;
+const fallback=async(day,args)=>{
+ fallbackCount++;
+ assert.equal(day,expected);
+ assert.equal(args.now().toISOString(),new Date(expected+'T17:08:00+09:00').toISOString());
+ return official;
+};
+const repaired=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
+ authKey:'TEST_KRX_KEY_123456789',fetchImpl,fetchDirect:fallback});
+assert.deepEqual(repaired,official);
+assert.equal(fallbackCount,1);
+const noKey=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
+ authKey:'',fetchImpl,fetchDirect:async()=>assert.fail('must not request direct keyless')});
+assert.equal(noKey.length,1);
+const stale=await readMorningTurnover(expected,{url:'',token:'',authKey:'TEST_KRX_KEY_123456789',
+ fetchImpl,fetchDirect:async()=>official.map(x=>({...x,date:'2026-11-03'}))});
+assert.deepEqual(stale,[],'wrong-date direct KRX data must fail closed');
+
 const nh=MORNING_SERIES.filter(x=>['SPX','NASDAQ','NDX'].includes(x.id))
  .map(x=>({symbol:x.symbol,date:expected,source:'NH_INDEX_DAILY'}));
 const noFallback=await readMorningSupplements(date,{
