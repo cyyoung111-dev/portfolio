@@ -14,7 +14,7 @@ function assertIssue507ManualHistoricalScope(sourceText) {
  assert.match(sourceText,/^on:\s*$/m);
  assert.match(sourceText,/^  workflow_dispatch:\s*$/m);
  assert.doesNotMatch(sourceText,/^  schedule:/m);
- assert.match(sourceText,/^    - 'scripts\/diagnose-backfill-status\.mjs'$/m);
+ assert.match(sourceText,/^      - 'scripts\/diagnose-backfill-status\.mjs'$/m);
  const heavy=sourceText.split('\n  operational-readonly:\n')[1]
    ?.split('\n  status-only:\n')[0];
  const light=sourceText.split('\n  status-only:\n')[1];
