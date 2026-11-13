@@ -18,7 +18,7 @@ jobs:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: portfolio-production-gas
-    timeout-minutes: 4
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
         with:
@@ -33,3 +33,29 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue860-close-single-status-readonly.mjs
+      - name: Read 32-day fund NAV and Snapshot dates (READ ONLY)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {auditFundRows} from './scripts/diagnose-fund-valuation-readonly.mjs';
+          const today=new Intl.DateTimeFormat('en-CA',{
+            timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+          }).format(new Date());
+          const result=await auditFundRows({
+            url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+            days:32,emit:x=>console.log(JSON.stringify({
+              kind:'ISSUE734_FUND_32DAY_READONLY',...x,
+              financialWrites:0,gasDeployments:0,telegramSends:0
+            }))
+          });
+          const overdue=x=>[...x.navMissingDates,...x.evaluationPendingDates,
+            ...x.snapshotPendingDates,...x.writerBlockedDates].filter(d=>d<today);
+          console.log(JSON.stringify({
+            kind:'ISSUE734_FUND_32DAY_VERDICT',cutoffExclusive:today,
+            overdueFunds:result.filter(x=>overdue(x).length>0).map(x=>x.code),
+            currentDayUnpublished:result.filter(x=>x.unpublishedDates.includes(today)).map(x=>x.code),
+            zeroWrites:true
+          }));
+          NODE
