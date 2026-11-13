@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: '24'
       - name: Prove strict deletion boundaries offline
-        run: node scripts/check-krx52-public-artifact-prune.mjs
+        run: node scripts/check-krx-52week-market.mjs
       - name: Enumerate and verify encrypted recovery plus legacy origins (no deletion)
         env:
           GITHUB_TOKEN: ${{ github.token }}
