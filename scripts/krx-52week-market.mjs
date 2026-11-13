@@ -222,6 +222,94 @@ export function updateSummary(archive,count){
  summaries.sort((a,b)=>a.date.localeCompare(b.date));
  return verifyArchive({...v,summaries:summaries.slice(-60)});
 }
+// QUALITY AUDIT ONLY. Daily price discontinuities beyond the ordinary
+// exchange price limit may reflect split/ex-rights changes, restructuring or
+// data differences; they are NOT confirmed corporate actions. We never
+// silently delete or fabricate a security, NAV or adjusted historical price.
+// Keep raw extrema separate from this reproducible suspect universe.
+export function audit52WeekRawDiscontinuity(archive,expected,rawCounts){
+ if(rawCounts?.status!=='VERIFIED_RAW_UNADJUSTED_REFERENCE')
+  return {status:'HISTORY_INCOMPLETE',markets:null};
+ const verified=verifyArchive(archive);
+ if(!Array.isArray(expected)||expected.length!==WINDOW||
+  verified.sessions.length!==WINDOW||expected.some((d,i)=>verified.sessions[i].date!==d)||
+  rawCounts.date!==expected.at(-1))
+  throw Error('KRX52_DISCONTINUITY_WINDOW_UNVERIFIED');
+ const markets={};
+ for(const m of Object.keys(MARKETS)){
+  const latest=verified.sessions.at(-1).markets[m].rows;
+  const latestSet=new Set(latest.map(row=>row[0]));
+  const seen=new Map();
+  // Inspect only securities still present on the final session; including
+  // historical delisted codes would bias the denominator.
+  for(const session of verified.sessions){
+   for(const [code,high,low,close] of session.markets[m].rows){
+    if(!latestSet.has(code))continue;
+    const prior=seen.get(code);
+    if(!prior){
+     seen.set(code,{days:1,previousClose:close,
+      historicalHigh:high,historicalLow:low,
+      discontinuityDate:null,discontinuityDirection:null});
+     continue;
+    }
+    const pct=close/prior.previousClose-1;
+    const discontinuity=Math.abs(pct)>0.31;
+    // Store the last suspicious session for source-date investigation.
+    // No raw prices/positions are emitted by this audit.
+    if(discontinuity){
+     prior.discontinuityDate=session.date;
+     prior.discontinuityDirection=pct>0?'UP':'DOWN';
+    }
+    prior.days++;
+    prior.previousClose=close;
+    prior.historicalHigh=Math.max(prior.historicalHigh,high);
+    prior.historicalLow=Math.min(prior.historicalLow,low);
+   }
+  }
+  let eligible=0,discontinuityCodes=0,flaggedHighs=0,flaggedLows=0;
+  const flaggedExtremes=[];
+  const historicalHighLow=new Map();
+  for(const session of verified.sessions.slice(0,-1)){
+   for(const [code,high,low] of session.markets[m].rows){
+    if(!latestSet.has(code))continue;
+    const v=historicalHighLow.get(code)||{hi:0,lo:Infinity};
+    v.hi=Math.max(v.hi,high);v.lo=Math.min(v.lo,low);
+    historicalHighLow.set(code,v);
+   }
+  }
+  for(const [code,high,low] of latest){
+   const v=seen.get(code);
+   if(v?.days!==WINDOW)continue;
+   eligible++;
+   if(!v.discontinuityDate)continue;
+   discontinuityCodes++;
+   const prior=historicalHighLow.get(code);
+   const newHigh=high>prior.hi,newLow=low<prior.lo;
+   if(newHigh)flaggedHighs++;
+   if(newLow)flaggedLows++;
+   if(newHigh||newLow)flaggedExtremes.push({
+    code,kind:newHigh&&newLow?'HIGH_AND_LOW':newHigh?'HIGH':'LOW',
+    discontinuityDate:v.discontinuityDate,
+    discontinuityDirection:v.discontinuityDirection
+   });
+  }
+  flaggedExtremes.sort((a,b)=>a.code.localeCompare(b.code,'en'));
+  if(eligible!==rawCounts.markets[m]?.eligible||
+   latest.length!==rawCounts.markets[m]?.observedToday)
+   throw Error('KRX52_DISCONTINUITY_DENOMINATOR_UNVERIFIED');
+  markets[m]={
+   observedToday:latest.length,eligible,
+   eligiblePct:Number((100*eligible/latest.length).toFixed(1)),
+   shortHistory:latest.length-eligible,
+   discontinuityCodes,flaggedHighs,flaggedLows,
+   flaggedExtremes
+  };
+ }
+ return {status:'RAW_DISCONTINUITY_REVIEW_REQUIRED',
+  thresholdAbsPct:31,date:expected.at(-1),window:WINDOW,
+  splitAdjusted:false,corporateActionsConfirmed:false,
+  markets};
+}
 export function render52WeekMarketCounts(count){
  if(count?.status!=='VERIFIED_RAW_UNADJUSTED_REFERENCE')return '';
  return ['KOSPI','KOSDAQ'].map(m=>{
