@@ -100,6 +100,10 @@ export async function readClosingKrxTurnoverFromGas(date,{
   emit('CONFIG_OR_SESSION_UNVERIFIED');return [];
  }
  const fallback=async(primary=[])=>{
+  // No direct request is possible without a configured approved key. Preserve
+  // the original primary diagnostic and avoid a misleading second failure.
+  if(typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey))
+   return primary;
   let direct=[],reported=false;
   const allowed=new Set(['KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED',
    'KRX_DIRECT_ACCESS_DENIED','KRX_DIRECT_HTTP_UNAVAILABLE',
