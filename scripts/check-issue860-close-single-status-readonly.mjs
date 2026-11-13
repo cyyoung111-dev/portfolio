@@ -2,7 +2,7 @@
 // #860 single protected status read offline contract. No GAS network/Sheets access.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {readIssue860Once} from './issue860-close-single-status-readonly.mjs';
+import {readIssue860Once,classifySavedFundWarning} from './issue860-close-single-status-readonly.mjs';
 
 const url='https://script.google.com/macros/s/EXAMPLE_DEPLOYMENT/exec';
 const token='TEST_PRIVATE_ACCESS_TOKEN_12345';
@@ -93,6 +93,23 @@ assert.equal(afterCurrent294.fundCloseState,'PENDING');
 assert.equal(afterCurrent294.closeComplete,false);
 assert.equal(afterCurrent294.financialWrites,0);
 assert.equal(afterCurrent294.requestCount,1);
+assert.equal(classifySavedFundWarning('F00001 NAV 미확보 1일'),
+ 'NAV_PUBLICATION_OR_INPUT_PENDING');
+assert.equal(classifySavedFundWarning('Snapshot 보호 충돌 2건'),
+ 'SNAPSHOT_PROTECTED');
+assert.equal(classifySavedFundWarning('일부 부분 완료'),
+ 'PARTIAL_FUND_VALUATION');
+assert.equal(classifySavedFundWarning('PRIVATE_ACCOUNT_123456'),
+ 'UNCLASSIFIED');
+assert.equal(classifySavedFundWarning(''),'NONE');
+const warningStatus=await readIssue860Once({url,token,
+ fetchImpl:async()=>({ok:true,json:async()=>({...data,gasVersion:'9.294',
+  automation:{...data.automation,gasVersion:'9.294',
+   fundLastWarning:'F00001 NAV 미확보 1일 PRIVATE_ACCOUNT_123456'}})})});
+assert.equal(warningStatus.fundWarningPresent,true);
+assert.equal(warningStatus.fundWarningClass,'NAV_PUBLICATION_OR_INPUT_PENDING');
+assert.ok(!JSON.stringify(warningStatus).includes('PRIVATE_ACCOUNT_123456'));
+
 
 assert.equal(afterGate292.financialWrites,0);
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({

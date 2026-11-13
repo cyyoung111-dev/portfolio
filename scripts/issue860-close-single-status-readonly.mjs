@@ -6,6 +6,17 @@ import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {summarizeCloseStatus,safeFundResumeCheckpoint} from './diagnose-backfill-status.mjs';
 
+// Whitelist warning classes only. Never print the raw GAS warning: it may
+// include portfolio positions or private account information.
+export function classifySavedFundWarning(value){
+ if(typeof value!=='string'||!value.trim())return 'NONE';
+ if(/Snapshot 보호 충돌|스냅샷.*충돌|SNAPSHOT.*(?:CONFLICT|PROTECT)/i.test(value))
+  return 'SNAPSHOT_PROTECTED';
+ if(/NAV 미확보|기준가격.*(?:미확보|미공표)|공시.*(?:지연|미완료)|UNPUBLISHED|NAV_MISSING/i.test(value))
+  return 'NAV_PUBLICATION_OR_INPUT_PENDING';
+ if(/부분 완료|PARTIAL/i.test(value))return 'PARTIAL_FUND_VALUATION';
+ return 'UNCLASSIFIED';
+}
 export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)
@@ -56,6 +67,7 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
   snapshotStale:a.snapshotStale===true?true:a.snapshotStale===false?false:null,
   fundErrorPresent:!!a.fundLastError,
   fundWarningPresent:!!a.fundLastWarning,
+  fundWarningClass:classifySavedFundWarning(a.fundLastWarning),
   pendingKrxDatesCount:Array.isArray(a.pendingKrxCloseDates)
     ?a.pendingKrxCloseDates.length:null,
   closeState:close.state,closeStage:close.stage,closeRunDate:close.runDate,
