@@ -73,9 +73,10 @@ assert.deepEqual(await readTreasuryCurve(date,{
  fetchImpl:async()=>({ok:false}),
  onDiagnostic:r=>fredReasons.push(r)
 }),[]);
-assert.deepEqual(fredReasons,ids.map(id=>({
+assert.deepEqual(fredReasons.filter(r=>r.kind==='FRED_TREASURY_READ'),ids.map(id=>({
  kind:'FRED_TREASURY_READ',id,status:'HTTP_UNAVAILABLE'
 })));
+assert.equal(fredReasons.find(r=>r.kind==='TREASURY_PAR_READ')?.status,'HTTP_UNAVAILABLE');
 const partial=await readTreasuryCurve(date,{fetchImpl:async url=>{
  const code=new URL(url).searchParams.get('id');
  return code==='DGS3'?{ok:false}:{ok:true,headers:{get:()=> 'text/csv'},
@@ -120,4 +121,24 @@ assert.match(priorSent,/2026-10-29 · 발표 지연 자료/);
 await assert.rejects(deliverClose({...prepared,reportInputs:{...prepared.reportInputs,
  rates:[{...valid[0],date:'2026-10-28'}]}},{now:clock,send:async()=>assert.fail('unverified yield sent')}),
  /TELEGRAM_CLOSE_PAYLOAD_INVALID/);
-console.log('TREASURY_CLOSE_PASS H15 2Y/3Y/10Y exact day, spread BP, 17:42 send, no stale');
+// Public U.S. Treasury PAR fallback is a DISTINCT source, not relabeled H.15.
+const parXml='<feed><entry><d:NEW_DATE>2026-10-30T00:00:00</d:NEW_DATE>'
+ +'<d:BC_2YEAR>4.10</d:BC_2YEAR><d:BC_3YEAR>4.20</d:BC_3YEAR>'
+ +'<d:BC_10YEAR>4.50</d:BC_10YEAR></entry></feed>';
+let parRequests=0;
+const fromPar=await readTreasuryCurve(date,{fetchImpl:async (target)=>{
+ const url=new URL(target);
+ if(url.hostname==='fred.stlouisfed.org')return {ok:false};
+ assert.equal(url.hostname,'home.treasury.gov');parRequests++;
+ return {ok:true,url:url.href,headers:{get:k=>k==='content-type'?'application/atom+xml':null},
+  text:async()=>parXml};
+}});
+assert.equal(parRequests,1);
+assert.equal(fromPar.length,3);
+assert.ok(fromPar.every(r=>r.source==='US_TREASURY_PAR_DAILY'));
+assert.match(formatTreasuryCurve(date,fromPar),/미 재무부 Par/);
+assert.match(formatTreasuryCurve(date,fromPar),/10Y–2Y.*\+40bp/);
+assert.equal(summarizeCloseCoverage(date,{rates:fromPar,expectedUsDate:us}).treasury.verified,3);
+assert.deepEqual(verifyTreasuryCurve(date,[valid[0],fromPar[1]]),[],
+ 'mixed Treasury PAR and H.15 must never form a displayed spread');
+console.log('TREASURY_CLOSE_PASS H15 2Y/3Y/10Y, official PAR fallback, date/source-consistent spread');
