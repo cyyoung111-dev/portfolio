@@ -52,8 +52,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .krx-52week/previous
+          # GitHub artifact list order is not a reliable newest-first contract.
+          # Earlier runs repeatedly restored an older 11-session archive,
+          # discarding newer coverage and needlessly re-requesting old dates.
           previous="$(gh api "repos/$GH_REPOSITORY/actions/artifacts?name=krx-52week-archive&per_page=100" \
-            --jq '[.artifacts[] | select(.expired == false) | .workflow_run.id] | first // empty')"
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at, .id) | last | .workflow_run.id // empty')"
           if [ -n "$previous" ]; then
             # Restore only the same main-only source workflow's artifact.
             read -r path branch < <(gh api "repos/$GH_REPOSITORY/actions/runs/$previous" \
@@ -66,7 +69,7 @@ jobs:
             test -s .krx-52week/previous/history.json || {
               echo 'KRX52_ARCHIVE_MISSING'; exit 1;
             }
-            echo 'KRX52_PRIOR_ARCHIVE_RESTORED'
+            echo "KRX52_PRIOR_ARCHIVE_RESTORED run=$previous"
           else
             echo 'KRX52_ARCHIVE_BOOTSTRAP_EMPTY'
           fi
