@@ -53,6 +53,40 @@ fully adjusted. The primary raw 52-week counts remain unchanged; **Telegram
 integration stays disabled** until separate official corporate-action/adjusted
 price comparison and universe methodology are verified.
 
+## 2026-11-13 #4 methodology decision — raw source complete, official adjusted breadth NOT certified
+
+- **Completed:** KRX Open API source-only 252/252 observed sessions and
+  reproducible 31%-jump/eligible-universe quality audit. Real raw highs/lows:
+  KOSPI 4/25, KOSDAQ 6/25 on 2026-11-12. Never promote this to an
+  *adjusted market-wide 52-week* high/low value or 17:00 Telegram.
+- **Verified caution examples:** 009140 2026-10-20 bonus-issue ex-rights,
+  290650 2026-10-26 bonus-issue ex-rights, and 475460 2026-09-16
+  bonus-issue ex-rights correspond to three flagged raw new lows.
+  See https://alphasquare.co.kr/home/stock-issue?code=009140&type=disclosure ,
+  https://www.bosoop.com/disclosures/20261023900853/ ,
+  https://dartbrief.com/disclosures/20260915900714 .
+  **Do not compute an adjusted result by simply subtracting three.**
+  Not all 35 suspicious returns are confirmed corporate actions; smaller
+  rights impacts can occur without exceeding the 31% screen.
+- **Official source limitation:** daily raw-OHLC KRX OPEN API does not expose
+  split-adjusted historical prices. KRX Data Marketplace historical
+  period-range screens offer an adjusted-price option, but their output
+  must be separately licensed/approved; do not scrape or silently substitute
+  a source/asset without a verified permission, identifier, as-of, history
+  adjustment factor and value/market reconciliation.
+- **Universe choice:** continuous 251 preceding sessions excludes 118/911
+  KOSPI and 387/1753 KOSDAQ current-session codes. The 22.1% KOSDAQ
+  exclusion makes it unfit as a market-wide breadth label. Distinguish
+  new listings, trading halts, code changes, delistings and corporate actions
+  using confirmed listing/event references before redefining the denominator.
+- **Done means:** approved adjusted high+low histories for each eligible
+  security or official equivalent provider counts; certified time basis
+  through the latest T+1 release; verified 52-week rule/universe including
+  IPOs; exact source/date comparison and permitted redistribution.
+  Without that full evidence the existing source-only gate and diagnostic
+  are the final responsible state. This is a **blocked data-source
+  dependency**, not a daily portfolio/GAS reconciliation failure.
+
 ## Operational proof required before briefing integration
 
 1. Source-only workflow run and archive pass for both markets; inspect the **actual API response** schemas (especially KRX daily high/low) and API failure codes.

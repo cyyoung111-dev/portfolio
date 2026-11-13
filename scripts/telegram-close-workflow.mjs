@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
+import {completedSession as krxPublishedSession} from './krx-52week-market.mjs';
 import {sendTelegram} from './telegram-morning-briefing.mjs';
 import {readNhMorningIndexes} from './nh-morning-index-source.mjs';
 import {expectedMorningDate} from './telegram-morning-report.mjs';
@@ -42,10 +43,12 @@ const CLOSE_OPTIONAL_READ_CODES=Object.freeze({
   'HTTP_UNAVAILABLE','GAS_RESPONSE_SCHEMA','GAS_AUTH_REJECTED',
   'KRX_NO_DATED_VKOSPI_POINT','KRX_KEY_NOT_CONFIGURED',
   'KRX_KEY_OR_INDEX_PERMISSION_DENIED','KRX_VKOSPI_BATCH_NETWORK_FAILURE',
-  'GAS_STATUS_ERROR','NO_EXACT_VALID_ROW','VERIFIED','NETWORK_OR_PARSE_FAILED']),
+  'GAS_STATUS_ERROR','NO_EXACT_VALID_ROW','VERIFIED','NETWORK_OR_PARSE_FAILED',
+  'KRX_TPLUSONE_NOT_PUBLISHED']),
  KRX_TURNOVER_READ:new Set(['CONFIG_OR_SESSION_UNVERIFIED',
   'ENDPOINT_INVALID','HTTP_UNAVAILABLE','PAYLOAD_INVALID','GAS_EMPTY_ROWS',
-  'NO_EXACT_VALID_ROWS','BOTH_VERIFIED','PARTIAL','NETWORK_OR_PARSE_FAILED'])
+  'NO_EXACT_VALID_ROWS','BOTH_VERIFIED','PARTIAL','NETWORK_OR_PARSE_FAILED',
+  'KRX_TPLUSONE_NOT_PUBLISHED'])
 });
 export function sanitizeCloseOptionalSourceReason(raw){
  if(!raw||typeof raw!=='object'||!Object.hasOwn(CLOSE_OPTIONAL_READ_CODES,raw.kind))return null;
@@ -58,6 +61,18 @@ export function sanitizeCloseOptionalSourceReason(raw){
 
 const REPO='cyyoung111-dev/portfolio';
 const parts=instant=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(p=>[p.type,p.value]));
+// The authorized public KRX daily stock/index routes publish D on T+1, not
+// at 17:00 on D. Read-only proof #43425414981: five D=2026-11-13 routes
+// returned HTTP 200 and ZERO rows at 21:28 KST; D=11/12 was available.
+// Do not make repeat redundant 17:00 GAS/direct KRX requests or label
+// yesterday's official series with today's date. This does not block a
+// *different, separately approved* same-day provider injected by the caller.
+export function isKrxDailyPublicationEligible(date,instant){
+ try{
+  return /^\d{4}-\d{2}-\d{2}$/.test(date||'')&&
+    krxPublishedSession(instant)>=date;
+ }catch{return false;}
+}
 export function closeWindow(instant){
   const p=parts(instant),minute=Number(p.hour)*60+Number(p.minute);
   return {date:`${p.year}-${p.month}-${p.day}`,allowed:minute>=1020&&minute<1080}; // 17:00–17:59 KST; 18:00 hard cutoff
@@ -329,6 +344,9 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
   const sourceReasons=[];
+  const krxDailyPublished=isKrxDailyPublicationEligible(window.date,now());
+  // Only the built-in KRX Open API reader is skipped. Dependency-injected
+  // sources in offline tests or later approved timely provider remain eligible.
   const onSourceReason=detail=>{
     const safe=sanitizeCloseOptionalSourceReason(detail);
     if(safe&&sourceReasons.length<12)sourceReasons.push(safe);
@@ -363,14 +381,24 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     catch{futures=[];}})(),
    (async()=>{try{rates=verifyTreasuryCurve(window.date,await fetchRates(window.date,{fetchImpl,onDiagnostic:onSourceReason}));}
     catch{rates=[];}})(),
-   (async()=>{try{vkospi=verifyClosingVkospi(window.date,
-     await fetchVkospi(window.date,{url:gasUrl,token:gasToken,fetchImpl,now,
-       onDiagnostic:onSourceReason}));}
-    catch{failedGroups.push('VKOSPI');}})(),
-   (async()=>{try{turnover=verifyOfficialKrxTurnover(window.date,
-     await fetchTurnover(window.date,{url:gasUrl,token:gasToken,fetchImpl,now,
-       onDiagnostic:onSourceReason}));}
-    catch{turnover=[];failedGroups.push('TURNOVER');}})(),
+   (async()=>{try{
+      if(!krxDailyPublished&&fetchVkospi===readClosingVkospi){
+       onSourceReason({kind:'VKOSPI_READ',status:'KRX_TPLUSONE_NOT_PUBLISHED'});
+       vkospi=[];return;
+      }
+      vkospi=verifyClosingVkospi(window.date,
+       await fetchVkospi(window.date,{url:gasUrl,token:gasToken,fetchImpl,now,
+        onDiagnostic:onSourceReason}));
+     }catch{failedGroups.push('VKOSPI');}})(),
+   (async()=>{try{
+      if(!krxDailyPublished&&fetchTurnover===readClosingKrxTurnoverFromGas){
+       onSourceReason({kind:'KRX_TURNOVER_READ',status:'KRX_TPLUSONE_NOT_PUBLISHED'});
+       turnover=[];return;
+      }
+      turnover=verifyOfficialKrxTurnover(window.date,
+       await fetchTurnover(window.date,{url:gasUrl,token:gasToken,fetchImpl,now,
+        onDiagnostic:onSourceReason}));
+     }catch{turnover=[];failedGroups.push('TURNOVER');}})(),
     (async()=>{fearGreed=await readFearGreed({fetchImpl,now});})(),
     (async()=>{try{liquidity=await fetchLiquidity(window.date,{fetchImpl});}
        catch{liquidity=null;}})(),
