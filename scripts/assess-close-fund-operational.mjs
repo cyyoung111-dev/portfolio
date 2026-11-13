@@ -55,7 +55,7 @@ export function assessCloseFundOperational({close,funds,asOf}) {
   &&close.fundCloseState==='DONE'&&close.priceOk===true&&close.fundOk===true
   &&close.fundAttemptState==='DONE'&&close.fundAttemptDate===date
   &&close.fundFailureClass==='NONE'&&close.fundErrorPresent===false
-  &&close.pendingKrxDatesCount===0&&dateMatches;
+  &&close.pendingKrxDatesCount===0&&datesMatch;
  const safeWarning=['NONE','NAV_PUBLICATION_OR_INPUT_PENDING',
   'PARTIAL_FUND_VALUATION'].includes(close.fundWarningClass);
  let health='CLOSE_DATA_VERIFIED',actionRequired=false;
