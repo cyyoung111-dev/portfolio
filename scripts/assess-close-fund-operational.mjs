@@ -30,21 +30,30 @@ export function assessCloseFundOperational({close,funds,asOf}) {
   byCode.set(f.code,f);
  }
  if(byCode.size!==FUNDS.length)throw Error('CLOSE_FUND_EVIDENCE_SCHEMA');
- const overdueFunds=[],awaitingPublication=[],publicationOverdue=[];
+ const overdueFunds=[],awaitingPublication=[],publicationOverdue=[],
+   recentNavSourceUnverified=[];
+ const classifyDate=(code,d,waiting,late)=>{
+  const elapsed=age(asOf,d),weekday=new Date(d+'T00:00:00Z').getUTCDay();
+  // Friday's official NAV can appear on Saturday; align with the collector
+  // and never assert an unpublished SOURCE from GAS NAV_MISSING alone.
+  const maxLagDays=weekday===5?3:1;
+  if(!Number.isSafeInteger(elapsed)||elapsed<0)throw Error('CLOSE_FUND_EVIDENCE_SCHEMA');
+  if(elapsed<=maxLagDays)waiting.push(code);
+  else late.push(code);
+ };
  for(const code of FUNDS) {
   const f=byCode.get(code);
-  if(ISSUES.some(key=>f[key].some(d=>d<=asOf)))overdueFunds.push(code);
-  for(const d of f.unpublishedDates) {
-   const elapsed=age(asOf,d),weekday=new Date(d+'T00:00:00Z').getUTCDay();
-   // Align with KB collector's conservative Friday/weekend grace.
-   const maxLagDays=weekday===5?3:1;
-   if(!Number.isSafeInteger(elapsed)||elapsed<0)throw Error('CLOSE_FUND_EVIDENCE_SCHEMA');
-   if(elapsed<=maxLagDays)awaitingPublication.push(code);
-   else publicationOverdue.push(code);
-  }
+  // Today's derived rows are not overdue before today's close completes.
+  if(ISSUES.filter(k=>k!=='navMissingDates').some(
+    key=>f[key].some(d=>d<asOf)))overdueFunds.push(code);
+  for(const d of f.navMissingDates)
+   classifyDate(code,d,recentNavSourceUnverified,overdueFunds);
+  for(const d of f.unpublishedDates)
+   classifyDate(code,d,awaitingPublication,publicationOverdue);
  }
  const distinct=values=>[...new Set(values)].sort();
  const pending=distinct(awaitingPublication),late=distinct(publicationOverdue),
+   sourceUnverified=distinct(recentNavSourceUnverified),
    needsRepair=distinct(overdueFunds);
  const date=close.closeRunDate,datesMatch=day(date)&&date<=asOf
   &&['storedPriceDate','snapshotLastDate','priceHistoryLastDate',
@@ -64,17 +73,20 @@ export function assessCloseFundOperational({close,funds,asOf}) {
  else if(needsRepair.length||late.length) {
   health='FUND_NAV_OR_DERIVED_OVERDUE';actionRequired=true;
  } else if(!safeWarning||!['NORMAL','WARNING'].includes(close.overallStatus)
-   ||(close.fundWarningPresent===true&&!pending.length)
+   ||(close.fundWarningPresent===true&&!pending.length&&!sourceUnverified.length)
    ||(close.overallStatus==='WARNING'&&(!close.fundWarningPresent
-     ||!pending.length))) {
+     ||(!pending.length&&!sourceUnverified.length)))) {
   health='PERSISTED_WARNING_UNCLASSIFIED';actionRequired=true;
- } else if(pending.length) health='CLOSE_COMPLETE_NAV_PUBLICATION_PENDING';
+ } else if(sourceUnverified.length)
+  health='CLOSE_COMPLETE_RECENT_NAV_SOURCE_UNVERIFIED';
+ else if(pending.length) health='CLOSE_COMPLETE_NAV_PUBLICATION_PENDING';
  return {kind:'ISSUE734_CLOSE_FUND_OPERATIONAL_VERDICT',asOfKst:asOf,
   closeDate:day(date)?date:'UNVERIFIED',
   health,actionRequired,rawOverallStatus:close.overallStatus,
   rawFundWarningClass:close.fundWarningClass,
   overdueFunds:needsRepair,publicationOverdueFunds:late,
-  publicationPendingFunds:pending,closePersistedComplete:complete,
+  publicationPendingFunds:pending,navSourceUnverifiedFunds:sourceUnverified,
+  closePersistedComplete:complete,
   executionOwnerIndependentlyVerified:false,
   source:'PERSISTED_GAS_STATUS_AND_DATE_SCOPED_FUND_READONLY',
   financialWrites:0,gasDeployments:0,telegramSends:0};

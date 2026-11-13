@@ -38,6 +38,24 @@ assert.equal(normal.executionOwnerIndependentlyVerified,false);
 assert.deepEqual([normal.financialWrites,normal.gasDeployments,normal.telegramSends],[0,0,0]);
 assert.equal(normal.rawOverallStatus,'WARNING','retain the persisted GAS WARNING');
 assert.equal(normal.rawFundWarningClass,'PARTIAL_FUND_VALUATION');
+// 00:15 Saturday production receipt: Friday NAV_MISSING, while new Saturday
+// evaluation/Snapshot rows cannot be overdue before Saturday has closed.
+// Without direct official-source proof, retain an explicit UNVERIFIED warning.
+const overnight=report({funds:funds.map(f=>f.code==='F00003'?f:{
+ ...f,navMissingDates:[closeDate],unpublishedDates:[],
+ evaluationPendingDates:[asOf],snapshotPendingDates:[asOf]
+})});
+assert.equal(overnight.health,'CLOSE_COMPLETE_RECENT_NAV_SOURCE_UNVERIFIED');
+assert.equal(overnight.actionRequired,false);
+assert.deepEqual(overnight.overdueFunds,[]);
+assert.deepEqual(overnight.navSourceUnverifiedFunds,['F00001','F00002']);
+assert.equal(overnight.rawOverallStatus,'WARNING');
+const tuesdayMissing=report({asOf:'2026-11-17',funds:funds.map(f=>({
+ ...f,from:'2026-10-17',to:'2026-11-17',
+ unpublishedDates:[],navMissingDates:f.code==='F00003'?[]:[closeDate]
+}))});
+assert.equal(tuesdayMissing.health,'FUND_NAV_OR_DERIVED_OVERDUE');
+assert.deepEqual(tuesdayMissing.overdueFunds,['F00001','F00002']);
 const green=report({close:{...close,overallStatus:'NORMAL',
  fundWarningPresent:false,fundWarningClass:'NONE'},
  funds:funds.map(f=>({...f,unpublishedDates:[]}))});
