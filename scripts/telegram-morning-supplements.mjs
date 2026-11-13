@@ -4,7 +4,7 @@ import {expectedMorningDate,MORNING_SERIES} from './telegram-morning-report.mjs'
 import {readTreasuryCurve,verifyTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {FUTURES} from './closing-current-futures.mjs';
 import {selectClosingVkospi} from './closing-vkospi-reference.mjs';
-import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
+import {verifyOfficialKrxTurnover,fetchOfficialKrxTurnover} from './closing-krx-turnover.mjs';
 import {validateGasEndpoint} from './nh-gas-proxy.mjs';
 import {readKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {readInvestorTrends} from './briefing-krx-investor-trends.mjs';
@@ -117,6 +117,29 @@ async function readGas(date,action,params,{url,token,fetchImpl}){
   return response?.ok?await response.json():null;
  }catch{return null;}
 }
+// Read the official dated index constituent turnover from GAS first.
+// GitHub's already-authorized KRX key is an independent read-only backup,
+// used only when GAS returns less than two exact-date market rows.
+// The synthetic prior close timestamp only opens the provider's historical
+// read gate; it does not assert when the response was actually published.
+export async function readMorningTurnover(expectedKr,{url,token,authKey,fetchImpl=fetch,
+ fetchDirect=fetchOfficialKrxTurnover}={}){
+ if(!validDay(expectedKr))return [];
+ const data=await readGas(expectedKr,'getKrxMarketTurnover',{date:expectedKr},
+  {url,token,fetchImpl});
+ const primary=data?.status==='ok'&&data.date===expectedKr&&data.readOnly===true
+  &&data.source==='KRX_OFFICIAL_INDEX_DAILY'&&Array.isArray(data.rows)
+  ?verifyOfficialKrxTurnover(expectedKr,data.rows):[];
+ if(primary.length===2)return primary;
+ if(typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey))
+  return primary;
+ try{
+  const direct=verifyOfficialKrxTurnover(expectedKr,await fetchDirect(expectedKr,{
+   authKey,fetchImpl,now:()=>new Date(expectedKr+'T17:08:00+09:00')
+  }));
+  return direct.length===2?direct:primary;
+ }catch{return primary;}
+}
 export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=fetch,
  fetchDaily,nhRows=[],breadthKey=process.env.KRX_AUTH_KEY,url=process.env.GAS_WEB_APP_URL,
  token=process.env.GAS_ACCESS_TOKEN}={}){
@@ -139,12 +162,7 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
   readMorningFutures(date,{now,fetchImpl}).catch(()=>[]),
   readGas(date,'getBenchmark',{benchmark:'VKOSPI',from:expectedKr,to:expectedKr},
    {url,token,fetchImpl}).then(data=>selectClosingVkospi(expectedKr,data)).catch(()=>[]),
-  readGas(date,'getKrxMarketTurnover',{date:expectedKr},
-   {url,token,fetchImpl}).then(data=>{
-    if(data?.status!=='ok'||data.date!==expectedKr||data.readOnly!==true
-     ||data.source!=='KRX_OFFICIAL_INDEX_DAILY'||!Array.isArray(data.rows))return [];
-    return verifyOfficialKrxTurnover(expectedKr,data.rows);
-   }).catch(()=>[]),
+  readMorningTurnover(expectedKr,{url,token,authKey:breadthKey,fetchImpl}).catch(()=>[]),
   readMorningBreadth(date,{authKey:breadthKey,now,fetchImpl}).catch(()=>[]),
   readKofiaLiquidity(date,{fetchImpl}).catch(()=>null),
   readInvestorTrends(date,{mode:'morning',now,fetchImpl}).catch(()=>null)
