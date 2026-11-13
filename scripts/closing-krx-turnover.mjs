@@ -48,22 +48,32 @@ export function verifyOfficialKrxTurnover(date,rows=[]){
  return accepted;
 }
 export async function fetchOfficialKrxTurnover(date,{
- authKey=process.env.KRX_AUTH_KEY,now=()=>new Date(),fetchImpl=fetch
+ authKey=process.env.KRX_AUTH_KEY,now=()=>new Date(),fetchImpl=fetch,
+ onDiagnostic=()=>{}
 }={}){
+ const emit=(market,status)=>{try{onDiagnostic({market,status});}catch{}};
  if(!isOfficialCloseWindow(date,now())||typeof authKey!=='string'
-   ||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey))return [];
+   ||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey)){
+  emit(null,'KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED');return [];
+ }
  const rows=await Promise.all(Object.entries(MARKET).map(async([market,info])=>{
   const target=new URL('https://data-dbg.krx.co.kr'+info.path);
   target.searchParams.set('basDd',date.replaceAll('-',''));
   try{
    const response=await fetchImpl(target.href,{method:'GET',redirect:'error',
     headers:{AUTH_KEY:authKey,accept:'application/json'},signal:AbortSignal.timeout(10000)});
-   if(!response?.ok)return null;
+   if(!response?.ok){
+    emit(market,[401,403].includes(Number(response?.status))
+      ?'KRX_DIRECT_ACCESS_DENIED':'KRX_DIRECT_HTTP_UNAVAILABLE');
+    return null;
+   }
    const len=Number(response.headers?.get?.('content-length')||0);
-   if(len>250000)return null;
+   if(len>250000){emit(market,'KRX_DIRECT_PAYLOAD_UNVERIFIED');return null;}
    const body=await response.json();
-   return selectOfficialKrxTurnover(date,market,body);
-  }catch{return null;}
+   const selected=selectOfficialKrxTurnover(date,market,body);
+   emit(market,selected?'KRX_DIRECT_VERIFIED':'KRX_DIRECT_NO_EXACT_ROW');
+   return selected;
+  }catch{emit(market,'KRX_DIRECT_NETWORK_OR_PARSE_FAILED');return null;}
  }));
  return verifyOfficialKrxTurnover(date,rows.filter(Boolean));
 }
@@ -84,15 +94,30 @@ export async function readClosingKrxTurnoverFromGas(date,{
  authKey=process.env.KRX_AUTH_KEY,now=()=>new Date(),fetchImpl=fetch,
  fetchDirect=fetchOfficialKrxTurnover,onDiagnostic=()=>{}
 }={}){
- const emit=status=>{try{onDiagnostic({kind:'KRX_TURNOVER_READ',status});}catch{}};
+ const emit=(status,market=null)=>{try{onDiagnostic({kind:'KRX_TURNOVER_READ',status,
+   ...(market?{market}:{})});}catch{}};
  if(!isOfficialCloseWindow(date,now())){
   emit('CONFIG_OR_SESSION_UNVERIFIED');return [];
  }
  const fallback=async(primary=[])=>{
-  let direct=[];
+  // No direct request is possible without a configured approved key. Preserve
+  // the original primary diagnostic and avoid a misleading second failure.
+  if(typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey))
+   return primary;
+  let direct=[],reported=false;
+  const allowed=new Set(['KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED',
+   'KRX_DIRECT_ACCESS_DENIED','KRX_DIRECT_HTTP_UNAVAILABLE',
+   'KRX_DIRECT_PAYLOAD_UNVERIFIED','KRX_DIRECT_NO_EXACT_ROW',
+   'KRX_DIRECT_NETWORK_OR_PARSE_FAILED','KRX_DIRECT_VERIFIED']);
+  const relay=({market,status}={})=>{
+   if(allowed.has(status)&&(market===null||market==='KOSPI'||market==='KOSDAQ')){
+    reported=true;emit(status,market);
+   }
+  };
   try{direct=verifyOfficialKrxTurnover(date,await fetchDirect(date,{
-   authKey,now,fetchImpl}));}catch{}
+   authKey,now,fetchImpl,onDiagnostic:relay}));}catch{}
   if(direct.length===2){emit('KRX_DIRECT_BOTH_VERIFIED');return direct;}
+  if(!reported)emit('KRX_DIRECT_UNVERIFIED');
   // Never combine partial responses from distinct provider endpoints.
   return primary;
  };

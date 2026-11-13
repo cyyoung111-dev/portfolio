@@ -70,15 +70,17 @@ assert.deepEqual(await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCE
 
 const vkReasons=[];
 assert.deepEqual(await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCESS',
- now,fetchImpl:async()=>({ok:true,json:async()=>({...payload,points:[]})}),
+ now,authKey:'',fetchImpl:async()=>({ok:true,json:async()=>({...payload,points:[]})}),
  onDiagnostic:r=>vkReasons.push(r)}),[]);
-assert.deepEqual(vkReasons,[{kind:'VKOSPI_READ',status:'NO_EXACT_VALID_ROW'}]);
+assert.deepEqual(vkReasons.map(x=>x.status),
+ ['NO_EXACT_VALID_ROW','KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED']);
 vkReasons.length=0;
 assert.deepEqual(await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCESS',
- now,fetchImpl:async()=>({ok:true,json:async()=>({
+ now,authKey:'',fetchImpl:async()=>({ok:true,json:async()=>({
   status:'error',message:'TEST_SECRET_NOT_TO_LOG'})}),
  onDiagnostic:r=>vkReasons.push(r)}),[]);
-assert.deepEqual(vkReasons,[{kind:'VKOSPI_READ',status:'GAS_STATUS_ERROR'}]);
+assert.deepEqual(vkReasons.map(x=>x.status),
+ ['GAS_STATUS_ERROR','KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED']);
 assert.doesNotMatch(JSON.stringify(vkReasons),/TEST_SECRET_NOT_TO_LOG/);
 
 const reviewedVkErrors=[
@@ -91,12 +93,13 @@ const reviewedVkErrors=[
 for(const [message,expectedStatus] of reviewedVkErrors){
  const reason=[];
  const rows=await readClosingVkospi(date,{
-  url:endpoint,token:'TEST-GAS-ACCESS',now,
+  url:endpoint,token:'TEST-GAS-ACCESS',now,authKey:'',
   fetchImpl:async()=>({ok:true,json:async()=>({status:'error',message})}),
   onDiagnostic:x=>reason.push(x)
  });
  assert.deepEqual(rows,[]);
- assert.deepEqual(reason,[{kind:'VKOSPI_READ',status:expectedStatus}]);
+ assert.deepEqual(reason.map(x=>x.status),
+  [expectedStatus,'KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED']);
  assert.ok(!JSON.stringify(reason).includes(message),
   'raw provider message must never be emitted');
 }
@@ -206,6 +209,18 @@ const official=await readOfficialKrxVkospiDaily(date,{
  }});
 assert.deepEqual(official,row);
 assert.equal(directCalls,1);
+const directMiss=[];
+assert.deepEqual(await readOfficialKrxVkospiDaily(date,{
+ authKey:'KRX_APPROVED_TEST_KEY_123456',now,
+ onDiagnostic:status=>directMiss.push(status),
+ fetchImpl:async()=>({ok:false,status:403})}),[]);
+assert.deepEqual(directMiss,['KRX_DIRECT_ACCESS_DENIED']);
+directMiss.length=0;
+assert.deepEqual(await readOfficialKrxVkospiDaily(date,{
+ authKey:'KRX_APPROVED_TEST_KEY_123456',now,
+ onDiagnostic:status=>directMiss.push(status),
+ fetchImpl:async()=>({ok:true,status:200,json:async()=>({OutBlock_1:[]})})}),[]);
+assert.deepEqual(directMiss,['KRX_DIRECT_NO_EXACT_ROW']);
 assert.deepEqual(await readOfficialKrxVkospiDaily(date,{
  authKey:'',now,fetchImpl:async()=>assert.fail('must not query without auth')}),[]);
 assert.deepEqual(await readOfficialKrxVkospiDaily(date,{
@@ -222,4 +237,27 @@ const recovered=await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCES
 assert.deepEqual(recovered,row);
 assert.deepEqual(diag.map(x=>x.status),['KRX_NO_DATED_VKOSPI_POINT','KRX_DIRECT_VERIFIED']);
 
+// Same official-readonly diagnostic contract for two independent markets.
+const {fetchOfficialKrxTurnover}=await import('./closing-krx-turnover.mjs');
+const turnoverDiagnostics=[];
+assert.deepEqual(await fetchOfficialKrxTurnover(date,{
+ authKey:'MOCK_VALID_KRX_AUTH_123456789',now,
+ fetchImpl:async()=>({ok:false,status:403}),
+ onDiagnostic:r=>turnoverDiagnostics.push(r)
+}),[]);
+assert.deepEqual(turnoverDiagnostics.map(x=>[x.market,x.status]),[
+ ['KOSPI','KRX_DIRECT_ACCESS_DENIED'],
+ ['KOSDAQ','KRX_DIRECT_ACCESS_DENIED']
+]);
+turnoverDiagnostics.length=0;
+assert.deepEqual(await fetchOfficialKrxTurnover(date,{
+ authKey:'MOCK_VALID_KRX_AUTH_123456789',now,
+ fetchImpl:async()=>({ok:true,status:200,headers:{get:()=>null},
+  json:async()=>({OutBlock_1:[]})}),
+ onDiagnostic:r=>turnoverDiagnostics.push(r)
+}),[]);
+assert.deepEqual(turnoverDiagnostics.map(x=>[x.market,x.status]),[
+ ['KOSPI','KRX_DIRECT_NO_EXACT_ROW'],
+ ['KOSDAQ','KRX_DIRECT_NO_EXACT_ROW']
+]);
 console.log('CLOSING_VKOSPI_PASS exact KRX date, trusted GAS, QC, send-time protection');

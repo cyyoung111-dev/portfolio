@@ -26,15 +26,24 @@ export function selectOfficialKrxVkospiDaily(date,payload){
   source:'KRX_OFFICIAL',role:'NON_NH_REFERENCE_ONLY'}];
 }
 export async function readOfficialKrxVkospiDaily(date,{
- authKey=process.env.KRX_AUTH_KEY,fetchImpl=fetch,now=()=>new Date()
+ authKey=process.env.KRX_AUTH_KEY,fetchImpl=fetch,now=()=>new Date(),
+ onDiagnostic=()=>{}
 }={}){
+ // Emit only fixed, non-sensitive outcomes; callers must not log the API body.
+ const emit=status=>{try{onDiagnostic(status);}catch{}};
  if(!isDate(date)||krxSessionStatus(date)!=='OPEN'
-  ||typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey))return [];
+  ||typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey)){
+  emit('KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED');return [];
+ }
  const when=now();
- if(!(when instanceof Date)||!Number.isFinite(when.getTime()))return [];
+ if(!(when instanceof Date)||!Number.isFinite(when.getTime())){
+  emit('KRX_DIRECT_SESSION_UNVERIFIED');return [];
+ }
  const local=kst(when);
  // Only an already completed KRX session is eligible.
- if(local.date<date||(local.date===date&&local.minute<960))return [];
+ if(local.date<date||(local.date===date&&local.minute<960)){
+  emit('KRX_DIRECT_SESSION_UNVERIFIED');return [];
+ }
  const endpoint=new URL(KRX_VKOSPI_URL);
  endpoint.searchParams.set('basDd',date.replaceAll('-',''));
  try{
@@ -42,7 +51,13 @@ export async function readOfficialKrxVkospiDaily(date,{
    method:'GET',headers:{AUTH_KEY:authKey,accept:'application/json'},
    redirect:'error',signal:AbortSignal.timeout(8500)
   });
-  if(!response?.ok||Number(response.status)!==200)return [];
-  return selectOfficialKrxVkospiDaily(date,await response.json());
- }catch{return [];}
+  if(!response?.ok||Number(response.status)!==200){
+   emit([401,403].includes(Number(response?.status))
+     ?'KRX_DIRECT_ACCESS_DENIED':'KRX_DIRECT_HTTP_UNAVAILABLE');
+   return [];
+  }
+  const selected=selectOfficialKrxVkospiDaily(date,await response.json());
+  emit(selected.length===1?'KRX_DIRECT_VERIFIED':'KRX_DIRECT_NO_EXACT_ROW');
+  return selected;
+ }catch{emit('KRX_DIRECT_NETWORK_OR_PARSE_FAILED');return [];}
 }
