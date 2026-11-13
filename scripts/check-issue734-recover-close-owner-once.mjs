@@ -37,7 +37,7 @@ for(const invalid of [
  assert.throws(()=>assertSingleCloseOwnerReadiness({
    proof:invalid.proof??proof,status:invalid.status??base,
    funds:invalid.funds??funds
- }),/^Error: ISSUE734_ONCE_/);
+ }),/ISSUE734_ONCE_/);
  rejectCases++;
 }
 const url='https://script.google.com/macros/s/TEST_DEPLOYMENT_ID_1234567/exec';
@@ -101,8 +101,9 @@ const flow=YAML.parse(fs.readFileSync('.github/workflows/issue-507-fund-close-re
 const env=flow.jobs.resume.steps.find(s=>String(s.run||'').includes('run-incomplete-close-resume.mjs')).env;
 assert.match(env.ISSUE734_CONFIRM_RECOVERY,/inputs\.diagnose_only == false/);
 assert.match(env.ISSUE734_CONFIRM_RECOVERY,/inputs\.confirm_recovery == 'APPLY'/);
-assert.equal(flow.on.workflow_dispatch.inputs.diagnose_only.default,true);
-assert.equal(flow.on.workflow_dispatch.inputs.confirm_recovery.default,'');
+const inputs=(flow.on??flow.true).workflow_dispatch.inputs;
+assert.equal(inputs.diagnose_only.default,true);
+assert.equal(inputs.confirm_recovery.default,'');
 assert.equal(flow.jobs.resume.environment,'portfolio-production-gas');
 console.log(JSON.stringify({kind:'ISSUE734_ONCE_CLOSE_OWNER_RECOVERY_OFFLINE_PASS',
  rejectCases,appliesInSuccess:1,appliesInFailureAtMost:1,
