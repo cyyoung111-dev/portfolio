@@ -69,6 +69,10 @@ export async function collectHistory({
   attemptedDates:attempted.length,addedDates:attempted.filter(x=>x.saved).length,
   sourceCoverage:counts.status,officialRawOhlc:true,
   splitAdjusted:false,portfolioWrites:0,gasWrites:0,telegramSends:0,
+  // Fixed source-status enums and public market dates only. Keep prices,
+  // raw API payloads, response text and credential values out of logs.
+  attemptedResults:attempted.map(x=>({date:x.date,KOSPI:x.KOSPI,
+   KOSDAQ:x.KOSDAQ,saved:x.saved})),
   // Counts are NOT output before all 252 sessions and both market sources
   // independently validate; short-history securities stay excluded.
   ...(counts.status==='VERIFIED_RAW_UNADJUSTED_REFERENCE'?{markets:counts.markets}:{})};
