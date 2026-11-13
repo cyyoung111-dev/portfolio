@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {MARKETS,SOURCE,WINDOW,sessionStatus,expectedSessions,
  completedSession,parseOfficialStockDay,validMarketDay,verifyArchive,
- appendArchive,countNewHighsAndLows,updateSummary,render52WeekMarketCounts}
+ appendArchive,countNewHighsAndLows,audit52WeekRawDiscontinuity,
+ updateSummary,render52WeekMarketCounts}
  from './krx-52week-market.mjs';
 import {fetchOfficialMarketPair,collectHistory} from './collect-krx-52week-history.mjs';
 const TARGET='2026-11-13';
@@ -94,6 +95,51 @@ for(const market of ['KOSPI','KOSDAQ']){
 }
 assert.match(render52WeekMarketCounts(count),/52주 신규 고가 2 \/ 신규 저가 2/);
 assert.match(render52WeekMarketCounts(count),/분할 미보정/);
+// Raw market-source completeness is NOT proof of comparable split-adjusted
+// historic prices. Audit only securities with all 252 sessions; an ordinary
+// last-day +30% move must not be mislabeled a confirmed corporate action.
+const baselineQuality=audit52WeekRawDiscontinuity(complete,dates,count);
+assert.equal(baselineQuality.status,'RAW_DISCONTINUITY_REVIEW_REQUIRED');
+assert.equal(baselineQuality.thresholdAbsPct,31);
+for(const market of ['KOSPI','KOSDAQ']){
+ assert.equal(baselineQuality.markets[market].discontinuityCodes,0);
+ assert.equal(baselineQuality.markets[market].flaggedHighs,0);
+ assert.equal(baselineQuality.markets[market].flaggedLows,0);
+ assert.equal(baselineQuality.markets[market].eligible,
+  count.markets[market].eligible);
+}
+assert.equal(audit52WeekRawDiscontinuity(archive,dates,
+ countNewHighsAndLows(archive,dates)).status,'HISTORY_INCOMPLETE');
+// Simulate an ex-rights-looking discontinuity in an existing KOSPI code
+// without calling the source event a confirmed corporate action. The next
+// 170+ sessions remain valid and exactly dated.
+const discontinuous=structuredClone(complete);
+for(let i=80;i<discontinuous.sessions.length;i++){
+ // Suspended securities are removed from daily rows, so an array index
+ // is NOT a stable security identity across different sessions.
+ const row=discontinuous.sessions[i].markets.KOSPI.rows
+  .find(x=>x[0]==='KR000008');
+ assert.ok(row,'target security identity must persist through the window');
+ row[1]=60;row[2]=30;row[3]=40;
+}
+discontinuous.sessions.at(-1).markets.KOSPI.rows
+ .find(x=>x[0]==='KR000008')[2]=20;
+const discontinuousCounts=countNewHighsAndLows(discontinuous,dates);
+const flagged=audit52WeekRawDiscontinuity(discontinuous,dates,discontinuousCounts);
+assert.equal(discontinuousCounts.markets.KOSPI.lows,3);
+assert.equal(flagged.markets.KOSPI.discontinuityCodes,1);
+assert.equal(flagged.markets.KOSPI.flaggedLows,1);
+assert.equal(flagged.markets.KOSPI.flaggedHighs,0);
+assert.deepEqual(flagged.markets.KOSPI.flaggedExtremes,[{
+ code:'KR000008',kind:'LOW',discontinuityDate:dates[80],
+ discontinuityDirection:'DOWN'
+}]);
+assert.equal(flagged.markets.KOSDAQ.discontinuityCodes,0);
+assert.equal(flagged.corporateActionsConfirmed,false);
+assert.equal(flagged.splitAdjusted,false);
+assert.throws(()=>audit52WeekRawDiscontinuity(discontinuous,dates.slice(1),
+ discontinuousCounts),/WINDOW_UNVERIFIED/);
+
 const snapshot=updateSummary(complete,count);
 assert.equal(snapshot.summaries.length,1);
 assert.equal(updateSummary(snapshot,count).summaries.length,1);
@@ -149,6 +195,8 @@ assert.deepEqual(collected.report.attemptedResults.map(x=>x.saved),[true,true]);
 assert.ok(collected.report.attemptedResults.every(x=>
  x.KOSPI==='VERIFIED'&&x.KOSDAQ==='VERIFIED'));
 assert.equal(collected.report.sourceCoverage,'HISTORY_INCOMPLETE');
+assert.equal(collected.quality.status,'HISTORY_INCOMPLETE');
+assert.equal(collected.report.quality,undefined);
 assert.equal(collected.counts.markets,null);
 assert.equal(trace[0].portfolioWrites,0);
 assert.ok(!JSON.stringify(trace).includes('TEST_KRX_KEY'));
