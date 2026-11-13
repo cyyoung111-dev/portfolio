@@ -5,33 +5,29 @@ import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import YAML from 'yaml';
 import {selfTest as testProcessAudit} from './issue507-worker-execution-audit.mjs';
 import {summarizeBackfillStatus,assessWorkerRunCheckpoint} from './diagnose-backfill-status.mjs';
 
-// Prevent expensive historical GAS scans from recurring on unrelated KRX
-// diagnostic changes. A manual dispatch still runs the existing READ ONLY
-// eight-date proof, while a push runs only safe contract/status checks.
-function assertIssue507ManualHistoricalScope(yaml) {
- const parsed=YAML.parseDocument(yaml,{version:'1.2',uniqueKeys:true});
- assert.equal(parsed.errors.length,0,'Issue507 workflow YAML must parse');
- const w=parsed.toJS({maxAliasCount:0});
- assert.equal(w.on.schedule,undefined);
- assert.ok(w.on.workflow_dispatch!==undefined);
- assert.equal(w.jobs['operational-readonly'].if,
-  "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'");
- assert.equal(w.jobs['operational-readonly'].needs,'contract');
- assert.equal(w.jobs['operational-readonly'].environment,'portfolio-production-gas');
- assert.equal(w.jobs['operational-readonly']['timeout-minutes'],18);
- assert.equal(w.jobs['status-only'].if,
-  "github.ref == 'refs/heads/main' && github.event_name != 'pull_request'");
- assert.ok(w.on.push.paths.includes('scripts/diagnose-backfill-status.mjs'));
- assert.ok(w.on.push.paths.includes('.github/workflows/issue-507-ledger-worker-readonly.yml'));
- const steps=w.jobs['operational-readonly'].steps.filter(step=>step.run);
- assert.equal(steps.length,2);
- assert.deepEqual(steps.map(x=>x.run),[
-  'node scripts/issue507-ledger-worker-readonly.mjs',
-  'node scripts/issue507-deferred-source-audit-readonly.mjs']);
+// Test the workflow's exact routing without requiring an npm dependency:
+// the dedicated production contract runner intentionally has no npm install.
+function assertIssue507ManualHistoricalScope(sourceText) {
+ assert.match(sourceText,/^on:\s*$/m);
+ assert.match(sourceText,/^  workflow_dispatch:\s*$/m);
+ assert.doesNotMatch(sourceText,/^  schedule:/m);
+ assert.match(sourceText,/^    - 'scripts\/diagnose-backfill-status\.mjs'$/m);
+ const heavy=sourceText.split('\n  operational-readonly:\n')[1]
+   ?.split('\n  status-only:\n')[0];
+ const light=sourceText.split('\n  status-only:\n')[1];
+ assert(heavy&&light,'both protected jobs must exist');
+ assert.match(heavy,
+  /^    if: github\.ref == 'refs\/heads\/main' && github\.event_name == 'workflow_dispatch'$/m);
+ assert.match(heavy,/^    needs: contract$/m);
+ assert.match(heavy,/^    environment: portfolio-production-gas$/m);
+ assert.match(heavy,/^    timeout-minutes: 18$/m);
+ assert.match(heavy,/run: node scripts\/issue507-ledger-worker-readonly\.mjs/);
+ assert.match(heavy,/run: node scripts\/issue507-deferred-source-audit-readonly\.mjs/);
+ assert.match(light,
+  /^    if: github\.ref == 'refs\/heads\/main' && github\.event_name != 'pull_request'$/m);
 }
 const issue507Workflow=fs.readFileSync(
  '.github/workflows/issue-507-ledger-worker-readonly.yml','utf8');
