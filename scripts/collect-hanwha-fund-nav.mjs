@@ -22,7 +22,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
  }).format(now);
  if(!validDay(today))throw Error('HANWHA_DATE_UNVERIFIED');
  const from=shift(today,-7);
- const request=async(action,args={},credential=token)=>{
+ const request=async(action,args={},credential=token,timeoutMs=180000)=>{
    const phase=action==='getAutomationStatus'?'STATUS'
      :action==='previewFundNavImport'?'PREVIEW'
      :action==='getFundValuationStatus'?'VALUATION'
@@ -39,7 +39,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
      response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
        headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
        body:new URLSearchParams({action,...args,accessToken:credential}),
-       signal:AbortSignal.timeout(action==='previewFundNavImport'?90000:180000)});
+       signal:AbortSignal.timeout(timeoutMs)});
    }catch(e){
      const kind=['TimeoutError','AbortError'].includes(e?.name)?'TIMEOUT':'NETWORK';
      stageAudit(kind);
@@ -91,7 +91,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
  let preview;
  for(let attempt=0;attempt<2;attempt++){
    try{
-     preview=await request('previewFundNavImport',{data:JSON.stringify(data)});
+     preview=await request('previewFundNavImport',{data:JSON.stringify(data)},token,90000);
      break;
    }catch(error){
      if(!/^HANWHA_PREVIEW_(?:TIMEOUT|NETWORK)_UNVERIFIED$/.test(String(error?.message||''))
