@@ -1,6 +1,8 @@
 name: issue-507-ledger-worker-readonly
 
-# Issue #507: one-time post-merge evidence. No schedule or POST mutating action.
+# Issue #507: the historical eight-date GAS proof is MANUAL only; routine
+# main pushes retain contract tests + a lightweight independent status probe.
+# No schedule, financial writer or POST mutating action.
 on:
   pull_request:
     paths:
@@ -37,7 +39,10 @@ jobs:
         run: node scripts/check-issue507-worker-trigger-audit.mjs
 
   operational-readonly:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Heavy historical integrity scans exceeded 90 s and returned non-JSON
+    # on a routine status-source change. They are explicit manual diagnostics,
+    # never a hidden side effect of a KRX/status/worker code merge.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: portfolio-production-gas
     needs: contract
     runs-on: ubuntu-latest
