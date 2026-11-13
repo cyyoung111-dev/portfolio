@@ -137,4 +137,12 @@ assert.equal(collected.counts.markets,null);
 assert.equal(trace[0].portfolioWrites,0);
 assert.ok(!JSON.stringify(trace).includes('TEST_KRX_KEY'));
 await assert.rejects(collectHistory({key:''}),/KRX52_KEY_UNAVAILABLE/);
+// Regression: the older 11-day artifact was selected instead of the newer
+// 22-day artifact when unsorted first was treated as newest.
+// The main-only runner must sort artifacts by created_at then id.
+const {readFileSync}=await import('node:fs');
+const workflowSource=readFileSync('.github/workflows/krx-52week-history.yml','utf8');
+assert.match(workflowSource,/sort_by\(\.created_at, \.id\) \| last \| \.workflow_run\.id \/\/ empty/);
+assert.doesNotMatch(workflowSource,/\| first \/\/ empty/);
+assert.match(workflowSource,/KRX52_PRIOR_ARCHIVE_RESTORED run=\$previous/);
 console.log('KRX_52W_252_SESSION_MARKET_HISTORY_PASS exact OHLC, count, holidays, incomplete, reentry, source-only');
