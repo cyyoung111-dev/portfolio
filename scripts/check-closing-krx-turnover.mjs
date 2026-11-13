@@ -69,4 +69,39 @@ assert.deepEqual(await readClosingKrxTurnoverFromGas(date,{
  })}),onDiagnostic:r=>gasReasons.push(r)
 }),[]);
 assert.deepEqual(gasReasons,[{kind:'KRX_TURNOVER_READ',status:'GAS_EMPTY_ROWS'}]);
+let directAttempt=0;
+const supplementedReasons=[];
+const supplemented=await readClosingKrxTurnoverFromGas(date,{
+ url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_KRX_ACCESS_TOKEN',
+ authKey:'TEST_KRX_AUTH_KEY_VALID_123456',now:clock,
+ fetchImpl:async()=>({ok:true,json:async()=>({
+  status:'ok',date,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',rows:[]
+ })}),
+ fetchDirect:async(day,{authKey})=>{
+  directAttempt++;
+  assert.equal(day,date);
+  assert.equal(authKey,'TEST_KRX_AUTH_KEY_VALID_123456');
+  return [k,d];
+ },
+ onDiagnostic:x=>supplementedReasons.push(x)
+});
+assert.deepEqual(supplemented,[k,d]);
+assert.equal(directAttempt,1);
+assert.deepEqual(supplementedReasons.map(x=>x.status),
+ ['GAS_EMPTY_ROWS','KRX_DIRECT_BOTH_VERIFIED']);
+const partialSafe=await readClosingKrxTurnoverFromGas(date,{
+ url:'https://script.google.com/macros/s/TEST/exec',token:'TEST_KRX_ACCESS_TOKEN',
+ now:clock,fetchImpl:async()=>({ok:true,json:async()=>({
+  status:'ok',date,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',rows:[k]
+ })}),
+ fetchDirect:async()=>[{...d,date:'2026-10-30'}]
+});
+assert.deepEqual(partialSafe,[k], 'partial direct must not mix sources');
+const skip=await readClosingKrxTurnoverFromGas(date,{
+ url:'',token:'',authKey:'TEST_KRX_AUTH_KEY_VALID_123456',
+ now:()=>new Date(date+'T15:50:00+09:00'),
+ fetchDirect:async()=>assert.fail('no preclose source query')
+});
+assert.deepEqual(skip,[]);
+
 console.log('KRX_TURNOVER_PROVIDER_PASS official KOSPI/KOSDAQ, units, date, duplicates, auth, optional');
