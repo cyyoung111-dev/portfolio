@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {run} from './collect-hanwha-fund-nav.mjs';
+import {run,isRecentUnpublishedHanwhaCloseDay} from './collect-hanwha-fund-nav.mjs';
 
 const now=new Date('2026-11-06T00:15:00Z');
 const sourceRows=[
@@ -143,3 +143,97 @@ const privateSource=fs.readFileSync('scripts/collect-hanwha-fund-nav.mjs','utf8'
 assert.match(privateSource,/request\('collectHanwhaFundNav'/);
 assert.doesNotMatch(privateSource,/request\('importFundNav'|request\('collectKbFundNav'/);
 console.log('Hanwha v9.284 shared-lease import: preview/ACK recovery/dated refresh/zero-write denial PASS');
+
+
+// 2026-11-13: 39/39 PRICE/Snapshot can be complete while the Friday
+// exact-class Hanwha NAV is not published. No fund refresh of that dated row.
+const waitingDate='2026-11-13';
+const waitingRow={
+ code:'F00001',date:waitingDate,navState:'NAV_MISSING',
+ publicationExpected:true,valuationRequired:true,
+ unitsApplied:true,reconciled:true,
+ evaluationState:'WRITE_REQUIRED',snapshotState:'NOT_CREATED'
+};
+const grace={closeDate:waitingDate,today:'2026-11-14',
+ latestPublishedDate:'2026-11-12'};
+assert.equal(isRecentUnpublishedHanwhaCloseDay(waitingRow,grace),true);
+for(const changes of [
+ {publicationExpected:false},{unitsApplied:false},{reconciled:false},
+ {date:'2026-11-12'},{navState:'EXISTING_CONFIRMED'},
+ {valuationRequired:false},{evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}
+])assert.equal(isRecentUnpublishedHanwhaCloseDay({...waitingRow,...changes},grace),false);
+assert.equal(isRecentUnpublishedHanwhaCloseDay(waitingRow,{...grace,today:'2026-11-17'}),false,
+ 'Friday source publication grace ends on Tuesday');
+assert.equal(isRecentUnpublishedHanwhaCloseDay(waitingRow,{...grace,
+ latestPublishedDate:waitingDate}),false,'published-but-not-imported must fail');
+function recentUnpublishedFixture({publicationExpected=true,unitsApplied=true,
+ reconciled=true,sourceDate='2026-11-12',navState='NAV_MISSING'}={}){
+ const actionLog=[],navWrites=[];
+ const fetchImpl=async(destination,opts={})=>{
+  const host=new URL(destination).hostname;
+  if(host==='www.hanwhafund.co.kr')return {ok:true,json:async()=>({
+   list:[{wkdate:sourceDate.replaceAll('-',''),price:'1,999.32'}]
+  })};
+  assert.equal(host,'script.google.com');
+  const p=Object.fromEntries(opts.body);actionLog.push(p.action);
+  if(p.accessToken==='HANWHA_AUTH_PROBE')
+   return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+  if(p.action==='getAutomationStatus')return {ok:true,json:async()=>({
+   status:'ok',gasVersion:'9.294',automation:{
+    closeRun:{state:'COMPLETE',runDate:waitingDate},
+    tradeSnapshotWorkerLastResult:{status:'IDLE'},
+    tradeSnapshotDeferredCount:0,fundAttempt:{state:'DONE'}
+   }
+  })};
+  if(p.action==='previewFundNavImport')return {ok:true,json:async()=>({
+   status:'ok',code:'F00001',candidates:[],updates:[],warnings:[],
+   errors:[],duplicates:[],zeroUnits:[],
+   identical:[{date:sourceDate,existingNav:1999.32,uploadedNav:1999.32}]
+  })};
+  if(p.action==='getFundValuationStatus')return {ok:true,json:async()=>({
+   status:'ok',fundResults:{F00001:{dates:[{
+    ...waitingRow,publicationExpected,unitsApplied,reconciled,navState
+   }]}}
+  })};
+  if(p.action==='collectHanwhaFundNav'){
+   navWrites.push(p.mode);
+   throw Error('ILLEGAL_TEST_FINANCIAL_WRITE');
+  }
+  throw Error('UNKNOWN_TEST_ACTION');
+ };
+ return {fetchImpl,actionLog,navWrites};
+}
+const runDeferred=async(f,now=new Date('2026-11-14T01:20:00Z'))=>
+ run({...args(f),now,apply:true});
+{
+ const f=recentUnpublishedFixture();
+ const r=await runDeferred(f);
+ assert.equal(r.mode,'DEFERRED');
+ assert.equal(r.complete,false);
+ assert.equal(r.reason,'OFFICIAL_NAV_AWAITING_PUBLICATION');
+ assert.equal(r.waitingDateWrites,0);
+ assert.equal(r.writerInvoked,false);
+ assert.deepEqual(r.waitingDates,['2026-11-13']);
+ assert.equal(r.derivedRepaired,0);
+ assert.deepEqual(f.navWrites,[]);
+ assert.equal(f.actionLog.filter(x=>x==='getFundValuationStatus').length,3,
+  'preflight + pre-write + postflight are READ ONLY');
+}
+for(const options of [
+ {publicationExpected:false},{unitsApplied:false},{reconciled:false},
+ {sourceDate:'2026-11-13'}
+]){
+ const f=recentUnpublishedFixture(options);
+ await assert.rejects(()=>runDeferred(f),/HANWHA_DERIVED_NAV_UNVERIFIED/,
+   'unpublished grace must not mask invalid source/quantity/state');
+ assert.deepEqual(f.navWrites,[]);
+}
+{
+ const f=recentUnpublishedFixture();
+ await assert.rejects(()=>runDeferred(f,new Date('2026-11-17T01:20:00Z')),
+  /HANWHA_DERIVED_NAV_UNVERIFIED/,
+  'Tuesday delayed Friday NAV must not be silently accepted indefinitely');
+ assert.deepEqual(f.navWrites,[]);
+}
+console.log(JSON.stringify({kind:'HANWHA_RECENT_NAV_GRACE_OFFLINE_PASS',
+ scenarios:16,financeWrites:0,gasDeployments:0,telegramSends:0}));
