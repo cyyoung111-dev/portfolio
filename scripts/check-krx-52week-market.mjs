@@ -128,6 +128,10 @@ const collected=await collectHistory({
 assert.equal(requests,4,'only two date pairs are queried per bounded run');
 assert.equal(collected.report.addedDates,2);
 assert.equal(collected.report.storedSessions,2);
+assert.equal(collected.report.attemptedResults.length,2);
+assert.deepEqual(collected.report.attemptedResults.map(x=>x.saved),[true,true]);
+assert.ok(collected.report.attemptedResults.every(x=>
+ x.KOSPI==='VERIFIED'&&x.KOSDAQ==='VERIFIED'));
 assert.equal(collected.report.sourceCoverage,'HISTORY_INCOMPLETE');
 assert.equal(collected.counts.markets,null);
 assert.equal(trace[0].portfolioWrites,0);
