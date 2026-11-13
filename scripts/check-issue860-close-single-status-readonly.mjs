@@ -171,6 +171,14 @@ assert.match(current,/run: node scripts\/issue860-close-single-status-readonly\.
 assert.match(current,/run: node scripts\/issue734-gas9293-postdeploy-readonly\.mjs/);
 assert.doesNotMatch(current,/run: node scripts\/issue860-gas9292-postdeploy-readonly\.mjs/);
 assert.doesNotMatch(current,/run:.*resumeIncompletePortfolioClose/);
+const currentIssue734=fs.readFileSync(
+ '.github/workflows/issue734-current-close-status-readonly.yml','utf8');
+assert.match(currentIssue734,/environment: portfolio-production-gas/);
+assert.match(currentIssue734,/node scripts\/issue860-close-single-status-readonly\.mjs/);
+assert.match(currentIssue734,/auditFundRows/);
+assert.match(currentIssue734,/days:32/);
+assert.match(currentIssue734,/ISSUE734_FUND_32DAY_VERDICT/);
+assert.doesNotMatch(currentIssue734,/action:\s*['"](?:collectKbFundNav|collectHanwhaFundNav|resumeIncompletePortfolioClose)['"]/);
 console.log(JSON.stringify({kind:'ISSUE860_SINGLE_STATUS_OFFLINE_PASS',
  responseSanitized:true,authenticatedOneRequest:true,timeoutBounded:true,
  ownerProofNotInvented:true,financialWrites:0,realGasRequests:0}));
