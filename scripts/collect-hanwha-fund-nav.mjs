@@ -45,7 +45,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
      stageAudit(kind);
      throw Error('HANWHA_'+phase+'_'+kind+'_UNVERIFIED');
    }
-   if(!response?.ok){stageAudit('HTTP_UNVERIFIED');throw Error('HANWHA_'+phase+'_HTTP_UNVERIFIED');}
+   if(!response?.ok){
+     // Only a READ-ONLY preview may retry known transient upstream statuses.
+     // Auth, invalid requests and all financial writes remain fail-closed.
+     const transient=phase==='PREVIEW'&&[429,502,503,504].includes(response?.status);
+     stageAudit(transient?'HTTP_TRANSIENT_UNVERIFIED':'HTTP_UNVERIFIED');
+     throw Error('HANWHA_'+phase+'_'+(transient?'HTTP_TRANSIENT_UNVERIFIED':'HTTP_UNVERIFIED'));
+   }
    try{
      const payload=await response.json();
      const saved=['success','partial','failed'].includes(payload?.saveState)
@@ -86,15 +92,15 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
    ackWarnings:false,sourceText:usingSecondary
      ?'K55213C50702 FunETF HANWHA C-RPe'
      :'008942 HANWHA C-RPe',rows};
- // Initial preview is READ-ONLY and can be retried ONCE on transport failure.
- // No retry of import, refresh, authenticated rejection or schema mismatch.
+ // Initial READ-ONLY preview may retry ONCE on transport/429/502/503/504.
+ // No retry of financial writes, 401/403/other HTTP, or schema mismatch.
  let preview;
  for(let attempt=0;attempt<2;attempt++){
    try{
      preview=await request('previewFundNavImport',{data:JSON.stringify(data)},token,90000);
      break;
    }catch(error){
-     if(!/^HANWHA_PREVIEW_(?:TIMEOUT|NETWORK)_UNVERIFIED$/.test(String(error?.message||''))
+     if(!/^HANWHA_PREVIEW_(?:TIMEOUT|NETWORK|HTTP_TRANSIENT)_UNVERIFIED$/.test(String(error?.message||''))
        ||attempt===1)throw error;
      await retryDelay(1500);
    }

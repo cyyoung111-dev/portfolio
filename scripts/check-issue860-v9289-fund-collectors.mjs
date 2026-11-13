@@ -132,6 +132,45 @@ for(const [name,runner,code] of [['KB',collectKb,'F00002'],
  assert.deepEqual([rejected,deniedDelays],[1,0],name+' auth/HTTP fail closed');
 }
 
+// An upstream 429/502/503/504 can be transient, but only for the initial
+// read-only NAV preview; import/refresh and authentication errors never retry.
+for(const [kind,runner,code] of [['KB',collectKb,'F00002'],
+ ['HANWHA',collectHanwha,'F00001']]){
+ for(const status of [429,502,503,504]){
+  const good=fixture('9.291',code);
+  let previewCalls=0,delays=0,writerCalls=0;
+  const result=await runner({url,token,now,apply:false,
+   retryDelay:async()=>{delays++;},
+   fetchImpl:async(destination,options={})=>{
+    if(new URL(destination).hostname==='script.google.com'){
+     const action=options.body.get('action');
+     if(/^(?:collectKbFundNav|collectHanwhaFundNav)$/.test(action))writerCalls++;
+     if(action==='previewFundNavImport'&&++previewCalls===1)
+      return {ok:false,status};
+    }
+    return good.fetchImpl(destination,options);
+   }});
+  assert.equal(result.mode,'DRY_RUN',kind+' '+status);
+  assert.deepEqual([previewCalls,delays,writerCalls],[2,1,0],
+   kind+' '+status+' initial preview transient retry only');
+ }
+ for(const status of [400,401,403,404,500]){
+  const denied=fixture('9.291',code);let previewCalls=0,delays=0;
+  await assert.rejects(()=>runner({url,token,now,apply:false,
+   retryDelay:async()=>{delays++;},
+   fetchImpl:async(destination,options={})=>{
+    if(new URL(destination).hostname==='script.google.com'
+      &&options.body.get('action')==='previewFundNavImport'){
+      previewCalls++;return {ok:false,status};
+    }
+    return denied.fetchImpl(destination,options);
+   }}),kind==='KB'?/NAV_PREVIEW_HTTP_UNVERIFIED/:/HANWHA_PREVIEW_HTTP_UNVERIFIED/);
+  assert.deepEqual([previewCalls,delays],[1,0],
+   kind+' '+status+' permanent/auth rejection never retries');
+ }
+}
+
+// Already-committed writer ACKs are never retried regardless of response code.
 // Regression for 2026-11-11: the GAS import may commit before HTTP ACK times out.
 // Only transient read-only preview errors may be retried. Never import twice.
 const exactDate='2026-11-10',exactNav=1234.56;
