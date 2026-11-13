@@ -7,9 +7,13 @@ on:
       - '.github/workflows/krx-52week-history.yml'
       - 'scripts/krx-52week-market.mjs'
       - 'scripts/collect-krx-52week-history.mjs'
+  # The KRX OpenAPI daily OHLC is published T+1, not at 18:40.
+  # The prior early run fetched the same release-eligible session and its
+  # workflow_run completion could needlessly wake private NAV jobs around
+  # the separate 19:00 portfolio close. Keep one late weekday run only.
+  # Friday's completed data is first eligible Monday and included Monday night.
   schedule:
-    - cron: '40 9 * * *'  # 18:40 KST, source-only warm-up
-    - cron: '30 14 * * *' # 23:30 KST, late official publication / backfill
+    - cron: '30 14 * * 1-5' # 23:30 KST, one post-publication backfill
   workflow_dispatch:
     inputs:
       max_dates:
