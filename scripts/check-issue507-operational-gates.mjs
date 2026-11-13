@@ -122,8 +122,6 @@ assert.ok(protectedWorkflowNames.includes('issue734-writer-terminal-evidence-rea
   'writer process evidence must require protected Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-recent-snapshot-backup-readonly.yml'),
   'one-time recent backup owner inventory must use protected GAS Environment');
-assert.ok(protectedWorkflowNames.includes('krx-20261105-held-source-preflight.yml'),
-  'pre-19 KRX held-source audit must require protected production Environment');
 assert.ok(protectedWorkflowNames.includes('nh-master-registered-readonly.yml'),
   'new domestic registered NH sample workflow must require protected production Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-readonly-9282-dryrun.yml'),
@@ -138,12 +136,8 @@ assert.ok(protectedWorkflowNames.includes('issue507-deployment-inventory-readonl
   'manual GAS deployment inventory must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('gas-published-gate-readonly-audit.yml'),
   'manual published-GAS source audit must retain protected production Environment');
-assert.ok(protectedWorkflowNames.includes('telegram-close-arm-20261102.yml'),
-  'one-off 17:00 punctual guard must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('nh-close-20261102-diagnostic-readonly.yml'),
   'one-off NH stored close diagnostic must retain protected GAS environment');
-assert.ok(protectedWorkflowNames.includes('telegram-morning-arm-20261103.yml'),
-  '11/03 one-off 07:40 guarded morning fallback must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-morning-punctual-arm.yml'),
   'morning early-arm must use protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-close-punctual-arm.yml'),
