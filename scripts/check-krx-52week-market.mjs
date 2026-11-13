@@ -105,6 +105,9 @@ const workflowArchive=await import('node:fs').then(fs=>fs.readFileSync(
  '.github/workflows/krx-52week-history.yml','utf8'));
 assert.match(workflowArchive,/krx-52week-archive-crypto\.mjs seal/);
 assert.match(workflowArchive,/krx-52week-archive-crypto\.mjs open/);
+assert.match(workflowArchive,/KRX52_AUTHENTICATED_SOURCE_ROUNDTRIP_PASS/);
+assert.match(workflowArchive,/cmp --silent \.krx-52week\/history\.json \.krx-52week\/reopened\.json/);
+assert.match(workflowArchive,/rm \.krx-52week\/reopened\.json/);
 assert.match(workflowArchive,/\.krx-52week\/history\.k52e/);
 const uploadSection=workflowArchive.split('uses: actions\/upload-artifact@v4').at(-1);
 assert.ok(uploadSection&&!uploadSection.includes('.krx-52week/history.json'),
