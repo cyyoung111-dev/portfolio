@@ -22,7 +22,7 @@ export function assessCloseFundOperational({close,funds,asOf}) {
  const byCode=new Map();
  for(const f of funds) {
   if(!FUNDS.includes(f?.code)||byCode.has(f.code)||!day(f.from)
-    ||!day(f.to)||f.from>f.to||f.to!==asOf
+    ||!day(f.to)||f.from>f.to||f.to!==asOf||age(asOf,f.from)!==31
     ||!Number.isInteger(f.activeDays)||f.activeDays<0||f.activeDays>32)
    throw Error('CLOSE_FUND_EVIDENCE_SCHEMA');
   for(const key of [...ISSUES,'unpublishedDates'])
