@@ -28,6 +28,11 @@ const VALID_STATUSES=new Set([
  'GAS_EMPTY_ROWS','GAS_STATUS_ERROR','GAS_RESPONSE_SCHEMA',
  'KRX_NO_DATED_VKOSPI_POINT','KRX_KEY_NOT_CONFIGURED',
  'KRX_KEY_OR_INDEX_PERMISSION_DENIED','KRX_VKOSPI_BATCH_NETWORK_FAILURE',
+ 'KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED','KRX_DIRECT_SESSION_UNVERIFIED',
+ 'KRX_DIRECT_ACCESS_DENIED','KRX_DIRECT_HTTP_UNAVAILABLE',
+ 'KRX_DIRECT_PAYLOAD_UNVERIFIED','KRX_DIRECT_NO_EXACT_ROW',
+ 'KRX_DIRECT_NETWORK_OR_PARSE_FAILED','KRX_DIRECT_VERIFIED',
+ 'KRX_DIRECT_BOTH_VERIFIED','KRX_DIRECT_UNVERIFIED',
  'NETWORK_OR_PARSE_FAILED'
 ]);
 
@@ -56,6 +61,8 @@ const safeDiagnostic=d=>{
  if(!d||!DIAGNOSTIC_KINDS.has(d.kind))return null;
  return {kind:d.kind,status:VALID_STATUSES.has(d.status)?d.status:'OTHER_UNVERIFIED',
   ...(d.kind==='FRED_TREASURY_READ'&&TREASURY_IDS.includes(d.id)?{id:d.id}:{}),
+  ...(d.kind==='KRX_TURNOVER_READ'&&TURNOVER_IDS.includes(d.market)
+    ?{market:d.market}:{}),
   checked:Array.isArray(d.verified)?d.verified.filter(x=>STOCK_IDS.includes(x)):[],
   stocks:Array.isArray(d.stocks)?d.stocks.filter(x=>STOCK_IDS.includes(x.id))
     .map(x=>({id:x.id,status:/^[A-Z_]+$/.test(x.status)?x.status:'UNKNOWN'})):[]};
