@@ -13,7 +13,8 @@ const validDay=d=>typeof d==='string'&&DATE.test(d)&&
  Number.isFinite(Date.parse(d+'T00:00:00Z'))&&
  new Date(d+'T00:00:00Z').toISOString().slice(0,10)===d;
 const shift=(day,n)=>new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
-export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}={}){
+export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
+ retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('HANWHA_AUTH_MISSING');
  const today=new Intl.DateTimeFormat('en-CA',{
@@ -38,7 +39,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
      response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
        headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
        body:new URLSearchParams({action,...args,accessToken:credential}),
-       signal:AbortSignal.timeout(180000)});
+       signal:AbortSignal.timeout(action==='previewFundNavImport'?90000:180000)});
    }catch(e){
      const kind=['TimeoutError','AbortError'].includes(e?.name)?'TIMEOUT':'NETWORK';
      stageAudit(kind);
@@ -85,7 +86,19 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false}
    ackWarnings:false,sourceText:usingSecondary
      ?'K55213C50702 FunETF HANWHA C-RPe'
      :'008942 HANWHA C-RPe',rows};
- const preview=await request('previewFundNavImport',{data:JSON.stringify(data)});
+ // Initial preview is READ-ONLY and can be retried ONCE on transport failure.
+ // No retry of import, refresh, authenticated rejection or schema mismatch.
+ let preview;
+ for(let attempt=0;attempt<2;attempt++){
+   try{
+     preview=await request('previewFundNavImport',{data:JSON.stringify(data)});
+     break;
+   }catch(error){
+     if(!/^HANWHA_PREVIEW_(?:TIMEOUT|NETWORK)_UNVERIFIED$/.test(String(error?.message||''))
+       ||attempt===1)throw error;
+     await retryDelay(1500);
+   }
+ }
  if(preview.status!=='ok'||preview.code!==CODE
    ||!['candidates','updates','warnings','errors','identical','duplicates','zeroUnits']
      .every(k=>Array.isArray(preview[k]))

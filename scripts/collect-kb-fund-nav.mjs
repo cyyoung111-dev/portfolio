@@ -133,7 +133,21 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   const rows=received.filter(row=>row.date<today);
   if(!rows.length)throw Error('NAV_SOURCE_NO_PRIOR_DAY_ROWS');
   const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+sourceHref,rows};
-  const preview=await request('previewFundNavImport',{data:JSON.stringify(input)});
+  // A preview is READ-ONLY. A transport timeout is not an import failure.
+  // Avoid 300s of a hung GAS request; retry the exact same preview ONCE.
+  // Never retry a rejected/invalid preview, import or refresh here.
+  let preview;
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      preview=await request('previewFundNavImport',
+        {data:JSON.stringify(input)},token,90000);
+      break;
+    }catch(error){
+      if(!/^NAV_PREVIEW_(?:TIMEOUT|NETWORK)_UNVERIFIED$/.test(String(error?.message||''))
+        ||attempt===1)throw error;
+      await retryDelay(1500);
+    }
+  }
   if(preview.status!=='ok'||preview.errors?.length||preview.updates?.length||preview.warnings?.some(w=>w.reason!=='오늘 NAV는 공식 확정값인지 확인 필요'||w.date!==today)||!Array.isArray(preview.candidates))throw Error('NAV_PREVIEW_BLOCKED');
   const candidates=preview.candidates.map(({date,nav})=>({date,nav}));
   if(candidates.some(c=>!rows.some(row=>row.date===c.date&&row.nav===c.nav)))throw Error('NAV_PREVIEW_MISMATCH');

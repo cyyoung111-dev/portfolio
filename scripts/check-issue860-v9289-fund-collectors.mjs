@@ -99,6 +99,39 @@ await assert.rejects(()=>collectHanwha({
 }),/HANWHA_FUNETF_NETWORK_UNVERIFIED/);
 
 
+// The 11/13 delayed GAS initial preview can timeout after public NAV success.
+// Reattempt ONLY the same read-only preview, never a financial writer.
+for(const [name,runner,code] of [['KB',collectKb,'F00002'],
+ ['HANWHA',collectHanwha,'F00001']]){
+ const fixtureResult=fixture('9.291',code);
+ let attempts=0,delays=0,writerCalls=0;
+ const result=await runner({url,token,now,apply:false,
+   retryDelay:async()=>{delays++;},
+   fetchImpl:async(destination,options={})=>{
+     if(new URL(destination).hostname==='script.google.com'){
+       const action=options.body.get('action');
+       if(/^(?:collectKbFundNav|collectHanwhaFundNav)$/.test(action))writerCalls++;
+       if(action==='previewFundNavImport'&&++attempts===1)
+         throw Object.assign(new Error('TRANSIENT_PREVIEW_TIMEOUT'),{name:'TimeoutError'});
+     }
+     return fixtureResult.fetchImpl(destination,options);
+   }});
+ assert.equal(result.mode,'DRY_RUN');
+ assert.deepEqual([attempts,delays,writerCalls],[2,1,0],name+' preview retry');
+ const denied=fixture('9.291',code);let rejected=0,deniedDelays=0;
+ await assert.rejects(()=>runner({url,token,now,apply:false,
+   retryDelay:async()=>{deniedDelays++;},
+   fetchImpl:async(destination,options={})=>{
+     if(new URL(destination).hostname==='script.google.com'
+       &&options.body.get('action')==='previewFundNavImport'){
+         rejected++;
+         return {ok:false,status:401};
+     }
+     return denied.fetchImpl(destination,options);
+   }}),name==='KB'?/NAV_PREVIEW_HTTP_UNVERIFIED/:/HANWHA_PREVIEW_HTTP_UNVERIFIED/);
+ assert.deepEqual([rejected,deniedDelays],[1,0],name+' auth/HTTP fail closed');
+}
+
 // Regression for 2026-11-11: the GAS import may commit before HTTP ACK times out.
 // Only transient read-only preview errors may be retried. Never import twice.
 const exactDate='2026-11-10',exactNav=1234.56;
