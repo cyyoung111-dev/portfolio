@@ -121,7 +121,7 @@ assert.ok(report.length<=3900, 'Telegram maximum length');
 
 // GAS retrieval is preferred, but transient missing/partial rows can
 // recover from two exact-date official KRX index endpoints with no GAS write.
-const {readMorningTurnover}=await import('./telegram-morning-supplements.mjs');
+const {readMorningTurnover,readMorningVkospi}=await import('./telegram-morning-supplements.mjs');
 const official=[
  {id:'KRX_TURNOVER_KOSPI',market:'KOSPI',date:expected,valueKrw:20000000000000,
   source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'},
@@ -145,6 +145,22 @@ assert.equal(noKey.length,1);
 const stale=await readMorningTurnover(expected,{url:'',token:'',authKey:'TEST_KRX_KEY_123456789',
  fetchImpl,fetchDirect:async()=>official.map(x=>({...x,date:'2026-11-03'}))});
 assert.deepEqual(stale,[],'wrong-date direct KRX data must fail closed');
+
+// KRX approved index fallback must never alter a valid GAS primary.
+const recoveredVk=await readMorningVkospi(expected,{
+ url:gasUrl,token:'TEST_ACCESS_123456',authKey:'KRX_APPROVED_TEST_KEY_123456',
+ now:()=>now,fetchImpl:async()=>({ok:true,json:async()=>({
+  status:'error',message:'선택 기간의 VKOSPI 데이터를 조회하지 못했습니다.'
+ })}),fetchDirect:async(day)=>[{
+  id:'VKOSPI',label:'VKOSPI',date:day,value:27.65,
+  source:'KRX_OFFICIAL',role:'NON_NH_REFERENCE_ONLY'
+ }]});
+assert.equal(recoveredVk.length,1);
+assert.equal(recoveredVk[0].value,27.65);
+const staleVk=await readMorningVkospi(expected,{
+ url:'',token:'',authKey:'KRX_APPROVED_TEST_KEY_123456',
+ fetchDirect:async()=>[{...recoveredVk[0],date:'2026-11-03'}]});
+assert.deepEqual(staleVk,[],'stale direct VKOSPI must fail closed');
 
 const nh=MORNING_SERIES.filter(x=>['SPX','NASDAQ','NDX'].includes(x.id))
  .map(x=>({symbol:x.symbol,date:expected,source:'NH_INDEX_DAILY'}));

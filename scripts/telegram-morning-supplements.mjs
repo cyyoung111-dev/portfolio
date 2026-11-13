@@ -3,7 +3,8 @@
 import {expectedMorningDate,MORNING_SERIES} from './telegram-morning-report.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {FUTURES} from './closing-current-futures.mjs';
-import {selectClosingVkospi} from './closing-vkospi-reference.mjs';
+import {selectClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
+import {readOfficialKrxVkospiDaily} from './krx-vkospi-daily.mjs';
 import {verifyOfficialKrxTurnover,fetchOfficialKrxTurnover} from './closing-krx-turnover.mjs';
 import {validateGasEndpoint} from './nh-gas-proxy.mjs';
 import {readKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
@@ -140,6 +141,21 @@ export async function readMorningTurnover(expectedKr,{url,token,authKey,fetchImp
   return direct.length===2?direct:primary;
  }catch{return primary;}
 }
+// Prefer exact-date GAS readback; if missing, query the already-approved
+// derivative KRX daily index directly with the Actions-only credential.
+export async function readMorningVkospi(date,{
+ url,token,authKey=process.env.KRX_AUTH_KEY,fetchImpl=fetch,
+ now=()=>new Date(),fetchDirect=readOfficialKrxVkospiDaily
+}={}){
+ if(!validDay(date))return [];
+ const gas=await readGas(date,'getBenchmark',{benchmark:'VKOSPI',from:date,to:date},
+  {url,token,fetchImpl});
+ const primary=selectClosingVkospi(date,gas);
+ if(primary.length===1)return primary;
+ try{return verifyClosingVkospi(date,await fetchDirect(date,{authKey,fetchImpl,now}));}
+ catch{return [];}
+}
+
 export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=fetch,
  fetchDaily,nhRows=[],breadthKey=process.env.KRX_AUTH_KEY,url=process.env.GAS_WEB_APP_URL,
  token=process.env.GAS_ACCESS_TOKEN}={}){
@@ -160,8 +176,7 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
   })).then(x=>x.filter(Boolean)),
   readTreasuryCurve(date,{fetchImpl}).catch(()=>[]),
   readMorningFutures(date,{now,fetchImpl}).catch(()=>[]),
-  readGas(date,'getBenchmark',{benchmark:'VKOSPI',from:expectedKr,to:expectedKr},
-   {url,token,fetchImpl}).then(data=>selectClosingVkospi(expectedKr,data)).catch(()=>[]),
+  readMorningVkospi(expectedKr,{url,token,authKey:breadthKey,fetchImpl,now}).catch(()=>[]),
   readMorningTurnover(expectedKr,{url,token,authKey:breadthKey,fetchImpl}).catch(()=>[]),
   readMorningBreadth(date,{authKey:breadthKey,now,fetchImpl}).catch(()=>[]),
   readKofiaLiquidity(date,{fetchImpl}).catch(()=>null),

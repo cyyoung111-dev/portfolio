@@ -2,6 +2,7 @@
 // Read-only central GAS getBenchmark; no NH token issuance or portfolio writes.
 import {isOfficialCloseWindow} from './krx-official-daily-index.mjs';
 import {validateGasEndpoint} from './nh-gas-proxy.mjs';
+import {readOfficialKrxVkospiDaily} from './krx-vkospi-daily.mjs';
 
 const SOURCE='KRX_OFFICIAL', SYMBOL='KRX_OPEN_API:VKOSPI';
 const validDate=date=>typeof date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(date)
@@ -30,25 +31,35 @@ export function verifyClosingVkospi(date,rows=[]){
 }
 export async function readClosingVkospi(date,{
  url=process.env.GAS_WEB_APP_URL,token=process.env.GAS_ACCESS_TOKEN,
- now=()=>new Date(),fetchImpl=fetch,onDiagnostic=()=>{}
+ authKey=process.env.KRX_AUTH_KEY,now=()=>new Date(),fetchImpl=fetch,
+ fetchDirect=readOfficialKrxVkospiDaily,onDiagnostic=()=>{}
 }={}){
  const emit=status=>{try{onDiagnostic({kind:'VKOSPI_READ',status});}catch{}};
- if(!isOfficialCloseWindow(date,now())||!url||typeof token!=='string'||token.length<12){
+ if(!isOfficialCloseWindow(date,now())){
   emit('CONFIG_OR_SESSION_UNVERIFIED');return [];
  }
+ const direct=async()=>{
+  let candidate=[];
+  try{candidate=await fetchDirect(date,{authKey,now,fetchImpl});}catch{}
+  const rows=verifyClosingVkospi(date,candidate);
+  if(rows.length===1)emit('KRX_DIRECT_VERIFIED');
+  return rows;
+ };
+ if(!url||typeof token!=='string'||token.length<12){
+  emit('CONFIG_OR_SESSION_UNVERIFIED');return direct();
+ }
  let endpoint;
- try{endpoint=validateGasEndpoint(url);}catch{emit('ENDPOINT_INVALID');return [];}
+ try{endpoint=validateGasEndpoint(url);}
+ catch{emit('ENDPOINT_INVALID');return direct();}
  try{
   const body=new URLSearchParams({action:'getBenchmark',accessToken:token,
    benchmark:'VKOSPI',from:date,to:date});
   const response=await fetchImpl(endpoint,{method:'POST',
    headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
    body,redirect:'follow',signal:AbortSignal.timeout(17000)});
-  if(!response?.ok){emit('HTTP_UNAVAILABLE');return [];}
+  if(!response?.ok){emit('HTTP_UNAVAILABLE');return direct();}
   const payload=await response.json();
   if(payload?.status!=='ok'){
-   // Only fixed, reviewed responses from the existing GAS handler are
-   // classified; never echo provider text, errors, credentials or URLs.
    const message=payload?.message;
    const status=payload?.status!=='error'?'GAS_RESPONSE_SCHEMA'
     :message==='인증 실패'?'GAS_AUTH_REJECTED'
@@ -60,10 +71,10 @@ export async function readClosingVkospi(date,{
       ?'KRX_KEY_OR_INDEX_PERMISSION_DENIED'
     :message==='getBenchmark 실패: VKOSPI 날짜 배치 네트워크 오류'
       ?'KRX_VKOSPI_BATCH_NETWORK_FAILURE':'GAS_STATUS_ERROR';
-   emit(status);return [];
+   emit(status);return direct();
   }
   const rows=selectClosingVkospi(date,payload);
   emit(rows.length===1?'VERIFIED':'NO_EXACT_VALID_ROW');
-  return rows;
- }catch{emit('NETWORK_OR_PARSE_FAILED');return [];}
+  return rows.length===1?rows:direct();
+ }catch{emit('NETWORK_OR_PARSE_FAILED');return direct();}
 }
