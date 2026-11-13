@@ -4,9 +4,15 @@ import YAML from 'yaml';
 import {completedKrxSession,probeOptionalKrxMetrics,auditDirectVkospiRows} from './probe-optional-krx-gas-readonly.mjs';
 const sample=[{IDX_NM:'코스피 200 변동성지수',BAS_DD:'20261112',CLSPRC_IDX:'25.42'}];
 assert.deepEqual(auditDirectVkospiRows('2026-11-12',sample),
- {candidateCount:1,exactDateCount:1,verified:true});
+ {candidateCount:1,candidateNames:['코스피 200 변동성지수'],
+  primaryCount:1,exactDateCount:1,verified:true});
 assert.deepEqual(auditDirectVkospiRows('2026-11-12',[{...sample[0],BAS_DD:'20261111'}]),
- {candidateCount:1,exactDateCount:0,verified:false});
+ {candidateCount:1,candidateNames:['코스피 200 변동성지수'],
+  primaryCount:1,exactDateCount:0,verified:false});
+assert.deepEqual(auditDirectVkospiRows('2026-11-12',[
+ ...sample,{...sample[0],IDX_NM:'코스피 200 변동성지수 단기선물'}]),
+ {candidateCount:2,candidateNames:['코스피 200 변동성지수','코스피 200 변동성지수 단기선물'],
+  primaryCount:1,exactDateCount:1,verified:true});
 assert.equal(auditDirectVkospiRows('2026-11-12',[...sample,...sample]).verified,false);
 assert.equal(auditDirectVkospiRows('2026-11-12',[{...sample[0],CLSPRC_IDX:'NaN'}]).verified,false);
 assert.equal(auditDirectVkospiRows('2026-11-12',[{...sample[0],IDX_NM:'KOSPI 200'}]).verified,false);
