@@ -104,7 +104,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
       // A timed-out import/refresh may already have committed. No blind retry.
       throw Error('NAV_'+phase+'_'+kind+'_UNVERIFIED');
     }
-    if(!r.ok){stageAudit('HTTP_UNVERIFIED');throw Error('NAV_'+phase+'_HTTP_UNVERIFIED');}
+    if(!r.ok){
+      // Only a READ-ONLY preview may retry known transient upstream statuses.
+      // Auth, invalid requests and all financial writes remain fail-closed.
+      const transient=phase==='PREVIEW'&&[429,502,503,504].includes(r?.status);
+      stageAudit(transient?'HTTP_TRANSIENT_UNVERIFIED':'HTTP_UNVERIFIED');
+      throw Error('NAV_'+phase+'_'+(transient?'HTTP_TRANSIENT_UNVERIFIED':'HTTP_UNVERIFIED'));
+    }
     try{
       const payload=await r.json();
       const saved=['success','partial','failed'].includes(payload?.saveState)
@@ -133,9 +139,9 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   const rows=received.filter(row=>row.date<today);
   if(!rows.length)throw Error('NAV_SOURCE_NO_PRIOR_DAY_ROWS');
   const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+sourceHref,rows};
-  // A preview is READ-ONLY. A transport timeout is not an import failure.
+  // A preview is READ-ONLY. Transport or 429/502/503/504 is not an import failure.
   // Avoid 300s of a hung GAS request; retry the exact same preview ONCE.
-  // Never retry a rejected/invalid preview, import or refresh here.
+  // Never retry 401/403/other HTTP, rejected/invalid preview, import or refresh.
   let preview;
   for(let attempt=0;attempt<2;attempt++){
     try{
@@ -143,7 +149,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
         {data:JSON.stringify(input)},token,90000);
       break;
     }catch(error){
-      if(!/^NAV_PREVIEW_(?:TIMEOUT|NETWORK)_UNVERIFIED$/.test(String(error?.message||''))
+      if(!/^NAV_PREVIEW_(?:TIMEOUT|NETWORK|HTTP_TRANSIENT)_UNVERIFIED$/.test(String(error?.message||''))
         ||attempt===1)throw error;
       await retryDelay(1500);
     }
