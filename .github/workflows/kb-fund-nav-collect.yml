@@ -12,6 +12,14 @@ on:
     # idempotent NAV preview/readback/lease guards stay authoritative.
     - cron: '17 10 * * *' # 19:17 KST daily; delayed/missed-run fallback
   workflow_dispatch:
+  # Independent late NAV wake-up when GitHub drops the collector's own cron.
+  # Only completed *scheduled* runs of the existing main-only KRX source job
+  # can wake protected NAV jobs; push/manual KRX runs never cause an import.
+  # The KRX source outcome is NOT an NAV prerequisite: both are independent.
+  workflow_run:
+    workflows: ['KRX 252-session 52-week market breadth archive (source only)']
+    types: [completed]
+    branches: [main]
   # One GET-only public source check on the merge that installs this workflow.
   push:
     branches: [main]
@@ -29,7 +37,7 @@ jobs:
   # Public source has no GAS token, no private workbook or deployment access.
   # Its failure must not falsely mark the protected import as successful.
   source-public:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/krx-52week-history.yml' && github.event.workflow_run.run_attempt == 1 && github.run_attempt == 1))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -118,7 +126,7 @@ jobs:
   # The private writer independently re-fetches and validates the public NAV.
   # A failed public archive must NEVER skip an otherwise valid import/repair.
   collect:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/krx-52week-history.yml' && github.event.workflow_run.run_attempt == 1 && github.run_attempt == 1))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -139,7 +147,7 @@ jobs:
   # Workflow-level concurrency serializes the two private jobs.
   hanwha-collect:
     needs: [collect]
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    if: always() && github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/krx-52week-history.yml' && github.event.workflow_run.run_attempt == 1 && github.run_attempt == 1))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -159,7 +167,7 @@ jobs:
   # This job is GET/preview-only; it cannot authorize a retry or writer.
   postflight-readonly:
     needs: [collect, hanwha-collect]
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    if: always() && github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/krx-52week-history.yml' && github.event.workflow_run.run_attempt == 1 && github.run_attempt == 1))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 12
