@@ -13,6 +13,24 @@ const validDay=d=>typeof d==='string'&&DATE.test(d)&&
  Number.isFinite(Date.parse(d+'T00:00:00Z'))&&
  new Date(d+'T00:00:00Z').toISOString().slice(0,10)===d;
 const shift=(day,n)=>new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
+// Exact-class Hanwha NAV can be posted after a completed Friday close.
+// Only the most recent, still-unpublished close day may defer its *own*
+// valuation repair; all older, unsourced or unreconciled gaps fail closed.
+// This matches KB's reviewed publication-grace contract without any write.
+export function isRecentUnpublishedHanwhaCloseDay(row,{closeDate,today,latestPublishedDate}={}){
+ if(!row||!validDay(closeDate)||!validDay(today)||!validDay(latestPublishedDate)
+   ||row.date!==closeDate||row.date<=latestPublishedDate||row.date>today
+   ||row.publicationExpected!==true||row.valuationRequired!==true
+   ||row.unitsApplied!==true||row.reconciled!==true
+   ||!['UNPUBLISHED','NAV_MISSING'].includes(row.navState))return false;
+ const elapsed=(Date.parse(today+'T00:00:00Z')
+   -Date.parse(closeDate+'T00:00:00Z'))/86400000;
+ const friday=new Date(closeDate+'T00:00:00Z').getUTCDay()===5;
+ return Number.isSafeInteger(elapsed)&&elapsed>=0&&(friday?elapsed<=3:elapsed<=1)
+   &&(['WRITE_REQUIRED','NOT_CREATED'].includes(row.evaluationState)
+     ||['WRITE_REQUIRED','NOT_CREATED'].includes(row.snapshotState));
+}
+
 export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
  retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}){
  const endpoint=validateWebAppUrl(url);
@@ -193,7 +211,11 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
    return items;
  };
  const pendingNow=(await valuation()).filter(needsWrite);
- for(const row of pendingNow){
+ const isWaiting=row=>isRecentUnpublishedHanwhaCloseDay(row,{
+   closeDate:valuationTo,today,latestPublishedDate:rows.at(-1).date
+ });
+ const eligible=pendingNow.filter(row=>!isWaiting(row));
+ for(const row of eligible){
    // A held position must have verified NAV/units/reconciliation. Never
    // synthesize missing source data, edit quantity or cross date boundaries.
    if(!['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(row.navState))
@@ -218,14 +240,22 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
    }
  }
  const final=await valuation();
- if(final.some(d=>needsWrite(d)||(
+ if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||(
    d.valuationRequired===true &&
    (!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
-     ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))))
+     ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState))))))
     throw Error('HANWHA_DERIVED_PENDING');
+ const waiting=final.filter(d=>needsWrite(d)&&isWaiting(d));
+ if(waiting.length)return {mode:'DEFERRED',complete:false,code:CODE,
+   reason:'OFFICIAL_NAV_AWAITING_PUBLICATION',
+   sourceRows:rows.length,candidates:candidates.length,
+   imported:candidates.length,derivedRepaired:eligible.length,
+   waitingDates:waiting.map(d=>d.date),
+   waitingDateWrites:0,importAckRecovered,
+   writerInvoked:candidates.length>0||eligible.length>0};
  return {mode:'APPLY',code:CODE,sourceRows:rows.length,candidates:candidates.length,
-   imported:candidates.length,derivedRepaired:pendingNow.length,
-   importAckRecovered,writerInvoked:candidates.length>0||pendingNow.length>0,
+   imported:candidates.length,derivedRepaired:eligible.length,
+   importAckRecovered,writerInvoked:candidates.length>0||eligible.length>0,
    finalPending:0};
 
 }
