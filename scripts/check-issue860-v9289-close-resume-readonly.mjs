@@ -75,6 +75,6 @@ assert.equal(modernDone.closeMarkerComplete,true);
 assert.equal(modernDone.complete,false,
  'even COMPLETE GAS marker is not independent process/owner verification');
 await assert.rejects(()=>resumeClose({url,token,readOnly:false,
- fetchImpl,statusReader:read('9.293')}),/RESUME_VERSION/);
-assert.equal(gasCalls,0,'modern versions must never reach legacy PRICE/NAV writer');
+ fetchImpl,statusReader:read('9.293')}),/ISSUE734_ONCE_EXPLICIT_MANUAL_APPROVAL_REQUIRED/);
+assert.equal(gasCalls,0,'modern versions without explicit 11/12 approval must never reach a financial writer');
 console.log('PASS v9.289 read-only persisted CLOSE; no PRICE/NAV replay, no preview, no GAS writes; manual deploy gate required');
