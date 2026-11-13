@@ -507,6 +507,48 @@ function _renderHistDebugPanel(date) {
     </div>`;
 }
 
+// GAS overallStatus covers multiple independent concerns. A completed
+// PRICE + FUND close must remain visible even if a later NAV publication or
+// another subsystem produces a warning. This does not certify a final NAV.
+function _describePortfolioCloseStatus(a) {
+  const close = a?.portfolioClose || {};
+  const run = a?.closeRun || {};
+  const attempt = a?.fundAttempt || {};
+  const date = run.runDate;
+  const exactDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const completed = exactDate && run.state === 'COMPLETE' && run.stage === 'COMPLETE'
+    && close.runDate === date && close.priceDate === date
+    && close.priceOk === true && close.fundOk === true
+    && a.priceCloseState === 'COMPLETE' && a.fundCloseState === 'DONE'
+    && attempt.state === 'DONE' && attempt.date === date
+    && a.snapshotStale === false && a.portfolioCloseRunStale === false
+    && a.snapshotLastDate === date && a.priceHistoryLastDate === date
+    && a.expectedSnapshotDate === date
+    && !a.portfolioCloseLastError && !a.fundLastError
+    && (!Array.isArray(close.errors) || close.errors.length === 0)
+    && Array.isArray(a.pendingKrxCloseDates) && a.pendingKrxCloseDates.length === 0
+    && !a.tradeLedgerWriteUnverified && !a.pendingTradeSnapshotRebuildFrom
+    && !(Number(a.tradeSnapshotDeferredCount) > 0);
+  if (!completed || !['NORMAL', 'WARNING'].includes(a.overallStatus)) return null;
+  const fundWarning = typeof a.fundLastWarning === 'string'
+    ? a.fundLastWarning : '';
+  if (a.overallStatus === 'NORMAL' && !fundWarning) {
+    return {label: '마감 완료', color: 'var(--green-lt)', detail: '', navPending: false};
+  }
+  const navPending = a.overallStatus === 'WARNING' && fundWarning
+    && /F0000[12]/.test(fundWarning)
+    && /NAV 미확보|기준가격.*미확보|미공표|부분 완료/.test(fundWarning)
+    && !/Snapshot 보호 충돌|스냅샷.*충돌|오류|실패/.test(fundWarning);
+  return {
+    label: navPending ? '마감 완료 · NAV 확인' : '마감 완료 · 경고 확인',
+    color: 'var(--amber)',
+    detail: navPending
+      ? '가격·Snapshot 및 마감 실행 완료. 펀드의 최종 NAV 공표·수집은 별도 확인이 필요합니다.'
+      : '마감 실행은 완료됐지만 별도 운영 경고를 확인해야 합니다.',
+    navPending: !!navPending
+  };
+}
+
 async function loadAutomationStatusFromGsheet() {
   const body = document.getElementById('automationStatusBody');
   const badge = document.getElementById('automationStatusBadge');
@@ -543,8 +585,9 @@ async function loadAutomationStatusFromGsheet() {
       INCOMPLETE: ['실행 중단·미완료', 'var(--red-lt)']
     };
     const mapped = statusMap[a.overallStatus] || [a.overallStatus || '미확인', 'var(--muted)'];
-    badge.textContent = mapped[0];
-    badge.style.color = mapped[1];
+    const closeDisplay = _describePortfolioCloseStatus(a);
+    badge.textContent = closeDisplay?.label || mapped[0];
+    badge.style.color = closeDisplay?.color || mapped[1];
     const closeTrigger = a.trigger?.hasDuplicateCloseTriggers
       ? `중복 ${Number(a.trigger?.closeCount || 0)}개`
       : (a.trigger?.hasClose ? '정상' : '없음');
@@ -563,6 +606,7 @@ async function loadAutomationStatusFromGsheet() {
       : '';
     const referenceErrorOnly = isNeverRun && !a.portfolioCloseLastError && !!a.fundLastError;
     body.innerHTML = `
+      ${closeDisplay?.detail ? `<div style="color:var(--amber);font-size:.68rem;margin-bottom:8px">${_escapeHtml(closeDisplay.detail)} · 원본 전체 상태: ${_escapeHtml(a.overallStatus || '미확인')}</div>` : ''}
       ${a.krxPublication?.waiting ? `<div style="color:var(--amber);font-size:.68rem;margin-bottom:8px">KRX ${_escapeHtml(a.krxPublication.tradeDate || '')} 종가 공시 대기 · ${_escapeHtml(a.krxPublication.availableAfter || '')} 이후 공개 · 08:45 자동 재조회</div>` : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;font-size:.68rem;line-height:1.55">
         <div><span style="color:var(--muted)">GAS 버전</span><br><b>${_escapeHtml(a.gasVersion || data.gasVersion || '-')}</b></div>
