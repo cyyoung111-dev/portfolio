@@ -1,7 +1,8 @@
 import {pathToFileURL} from 'node:url';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {runBackfillStatus,summarizeBackfillStatus} from './diagnose-backfill-status.mjs';
-export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnly=false,statusReader=runBackfillStatus}) {
+import {recoverIssue734Once} from './issue734-recover-close-owner-once.mjs';
+export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnly=false,statusReader=runBackfillStatus,confirmRecovery=''}) {
  const endpoint=validateWebAppUrl(url);
  const initialStarted=Date.now();
  let initial;
@@ -50,6 +51,11 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
     continueReady:null,scheduleReady:null,preflightState,
     priceReplayAllowed:false,navReplayAllowed:false,status:initial};
  }
+ // Exact-date 9.293 incident: one explicitly confirmed APPLY, never the
+ // legacy 33-iteration replay loop. The helper independently checks the
+ // immutable live version, writer Gate, 39/39 Snapshot and both NAVs.
+ if(!readOnly&&initial.gasVersion==='9.293')
+   return recoverIssue734Once({url:endpoint,token,fetchImpl,confirm:confirmRecovery});
  if(!['9.281','9.282','9.283','9.284','9.285'].includes(initial.gasVersion))throw Error('RESUME_VERSION');
  if(!readOnly&&initial.close.state==='COMPLETE'&&!initial.close.fundWarningPresent)return {complete:true,status:initial};
  const waitingFundDone=status=>status.close.krxPublicationWaiting && status.close.fundOk===true
@@ -102,4 +108,5 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  }
  throw Error('RESUME_BOUNDED_PROGRESS_EXHAUSTED');
 }
-if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{console.log(JSON.stringify(await resumeClose({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,readOnly:process.env.RESUME_READ_ONLY==='1',emit:x=>console.log(JSON.stringify(x))})));}catch(e){console.error(/^(?:RESUME_|AUTOMATION_DIAG_)[A-Z_]+$/.test(e?.message||'')?e.message:'RESUME_UNKNOWN');process.exitCode=1;}}
+if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{console.log(JSON.stringify(await resumeClose({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,readOnly:process.env.RESUME_READ_ONLY==='1',
+ confirmRecovery:process.env.ISSUE734_CONFIRM_RECOVERY||'',emit:x=>console.log(JSON.stringify(x))})));}catch(e){console.error(/^(?:RESUME_|AUTOMATION_DIAG_)[A-Z_]+$/.test(e?.message||'')?e.message:'RESUME_UNKNOWN');process.exitCode=1;}}
