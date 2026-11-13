@@ -138,8 +138,6 @@ assert.ok(protectedWorkflowNames.includes('issue507-deployment-inventory-readonl
   'manual GAS deployment inventory must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('gas-published-gate-readonly-audit.yml'),
   'manual published-GAS source audit must retain protected production Environment');
-assert.ok(protectedWorkflowNames.includes('telegram-morning-audit-20261102.yml'),
-  'one-off read-only morning 07:40 audit must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-close-arm-20261102.yml'),
   'one-off 17:00 punctual guard must retain protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('nh-close-20261102-diagnostic-readonly.yml'),
@@ -152,8 +150,6 @@ assert.ok(protectedWorkflowNames.includes('telegram-close-punctual-arm.yml'),
   'closing early-arm must use protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('telegram-close-precompute.yml'),
   '16:50 precompute must use protected GAS environment');
-assert.ok(protectedWorkflowNames.includes('telegram-sunday-test-20261101.yml'),
-  'Sunday read-only Telegram test must use protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('issue507-oct30-domestic-close-readonly.yml'),
   'new domestic-close readonly workflow must retain the protected GAS environment');
 assert.ok(protectedWorkflowNames.includes('issue-507-fund-snapshot-evidence-readonly.yml'),
