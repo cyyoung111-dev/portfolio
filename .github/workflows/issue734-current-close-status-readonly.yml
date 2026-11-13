@@ -27,35 +27,49 @@ jobs:
         with:
           node-version: '24'
       - name: Prove sanitized one-request status contract offline
-        run: node scripts/check-issue860-close-single-status-readonly.mjs
+        run: |
+          node scripts/check-issue860-close-single-status-readonly.mjs
+          node scripts/check-close-fund-operational.mjs
       - name: Read saved GAS close and fund checkpoint once (NO WRITES)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue860-close-single-status-readonly.mjs
+        run: |
+          node scripts/issue860-close-single-status-readonly.mjs > "$RUNNER_TEMP/issue734-close-status.json"
+          cat "$RUNNER_TEMP/issue734-close-status.json"
       - name: Read 32-day fund NAV and Snapshot dates (READ ONLY)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: |
           node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
           import {auditFundRows} from './scripts/diagnose-fund-valuation-readonly.mjs';
+          import {assessCloseFundOperational} from './scripts/assess-close-fund-operational.mjs';
           const today=new Intl.DateTimeFormat('en-CA',{
             timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
           }).format(new Date());
-          const result=await auditFundRows({
+          const close=JSON.parse(readFileSync(
+            process.env.RUNNER_TEMP+'/issue734-close-status.json','utf8'));
+          const funds=await auditFundRows({
             url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
             days:32,emit:x=>console.log(JSON.stringify({
               kind:'ISSUE734_FUND_32DAY_READONLY',...x,
               financialWrites:0,gasDeployments:0,telegramSends:0
             }))
           });
-          const overdue=x=>[...x.navMissingDates,...x.evaluationPendingDates,
-            ...x.snapshotPendingDates,...x.writerBlockedDates].filter(d=>d<today);
+          const verdict=assessCloseFundOperational({close,funds,asOf:today});
           console.log(JSON.stringify({
-            kind:'ISSUE734_FUND_32DAY_VERDICT',cutoffExclusive:today,
-            overdueFunds:result.filter(x=>overdue(x).length>0).map(x=>x.code),
-            currentDayUnpublished:result.filter(x=>x.unpublishedDates.includes(today)).map(x=>x.code),
-            zeroWrites:true
+            kind:'ISSUE734_FUND_32DAY_VERDICT',
+            cutoffExclusive:today,
+            overdueFunds:verdict.overdueFunds,
+            currentDayUnpublished:verdict.publicationPendingFunds
+              .filter(code=>funds.some(f=>f.code===code&&f.unpublishedDates.includes(today))),
+            publicationOverdueFunds:verdict.publicationOverdueFunds,
+            derivedHealth:verdict.health,zeroWrites:true
           }));
+          console.log(JSON.stringify(verdict));
+          // Actual overdue NAV, reconciliation, or stale CLOSE is actionable.
+          // Publication lag alone never fails the protected status read.
+          if(verdict.actionRequired)process.exitCode=1;
           NODE
