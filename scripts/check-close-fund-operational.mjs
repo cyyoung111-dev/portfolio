@@ -73,7 +73,7 @@ const closedError=report({close:{...close,overallStatus:'ERROR'}});
 assert.equal(closedError.health,'CLOSE_INCOMPLETE_OR_UNVERIFIED');
 const asOfMonday='2026-11-16';
 const monday=report({asOf:asOfMonday,funds:funds.map(f=>({...f,
- from:'2026-10-17',to:asOfMonday}))});
+ from:'2026-10-16',to:asOfMonday}))});
 assert.equal(monday.health,'CLOSE_COMPLETE_NAV_PUBLICATION_PENDING',
  'Friday NAV is allowed through Monday before independent publication proof');
 const asOfTuesday='2026-11-17';
