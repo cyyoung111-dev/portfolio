@@ -237,4 +237,27 @@ const recovered=await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCES
 assert.deepEqual(recovered,row);
 assert.deepEqual(diag.map(x=>x.status),['KRX_NO_DATED_VKOSPI_POINT','KRX_DIRECT_VERIFIED']);
 
+// Same official-readonly diagnostic contract for two independent markets.
+const {fetchOfficialKrxTurnover}=await import('./closing-krx-turnover.mjs');
+const turnoverDiagnostics=[];
+assert.deepEqual(await fetchOfficialKrxTurnover(date,{
+ authKey:'MOCK_VALID_KRX_AUTH_123456789',now,
+ fetchImpl:async()=>({ok:false,status:403}),
+ onDiagnostic:r=>turnoverDiagnostics.push(r)
+}),[]);
+assert.deepEqual(turnoverDiagnostics.map(x=>[x.market,x.status]),[
+ ['KOSPI','KRX_DIRECT_ACCESS_DENIED'],
+ ['KOSDAQ','KRX_DIRECT_ACCESS_DENIED']
+]);
+turnoverDiagnostics.length=0;
+assert.deepEqual(await fetchOfficialKrxTurnover(date,{
+ authKey:'MOCK_VALID_KRX_AUTH_123456789',now,
+ fetchImpl:async()=>({ok:true,status:200,headers:{get:()=>null},
+  json:async()=>({OutBlock_1:[]})}),
+ onDiagnostic:r=>turnoverDiagnostics.push(r)
+}),[]);
+assert.deepEqual(turnoverDiagnostics.map(x=>[x.market,x.status]),[
+ ['KOSPI','KRX_DIRECT_NO_EXACT_ROW'],
+ ['KOSDAQ','KRX_DIRECT_NO_EXACT_ROW']
+]);
 console.log('CLOSING_VKOSPI_PASS exact KRX date, trusted GAS, QC, send-time protection');
