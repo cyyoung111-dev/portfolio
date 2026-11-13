@@ -57,7 +57,7 @@ export async function readOfficialTreasuryPar(allowedDates,{fetchImpl=fetch,onDi
   if(res?.ok!==true){emit('HTTP_UNAVAILABLE');return [];}
   const mime=String(res.headers?.get?.('content-type')||'').toLowerCase();
   const host=new URL(res.url).hostname;
-  if(host!=='home.treasury.gov'||!/(xml|text)/.test(mime)){
+  if(host!=='home.treasury.gov'||!/(?:application\/(?:xml|atom\+xml)|text\/xml)(?:;|$)/.test(mime)){
    emit('SOURCE_OR_TYPE_INVALID');return [];
   }
   if(Number(res.headers?.get?.('content-length')||0)>3000000){
