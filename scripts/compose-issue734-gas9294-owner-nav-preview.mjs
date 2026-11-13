@@ -63,7 +63,7 @@ export function composeIssue734Gas9294OwnerNavPreview(){
     '}'
   ].join('\n');
   let source=once(parent,'function _retryOnePendingKrxClose_(',
-    helper+'\n'+pruneGuard+'\nfunction _retryOnePendingKrxClose_(','HELPER_INSERT
+    helper+'\n'+pruneGuard+'\nfunction _retryOnePendingKrxClose_(','HELPER_INSERT');
   source=rewriteFunction(source,'function _retryOnePendingKrxClose_(',block=>{
     block=once(block,
       '    _portfolioFundAtomic_(function(sharedProps) {\n      var ss = getss();',
