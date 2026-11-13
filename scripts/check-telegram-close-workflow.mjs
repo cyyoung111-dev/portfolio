@@ -8,7 +8,7 @@ import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare,settleOptionalCloseFinance,
- sanitizeCloseOptionalSourceReason}
+ sanitizeCloseOptionalSourceReason,isKrxDailyPublicationEligible}
  from './telegram-close-workflow.mjs';
 import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 const day='2026-10-30',now=()=>new Date(day+'T17:00:00+09:00');
@@ -28,6 +28,24 @@ assert.deepEqual(sanitizeCloseOptionalSourceReason({
 assert.equal(sanitizeCloseOptionalSourceReason({
  kind:'PRIVATE_PORTFOLIO_ROW',status:'VERIFIED',accessToken:'LEAK'}),null);
 assert.equal(sanitizeCloseOptionalSourceReason(null),null);
+const trading='2026-11-13',prior='2026-11-12';
+assert.equal(isKrxDailyPublicationEligible(trading,
+ new Date('2026-11-13T17:00:00+09:00')),false);
+assert.equal(isKrxDailyPublicationEligible(trading,
+ new Date('2026-11-13T21:30:00+09:00')),false);
+assert.equal(isKrxDailyPublicationEligible(prior,
+ new Date('2026-11-13T17:00:00+09:00')),true);
+assert.equal(isKrxDailyPublicationEligible(trading,
+ new Date('2026-11-16T08:14:00+09:00')),false);
+assert.equal(isKrxDailyPublicationEligible(trading,
+ new Date('2026-11-16T08:15:00+09:00')),true);
+assert.deepEqual(sanitizeCloseOptionalSourceReason({
+ kind:'VKOSPI_READ',status:'KRX_TPLUSONE_NOT_PUBLISHED',
+ rawBody:'SECRET'}),{kind:'VKOSPI_READ',status:'KRX_TPLUSONE_NOT_PUBLISHED'});
+assert.deepEqual(sanitizeCloseOptionalSourceReason({
+ kind:'KRX_TURNOVER_READ',status:'KRX_TPLUSONE_NOT_PUBLISHED',
+ rawBody:'SECRET'}),{kind:'KRX_TURNOVER_READ',status:'KRX_TPLUSONE_NOT_PUBLISHED'});
+
 
 assert.equal(closeWindow(new Date(day+'T16:59:59+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T16:45:00+09:00')).allowed,false,'preparation can run early but delivery may not');
