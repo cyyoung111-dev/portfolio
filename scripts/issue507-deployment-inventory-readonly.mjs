@@ -263,11 +263,12 @@ export async function inspectGasDeploymentsReadOnly({
     let exactReviewedRelease=false;
     try{
       const approvedVersion=assertGasReleaseReady(code[0].source.replace(/\r\n/g,'\n'));
-      // Include both the currently published v9.291 and reviewed successor
-       // v9.292, but ONLY after assertGasReleaseReady checks the immutable
-       // full-file Git blob SHA. Never accept a header/version string alone.
+      // Source pin verification above is the authority: this list only
+       // classifies independently approved full releases (not legacy gate-only).
+       // Keep current 9.293 and reviewed 9.294 in sync with deploy-gas.mjs.
+       // Never accept a header/version string alone.
        exactReviewedRelease=['9.283','9.284','9.285','9.287','9.288','9.289',
-         '9.291','9.292'].includes(approvedVersion);
+         '9.291','9.292','9.293','9.294'].includes(approvedVersion);
     }catch{}
     sourceAudit.successful++;
     if(classified.knownLegacyBaseline){
