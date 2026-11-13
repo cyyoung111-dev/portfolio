@@ -20,7 +20,7 @@ function assertIssue507ManualHistoricalScope(yaml) {
  assert.ok(w.on.workflow_dispatch!==undefined);
  assert.equal(w.jobs['operational-readonly'].if,
   "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'");
- assert.deepEqual(w.jobs['operational-readonly'].needs,['contract']);
+ assert.equal(w.jobs['operational-readonly'].needs,'contract');
  assert.equal(w.jobs['operational-readonly'].environment,'portfolio-production-gas');
  assert.equal(w.jobs['operational-readonly']['timeout-minutes'],18);
  assert.equal(w.jobs['status-only'].if,
@@ -45,7 +45,7 @@ for(const weakened of [
   "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'",weakened);
  assert.notEqual(mutated,issue507Workflow);
  assert.throws(()=>assertIssue507ManualHistoricalScope(mutated),
-  /AssertionError/,'never auto-run deep history or allow a feature branch');
+  {name:'AssertionError'},'never auto-run deep history or allow a feature branch');
 }
 
 const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
