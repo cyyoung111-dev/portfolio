@@ -45,8 +45,12 @@ jobs:
           kst_day="$(TZ=Asia/Seoul date +%F)"
           [[ "${armed:0:10}" == "$kst_day" ]] || { echo 'NAV_FALLBACK_WRONG_KST_DAY'; exit 1; }
           kst_clock="$(TZ=Asia/Seoul date +%H%M)"
-          if (( 10#$kst_clock < 1010 || 10#$kst_clock > 1210 )); then
-            echo 'NAV_FALLBACK_OUTSIDE_KST_1010_1210'; exit 1
+          # Morning protects the missed 09:10/09:30 wake-up; evening
+          # protects missed 18:10/19:17 publication catches. Evening begins
+          # well after the 19:00 GAS portfolio close critical section.
+          if (( (10#$kst_clock < 1010 || 10#$kst_clock > 1210) &&
+                (10#$kst_clock < 2020 || 10#$kst_clock > 2110) )); then
+            echo 'NAV_FALLBACK_OUTSIDE_KST_ADMISSION_WINDOWS'; exit 1
           fi
           now_s="$(date +%s)"
           armed_s="$(date -d "$armed" +%s)"
@@ -62,7 +66,17 @@ jobs:
         run: |
           set -euo pipefail
           kst_day="$(TZ=Asia/Seoul date +%F)"
-          since="$(date -u -d "$kst_day 00:00:00 +0900" +%FT%TZ)"
+          kst_clock="$(TZ=Asia/Seoul date +%H%M)"
+          # In evening, an 09:10 successful-but-deferred NAV attempt must
+          # not suppress recovery from missing evening scheduled wake-ups.
+          # On each admission window dedupe only its trusted schedule period.
+          if (( 10#$kst_clock >= 2020 && 10#$kst_clock <= 2110 )); then
+            since="$(date -u -d "$kst_day 17:00:00 +0900" +%FT%TZ)"
+            echo 'NAV_FALLBACK_EVENING_DEDUPE_SINCE_1700_KST'
+          else
+            since="$(date -u -d "$kst_day 00:00:00 +0900" +%FT%TZ)"
+            echo 'NAV_FALLBACK_MORNING_DEDUPE_SINCE_0000_KST'
+          fi
           recent="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/kb-fund-nav-collect.yml/runs?per_page=50" |
             jq -r --arg since "$since" '[.workflow_runs[]
               | select(.created_at >= $since)
