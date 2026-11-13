@@ -43,7 +43,7 @@ for(const flag of ['use_9289_close_perf','approve_9289','confirm_9288_migration'
  assert.equal(Object.hasOwn(y.on.workflow_dispatch.inputs,flag),false);
 assert(!y.jobs.deploy.steps.some(s=>String(s.name||'').includes('9.289')),
  'retired 9.289 release gate must not be callable from current operator workflow');
-assert(y.jobs.deploy.steps.some(s=>s.id==='gas9293_gate'));
+assert(y.jobs.deploy.steps.some(s=>s.id==='gas9294_gate'));
 const url='https://script.google.com/macros/s/TEST_DEPLOYMENT_TOKEN/exec';
 const token='private-mock-token-only';
 const rows=Array.from({length:338},(_,i)=>({
