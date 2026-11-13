@@ -1,6 +1,7 @@
 name: krx-operational-diagnostics
 
-# One-time, read-only post-merge diagnostics. No scheduled recurrence or GAS writes.
+# KRX-source changes get lightweight live diagnostics; expensive historical
+# exact-date Snapshot proofs require explicit manual opt-in. No GAS writes.
 on:
   push:
     branches: [main]
@@ -9,19 +10,23 @@ on:
       - 'scripts/diagnose-krx-operational.mjs'
       - 'scripts/diagnose-k200-night-operational.mjs'
       - 'scripts/preview-krx-pending-reconcile.mjs'
-      - 'scripts/diagnose-backfill-status.mjs'
   workflow_dispatch:
     inputs:
       dates:
         description: '점검일 1~3개 입력 (YYYY-MM-DD, 쉼표 구분, 예: 2026-10-29)'
         type: string
         required: true
+      deep_historical:
+        description: '과거 10/06–08·10/15 전체 Snapshot 심층 점검 (읽기 전용·고부하)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
-# Serialize manual and push diagnostics: both perform many authenticated GAS
-# reads and full-snapshot proofs, which must not compete for the same locks.
+# Serialize diagnostic runs: manual deep proof can take many authenticated
+# read-only calls, but routine status-script changes never launch it.
 concurrency:
   group: krx-operational-diagnostics-${{ github.ref }}
   cancel-in-progress: false
@@ -69,14 +74,14 @@ jobs:
       # KRX / ledger completeness. Each date is independently checked by the
       # existing authenticated apply=0 endpoint, without mutating the queue.
       - name: Read-only exact KRX+ledger+full Snapshot proof for 10/06–08
-        if: always() && github.event_name == 'push'
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.deep_historical == true
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/preview-krx-pending-reconcile.mjs --dates "2026-10-06,2026-10-07,2026-10-08" --allow-blocked
 
       - name: Read-only exact KRX+ledger+full Snapshot proof for 10/15
-        if: always() && github.event_name == 'push'
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.deep_historical == true
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
