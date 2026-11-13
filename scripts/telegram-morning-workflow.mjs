@@ -11,6 +11,7 @@ import {fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {auditSentFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {loadEarlyAiWatch} from './telegram-ai-watch-prefetch.mjs';
+import {verifyLateScheduledMorningSent} from './telegram-morning-late-sent-readonly.mjs';
 
 export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubToken,repository,attempt=1,mode='rescue',run=runTelegramMorning,loadReference=loadCapturedNight,
   loadPrefetch=loadPrefetchedNight,recoverReference=fetchNightReference,
@@ -197,7 +198,21 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   // Never let the connection-test mode (or an omitted mode) send market data.
   if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'
      &&!['rescue','late_test'].includes(process.env.TELEGRAM_DISPATCH_MODE))throw Error('TELEGRAM_DISPATCH_MODE_INVALID');
-  if(!deliveryTrigger('morning',process.env,JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),scheduledWindow(new Date()).allowed)){
+  const clock=scheduledWindow(new Date());
+  // GitHub can deliver a scheduled retry hours late after the 07:40 send.
+  // Only a same-run, dated, regular-window CLAIM+SENT proof makes it a safe
+  // no-op; a missing provider-confirmed receipt remains a visible failure.
+  const triggered=deliveryTrigger('morning',process.env,
+    JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),clock.allowed);
+  if(process.env.GITHUB_EVENT_NAME==='schedule'&&!clock.allowed){
+   const proof=await verifyLateScheduledMorningSent({date:clock.date,
+     repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN});
+   if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
+   console.log(JSON.stringify({status:'LATE_SCHEDULE_ALREADY_SENT',
+     date:proof.date,verifiedSent:true,readOnly:true}));
+   process.exit(0);
+  }
+  if(!triggered){
    if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
    console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW'}));
    process.exit(0);

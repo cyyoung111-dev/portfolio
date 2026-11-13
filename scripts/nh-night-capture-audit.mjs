@@ -23,7 +23,10 @@ export async function auditNhNightSchedule({
   if(calendar!=='OPEN')throw Error('NH_AUDIT_CALENDAR_UNVERIFIED');
   const start=Date.parse(date+'T07:30:00+09:00');
   const end=Date.parse(date+'T08:00:00+09:00');
-  const after=new Date(start).toISOString()+'..'+new Date(end-1).toISOString();
+  // Scan through the actual audit time, not only the intended slot.
+  // A late successful run must not be mistaken for no run at all.
+  const scanEnd=Math.min(now().getTime(),Date.parse(date+'T23:59:59.999+09:00'));
+  const after=new Date(start).toISOString()+'..'+new Date(scanEnd).toISOString();
   const base='https://api.github.com/repos/'+REPO+'/actions';
   const runUrl=base+'/workflows/'+WORKFLOW+'/runs?event=schedule&branch=main&created='+encodeURIComponent(after)+'&per_page=100';
   const artifactUrl=base+'/artifacts?name='+encodeURIComponent('nh-night-reference-'+date)+'&per_page=100';
@@ -48,20 +51,26 @@ export async function auditNhNightSchedule({
     return Number.isSafeInteger(r?.id)&&r.name===REFERENCE&&r.path===PATH
       &&r.event==='schedule'&&r.head_branch==='main'
       &&r.head_repository?.full_name===REPO&&r.run_attempt===1
-      &&Number.isFinite(created)&&created>=start&&created<end;
+      &&Number.isFinite(created)&&created>=start&&created<=scanEnd;
   });
+  const timelyRuns=validRuns.filter(r=>Date.parse(r.created_at)<end);
+  const lateRuns=validRuns.filter(r=>Date.parse(r.created_at)>=end);
   const artifacts=artifactData.artifacts.filter(a=>a?.name==='nh-night-reference-'+date
     &&a.expired===false&&Number.isSafeInteger(a.id));
-  const succeeded=validRuns.filter(r=>r.status==='completed'&&r.conclusion==='success');
-  const proof=artifacts.filter(a=>succeeded.some(r=>r.id===a.workflow_run?.id));
+  const timelySuccess=timelyRuns.filter(r=>r.status==='completed'&&r.conclusion==='success');
+  const lateSuccess=lateRuns.filter(r=>r.status==='completed'&&r.conclusion==='success');
+  const proof=artifacts.filter(a=>timelySuccess.some(r=>r.id===a.workflow_run?.id));
+  const lateProof=artifacts.filter(a=>lateSuccess.some(r=>r.id===a.workflow_run?.id));
   const status=proof.length===1&&artifacts.length===1?'CAPTURE_CONFIRMED'
+    :lateProof.length>0?'CAPTURE_LATE_CONFIRMED'
     :artifacts.length>0?'ARTIFACT_PROVENANCE_UNVERIFIED'
-    :validRuns.length===0?'SCHEDULE_NOT_TRIGGERED'
-    :validRuns.some(r=>r.status==='in_progress'||r.status==='queued')?'CAPTURE_RUN_INCOMPLETE'
-    :succeeded.length>0?'CAPTURE_RUN_NO_REFERENCE'
+    :timelyRuns.length===0&&lateRuns.length>0?'SCHEDULE_LATE_NO_REFERENCE'
+    :timelyRuns.length===0?'SCHEDULE_NOT_TRIGGERED'
+    :timelyRuns.some(r=>r.status==='in_progress'||r.status==='queued')?'CAPTURE_RUN_INCOMPLETE'
+    :timelySuccess.length>0?'CAPTURE_RUN_NO_REFERENCE'
     :'CAPTURE_RUN_FAILED';
   return {date,status,ok:status==='CAPTURE_CONFIRMED',
-    runs:validRuns.length,artifacts:artifacts.length};
+    runs:timelyRuns.length,lateRuns:lateRuns.length,artifacts:artifacts.length};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
