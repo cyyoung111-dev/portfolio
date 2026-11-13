@@ -29,7 +29,6 @@ const raw=(day,market,special=false)=>{
   if(special&&i===2){hi=222;lo=42;close=100;}
   if(special&&i===3){hi=120;lo=80;close=100;}
   if(special&&i===4){hi=0;lo=0;close=100;}
-  if(special&&i===5){hi=130;lo=100;close=115;}
   return {BAS_DD:day.replaceAll('-',''),ISU_CD:code,
    TDD_HGPRC:String(hi),TDD_LWPRC:String(lo),
    TDD_CLSPRC:String(close)};
