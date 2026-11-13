@@ -115,10 +115,15 @@ assert.equal(audit52WeekRawDiscontinuity(archive,dates,
 // 170+ sessions remain valid and exactly dated.
 const discontinuous=structuredClone(complete);
 for(let i=80;i<discontinuous.sessions.length;i++){
- const row=discontinuous.sessions[i].markets.KOSPI.rows[8];
+ // Suspended securities are removed from daily rows, so an array index
+ // is NOT a stable security identity across different sessions.
+ const row=discontinuous.sessions[i].markets.KOSPI.rows
+  .find(x=>x[0]==='KR000008');
+ assert.ok(row,'target security identity must persist through the window');
  row[1]=60;row[2]=30;row[3]=40;
 }
-discontinuous.sessions.at(-1).markets.KOSPI.rows[8][2]=20;
+discontinuous.sessions.at(-1).markets.KOSPI.rows
+ .find(x=>x[0]==='KR000008')[2]=20;
 const discontinuousCounts=countNewHighsAndLows(discontinuous,dates);
 const flagged=audit52WeekRawDiscontinuity(discontinuous,dates,discontinuousCounts);
 assert.equal(discontinuousCounts.markets.KOSPI.lows,3);
