@@ -245,6 +245,25 @@ assert.ok(cron.includes('10 0 * * 0,6'),'09:10 KST weekend official NAV catch-up
 assert.ok(cron.includes('10 9 * * *'),'18:10 KST primary must remain');
 assert.ok(cron.includes('17 10 * * *'),'19:17 KST fallback must remain');
 assert.equal(new Set(cron).size,cron.length,'duplicate cron wakes are wasteful');
+assert.deepEqual(workflow.on.workflow_run.workflows,
+ ['KRX 252-session 52-week market breadth archive (source only)']);
+assert.deepEqual(workflow.on.workflow_run.types,['completed']);
+assert.deepEqual(workflow.on.workflow_run.branches,['main']);
+for(const name of ['source-public','collect','hanwha-collect','postflight-readonly']){
+ const guard=workflow.jobs[name].if;
+ assert.match(guard,/github\.repository == 'cyyoung111-dev\/portfolio'/);
+ assert.match(guard,/github\.ref == 'refs\/heads\/main'/);
+ assert.match(guard,/github\.event_name == 'workflow_run'/);
+ assert.match(guard,/github\.event\.workflow_run\.event == 'schedule'/);
+ assert.match(guard,/github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
+ assert.match(guard,/github\.event\.workflow_run\.head_branch == 'main'/);
+ assert.match(guard,/github\.event\.workflow_run\.path == '\.github\/workflows\/krx-52week-history\.yml'/);
+ assert.match(guard,/github\.event\.workflow_run\.run_attempt == 1/);
+ assert.match(guard,/github\.run_attempt == 1/);
+}
+assert.doesNotMatch(workflow.jobs.collect.if,/github\.event_name == 'push'/,
+ 'source-only main push cannot launch protected financial writer');
+
 assert.equal(workflow.concurrency.group,'kb-fund-nav-collect');
 assert.equal(workflow.concurrency['cancel-in-progress'],false);
 const privateCollector=workflow.jobs.collect;
