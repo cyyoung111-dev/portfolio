@@ -32,10 +32,20 @@ assert.match(guard,/git diff --name-only HEAD\^ HEAD/);
 assert.match(guard,/NAV_FALLBACK_WRONG_PATHS/);
 assert.match(guard,/NAV_FALLBACK_OTHER_FIELDS_CHANGED/);
 assert.match(guard,/NAV_FALLBACK_WRONG_KST_DAY/);
-assert.match(guard,/NAV_FALLBACK_OUTSIDE_KST_1010_1210/);
+assert.match(guard,/NAV_FALLBACK_OUTSIDE_KST_ADMISSION_WINDOWS/);
+assert.match(guard,/10#\\$kst_clock < 1010/,'morning starts at 10:10 KST');
+assert.match(guard,/10#\\$kst_clock > 1210/,'morning ends at 12:10 KST');
+assert.match(guard,/10#\\$kst_clock < 2020/,'evening starts after 19:00 CLOSE');
+assert.match(guard,/10#\\$kst_clock > 2110/,'evening has a bounded end');
 assert.match(guard,/lag_s > 7200/);
 assert.match(check,/workflow_dispatch/);
 assert.match(check,/NAV_FALLBACK_TRUSTED_COLLECTION_ALREADY_ACTIVE_OR_DONE/);
+assert.match(check,/NAV_FALLBACK_EVENING_DEDUPE_SINCE_1700_KST/);
+assert.match(check,/NAV_FALLBACK_MORNING_DEDUPE_SINCE_0000_KST/);
+assert.match(check,/date -u -d "\\$kst_day 17:00:00 \\+0900"/);
+assert.match(check,/date -u -d "\\$kst_day 00:00:00 \\+0900"/);
+assert.match(check,/select\\(\\.head_branch == "main"\\)/);
+assert.match(check,/select\\(\\.status != "completed" or \\.conclusion == "success"\\)/);
 assert.match(dispatch,/gh workflow run kb-fund-nav-collect\.yml/);
 assert.match(dispatch,/NOT_NAV_COMMITTED/);
 for(const [label,script] of [['guard',guard],['dedupe',check],['dispatch',dispatch]]) {
@@ -50,3 +60,19 @@ assert(!wf.jobs['guard-and-dispatch'].steps.some(x=>
  JSON.stringify(x).includes('collectKbFundNav')));
 console.log(JSON.stringify({kind:'NAV_INDEPENDENT_ARM_OFFLINE_PASS',
  privateWrites:0,realDispatches:0,sentinelPath:path}));
+
+// Logical admission contract in local KST, without touching GitHub or GAS.
+const morning=clock=>clock>=1010&&clock<=1210;
+const evening=clock=>clock>=2020&&clock<=2110;
+for(const [clock,admitted] of [
+ [945,false],[1009,false],[1010,true],[1020,true],[1210,true],[1211,false],
+ [1850,false],[1900,false],[1959,false],[2019,false],[2020,true],
+ [2030,true],[2110,true],[2111,false],[2300,false]
+]) {
+ assert.equal(morning(clock)||evening(clock),admitted,
+  'Unexpected NAV arm KST admission '+clock);
+}
+assert(!evening(1900)&&!evening(1917),
+ 'GAS 19:00 and protected 19:17 NAV must never contend with fallback');
+console.log(JSON.stringify({kind:'NAV_FALLBACK_DUAL_WINDOW_OFFLINE_PASS',
+ cases:15,financeWrites:0,dispatches:0}));
