@@ -77,8 +77,11 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          # The first verified runs restored 22 source-day pairs. A single
+          # bounded main-push catch-up can safely fill up to 60 more dates.
+          # Keep recurring runs smaller to avoid KRX burst/rate-limit pressure.
           n=24
-          if [ "$EVENT_NAME" = 'push' ]; then n=12; fi
+          if [ "$EVENT_NAME" = 'push' ]; then n=60; fi
           if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then n="$MAX_DATES"; fi
           node scripts/collect-krx-52week-history.mjs \
             "--input=.krx-52week/previous/history.json" \
