@@ -39,10 +39,19 @@ export async function readClosingVkospi(date,{
   emit('CONFIG_OR_SESSION_UNVERIFIED');return [];
  }
  const direct=async()=>{
-  let candidate=[];
-  try{candidate=await fetchDirect(date,{authKey,now,fetchImpl});}catch{}
+  let candidate=[],reported=false;
+  const allowed=new Set(['KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED',
+   'KRX_DIRECT_SESSION_UNVERIFIED','KRX_DIRECT_ACCESS_DENIED',
+   'KRX_DIRECT_HTTP_UNAVAILABLE','KRX_DIRECT_NO_EXACT_ROW',
+   'KRX_DIRECT_NETWORK_OR_PARSE_FAILED','KRX_DIRECT_VERIFIED']);
+  const relay=status=>{
+   if(allowed.has(status)){reported=true;emit(status);}
+  };
+  try{candidate=await fetchDirect(date,{authKey,now,fetchImpl,
+   onDiagnostic:relay});}catch{}
   const rows=verifyClosingVkospi(date,candidate);
-  if(rows.length===1)emit('KRX_DIRECT_VERIFIED');
+  // Test doubles/legacy providers may not report a direct-source outcome.
+  if(!reported)emit(rows.length===1?'KRX_DIRECT_VERIFIED':'KRX_DIRECT_UNVERIFIED');
   return rows;
  };
  if(!url||typeof token!=='string'||token.length<12){
