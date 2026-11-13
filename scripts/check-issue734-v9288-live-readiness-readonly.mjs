@@ -23,7 +23,7 @@ const workflow=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','ut
 const stages=workflow.jobs.deploy.steps;
 assert(!stages.some(s=>String(s.name||'').includes('9.287 settled close and legacy ledger')),
  'retired 9.288 manual preflight must not appear in current release workflow');
-assert(stages.some(s=>s.id==='gas9293_gate'),'current 9.293 live proof remains protected');
+assert(stages.some(s=>s.id==='gas9294_gate'),'current 9.294 live proof remains protected');
 const url='https://script.google.com/macros/s/TEST_DEPLOYMENT_EXAMPLE/exec';
 const token='mock_private_test_token_123';
 const date='2026-11-09';
