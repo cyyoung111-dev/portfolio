@@ -1,5 +1,7 @@
 name: issue860-once-close-status-readonly
-# Standalone Node core-only contract (no npm install); recheck 9.293 live once.
+# 2026-11-13 after #43344298171: one fresh main-only READ-ONLY receipt for
+# exact 11/12 CLOSE owner and deferred NAV, Gate and 39-row Snapshot.
+# No close retry, producer invocation, GAS deploy or financial write.
 on:
   workflow_dispatch:
   # One protected main-only readback of the CURRENT GAS 9.293 and exact-day
