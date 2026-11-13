@@ -105,6 +105,9 @@ const inputs=(flow.on??flow.true).workflow_dispatch.inputs;
 assert.equal(inputs.diagnose_only.default,true);
 assert.equal(inputs.confirm_recovery.default,'');
 assert.equal(flow.jobs.resume.environment,'portfolio-production-gas');
+const runner=fs.readFileSync('scripts/run-incomplete-close-resume.mjs','utf8');
+assert.match(runner,/RESUME_\|AUTOMATION_DIAG_\|ISSUE734_ONCE_/,
+ 'CLI must report exact one-shot recovery fail-closed reasons');
 console.log(JSON.stringify({kind:'ISSUE734_ONCE_CLOSE_OWNER_RECOVERY_OFFLINE_PASS',
  rejectCases,appliesInSuccess:1,appliesInFailureAtMost:1,
  manualApprovalOnly:true,navIndependent:true,

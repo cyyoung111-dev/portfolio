@@ -109,4 +109,4 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  throw Error('RESUME_BOUNDED_PROGRESS_EXHAUSTED');
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{console.log(JSON.stringify(await resumeClose({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,readOnly:process.env.RESUME_READ_ONLY==='1',
- confirmRecovery:process.env.ISSUE734_CONFIRM_RECOVERY||'',emit:x=>console.log(JSON.stringify(x))})));}catch(e){console.error(/^(?:RESUME_|AUTOMATION_DIAG_)[A-Z_]+$/.test(e?.message||'')?e.message:'RESUME_UNKNOWN');process.exitCode=1;}}
+ confirmRecovery:process.env.ISSUE734_CONFIRM_RECOVERY||'',emit:x=>console.log(JSON.stringify(x))})));}catch(e){console.error(/^(?:RESUME_|AUTOMATION_DIAG_|ISSUE734_ONCE_)[A-Z_]+$/.test(e?.message||'')?e.message:'RESUME_UNKNOWN');process.exitCode=1;}}
