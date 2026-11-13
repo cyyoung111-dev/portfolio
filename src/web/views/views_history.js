@@ -515,7 +515,7 @@ function _describePortfolioCloseStatus(a) {
   const run = a?.closeRun || {};
   const attempt = a?.fundAttempt || {};
   const date = run.runDate;
-  const exactDate = typeof date === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(date);
+  const exactDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
   const completed = exactDate && run.state === 'COMPLETE' && run.stage === 'COMPLETE'
     && close.runDate === date && close.priceDate === date
     && close.priceOk === true && close.fundOk === true
