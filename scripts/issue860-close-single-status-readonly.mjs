@@ -65,6 +65,16 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
   priceHistoryLastDate:cleanDate(a.priceHistoryLastDate),
   expectedSnapshotDate:cleanDate(a.expectedSnapshotDate),
   snapshotStale:a.snapshotStale===true?true:a.snapshotStale===false?false:null,
+  // UI close badge parity. Emit only booleans/counts; never raw private errors.
+  portfolioCloseRunStale:a.portfolioCloseRunStale===true?true
+    :a.portfolioCloseRunStale===false?false:null,
+  portfolioCloseLastErrorPresent:!!a.portfolioCloseLastError,
+  tradeLedgerWriteUnverified:a.tradeLedgerWriteUnverified===true,
+  pendingTradeSnapshotRebuildPresent:!!a.pendingTradeSnapshotRebuildFrom,
+  tradeSnapshotDeferredCount:Number.isSafeInteger(Number(a.tradeSnapshotDeferredCount))
+    &&Number(a.tradeSnapshotDeferredCount)>=0
+    &&Number(a.tradeSnapshotDeferredCount)<100000
+    ?Number(a.tradeSnapshotDeferredCount):null,
   fundErrorPresent:!!a.fundLastError,
   fundWarningPresent:!!a.fundLastWarning,
   fundWarningClass:classifySavedFundWarning(a.fundLastWarning),
