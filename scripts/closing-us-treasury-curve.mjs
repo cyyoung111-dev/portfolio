@@ -1,6 +1,7 @@
 // Supplemental, read-only US Treasury constant-maturity daily H.15 series.
 // No yield is presented as a live 17:00 price. No stale-day substitution.
 import {expectedMorningDate} from './telegram-morning-report.mjs';
+import {readOfficialTreasuryPar} from './closing-us-treasury-par.mjs';
 
 const RATES=Object.freeze([
  Object.freeze({id:'UST2Y',code:'DGS2',label:'미 국채 2년'}),
@@ -43,14 +44,17 @@ export function treasuryPublishedDates(date){
 export function verifyTreasuryCurve(date,rows=[]){
  const allowed=treasuryPublishedDates(date);
  if(!allowed.length||!Array.isArray(rows)||rows.length>3)return [];
- return RATES.flatMap(entry=>{
+ const safe=RATES.flatMap(entry=>{
   const matching=rows.filter(r=>r?.id===entry.id);
   if(matching.length!==1)return [];
   const x=matching[0];
-  if(x.label!==entry.label||!allowed.includes(x.date)||x.source!=='FRED_H15_DAILY'
+  if(x.label!==entry.label||!allowed.includes(x.date)||!['FRED_H15_DAILY','US_TREASURY_PAR_DAILY'].includes(x.source)
     ||!Number.isFinite(x.value)||x.value<=0||x.value>=30)return [];
   return [{id:x.id,label:x.label,date:x.date,value:x.value,source:x.source}];
  });
+ // H.15 constant-maturity and Treasury PAR are different yield measures.
+ // Treat caller-supplied mixed-source rates as unverified, not arithmetic inputs.
+ return new Set(safe.map(x=>x.source)).size>1?[]:safe;
 }
 export async function readTreasuryCurve(date,{fetchImpl=fetch,onDiagnostic=()=>{}}={}){
  const permitted=treasuryPublishedDates(date),expected=permitted[0];
@@ -81,19 +85,26 @@ export async function readTreasuryCurve(date,{fetchImpl=fetch,onDiagnostic=()=>{
    return row;
   }catch{emit(entry.id,'NETWORK_OR_PARSE_FAILED');return null;}
  }));
- return found.filter(Boolean);
+ const fred=found.filter(Boolean);
+ if(fred.length===3)return fred;
+ // Treasury PAR is a distinct official measure. Never mix data sources in
+ // a displayed 10Y–2Y spread: choose the more complete whole-source set.
+ const par=await readOfficialTreasuryPar(permitted,{fetchImpl,onDiagnostic});
+ return par.length===3?par:(fred.length>=par.length?fred:par);
 }
 export function formatTreasuryCurve(date,rows=[]){
  const safe=verifyTreasuryCurve(date,rows);
  const expected=treasuryPublishedDates(date)[0];
- const lines=['■ 미국 국채금리 (FRED H.15 · 최근 발표 관측일)'];
+ const lines=['■ 미국 국채금리 (FRED H.15 / 미 재무부 Par · 최근 발표 관측일)'];
  for(const entry of RATES){
   const x=safe.find(r=>r.id===entry.id);
   lines.push(entry.label+': '+(x?x.value.toFixed(2)+'% ['+x.date
-    +(x.date===expected?'':' · 발표 지연 자료')+']':'최근 허용 관측일 자료 미확보'));
+    +(x.date===expected?'':' · 발표 지연 자료')+']'
+    +(x.source==='US_TREASURY_PAR_DAILY'?' (미 재무부 Par)':'')
+    :'최근 허용 관측일 자료 미확보'));
  }
  const d2=safe.find(x=>x.id==='UST2Y'),d10=safe.find(x=>x.id==='UST10Y_FRED');
- if(d2&&d10&&d2.date===d10.date){
+ if(d2&&d10&&d2.date===d10.date&&d2.source===d10.source){
   const bp=Math.round((d10.value-d2.value)*100);
   lines.push('장단기금리차 (10Y–2Y): '+(bp>=0?'+':'')+bp+'bp ['+d2.date+']');
  }else lines.push('장단기금리차 (10Y–2Y): 동일 기준일 자료 미확보');
