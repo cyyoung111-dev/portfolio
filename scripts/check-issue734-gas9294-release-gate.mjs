@@ -64,6 +64,54 @@ assert.equal(ok.status,'VERIFIED');
 assert.equal(ok.complete,false);
 assert.equal(ok.navOwnerVerified,false);
 assert.equal(ok.financeWrites,0);
+assert.equal(ok.persistedCloseComplete,false);
+// The protected 11/12 one-shot recovered this old owner to stored CLOSE
+// COMPLETE. Accept only the independently matching date/PRICE/NAV receipt,
+// not any previous-day fund DONE or a spoofed COMPLETE stage.
+const recovered={...close,state:'COMPLETE',stage:'COMPLETE',
+ summaryPresent:true,summaryRunDate:'2026-11-12',priceOk:true,fundOk:true,
+ closeErrorCount:0,closeErrorPresent:false,fundErrorPresent:false,
+ fundWarningPresent:false,fundState:'DONE',
+ fundAttemptDate:'2026-11-12',fundDate:'2026-11-12',
+ krxPublicationWaiting:false};
+const recoveredStatus={...status,close:recovered,
+ overallStatus:'NORMAL',pendingCount:0};
+const recoveredReady=assessGas9294Preflight({
+ published,status:recoveredStatus,snapshot});
+assert.equal(recoveredReady.status,'VERIFIED');
+assert.equal(recoveredReady.state,'COMPLETE');
+assert.equal(recoveredReady.persistedCloseComplete,true);
+assert.equal(recoveredReady.complete,false,
+ 'stored close completion is not independent Script API owner proof');
+assert.equal(recoveredReady.navOwnerVerified,false);
+assert.equal(recoveredReady.processExecutionOwnerVerified,false);
+let recoveredBad=0;
+for(const bad of [
+ {close:{summaryRunDate:'2026-11-11'}},
+ {close:{fundDate:'2026-11-11'}},
+ {close:{fundAttemptDate:'2026-11-11'}},
+ {close:{priceOk:false}},
+ {close:{fundOk:false}},
+ {close:{closeErrorCount:1}},
+ {close:{closeErrorPresent:true}},
+ {close:{fundErrorPresent:true}},
+ {close:{fundWarningPresent:true}},
+ {close:{fundState:'IN_PROGRESS'}},
+ {close:{krxPublicationWaiting:true}},
+ {close:{summaryPresent:false}},
+ {close:{stage:'FUND_PENDING'}},
+ {close:{runDate:'2026-11-13'}},
+ {state:{overallStatus:'WARNING'}},
+ {state:{pendingCount:1}}
+]){
+ const next={...recoveredStatus,...bad.state,
+   close:{...recovered,...bad.close}};
+ assert.throws(()=>assessGas9294Preflight({
+   published,status:next,snapshot
+ }),/ISSUE734_9294_PREFLIGHT_CLOSE_OWNER_OR_DATE_CHANGED/);
+ recoveredBad++;
+}
+assert.equal(recoveredBad,16);
 for(const invalid of [
  {published:{...published,gasVersion:'9.292'}},
  {published:{...published,recordedActive:1}},
@@ -133,6 +181,7 @@ assert.equal(wf.jobs.deploy['concurrency']['cancel-in-progress'],false);
 
 console.log(JSON.stringify({
  kind:'ISSUE734_GAS9294_RELEASE_GATE_PASS',pin:PIN,
- predeployNegativeCases:11,postdeployNegativeCases:5,
+ predeployNegativeCases:11,recoveredCloseNegativeCases:16,
+ postdeployNegativeCases:5,
  manualApprovalOnly:true,dryRunDefault:true,
  financeWrites:0,gasDeployments:0}));
