@@ -21,6 +21,7 @@ const job=wf.jobs['guard-and-dispatch'];
 assert.match(job.if,/github\.repository == 'cyyoung111-dev\/portfolio'/);
 assert.match(job.if,/github\.ref == 'refs\/heads\/main'/);
 assert.match(job.if,/github\.run_attempt == 1/);
+assert.match(job.if,/startsWith\(github\.event\.head_commit\.message, 'ops: arm NAV fallback '\)/);
 assert.equal(job['runs-on'],'ubuntu-latest');
 assert.equal(job.steps[0].with['persist-credentials'],false);
 assert.equal(job.steps[0].with['fetch-depth'],2);
