@@ -251,4 +251,50 @@ assert.match(navSource,/workflow_run:/);
 assert.match(navSource,/github\.event\.workflow_run\.event == 'schedule'/);
 assert.match(navSource,/github\.event\.workflow_run\.path == '\.github\/workflows\/krx-52week-history\.yml'/);
 
+
+// One-time cleanup must preserve BOTH successful encrypted backup points and
+// must never delete unrelated Actions artifacts or bypass workflow provenance.
+const {selectLegacyArtifacts,pruneLegacy}=await import(
+ './prune-krx52-legacy-public-artifacts.mjs');
+const legacyArt={id:1001,name:'krx-52week-archive',expired:false,
+ created_at:'2026-11-13T13:28:12Z',workflow_run:{id:43433853869}};
+const sealedA={id:2001,name:'krx-52week-archive',expired:false,
+ created_at:'2026-11-13T13:38:26Z',workflow_run:{id:43435348491}};
+const sealedB={id:2002,name:'krx-52week-archive',expired:false,
+ created_at:'2026-11-13T13:43:26Z',workflow_run:{id:43436095621}};
+assert.deepEqual(selectLegacyArtifacts([legacyArt,sealedA,sealedB]),[legacyArt]);
+assert.throws(()=>selectLegacyArtifacts([legacyArt,sealedA]),
+ /ENCRYPTED_RECOVERY_ARTIFACT_MISSING/);
+assert.deepEqual(selectLegacyArtifacts([sealedA,sealedB]),[]);
+const requests=[];
+const mockArtifacts=[legacyArt,sealedA,sealedB];
+const fetchPrune=async (url,opts)=>{
+ const u=new URL(url),suffix=u.pathname;
+ requests.push({path:suffix,method:opts.method});
+ if(suffix.endsWith('/actions/artifacts'))return {
+  ok:true,json:async()=>({artifacts:mockArtifacts})};
+ if(/\/actions\/runs\/[0-9]+$/.test(suffix)){
+  const id=Number(suffix.split('/').at(-1));
+  return {ok:true,json:async()=>({
+   id,name:'KRX 252-session 52-week market breadth archive (source only)',
+   path:'.github/workflows/krx-52week-history.yml',
+   head_branch:'main',head_repository:{full_name:'cyyoung111-dev/portfolio'},
+   conclusion:'success'})};
+ }
+ if(opts.method==='DELETE'&&suffix==='/repos/cyyoung111-dev/portfolio/actions/artifacts/1001')
+  return {ok:true,status:204};
+ throw Error('unexpected test GitHub API call');
+};
+const dry=await pruneLegacy({token:'TEST_GITHUB_TOKEN_123456789',
+ fetchImpl:fetchPrune,deleteEnabled:false});
+assert.equal(dry.legacyCandidateCount,1);
+assert.equal(dry.deletedCount,0);
+assert.equal(requests.filter(x=>x.method==='DELETE').length,0);
+const executed=await pruneLegacy({token:'TEST_GITHUB_TOKEN_123456789',
+ fetchImpl:fetchPrune,deleteEnabled:true});
+assert.equal(executed.deletedCount,1);
+assert.deepEqual(requests.filter(x=>x.method==='DELETE').map(x=>x.path),[
+ '/repos/cyyoung111-dev/portfolio/actions/artifacts/1001'
+]);
+assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
 console.log('KRX_52W_252_SESSION_MARKET_HISTORY_PASS exact OHLC, count, holidays, incomplete, reentry, source-only');
