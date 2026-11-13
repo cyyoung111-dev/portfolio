@@ -1,7 +1,7 @@
 // Official KRX derivative index daily VKOSPI: one exact-name, exact-date row.
 // Read only. This source is never used for GAS/portfolio financial writes.
 import {krxSessionStatus} from './krx-session-calendar.mjs';
-const URL='https://data-dbg.krx.co.kr/svc/apis/idx/drvprod_dd_trd';
+const KRX_VKOSPI_URL='https://data-dbg.krx.co.kr/svc/apis/idx/drvprod_dd_trd';
 const isDate=date=>typeof date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(date)
  &&Number.isFinite(Date.parse(date+'T00:00:00Z'))
  &&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date;
@@ -35,7 +35,7 @@ export async function readOfficialKrxVkospiDaily(date,{
  const local=kst(when);
  // Only an already completed KRX session is eligible.
  if(local.date<date||(local.date===date&&local.minute<960))return [];
- const endpoint=new URL(URL);
+ const endpoint=new URL(KRX_VKOSPI_URL);
  endpoint.searchParams.set('basDd',date.replaceAll('-',''));
  try{
   const response=await fetchImpl(endpoint.href,{
