@@ -107,6 +107,18 @@ const warningStatus=await readIssue860Once({url,token,
   automation:{...data.automation,gasVersion:'9.294',
    fundLastWarning:'F00001 NAV 미확보 1일 PRIVATE_ACCOUNT_123456'}})})});
 assert.equal(warningStatus.fundWarningPresent,true);
+const parityStatus=await readIssue860Once({url,token,
+ fetchImpl:async()=>({ok:true,json:async()=>({...data,gasVersion:'9.294',
+  automation:{...data.automation,gasVersion:'9.294',
+   portfolioCloseRunStale:false,portfolioCloseLastError:'SENSITIVE_PRIVATE',
+   tradeLedgerWriteUnverified:true,
+   pendingTradeSnapshotRebuildFrom:'2026-11-12',tradeSnapshotDeferredCount:3}})})});
+assert.equal(parityStatus.portfolioCloseRunStale,false);
+assert.equal(parityStatus.portfolioCloseLastErrorPresent,true);
+assert.equal(parityStatus.tradeLedgerWriteUnverified,true);
+assert.equal(parityStatus.pendingTradeSnapshotRebuildPresent,true);
+assert.equal(parityStatus.tradeSnapshotDeferredCount,3);
+assert(!JSON.stringify(parityStatus).includes('SENSITIVE_PRIVATE'));
 assert.equal(warningStatus.fundWarningClass,'NAV_PUBLICATION_OR_INPUT_PENDING');
 assert.ok(!JSON.stringify(warningStatus).includes('PRIVATE_ACCOUNT_123456'));
 
@@ -136,6 +148,11 @@ assert.equal(report.snapshotLastDate,'2026-11-09');
 assert.equal(report.priceHistoryLastDate,'2026-11-09');
 assert.equal(report.expectedSnapshotDate,'2026-11-09');
 assert.equal(report.snapshotStale,false);
+assert.equal(report.portfolioCloseRunStale,null,'unknown flag must remain unknown');
+assert.equal(report.portfolioCloseLastErrorPresent,false);
+assert.equal(report.tradeLedgerWriteUnverified,false);
+assert.equal(report.pendingTradeSnapshotRebuildPresent,false);
+assert.equal(report.tradeSnapshotDeferredCount,null,'missing deferred count is not zero');
 assert.equal(report.fundErrorPresent,true);
 assert.equal(report.fundWarningPresent,true);
 assert.equal(report.pendingKrxDatesCount,0);
