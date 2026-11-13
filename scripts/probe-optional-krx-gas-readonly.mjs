@@ -46,13 +46,22 @@ export function auditDirectVkospiRows(date,rows){
  const expected=String(date||'').replaceAll('-','');
  const matched=Array.isArray(rows)?rows.filter(x=>
   /VKOSPI|코스피 ?200 ?변동성/i.test(String(x?.IDX_NM||''))):[];
- const dated=matched.filter(x=>String(x?.BAS_DD||'')===expected);
+ // Do not confuse related short-term/futures/leveraged volatility indexes
+ // with the exact KOSPI 200 Volatility Index (VKOSPI).
+ const primary=matched.filter(x=>
+  /^(?:VKOSPI|코스피\s*200\s*변동성지수(?:\s*\(VKOSPI\))?)$/i
+   .test(String(x?.IDX_NM||'').trim()));
+ const dated=primary.filter(x=>String(x?.BAS_DD||'')===expected);
  const valid=dated.filter(x=>{
   const raw=String(x?.CLSPRC_IDX??'').trim().replaceAll(',','');
   return raw!==''&&Number.isFinite(Number(raw))&&Number(raw)>0&&Number(raw)<200;
  });
- return {candidateCount:matched.length,exactDateCount:dated.length,
-  verified:matched.length===1&&dated.length===1&&valid.length===1};
+ // Names are public KRX index identifiers only; never print quotes or keys.
+ const candidateNames=[...new Set(matched.map(x=>String(x?.IDX_NM||'')
+  .replace(/[^\p{L}\p{N}\s()_-]/gu,'').trim().slice(0,70)))].slice(0,8);
+ return {candidateCount:matched.length,candidateNames,
+  primaryCount:primary.length,exactDateCount:dated.length,
+  verified:primary.length===1&&dated.length===1&&valid.length===1};
 }
 
 const allowedReason=/^[A-Z][A-Z0-9_]{2,75}$/;
@@ -122,6 +131,8 @@ export async function probeOptionalKrxMetrics({
       if(id==='INDEX_DERIVATIVE'){
        const audit=auditDirectVkospiRows(date,rows);
        status.vkospiCandidateCount=audit.candidateCount;
+       status.vkospiCandidateNames=audit.candidateNames;
+       status.vkospiPrimaryCount=audit.primaryCount;
        status.vkospiExactDateCount=audit.exactDateCount;
        status.vkospiVerified=audit.verified;
       }
