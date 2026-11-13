@@ -2,7 +2,7 @@ import {isolateGasBusinessLogic} from './gas-business-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {summarizeCloseStatus} from './diagnose-backfill-status.mjs';
+import {summarizeCloseStatus,classifyOvernightFundWarning} from './diagnose-backfill-status.mjs';
 import YAML from 'yaml';
 import {assessKrxOvernightHealth,describeWorkerCheckpointEvidence,describeFundCloseCheckpoint} from './assess-krx-overnight-health.mjs';
 
@@ -395,3 +395,100 @@ const nightlyAssessorSource=fs.readFileSync('scripts/assess-krx-overnight-health
 assert.match(nightlyAssessorSource,/펀드 마지막 단계/);
 assert.doesNotMatch(nightlyAssessorSource,/action:['"](?:collectKbFundNav|resumeIncompletePortfolioClose|runDailyFundValuations)['"]/);
 console.log('KRX overnight health: read-only contract, queued/failed/mismatched/healthy checks PASS');
+
+// 2026-11-14 07:47 KST: live nightly KRX had 0 backlog, 11/13 aligned
+// price/Snapshot, COMPLETE close + fund, NO_WORK recovery slots but a saved
+// partial-fund NAV warning. KRX job must not fail on *that exact source-only*
+// warning, while unknown or stale GAS conditions remain actionable.
+{
+ const observedAt=new Date('2026-11-14T07:47:00+09:00');
+ const date='2026-11-13';
+ const persisted={
+  portfolioClose:{runDate:date,priceOk:true,fundOk:true,errors:[]},
+  closeRun:{state:'COMPLETE',stage:'COMPLETE',runDate:date},
+  fundAttempt:{date,state:'DONE'},
+  portfolioCloseLastError:'',fundLastError:'',
+  fundLastWarning:'F00001 부분 완료 | F00002 부분 완료',
+  portfolioCloseRunStale:false,snapshotStale:false,
+  expectedPortfolioCloseRunDate:date,expectedSnapshotDate:date
+ };
+ const goodClose=summarizeCloseStatus(persisted);
+ assert.equal(goodClose.closeErrorCount,0);
+ assert.equal(goodClose.fundWarningPresent,true);
+ assert.equal(goodClose.fundErrorCode,'NONE');
+ const warning=classifyOvernightFundWarning(persisted.fundLastWarning);
+ assert.equal(warning,'PARTIAL_FUND_VALUATION');
+ assert.equal(classifyOvernightFundWarning('NAV_MISSING'), 'NAV_PUBLICATION_OR_INPUT_PENDING');
+ assert.equal(classifyOvernightFundWarning('Snapshot 보호 충돌: PRIVATE_DETAIL'),
+  'SNAPSHOT_PROTECTED');
+ assert.equal(classifyOvernightFundWarning('UNKNOWN_PRIVATE_USER_ACCOUNT_123'),
+  'UNCLASSIFIED');
+ const realShape={...good,gasVersion:'9.294',overallStatus:'WARNING',
+  fundWarningClass:warning,
+  officialKrxPriceHistoryLastDate:date,
+  snapshotLastDate:date,priceHistoryLastDate:date,
+  tradeSnapshotDeferredCount:0,
+  historical2310:slot(date,'NO_WORK'),
+  historical0030:slot('2026-11-14','NO_WORK'),
+  latestBackfill:{attempted:false,ok:null},
+  latestHistoricalBackfill:{attempted:true,ok:true},
+  close:goodClose
+ };
+ const diagnose=x=>assessKrxOvernightHealth(x,{now:observedAt});
+ const healthyKrx=diagnose(realShape);
+ assert.equal(healthyKrx.status,'KRX_COMPLETE_FUND_NAV_WARNING_UNVERIFIED');
+ assert.deepEqual(healthyKrx.issues,['AUTOMATION_NOT_NORMAL'],
+  'preserve persisted overall WARNING evidence');
+ assert.equal(healthyKrx.rawOverallStatus,'WARNING');
+ assert.equal(healthyKrx.fundWarningClass,warning);
+ assert.equal(healthyKrx.isolatedFundWarning,true);
+ assert.equal(healthyKrx.alertFocus,'KRX_COMPLETE_FUND_NAV_WARNING_SEPARATE_REVIEW');
+ assert.equal(healthyKrx.fundCloseCheckpointEvidence.processApiExecutionVerified,false);
+ for(const change of [
+  {fundWarningClass:'NONE'},
+  {fundWarningClass:'UNCLASSIFIED'},
+  {fundWarningClass:'SNAPSHOT_PROTECTED'},
+  {close:{...goodClose,closeErrorPresent:true}},
+  {close:{...goodClose,closeErrorCount:1}},
+  {close:{...goodClose,fundErrorPresent:true}},
+  {close:{...goodClose,fundErrorCode:'NAV_CONFLICT'}},
+  {close:{...goodClose,fundState:'ERROR'}},
+  {close:{...goodClose,runStale:true}},
+  {close:{...goodClose,summaryRunDate:'2026-11-12'}},
+  {close:{...goodClose,stage:'FUND'}},
+  {close:{...goodClose,fundAttemptDate:'2026-11-12'}},
+  {close:{...goodClose,expectedRunDate:'2026-11-12'}},
+  {close:{...goodClose,fundWarningPresent:false}},
+  {triggerReady:false},
+  {pendingDates:[date],pendingCount:1},
+  {tradeLedgerWriteUnverified:true},
+  {pendingTradeSnapshotRebuildFrom:date},
+  {tradeSnapshotDeferredCount:1},
+  {snapshotLastDate:'2026-11-12'},
+  {officialKrxPriceHistoryLastDate:'2026-11-12'},
+  {priceHistoryLastDate:'2026-11-12'},
+  {historical0030:slot('2026-11-14','FAILED')},
+  {historical2310:slot('2026-11-13','DEFERRED')},
+  {latestBackfill:{attempted:true,ok:false}},
+  {latestHistoricalBackfill:{attempted:true,ok:false}},
+  {overallStatus:'ERROR'},
+  {overallStatus:'INCOMPLETE'}
+ ]) {
+  const got=diagnose({...realShape,...change});
+  assert.equal(got.status,'ACTION_REQUIRED',
+   'A changed GAS/Writer/KRX safety condition must not be concealed');
+  assert.equal(got.isolatedFundWarning,false);
+ }
+ assert.equal(diagnose({...realShape,
+  close:{...goodClose,closeState:'INCOMPLETE',state:'INCOMPLETE'}}).status,'ACTION_REQUIRED');
+ assert.equal(diagnose({...realShape,
+  fundWarningClass:'NAV_PUBLICATION_OR_INPUT_PENDING'}).status,
+  'KRX_COMPLETE_FUND_NAV_WARNING_UNVERIFIED');
+ assert.equal(diagnose({...realShape,overallStatus:'NORMAL',
+  fundWarningClass:'NONE',close:{...goodClose,fundWarningPresent:false}}).status,'HEALTHY');
+ assert.equal(assessKrxOvernightHealth(realShape,{
+  now:new Date('2026-11-17T07:47:00+09:00')}).status,'ACTION_REQUIRED',
+  'An old 11/13 close must never be called current on next Tuesday');
+ assert.doesNotMatch(JSON.stringify(healthyKrx),/PRIVATE_DETAIL|UNKNOWN_PRIVATE_USER_ACCOUNT/);
+}
+console.log('KRX nightly known fund NAV warning split: 33 fail-closed gates PASS');
