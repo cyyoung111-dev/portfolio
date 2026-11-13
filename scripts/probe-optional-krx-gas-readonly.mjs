@@ -41,6 +41,20 @@ export function completedKrxSession(now){
  if(market==='UNKNOWN')return null;
  return market==='OPEN'&&local.minutes>=960?local.day:priorOpen(local.day);
 }
+// Audited derivative index identity proof. Keep raw index values out of Actions logs.
+export function auditDirectVkospiRows(date,rows){
+ const expected=String(date||'').replaceAll('-','');
+ const matched=Array.isArray(rows)?rows.filter(x=>
+  /VKOSPI|코스피 ?200 ?변동성/i.test(String(x?.IDX_NM||''))):[];
+ const dated=matched.filter(x=>String(x?.BAS_DD||'')===expected);
+ const valid=dated.filter(x=>{
+  const raw=String(x?.CLSPRC_IDX??'').trim().replaceAll(',','');
+  return raw!==''&&Number.isFinite(Number(raw))&&Number(raw)>0&&Number(raw)<200;
+ });
+ return {candidateCount:matched.length,exactDateCount:dated.length,
+  verified:matched.length===1&&dated.length===1&&valid.length===1};
+}
+
 const allowedReason=/^[A-Z][A-Z0-9_]{2,75}$/;
 const cleanReasons=values=>values.map(x=>allowedReason.test(x?.status||'')?x.status:'UNVERIFIED');
 export async function probeOptionalKrxMetrics({
@@ -105,8 +119,12 @@ export async function probeOptionalKrxMetrics({
      }else{
       status.turnoverColumnAvailable=Array.isArray(rows)&&rows.length>0
        &&rows.some(x=>Object.hasOwn(x||{},'ACC_TRDVAL'));
-      if(id==='INDEX_DERIVATIVE')status.vkospiCandidateCount=Array.isArray(rows)
-       ?rows.filter(x=>/VKOSPI|코스피 ?200 ?변동성/i.test(String(x?.IDX_NM||''))).length:0;
+      if(id==='INDEX_DERIVATIVE'){
+       const audit=auditDirectVkospiRows(date,rows);
+       status.vkospiCandidateCount=audit.candidateCount;
+       status.vkospiExactDateCount=audit.exactDateCount;
+       status.vkospiVerified=audit.verified;
+      }
      }
     }
    }catch(e){status.error=['TimeoutError','AbortError'].includes(e?.name)
