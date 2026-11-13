@@ -22,7 +22,7 @@ function mock({runs=[run],artifacts=[artifact],fail=false,badSchema=false}={}){
    if(u.pathname.endsWith('/runs')){
      assert.equal(u.searchParams.get('event'),'schedule');
      assert.equal(u.searchParams.get('branch'),'main');
-     assert.match(u.searchParams.get('created'),/2026-11-01T22:30:00.000Z[.][.]2026-11-01T22:59:59.999Z/);
+     assert.match(u.searchParams.get('created'),/2026-11-01T22:30:00.000Z[.][.]2026-11-01T23:14:00.000Z/);
      return {ok:true,json:async()=>badSchema?{total_count:'1',workflow_runs:runs}:
        {total_count:runs.length,workflow_runs:runs}};
    }
@@ -40,14 +40,17 @@ async function audit(input){
  assert.equal(f.paths.length,2,'one read for runs and one for artifacts, zero NH API calls');
  return result;
 }
-assert.deepEqual(await audit(),{date,status:'CAPTURE_CONFIRMED',ok:true,runs:1,artifacts:1});
+assert.deepEqual(await audit(),{date,status:'CAPTURE_CONFIRMED',ok:true,runs:1,lateRuns:0,artifacts:1});
 assert.equal((await audit({runs:[],artifacts:[]})).status,'SCHEDULE_NOT_TRIGGERED');
 assert.equal((await audit({runs:[{...run,conclusion:'failure'}],artifacts:[]})).status,'CAPTURE_RUN_FAILED');
 assert.equal((await audit({runs:[{...run,status:'in_progress',conclusion:null}],artifacts:[]})).status,'CAPTURE_RUN_INCOMPLETE');
 assert.equal((await audit({artifacts:[]})).status,'CAPTURE_RUN_NO_REFERENCE');
 assert.equal((await audit({artifacts:[{...artifact,workflow_run:{id:999}}]})).status,'ARTIFACT_PROVENANCE_UNVERIFIED');
 assert.equal((await audit({runs:[{...run,event:'workflow_dispatch'}],artifacts:[]})).status,'SCHEDULE_NOT_TRIGGERED');
-assert.equal((await audit({runs:[{...run,created_at:'2026-11-01T23:05:00Z'}],artifacts:[]})).status,'SCHEDULE_NOT_TRIGGERED');
+const lateRun={...run,created_at:'2026-11-01T23:05:00Z'}; // 08:05 KST
+assert.equal((await audit({runs:[lateRun],artifacts:[]})).status,'SCHEDULE_LATE_NO_REFERENCE');
+assert.deepEqual(await audit({runs:[lateRun],artifacts:[artifact]}),
+ {date,status:'CAPTURE_LATE_CONFIRMED',ok:false,runs:0,lateRuns:1,artifacts:1});
 await assert.rejects(audit({fail:true}),/NH_AUDIT_API_UNAVAILABLE/);
 await assert.rejects(audit({badSchema:true}),/NH_AUDIT_API_SCHEMA/);
 await assert.rejects(auditNhNightSchedule({now:()=>new Date(date+'T08:12:59+09:00'),
