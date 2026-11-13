@@ -66,6 +66,7 @@ jobs:
             currentDayUnpublished:verdict.publicationPendingFunds
               .filter(code=>funds.some(f=>f.code===code&&f.unpublishedDates.includes(today))),
             publicationOverdueFunds:verdict.publicationOverdueFunds,
+            navSourceUnverifiedFunds:verdict.navSourceUnverifiedFunds,
             derivedHealth:verdict.health,zeroWrites:true
           }));
           console.log(JSON.stringify(verdict));
