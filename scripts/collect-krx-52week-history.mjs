@@ -6,7 +6,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {MARKETS,SOURCE,WINDOW,expectedSessions,completedSession,
  parseOfficialStockDay,verifyArchive,appendArchive,countNewHighsAndLows,
- updateSummary} from './krx-52week-market.mjs';
+ audit52WeekRawDiscontinuity,updateSummary} from './krx-52week-market.mjs';
 
 const AUTH=/^[A-Za-z0-9_-]{16,128}$/;
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -63,6 +63,9 @@ export async function collectHistory({
   await pause(350);
  }
  const counts=countNewHighsAndLows(archive,expected);
+ // A 252/252 data proof is not a corporate-action-adjusted market indicator.
+ // Emit an independent source-only quality audit before any integration.
+ const quality=audit52WeekRawDiscontinuity(archive,expected,counts);
  archive=updateSummary(archive,counts);
  const report={kind:'KRX_52W_OHLC_SOURCE_ONLY',date:target,
   // A release-eligible *dated* T+1 market session, not an intraday close.
@@ -79,9 +82,10 @@ export async function collectHistory({
    KOSDAQ:x.KOSDAQ,saved:x.saved})),
   // Counts are NOT output before all 252 sessions and both market sources
   // independently validate; short-history securities stay excluded.
-  ...(counts.status==='VERIFIED_RAW_UNADJUSTED_REFERENCE'?{markets:counts.markets}:{})};
+  ...(counts.status==='VERIFIED_RAW_UNADJUSTED_REFERENCE'
+   ?{markets:counts.markets,quality}:{})};
  log(report);
- return {archive,counts,report,attempted};
+ return {archive,counts,quality,report,attempted};
 }
 export function readArchiveFile(input){
  if(!input||!fs.existsSync(input))return null;
