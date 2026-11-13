@@ -25,8 +25,8 @@ on:
         required: true
         default: true
         type: boolean
-      approve_9293:
-        description: '운영 배포 승인 · dry_run을 끌 때만 켜기'
+      approve_9294:
+        description: '9.294 운영 배포 승인 · dry_run을 끌 때만 켜기'
         required: true
         default: false
         type: boolean
@@ -104,8 +104,10 @@ jobs:
       GAS_DEPLOY_DRY_RUN: ${{ inputs.dry_run || false }}
       GAS_FIRST_GATE_PHASE: none
       # Historical release candidates are retired from the operator UI.
-      GAS_9293_ORPHANED_CLOSE: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
-      GAS_9293_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9293 && 'true' || 'false' }}
+      GAS_9293_ORPHANED_CLOSE: 'false'
+      GAS_9293_RELEASE_APPROVAL: 'false'
+      GAS_9294_CLOSE_OWNER_NAV: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+      GAS_9294_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approve_9294 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -129,22 +131,28 @@ jobs:
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Read-only full deployment inventory on manual candidate dry-run
-        if: env.GAS_9293_ORPHANED_CLOSE == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
+        if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
         continue-on-error: true
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       # Historical 9.287-9.292 manual release gates are no longer selectable.
-      - name: Verify current 9.292 missing-day proof and idle Gate before 9.293
-        id: gas9293_gate
-        if: env.GAS_9293_ORPHANED_CLOSE == 'true' && env.GAS_9293_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue734-gas9293-predeploy-readonly.mjs
+      - name: Verify existing 9.293 owner, 39/39 Snapshot and idle Gate before 9.294
+        id: gas9294_gate
+        if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_9294_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue734-gas9294-predeploy-readonly.mjs
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         env:
-          GAS_9293_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9293_gate.outputs.verified || 'false' }}
+          GAS_9294_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9294_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
-      - name: Verify real published 9.293 Gate and trade ledger (read-only)
-        if: env.GAS_9293_ORPHANED_CLOSE == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue734-gas9293-postdeploy-readonly.mjs
+      - name: Verify real published 9.294 Gate and trade ledger (read-only)
+        if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue734-gas9294-postdeploy-readonly.mjs
       - name: Activate NH current prices after real GAS deployment
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         env:
