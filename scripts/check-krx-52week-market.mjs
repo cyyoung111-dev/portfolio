@@ -15,8 +15,19 @@ assert.ok(!dates.includes('2026-09-25'));
 assert.equal(sessionStatus('2025-12-31'),'CLOSED');
 assert.equal(sessionStatus('2025-10-01'),'OPEN');
 assert.equal(sessionStatus('2025-08-07'),'UNKNOWN');
-assert.equal(completedSession(new Date(TARGET+'T19:15:00+09:00')),TARGET);
-assert.equal(completedSession(new Date(TARGET+'T07:00:00+09:00')),dates.at(-2));
+// KRX OPEN API does not publish the current-day OHLC at 17:00. Friday's
+// session becomes release-eligible only next KRX open day (Monday) after 08:15.
+assert.equal(completedSession(new Date(TARGET+'T19:15:00+09:00')),'2026-11-12');
+assert.equal(completedSession(new Date(TARGET+'T07:00:00+09:00')),'2026-11-11');
+assert.equal(completedSession(new Date(TARGET+'T08:14:00+09:00')),'2026-11-11');
+assert.equal(completedSession(new Date(TARGET+'T08:15:00+09:00')),'2026-11-12');
+assert.equal(completedSession(new Date('2026-11-14T23:30:00+09:00')),'2026-11-12');
+assert.equal(completedSession(new Date('2026-11-15T23:30:00+09:00')),'2026-11-12');
+assert.equal(completedSession(new Date('2026-11-16T08:14:00+09:00')),'2026-11-12');
+assert.equal(completedSession(new Date('2026-11-16T08:15:00+09:00')),TARGET);
+assert.equal(completedSession(new Date('2026-11-16T18:40:00+09:00')),TARGET);
+assert.equal(completedSession(new Date('2026-11-17T07:40:00+09:00')),TARGET);
+assert.equal(completedSession(new Date('2026-11-17T09:00:00+09:00')),'2026-11-16');
 assert.throws(()=>expectedSessions('2025-07-04'),/SESSION_UNVERIFIED/);
 const raw=(day,market,special=false)=>{
  const min=MARKETS[market].min;
@@ -115,7 +126,7 @@ assert.deepEqual(denied.statuses,{
 let requests=0;
 const trace=[];
 const collected=await collectHistory({
- now:new Date(TARGET+'T19:20:00+09:00'),
+ now:new Date('2026-11-16T09:20:00+09:00'),
  key:'TEST_KRX_KEY_123456789',maxDates:2,pause:async()=>{},
  fetchImpl:async url=>{
   requests++;
