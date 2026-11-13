@@ -7,6 +7,7 @@ on:
       - '.github/workflows/krx-52week-history.yml'
       - 'scripts/krx-52week-market.mjs'
       - 'scripts/collect-krx-52week-history.mjs'
+      - 'scripts/krx-52week-archive-crypto.mjs'
   # The KRX OpenAPI daily OHLC is published T+1, not at 18:40.
   # The prior early run fetched the same release-eligible session and its
   # workflow_run completion could needlessly wake private NAV jobs around
@@ -53,6 +54,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPOSITORY: ${{ github.repository }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
         run: |
           set -euo pipefail
           mkdir -p .krx-52week/previous
@@ -70,6 +72,19 @@ jobs:
             fi
             gh run download "$previous" --repo "$GH_REPOSITORY" \
               --name krx-52week-archive --dir .krx-52week/previous
+            # The public repository may expose historical Actions artifacts.
+            # Never upload *new* plaintext KRX OHLC. Migrate ONLY the exact
+            # previously verified 252-session plaintext source run once.
+            if [ -s .krx-52week/previous/history.k52e ]; then
+              node scripts/krx-52week-archive-crypto.mjs open \
+                .krx-52week/previous/history.k52e \
+                .krx-52week/previous/history.json
+              echo 'KRX52_ENCRYPTED_ARCHIVE_AUTHENTICATED'
+            elif [ "$previous" = '43433853869' ] && [ -s .krx-52week/previous/history.json ]; then
+              echo 'KRX52_EXACT_LEGACY_PLAINTEXT_ONE_TIME_UPGRADE'
+            else
+              echo 'KRX52_ARCHIVE_ENCRYPTION_PROVENANCE_UNVERIFIED'; exit 1
+            fi
             test -s .krx-52week/previous/history.json || {
               echo 'KRX52_ARCHIVE_MISSING'; exit 1;
             }
@@ -95,12 +110,18 @@ jobs:
             "--output=.krx-52week/history.json" \
             "--summary=.krx-52week/summary.json" \
             "--max-dates=$n"
-      - name: Preserve public-source archive, no repository or GAS write
+      - name: Encrypt official raw OHLC before any public Actions upload
+        env:
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+        run: |
+          node scripts/krx-52week-archive-crypto.mjs seal \
+            .krx-52week/history.json .krx-52week/history.k52e
+      - name: Preserve sealed public-source archive, no portfolio/GAS write
         uses: actions/upload-artifact@v4
         with:
           name: krx-52week-archive
           path: |
-            .krx-52week/history.json
+            .krx-52week/history.k52e
             .krx-52week/summary.json
           retention-days: 60
           compression-level: 9

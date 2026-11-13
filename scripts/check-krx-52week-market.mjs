@@ -5,6 +5,7 @@ import {MARKETS,SOURCE,WINDOW,sessionStatus,expectedSessions,
  updateSummary,render52WeekMarketCounts}
  from './krx-52week-market.mjs';
 import {fetchOfficialMarketPair,collectHistory} from './collect-krx-52week-history.mjs';
+import {sealKrxArchive,openKrxArchive} from './krx-52week-archive-crypto.mjs';
 const TARGET='2026-11-13';
 const dates=expectedSessions(TARGET);
 assert.equal(dates.length,252);
@@ -85,6 +86,32 @@ const complete={version:1,source:SOURCE,
  sessions:dates.map((d,i)=>pair(d,i===dates.length-1)),summaries:[]};
 const count=countNewHighsAndLows(complete,dates);
 assert.equal(count.status,'VERIFIED_RAW_UNADJUSTED_REFERENCE');
+// KRX raw OHLC must not become a plaintext downloadable artifact in a
+// publicly readable repository. Round-trip the full 252-session source,
+// validate authenticated integrity, wrong-key rejection and no plaintext in
+// the sealed envelope. It uses a TEST key only, never an operating secret.
+const TEST_ARCHIVE_KEY='TEST_KRX_ARCHIVE_123456789';
+const sealed=sealKrxArchive(complete,TEST_ARCHIVE_KEY);
+assert.equal(sealed.subarray(0,5).toString('ascii'),'K52E1');
+assert.deepEqual(openKrxArchive(sealed,TEST_ARCHIVE_KEY),complete);
+assert.ok(!sealed.includes(Buffer.from(complete.sessions[0].date,'utf8')));
+assert.throws(()=>openKrxArchive(sealed,'TEST_WRONG_ARCHIVE_KEY_12345'),
+ /AUTHENTICATION_FAILED/);
+const damaged=Buffer.from(sealed);damaged[damaged.length-1]^=0xff;
+assert.throws(()=>openKrxArchive(damaged,TEST_ARCHIVE_KEY),
+ /AUTHENTICATION_FAILED/);
+assert.throws(()=>sealKrxArchive(complete,'short'),/KEY_UNAVAILABLE/);
+const workflowArchive=await import('node:fs').then(fs=>fs.readFileSync(
+ '.github/workflows/krx-52week-history.yml','utf8'));
+assert.match(workflowArchive,/krx-52week-archive-crypto\.mjs seal/);
+assert.match(workflowArchive,/krx-52week-archive-crypto\.mjs open/);
+assert.match(workflowArchive,/\.krx-52week\/history\.k52e/);
+const uploadSection=workflowArchive.split('uses: actions\/upload-artifact@v4').at(-1);
+assert.ok(uploadSection&&!uploadSection.includes('.krx-52week/history.json'),
+ 'raw historic prices must never be uploaded as a public Actions artifact');
+assert.match(workflowArchive,/43433853869/,
+ 'migrate only the last verified legacy plaintext archive exactly once');
+
 assert.equal(count.window,252);
 for(const market of ['KOSPI','KOSDAQ']){
  assert.equal(count.markets[market].highs,2);
