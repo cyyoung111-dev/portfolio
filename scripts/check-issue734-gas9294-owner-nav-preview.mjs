@@ -45,7 +45,7 @@ function scenario({propsPatch={},last=prior,failSchedule=false,
  currentDate=NEXT,includeToday=false,savedDate=DAY,verified=true}={}){
  const bag=new Map(Object.entries({...owner,...propsPatch,
    portfolio_close_last_result:JSON.stringify(last)}));
- let queue=[DAY],scheduleCount=0,policies=[],logs=[];
+ let queue=[DAY],scheduleCount=0,policies=[],logs=[],priceWriterCalls=0;
  const props={
    getProperty:k=>bag.has(k)?bag.get(k):null,
    setProperty:(k,v)=>bag.set(k,String(v)),
@@ -56,7 +56,7 @@ function scenario({propsPatch={},last=prior,failSchedule=false,
    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'cursor',
    PORTFOLIO_FUND_SCHEDULE_KEY:'nav_schedule',
    _readPendingKrxCloseDates_:()=>queue.slice(),
-   saveDailyPriceHistory:()=>({ok:true,date:savedDate,rows:39,krxCloseRequired:true}),
+   saveDailyPriceHistory:()=>{priceWriterCalls++;return {ok:true,date:savedDate,rows:39,krxCloseRequired:true}},
    _portfolioFundAtomic_:fn=>fn(props),
    _portfolioFundState_:(p,key)=>{
      const raw=p.getProperty(key);try{return raw?JSON.parse(raw):null}catch{return null}
@@ -90,7 +90,7 @@ function scenario({propsPatch={},last=prior,failSchedule=false,
  };
  const result=JSON.parse(JSON.stringify(ctx._retryOnePendingKrxClose_(
    props,currentDate,includeToday)));
- return {result,queue,policies,scheduleCount,logs,
+ return {result,queue,policies,scheduleCount,priceWriterCalls,logs,
    last:JSON.parse(props.getProperty('portfolio_close_last_result')),
    stage:props.getProperty('portfolio_close_stage')};
 }
@@ -105,6 +105,7 @@ assert.equal(recovered.last.runId,owner.portfolio_close_run_id);
 assert.equal(recovered.last.priceOk,true);
 assert.equal(recovered.last.fundOk,false,'scheduled NAV is never proof of completion');
 assert.equal(recovered.stage,'FUND_PENDING');
+assert.equal(recovered.priceWriterCalls,0,'39/39 same-owner Snapshot must not be overwritten');
 
 const unreserved=scenario({failSchedule:true});
 assert.equal(unreserved.result.ok,false);
@@ -121,6 +122,16 @@ assert.equal(newer.result.ok,true);
 assert.equal(newer.scheduleCount,0);
 assert.deepEqual(newer.policies,['CLEAN']);
 assert.equal(newer.last.runDate,NEXT);
+assert.equal(newer.priceWriterCalls,1,'unrelated close must retain backed-up price writer');
+
+const oldSameDateOwner=scenario({last:{runDate:DAY,runId:'older-run-A',
+ startedAt:'2026-11-12 18:20:00',startedMs:started-2400000,
+ priceOk:true,priceDate:DAY,fundOk:false,errors:[]}});
+assert.equal(oldSameDateOwner.priceWriterCalls,1,
+ 'a different same-day owner may not graft its PRICE onto the new owner');
+assert.equal(oldSameDateOwner.scheduleCount,1,
+ 'a correctly replayed price may schedule NAV for the new owner');
+
 
 const existingNav=scenario({last:{runDate:DAY,runId:owner.portfolio_close_run_id,
   startedAt:owner.portfolio_close_run_started_at,startedMs:started,
@@ -195,6 +206,64 @@ assert.equal(fullyClosed.result.cleared,1);
 assert.deepEqual(fullyClosed.pending,[],
  'a separately confirmed same-owner COMPLETE may be pruned');
 
+
+// Empty pending queue + exact orphaned 39-row Snapshot: nightly worker must
+// admit the exact owner so retry can reuse the stored proof and schedule NAV.
+const orphanSeed=extract('_issue734SeedOrphanedCurrentClose_');
+const leased=extract('_runPendingKrxBackfillWithLease_');
+assert.match(orphanSeed,/VERIFIED_SNAPSHOT_OWNER_QUEUED/);
+assert.match(retry,/if \(!result\) result = saveDailyPriceHistory/);
+
+function seedScenario({date=DAY,nowDate=NEXT,stored=true,valid=true,
+ stage='PRICE',startedMs=started,last=prior,ownerId='close-20261112',
+ market='OPEN'}={}){
+ let queued=[],proofCalls=0;
+ const map=new Map(Object.entries({...owner,
+   portfolio_close_run_date:date,
+   portfolio_close_stage:stage,
+   portfolio_close_run_id:ownerId,
+   portfolio_close_run_started_ms:String(startedMs),
+   portfolio_close_last_result:JSON.stringify(last)}));
+ const props={getProperty:k=>map.get(k)??null,
+  setProperty:(k,v)=>map.set(k,String(v)),deleteProperty:k=>map.delete(k)};
+ const ctx={
+   Date:{now:()=>clock},
+   _krxCalendarStatus_:()=>market,
+   _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
+   _readRawSnapshotRowsByDate:()=>stored?[['row']]:[],
+   _verifyCompletedKrxPendingDate_:()=>{
+     proofCalls++;
+     return valid?{ok:true,snapshotProof:proof}:{ok:false,reason:'BAD_SNAPSHOT'};
+   },
+   _hasKrxHoldingsForCloseDate_:()=>true,
+   getCodeItems:()=>[],
+   _enqueuePendingKrxCloseDate_:(p,day)=>{queued.push(day);return true}
+ };
+ vm.runInNewContext(orphanSeed,ctx);
+ const result=JSON.parse(JSON.stringify(
+   ctx._issue734SeedOrphanedCurrentClose_({},props,nowDate)));
+ return {result,queued,proofCalls};
+}
+const verifiedYesterday=seedScenario();
+assert.equal(verifiedYesterday.result.queued,true);
+assert.deepEqual(verifiedYesterday.queued,[DAY]);
+assert.equal(verifiedYesterday.result.reason,'VERIFIED_SNAPSHOT_OWNER_QUEUED');
+assert.equal(verifiedYesterday.proofCalls,1);
+const verifiedToday=seedScenario({nowDate:DAY});
+assert.equal(verifiedToday.result.queued,true);
+assert.equal(seedScenario({valid:false}).result.queued,false);
+assert.deepEqual(seedScenario({valid:false}).queued,[]);
+assert.equal(seedScenario({date:DAY,nowDate:NEXT,stored:false}).result.queued,false);
+assert.equal(seedScenario({date:DAY,nowDate:DAY,stored:false}).result.queued,true);
+assert.equal(seedScenario({date:NEXT,nowDate:DAY}).result.queued,false);
+assert.equal(seedScenario({ownerId:''}).result.queued,false);
+assert.equal(seedScenario({startedMs:clock-120000}).result.queued,false);
+assert.equal(seedScenario({stage:'COMPLETE'}).result.queued,false);
+assert.equal(seedScenario({market:'CLOSED'}).result.queued,false);
+assert.equal(seedScenario({last:{runDate:DAY,runId:owner.portfolio_close_run_id,
+ priceOk:true,fundOk:true,errors:[]}}).result.queued,false);
+
 console.log(JSON.stringify({kind:'ISSUE734_GAS9294_CLOSE_NAV_OWNER_PREVIEW_PASS',
- scenarios:10,candidateBlob:manifest.candidateGitBlob,
+ scenarios:23,candidateBlob:manifest.candidateGitBlob,
+ verifiedSnapshotFastPath:true,seededWithoutPendingQueue:true,
  sourceOnly:true,financeWrites:0,gasDeployments:0}));

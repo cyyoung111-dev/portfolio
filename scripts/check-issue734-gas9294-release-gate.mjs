@@ -16,7 +16,7 @@ import {assessGas9294Preflight}
 import {assessGas9294PostDeploy,verifyGas9294PostDeployWithRetry}
  from './issue734-gas9294-postdeploy-readonly.mjs';
 
-const PIN='3fa085313498e67a2d67f05567ae89e77eb053df';
+const PIN='f5e31eeb2255539a021546d8b90a71d5cc7ca33d';
 const {parent,source,manifest}=composeIssue734Gas9294OwnerNavPreview();
 assert.equal(gasSourceBlobSha(parent),'f6f9d2b03410a01bb1fbede81ed9b70b52688507');
 assert.equal(gasSourceBlobSha(source),PIN);
