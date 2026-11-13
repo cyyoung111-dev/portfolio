@@ -1,0 +1,97 @@
+name: KRX 252-session 52-week market breadth archive (source only)
+on:
+  # Start a small, source-only bootstrap on the reviewed main merge.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-52week-history.yml'
+      - 'scripts/krx-52week-market.mjs'
+      - 'scripts/collect-krx-52week-history.mjs'
+  schedule:
+    - cron: '40 9 * * *'  # 18:40 KST, source-only warm-up
+    - cron: '30 14 * * *' # 23:30 KST, late official publication / backfill
+  workflow_dispatch:
+    inputs:
+      max_dates:
+        description: Maximum missing official sessions to fetch (2 KRX markets per date)
+        required: true
+        type: choice
+        default: '30'
+        options: ['12', '30', '60']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: krx-52week-market-source-archive
+  cancel-in-progress: false
+jobs:
+  source-only:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      (github.event_name == 'push' ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch')
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify source-only algorithm before any official API request
+        run: node scripts/check-krx-52week-market.mjs
+      - name: Restore last validated public KRX OHLC archive, if available
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p .krx-52week/previous
+          previous="$(gh api "repos/$GH_REPOSITORY/actions/artifacts?name=krx-52week-archive&per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false) | .workflow_run.id] | first // empty')"
+          if [ -n "$previous" ]; then
+            # Restore only the same main-only source workflow's artifact.
+            read -r path branch < <(gh api "repos/$GH_REPOSITORY/actions/runs/$previous" \
+              --jq '[.path, .head_branch] | join(" ")')
+            if [ "$path" != '.github/workflows/krx-52week-history.yml' ] || [ "$branch" != 'main' ]; then
+              echo 'KRX52_ARCHIVE_ORIGIN_UNVERIFIED'; exit 1
+            fi
+            gh run download "$previous" --repo "$GH_REPOSITORY" \
+              --name krx-52week-archive --dir .krx-52week/previous
+            test -s .krx-52week/previous/history.json || {
+              echo 'KRX52_ARCHIVE_MISSING'; exit 1;
+            }
+            echo 'KRX52_PRIOR_ARCHIVE_RESTORED'
+          else
+            echo 'KRX52_ARCHIVE_BOOTSTRAP_EMPTY'
+          fi
+      - name: Collect bounded official stock OHLC, retain incomplete status
+        env:
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          MAX_DATES: ${{ inputs.max_dates }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          n=24
+          if [ "$EVENT_NAME" = 'push' ]; then n=12; fi
+          if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then n="$MAX_DATES"; fi
+          node scripts/collect-krx-52week-history.mjs \
+            "--input=.krx-52week/previous/history.json" \
+            "--output=.krx-52week/history.json" \
+            "--summary=.krx-52week/summary.json" \
+            "--max-dates=$n"
+      - name: Preserve public-source archive, no repository or GAS write
+        uses: actions/upload-artifact@v4
+        with:
+          name: krx-52week-archive
+          path: |
+            .krx-52week/history.json
+            .krx-52week/summary.json
+          retention-days: 60
+          compression-level: 9
+          if-no-files-found: error
