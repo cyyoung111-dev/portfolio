@@ -45,26 +45,45 @@ export function expectedSessions(date,count=WINDOW){
  if(found.length!==count)throw Error('KRX52_HISTORY_WINDOW_UNAVAILABLE');
  return found.reverse();
 }
+// The public KRX daily archive is NOT a same-day close feed. Source queries
+// for the 2026-11-13 close returned HTTP 200 + empty OutBlock_1 at 21:28 KST,
+// while the 2026-11-12 data verified for all five approved source routes.
+// Use the most recent trading session whose *next KRX open day* has passed
+// the T+1 publication threshold. The following API call must still verify
+// actual source/date; this calendar rule never fabricates a quote.
+const DAILY_RELEASE_KST_MINUTE=8*60+15;
+function nextOpenSession(date){
+ const stamp=Date.parse(date+'T00:00:00Z');
+ for(let i=1;i<=14;i++){
+  const candidate=new Date(stamp+i*86400000).toISOString().slice(0,10);
+  const status=sessionStatus(candidate);
+  if(status==='UNKNOWN')throw Error('KRX52_CALENDAR_UNVERIFIED');
+  if(status==='OPEN')return candidate;
+ }
+ throw Error('KRX52_CALENDAR_UNVERIFIED');
+}
 export function completedSession(now=new Date()){
  if(!(now instanceof Date)||!Number.isFinite(now.getTime()))throw Error('KRX52_CLOCK_UNVERIFIED');
  const bits=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
   timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
   hour:'2-digit',minute:'2-digit',hourCycle:'h23'
  }).formatToParts(now).map(x=>[x.type,x.value]));
- let date=bits.year+'-'+bits.month+'-'+bits.day;
+ const today=bits.year+'-'+bits.month+'-'+bits.day;
  const minutes=Number(bits.hour)*60+Number(bits.minute);
- if(minutes<1080||sessionStatus(date)!=='OPEN'){
-  let stamp=Date.parse(date+'T00:00:00Z');
-  for(let i=0;i<14;i++){
-   stamp-=86400000;
-   date=new Date(stamp).toISOString().slice(0,10);
-   const status=sessionStatus(date);
-   if(status==='UNKNOWN')throw Error('KRX52_CALENDAR_UNVERIFIED');
-   if(status==='OPEN')return date;
-  }
-  throw Error('KRX52_SESSION_UNVERIFIED');
+ const stamp=Date.parse(today+'T00:00:00Z');
+ for(let i=0;i<20;i++){
+  const date=new Date(stamp-i*86400000).toISOString().slice(0,10);
+  const status=sessionStatus(date);
+  if(status==='UNKNOWN')throw Error('KRX52_CALENDAR_UNVERIFIED');
+  if(status!=='OPEN')continue;
+  const publicationDay=nextOpenSession(date);
+  // On a following open day, only after the conservative release buffer.
+  // On later dates, this candidate has already passed its release window.
+  if(publicationDay<today||
+   (publicationDay===today&&minutes>=DAILY_RELEASE_KST_MINUTE))
+   return date;
  }
- return date;
+ throw Error('KRX52_RELEASE_ELIGIBLE_SESSION_UNAVAILABLE');
 }
 export function parseOfficialStockDay(date,market,payload){
  const spec=MARKETS[market];
