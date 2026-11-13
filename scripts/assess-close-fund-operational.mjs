@@ -64,6 +64,7 @@ export function assessCloseFundOperational({close,funds,asOf}) {
  else if(needsRepair.length||late.length) {
   health='FUND_NAV_OR_DERIVED_OVERDUE';actionRequired=true;
  } else if(!safeWarning||!['NORMAL','WARNING'].includes(close.overallStatus)
+   ||(close.fundWarningPresent===true&&!pending.length)
    ||(close.overallStatus==='WARNING'&&(!close.fundWarningPresent
      ||!pending.length))) {
   health='PERSISTED_WARNING_UNCLASSIFIED';actionRequired=true;
