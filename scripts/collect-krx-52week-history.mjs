@@ -65,6 +65,10 @@ export async function collectHistory({
  const counts=countNewHighsAndLows(archive,expected);
  archive=updateSummary(archive,counts);
  const report={kind:'KRX_52W_OHLC_SOURCE_ONLY',date:target,
+  // A release-eligible *dated* T+1 market session, not an intraday close.
+  // Explicit boundaries make an exact 252-session proof independently auditable.
+  officialPublicationPolicy:'NEXT_KRX_OPEN_AFTER_0815_KST',
+  windowStart:expected[0],windowEnd:expected.at(-1),
   requiredSessions:WINDOW,storedSessions:archive.sessions.length,
   attemptedDates:attempted.length,addedDates:attempted.filter(x=>x.saved).length,
   sourceCoverage:counts.status,officialRawOhlc:true,
