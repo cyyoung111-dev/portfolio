@@ -104,10 +104,15 @@ export async function probeOptionalKrxMetrics({
   }
  }
  if(directReady){
+  // A same-day 0-row response is ambiguous without an actual control day.
+  // Compare the prior confirmed KRX session at request time, not a fabricated
+  // historical observation. At most 2 x 5 public GETs, no financial writes.
+  for(const targetDate of [date,preceding].filter(Boolean)){
   await Promise.all(SOURCES.map(async([id,path,market])=>{
-   const status={kind:'KRX_DIRECT_OPTIONAL_CONTRACT',date,id};
+   const status={kind:'KRX_DIRECT_OPTIONAL_CONTRACT',date:targetDate,id,
+    provenance:'HISTORIC_READ_ACTUAL_REQUEST_TIME'};
    const url=new URL('https://data-dbg.krx.co.kr'+path);
-   url.searchParams.set('basDd',date.replaceAll('-',''));
+   url.searchParams.set('basDd',targetDate.replaceAll('-',''));
    try{
     const response=await fetchImpl(url.href,{method:'GET',
      headers:{AUTH_KEY:key,accept:'application/json'},redirect:'error',
@@ -115,11 +120,17 @@ export async function probeOptionalKrxMetrics({
     status.http=Number(response?.status)||0;
     if(response?.ok){
      const raw=await response.json(),rows=raw?.OutBlock_1;
+     status.payloadShape=!Array.isArray(rows)?'NO_OUTBLOCK':
+      rows.length===0?'EMPTY_OUTBLOCK':'OUTBLOCK_PRESENT';
      status.rowCount=Array.isArray(rows)?rows.length:0;
      status.exactDate=Array.isArray(rows)&&rows.length>0
-      &&rows.every(x=>x?.BAS_DD===date.replaceAll('-',''));
+      &&rows.every(x=>String(x?.BAS_DD||'')===targetDate.replaceAll('-',''));
+     // Do not emit any index prices/turnover values, only fixed schema names.
+     status.schemaFields=Array.isArray(rows)&&rows.length>0
+      ?['BAS_DD','IDX_NM','CLSPRC_IDX','ACC_TRDVAL','TDD_HGPRC','TDD_LWPRC']
+       .filter(k=>Object.hasOwn(rows[0]||{},k)):[];
      if(market){
-      const parsed=parseKrxBreadth(date,market,raw);
+      const parsed=parseKrxBreadth(targetDate,market,raw);
       status.breadthVerified=Boolean(parsed);
       if(parsed)status.breadth={advances:parsed.advances,declines:parsed.declines,
        unchanged:parsed.unchanged,issues:parsed.issues};
@@ -129,7 +140,7 @@ export async function probeOptionalKrxMetrics({
       status.turnoverColumnAvailable=Array.isArray(rows)&&rows.length>0
        &&rows.some(x=>Object.hasOwn(x||{},'ACC_TRDVAL'));
       if(id==='INDEX_DERIVATIVE'){
-       const audit=auditDirectVkospiRows(date,rows);
+       const audit=auditDirectVkospiRows(targetDate,rows);
        status.vkospiCandidateCount=audit.candidateCount;
        status.vkospiCandidateNames=audit.candidateNames;
        status.vkospiPrimaryCount=audit.primaryCount;
@@ -142,6 +153,7 @@ export async function probeOptionalKrxMetrics({
      ?'TIMEOUT':'NETWORK_OR_RESPONSE';}
    output(status);
   }));
+  }
  }
  output({kind:'KRX_52W_MARKET_BREADTH',date,
   status:'HISTORICAL_252_SESSIONS_REQUIRED',
