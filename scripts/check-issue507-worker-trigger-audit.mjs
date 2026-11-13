@@ -8,6 +8,42 @@ import vm from 'node:vm';
 import {selfTest as testProcessAudit} from './issue507-worker-execution-audit.mjs';
 import {summarizeBackfillStatus,assessWorkerRunCheckpoint} from './diagnose-backfill-status.mjs';
 
+// Test the workflow's exact routing without requiring an npm dependency:
+// the dedicated production contract runner intentionally has no npm install.
+function assertIssue507ManualHistoricalScope(sourceText) {
+ assert.match(sourceText,/^on:\s*$/m);
+ assert.match(sourceText,/^  workflow_dispatch:\s*$/m);
+ assert.doesNotMatch(sourceText,/^  schedule:/m);
+ assert.match(sourceText,/^      - 'scripts\/diagnose-backfill-status\.mjs'$/m);
+ const heavy=sourceText.split('\n  operational-readonly:\n')[1]
+   ?.split('\n  status-only:\n')[0];
+ const light=sourceText.split('\n  status-only:\n')[1];
+ assert(heavy&&light,'both protected jobs must exist');
+ assert.match(heavy,
+  /^    if: github\.ref == 'refs\/heads\/main' && github\.event_name == 'workflow_dispatch'$/m);
+ assert.match(heavy,/^    needs: contract$/m);
+ assert.match(heavy,/^    environment: portfolio-production-gas$/m);
+ assert.match(heavy,/^    timeout-minutes: 18$/m);
+ assert.match(heavy,/run: node scripts\/issue507-ledger-worker-readonly\.mjs/);
+ assert.match(heavy,/run: node scripts\/issue507-deferred-source-audit-readonly\.mjs/);
+ assert.match(light,
+  /^    if: github\.ref == 'refs\/heads\/main' && github\.event_name != 'pull_request'$/m);
+}
+const issue507Workflow=fs.readFileSync(
+ '.github/workflows/issue-507-ledger-worker-readonly.yml','utf8');
+assertIssue507ManualHistoricalScope(issue507Workflow);
+for(const weakened of [
+ "github.ref == 'refs/heads/main' && github.event_name != 'pull_request'",
+ "github.ref == 'refs/heads/main'",
+ "github.event_name == 'workflow_dispatch'"
+]) {
+ const mutated=issue507Workflow.replace(
+  "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'",weakened);
+ assert.notEqual(mutated,issue507Workflow);
+ assert.throws(()=>assertIssue507ManualHistoricalScope(mutated),
+  {name:'AssertionError'},'never auto-run deep history or allow a feature branch');
+}
+
 const source=isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','utf8'));
 const name='_getTradeSnapshotWorkerTriggerAudit_';
 const start=source.indexOf('function '+name+'('),end=source.indexOf('\n}',start);
