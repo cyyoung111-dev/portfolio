@@ -55,7 +55,7 @@ const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   // Never deploy automatically; require operator dispatch and live preflight.
   // #734 independent manual-only review of the complete 9.292 successor.
   // #734 9.294 T-1 CLOSE owner/NAV handoff; explicit manual release only.
-  '9.294': '3fa085313498e67a2d67f05567ae89e77eb053df',
+  '9.294': '8f8ba5802d5b14cff7723cdd0a8947498dc02f55',
   '9.293': 'f6f9d2b03410a01bb1fbede81ed9b70b52688507',
   '9.292': 'a1fc71cd26616be250b4e07cceacbc73995be98e',
   '9.291': 'e9311667d513c1e43a8ed1af326a3ecdb9d1ca70',
