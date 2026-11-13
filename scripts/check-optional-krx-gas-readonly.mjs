@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {completedKrxSession,probeOptionalKrxMetrics} from './probe-optional-krx-gas-readonly.mjs';
+import {completedKrxSession,probeOptionalKrxMetrics,auditDirectVkospiRows} from './probe-optional-krx-gas-readonly.mjs';
+const sample=[{IDX_NM:'코스피 200 변동성지수',BAS_DD:'20261112',CLSPRC_IDX:'25.42'}];
+assert.deepEqual(auditDirectVkospiRows('2026-11-12',sample),
+ {candidateCount:1,exactDateCount:1,verified:true});
+assert.deepEqual(auditDirectVkospiRows('2026-11-12',[{...sample[0],BAS_DD:'20261111'}]),
+ {candidateCount:1,exactDateCount:0,verified:false});
+assert.equal(auditDirectVkospiRows('2026-11-12',[...sample,...sample]).verified,false);
+assert.equal(auditDirectVkospiRows('2026-11-12',[{...sample[0],CLSPRC_IDX:'NaN'}]).verified,false);
+assert.equal(auditDirectVkospiRows('2026-11-12',[{...sample[0],IDX_NM:'KOSPI 200'}]).verified,false);
+assert.equal(auditDirectVkospiRows('2026-11-12',[]).verified,false);
 const when=s=>new Date(s);
 assert.equal(completedKrxSession(when('2026-11-13T13:52:00+09:00')),'2026-11-12');
 assert.equal(completedKrxSession(when('2026-11-13T16:00:00+09:00')),'2026-11-13');
