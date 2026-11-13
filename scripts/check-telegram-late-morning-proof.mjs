@@ -34,7 +34,7 @@ assert.deepEqual(verified,{date,status:'LATE_SCHEDULE_ALREADY_SENT',
 assert.equal(good.getCalls(),3);
 for(const patch of [
  {sentRow:null},{claimRow:null},{sentRow:{...sent,expired:true}},
- {sentRow:{...sent,created_at:'2026-11-12T23:00:00Z'}},
+ {sentRow:{...sent,created_at:'2026-11-12T23:20:00Z'}},
  {claimRow:{...claim,workflow_run:{id:id+1}}},
  {runRow:{...run,conclusion:'failure'}},{runRow:{...run,head_branch:'feature'}},
  {runRow:{...run,head_repository:{full_name:'other/repo'}}},
