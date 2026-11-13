@@ -139,6 +139,11 @@ const collected=await collectHistory({
 assert.equal(requests,4,'only two date pairs are queried per bounded run');
 assert.equal(collected.report.addedDates,2);
 assert.equal(collected.report.storedSessions,2);
+assert.equal(collected.report.windowStart,dates[0]);
+assert.equal(collected.report.windowEnd,TARGET);
+assert.equal(collected.report.officialPublicationPolicy,
+ 'NEXT_KRX_OPEN_AFTER_0815_KST');
+
 assert.equal(collected.report.attemptedResults.length,2);
 assert.deepEqual(collected.report.attemptedResults.map(x=>x.saved),[true,true]);
 assert.ok(collected.report.attemptedResults.every(x=>
