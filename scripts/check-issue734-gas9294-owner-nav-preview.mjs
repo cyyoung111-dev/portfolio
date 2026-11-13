@@ -221,7 +221,7 @@ function seedScenario({date=DAY,nowDate=NEXT,stored=true,valid=true,
    Date:{now:()=>clock},
    _krxCalendarStatus_:()=>market,
    _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
-   _readRawSnapshotRowsByDate_:()=>stored?[['row']]:[],
+   _readRawSnapshotRowsByDate:()=>stored?[['row']]:[],
    _verifyCompletedKrxPendingDate_:()=>{
      proofCalls++;
      return valid?{ok:true,snapshotProof:proof}:{ok:false,reason:'BAD_SNAPSHOT'};
