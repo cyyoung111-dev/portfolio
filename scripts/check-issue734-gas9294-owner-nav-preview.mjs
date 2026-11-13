@@ -124,6 +124,15 @@ assert.deepEqual(newer.policies,['CLEAN']);
 assert.equal(newer.last.runDate,NEXT);
 assert.equal(newer.priceWriterCalls,1,'unrelated close must retain backed-up price writer');
 
+const oldSameDateOwner=scenario({last:{runDate:DAY,runId:'older-run-A',
+ startedAt:'2026-11-12 18:20:00',startedMs:started-2400000,
+ priceOk:true,priceDate:DAY,fundOk:false,errors:[]}});
+assert.equal(oldSameDateOwner.priceWriterCalls,1,
+ 'a different same-day owner may not graft its PRICE onto the new owner');
+assert.equal(oldSameDateOwner.scheduleCount,1,
+ 'a correctly replayed price may schedule NAV for the new owner');
+
+
 const existingNav=scenario({last:{runDate:DAY,runId:owner.portfolio_close_run_id,
   startedAt:owner.portfolio_close_run_started_at,startedMs:started,
   priceOk:false,fundOk:true,errors:[]},propsPatch:{portfolio_close_stage:'ERROR'}});
@@ -255,6 +264,6 @@ assert.equal(seedScenario({last:{runDate:DAY,runId:owner.portfolio_close_run_id,
  priceOk:true,fundOk:true,errors:[]}}).result.queued,false);
 
 console.log(JSON.stringify({kind:'ISSUE734_GAS9294_CLOSE_NAV_OWNER_PREVIEW_PASS',
- scenarios:22,candidateBlob:manifest.candidateGitBlob,
+ scenarios:23,candidateBlob:manifest.candidateGitBlob,
  verifiedSnapshotFastPath:true,seededWithoutPendingQueue:true,
  sourceOnly:true,financeWrites:0,gasDeployments:0}));
