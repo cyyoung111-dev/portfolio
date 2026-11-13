@@ -184,4 +184,42 @@ assert.deepEqual(JSON.parse(JSON.stringify(
  candidateFn('2026-11-05','2026-11-05'))),[]);
 console.log('GAS_VKOSPI_DERIVATIVE_PROPOSAL_PASS only 1 URL, exact source/date, no deploy');
 
+// Official derivative endpoint is a strict read-only backup for a missing GAS row.
+const {selectOfficialKrxVkospiDaily,readOfficialKrxVkospiDaily}
+ =await import('./krx-vkospi-daily.mjs');
+const dateRaw='20261102',directRow={IDX_NM:'코스피 200 변동성지수',
+ BAS_DD:dateRaw,CLSPRC_IDX:'25.42'};
+const derivative={OutBlock_1:[directRow,{...directRow,IDX_NM:'코스피 200 변동성매칭 양매도지수'}]};
+assert.deepEqual(selectOfficialKrxVkospiDaily(date,derivative),row);
+assert.deepEqual(selectOfficialKrxVkospiDaily(date,{OutBlock_1:[directRow,directRow]}),[]);
+assert.deepEqual(selectOfficialKrxVkospiDaily(date,{OutBlock_1:[{...directRow,BAS_DD:'20261101'}]}),[]);
+assert.deepEqual(selectOfficialKrxVkospiDaily(date,{OutBlock_1:[{...directRow,CLSPRC_IDX:'NaN'}]}),[]);
+let directCalls=0;
+const official=await readOfficialKrxVkospiDaily(date,{
+ authKey:'KRX_APPROVED_TEST_KEY_123456',now,
+ fetchImpl:async(target,options)=>{
+  directCalls++;
+  assert.match(target,/\/idx\/drvprod_dd_trd\?basDd=20261102$/);
+  assert.equal(options.method,'GET');
+  assert.equal(options.headers.AUTH_KEY,'KRX_APPROVED_TEST_KEY_123456');
+  return {ok:true,status:200,json:async()=>derivative};
+ }});
+assert.deepEqual(official,row);
+assert.equal(directCalls,1);
+assert.deepEqual(await readOfficialKrxVkospiDaily(date,{
+ authKey:'',now,fetchImpl:async()=>assert.fail('must not query without auth')}),[]);
+assert.deepEqual(await readOfficialKrxVkospiDaily(date,{
+ authKey:'KRX_APPROVED_TEST_KEY_123456',
+ now:()=>new Date(date+'T15:40:00+09:00'),
+ fetchImpl:async()=>assert.fail('must not query before final close')}),[]);
+const diag=[];
+const recovered=await readClosingVkospi(date,{url:endpoint,token:'TEST-GAS-ACCESS',
+ authKey:'KRX_APPROVED_TEST_KEY_123456',now,onDiagnostic:x=>diag.push(x),
+ fetchImpl:async(target,options)=>target.startsWith('https://script.google.com')
+  ?{ok:true,json:async()=>({status:'error',message:'선택 기간의 VKOSPI 데이터를 조회하지 못했습니다.'})}
+  :{ok:true,status:200,json:async()=>derivative}
+});
+assert.deepEqual(recovered,row);
+assert.deepEqual(diag.map(x=>x.status),['KRX_NO_DATED_VKOSPI_POINT','KRX_DIRECT_VERIFIED']);
+
 console.log('CLOSING_VKOSPI_PASS exact KRX date, trusted GAS, QC, send-time protection');
