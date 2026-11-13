@@ -116,6 +116,16 @@ jobs:
         run: |
           node scripts/krx-52week-archive-crypto.mjs seal \
             .krx-52week/history.json .krx-52week/history.k52e
+      - name: Prove actual production ciphertext is lossless (runner only)
+        env:
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/krx-52week-archive-crypto.mjs open \
+            .krx-52week/history.k52e .krx-52week/reopened.json
+          cmp --silent .krx-52week/history.json .krx-52week/reopened.json
+          rm .krx-52week/reopened.json
+          echo 'KRX52_AUTHENTICATED_SOURCE_ROUNDTRIP_PASS'
       - name: Preserve sealed public-source archive, no portfolio/GAS write
         uses: actions/upload-artifact@v4
         with:
