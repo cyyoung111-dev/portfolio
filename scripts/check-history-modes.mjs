@@ -223,3 +223,52 @@ assert.match(pipelineSource, /충돌 분류 · MANUAL 보호/);
   resolveRequest({status:'error',message:'OLD_RESPONSE'});await second;
   assert.equal(body.innerHTML,pendingHtml);assert.equal(body.dataset.loading,undefined);
 }
+
+
+// Operational close status is separate from source-level NAV publication.
+// Never present incomplete/old execution as completed merely to hide WARNING.
+{
+ const helper=viewSource.match(/function _describePortfolioCloseStatus\([\s\S]*?\n}/)?.[0];
+ assert(helper,'portfolio close status classifier must exist');
+ const ctx={};
+ vm.runInNewContext(helper+'\nglobalThis.displayClose=_describePortfolioCloseStatus;',ctx);
+ const day='2026-11-13';
+ const normal={
+  overallStatus:'WARNING',fundLastWarning:'F00001 부분 완료 | F00002 부분 완료',
+  portfolioClose:{runDate:day,priceDate:day,priceOk:true,fundOk:true,priceRows:39,errors:[]},
+  closeRun:{runDate:day,state:'COMPLETE',stage:'COMPLETE'},
+  priceCloseState:'COMPLETE',fundCloseState:'DONE',
+  fundAttempt:{date:day,state:'DONE'},
+  snapshotStale:false,portfolioCloseRunStale:false,
+  snapshotLastDate:day,priceHistoryLastDate:day,expectedSnapshotDate:day,
+  pendingKrxCloseDates:[],fundLastError:'',portfolioCloseLastError:'',
+  tradeLedgerWriteUnverified:false,pendingTradeSnapshotRebuildFrom:'',
+  tradeSnapshotDeferredCount:0
+ };
+ const nav=ctx.displayClose(normal);
+ assert.equal(nav.label,'마감 완료 · NAV 확인');
+ assert.equal(nav.navPending,true);
+ assert.match(nav.detail,/최종 NAV 공표·수집은 별도 확인/);
+ assert.match(viewSource,/closeDisplay\?\.label \|\| mapped\[0\]/,'UI must show close and warning distinctly');
+ assert.match(viewSource,/원본 전체 상태:/,'never conceal saved warning classification');
+ const actualNormal=ctx.displayClose({...normal,overallStatus:'NORMAL',fundLastWarning:''});
+ assert.equal(actualNormal.label,'마감 완료');
+ assert.equal(actualNormal.navPending,false);
+ const otherWarning=ctx.displayClose({...normal,fundLastWarning:'중복 트리거 경고'});
+ assert.equal(otherWarning.label,'마감 완료 · 경고 확인');
+ assert.equal(otherWarning.navPending,false);
+ for(const bad of [
+  {overallStatus:'ERROR'},{overallStatus:'INCOMPLETE'},
+  {closeRun:{...normal.closeRun,state:'INCOMPLETE'}},
+  {closeRun:{...normal.closeRun,stage:'PRICE'}},
+  {portfolioClose:{...normal.portfolioClose,priceDate:'2026-11-12'}},
+  {snapshotLastDate:'2026-11-12'},{snapshotStale:true},
+  {portfolioCloseRunStale:true},{fundLastError:'PRIVATE ERROR'},
+  {fundAttempt:{date:'2026-11-12',state:'DONE'}},
+  {pendingKrxCloseDates:['2026-11-13']},
+  {tradeLedgerWriteUnverified:true}
+ ]) {
+  assert.equal(ctx.displayClose({...normal,...bad}),null,
+    'bad or stale CLOSE must retain original failure classification');
+ }
+}
