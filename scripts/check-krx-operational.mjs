@@ -312,6 +312,20 @@ assert.equal(statusSample.latestBackfill.ok,false);
 assert.equal(statusSample.latestBackfill.targetDate,'2026-10-13');
 
 assert.equal(statusSample.latestBackfill.failureClass,'OTHER_UNCLASSIFIED');
+assert.equal(statusSample.fundWarningClass,'NONE');
+for(const [warning,expected] of [
+ ['F00001 부분 완료 | PRIVATE_HOLDING_314','PARTIAL_FUND_VALUATION'],
+ ['F00002 NAV 미확보 - PRIVATE_HOLDING_314','NAV_PUBLICATION_OR_INPUT_PENDING'],
+ ['Snapshot 보호 충돌: PRIVATE_HOLDING_314','SNAPSHOT_PROTECTED'],
+ ['UNKNOWN PRIVATE_HOLDING_314','UNCLASSIFIED']
+]) {
+ const sample=statusFixture();
+ sample.automation.fundLastWarning=warning;
+ const summary=summarizeBackfillStatus(sample);
+ assert.equal(summary.fundWarningClass,expected);
+ assert.doesNotMatch(JSON.stringify(summary),/PRIVATE_HOLDING_314/,
+  'Never log persisted GAS free-form fund warning text');
+}
 for(const [input,expected] of [
   ['BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID','SAVED_SNAPSHOT_DATE_INVALID'],
   ['BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_CONFLICT','SAVED_SNAPSHOT_INTEGRITY_FAILED'],

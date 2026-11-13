@@ -21,6 +21,17 @@ function safeDate(value) {
 }
 // Fixed enum only. Never emit the underlying GAS error: it can contain
 // account identifiers, security details, or the text of a holding/trade.
+// Project a saved fund warning into non-sensitive enums. This never proves
+// public NAV publication or the underlying financial writer's execution.
+export function classifyOvernightFundWarning(value) {
+ if(typeof value!=='string'||!value.trim())return 'NONE';
+ if(/Snapshot 보호 충돌|스냅샷.*충돌|SNAPSHOT.*(?:CONFLICT|PROTECT)/i.test(value))
+  return 'SNAPSHOT_PROTECTED';
+ if(/NAV 미확보|기준가격.*(?:미확보|미공표)|공시.*(?:지연|미완료)|UNPUBLISHED|NAV_MISSING/i.test(value))
+  return 'NAV_PUBLICATION_OR_INPUT_PENDING';
+ if(/부분 완료|PARTIAL/i.test(value))return 'PARTIAL_FUND_VALUATION';
+ return 'UNCLASSIFIED';
+}
 export function classifyBackfillFailure(result) {
   if (!result || result.attempted !== true || result.ok !== false) return null;
   const raw=typeof result.error==='string'?result.error:'';
@@ -291,6 +302,7 @@ export function summarizeBackfillStatus(payload) {
   return {
     mode:'READ_ONLY', gasVersion:a.gasVersion, minGasVersion:'9.235',
     gasVersionReady:hasMorningRelease, overallStatus,
+    fundWarningClass:classifyOvernightFundWarning(a.fundLastWarning),
     close:summarizeCloseStatus(a),
     fundResumeCheckpoint:safeFundResumeCheckpoint(a.fundResumeCheckpoint),
     triggerReady:complete, triggerCounts, triggerMissing, duplicateTriggerFlags:duplicates,

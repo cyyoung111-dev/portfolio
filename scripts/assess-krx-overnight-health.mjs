@@ -153,6 +153,41 @@ function isExpectedPublicationWait(data,{now,today,issues,slots}) {
   const expected=['AUTOMATION_NOT_NORMAL','HISTORICAL_0030_FAILED','PENDING_KRX_DATES'];
   return issues.length===expected.length&&issues.every(issue=>expected.includes(issue));
 }
+// KRX nightly recovery is separate from *unpublished/unverified fund NAV*.
+// Allow a non-failing, explicitly qualified KRX-only verdict only when the
+// persisted close, dates, owner checkpoint, trigger and both recovery slots
+// are all independently consistent. Preserve raw GAS WARNING as evidence.
+// Do NOT infer that the official fund NAV was published or imported.
+function isolatedFundWarningAfterCompleteKrx(data,{now,issues,slots}) {
+ if(data.overallStatus!=='WARNING'||issues.length!==1
+   ||issues[0]!=='AUTOMATION_NOT_NORMAL'
+   ||!['PARTIAL_FUND_VALUATION','NAV_PUBLICATION_OR_INPUT_PENDING']
+     .includes(data.fundWarningClass)
+   ||data.triggerReady!==true||data.pendingCount!==0
+   ||data.tradeLedgerWriteUnverified!==false
+   ||data.tradeSnapshotDeferredCount!==0
+   ||data.pendingTradeSnapshotRebuildFrom!=='-'
+   ||(data.latestBackfill?.attempted===true&&data.latestBackfill.ok===false)
+   ||(data.latestHistoricalBackfill?.attempted===true
+      &&data.latestHistoricalBackfill.ok===false)
+   ||!['NO_WORK','SUCCEEDED'].includes(slots['2310'])
+   ||!['NO_WORK','SUCCEEDED'].includes(slots['0030']))return false;
+ const c=data.close, date=c?.runDate;
+ if(!c||c.state!=='COMPLETE'||c.stage!=='COMPLETE'
+   ||c.summaryPresent!==true||c.summaryRunDate!==date
+   ||c.priceOk!==true||c.fundOk!==true
+   ||c.fundState!=='DONE'||c.fundAttemptDate!==date
+   ||c.fundErrorPresent!==false||c.fundErrorCode!=='NONE'
+   ||c.fundWarningPresent!==true
+   ||c.closeErrorPresent!==false||c.closeErrorCount!==0
+   ||c.runStale!==false||c.snapshotStale!==false
+   ||c.krxPublicationWaiting===true)return false;
+ const actualLastSession=previousOpenKrxDate(kstDay(now));
+ return date===actualLastSession
+   &&['expectedRunDate','expectedSnapshotDate'].every(k=>c[k]===date)
+   &&['officialKrxPriceHistoryLastDate','snapshotLastDate',
+      'priceHistoryLastDate'].every(k=>data[k]===date);
+}
 export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   if (!data || data.mode !== 'READ_ONLY' || !Array.isArray(data.pendingDates)
       || !Number.isSafeInteger(data.pendingCount)
@@ -244,13 +279,24 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   // before the following KRX trading day's 08:00 publication. This is not
   // healthy/completed; keep the pending/failed evidence and never write data.
   const publicationWaiting=isExpectedPublicationWait(data,{now,today,issues,slots:slotStates});
+  const isolatedFundWarning=isolatedFundWarningAfterCompleteKrx(data,{
+    now,issues,slots:slotStates
+  });
   return {
     mode:'READ_ONLY',
-    status:publicationWaiting?'AWAITING_PROVIDER_PUBLICATION':issues.length?'ACTION_REQUIRED':'HEALTHY',
+    status:publicationWaiting?'AWAITING_PROVIDER_PUBLICATION'
+      :isolatedFundWarning?'KRX_COMPLETE_FUND_NAV_WARNING_UNVERIFIED'
+      :issues.length?'ACTION_REQUIRED':'HEALTHY',
     publicationWaitTargetDate:publicationWaiting?data.pendingDates[0]:null,
     gasVersion:String(data.gasVersion||''),
+    rawOverallStatus:data.overallStatus,
+    fundWarningClass:['NONE','PARTIAL_FUND_VALUATION','NAV_PUBLICATION_OR_INPUT_PENDING',
+      'SNAPSHOT_PROTECTED','UNCLASSIFIED'].includes(data.fundWarningClass)
+      ?data.fundWarningClass:'UNVERIFIED',
+    isolatedFundWarning,
     issues,
-    snapshotDateAlignment,alertFocus,
+    snapshotDateAlignment,alertFocus:isolatedFundWarning
+      ?'KRX_COMPLETE_FUND_NAV_WARNING_SEPARATE_REVIEW':alertFocus,
     historicalSlotStates:slotStates,
     // Supplemental provenance of a checkpoint, not Apps Script Executions.
     historicalSlotReasons,
@@ -290,6 +336,9 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| 운영 판정 | '+result.status+' |',
         '| 공식 게시 대기 대상일 | '+(result.publicationWaitTargetDate||'-')+' |',
         '| GAS 버전 | '+result.gasVersion.replace(/[^0-9.]/g,'')+' |',
+        '| GAS 원본 전체 상태 | '+result.rawOverallStatus+' |',
+        '| 펀드 경고 (민감정보 제외) | '+result.fundWarningClass+' |',
+        '| KRX 점검과 펀드 경고 분리 | '+result.isolatedFundWarning+' |',
         '| 잔여 큐 | '+result.pendingCount+'건 |',
         '| KRX 개장일 대기 | '+result.pendingSessionCounts.open+'건 |',
         '| KRX 휴장일 대기 (전체 Snapshot 검증 필요) | '+result.pendingSessionCounts.closed+'건 |',
