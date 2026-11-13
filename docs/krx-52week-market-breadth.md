@@ -23,6 +23,35 @@ Workflow: [`.github/workflows/krx-52week-history.yml`](../.github/workflows/krx-
 - Before the full 252-day source archive exists, the result is explicitly `HISTORY_INCOMPLETE`, with `markets=null`; zero or last-known values must never replace missing history.
 - Calendar: production GAS-confirmed KRX holiday map for 2026/2027; the narrow 2025 October–December overlap uses reviewed dates including the 2025-12-31 KRX year-end closure. Dates outside the reviewed calendar fail closed.
 
+## Raw-OHLC quality audit (diagnostic, not adjusted values)
+
+A complete source window is **necessary but insufficient** for an adjusted
+market-wide 52-week high/low statistic. The source-only collector now emits
+`quality.status=RAW_DISCONTINUITY_REVIEW_REQUIRED` only after 252/252 source
+dates pass. For each market it reports:
+
+- `observedToday`, `eligible`, `eligiblePct` and `shortHistory`:
+  short-history/suspended/new codes are excluded from a *continuous 251-session*
+  historical high/low test, and this denominator is disclosed.
+- `discontinuityCodes`: eligible securities with a raw close-to-close move
+  exceeding **31% in absolute value** anywhere in the 252-day window. This
+  flags a **potential price-basis discontinuity**, not a verified share split,
+  rights adjustment or corporate event. A 30% limit-day move does not trigger
+  it. The 31% threshold is a conservative *screen*, not a reconstruction.
+- `flaggedHighs`, `flaggedLows`, and `flaggedExtremes`: which counted raw
+  extrema require further action/source investigation. Public stock codes and
+  the date/direction of the last suspicious change are recorded; no price
+  adjustments or source-derived share counts are invented.
+
+**Verified 2026-11-12 raw baseline:** 252 complete sessions, KOSPI eligible
+793/911 (87.0%), KOSDAQ 1366/1753 (77.9%). Eligible names with a raw >31%
+session: KOSPI 6, KOSDAQ 29. Suspect raw newly-low counts: KOSPI 1,
+KOSDAQ 2. These are *candidates to investigate*, not three certified corporate
+actions or an authorization to subtract three and call the remaining 47
+fully adjusted. The primary raw 52-week counts remain unchanged; **Telegram
+integration stays disabled** until separate official corporate-action/adjusted
+price comparison and universe methodology are verified.
+
 ## Operational proof required before briefing integration
 
 1. Source-only workflow run and archive pass for both markets; inspect the **actual API response** schemas (especially KRX daily high/low) and API failure codes.
