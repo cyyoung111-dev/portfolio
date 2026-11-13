@@ -2,6 +2,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const workflow = readFileSync('.github/workflows/krx-operational-diagnostics.yml', 'utf8');
+// A common GAS status-sanitizer edit must not fan out ten historical
+// authenticated snapshot requests or replay old September/October dates.
+const pushPaths=workflow.split('  push:\n')[1]?.split('  workflow_dispatch:\n')[0];
+assert.ok(pushPaths,'KRX diagnostic main push path guard must exist');
+assert.doesNotMatch(pushPaths,/diagnose-backfill-status\.mjs/,
+ 'common KRX/nightly status code must not start costly old-date scans');
+assert.match(workflow,/^      deep_historical:\s*$/m);
+assert.match(workflow,/^        type: boolean$/m);
+assert.match(workflow,/^        default: false$/m);
+assert.equal((workflow.match(/if: always\(\) && github\.event_name == 'workflow_dispatch' && inputs\.deep_historical == true/g)||[]).length,2,
+ 'both 10/06–08 and 10/15 deep snapshots require manual opt-in');
+assert.doesNotMatch(workflow,/if: always\(\) && github\.event_name == 'push'/,
+ 'never do historical deep scans automatically on source edits');
 const nightBlock = workflow.split('      - name: Read-only KRX K200 night match diagnostics\n')[1]
   ?.split('      - name: Preview stale KRX pending dates without mutation\n')[0];
 assert.ok(nightBlock, 'K200 diagnostic workflow step must exist');
