@@ -13,7 +13,11 @@ concurrency:
   cancel-in-progress: false
 jobs:
   guard-and-dispatch:
-    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' && github.run_attempt == 1 &&
+      startsWith(github.event.head_commit.message, 'ops: arm NAV fallback ')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
