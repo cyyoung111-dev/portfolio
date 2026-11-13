@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // #734: live, read-only 9.294 release gate. No GAS Script API or financial writes.
-// Require the exact 9.293 baseline, valid 39-row Snapshot, idle writer,
-// and the still-incomplete same-day CLOSE whose T-1 repair needs owner/NAV handoff.
+// Require the existing 9.293 baseline, valid 39-row Snapshot and idle writer.
+// Accept the original 11/12 INCOMPLETE owner or an independently repaired
+// same-date COMPLETE receipt. Never downgrade COMPLETE or revive an old day.
 import {appendFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {verifyGas9293PostDeploy} from './issue734-gas9293-postdeploy-readonly.mjs';
@@ -20,15 +21,34 @@ export function assessGas9294Preflight({published,status,snapshot}={}){
     ||status.pendingTradeSnapshotRebuildFrom!=='-'
     ||(status.tradeSnapshotDeferredCount??0)!==0)
     fail('LIVE_AUTOMATION_UNVERIFIED');
-  // The underlying GAS 19:00 timeout may have left a previous summary.
-  // Do not reinterpret the previous fund DONE as this run's finality.
+  // The original 9.294 gate only accepted INCOMPLETE. After the protected
+  // 11/12 one-shot recovery, the correct persisted marker is COMPLETE.
+  // A completed receipt must prove both PRICE and NAV for exactly the same
+  // business date, not merely a previous fund DONE, new-day run or stage flag.
   const c=status.close;
-  if(!c||c.runDate!=='2026-11-12'||c.state!=='INCOMPLETE'
-    ||!['PRICE','FUND','ERROR','FUND_PENDING'].includes(c.stage)
-    ||c.fundState==='IN_PROGRESS'
+  const target='2026-11-12';
+  const incomplete=!!c&&c.state==='INCOMPLETE'
+    && ['PRICE','FUND','ERROR','FUND_PENDING'].includes(c.stage)
+    && c.fundState!=='IN_PROGRESS';
+  const complete=!!c&&c.state==='COMPLETE'
+    && c.stage==='COMPLETE'
+    && c.summaryPresent===true
+    && c.summaryRunDate===target
+    && c.priceOk===true&&c.fundOk===true
+    && c.closeErrorCount===0
+    && c.closeErrorPresent===false
+    && c.fundErrorPresent===false
+    && c.fundWarningPresent===false
+    && c.fundState==='DONE'
+    && c.fundAttemptDate===target
+    && c.fundDate===target
+    && c.krxPublicationWaiting===false
+    && status.overallStatus==='NORMAL'
+    && status.pendingCount===0;
+  if(!c||c.runDate!==target||(!incomplete&&!complete)
     ||c.snapshotStale!==false
-    ||status.snapshotLastDate!=='2026-11-12'
-    ||status.priceHistoryLastDate<'2026-11-12')
+    ||status.snapshotLastDate!==target
+    ||status.priceHistoryLastDate<target)
     fail('CLOSE_OWNER_OR_DATE_CHANGED');
   if(snapshot?.observedDate!=='2026-11-12'
     ||snapshot.storeStatus!=='VALID'||snapshot.expectedRows!==39
@@ -42,7 +62,10 @@ export function assessGas9294Preflight({published,status,snapshot}={}){
     status:'VERIFIED',currentGas:'9.293',candidateGas:'9.294',
     date:'2026-11-12',tradeRows:338,snapshotRows:39,
     state:c.state,stage:c.stage,previousFundDate:c.fundAttemptDate,
+    persistedCloseComplete:complete,
     complete:false,navOwnerVerified:false,writerIdle:true,
+    // Persisted CLOSE COMPLETE is not an independent Script API execution proof.
+    processExecutionOwnerVerified:false,
     financeWrites:0,gasDeployments:0};
 }
 export async function verifyGas9294Preflight({url,token,fetchImpl=fetch}={}){
