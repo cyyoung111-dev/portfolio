@@ -70,6 +70,9 @@ export function composeIssue734Gas9294OwnerNavPreview(){
     ()=>verifiedOrphanSeed);
   source=rewriteFunction(source,'function _retryOnePendingKrxClose_(',block=>{
     block=once(block,
+      "    var result = saveDailyPriceHistory(target, saveOptions);",
+      "    var result = null;\n    if (String(props.getProperty('portfolio_close_run_date') || '') === target\n        && _krxCalendarStatus_(target) === 'OPEN') {\n      // Only the exact stale CLOSE owner can reuse a stored Snapshot.\n      // An unrelated queued date keeps the original backed-up writer.\n      result = _portfolioFundAtomic_(function(sharedProps) {\n        var candidate = _issue734RecoveredCloseReservationOwner_(\n          sharedProps,target,{date:target,rows:1,krxCloseRequired:true});\n        if (!candidate) return null;\n        var verified = _verifyCompletedKrxPendingDate_(getss(),target);\n        if (!verified || verified.ok !== true || !verified.snapshotProof)\n          return null;\n        var rows = Number(verified.snapshotProof.storedRowCount);\n        if (!(rows > 0) || rows !== Number(verified.snapshotProof.expectedRowCount))\n          return null;\n        return {ok:true,date:target,rows:rows,krxCloseRequired:true};\n      });\n    }\n    if (!result) result = saveDailyPriceHistory(target, saveOptions);",'VERIFIED_SNAPSHOT_FAST_PATH');
+    block=once(block,
       '    _portfolioFundAtomic_(function(sharedProps) {\n      var ss = getss();',
       '    var recoveredOwner = null;\n    _portfolioFundAtomic_(function(sharedProps) {\n      var ss = getss();',
       'OWNER_DECLARATION');
@@ -137,7 +140,9 @@ export function composeIssue734Gas9294OwnerNavPreview(){
     parentGitBlob:PARENT_BLOB,candidateGitBlob:blob(source),
     changedFunctions:['_issue734RecoveredCloseReservationOwner_',
       '_issue734PendingCloseOwnerRequiresNav_',
-      '_retryOnePendingKrxClose_','_pruneVerifiedHistoricalKrxPending_'],noChangeToPriceWriter:true,
+      '_retryOnePendingKrxClose_','_pruneVerifiedHistoricalKrxPending_',
+      '_issue734SeedOrphanedCurrentClose_'],noChangeToPriceWriter:true,
+    verifiedSnapshotWithoutPriceReplay:true,seedsEmptyQueueOrphan:true,
     requiresExactDateOwner:true,queuedUntilReservationReadback:true,
     independentNavFinality:true,deployable:false,sourceOnly:true,
     manualReleaseRequired:true,financeWrites:0,gasDeployments:0
