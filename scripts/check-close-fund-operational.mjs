@@ -78,7 +78,7 @@ assert.equal(monday.health,'CLOSE_COMPLETE_NAV_PUBLICATION_PENDING',
  'Friday NAV is allowed through Monday before independent publication proof');
 const asOfTuesday='2026-11-17';
 const tuesday=report({asOf:asOfTuesday,funds:funds.map(f=>({...f,
- from:'2026-10-18',to:asOfTuesday}))});
+ from:'2026-10-17',to:asOfTuesday}))});
 assert.equal(tuesday.health,'FUND_NAV_OR_DERIVED_OVERDUE');
 assert.deepEqual(tuesday.publicationOverdueFunds,['F00001','F00002']);
 assert.throws(()=>report({funds:[funds[0],funds[1],funds[1]]}),
