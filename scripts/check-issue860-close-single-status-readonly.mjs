@@ -75,6 +75,25 @@ assert.equal(afterGate292.gasVersion,'9.292');
 assert.equal(afterGate292.priceCloseState,'COMPLETE');
 assert.equal(afterGate292.fundCloseState,'PENDING');
 assert.equal(afterGate292.fundReservationVerified,true);
+const afterCurrent294=await readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.294',
+  automation:{...data.automation,gasVersion:'9.294',
+   closeRun:{runDate:'2026-11-13',state:'INCOMPLETE',stage:'FUND_PENDING'},
+   portfolioClose:{...data.automation.portfolioClose,runDate:'2026-11-13',
+    priceDate:'2026-11-13',priceRows:39,priceOk:true,fundOk:false},
+   fundAttempt:{date:'2026-11-13',state:'IN_PROGRESS'},
+   priceCloseState:'COMPLETE',fundCloseState:'PENDING',
+   fundReservationVerified:true}})
+})});
+assert.equal(afterCurrent294.gasVersion,'9.294');
+assert.equal(afterCurrent294.closeRunDate,'2026-11-13');
+assert.equal(afterCurrent294.storedPriceRows,39);
+assert.equal(afterCurrent294.priceCloseState,'COMPLETE');
+assert.equal(afterCurrent294.fundCloseState,'PENDING');
+assert.equal(afterCurrent294.closeComplete,false);
+assert.equal(afterCurrent294.financialWrites,0);
+assert.equal(afterCurrent294.requestCount,1);
+
 assert.equal(afterGate292.financialWrites,0);
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.290',
