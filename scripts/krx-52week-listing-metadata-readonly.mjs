@@ -151,12 +151,13 @@ export async function fetchKrxBaseInfo(date,market,{key,fetchImpl=fetch}={}){
    signal:AbortSignal.timeout(12000)});
  }catch{return {status:'NETWORK_OR_TIMEOUT',data:null};}
  if(!response?.ok){
-  // 401: shared authentication problem; 403: this service was denied
-  // (approval, IP restriction, or policy). Neither proves which exact
-  // permission is missing; never claim approval alone as the cause.
+  // This API may use HTTP 401 for missing service-specific approval, not
+  // only a globally invalid AUTH_KEY. HTTP 403 is likewise ambiguous.
+  // Preserve exact HTTP status without inferring whether the key, service
+  // permission, IP allowlist or another source rule caused the rejection.
   const status=Number(response?.status);
-  return {status:status===401?'KRX_AUTHENTICATION_DENIED':
-   status===403?'KRX_SERVICE_ACCESS_DENIED':
+  return {status:status===401?'KRX_HTTP401_ACCESS_DENIED':
+   status===403?'KRX_HTTP403_ACCESS_DENIED':
    status===429?'RATE_LIMITED':'HTTP_UNVERIFIED',data:null};
  }
  const size=Number(response.headers?.get?.('content-length')||0);
@@ -182,10 +183,10 @@ export async function runKrxListingReadOnly({archive,key,fetchImpl=fetch,now=new
   const x=await fetchKrxBaseInfo(date,market,{key,fetchImpl});
   sourceStatus[market]=x.status;
   if(x.status==='VERIFIED')base[market]=x.data;
-  // Each market has its OWN KRX service approval: 403 for KOSPI must not
-  // suppress a bounded one-shot KOSDAQ check. A shared invalid key or 429
-  // blocks further calls to avoid pointless attempts and rate pressure.
-  if(['KRX_KEY_UNAVAILABLE','KRX_AUTHENTICATION_DENIED','RATE_LIMITED'].includes(x.status))break;
+  // Both HTTP 401 and HTTP 403 may be service-specific at KRX. Check the
+  // other approved route exactly once: HTTP code alone cannot prove a bad
+  // shared key. Only absent key or 429 rate-limit short-circuits the probe.
+  if(['KRX_KEY_UNAVAILABLE','RATE_LIMITED'].includes(x.status))break;
  }
  if(Object.keys(base).length!==2)
   return {kind:'KRX52_OFFICIAL_LISTING_DATE_READONLY',status:'SOURCE_UNVERIFIED',
