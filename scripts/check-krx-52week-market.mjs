@@ -541,7 +541,8 @@ assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
  assert.equal(stale.portfolioWrites,0);
  const script=(await import('node:fs')).readFileSync(
   '.github/workflows/krx-52week-listing-audit-readonly.yml','utf8');
- assert.match(script,/krx-52week-listing-metadata-readonly\.mjs --input=/);
+ assert.match(script,/node scripts\/krx-52week-listing-metadata-readonly\.mjs/);
+ assert.match(script,/--input=\.krx-52week\/listing\/history\.json/);
  assert.match(script,/gh run download/);
  assert.match(script,/history\.k52e/);
  assert.match(script,/process\.env\.KRX_AUTH_KEY|KRX_AUTH_KEY:/);
