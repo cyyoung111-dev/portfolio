@@ -1,17 +1,7 @@
 name: Issue 734 OAuth process scope audit (READ ONLY)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/issue734-process-scope-audit-readonly.mjs'
-      - 'scripts/check-issue734-process-scope-audit-readonly.mjs'
-      - '.github/workflows/issue734-process-scope-audit-readonly.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/issue734-process-scope-audit-readonly.mjs'
-      - 'scripts/check-issue734-process-scope-audit-readonly.mjs'
-      - '.github/workflows/issue734-process-scope-audit-readonly.yml'
+  # Audit is operator-only; same offline test already runs in mandatory
+  # quality-check/check:ci for EVERY PR and main push. No duplicated runner.
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,7 +22,7 @@ jobs:
       - name: Verify secret-free OAuth diagnostics
         run: node scripts/check-issue734-process-scope-audit-readonly.mjs
   # Real Google tokeninfo needs explicit main-only operator dispatch.
-  # PR/push execute only the offline contract above.
+  # Offline source regression is mandatory in quality-check, not a second job.
   scope-audit:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1
     needs: source-check

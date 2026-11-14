@@ -30,7 +30,7 @@
 
 ## 외부 승인형 진단의 실행 정책 (2026-11-15)
 
-- `issue734-process-scope-audit-readonly.yml`: OAuth `script.processes` 권한을 실제 조회하는 단계는 main 수동 실행 전용. PR/main 소스 변경은 비밀정보 없는 오프라인 계약 검사만 수행하며 OAuth 권한 부재를 자동 오류로 만들지 않는다.
+- `issue734-process-scope-audit-readonly.yml`: **워크플로 전체를 main 운영자 수동 실행 전용으로 단순화**. 기존 PR/push에서 별도 Actions `source-check`를 반복 실행했으나, 동일 `scripts/check-issue734-process-scope-audit-readonly.mjs`가 `quality-check` 필수 `check:ci`에 이미 수록돼 있어 중복만 제거한다. 수동 선택 시에는 source-check→보호된 GAS 환경의 실제 OAuth scope audit 순서와 재실행 차단 정책을 유지하며 OAuth 권한 부재를 자동 오류로 만들지 않는다.
 - `krx-52week-listing-audit-readonly.yml`: KRX 2개 종목기본정보 API HTTP 401 해결 전 자동 push 실조회 제거. 서비스별 이용승인 후 main 수동 실행 1회로 확인. 다른 정규 KRX OHLC 252일 수집 cron은 그대로 유지.
 - Snapshot 동일일·동일종목에 외부 Sheets API가 동시에 쓰는 경합은 GAS ScriptLock만으로 해결되지 않는다. 운영 원본의 owner-only Drive 공유 메타데이터는 소유자 본인의 별도 API·수동 편집 부재를 증명하지 않는다. 그러므로 금융 운영 동시성 안전성 최종 승인은 별도 증거 전까지 보류한다.
 
