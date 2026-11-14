@@ -531,11 +531,10 @@ function _describePortfolioCloseStatus(a) {
     // clean state. Only explicit safety evidence can justify "마감 완료".
     && a.tradeLedgerWriteUnverified === false
     && Object.prototype.hasOwnProperty.call(a, 'pendingTradeSnapshotRebuildFrom')
+    && a.pendingTradeSnapshotRebuildFrom !== undefined
     && !a.pendingTradeSnapshotRebuildFrom
-    && a.tradeSnapshotDeferredCount !== null
-    && a.tradeSnapshotDeferredCount !== undefined
-    && Number.isSafeInteger(Number(a.tradeSnapshotDeferredCount))
-    && Number(a.tradeSnapshotDeferredCount) === 0;
+    && Number.isSafeInteger(a.tradeSnapshotDeferredCount)
+    && a.tradeSnapshotDeferredCount === 0;
   if (!completed || !['NORMAL', 'WARNING'].includes(a.overallStatus)) return null;
   const fundWarning = typeof a.fundLastWarning === 'string'
     ? a.fundLastWarning : '';
