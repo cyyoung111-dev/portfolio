@@ -78,6 +78,11 @@ jobs:
         env:
           TELEGRAM_CLOSE_SENTINEL_VERIFIED: ${{ github.event_name == 'push' && steps.verify_sentinel.outputs.verified || 'false' }}
         run: node scripts/telegram-punctual-arm.mjs close
+      - name: Verify trusted SENT on delayed close arm (no re-send)
+        if: github.event_name == 'schedule' && steps.arm.outputs.ready != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/telegram-close-late-verdict.mjs --check-scheduled-arm
       - name: Prepare verified close briefing through original claim and source rules
         if: steps.arm.outputs.ready == 'true'
         id: prepare
