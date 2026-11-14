@@ -192,6 +192,28 @@ assert.equal(pcSaved.status,'ok',JSON.stringify(pcSaved));
 assert.equal(pcSaved.ledgerRevision,shared.revision);
 assert.equal(shared.commits,1);
 const pcRevision=shared.revision;
+// Stock-tab manual sync previously wrote Settings/Codes/Holdings before
+// detecting a stale trade CAS. Its new guard MUST be read-only and block
+// those earlier writes when another device has advanced the ledger.
+const tabSyncSource=fs.readFileSync('src/web/features/settings/settings_tabsync.js','utf8');
+const guardStart=tabSyncSource.indexOf('async function _manualStockSyncV2ReadGuard(');
+const guardEnd=tabSyncSource.indexOf('\n}',guardStart)+2;
+assert.ok(guardStart>=0&&guardEnd>guardStart,'stock manual v2 read guard exists');
+assert.match(tabSyncSource,
+ /const tradeGuardOk = await _manualStockSyncV2ReadGuard\(\);\s*blockedByStaleTradeV2 = !tradeGuardOk;\s*const settingsSaved = tradeGuardOk \? await saveSettings\(true\) : false;/,
+ 'Settings write must be downstream of the read-only trade CAS guard');
+assert.match(tabSyncSource,/if \(blockedByStaleTradeV2\) \{/,
+ 'a blocked manual sync must show an actionable status');
+for(const d of [pc,mobile])
+ vm.runInContext(tabSyncSource.slice(guardStart,guardEnd)
+  +'\nglobalThis.manualStockV2Guard=_manualStockSyncV2ReadGuard;',d.device);
+assert.equal(await pc.device.manualStockV2Guard(),true,
+ 'fresh PC guard must admit the current exact-digest ledger');
+const mobileWritesBeforeGuard=mobile.metrics.attempts;
+assert.equal(await mobile.device.manualStockV2Guard(),false,
+ 'stale Android guard blocks before Settings/Holdings writes');
+assert.equal(mobile.metrics.attempts,mobileWritesBeforeGuard,
+ 'preflight cannot perform a remote trade write');
 
 // Android was opened before PC committed; its stale CAS MUST fail closed.
 mobile.device.rawTrades=[{...before,memo:'Android stale edit'}];
@@ -210,6 +232,28 @@ mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]={
  targetUrl:url,generation,protocol:2,
  revision:pulled.ledgerRevision,trades:pulled.trades.map(t=>({...t}))
 };
+assert.equal(await mobile.device.manualStockV2Guard(),true,
+ 'a verified remote refresh makes the second device eligible again');
+const originalRead=mobile.device.requestGsheetActionJson;
+mobile.device.requestGsheetActionJson=async()=>({
+ status:'ok',tradeLedgerProtocolVersion:2,
+ ledgerRevision:pcRevision,
+ trades:[{...pulled.trades[0],qty:999}]
+});
+assert.equal(await mobile.device.manualStockV2Guard(),false,
+ 'a response claiming the pinned revision but different contents is rejected');
+mobile.device.requestGsheetActionJson=originalRead;
+const savedBaseline=mobile.deviceWindow._tradeLedgerV2BaselineTargets[url];
+mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]=null;
+assert.equal(await mobile.device.manualStockV2Guard(),false,
+ 'a v2-required connection without its baseline fails closed');
+mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]=savedBaseline;
+mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]={
+ ...savedBaseline,trades:[{...savedBaseline.trades[0],memo:'tampered local preimage'}]
+};
+assert.equal(await mobile.device.manualStockV2Guard(),false,
+ 'corrupted local baseline cannot authorize earlier Settings/Holdings writes');
+mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]=savedBaseline;
 mobile.device.rawTrades=[{...pulled.trades[0],acct:'ISA',memo:'Android after pull'}];
 const mobileSaved=await mobile.device.save({targetUrl:url,generation});
 assert.equal(mobileSaved.status,'ok',JSON.stringify(mobileSaved));
@@ -218,6 +262,11 @@ assert.equal(shared.trades[0].acct,'ISA');
 
 // The first browser is now stale. It too must fail, without losing Android's edit.
 pc.device.rawTrades=[{...pc.device.rawTrades[0],acct:'OTHER'}];
+const pcWritesBeforeGuard=pc.metrics.attempts;
+assert.equal(await pc.device.manualStockV2Guard(),false,
+ 'the PC must also reject its stale revision before unrelated writes');
+assert.equal(pc.metrics.attempts,pcWritesBeforeGuard,
+ 'stale preflight makes zero financial writes');
 const stalePc=await pc.device.save({targetUrl:url,generation});
 assert.equal(stalePc.errorCode,'TRADE_V2_REVISION_CONFLICT');
 assert.equal(shared.commits,2);
@@ -230,5 +279,6 @@ assert.equal(mobile.metrics.conflicts,1);
 console.log('ISSUE734_TWO_DEVICE_CAS_SHADOW_PASS '+JSON.stringify({
  successfulCommits:shared.commits,staleRejections:2,
  remoteReadOnlyRebase:true,legacyWrites:0,realFinanceWrites:0,
- pcOrAndroidHardwareVerified:false
+ pcOrAndroidHardwareVerified:false,
+ stockTabReadOnlyGuard:true,upstreamSettingsWritesProtected:true
 }));
