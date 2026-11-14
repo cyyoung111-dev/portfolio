@@ -1,6 +1,6 @@
 # #734 — Single daily operating verdict (manual, read-only)
 
-Last reviewed: 2026-11-14 KST. Applies to the \`main\` workflow
+Last reviewed: 2026-11-15 KST. Applies to the \`main\` workflow
 [Portfolio daily operating verdict (READ ONLY)](../.github/workflows/portfolio-daily-ops-readonly.yml).
 
 ## Purpose / scope
@@ -58,11 +58,14 @@ workflow run list is for *execution diagnostics only*.
    not yet published. Independent 09:30/18:10/19:17 weekday NAV cron slots,
    protected 10:20/20:30 independent fallback and manual dispatch remain.
    The next actual business-day stored NAV readback still requires verification.
-5. **Cleanup started:** reviewed all 45 Issue-derived workflow definitions.
-   Removed four obsolete no-cron diagnostic wrappers only; now 96 workflow
-   files with 41 Issue-derived names. Synthetic tests and protected current
-   OAuth/worker-process diagnostics remain. Never bulk-delete manual recovery
-   actions or date-scoped historical source investigation scripts.
+5. **Cleanup phase 2:** reviewed issue-only workflow dependencies and the last
+   800 main Actions runs. Removed two more duplicate **synthetic-only** wrappers
+   for Snapshot date-scoped and ledger fingerprint safety. Six total retired:
+   94 workflow files remain with 39 Issue-derived names. Both safety checks
+   remain directly mandatory in `check:ci` and deletion is enforced by CI;
+   no financial writer, public-source collector, recovery, or OAuth scope
+   diagnostics were removed. Never bulk-delete manual financial recovery or
+   date-scoped forensic source investigation scripts.
 6. External heartbeat/dead-man switch is optional, not a prerequisite for
    reliable financial close. It should monitor on-time evidence, not
    merely receipt of any GitHub green status.
