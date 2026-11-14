@@ -3,6 +3,11 @@
 Last reviewed: 2026-11-15 KST. Applies to the \`main\` workflow
 [Portfolio daily operating verdict (READ ONLY)](../.github/workflows/portfolio-daily-ops-readonly.yml).
 
+## External authorization and writer-ownership exceptions (2026-11-15)
+
+- Google Apps Script process OAuth scope and KRX listing metadata approval need independent permissions. Both live diagnostics are manual-only; offline CI remains active. Code changes do NOT grant provider permissions.
+- Browser trade-ledger CAS and GAS ScriptLock do NOT establish atomic cross-client Snapshot updates for identical `(date,code)` against out-of-band owner-authorized Sheets writes. Owner-only sharing cannot prove other owner sessions are idle. Keep Snapshot full reconciliation and independent writer-ownership verification `NOT_FULLY_AUDITED`; no financial mutations.
+
 ## Purpose / scope
 
 One manual audit of the last KRX trading session, with **NO new recurring
