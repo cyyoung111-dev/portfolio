@@ -303,17 +303,21 @@ const workflowSource=readFileSync('.github/workflows/krx-52week-history.yml','ut
 assert.match(workflowSource,/sort_by\(\.created_at, \.id\) \| last \| \.workflow_run\.id \/\/ empty/);
 assert.doesNotMatch(workflowSource,/\| first \/\/ empty/);
 assert.match(workflowSource,/KRX52_PRIOR_ARCHIVE_RESTORED run=\$previous/);
-// The KRX official daily OHLC source is T+1. An 18:40 collection would
-// fetch the same completed 252-session window again and can trigger NAV
-// collection just before 19:00 portfolio CLOSE. One 23:30 weekday slot only.
+// The KRX official daily OHLC source is T+1. An 18:40 collection
+// would redundantly fetch the same completed 252-session window near
+// 19:00 portfolio CLOSE. Keep one 23:30 weekday slot, independent of NAV.
 assert.match(workflowSource,/^\s+- cron: '30 14 \* \* 1-5'/m);
 assert.equal((workflowSource.match(/^\s+- cron:/gm)||[]).length,1,
  'one nightly KRX scheduled probe, no 18:40 duplicate');
 assert.doesNotMatch(workflowSource,/^\s+- cron: '40 9 /m);
 const navSource=readFileSync('.github/workflows/kb-fund-nav-collect.yml','utf8');
-assert.match(navSource,/workflow_run:/);
-assert.match(navSource,/github\.event\.workflow_run\.event == 'schedule'/);
-assert.match(navSource,/github\.event\.workflow_run\.path == '\.github\/workflows\/krx-52week-history\.yml'/);
+assert.doesNotMatch(navSource,/^\s+workflow_run:/m,
+ 'a KRX 52-week OHLC completion must not fan out to private NAV');
+assert.doesNotMatch(navSource,/github\.event\.workflow_run/,
+ 'NAV jobs may only use their own cron or explicit manual dispatch');
+assert.match(navSource,/cron: '30 0 \* \* 1-5'/);
+assert.match(navSource,/cron: '10 9 \* \* 1-5'/);
+assert.match(navSource,/cron: '17 10 \* \* 1-5'/);
 
 
 // One-time cleanup must preserve BOTH successful encrypted backup points and
