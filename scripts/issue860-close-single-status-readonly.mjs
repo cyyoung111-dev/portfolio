@@ -31,7 +31,7 @@ export function classifyPersistedFundWarningReview(a,close) {
  const complete=close?.state==='COMPLETE'&&close?.stage==='COMPLETE'
   &&close.priceOk===true&&close.fundOk===true
   &&close.fundState==='DONE'&&close.fundErrorCode==='NONE'
-  &&typeof date==='string'&&/^\\d{4}-\\d{2}-\\d{2}$/.test(date)
+  &&typeof date==='string'&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)
   &&a.portfolioClose?.runDate===date
   &&a.portfolioClose?.priceDate===date
   &&a.snapshotLastDate===date&&a.priceHistoryLastDate===date
