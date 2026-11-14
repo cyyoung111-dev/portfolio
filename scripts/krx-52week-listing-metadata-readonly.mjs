@@ -162,13 +162,13 @@ export async function fetchKrxBaseInfo(date,market,{key,fetchImpl=fetch}={}){
   return {status:'VERIFIED',data};
  }catch{return {status:'SCHEMA_UNVERIFIED',data:null};}
 }
-export async function runKrxListingReadOnly({archive,key,fetchImpl=fetch}={}){
+export async function runKrxListingReadOnly({archive,key,fetchImpl=fetch,now=new Date()}={}){
  const valid=verifyArchive(archive);
  const expected=valid.sessions.map(x=>x.date);
  if(expected.length!==WINDOW||expected.some((d,i)=>d!==expectedSessions(expected.at(-1))[i]))
   fail('ARCHIVE_INCOMPLETE');
  const date=expected.at(-1);
- const eligible=completedSession(new Date());
+ const eligible=completedSession(now);
  // A stale 252-session archive cannot prove up-to-date official listing.
  if(date!==eligible)return {kind:'KRX52_OFFICIAL_LISTING_DATE_READONLY',
    status:'ARCHIVE_STALE',date,expected:eligible,publicationAllowed:false,
