@@ -310,6 +310,93 @@ export function audit52WeekRawDiscontinuity(archive,expected,rawCounts){
   splitAdjusted:false,corporateActionsConfirmed:false,
   markets};
 }
+// Audit the CURRENT market universe without guessing IPO, suspension or
+// symbol-change events. The existing strict 251-prior-session raw count is
+// unchanged. Continuous late first observations are candidate post-listing
+// histories, NOT independently certified new listings or 52-week counts.
+// A gap after first observation is kept separate; it may be a suspension,
+// changed identifier or bad/missing source and must never be filled by price.
+export function audit52WeekHistoryEligibility(archive,expected,rawCounts){
+ if(rawCounts?.status!=='VERIFIED_RAW_UNADJUSTED_REFERENCE')
+  return {status:'HISTORY_INCOMPLETE',markets:null};
+ const verified=verifyArchive(archive);
+ if(!Array.isArray(expected)||expected.length!==WINDOW||
+  verified.sessions.length!==WINDOW||
+  verified.sessions.some((s,i)=>s.date!==expected[i])||
+  rawCounts.date!==expected.at(-1))
+  throw Error('KRX52_ELIGIBILITY_WINDOW_UNVERIFIED');
+ const markets={};
+ for(const m of Object.keys(MARKETS)){
+  const finalDay=verified.sessions.at(-1).markets[m];
+  const today=finalDay.rows;
+  const alive=new Set(today.map(row=>row[0]));
+  const seen=new Map();
+  for(let i=0;i<WINDOW;i++){
+   for(const [code,high,low] of verified.sessions[i].markets[m].rows){
+    if(!alive.has(code))continue;
+    let v=seen.get(code);
+    if(!v){
+     v={first:i,last:i,days:0,interiorMissing:0,
+      priorHigh:0,priorLow:Infinity};
+     seen.set(code,v);
+    }else{
+     v.interiorMissing+=i-v.last-1;
+     v.last=i;
+    }
+    v.days++;
+    if(i<WINDOW-1){
+     v.priorHigh=Math.max(v.priorHigh,high);
+     v.priorLow=Math.min(v.priorLow,low);
+    }
+   }
+  }
+  let fullHistory=0,lateFirstObservedContinuous=0,
+   interruptedAfterFirstObserved=0,shortHistoryCandidateHighs=0,
+   shortHistoryCandidateLows=0,oneDayOnly=0;
+  for(const [code,high,low] of today){
+   const v=seen.get(code);
+   if(!v||v.last!==WINDOW-1||v.days<1)
+    throw Error('KRX52_ELIGIBILITY_CURRENT_MISSING');
+   if(v.days===WINDOW){
+    if(v.first!==0||v.interiorMissing!==0)
+     throw Error('KRX52_ELIGIBILITY_FULL_CONFLICT');
+    fullHistory++;
+   }else if(v.interiorMissing>0){
+    interruptedAfterFirstObserved++;
+   }else if(v.first>0&&v.days===WINDOW-v.first){
+    lateFirstObservedContinuous++;
+    if(v.days===1)oneDayOnly++;
+    else{
+     // Since-first-observed diagnostic only. Listing start is unverified.
+     if(high>v.priorHigh)shortHistoryCandidateHighs++;
+     if(low<v.priorLow)shortHistoryCandidateLows++;
+    }
+   }else{
+    throw Error('KRX52_ELIGIBILITY_UNCLASSIFIED');
+   }
+  }
+  const shortHistory=lateFirstObservedContinuous+interruptedAfterFirstObserved;
+  if(fullHistory!==rawCounts.markets[m]?.eligible||
+   shortHistory!==rawCounts.markets[m]?.shortHistory||
+   today.length!==rawCounts.markets[m]?.observedToday||
+   fullHistory+shortHistory!==today.length)
+   throw Error('KRX52_ELIGIBILITY_DENOMINATOR_UNVERIFIED');
+  markets[m]={
+   observedToday:today.length,sourceReportedToday:finalDay.totalRows,
+   noValidOhlcToday:finalDay.excludedRows,
+   fullHistory,shortHistory,
+   lateFirstObservedContinuous,interruptedAfterFirstObserved,
+   oneDayOnly,shortHistoryCandidateHighs,shortHistoryCandidateLows,
+   newListingsConfirmed:0,corporateActionsConfirmed:0,
+   marketWideCertified:false
+  };
+ }
+ return {status:'HISTORY_ELIGIBILITY_DIAGNOSTIC_ONLY',
+  date:expected.at(-1),window:WINDOW,
+  listingEventsVerified:false,splitAdjusted:false,
+  marketWideCertified:false,publicationAllowed:false,markets};
+}
+
 export function render52WeekMarketCounts(count){
  if(count?.status!=='VERIFIED_RAW_UNADJUSTED_REFERENCE')return '';
  return ['KOSPI','KOSDAQ'].map(m=>{

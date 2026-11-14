@@ -1,5 +1,14 @@
 # KRX 52-week market breadth — 252 trading-session data contract
 
+## 2026-11-14 #734: 전 종목 모집단 제외 사유 진단 (source-only)
+
+- [`audit52WeekHistoryEligibility`](../scripts/krx-52week-market.mjs)은 오늘 KRX 원시 OHLC에 포함되는 **각 종목**을 기존 252거래일 봉으로 추적한다. 기존 `countNewHighsAndLows`의 엄격한 과거 251영업일 모집단과 계산 결과는 **수정하지 않는다**.
+- `fullHistory`: 252거래일 모두 거래 가능한 고가·저가 존재(기존 52주 raw count의 모집단). `lateFirstObservedContinuous`: 252일 창 중간에 처음 나타난 뒤 오늘까지 봉이 끊기지 않은 종목; **신규상장 후보일 뿐 상장확정이 아님**. `interruptedAfterFirstObserved`: 첫 관측 이후 누락일이 있는 종목; 거래정지·종목 식별자 변경·공시 이벤트·원본 부재를 **구분하지 못한 진단 후보**. `oneDayOnly`는 과거 봉이 아예 없어 첫날 신고가로 부를 수 없는 종목이다.
+- `shortHistoryCandidateHighs/Lows`는 `lateFirstObservedContinuous` 중 **첫 관측 이후의 구간**에만 한정한 원시 고가/저가 참고 수치로, 공식 52주 신고가·신저가 **합산에서 제외**한다. 출력에는 실제 가격·금융 보유정보·계좌를 싣지 않는다. `observedToday`와 `noValidOhlcToday`도 구분해 거래정지일 가능성이 있는 당일 미거래를 그날의 최저가로 합성하지 않는다.
+- 전체 진단은 `source-only` 수집 완료 후 암호화된 OHLC 아카이브와 함께 출처 요약에만 기록된다. 반드시 `publicationAllowed=false`, `marketWideCertified=false`, `listingEventsVerified=false`로 제한한다. 테스트의 합성 불연속 기록/IPO 후보를 진짜 상장 및 분할 공시로 추정하지 않는다.
+- **다음 실증 조건:** KRX 상장일·거래정지·종목변경 공식 이력과 날짜별 1:1 매칭, 기업행위 수정 고/저가(KIS 등) 검증, 보통주/우선주/ETF/ETN 분모 명확화 및 합법적인 전체시장 재배포 승인. 승인 전 기존 52주 브리핑 발행 차단 유지.
+- **기존 NH PLUG 근거 재점검:** [국내 기간별 시세 공식 SDK 예제](https://github.com/PLUG-OpenAPI/nhplug-sdk/blob/main/snippets/krstock/period/period.py)는 `market_cd=KRX`, `view_main_yn=Y`, `Output_1` 및 이어조회만 명시. **수정주가/원시주가 선택·권리조정 여부가 명시되지 않아** KIS 수정주가를 대체할 수 없다. KIS의 `inquire-daily-itemchartprice` `0=수정`와 별도의 `inquire-daily-price` `1=수정` 예제가 상충하므로, **서로 다른 TR의 flag를 혼용하지 않는다** ([KIS period](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py), [KIS 30-day](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_price/inquire_daily_price.py)).
+
 ## 2026-11-14 #734: KIS 수정주가 252일 정합성 검증 구현 (OFFLINE audit only)
 
 **실행한 프로세스 점검:** [2026-11-14 05:57 KST 실제 source-only run #43506294072](https://github.com/cyyoung111-dev/portfolio/actions/runs/43506294072)에서 252/252 KRX 원시 OHLC가 *추가 요청 0건*으로 검증되었다. KRX 봉 저장/암호화·공식 익일 데이터의 출처가 문제인 것은 아니다. 예약 시각(전일 23:30) 대비 실제 GitHub schedule은 약 6시간 27분 지연되었지만, 이 수집기는 **데이터를 작성·발행하지 않는 source-only**이며 현재 필요한 마지막 KRX 완성 거래일(2026-11-12) 기준으로 실행되었다. GitHub schedule 지연은 다른 NAV 워크플로의 실시간 기동까지 보증하지 않는다.

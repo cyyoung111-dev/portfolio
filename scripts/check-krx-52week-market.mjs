@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {MARKETS,SOURCE,WINDOW,sessionStatus,expectedSessions,
  completedSession,parseOfficialStockDay,validMarketDay,verifyArchive,
  appendArchive,countNewHighsAndLows,audit52WeekRawDiscontinuity,
- updateSummary,render52WeekMarketCounts}
+ audit52WeekHistoryEligibility,updateSummary,render52WeekMarketCounts}
  from './krx-52week-market.mjs';
 import {fetchOfficialMarketPair,collectHistory} from './collect-krx-52week-history.mjs';
 import {sealKrxArchive,openKrxArchive} from './krx-52week-archive-crypto.mjs';
@@ -172,6 +172,67 @@ assert.equal(flagged.corporateActionsConfirmed,false);
 assert.equal(flagged.splitAdjusted,false);
 assert.throws(()=>audit52WeekRawDiscontinuity(discontinuous,dates.slice(1),
  discontinuousCounts),/WINDOW_UNVERIFIED/);
+
+// #734: 252/252 raw market history DOES NOT mean a 252-session history for
+// every currently traded stock. The strict count stays unchanged; audit each
+// excluded code as continuously late first observed (IPO CANDIDATE only)
+// versus an internal missing trading-history gap (halt/schema/rename candidate).
+{
+ const good=audit52WeekHistoryEligibility(complete,dates,count);
+ assert.equal(good.status,'HISTORY_ELIGIBILITY_DIAGNOSTIC_ONLY');
+ assert.equal(good.publicationAllowed,false);
+ for(const m of ['KOSPI','KOSDAQ']){
+  assert.equal(good.markets[m].fullHistory,count.markets[m].eligible);
+  assert.equal(good.markets[m].shortHistory,0);
+  assert.equal(good.markets[m].lateFirstObservedContinuous,0);
+  assert.equal(good.markets[m].interruptedAfterFirstObserved,0);
+ }
+ const coverageFixture=structuredClone(complete);
+ for(let i=0;i<coverageFixture.sessions.length;i++){
+  const rows=coverageFixture.sessions[i].markets.KOSPI.rows;
+  const absent=new Set();
+  if(i<120)absent.add('KR000008');
+  if(i===120)absent.add('KR000009');
+  if(i<80||i===125)absent.add('KR000010');
+  if(i<WINDOW-1)absent.add('KR000011');
+  const retained=rows.filter(x=>!absent.has(x[0]));
+  const dayMarket=coverageFixture.sessions[i].markets.KOSPI;
+  dayMarket.totalRows-=rows.length-retained.length;
+  dayMarket.rows=retained;
+ }
+ const today=coverageFixture.sessions.at(-1).markets.KOSPI.rows;
+ const split= today.find(x=>x[0]==='KR000008');
+ assert.ok(split);
+ split[1]=145;split[2]=55;split[3]=100;
+ verifyArchive(coverageFixture);
+ const rawCoverage=countNewHighsAndLows(coverageFixture,dates);
+ const audit=audit52WeekHistoryEligibility(coverageFixture,dates,rawCoverage);
+ assert.equal(rawCoverage.markets.KOSPI.shortHistory,4);
+ assert.equal(audit.markets.KOSPI.fullHistory,400);
+ assert.equal(audit.markets.KOSPI.lateFirstObservedContinuous,2);
+ assert.equal(audit.markets.KOSPI.interruptedAfterFirstObserved,2);
+ assert.equal(audit.markets.KOSPI.oneDayOnly,1);
+ assert.equal(audit.markets.KOSPI.shortHistoryCandidateHighs,1);
+ assert.equal(audit.markets.KOSPI.shortHistoryCandidateLows,1);
+ assert.equal(audit.markets.KOSPI.noValidOhlcToday,1);
+ assert.equal(audit.markets.KOSPI.sourceReportedToday,405);
+ assert.equal(audit.markets.KOSDAQ.fullHistory,rawCoverage.markets.KOSDAQ.eligible);
+ assert.equal(audit.listingEventsVerified,false);
+ assert.equal(audit.marketWideCertified,false);
+ assert.equal(audit.splitAdjusted,false);
+ assert.equal(audit.publicationAllowed,false);
+ assert.equal(audit52WeekHistoryEligibility(archive,dates,
+  countNewHighsAndLows(archive,dates)).status,'HISTORY_INCOMPLETE');
+ const inconsistent=structuredClone(rawCoverage);
+ inconsistent.markets.KOSPI.eligible++;
+ assert.throws(()=>audit52WeekHistoryEligibility(coverageFixture,dates,inconsistent),
+  /ELIGIBILITY_DENOMINATOR_UNVERIFIED/);
+ assert.throws(()=>audit52WeekHistoryEligibility(coverageFixture,dates.slice(1),
+  rawCoverage),/ELIGIBILITY_WINDOW_UNVERIFIED/);
+ assert.equal(render52WeekMarketCounts(rawCoverage).includes('분할 미보정'),true,
+  'no change in 52-week raw market-wide publication policy');
+ console.log('KRX52_ELIGIBILITY_DIAGNOSTIC_PASS late vs interrupted, IPO unverified, current denominator');
+}
 
 const snapshot=updateSummary(complete,count);
 assert.equal(snapshot.summaries.length,1);
