@@ -64,7 +64,9 @@ for (const width of ['768', '600', '480']) {
 assert.match(layoutCss, /\.action-refresh-btn\{[^}]*flex-direction:column[^}]*width:52px[^}]*height:52px/);
 assert.match(layoutCss, /\.toolbar-btn\{[^}]*width:52px[^}]*height:52px/);
 assert.match(layoutCss, /#price-updated-label\.has-price-details\{[^}]*width:max-content[^}]*max-width:680px/);
-assert.match(responsiveCss, /\.action-bar\{display:grid!important;grid-template-columns:minmax\(0,1fr\)/);
+assert.match(responsiveCss, /\.action-bar\{align-items:stretch;gap:6px;overflow:visible\}/);
+assert.doesNotMatch(responsiveCss, /display:grid!important/,
+  'old forced layout must not override unified tablet navigation');
 assert.match(responsiveCss, /\.toolbar-btn-group\{position:relative;width:100%;min-width:0;margin:0;justify-content:flex-start;overflow-x:auto/);
 assert.match(responsiveCss, /\.toolbar-section-settings\{order:initial;width:auto;flex:none\}/);
 for (const token of ['--type-caption:.75rem','--type-label:.8125rem','--type-body:.875rem','--type-value:1rem','--line-body:1.55','--line-reading:1.65','--radius-control:8px','--radius-card:12px','--radius-panel:16px','--control-height-md:38px']) {
@@ -170,3 +172,16 @@ for(const [name,pattern] of [
 assert.doesNotMatch(unifiedCss,/!important/,'통합 디자인은 강제 중요도로 기존 컴포넌트를 무효화하면 안 됩니다.');
 assert.doesNotMatch(unifiedCss,/\b(?:fetch|localStorage|setItem|GAS|getPrices)\s*\(/,
   '디자인 레이어는 데이터 조회/저장을 수행할 수 없습니다.');
+
+assert.match(unifiedCss, /@media\(max-width:768px\)\s*\{\s*\.action-bar\s*\{[\s\S]*?display:grid;/,
+  'tablet action bar must stack instead of horizontal-clipping the whole header');
+assert.match(unifiedCss, /\.action-bar \.toolbar-btn-group\s*\{[\s\S]*?overflow-x:auto;/,
+  'only toolbar utilities scroll within the tablet row');
+assert.match(unifiedCss, /html\[data-theme-mode="light"\] :is\(\.hist-month-input,\.hist-detail-date-input\)\s*\{\s*color-scheme:light;/,
+  'light theme history month/date picker must not force dark chrome');
+assert.match(unifiedCss, /html\[data-theme-mode="dark"\] :is\(\.hist-month-input,\.hist-detail-date-input\)\s*\{\s*color-scheme:dark;/,
+  'dark theme history picker must remain dark');
+assert.match(unifiedCss, /html\[data-theme-mode="light"\] input\[type="date"\]::-webkit-calendar-picker-indicator\s*\{[\s\S]*?filter:none;/,
+  'light theme calendar icon must not be inverted');
+assert.match(unifiedCss, /\.action-bar #price-updated-label\s*\{\s*font-size:var\(--type-caption\);/,
+  'mobile status label must honor user-defined font size');
