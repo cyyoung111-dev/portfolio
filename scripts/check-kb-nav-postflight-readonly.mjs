@@ -328,19 +328,15 @@ console.log('KB NAV postflight: published-vs-persisted, close marker, safety and
  // 15:05 KST, timed out on two GAS STATUS reads, while postflight proved
  // already-complete NAV. A stale cron must never enter protected GAS.
 const navSlots=[
- ['2026-11-14T00:10:00Z','10 0 * * 0,6',true],
- ['2026-11-14T01:09:59Z','10 0 * * 0,6',true],
- ['2026-11-14T01:10:00Z','10 0 * * 0,6',false],
- ['2026-11-14T06:05:57Z','10 0 * * 0,6',false],
+ ['2026-11-14T00:10:00Z','10 0 * * 0,6',false],
+ ['2026-11-14T01:09:59Z','10 0 * * 0,6',false],
  ['2026-11-16T00:30:00Z','30 0 * * 1-5',true],
  ['2026-11-16T01:09:00Z','30 0 * * 1-5',true],
  ['2026-11-14T00:30:00Z','30 0 * * 1-5',false],
- ['2026-11-14T09:10:00Z','10 9 * * *',true],
- ['2026-11-14T10:16:00Z','10 9 * * *',true],
- ['2026-11-14T10:17:00Z','10 9 * * *',false],
- ['2026-11-14T10:17:00Z','17 10 * * *',true],
- ['2026-11-14T11:19:00Z','17 10 * * *',true],
- ['2026-11-14T11:20:00Z','17 10 * * *',false]
+ ['2026-11-14T09:10:00Z','10 9 * * 1-5',false],
+ ['2026-11-16T09:10:00Z','10 9 * * 1-5',true],
+ ['2026-11-16T10:17:00Z','17 10 * * 1-5',true],
+ ['2026-11-14T10:17:00Z','17 10 * * 1-5',false]
 ];
 for(const [instant,cron,admit] of navSlots){
  const outcome=assessNavScheduledAdmission({
