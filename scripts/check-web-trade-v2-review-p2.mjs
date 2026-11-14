@@ -43,7 +43,7 @@ assert.equal(localMatch([before],[before])?.revision,rev);
 assert.equal(localMatch([other],[other],true),null,
  'dirty portfolio must not be declared clean merely because content matches');
 const restoredJournal={targetUrl:url,protocol:2,revision:rev,trades:[before]};
-const restoreStart=settings.indexOf('    const serverTradeV2 =');
+const restoreStart=settings.indexOf('    let serverTradeV2 =');
 const restoreEnd=settings.indexOf('    const bootstrapCodeMasterSource',restoreStart);
 assert(restoreStart>0&&restoreEnd>restoreStart);
 assert(restoreEnd<settings.indexOf('_retryPortfolioRemoteDirtySync({',restoreEnd),

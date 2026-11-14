@@ -614,13 +614,16 @@ async function loadSettings(onProgress, options) {
       [loadTarget]: data.tradeFxMetadataVersion === 1};
     // Never downgrade a proven 14-column server to the old syncTrades route
     // just because this device restarted without an in-memory baseline.
-    const serverTradeV2 = isBootstrap && data.tradeLedgerProtocolVersion===2
+    let serverTradeV2 = isBootstrap && data.tradeLedgerProtocolVersion===2
       && data.portfolioReadStatus?.tradesOk===true
       && Array.isArray(data.trades)
       && /^[0-9a-f]{64}$/.test(String(data.ledgerRevision||''));
     window._tradeLedgerV2RequiredTargets={
       ...(window._tradeLedgerV2RequiredTargets||{}),
+      // A transient Bootstrap subread failure cannot downgrade a previously
+      // proven 14-column connection to legacy syncTrades while its GET retries.
       [loadTarget]:serverTradeV2
+        || window._tradeLedgerV2RequiredTargets?.[loadTarget]===true
     };
     // The dirty journal carries the *original* unconfirmed CAS preimage.
     // Bootstrap may already reflect a lost ACK; never replace that preimage
@@ -800,7 +803,36 @@ async function loadSettings(onProgress, options) {
         const result = missing[0];
         bootstrapTradesOk = !!(result && result.status === 'ok'
           && Array.isArray(result.trades));
-        if (bootstrapTradesOk) data.trades = result.trades;
+        if (bootstrapTradesOk) {
+          // On GAS v9.294 a failed Bootstrap trades subread advertises
+          // protocol 0 because its revision is unavailable. The separately
+          // authenticated getTrades fallback is authoritative for BOTH the
+          // recovered rows and their 14-column CAS identity. Without this
+          // propagation, the browser would restore v2 trades but silently
+          // choose legacy syncTrades for the next edit.
+          if (result.tradeLedgerProtocolVersion === 2) {
+            if (!/^[0-9a-f]{64}$/.test(String(result.ledgerRevision || ''))
+                || result.trades.some(row =>
+                  !/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(row?.id || '')))) {
+              loadStage = '거래 v2 개별 재조회 검증';
+              return failLoad('TRADE_V2_FALLBACK_REVISION_UNVERIFIED');
+            }
+            serverTradeV2 = true;
+            data.tradeLedgerProtocolVersion = 2;
+            data.ledgerRevision = String(result.ledgerRevision);
+            window._tradeLedgerV2RequiredTargets = {
+              ...(window._tradeLedgerV2RequiredTargets || {}),
+              [loadTarget]: true
+            };
+          } else if (serverTradeV2
+              || window._tradeLedgerV2RequiredTargets?.[loadTarget] === true) {
+            // Never silently accept a 13-column or schema-less fallback after
+            // this connection has already proved v2.
+            loadStage = '거래 v2 개별 재조회 검증';
+            return failLoad('TRADE_V2_FALLBACK_PROTOCOL_UNVERIFIED');
+          }
+          data.trades = result.trades;
+        }
       }
       if (!bootstrapHoldingsOk) {
         const result = missing[1];
@@ -1371,6 +1403,20 @@ async function loadSettings(onProgress, options) {
       targetUrl:loadTarget,generation:loadGeneration,epoch:loadEpoch,
       funds:_gsheetCodelessFundsFromRows(s.EDITABLE_PRICES)
     };
+    // Settings repair can refresh Bootstrap after initial capability pinning.
+    // Reconcile the FINAL verified response, never a discarded subread.
+    const finalV2Server = isBootstrap && bootstrapTradesOk
+      && data.tradeLedgerProtocolVersion === 2
+      && /^[0-9a-f]{64}$/.test(String(data.ledgerRevision || ''))
+      && Array.isArray(data.trades)
+      && data.trades.every(row =>
+        /^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(row?.id || '')));
+    if (finalV2Server) {
+      window._tradeLedgerV2RequiredTargets = {
+        ...(window._tradeLedgerV2RequiredTargets || {}),
+        [loadTarget]: true
+      };
+    }
     const v2RemoteRows = isBootstrap && bootstrapTradesOk && Array.isArray(data.trades)
       ? data.trades : null;
     // Identical IDs are NOT sufficient: a second browser may already have
