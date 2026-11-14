@@ -1,5 +1,12 @@
 # KRX 52-week market breadth — 252 trading-session data contract
 
+## 2026-11-14 #734: 종목기본정보 원천 권한·판정 프로세스 보완
+
+- **실증 문제:** [run #43591485713](https://github.com/cyyoung111-dev/portfolio/actions/runs/43591485713)은 원래 워크플로 SUCCESS였으나 실제 결과는 `status=SOURCE_UNVERIFIED`, `KOSPI=KRX_SERVICE_APPROVAL_REQUIRED`, KOSDAQ 미조회였다. GitHub 초록색 상태를 데이터 취득 성공으로 오판할 위험이 있었다.
+- **수정:** 동일일·동일 원천의 서로 다른 두 서비스에서 **첫 번째 시장 403 발생 시 두 번째 시장도 읽기 전용 1회 검사**하여 서비스별 인가를 구분한다. `401=KRX_AUTHENTICATION_DENIED`(공용 인증 문제), `403=KRX_SERVICE_ACCESS_DENIED`(추가 승인, IP 또는 기타 접근 정책 확인 필요), `429=RATE_LIMITED`(다음 호출 즉시 중단)으로 분리한다. 어떤 경우에도 재시도/가격 원본 쓰기/종목정보 업로드는 하지 않는다.
+- **정상 가동 판정:** 두 원천 모두 성공하고 KRX 252일 현재 종목 전체에서 공식 상장일/식별자 대사가 충족된 경우에만 일회성 감사 워크플로 0 반환. `SOURCE_UNVERIFIED`, `ARCHIVE_STALE`, `PARTIAL_OR_IDENTITY_CONFLICT`은 **명시적 non-zero**로 종료해 GitHub 결과를 미검증 상태로 표시한다. 공식 권리변동·수정 OHLC·거래정지 원인까지 입증되지는 않으므로 녹색 상태에서도 `publicationAllowed=false`는 유지.
+- **다음 외부 선행조건:** KRX 홈페이지에서 유가증권·코스닥 **종목기본정보 각각 서비스 활용신청과 승인 확인** 후 단 한 차례 읽기 전용 재실행. 코드 수정을 반복해 403을 우회하거나 보유 인증키·Sheet를 변경하지 않는다.
+
 ## 2026-11-14 #734: 상장일 공식 원천 대조 준비 — KRX 기본정보 2종 (일회성 승인점검)
 
 **KRX 공식 추가 원천:**
