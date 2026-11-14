@@ -43,6 +43,48 @@ function _setTabSyncStatus(tabId, state, msg) {
   }
 }
 
+// Read-only gate before the stock tab writes Settings/Codes/Holdings.
+// Otherwise an older PC can overwrite these stores BEFORE syncTradesV2's
+// final CAS rejects its stale trading ledger. This is a preflight, NOT an
+// atomic cross-sheet transaction; the server-side trade CAS remains mandatory.
+async function _manualStockSyncV2ReadGuard() {
+  const targetUrl=String(GSHEET_API_URL||'').trim();
+  const generation=typeof getGsheetConnectionGeneration==='function'
+    ?getGsheetConnectionGeneration():null;
+  if(!targetUrl||!Number.isInteger(generation))return false;
+  const required=window._tradeLedgerV2RequiredTargets?.[targetUrl]===true;
+  const baseline=typeof _tradeV2PinnedBaseline==='function'
+    ?_tradeV2PinnedBaseline(targetUrl,generation):null;
+  // Legacy connections preserve the existing manual sync behavior.
+  if(!required&&!baseline)return true;
+  if(!baseline||baseline.protocol!==2
+      ||typeof isGsheetConnectionCurrent!=='function'
+      ||typeof _tradeV2BrowserSha256!=='function'
+      ||typeof _tradeV2BrowserCanonical!=='function')return false;
+  try {
+    const result=await requestGsheetActionJson('getTrades',{},{
+      targetUrl,timeoutMs:60000,retry:0,preserveError:true
+    });
+    if(!isGsheetConnectionCurrent(targetUrl,generation)
+        ||result?.status!=='ok'
+        ||result.tradeLedgerProtocolVersion!==2
+        ||result.ledgerRevision!==baseline.revision
+        ||!Array.isArray(result.trades)
+        ||result.trades.length!==baseline.trades.length
+        ||result.trades.some(t=>
+          !/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(t?.id||''))))
+      return false;
+    const digest=await _tradeV2BrowserSha256(
+      result.trades.slice().sort((a,b)=>
+        String(a.date||'').localeCompare(String(b.date||'')))
+        .map(_tradeV2BrowserCanonical));
+    return isGsheetConnectionCurrent(targetUrl,generation)
+      &&digest===baseline.revision;
+  } catch(ignore) {
+    return false;
+  }
+}
+
 async function manualSyncByTab(tabId) {
   if (TAB_SYNC_BUSY[tabId]) return;
   if (!GSHEET_API_URL) {
@@ -56,6 +98,7 @@ async function manualSyncByTab(tabId) {
   _setTabSyncStatus(tabId, 'syncing', '⏳ 동기화 중...');
 
   let ok = false;
+  let blockedByStaleTradeV2 = false;
   try {
     if (tabId === 'div') {
       // 배당 탭 재동기화는 GAS의 마지막 정상 DIVDATA를 현재 브라우저로 다시 받습니다.
@@ -113,7 +156,9 @@ async function manualSyncByTab(tabId) {
         // A manual sync is complete only after ALL four writes succeed.
         // A partial trade/Snapshot rebuild must never display "completed".
         // Stop at the first failure so later stages cannot hide the error.
-        const settingsSaved = await saveSettings(true);
+        const tradeGuardOk = await _manualStockSyncV2ReadGuard();
+        blockedByStaleTradeV2 = !tradeGuardOk;
+        const settingsSaved = tradeGuardOk ? await saveSettings(true) : false;
         const codesSaved = settingsSaved === true
           ? await syncCodesToGsheet() : null;
         const holdingsSaved = codesSaved?.status === 'ok'
@@ -163,6 +208,12 @@ async function manualSyncByTab(tabId) {
     if (tabId === 'div' && typeof _setDividendLinkState === 'function') _setDividendLinkState('ok', '✅ GAS 저장 배당 데이터를 현재 화면에 다시 반영했습니다.');
     showToast('재동기화 완료', 'ok');
   } else {
+    if (blockedByStaleTradeV2) {
+      _setTabSyncStatus(tabId, 'fail',
+        '⚠️ 거래원장 최신성 미확인 · 설정/보유 업로드 차단');
+      showToast('서버 거래원장이 변경되었거나 조회에 실패했습니다. 거래 탭에서 원격 원장을 확인한 뒤 다시 동기화하세요.', 'warn', 7000);
+      return;
+    }
     // Preserve a stage-specific failure on stock-master recovery instead of
     // replacing it with the unhelpful generic failed-at timestamp.
     if (tabId !== 'stocks' || (_gsBootRestored && !_gsPortfolioRestoreRequired))
