@@ -7,33 +7,22 @@
 }
 
 @media(max-width:600px){
-  .action-bar{display:grid!important;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:6px;overflow:visible}
+  /* Layout lives in ui-unified.css for both phones AND 601–768px tablets. */
+  .action-bar{align-items:stretch;gap:6px;overflow:visible}
   .action-update-card{position:relative;width:100%;min-width:0;margin:0}
   .toolbar-btn-group{position:relative;width:100%;min-width:0;margin:0;justify-content:flex-start;overflow-x:auto;overflow-y:hidden;padding-bottom:3px}
   .toolbar-section{flex:0 0 auto}
 }
 
 @media(max-width:480px){
-  .toolbar-section{padding:2px;gap:3px}
   .toolbar-section-settings{order:initial;width:auto;flex:none}
   .toolbar-section-danger{margin-left:0}
-  .toolbar-btn{width:44px;height:40px;min-height:40px;gap:2px}
-  .toolbar-btn svg{width:14px;height:14px}
-  /* Full-width date above two equal-width buttons; keep Korean labels readable. */
-  .action-update-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;height:auto;min-height:52px;padding:4px;width:100%;overflow:visible}
-  .action-update-card>.action-date-input{grid-column:1/-1;width:100%;min-width:0;font-size:.76rem}
-  .action-update-card>.action-refresh-btn{width:100%;min-width:0;height:40px;min-height:40px;gap:1px;padding:3px 6px;font-size:.76rem;line-height:1.2}
-  .action-update-card>.action-refresh-btn span{display:block;max-width:100%;overflow:visible;text-overflow:clip;white-space:nowrap}
-  .action-update-card>.action-refresh-btn svg{width:14px;height:14px}
-  .action-update-card>.action-status-label,#price-updated-label.has-price-details{grid-column:1/-1;width:100%;max-width:100%;min-width:0;font-size:.65rem}
+  /* Keep status/diagnostic behavior here; common button and tab sizing
+     now has one owner (the last-loaded ui-unified.css). */
   .action-icon-btn{min-width:42px;padding:5px 10px;border-radius:6px}
   .action-icon-btn svg{width:15px;height:15px}
   .action-icon-btn span{font-size:.60rem}
-  .vs-btn{min-width:46px;height:40px;min-height:40px;gap:2px;padding:4px 6px;border-radius:6px}
-  .vs-btn-icon{width:17px;height:17px}
-  .vs-btn-icon svg{width:14px;height:14px}
-  .vs-btn-label{font-size:.60rem}
-  .view-switcher{gap:3px;margin-bottom:8px}
+  .view-switcher{margin-bottom:8px}
   /* Keep full diagnostic text, but avoid stacking every chip into extra rows. */
   .action-update-card>.action-status-label,
   #price-updated-label.has-price-details{padding:4px 6px}
@@ -46,10 +35,4 @@
   .toolbar-section{padding:1px;gap:2px}
 }
 
-/* Large accessibility zoom: don't squeeze either label into a narrow column. */
-@media(max-width:300px){
-  .action-update-card{grid-template-columns:minmax(0,1fr)}
-  .action-update-card>.action-date-input,
-  .action-update-card>.action-refresh-btn,
-  .action-update-card>.action-status-label{grid-column:1/-1}
-}
+/* <=300px primary-button stacking is owned by ui-unified.css. */
