@@ -1,4 +1,10 @@
 import assert from 'node:assert/strict';
+import {usSessionStatus} from './us-market-session-calendar.mjs';
+assert.equal(usSessionStatus('2026-10-27','EQUITY'),'OPEN');
+assert.equal(usSessionStatus('2026-11-11','EQUITY'),'OPEN');
+assert.equal(usSessionStatus('2026-11-11','BOND'),'CLOSED');
+assert.equal(usSessionStatus('2026-04-03','EQUITY'),'CLOSED');
+assert.equal(usSessionStatus('2026-04-03','BOND'),'OPEN');
 import {MORNING_SERIES,collectMorningSeries,formatFullMorningBriefing,expectedMorningDate} from './telegram-morning-report.mjs';
 import {formatMorningBriefing,fetchDatedDaily} from './telegram-morning-briefing.mjs';
 const date='2026-10-30',ref={value:900.05,tradingDate:date};
