@@ -108,18 +108,27 @@ assert.match(sw,/styles\/responsive\.css\?v=20261103-1/);
 assert.match(html,/id="quickFetchBtn"/);
 assert.match(html,/id="quickPriceBtn"/);
 const responsive=fs.readFileSync('src/web/styles/responsive.css','utf8');
-assert.match(responsive,/\.price-status-meta\{flex-wrap:nowrap;overflow-x:auto/, 'mobile status chips should not stack');
-assert.match(responsive,/\.vs-btn\{min-width:46px;height:40px;min-height:40px/, 'mobile nav height must stay compact');
-assert.match(responsive,/\.action-update-card>\.action-refresh-btn\{[^}]*height:40px/, 'mobile quick actions must stay compact');
+const viewerUnified=fs.readFileSync('src/web/styles/ui-unified.css','utf8');
+assert.match(responsive,/\.price-status-meta\{flex-wrap:nowrap;overflow-x:auto/,
+  'mobile status chips should not stack');
 assert.match(responsive,/@media\(max-width:480px\)/);
-assert.match(responsive,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
-  'mobile action buttons must share equal full-width columns');
-assert.match(responsive,/\.action-update-card>\.action-date-input\{grid-column:1\/-1/,
-  'date input must have a full-width row instead of squeezing action labels');
-assert.match(responsive,/\.action-update-card>\.action-refresh-btn span\{[^}]*overflow:visible/,
-  'mobile labels must not truncate Korean full update/price-only text');
-assert.match(responsive,/@media\(max-width:300px\)/,
-  'accessibility zoom must stack controls instead of clipping buttons');
+assert.doesNotMatch(responsive,/\.action-update-card>\.action-refresh-btn\{/,
+  'legacy mobile size overrides must not fight unified layout');
+assert.doesNotMatch(responsive,/\.vs-btn\{min-width:46px;height:40px/,
+  'legacy nav sizing must not override unified navigation');
+const phoneUi=viewerUnified.slice(viewerUnified.indexOf('@media(max-width:480px)'),
+  viewerUnified.indexOf('@media(max-width:300px)'));
+assert.ok(phoneUi.length>0,'unified mobile controls missing');
+assert.match(phoneUi,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+  'two equally sized mobile refresh actions must remain');
+assert.match(phoneUi,/\.action-bar \.action-update-card>\.action-date-input \{grid-column:1\/-1/,
+  'date input must stay on its own full-width row');
+assert.match(phoneUi,/\.action-bar \.action-update-card>\.action-refresh-btn \{[\s\S]*?width:100%/,
+  'mobile refresh actions must fill their equal columns');
+assert.match(phoneUi,/\.action-bar \.action-update-card>\.action-refresh-btn span \{[\s\S]*?white-space:nowrap;overflow:visible/,
+  'Korean action labels must remain visible');
+assert.match(viewerUnified,/@media\(max-width:300px\)[\s\S]*grid-template-columns:minmax\(0,1fr\)/,
+  'accessibility zoom must stack primary controls');
 
 assert.match(html,/views_history\.js\?v=20261103-1/);
 assert.match(sw,/settings_sync\.js\?v=20261103-1/);
