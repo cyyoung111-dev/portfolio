@@ -43,6 +43,12 @@ jobs:
           armed="$(sed -n 's/^armed=//p' "$sentinel")"
           [[ "$previous" != "$armed" ]] || { echo 'NAV_FALLBACK_DUPLICATE_VALUE'; exit 1; }
           kst_day="$(TZ=Asia/Seoul date +%F)"
+          # Domestic NAV fallback is not a weekend writer. Friday NAV
+          # publication lag is handled by the next eligible weekday.
+          kst_weekday="$(TZ=Asia/Seoul date +%u)"
+          if (( kst_weekday >= 6 )); then
+            echo 'NAV_FALLBACK_WEEKEND_NO_DISPATCH'; exit 0
+          fi
           [[ "${armed:0:10}" == "$kst_day" ]] || { echo 'NAV_FALLBACK_WRONG_KST_DAY'; exit 1; }
           kst_clock="$(TZ=Asia/Seoul date +%H%M)"
           # Morning protects the missed 09:10/09:30 wake-up; evening
@@ -66,6 +72,12 @@ jobs:
         run: |
           set -euo pipefail
           kst_day="$(TZ=Asia/Seoul date +%F)"
+          kst_weekday="$(TZ=Asia/Seoul date +%u)"
+          if (( kst_weekday >= 6 )); then
+            echo 'NAV_FALLBACK_WEEKEND_NO_DISPATCH'
+            echo 'dispatch=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           kst_clock="$(TZ=Asia/Seoul date +%H%M)"
           # In evening, an 09:10 successful-but-deferred NAV attempt must
           # not suppress recovery from missing evening scheduled wake-ups.
