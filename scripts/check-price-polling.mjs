@@ -43,13 +43,16 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
   selectedDate = '2026-10-13', selectHistoryAfterFetch = false,
   fullRestore = false, beginRestoreAfterFetch = false, rollDateAfterFetch = false,
   beginTradesRestoreAfterFetch = false, completeTradesRestoreAfterFetch = false,
-  concurrent = false, concurrentContext = '' } = {}) => {
+  concurrent = false, concurrentContext = '',
+  initialPrice = 1000, initialPriceLabel = '', initialUpdated = '2026.10.08',
+  existingRows = false, exchangeRatesBefore = {}, exchangeRatesAfter = null } = {}) => {
   let networkCount = 0, repaintCount = 0, summaryCount = 0, cacheInvalidations = 0;
   let persistedCount = 0, badge = null, status = null, connected = true;
   const releaseConcurrentFetch = [];
   let generation = 1;
-  const cache = { '005930': 1000 };
-  const rows = [], savedPriceDates = {};
+  const cache = { '005930': initialPrice };
+  const rows = existingRows ? [{evalAmt:initialPrice*2,costAmt:12000,pnl:initialPrice*2-12000}] : [];
+  const savedPriceDates = initialPriceLabel ? {'005930':initialPriceLabel} : {};
   const rawHoldings = [{ code:'005930', qty:2, costAmt:12000 }];
   const dateInput = {value:selectedDate};
   let nowDate='2026-10-13';
@@ -62,7 +65,7 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
     window:{ _gsheetPriceMeta:meta, _gsheetResolvedPriceDate:resolvedDate },
     getGsheetConnectionGeneration:()=>generation,
     isGsheetConnectionCurrent:(url,gen)=>connected && gen===generation && url===context.GSHEET_API_URL,
-    savedPriceDates, lastUpdated:'2026.10.08',
+    savedPriceDates, lastUpdated:initialUpdated, exchangeRates:{...exchangeRatesBefore},
     currentView:view, savedPrices:cache, rows, rawHoldings,
     fetchFromGsheet:async (date, opts) => {
       networkCount++;
@@ -85,6 +88,7 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
         context._gsBootRestored=true;
         context._gsPortfolioRestoreRequired=false;
       }
+      if (exchangeRatesAfter !== null) Object.assign(context.exchangeRates, exchangeRatesAfter);
       if (response && embeddedMeta) Object.defineProperty(response, '__gsheetPriceMeta', {value:embeddedMeta});
       if (response && embeddedDate !== null) Object.defineProperty(response, '__gsheetResolvedPriceDate', {value:embeddedDate});
       return response;
@@ -226,6 +230,44 @@ for (const opts of [
   if(opts.selectedDate || opts.fullRestore) assert.equal(blocked.networkCount,0,'blocked state must not call provider');
   else assert.equal(blocked.networkCount,1,'late state change discards completed response');
 }
+
+// Regression: identical confirmed quotes may update the status label but
+// must not rebuild chart/table DOM on a 60s timer or manual price-only poll.
+for (const view of ['acct','gsheet']) {
+  const noChange=await testPoll({view,initialPrice:12345,
+    initialUpdated:'2026.10.13',initialPriceLabel:'2026.10.13 조회값',
+    existingRows:true});
+  assert.equal(noChange.networkCount,1,'fresh source still checked');
+  assert.equal(noChange.repaintCount,0,'unchanged quote must not repaint');
+  assert.equal(noChange.summaryCount,0,'unchanged quote must not recalculate totals');
+  assert.equal(noChange.cacheInvalidations,0,'unchanged quote must retain view cache');
+  assert.equal(noChange.rows[0].evalAmt,24690,'existing financial valuation preserved');
+  assert.equal(noChange.persistedCount,0,'poll must remain entirely read-only');
+  assert.match(noChange.status[0],/변동 없음/);
+}
+// Equal price but changed source date is a new dated valuation.
+const updatedAsOf=await testPoll({view:'acct',initialPrice:12345,
+  initialUpdated:'2026.10.09',initialPriceLabel:'2026.10.09 기준일 이전값',
+  existingRows:true});
+assert.equal(updatedAsOf.repaintCount,1,'new as-of must repaint even with equal value');
+assert.equal(updatedAsOf.updated,'2026.10.13');
+// Equal quote with changed FX can change KRW valuation even if the
+// transport-level result has the same quoted price.
+const changedFx=await testPoll({view:'acct',initialPrice:12345,
+  initialUpdated:'2026.10.13',initialPriceLabel:'2026.10.13 조회값',
+  existingRows:true,exchangeRatesBefore:{USD:1400},exchangeRatesAfter:{USD:1401}});
+assert.equal(changedFx.repaintCount,1,'FX movement must not be hidden by quote no-op');
+const firstPaint=await testPoll({view:'acct',initialPrice:12345,
+  initialUpdated:'2026.10.13',initialPriceLabel:'2026.10.13 조회값',
+  existingRows:false});
+assert.equal(firstPaint.repaintCount,1,'first quote must paint even if cache is identical');
+// Changed numeric quote always invalidates and revalues, never only status.
+const changedQuote=await testPoll({view:'acct',initialPrice:12000,
+  initialUpdated:'2026.10.13',initialPriceLabel:'2026.10.13 조회값',
+  existingRows:true});
+assert.equal(changedQuote.repaintCount,1);
+assert.equal(changedQuote.rows[0].evalAmt,24690);
+console.log('PRICE_POLL_UNCHANGED_RENDER_SKIP_PASS equalQuotes=2 dateFXChanges=2 firstPaint=1');
 console.log('✅ 현재가 polling 설정 탭 rows·손익·캐시 갱신, DOM 보존, 비영속성, 실패/hidden 회귀 통과');
 
 // Actual price loader: fund history must start before the stock request finishes.
