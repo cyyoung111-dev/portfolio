@@ -2,7 +2,8 @@
 // #860 single protected status read offline contract. No GAS network/Sheets access.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {readIssue860Once,classifySavedFundWarning} from './issue860-close-single-status-readonly.mjs';
+import {readIssue860Once,classifySavedFundWarning,
+ classifyPersistedFundWarningReview} from './issue860-close-single-status-readonly.mjs';
 
 const url='https://script.google.com/macros/s/EXAMPLE_DEPLOYMENT/exec';
 const token='TEST_PRIVATE_ACCESS_TOKEN_12345';
@@ -107,6 +108,57 @@ const warningStatus=await readIssue860Once({url,token,
   automation:{...data.automation,gasVersion:'9.294',
    fundLastWarning:'F00001 NAV 미확보 1일 PRIVATE_ACCOUNT_123456'}})})});
 assert.equal(warningStatus.fundWarningPresent,true);
+// #734: Do not conflate a persisted NAV warning with a confirmed PRICE/FUND
+// or Snapshot failure. This is review-only; no clearing/suppression is allowed.
+const cleanClose={
+ state:'COMPLETE',stage:'COMPLETE',runDate:'2026-11-13',
+ priceOk:true,fundOk:true,fundState:'DONE',fundErrorCode:'NONE'
+};
+const warningAuditInput={
+ fundLastWarning:'F00001 부분 완료 PRIVATE_ACCOUNT_123',
+ portfolioClose:{runDate:'2026-11-13',priceDate:'2026-11-13'},
+ snapshotLastDate:'2026-11-13',priceHistoryLastDate:'2026-11-13',
+ expectedSnapshotDate:'2026-11-13',portfolioCloseRunStale:false,
+ snapshotStale:false,portfolioCloseLastError:'',fundLastError:'',
+ pendingKrxCloseDates:[],pendingTradeSnapshotRebuildFrom:'-',
+ tradeLedgerWriteUnverified:false,tradeSnapshotDeferredCount:0
+};
+const review=x=>classifyPersistedFundWarningReview(x,cleanClose);
+assert.equal(review(warningAuditInput),
+ 'SAVED_WARNING_WITH_COMPLETE_CLOSE_NEEDS_SOURCE_RECHECK');
+assert.equal(review({...warningAuditInput,fundLastWarning:''}),'NONE');
+assert.equal(review({...warningAuditInput,
+ fundLastWarning:'Snapshot 보호 충돌 PRIVATE_ACCOUNT_123'}),'UNCLASSIFIED_OR_PROTECTED');
+assert.equal(review({...warningAuditInput,
+ fundLastWarning:'UNKNOWN PRIVATE_ACCOUNT_123'}),'UNCLASSIFIED_OR_PROTECTED');
+assert.equal(review({...warningAuditInput,
+ fundLastWarning:'F00002 NAV 미확보 1일'}),'SAVED_WARNING_WITH_COMPLETE_CLOSE_NEEDS_SOURCE_RECHECK');
+for(const mutation of [
+ {portfolioClose:{...warningAuditInput.portfolioClose,priceDate:'2026-11-12'}},
+ {snapshotLastDate:'2026-11-12'},
+ {priceHistoryLastDate:'2026-11-12'},
+ {expectedSnapshotDate:'2026-11-12'},
+ {portfolioCloseRunStale:true},
+ {snapshotStale:true},{portfolioCloseLastError:'private error'},
+ {fundLastError:'private error'},{pendingKrxCloseDates:['2026-11-12']},
+ {pendingTradeSnapshotRebuildFrom:'2026-11-12'},
+ {tradeLedgerWriteUnverified:true},{tradeSnapshotDeferredCount:1},
+ {tradeSnapshotDeferredCount:undefined},
+ {pendingKrxCloseDates:undefined},
+ {pendingTradeSnapshotRebuildFrom:undefined}
+])assert.equal(review({...warningAuditInput,...mutation}),
+ 'SAVED_WARNING_WITH_PENDING_OR_UNVERIFIED_EVIDENCE',
+ 'any independent regression fails closed');
+for(const closeMut of [{state:'INCOMPLETE'},{stage:'FUND'},{fundOk:false},
+ {priceOk:false},{fundState:'ERROR'},{fundErrorCode:'TIMEOUT'},
+ {runDate:'2026-11-12'}])
+ assert.equal(classifyPersistedFundWarningReview(warningAuditInput,{
+  ...cleanClose,...closeMut}),
+ 'SAVED_WARNING_WITH_PENDING_OR_UNVERIFIED_EVIDENCE');
+assert.doesNotMatch(JSON.stringify({
+ review:review(warningAuditInput)
+}),/PRIVATE_ACCOUNT_123/,'no free-form GAS warning is ever emitted');
+
 const parityStatus=await readIssue860Once({url,token,
  fetchImpl:async()=>({ok:true,json:async()=>({...data,gasVersion:'9.294',
   automation:{...data.automation,gasVersion:'9.294',

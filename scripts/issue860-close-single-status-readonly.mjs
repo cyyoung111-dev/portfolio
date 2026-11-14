@@ -17,6 +17,35 @@ export function classifySavedFundWarning(value){
  if(/부분 완료|PARTIAL/i.test(value))return 'PARTIAL_FUND_VALUATION';
  return 'UNCLASSIFIED';
 }
+// A completed GAS CLOSE can still carry a saved warning from an older fund
+// attempt. Mark it as a CANDIDATE only; exact public NAV, all fund dates and
+// Apps Script execution ownership have not been independently verified here.
+// In particular, never clear the warning or downgrade an actual failure.
+export function classifyPersistedFundWarningReview(a,close) {
+ const value=a?.fundLastWarning;
+ if(typeof value!=='string'||!value.trim())return 'NONE';
+ const cls=classifySavedFundWarning(value);
+ if(!['PARTIAL_FUND_VALUATION','NAV_PUBLICATION_OR_INPUT_PENDING'].includes(cls))
+  return 'UNCLASSIFIED_OR_PROTECTED';
+ const date=close?.runDate;
+ const complete=close?.state==='COMPLETE'&&close?.stage==='COMPLETE'
+  &&close.priceOk===true&&close.fundOk===true
+  &&close.fundState==='DONE'&&close.fundErrorCode==='NONE'
+  &&typeof date==='string'&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)
+  &&a.portfolioClose?.runDate===date
+  &&a.portfolioClose?.priceDate===date
+  &&a.snapshotLastDate===date&&a.priceHistoryLastDate===date
+  &&a.expectedSnapshotDate===date
+  &&a.portfolioCloseRunStale===false&&a.snapshotStale===false
+  &&!a.portfolioCloseLastError&&!a.fundLastError
+  &&Array.isArray(a.pendingKrxCloseDates)&&a.pendingKrxCloseDates.length===0
+  &&(a.pendingTradeSnapshotRebuildFrom==='-'||a.pendingTradeSnapshotRebuildFrom==='')
+  &&a.tradeLedgerWriteUnverified===false
+  &&a.tradeSnapshotDeferredCount===0;
+ return complete?'SAVED_WARNING_WITH_COMPLETE_CLOSE_NEEDS_SOURCE_RECHECK'
+  :'SAVED_WARNING_WITH_PENDING_OR_UNVERIFIED_EVIDENCE';
+}
+
 export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)
@@ -78,6 +107,7 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
   fundErrorPresent:!!a.fundLastError,
   fundWarningPresent:!!a.fundLastWarning,
   fundWarningClass:classifySavedFundWarning(a.fundLastWarning),
+  fundWarningReview:classifyPersistedFundWarningReview(a,close),
   pendingKrxDatesCount:Array.isArray(a.pendingKrxCloseDates)
     ?a.pendingKrxCloseDates.length:null,
   closeState:close.state,closeStage:close.stage,closeRunDate:close.runDate,
