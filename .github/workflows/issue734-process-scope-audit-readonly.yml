@@ -9,6 +9,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'scripts/issue734-process-scope-audit-readonly.mjs'
+      - 'scripts/check-issue734-process-scope-audit-readonly.mjs'
       - '.github/workflows/issue734-process-scope-audit-readonly.yml'
   workflow_dispatch:
 permissions:
