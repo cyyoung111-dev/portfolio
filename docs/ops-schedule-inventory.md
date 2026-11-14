@@ -34,7 +34,7 @@
 - 예약 표현식 개수는 35개 그대로이며, 실제 주간 실행 시도 횟수만 줄인다. 콘솔 성공/스킵이 금융 저장 성공을 뜻하지 않는다.
 - **11/16(월) 운영 증빙 전에는** 장전 5 / 마감 6 / NH 4 / NAV 3을 임의로 줄이지 않는다. 장전·마감은 사전 기동 + Claim/SENT의 최종 결과가 정상이어야만 백업을 축소한다.
 - 다음 정리 때는 각 후보의 **기준거래일, 실제 시작시간, 실패/스킵 원인, 당일 성공 아티팩트와 최초 성공한 슬롯**을 함께 비교한다. 독립 자동화 및 다른 `workflow_run` 복구 경로도 포함해야 한다.
-- `NAV`와 `KRX 52주`의 `workflow_run` 연결은 다음 별도 단계에서 확인한다. 수집 게시일이 서로 달라 연계 제거가 타당해 보여도, 실제 누락 복구에 쓰였는지 확인하기 전까지는 Writer 기동 경로를 제거하지 않는다.
+- **4단계 완료 — NAV↔KRX 52주 `workflow_run` 연결 제거:** KRX 원시 OHLC는 T+1 시세 진단일 뿐 NAV 공표나 NAV 저장이 필요하다는 신호가 아니다. 실제 [11/14 05:58 KST NAV wake #43506362578](https://github.com/cyyoung111-dev/portfolio/actions/runs/43506362578)는 [KRX 23:30 예약의 지연 실행 #43506294072](https://github.com/cyyoung111-dev/portfolio/actions/runs/43506294072)에서 기동됐지만, KB imported=0, 한화 imported=0·writerInvoked=false, 공식 11/13 KB NAV 미공표, GAS CLOSE는 이미 COMPLETE였다. [11/14 KRX push에서 생성된 NAV #43590194264](https://github.com/cyyoung111-dev/portfolio/actions/runs/43590194264)는 4개 작업 모두 SKIPPED였다. 따라서 KRX↔NAV 연결만 제거하되, NAV 자체 **월~금 09:30/18:10/19:17** 예약, 독립 **10:20/20:30** fallback, 명시적 `workflow_dispatch`, 금융 CAS·원천공표 검증, Writer 간 직렬화는 유지한다. **11/16 실제 NAV 저장·재조회 성공 여부는 별도 운영검증 필요**.
 - 전체 워크플로 파일 정리는 **별도 5단계**로 보류: 최종 호출 여부, 수동 응급 복구 기능, 날짜 제한과 안전 검증을 각 파일별로 확인한 후 삭제.
 - [단일 운영 결과표](operating-status-verdict.md)로 NAV·저장 CLOSE·SENT는 각각의 증빙 수준만 PASS로 기록한다.
 

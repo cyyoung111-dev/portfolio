@@ -52,9 +52,12 @@ workflow run list is for *execution diagnostics only*.
 3. After an actual Monday trading-day run: review the 5 morning and 6 close
    backup slots, retain independent arming, remove redundant slots only with
    verified no-regression delivery evidence.
-4. NAV's \`workflow_run\` wake from KRX 52-week OHLC has no inherent
-   dependency: review actual missed-run recovery before removing. It is not
-   permission to import NAV when a source publication is unverified.
+4. **Done:** remove the KRX 52-week T+1 source `workflow_run` from
+   NAV admission. Actual 2026-11-14 05:58 KST KRX-triggered NAV completed
+   with 0 KB imports and 0 Hanwha imports while official 11/13 KB NAV was
+   not yet published. Independent 09:30/18:10/19:17 weekday NAV cron slots,
+   protected 10:20/20:30 independent fallback and manual dispatch remain.
+   The next actual business-day stored NAV readback still requires verification.
 5. Repository presently has 99 Actions workflow files, 45 with Issue-derived
    names. Do **not** bulk-delete. Inventory manual writer/recovery
    consumers, paths, and last successful references before separate cleanup.

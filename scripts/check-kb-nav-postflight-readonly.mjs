@@ -246,21 +246,32 @@ assert.ok(!cron.includes('10 0 * * 0,6'),'weekend NAV wake-ups disabled');
 assert.ok(cron.includes('10 9 * * 1-5'),'18:10 KST weekday primary must remain');
 assert.ok(cron.includes('17 10 * * 1-5'),'19:17 KST weekday fallback must remain');
 assert.equal(new Set(cron).size,cron.length,'duplicate cron wakes are wasteful');
-assert.deepEqual(workflow.on.workflow_run.workflows,
- ['KRX 252-session 52-week market breadth archive (source only)']);
-assert.deepEqual(workflow.on.workflow_run.types,['completed']);
-assert.deepEqual(workflow.on.workflow_run.branches,['main']);
+// NAV official NAV class/date has no dependency on KRX T+1 raw OHLC
+// market-breadth collection. Removing its workflow_run wake must preserve
+// independently scheduled NAV jobs, manual fallback and main-only guards.
+assert.equal(workflow.on.workflow_run,undefined,
+ 'KRX52 source completion must never fan out to NAV collector');
+assert.ok(Object.hasOwn(workflow.on,'workflow_dispatch'),
+ 'independent NAV fallback needs protected manual dispatch');
+assert.deepEqual(workflow.on.push.paths,[
+ '.github/workflows/kb-fund-nav-collect.yml',
+ 'scripts/collect-kb-fund-nav.mjs',
+ 'scripts/collect-hanwha-public-nav.mjs',
+ 'scripts/collect-fidelity-public-nav.mjs'
+]);
 for(const name of ['source-public','collect','hanwha-collect','postflight-readonly']){
  const guard=workflow.jobs[name].if;
  assert.match(guard,/github\.repository == 'cyyoung111-dev\/portfolio'/);
  assert.match(guard,/github\.ref == 'refs\/heads\/main'/);
- assert.match(guard,/github\.event_name == 'workflow_run'/);
- assert.match(guard,/github\.event\.workflow_run\.event == 'schedule'/);
- assert.match(guard,/github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
- assert.match(guard,/github\.event\.workflow_run\.head_branch == 'main'/);
- assert.match(guard,/github\.event\.workflow_run\.path == '\.github\/workflows\/krx-52week-history\.yml'/);
- assert.match(guard,/github\.event\.workflow_run\.run_attempt == 1/);
- assert.match(guard,/github\.run_attempt == 1/);
+ assert.match(guard,/github\.event_name == 'schedule'/);
+ assert.match(guard,/github\.event_name == 'workflow_dispatch'/);
+ assert.doesNotMatch(guard,/workflow_run/,
+  'KRX market-breadth workflow must no longer wake NAV');
+}
+assert.match(workflow.jobs['source-public'].if,/github\.event_name == 'push'/);
+for(const name of ['collect','hanwha-collect','postflight-readonly']){
+ assert.doesNotMatch(workflow.jobs[name].if,/github\.event_name == 'push'/,
+  'source-only main push must never authorize a financial NAV writer');
 }
 assert.doesNotMatch(workflow.jobs.collect.if,/github\.event_name == 'push'/,
  'source-only main push cannot launch protected financial writer');

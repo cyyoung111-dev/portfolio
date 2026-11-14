@@ -96,7 +96,7 @@ jobs:
             jq -r --arg since "$since" '[.workflow_runs[]
               | select(.created_at >= $since)
               | select(.head_branch == "main")
-              | select(.event == "schedule" or .event == "workflow_dispatch" or .event == "workflow_run")
+              | select(.event == "schedule" or .event == "workflow_dispatch")
               | select(.status != "completed" or .conclusion == "success")
             ] | length')"
           [[ "$recent" =~ ^[0-9]+$ ]] || { echo 'NAV_FALLBACK_DEDUPE_UNVERIFIED'; exit 1; }

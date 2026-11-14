@@ -39,6 +39,10 @@ assert.match(guard,/10#\$kst_clock < 2020/,'evening starts after 19:00 CLOSE');
 assert.match(guard,/10#\$kst_clock > 2110/,'evening has a bounded end');
 assert.match(guard,/lag_s > 7200/);
 assert.match(check,/workflow_dispatch/);
+assert.doesNotMatch(check,/select\(\.event == "schedule" or \.event == "workflow_dispatch" or \.event == "workflow_run"\)/,
+ 'independent fallback must ignore retired KRX-linked wake');
+assert.match(check,/select\(\.event == "schedule" or \.event == "workflow_dispatch"\)/,
+ 'only schedule/manual NAV attempts suppress fallback');
 assert.match(check,/NAV_FALLBACK_TRUSTED_COLLECTION_ALREADY_ACTIVE_OR_DONE/);
 assert.match(check,/NAV_FALLBACK_EVENING_DEDUPE_SINCE_1700_KST/);
 assert.match(check,/NAV_FALLBACK_MORNING_DEDUPE_SINCE_0845_KST/);
