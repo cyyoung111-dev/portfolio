@@ -57,18 +57,22 @@ assert.deepEqual(sanitizeCloseOptionalSourceReason({
  assert.equal(lateCloseTargetDate(Saturday),'2026-11-13',
   'late GitHub schedule crossing KST midnight must check Friday SENT');
  const repo='cyyoung111-dev/portfolio',key='TEST_TOKEN_FOR_READ_ONLY';
- const artifactName='telegram-close-claim-2026-11-13-sent';
- const rows={total_count:1,artifacts:[{
-   name:artifactName,expired:false,workflow_run:{id:123}
- }]};
+ const claim='telegram-close-claim-2026-11-13';
+ const make=(name,id,created_at)=>({id,name,created_at,expired:false,
+  workflow_run:{id:123}});
+ const claimProof=make(claim,2,'2026-11-13T08:01:00Z');
+ const sentProof=make(claim+'-sent',3,'2026-11-13T08:03:00Z');
  const recorded=[];
  const source=async (url,init)=>{
   const u=new URL(url);
   recorded.push({path:u.pathname,method:init.method});
-  if(u.pathname.endsWith('/actions/artifacts'))
-   return {ok:true,json:async()=>rows};
+  if(u.pathname.endsWith('/actions/artifacts')){
+   const a=u.searchParams.get('name')===claim?claimProof:sentProof;
+   return {ok:true,json:async()=>({total_count:1,artifacts:[a]})};
+  }
   if(u.pathname.endsWith('/actions/runs/123'))
    return {ok:true,json:async()=>({
+    id:123,status:'completed',run_attempt:1,
     head_branch:'main',head_repository:{full_name:repo},
     path:'.github/workflows/telegram-close-briefing.yml',
     event:'schedule',conclusion:'success'})};
@@ -79,7 +83,7 @@ assert.deepEqual(sanitizeCloseOptionalSourceReason({
  assert.equal(proven.verified,true);
  assert.equal(proven.telegramSends,0);
  assert.equal(proven.financeWrites,0);
- assert.equal(recorded.length,2);
+ assert.equal(recorded.length,3);
  assert.ok(recorded.every(x=>x.method==='GET'));
  const missing=await verifyLateCloseSent({now:Saturday,token:key,
   fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})})});
@@ -91,9 +95,12 @@ assert.deepEqual(sanitizeCloseOptionalSourceReason({
  assert.equal(unknown.verified,false);
  const wrongRun=await verifyLateCloseSent({now:Friday,token:key,
   fetchImpl:async(url)=>({ok:true,json:async()=>url.includes('/actions/artifacts')
-   ?rows:{head_branch:'feature',head_repository:{full_name:repo},
-    path:'.github/workflows/telegram-close-briefing.yml'}})});
- assert.equal(wrongRun.status,'NO_TRUSTED_SENT_PROOF');
+   ?{total_count:1,artifacts:[url.includes(encodeURIComponent(claim+'-sent'))
+      ?sentProof:claimProof]}
+   :{id:123,status:'completed',conclusion:'success',run_attempt:1,
+     head_branch:'feature',head_repository:{full_name:repo},
+     path:'.github/workflows/telegram-close-briefing.yml'}})});
+ assert.equal(wrongRun.status,'SENT_PROOF_UNVERIFIED');
  const noKey=await verifyLateCloseSent({now:Friday,token:''});
  assert.equal(noKey.status,'SENT_PROOF_UNVERIFIED');
  const code=fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8');
