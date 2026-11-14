@@ -28,6 +28,12 @@
 
 합계 **35개 cron 표현식**. 2026-11-15의 추가 축소는 `krx-nightly-health`의 월요일 02:30 KST 정기 실행 1회/주만 제거(기존 7회→6회). 토요일은 금요일 KRX 마감, 일요일은 금요일 미국장 마감 후 혼합자산 Snapshot 점검 가능성을 고려해 유지한다. 월요일 아침 최초 KRX 거래일 전 점검은 단순 반복 조회로 판정하지 않는다. `workflow_dispatch`는 그대로이며 금융 Writer/텔레그램/기타 예약은 변경하지 않는다. 7일 기준 독립 성능 진단은 기존 매일 7회에서 **월요일 09:05 KST 주 1회**로 감소(주 6회 절감). 공식 성능 자료 7일 이동창 유지, `workflow_dispatch` 수동 진단과 PR 자가검증 유지. [11/14 실조회 #43564712919](https://github.com/cyyoung111-dev/portfolio/actions/runs/43564712919): 7일 `sampleCount=0`; 해당 결과만으로 성능 문제가 없다고 주장할 수 없다.
 
+## 외부 승인형 진단의 실행 정책 (2026-11-15)
+
+- `issue734-process-scope-audit-readonly.yml`: OAuth `script.processes` 권한을 실제 조회하는 단계는 main 수동 실행 전용. PR/main 소스 변경은 비밀정보 없는 오프라인 계약 검사만 수행하며 OAuth 권한 부재를 자동 오류로 만들지 않는다.
+- `krx-52week-listing-audit-readonly.yml`: KRX 2개 종목기본정보 API HTTP 401 해결 전 자동 push 실조회 제거. 서비스별 이용승인 후 main 수동 실행 1회로 확인. 다른 정규 KRX OHLC 252일 수집 cron은 그대로 유지.
+- Snapshot 동일일·동일종목에 외부 Sheets API가 동시에 쓰는 경합은 GAS ScriptLock만으로 해결되지 않는다. 운영 원본의 owner-only Drive 공유 메타데이터는 소유자 본인의 별도 API·수동 편집 부재를 증명하지 않는다. 그러므로 금융 운영 동시성 안전성 최종 승인은 별도 증거 전까지 보류한다.
+
 ## 범위 및 원칙
 
 - 이번 변경은 **선택적 읽기 전용 성능 진단의 예약 주기만 변경**한다. 날짜별 펀드 NAV Writer, 손익/거래원장, Snapshot, GAS 배포, 텔레그램 전송, 크리티컬 백업 예약은 전혀 수정하지 않는다.
