@@ -41,9 +41,9 @@ assert.match(guard,/lag_s > 7200/);
 assert.match(check,/workflow_dispatch/);
 assert.match(check,/NAV_FALLBACK_TRUSTED_COLLECTION_ALREADY_ACTIVE_OR_DONE/);
 assert.match(check,/NAV_FALLBACK_EVENING_DEDUPE_SINCE_1700_KST/);
-assert.match(check,/NAV_FALLBACK_MORNING_DEDUPE_SINCE_0000_KST/);
+assert.match(check,/NAV_FALLBACK_MORNING_DEDUPE_SINCE_0845_KST/);
 assert.match(check,/date -u -d "\$kst_day 17:00:00 \+0900"/);
-assert.match(check,/date -u -d "\$kst_day 00:00:00 \+0900"/);
+assert.match(check,/date -u -d "\$kst_day 08:45:00 \+0900"/);
 assert.match(check,/select\(\.head_branch == "main"\)/);
 assert.match(check,/select\(\.status != "completed" or \.conclusion == "success"\)/);
 assert.match(dispatch,/gh workflow run kb-fund-nav-collect\.yml/);
@@ -76,3 +76,25 @@ assert(!evening(1900)&&!evening(1917),
  'GAS 19:00 and protected 19:17 NAV must never contend with fallback');
 console.log(JSON.stringify({kind:'NAV_FALLBACK_DUAL_WINDOW_OFFLINE_PASS',
  cases:15,financeWrites:0,dispatches:0}));
+
+
+// 2026-11-14: protected NAV source ran at 02:09, 02:43 and 05:58 KST,
+// but Friday official NAV was still unpublished. A missing Saturday 09:10
+// cron must be independently recoverable at 10:20.
+const morningSince=Date.parse('2026-11-14T08:45:00+09:00');
+const eveningSince=Date.parse('2026-11-14T17:00:00+09:00');
+for(const [time,shouldSuppressMorning] of [
+ ['2026-11-14T02:09:00+09:00',false],
+ ['2026-11-14T02:43:00+09:00',false],
+ ['2026-11-14T05:58:00+09:00',false],
+ ['2026-11-14T08:44:59+09:00',false],
+ ['2026-11-14T08:45:00+09:00',true],
+ ['2026-11-14T09:10:00+09:00',true],
+ ['2026-11-14T09:30:00+09:00',true],
+ ['2026-11-14T10:20:00+09:00',true]
+])assert.equal(Date.parse(time)>=morningSince,shouldSuppressMorning,
+  'overnight NAV collector must not count as 09:10 success');
+assert.equal(Date.parse('2026-11-14T09:30:00+09:00')>=eveningSince,false);
+assert.equal(Date.parse('2026-11-14T18:10:00+09:00')>=eveningSince,true);
+console.log(JSON.stringify({kind:'NAV_MORNING_PERIOD_DEDUPE_OFFLINE_PASS',
+ scenarios:10,financeWrites:0,dispatches:0}));
