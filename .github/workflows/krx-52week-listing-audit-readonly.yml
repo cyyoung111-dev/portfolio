@@ -1,0 +1,72 @@
+name: KRX 52-week official listing-date audit (READ ONLY)
+on:
+  # A single live probe after the protected source contract is merged.
+  # There is NO cron: an unapproved metadata endpoint must not be polled.
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/krx-52week-listing-metadata-readonly.mjs'
+      - '.github/workflows/krx-52week-listing-audit-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: krx-52week-official-listing-date-readonly
+  cancel-in-progress: false
+jobs:
+  listing-date-audit:
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify all KRX price/listing unit and rejection contracts offline
+        run: node scripts/check-krx-52week-market.mjs
+      - name: Restore ONLY latest authenticated 52-week source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p .krx-52week/listing
+          previous="$(gh api "repos/$GH_REPOSITORY/actions/artifacts?name=krx-52week-archive&per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at, .id) | last | .workflow_run.id // empty')"
+          [[ "$previous" =~ ^[0-9]+$ ]] || { echo 'KRX52_LISTING_ARCHIVE_MISSING'; exit 1; }
+          read -r prior_path prior_branch prior_event < <(gh api \
+            "repos/$GH_REPOSITORY/actions/runs/$previous" \
+            --jq '[.path, .head_branch, .event] | join(" ")')
+          [[ "$prior_path" == '.github/workflows/krx-52week-history.yml' &&
+             "$prior_branch" == 'main' &&
+             ( "$prior_event" == 'push' || "$prior_event" == 'schedule' ||
+               "$prior_event" == 'workflow_dispatch' ) ]] || {
+            echo 'KRX52_LISTING_ARCHIVE_SOURCE_UNVERIFIED'; exit 1;
+          }
+          gh run download "$previous" --repo "$GH_REPOSITORY" \
+            --name krx-52week-archive --dir .krx-52week/listing
+          test -s .krx-52week/listing/history.k52e || {
+            echo 'KRX52_LISTING_SEALED_ARCHIVE_MISSING'; exit 1;
+          }
+          node scripts/krx-52week-archive-crypto.mjs open \
+            .krx-52week/listing/history.k52e .krx-52week/listing/history.json
+          echo 'KRX52_LISTING_ARCHIVE_DECRYPTED_RUNNER_ONLY'
+      - name: Check exact KRX listing metadata approval and public 52-week coverage
+        env:
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/krx-52week-listing-metadata-readonly.mjs \
+            --input=.krx-52week/listing/history.json
+          # Only numeric aggregate/known fixed source statuses appear in logs.
+          # Never upload raw vendor prices, basic-info API payloads or names.
