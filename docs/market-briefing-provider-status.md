@@ -1,3 +1,28 @@
+## 2026-11-14 Issue #734: GAS 실행 UID·17시 지표 제공원 실운영 선행조건
+
+### GAS: Process API는 실행 상태를 제공하지만 실제 실행 UID는 제공하지 않음
+
+- Google Apps Script `processes.listScriptProcesses` 공식 `Process` 스키마는 `projectName`, `functionName`, `processType`, `processStatus`, `userAccessLevel`, `startTime`, `duration`만 제공한다. **실행별 고유 UID, Script Properties Writer lease token, 백업 소유권은 제공하지 않는다.** 타임스탬프/함수명 근접성은 감사 후보일 뿐 정확한 실행-Writer 연결 증거가 아니다. `e.triggerUid`도 **트리거 고유 ID**이지 실행마다 생성되는 실행 UID가 아니다.
+- 조회하려면 사용자 소유 `clasp` OAuth refresh token에 `https://www.googleapis.com/auth/script.processes` scope가 필요하다. 2026-11-10 read-only scope 감사에서 기존 `CLASPRC_JSON`의 `PROCESS_SCOPE_MISSING` 확인. repo 변경만으로 권한 부여·토큰 교체를 대행할 수 없다.
+- 사용자 PC에서 같은 Google 계정으로 필요할 때만 `npx clasp login --extra-scopes https://www.googleapis.com/auth/script.processes`를 실행하고 권한을 승인할 수 있다. 새로 발행된 개인 `.clasprc.json`/refresh token **원문은 채팅·Issue·로그에 공유하지 않고**, 사용자 본인만 GitHub Actions `CLASPRC_JSON` secret을 업데이트한다. 그 후 기존 [OAuth scope audit](https://github.com/cyyoung111-dev/portfolio/actions/workflows/issue734-process-scope-audit-readonly.yml) → [writer process status READ ONLY](https://github.com/cyyoung111-dev/portfolio/actions/workflows/issue734-writer-terminal-evidence-readonly.yml) 순서로 수동 검증한다.
+- 이 과정에서 확인 가능한 것은 명시된 함수의 *실행 상태·시간*, **정확한 lease 소유권 아님**. Writer-gate 정리를 자동 승인하거나 Apps Script를 재배포하면 안 된다. 향후 **실행마다 생성한 별도 상관관계 ID**를 시작/종료 및 Writer 체크포인트에 모두 원자적으로 남기는 것은 운영 GAS 변경·실증을 수반하므로 별도 배포 심사 대상.
+
+공식 근거: https://developers.google.com/apps-script/api/reference/rest/v1/processes · https://developers.google.com/apps-script/api/reference/rest/v1/processes/listScriptProcesses · https://developers.google.com/apps-script/guides/triggers/events · https://github.com/google/clasp/blob/master/README.md
+
+### 17:00 거래대금/VKOSPI: 데이터 자체보다 시각·기준일·단위·이용권한 확인이 핵심
+
+- **KRX 무료 일별 Open API:** 실제 2026-11-13 21:28 KST 대상일 5개 경로가 HTTP 200/0행. 익영업일 공개 전에는 17:00 당일 수치로 사용하지 않는다. KRX의 별도 계약형 종가(16:00/18:10) 분배상품은 무료 Open API와 구별한다.
+- **한국투자증권 KIS 업종 현재지수:** `FHPUP02100000`, `/uapi/domestic-stock/v1/quotations/inquire-index-price`, 시장구분 `U`, KOSPI `0001` / KOSDAQ `1001`, `acml_tr_pbmn` 필드가 존재한다. 그러나 현재 GitHub/GAS에 **독립 KIS 계정·액세스토큰 연결 없음**, 응답 필드만으로는 **정확한 시세 거래일·정규장 확정 시각·KRW 환산 배수·대표지수 구성 거래대금과 시장 전체 총액의 범위**가 자동 증명되지 않는다. 같은 KIS의 기간·분봉 API와 기준 날짜를 교차하고 차일 KRX 정식 공시로 수치·단위 검산해야 한다. KIS 응답은 승인 전 기존 `KRX_OFFICIAL` 값으로 가장하거나 대체하지 않음.
+- **코스콤 실시간 업종지수:** `/v3/market/realtime/index/{marketcode}/{issuecode}/index`, `accTrdval` 필드는 **원 단위**로 공식 명세되며 거래시각 `trdTm` 포함. 단, 별도 유료 API 계약/인증, 15:30 정규장 구분, 재배포 조건을 충족해야 한다. KIS와 코스콤을 합산하거나 비교 인증 없이 표기하지 않는다.
+- **VKOSPI:** KRX 무료 일별 파생지수 API의 대상일 실제 공표까지 보류. 17:00 당일 이용이 가능한 라이선스·출처·날짜·시각·지수 정체성이 확인된 피드 미연결. 코스콤 파생상품 지수/변동성지수선물 **상품목록이 현물 VKOSPI 제공을 입증하지는 않는다.** 웹페이지에 숫자 하나가 보인다는 이유만으로 정기 자동화·텔레그램에 편입하지 않는다.
+- **52주 신고가·신저가:** 공식 KRX 252거래일 원시 OHLC 검증 완료와 권리조정 완료는 **별개**. KIS 기간별 시세 `FHKST03010100`의 수정주가 옵션 `FID_ORG_ADJ_PRC=0`은 공급 후보이나 개인 계정·250일 이상 페이지네이션·전체 종목 권리조정·데이터 라이선스가 검증되지 않았으므로 공식 시장 전체 숫자 게시 금지.
+
+**운영 전환 순서:** (1) 데이터 이용권한 및 동일일 실조회 2개 시장 확보 → (2) 16:50–17:05 KST 날짜·시장 코드·정규장 완료·단위 검증 → (3) KRX 익영업일 공시치 교차 대사 → (4) 모의 Telegram·회귀 검증 → (5) 기존 브리핑과 GAS 원본에 영향 없는 별도 승인 후 채택. 현재는 프로덕션 소스/키·Writer·브리핑 일정 변경 **0건**.
+
+공식 근거: https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_examples.py · https://koscom.gitbook.io/open-api/api/marketv3/index/realtime · https://openapi.krx.co.kr/contents/OPP/DATA/OPPDATA002.jsp · https://openapi.krx.co.kr/contents/OPP/INFO/service/OPPINFO004.cmd
+
+---
+
 ## 2026-11-13 Issue #734: 17:00 VKOSPI·시장 거래대금 원천 정책
 
 **공식 API 실증:** #43425414981에서 2026-11-13 밤 21:28 KST 현재 KRX 5개 일별 엔드포인트의 11/13 응답은 HTTP 200 / 0행, 직전 거래일 11/12은 정확히 조회됐다. 이는 당일 일별데이터 미공표(T+1)이며 인증키·NAV·GAS 마감 오류가 아니다.

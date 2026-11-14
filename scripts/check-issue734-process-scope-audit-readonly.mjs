@@ -29,6 +29,13 @@ const report=await inspectGoogleProcessScope({token,fetchImpl:async(url,request)
 assert.equal(calls,1);
 assert.equal(report.status,'PROCESS_SCOPE_MISSING');
 assert.equal(report.processExecutionStatusVerified,false);
+assert.equal(report.executionUidAvailableInProcessApi,false);
+assert.equal(report.triggerUidIsExecutionUid,false);
+assert.equal(report.exactWriterGateOwnerVerified,false);
+const granted=inspectScopeResult({scope:scope+' '+other});
+assert.equal(granted.hasProcessScope,true);
+assert.equal(granted.executionUidAvailableInProcessApi,false,
+ 'OAuth grant can expose execution status, never a unique execution UID');
 assert.equal(report.approvedForWriterCleanup,false);
 assert.equal(report.approvedForTradeMigration,false);
 assert.equal(report.scriptPropertyWrites,0);

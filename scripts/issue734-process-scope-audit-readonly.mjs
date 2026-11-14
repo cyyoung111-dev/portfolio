@@ -22,6 +22,12 @@ export function inspectScopeResult(response){
   missingScopeRequiresUserAuthorization:!hasProcessScope,
   // Even with the scope, a 403 can mean project access or API configuration.
   processExecutionStatusVerified:false,
+  // As documented by Google, Process has no per-execution UID in its
+  // REST response. Even a newly authorized token cannot establish an
+  // exact historical Writer-gate token -> execution identity.
+  executionUidAvailableInProcessApi:false,
+  triggerUidIsExecutionUid:false,
+  exactWriterGateOwnerVerified:false,
   scriptProjectPermissionVerified:false,
   activeWriterRecordsCleared:0,
   approvedForWriterCleanup:false,
