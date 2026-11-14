@@ -105,3 +105,130 @@ assert.equal(writes.length,3);
 console.log('WEB_TRADE_V2_REAL_SYNC_PASS '+JSON.stringify({
  v2Writes:3,legacyWrites,explicitDeletes:true,
  readbackFailClosed:true,productionWrites:0}));
+// #734: two isolated browser devices against one CAS-enforcing synthetic GAS.
+// This is a code-level regression only, NOT a PC/Android hardware or production
+// receipt test. A stale mobile/PC edit must never overwrite a newer ledger.
+const shared={
+ trades:[{...before}],
+ revision:await ctx._tradeV2BrowserSha256([ctx._tradeV2BrowserCanonical(before)]),
+ commits:0
+};
+const seedRevision=shared.revision;
+function createDevice(label) {
+ const receipts={},deviceWindow={
+  _tradeLedgerV2RequiredTargets:{[url]:true},
+  _tradeFxMetadataTargets:{[url]:true},
+  _tradeLedgerV2BaselineTargets:{[url]:{
+   targetUrl:url,generation,protocol:2,revision:shared.revision,
+   trades:shared.trades.map(t=>({...t}))
+  }}
+ };
+ const metrics={attempts:0,reads:0,legacy:0,conflicts:0};
+ const device=vm.createContext({
+  window:deviceWindow,crypto:webcrypto,TextEncoder,
+  JSON,Array,Map,Set,Number,String,Date,Math,Uint8Array,
+  GSHEET_API_URL:url,rawTrades:shared.trades.map(t=>({...t})),
+  STOCK_CODE:{TEST:'005930'},
+  normalizeStockCode:v=>String(v||''),
+  isGsheetPortfolioWriteReady:()=>true,
+  getGsheetConnectionGeneration:()=>generation,
+  isGsheetConnectionCurrent:(target,g)=>target===url&&g===generation,
+  getEPByCode:()=>({code:'005930',name:'TEST',assetType:'주식'}),
+  getEP:()=>({code:'005930',name:'TEST',assetType:'주식'}),
+  getEPType:(ep,fallback)=>ep?.assetType||fallback,
+  isCodeLessDirectFundTrade:()=>false,
+  showToast:()=>{},_syncWarn:()=>{},
+  _readPortfolioRecoveryReceipts:()=>receipts,
+  _savePortfolioRecoveryReceipts:()=>true,
+  _acknowledgePortfolioTradeV2Sync:()=>true,
+  syncIssuesToGsheet:async()=>{},
+  requestGsheetFormJson:async()=>{
+   metrics.legacy++;throw Error('LEGACY_ROUTE_FORBIDDEN_ON_V2');
+  },
+  _requestPortfolioRecoveryWrite:async(action,params,opts)=>{
+   metrics.attempts++;
+   assert.equal(action,'syncTradesV2',label);
+   assert.equal(opts.retry,0,label);
+   assert.equal(params.tradeLedgerProtocolVersion,'2',label);
+   // The synthetic server faithfully enforces expectedLedgerRevision
+   // BEFORE any data mutation, like an atomic source CAS.
+   if(params.expectedLedgerRevision!==shared.revision){
+    metrics.conflicts++;
+    return {status:'error',saveState:'failed',
+     errorCode:'TRADE_V2_REVISION_CONFLICT'};
+   }
+   const after=JSON.parse(params.data);
+   const digest=await device._tradeV2BrowserSha256(
+    after.slice().sort((a,b)=>
+     String(a.date||'').localeCompare(String(b.date||'')))
+     .map(device._tradeV2BrowserCanonical));
+   shared.trades=after.map(t=>({...t}));
+   shared.revision=digest;
+   shared.commits++;
+   receipts[url]={syncTradesV2:{
+    action,id:'pr_'+label+'_'+shared.commits,attempted:true,
+    completed:true,params:{...params}
+   }};
+   return {status:'ok',receiptState:'COMPLETE',
+    synced:after.length,tradeLedgerProtocolVersion:2,
+    ledgerRevision:shared.revision};
+  },
+  requestGsheetActionJson:async action=>{
+   assert.equal(action,'getTrades',label);
+   metrics.reads++;
+   return {status:'ok',tradeLedgerProtocolVersion:2,
+    ledgerRevision:shared.revision,
+    trades:shared.trades.map(t=>({...t}))};
+  }
+ });
+ vm.runInContext(names.map(extract).join('\n')
+  +'\nglobalThis.save=syncTradesToGsheet;',device);
+ return {device,deviceWindow,metrics};
+}
+const pc=createDevice('pc'),mobile=createDevice('android');
+pc.device.rawTrades=[{...before,memo:'PC edit'}];
+const pcSaved=await pc.device.save({targetUrl:url,generation});
+assert.equal(pcSaved.status,'ok',JSON.stringify(pcSaved));
+assert.equal(pcSaved.ledgerRevision,shared.revision);
+assert.equal(shared.commits,1);
+const pcRevision=shared.revision;
+
+// Android was opened before PC committed; its stale CAS MUST fail closed.
+mobile.device.rawTrades=[{...before,memo:'Android stale edit'}];
+const staleAndroid=await mobile.device.save({targetUrl:url,generation});
+assert.equal(staleAndroid.errorCode,'TRADE_V2_REVISION_CONFLICT');
+assert.equal(shared.commits,1,'stale Android cannot overwrite PC');
+assert.equal(shared.trades[0].memo,'PC edit');
+assert.equal(mobile.deviceWindow._tradeLedgerV2BaselineTargets[url].revision,
+ seedRevision,'rejected device must not advance local revision');
+
+// An explicit read-only reconnect/Bootstrap-equivalent on the second device
+// supplies a verified new CAS. Do not treat this as an actual mobile UI test.
+const pulled=await mobile.device.requestGsheetActionJson('getTrades');
+assert.equal(pulled.ledgerRevision,pcRevision);
+mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]={
+ targetUrl:url,generation,protocol:2,
+ revision:pulled.ledgerRevision,trades:pulled.trades.map(t=>({...t}))
+};
+mobile.device.rawTrades=[{...pulled.trades[0],acct:'ISA',memo:'Android after pull'}];
+const mobileSaved=await mobile.device.save({targetUrl:url,generation});
+assert.equal(mobileSaved.status,'ok',JSON.stringify(mobileSaved));
+assert.equal(shared.commits,2);
+assert.equal(shared.trades[0].acct,'ISA');
+
+// The first browser is now stale. It too must fail, without losing Android's edit.
+pc.device.rawTrades=[{...pc.device.rawTrades[0],acct:'OTHER'}];
+const stalePc=await pc.device.save({targetUrl:url,generation});
+assert.equal(stalePc.errorCode,'TRADE_V2_REVISION_CONFLICT');
+assert.equal(shared.commits,2);
+assert.equal(shared.trades[0].memo,'Android after pull');
+assert.equal(shared.trades[0].acct,'ISA');
+assert.equal(pc.metrics.legacy+mobile.metrics.legacy,0,
+ 'v2 baseline failures must never silently downgrade to legacy writes');
+assert.equal(pc.metrics.conflicts,1);
+assert.equal(mobile.metrics.conflicts,1);
+console.log('ISSUE734_TWO_DEVICE_CAS_SHADOW_PASS '+JSON.stringify({
+ successfulCommits:shared.commits,staleRejections:2,
+ remoteReadOnlyRebase:true,legacyWrites:0,realFinanceWrites:0,
+ pcOrAndroidHardwareVerified:false
+}));
