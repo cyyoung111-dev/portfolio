@@ -114,6 +114,7 @@
 }
 .action-bar .action-status-label,
 .action-bar #price-updated-label {
+  font-size:var(--type-caption);
   min-height:44px;
   border-radius:var(--radius-control);
   border-color:var(--ui-edge);
@@ -261,9 +262,38 @@
   outline-offset:2px;
 }
 
-/* Tablet: date and two primary actions share a row, details beneath. */
+/* Native calendar controls must follow the user's chosen light/dark theme.
+   History previously forced dark picker chrome even in the light theme. */
+html[data-theme-mode="light"] :is(.hist-month-input,.hist-detail-date-input) {
+  color-scheme:light;
+}
+html[data-theme-mode="dark"] :is(.hist-month-input,.hist-detail-date-input) {
+  color-scheme:dark;
+}
+html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter:none;
+  opacity:.8;
+}
+
+/* Tablet: keep actions fully visible instead of scrolling the entire header.
+   Only the secondary utilities/navigation use horizontal scrolling. */
 @media(max-width:768px) {
+  .action-bar {
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    align-items:stretch;
+    overflow:visible;
+    gap:var(--space-sm);
+  }
+  .action-bar .toolbar-btn-group {
+    width:100%;
+    min-width:0;
+    overflow-x:auto;
+  }
   .action-bar .action-update-card {
+    display:grid;
+    width:100%;
+    min-width:0;
     grid-template-columns:minmax(0,1fr) 62px 62px;
     gap:6px;
     padding:8px;
