@@ -21,6 +21,19 @@ const swCacheRelease=sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d
 if(!swCacheRelease)fail('Missing versioned service worker cache name');
 if(!html.includes(`sw.js?v=${swCacheRelease}`))fail('Stale service worker registration');
 if(!sw.includes(`portfolio-cache-${swCacheRelease}`))fail('Stale service worker cache name');
+const unifiedCssTag=html.match(/<link rel="stylesheet" href="(styles\/ui-unified\.css\?v=\d{8}-\d+)">/);
+if(!unifiedCssTag) fail('Unified viewer stylesheet missing or unversioned');
+else {
+  const uiPath=unifiedCssTag[1];
+  if(!fs.existsSync(path.join(webRoot,uiPath.split('?')[0])))
+    fail('Unified viewer stylesheet file missing');
+  if(!sw.includes("'./"+uiPath+"'"))
+    fail('Unified viewer stylesheet not aligned with offline PWA precache');
+  const typographyIndex=html.indexOf('styles/typography-roles.css?v=');
+  const unifiedIndex=html.indexOf(uiPath);
+  if(typographyIndex<0 || unifiedIndex<=typographyIndex)
+    fail('Unified visual overrides must load after typography/density rules');
+}
 // UI rollout must never pin one settings_fetch URL in HTML while offline
 // PWA precache continues to serve a different source revision.
 const pricePollVersion=html.match(/<script defer src="(features\/settings\/settings_fetch\.js\?v=[^"]+)"/); 

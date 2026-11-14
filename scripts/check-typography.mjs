@@ -140,3 +140,33 @@ for (const tabId of ['acct','sector','merge','trades','tradegroup','history','di
 for (const fixedView of ['stocks','gsheet']) assert.match(systemView, new RegExp(`currentView === '${fixedView}'`), `관리 화면 렌더 경로 누락: ${fixedView}`);
 
 console.log('전역 글꼴 fallback·본문 크기·투자계획·은퇴표 시인성 검사 통과');
+
+
+// Single theme-aware design layer: all visual roles share control dimensions,
+// focused keyboard access and phone layouts without changing financial logic.
+const unifiedCss=fs.readFileSync(new URL('../src/web/styles/ui-unified.css',import.meta.url),'utf8');
+for(const [name,pattern] of [
+  ['shared edge token',/--ui-edge:\s*color-mix\(in srgb,var\(--border\)/],
+  ['theme-selected token',/--ui-selected-bg:\s*color-mix\(in srgb,var\(--amber\)/],
+  ['header primary button',/\.action-bar \.action-refresh-btn/],
+  ['header utilities',/\.toolbar-section \.toolbar-btn/],
+  ['selected top navigation',/#viewSwitcher \.vs-btn\.active/],
+  ['portfolio table filters',/#view-area\[data-active-view\] :is\([\s\S]*?\.f-btn,.f-btn-sm/],
+  ['history benchmark controls',/\.hist-bench-btn/],
+  ['settings tabs',/\.settings-tabs \.settings-tab\.is-active/],
+  ['trading buy and sell retained',/#te-tradetype-buy\.active[\s\S]*?#te-tradetype-sell\.active/],
+  ['view cards',/\.hist-kpi-card,.hist-extreme-card,.hist-benchmark-card/],
+  ['disabled action state',/button:disabled:not\(\[aria-busy="true"\]\)/],
+  ['visible keyboard focus',/:focus-visible\s*\{/],
+  ['tablet layout',/@media\(max-width:768px\)/],
+  ['phone layout',/@media\(max-width:480px\)/],
+  ['very narrow zoom layout',/@media\(max-width:300px\)/],
+  ['variable card corner',/border-radius:var\(--radius-card\)/],
+  ['variable button corner',/border-radius:var\(--radius-control\)/],
+  ['density-size typography',/font-size:var\(--type-caption\)/],
+]) {
+  assert.match(unifiedCss,pattern,'통합 디자인 회귀: '+name);
+}
+assert.doesNotMatch(unifiedCss,/!important/,'통합 디자인은 강제 중요도로 기존 컴포넌트를 무효화하면 안 됩니다.');
+assert.doesNotMatch(unifiedCss,/\b(?:fetch|localStorage|setItem|GAS|getPrices)\s*\(/,
+  '디자인 레이어는 데이터 조회/저장을 수행할 수 없습니다.');

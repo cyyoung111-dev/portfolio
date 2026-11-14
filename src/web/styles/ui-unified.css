@@ -1,0 +1,314 @@
+/*
+ * Unified viewer design — controls, nav, cards, fields and focus.
+ * CSS-only: keep GAS/price, Snapshot, ledger and event handlers untouched.
+ * Semantic intent: amber=selected/action, blue=readonly quote, red=destructive.
+ * Inherit --s1/--s2/--text/--muted and density/font tokens for every theme.
+ */
+:root {
+  --ui-edge:color-mix(in srgb,var(--border) 84%,var(--text) 16%);
+  --ui-hover:color-mix(in srgb,var(--s2) 88%,var(--text) 12%);
+  --ui-selected-bg:color-mix(in srgb,var(--amber) 13%,var(--s2) 87%);
+  --ui-selected-edge:color-mix(in srgb,var(--amber) 57%,var(--border) 43%);
+  --ui-soft-shadow:0 4px 15px rgba(0,0,0,.10);
+}
+
+/* Quiet, repeatable surface hierarchy; preserve gain/loss accent lines. */
+.wrap :is(.sc,.sector-card,.chart-card,.trade-stat-card,.div-stat-card,
+  .stat-card,.card-12,.card-12-mb16,.card-12-p20,
+  .hist-kpi-card,.hist-extreme-card,.hist-benchmark-card) {
+  border-radius:var(--radius-card);
+  border-color:var(--ui-edge);
+  box-shadow:var(--ui-soft-shadow);
+}
+.wrap :is(.tbl-wrap,.editor-box,.settings-dialog) {
+  border-radius:var(--radius-panel);
+}
+.wrap :is(.action-update-card,.toolbar-section,.hist-filter-details,
+  .hist-detail-panel,.hist-benchmark-details,.hist-source-coverage) {
+  border-radius:var(--radius-card);
+  border-color:var(--ui-edge);
+}
+.wrap :is(.sc,.hist-kpi-card,.hist-extreme-card,.hist-benchmark-card) {
+  min-width:0;
+}
+.wrap :is(.sc .val,.hist-kpi-number,.hist-extreme-primary,.trade-stat-value,
+  .div-stat-value,.legend-val) {
+  font-variant-numeric:tabular-nums;
+}
+.wrap .tbl-wrap :is(th,td) {
+  border-color:var(--ui-edge);
+}
+
+/* Header controls: one height, radius and label rhythm on desktop. */
+.action-bar {gap:var(--space-md);align-items:center}
+.action-bar .action-update-card {
+  gap:var(--space-sm);
+  padding:var(--space-xs);
+  background:var(--s1);
+}
+.action-bar .action-date-input {
+  width:144px;
+  min-width:0;
+  min-height:44px;
+  padding:8px 10px;
+  border-radius:var(--radius-control);
+  border-color:var(--ui-edge);
+  font-size:var(--type-label);
+}
+.action-bar .action-refresh-btn,
+.toolbar-section .toolbar-btn {
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap:4px;
+  width:62px;
+  min-width:62px;
+  height:54px;
+  min-height:54px;
+  padding:5px 6px;
+  border-radius:var(--radius-control);
+  font-size:var(--type-caption);
+  font-weight:650;
+  line-height:var(--line-compact);
+  letter-spacing:-.01em;
+  text-align:center;
+  white-space:nowrap;
+  transition:background-color .15s ease,border-color .15s ease,
+    color .15s ease,box-shadow .15s ease,transform .15s ease;
+}
+.action-bar .action-refresh-btn svg,
+.toolbar-section .toolbar-btn svg {
+  width:17px;
+  height:17px;
+  flex-shrink:0;
+}
+.action-bar .action-refresh-btn span,
+.toolbar-section .toolbar-btn span {
+  max-width:100%;
+  overflow:visible;
+  text-overflow:clip;
+  white-space:nowrap;
+}
+.toolbar-btn-group {gap:var(--space-sm);scroll-padding-inline:var(--space-sm)}
+.toolbar-btn-group .toolbar-section {gap:4px;padding:4px}
+.toolbar-section .toolbar-btn {background:var(--s2);border-color:var(--ui-edge)}
+.toolbar-section .toolbar-btn:hover:not(:disabled) {
+  background:var(--ui-hover);
+  border-color:var(--ui-selected-edge);
+  color:var(--text);
+}
+.toolbar-section .toolbar-btn-danger:hover:not(:disabled) {
+  background:var(--c-red-08);
+  border-color:var(--c-red-30);
+  color:var(--red-lt);
+}
+.action-bar .action-refresh-btn:hover:not(:disabled) {
+  border-color:var(--ui-selected-edge);
+  box-shadow:0 3px 11px rgba(0,0,0,.10);
+}
+.action-bar .action-refresh-btn.price-only:hover:not(:disabled) {
+  border-color:var(--c-blue2-30);
+  background:rgba(59,130,246,.18);
+}
+.action-bar .action-status-label,
+.action-bar #price-updated-label {
+  min-height:44px;
+  border-radius:var(--radius-control);
+  border-color:var(--ui-edge);
+  line-height:var(--line-body);
+}
+
+/* Top navigation: all destinations share a single neutral/selected pattern. */
+#viewSwitcher {gap:6px;scroll-padding-inline:6px}
+#viewSwitcher .vs-btn {
+  box-sizing:border-box;
+  min-width:64px;
+  min-height:54px;
+  height:54px;
+  padding:7px 10px;
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-control);
+  background:var(--s2);
+  color:var(--muted);
+  box-shadow:none;
+}
+#viewSwitcher .vs-btn:hover:not(:disabled) {
+  border-color:var(--ui-selected-edge);
+  background:var(--ui-hover);
+  color:var(--text);
+}
+#viewSwitcher .vs-btn.active {
+  color:var(--gold);
+  background:var(--ui-selected-bg);
+  border-color:var(--ui-selected-edge);
+  box-shadow:inset 0 -2px 0 var(--amber);
+}
+#viewSwitcher .vs-btn-icon svg {width:18px;height:18px}
+#viewSwitcher .vs-btn-label {
+  font-size:var(--type-caption);
+  font-weight:650;
+  line-height:var(--line-compact);
+}
+
+/* Filters and table-mode controls: one compact control design across views. */
+#view-area[data-active-view] :is(
+  .f-btn,.f-btn-sm,.hist-bench-btn,.hist-mode-controls button,
+  .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm
+) {
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-height:max(34px,var(--control-height-sm));
+  padding:6px 11px;
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-control);
+  background:var(--s2);
+  color:var(--muted);
+  font-size:var(--type-caption);
+  font-weight:600;
+  line-height:var(--line-compact);
+  white-space:nowrap;
+  transition:background-color .15s ease,border-color .15s ease,color .15s ease;
+}
+#view-area[data-active-view] :is(
+  .f-btn,.f-btn-sm,.hist-bench-btn,.hist-mode-controls button,
+  .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm
+):hover:not(:disabled) {
+  background:var(--ui-hover);
+  border-color:var(--ui-selected-edge);
+  color:var(--text);
+}
+#view-area[data-active-view] :is(
+  .f-btn,.f-btn-sm,.hist-bench-btn,.hist-mode-controls button,
+  .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm
+):is(.active,.is-active,[aria-pressed="true"]) {
+  border-color:var(--ui-selected-edge);
+  background:var(--ui-selected-bg);
+  color:var(--gold);
+  font-weight:700;
+}
+/* Buy/sell choice must keep its semantic green/red overrides. */
+#view-area[data-active-view] #te-tradetype-buy.active {
+  border-color:var(--c-green-30);
+}
+#view-area[data-active-view] #te-tradetype-sell.active {
+  border-color:var(--c-red-35);
+}
+
+/* Common action sizing, without erasing role-specific primary/danger colors. */
+#view-area[data-active-view] :is(
+  .btn-sm,.btn-amber-sm,.btn-purple-sm,.btn-purple-sm-700,
+  .btn-outline-sm,.btn-edit-sm,.btn-del-sm,.btn-danger,.btn-danger-ghost,
+  .btn-ghost-sm,.btn-cancel-sm,.btn-buy-sm,.btn-sell-sm,
+  .btn-amber-outline,.btn-purple,.hist-query-btn,.fund-action
+),
+:where(.editor-footer,.settings-dialog__footer) :is(
+  .btn-apply,.btn-cancel,.btn-amber,.btn-ghost-muted
+) {
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-height:max(36px,var(--control-height-sm));
+  padding:6px 12px;
+  border-radius:var(--radius-control);
+  line-height:var(--line-compact);
+  font-weight:650;
+  transition:background-color .15s ease,border-color .15s ease,
+    color .15s ease,box-shadow .15s ease;
+}
+#view-area[data-active-view] .hist-query-btn {
+  border-color:var(--ui-selected-edge);
+  color:var(--gold);
+}
+.settings-tabs {gap:var(--space-xs);padding:4px;border:1px solid var(--ui-edge);border-radius:var(--radius-card);background:var(--s2)}
+.settings-tabs .settings-tab {
+  border-radius:var(--radius-control);
+  min-height:max(40px,var(--control-height-md));
+  transition:background-color .15s ease,color .15s ease;
+}
+.settings-tabs .settings-tab.is-active {background:var(--ui-selected-bg);color:var(--gold)}
+.settings-tabs .settings-tab:not(.is-active):hover {background:var(--ui-hover);color:var(--text)}
+
+/* Consistent form boundaries across embedded editors and filter panels. */
+:where(#view-area,.editor-body,.settings-panel,.action-bar)
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select,textarea) {
+  box-sizing:border-box;
+  border-radius:var(--radius-control);
+  border-color:var(--ui-edge);
+}
+:where(#view-area,.editor-body,.settings-panel,.action-bar)
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select,textarea):focus-visible {
+  border-color:var(--ui-selected-edge);
+}
+
+/* Hover, selection and loading are visually consistent, not destructive. */
+.wrap button:disabled:not([aria-busy="true"]) {
+  opacity:.55;
+  cursor:not-allowed;
+  transform:none;
+}
+.wrap :is(.action-refresh-btn,.toolbar-btn,.vs-btn):active:not(:disabled) {
+  transform:translateY(1px);
+}
+.wrap :is(button,input,select,textarea,summary,[tabindex]):focus-visible {
+  outline:2px solid var(--amber);
+  outline-offset:2px;
+}
+
+/* Tablet: date and two primary actions share a row, details beneath. */
+@media(max-width:768px) {
+  .action-bar .action-update-card {
+    grid-template-columns:minmax(0,1fr) 62px 62px;
+    gap:6px;
+    padding:8px;
+  }
+  .action-bar .action-update-card>.action-date-input {grid-column:1;min-height:48px}
+  .action-bar .action-update-card>.action-refresh-btn {
+    width:62px;min-width:62px;height:48px;min-height:48px;
+  }
+  .action-bar .action-update-card>.action-status-label {grid-column:1/-1;width:100%}
+  .toolbar-section .toolbar-btn {width:60px;min-width:60px;height:50px;min-height:50px}
+  #viewSwitcher .vs-btn {min-width:58px;height:50px;min-height:50px}
+  #view-area[data-active-view] :is(
+    .f-btn,.f-btn-sm,.hist-bench-btn,.hist-mode-controls button,
+    .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm
+  ) {min-height:max(40px,var(--control-height-md))}
+}
+/* Phone: equal-width full-update/quote buttons, no clipped text. */
+@media(max-width:480px) {
+  .action-bar .action-update-card {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px;
+  }
+  .action-bar .action-update-card>.action-date-input {grid-column:1/-1;width:100%}
+  .action-bar .action-update-card>.action-refresh-btn {
+    width:100%;
+    min-width:0;
+    height:46px;
+    min-height:46px;
+    flex-direction:row;
+    gap:7px;
+    padding:7px 8px;
+  }
+  .action-bar .action-update-card>.action-refresh-btn span {
+    display:block;white-space:nowrap;overflow:visible;
+  }
+  .action-bar .action-update-card>.action-status-label {grid-column:1/-1}
+  .toolbar-btn-group .toolbar-section {gap:3px;padding:3px}
+  .toolbar-section .toolbar-btn {width:58px;min-width:58px;height:50px}
+  #viewSwitcher {gap:5px}
+  #viewSwitcher .vs-btn {min-width:56px;height:48px;min-height:48px;padding:6px 8px}
+}
+/* Very narrow accessibility zoom: stack instead of truncating primary labels. */
+@media(max-width:300px) {
+  .action-bar .action-update-card {grid-template-columns:minmax(0,1fr)}
+  .action-bar .action-update-card>:is(.action-date-input,.action-refresh-btn,.action-status-label) {
+    grid-column:1/-1;
+  }
+}
