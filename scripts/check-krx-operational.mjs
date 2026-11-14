@@ -1205,18 +1205,21 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
  assert.ok(resume.includes("if: github.event_name == 'workflow_dispatch' && inputs.diagnose_only == false"));
  assert.ok(resume.includes("if [ \"$CONFIRM_RECOVERY\" != 'APPLY' ]; then"));
  assert.ok(resume.includes('RESUME_READ_ONLY:'));
- // No fan-out from a failed/skipped manual fund-resume workflow. The
- // only workflow_run wake-up now comes from the *independent scheduled*
- // main-only KRX public-source workflow, guarded inside every NAV job.
- assert.ok(nav.includes('workflow_run:'));
- assert.ok(nav.includes("workflows: ['KRX 252-session 52-week market breadth archive (source only)']"));
+ // No fan-out from KRX 52-week or historical fund-resume jobs.
+ // Private NAV imports only enter via their own three weekday cron slots
+ // or protected main-only workflow_dispatch (including the independent arm).
+ assert.ok(!nav.includes('workflow_run:'),
+   'independent KRX 52-week OHLC completion must not trigger private NAV');
  assert.ok(!nav.includes("workflows: ['issue-507-fund-close-resume']"));
- const trust="github.event.workflow_run.event == 'schedule'";
- const source="github.event.workflow_run.path == '.github/workflows/krx-52week-history.yml'";
- assert.equal(nav.split(trust).length-1,4,'all jobs must reject unscheduled KRX workflow_run');
- assert.equal(nav.split(source).length-1,4,'all NAV jobs must verify exact source path');
- assert.ok(nav.includes("github.event.workflow_run.head_repository.full_name == github.repository"));
- assert.ok(nav.includes("github.event.workflow_run.run_attempt == 1"));
+ assert.ok(!nav.includes('github.event.workflow_run'),
+   'old KRX source run guards must not linger in the private NAV jobs');
+ assert.ok(!nav.includes("workflows: ['KRX 252-session 52-week market breadth archive (source only)']"));
+ const scheduleOrManual="github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'";
+ assert.equal(nav.split(scheduleOrManual).length-1,4,
+  'all four NAV jobs must admit ONLY scheduled or manual guarded events');
+ const arm=fs.readFileSync('.github/workflows/nav-independent-fallback-arm.yml','utf8');
+ assert.match(arm,/gh workflow run kb-fund-nav-collect\.yml/,
+  'independent NAV fallback must preserve protected dispatch');
  assert.ok(nav.includes('workflow_dispatch:'));
  assert.ok(nav.includes("cron: '30 0 * * 1-5'"), '09:30 KST post-publication schedule');
  assert.ok(!nav.includes("cron: '15 23 * * *'"), 'early 08:15 slot removed');
