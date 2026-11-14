@@ -1,11 +1,14 @@
 name: krx-nightly-health
 
-# Daily at 02:30 Asia/Seoul, after the 22:10 / 23:10 / 00:30
-# GAS recovery triggers. GitHub schedule times are UTC and may be delayed.
+# 02:30 Asia/Seoul Tuesday-Sunday after the 22:10 / 23:10 / 00:30
+# GAS recovery triggers. UTC Monday-Saturday = KST Tuesday-Sunday.
+# Exclude KST Monday (Sunday has no new KR/US settlement); preserve KST
+# Sunday for Friday US-close / mixed-asset Snapshot checkpoint diagnosis.
+# GitHub schedules may be delayed; workflow_dispatch remains available.
 # All requests are authenticated READ_ONLY. No reconciliation apply or Sheet edits.
 on:
   schedule:
-    - cron: '30 17 * * *'
+    - cron: '30 17 * * 1-6'
   workflow_dispatch:
 
 permissions:
