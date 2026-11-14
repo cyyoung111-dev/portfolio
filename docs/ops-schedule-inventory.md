@@ -3,7 +3,7 @@
 ## 현재 등록 현황 (main/.github/workflows 기준)
 
 * 예약을 정의한 워크플로 **16개**, cron 표현식 **35개**. 이 수치는 매일 실행 건수가 아니며, 평일/월별 예약도 포함한다.
-* 과거 Issue 기반 워크플로 45개(정기 cron 0개) 중 **6개 사용 종료**: 전체 워크플로 **100→94개**, Issue 기반 **45→39개**. **파일 수와 활성 cron 수는 별개**다. 활성 예약 워크플로 16개/cron 35개는 그대로 유지. 11/15 2차 정리에서 `issue-507-snapshot-date-scoped-safety.yml`, `issue-507-writer-ledger-provenance-contract.yml` 두 개의 **중복·합성 전용 Actions wrapper**만 추가 삭제. 해당 운영 함수 회귀 검증은 `check:ci`에서 이미 매 PR 실행 중이며, 삭제 후에도 필수 실행을 유지하도록 검증기를 강화한다. 최근 main Actions 800회에서 두 워크플로 실행은 0회였다.
+* 과거 Issue 기반 워크플로 45개(정기 cron 0개) 중 **7개 사용 종료**: 전체 워크플로 **100→93개**, Issue 기반 **45→38개**. **파일 수와 활성 cron 수는 별개**다. 활성 예약 워크플로 16개/cron 35개는 그대로 유지. 11/15 2차 정리에서 `issue-507-snapshot-date-scoped-safety.yml`, `issue-507-writer-ledger-provenance-contract.yml` 두 개의 **중복·합성 전용 Actions wrapper**만 추가 삭제. 해당 운영 함수 회귀 검증은 `check:ci`에서 이미 매 PR 실행 중이며, 삭제 후에도 필수 실행을 유지하도록 검증기를 강화한다. 최근 main Actions 800회에서 두 워크플로 실행은 0회였다. 11/15 3차 정리에서는 별도의 **유효기간 만료** `issue507-postmerge-actions-readonly.yml`을 종료했다. 이 도구는 10/31 두 병합 SHA를 조사하고 `windowFrom`부터 **14일이 지나면 `ISSUE507_AUDIT_WINDOW_TOO_OLD`로 무조건 실패**하는 일회성 조사다. 과거 확인된 운영 증거는 `ops/issue507/postmerge-actions-evidence.md`에 남기고, 합성 재실행 검사는 `check:ci`에서 계속 유지한다.
 * ChatGPT 외부 독립 기동(NAV 오전/저녁, Telegram 장전/마감)은 GitHub cron 표현식 35개에 포함되지 않는다.
 * GitHub cron은 약속된 시각에 실제 시작하지 않을 수 있다. 새 스케줄을 추가하는 것만으로 정시성을 보장할 수 없으며, `SENT`/공식 NAV 저장 증빙을 기준으로 판단한다.
 
