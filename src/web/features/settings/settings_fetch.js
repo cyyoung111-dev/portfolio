@@ -792,6 +792,10 @@ async function pollCurrentPrices() {
   const pollStartedAt = Date.now();
   const run = (async () => {
   try {
+    // getPrices may update exchangeRates while it is fetching quotes.
+    // Equal stock prices with a different FX rate still require valuation.
+    const fxBefore = typeof exchangeRates === 'undefined' ? ''
+      : JSON.stringify(exchangeRates);
     const priceRequestStartedAt = Date.now();
     const results = await fetchFromGsheet(requestDate, { persist: false, polling: true });
     if (typeof _recordLookupPerf === 'function')
@@ -825,11 +829,21 @@ async function pollCurrentPrices() {
     const baseLabel = latestSourceDate
       ? (isToday ? '실시간' : latestSourceDate.replace(/-/g, '.') + ' 종가')
       : '기준일 미확인';
-    entries.forEach(([key, price]) => {
+    const nextLabels = entries.map(([key]) => validDate(meta[key]?.sourceDate)
+      ? _resolvePriceDateLabel(baseLabel, key, meta)
+      : '기준일 미확인');
+    // Reusing equal quotes does not justify recalculating 39 holdings and
+    // rebuilding desktop/mobile tables, charts and Settings state every 60s.
+    // Compare display dates and FX too: equal amounts alone are not enough.
+    const nextUpdated = latestSourceDate ? latestSourceDate.replace(/-/g, '.') : lastUpdated;
+    const sameQuoteInputs = Array.isArray(rows) && rows.length > 0
+      && Object.is(nextUpdated, lastUpdated)
+      && entries.every(([key, price], i) =>
+        Object.is(savedPrices[key], price) && savedPriceDates[key] === nextLabels[i])
+      && fxBefore === (typeof exchangeRates === 'undefined' ? '' : JSON.stringify(exchangeRates));
+    entries.forEach(([key, price], i) => {
       savedPrices[key] = price;
-      savedPriceDates[key] = validDate(meta[key]?.sourceDate)
-        ? _resolvePriceDateLabel(baseLabel, key, meta)
-        : '기준일 미확인';
+      savedPriceDates[key] = nextLabels[i];
     });
     // A successful poll does not prove the source price was from today.
     if (latestSourceDate) lastUpdated = latestSourceDate.replace(/-/g, '.');
@@ -838,10 +852,13 @@ async function pollCurrentPrices() {
     const dateNotice = !allDated ? '일부 종목 기준일 미확인'
       : (isToday ? '' : latestSourceDate.replace(/-/g, '.') + ' 확정가격');
     setStatusLabel(_priceStatusLayout(
-      `✅ 현재가 갱신 · ${entries.length}개 · 화면만 반영`,
+      sameQuoteInputs
+        ? `✅ 현재가 확인 · ${entries.length}개 · 변동 없음`
+        : `✅ 현재가 갱신 · ${entries.length}개 · 화면만 반영`,
       lookupMsg,
       [dateNotice, '저장 이력/Snapshot 미변경'].filter(Boolean).join(' · ')
     ), 'ok');
+    if (sameQuoteInputs) return true;
     const repaintStartedAt = Date.now();
     // Current-price polling must not recreate the Settings/GAS panel.
     // renderGsheetView() issues getAutomationStatus every time it mounts;
