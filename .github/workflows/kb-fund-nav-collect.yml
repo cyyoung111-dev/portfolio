@@ -2,15 +2,12 @@ name: kb-fund-nav-collect
 on:
   schedule:
     - cron: '30 0 * * 1-5' # 09:30 KST on weekdays, after previous-day KB NAV becomes public
-    # Friday NAV may publish on Saturday after GitHub has skipped an evening
-    # wake-up. Catch up on Sunday morning without opening a separate writer.
-    - cron: '10 0 * * 0,6' # 09:10 KST Saturday/Sunday; weekend catch-up
-    - cron: '10 9 * * *' # 18:10 KST daily; primary evening publication catch-up
+    - cron: '10 9 * * 1-5' # 18:10 KST daily; primary evening publication catch-up
     # GitHub schedule is best-effort and the 2026-11-07 18:10 KST event
     # was absent from the actual scheduled-run ledger. Use a staggered
     # second wake-up, not a parallel writer. Existing concurrency and GAS
     # idempotent NAV preview/readback/lease guards stay authoritative.
-    - cron: '17 10 * * *' # 19:17 KST daily; delayed/missed-run fallback
+    - cron: '17 10 * * 1-5' # 19:17 KST daily; delayed/missed-run fallback
   workflow_dispatch:
   # Independent late NAV wake-up when GitHub drops the collector's own cron.
   # Only completed *scheduled* runs of the existing main-only KRX source job
