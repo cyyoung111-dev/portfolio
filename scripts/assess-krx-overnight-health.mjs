@@ -188,6 +188,38 @@ function isolatedFundWarningAfterCompleteKrx(data,{now,issues,slots}) {
    &&['officialKrxPriceHistoryLastDate','snapshotLastDate',
       'priceHistoryLastDate'].every(k=>data[k]===date);
 }
+// A complete stored CLOSE + matching KRX/Snapshot dates can coexist with
+// a non-normal GAS *overall* status. Diagnose that provenance separately,
+// but NEVER downgrade ACTION_REQUIRED without an independently classified,
+// explicitly allowlisted warning (see isolatedFundWarningAfterCompleteKrx).
+function confirmedCloseButOtherAutomationNotNormal(data,{now,issues,slots}){
+ const c=data.close,d=c?.runDate;
+ if(issues.length!==1||issues[0]!=='AUTOMATION_NOT_NORMAL'
+   ||!['WARNING','ERROR','INCOMPLETE'].includes(data.overallStatus)
+   ||data.triggerReady!==true||data.pendingCount!==0
+   ||data.tradeLedgerWriteUnverified!==false
+   ||data.pendingTradeSnapshotRebuildFrom!=='-'
+   ||data.tradeSnapshotDeferredCount!==0
+   ||!['NO_WORK','SUCCEEDED'].includes(slots['2310'])
+   ||!['NO_WORK','SUCCEEDED'].includes(slots['0030'])
+   ||(data.latestBackfill?.attempted===true&&data.latestBackfill.ok===false)
+   ||(data.latestHistoricalBackfill?.attempted===true
+       &&data.latestHistoricalBackfill.ok===false)
+   ||!c||c.state!=='COMPLETE'||c.stage!=='COMPLETE'
+   ||c.summaryPresent!==true||c.summaryRunDate!==d
+   ||c.priceOk!==true||c.fundOk!==true
+   ||c.closeErrorPresent!==false||c.closeErrorCount!==0
+   ||c.fundState!=='DONE'||c.fundAttemptDate!==d
+   ||c.fundErrorPresent!==false||c.fundErrorCode!=='NONE'
+   ||c.runStale!==false||c.snapshotStale!==false
+   ||c.krxPublicationWaiting===true
+   ||d!==previousOpenKrxDate(kstDay(now))
+   ||!['expectedRunDate','expectedSnapshotDate'].every(k=>c[k]===d)
+   ||!['officialKrxPriceHistoryLastDate','snapshotLastDate',
+       'priceHistoryLastDate'].every(k=>data[k]===d))return false;
+ return true;
+}
+
 export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   if (!data || data.mode !== 'READ_ONLY' || !Array.isArray(data.pendingDates)
       || !Number.isSafeInteger(data.pendingCount)
@@ -269,11 +301,15 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   // Retain ACTION_REQUIRED whenever the persisted CLOSE is incomplete.
   // Narrowly label the actual Nov12/13 case so users do not mistake the
   // red overnight workflow for another lost financial Snapshot.
+  const completedButNonNormal=confirmedCloseButOtherAutomationNotNormal(data,{
+    now,issues,slots:slotStates
+  });
   const alertFocus=issues.length===1&&issues[0]==='AUTOMATION_NOT_NORMAL'
     &&closeEvidence.closeState==='INCOMPLETE'
     &&snapshotDateAlignment!=='SNAPSHOT_BEHIND_OFFICIAL'
     &&data.pendingCount===0
       ?'PERSISTED_CLOSE_FINALITY_UNVERIFIED'
+    :completedButNonNormal?'CLOSE_SAVED_COMPLETE_UPSTREAM_STATUS_UNVERIFIED'
     :issues.length===0?'NONE':'MIXED_OR_UNVERIFIED';
   // The overnight 00:30 KRX producer cannot receive T-1 official bars
   // before the following KRX trading day's 08:00 publication. This is not
@@ -295,6 +331,7 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
       ?data.fundWarningClass:'UNVERIFIED',
     isolatedFundWarning,
     issues,
+    closeSavedCompleteButOverallNonNormal:completedButNonNormal,
     snapshotDateAlignment,alertFocus:isolatedFundWarning
       ?'KRX_COMPLETE_FUND_NAV_WARNING_SEPARATE_REVIEW':alertFocus,
     historicalSlotStates:slotStates,
@@ -347,6 +384,7 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| Snapshot 마지막 날 | '+result.snapshotLastDate+' |',
         '| 종가/Snapshot 날짜 정렬 (내용 증명 아님) | '+result.snapshotDateAlignment+' |',
         '| 주된 점검 상태 (원인 확정 아님) | '+result.alertFocus+' |',
+        '| 저장 CLOSE COMPLETE vs GAS overall 비정상 분리 | '+result.closeSavedCompleteButOverallNonNormal+' |',
         '| 점검 코드 | '+(result.issues.join(', ')||'없음')+' |',
         '| 23:10 결과 | '+result.historicalSlotStates['2310']+' |',
         '| 23:10 기록일·사유 | '+result.historicalSlotRunDates['2310']+

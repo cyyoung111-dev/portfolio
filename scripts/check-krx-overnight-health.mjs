@@ -489,6 +489,43 @@ console.log('KRX overnight health: read-only contract, queued/failed/mismatched/
  assert.equal(assessKrxOvernightHealth(realShape,{
   now:new Date('2026-11-17T07:47:00+09:00')}).status,'ACTION_REQUIRED',
   'An old 11/13 close must never be called current on next Tuesday');
+ // #734 2026-11-14 actual class: 11/13 owner COMPLETE, 39/39 date
+ // alignment, empty queue and NO_WORK recovery slots, but the broader GAS
+ // overallStatus was not NORMAL. That is NOT evidence of lost Snapshot.
+ // Preserve red ACTION_REQUIRED for unclassified upstream WARNING/ERROR,
+ // while naming precisely what did / did not pass.
+ const unrelatedWarning=diagnose({...realShape,
+  fundWarningClass:'UNCLASSIFIED',
+  close:{...goodClose,fundWarningPresent:false}});
+ assert.equal(unrelatedWarning.status,'ACTION_REQUIRED');
+ assert.equal(unrelatedWarning.closeSavedCompleteButOverallNonNormal,true);
+ assert.equal(unrelatedWarning.alertFocus,
+  'CLOSE_SAVED_COMPLETE_UPSTREAM_STATUS_UNVERIFIED');
+ assert.equal(unrelatedWarning.fundCloseCheckpointEvidence.closeState,'COMPLETE');
+ assert.equal(unrelatedWarning.snapshotDateAlignment,'DATES_MATCH');
+ assert.equal(unrelatedWarning.workerCheckpointEvidence.processApiExecutionVerified,false);
+ const upstreamError=diagnose({...realShape,overallStatus:'ERROR',
+  fundWarningClass:'UNCLASSIFIED',
+  close:{...goodClose,fundWarningPresent:false}});
+ assert.equal(upstreamError.status,'ACTION_REQUIRED');
+ assert.equal(upstreamError.closeSavedCompleteButOverallNonNormal,true);
+ for(const fail of [
+  {close:{...goodClose,priceOk:false}},
+  {close:{...goodClose,closeErrorPresent:true}},
+  {close:{...goodClose,runStale:true}},
+  {snapshotLastDate:'2026-11-12'},
+  {pendingDates:[date],pendingCount:1},
+  {historical0030:slot('2026-11-14','FAILED')},
+  {tradeSnapshotDeferredCount:1}
+ ]){
+  const got=diagnose({...realShape,fundWarningClass:'UNCLASSIFIED',
+   close:{...goodClose,fundWarningPresent:false},...fail});
+  assert.equal(got.status,'ACTION_REQUIRED');
+  assert.equal(got.closeSavedCompleteButOverallNonNormal,false,
+   'a real CLOSE, queue, date or slot fault must not get the isolated label');
+ }
+ console.log('KRX_CLOSE_COMPLETE_UPSTREAM_UNVERIFIED_SPLIT_PASS no false loss, no green promotion');
+
  assert.doesNotMatch(JSON.stringify(healthyKrx),/PRIVATE_DETAIL|UNKNOWN_PRIVATE_USER_ACCOUNT/);
 }
 console.log('KRX nightly known fund NAV warning split: 33 fail-closed gates PASS');

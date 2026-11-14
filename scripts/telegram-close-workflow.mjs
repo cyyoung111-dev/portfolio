@@ -15,6 +15,7 @@ import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
 import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} from './briefing-source-coverage.mjs';
 import {readClosingStockSources,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
+import {verifyLateCloseSent} from './telegram-close-late-verdict.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures,selectCurrentFuturesRows} from './closing-current-futures.mjs';
@@ -552,10 +553,25 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
     const eligible=deliveryTrigger('close',process.env,event,
       closeWindow(invokedAt).allowed);
-    if(!eligible||skipLateClosePrepare(process.argv[2],
-      process.env.GITHUB_EVENT_NAME,invokedAt)){
+    const latePrepare=skipLateClosePrepare(process.argv[2],
+      process.env.GITHUB_EVENT_NAME,invokedAt);
+    if(!eligible||latePrepare){
       if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
-      console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW'}));
+      if(latePrepare&&process.env.GITHUB_EVENT_NAME==='schedule'){
+        // GitHub may start cron hours late. A green skip is only honest
+        // when the authenticated SENT archive for the target close exists.
+        // This gate NEVER sends or claims Telegram on a late execution.
+        const proof=await verifyLateCloseSent({
+          now:invokedAt,repository:process.env.GITHUB_REPOSITORY,
+          token:process.env.GITHUB_TOKEN});
+        console.log(JSON.stringify(proof));
+        if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+          'Closing schedule outside delivery window: '+proof.status+
+          ' / target KRX session '+proof.date+' (Telegram sends 0)\n');
+        process.exit(proof.verified?0:1);
+      }
+      console.log(JSON.stringify({status:'OUTSIDE_DELIVERY_WINDOW',
+        telegramSends:0}));
       process.exit(0);
     }
     if(process.argv[2]==='prepare'){
