@@ -84,21 +84,25 @@ function scheduledTradingDate(schedule, now = new Date()) {
   }
   throw new Error('schedule tradingDate를 계산할 수 없습니다.');
 }
-// Scheduled Actions can start hours after the intended UTC cron slot.
-// A late invocation must not hydrate/persist a previous trading session.
-// Only the genuine GitHub run created_at is passed by the protected workflow.
+// Scheduled Actions may be created late *or* sit queued for hours. Check
+// the real execution clock as well as the immutable GitHub run created_at.
+// Never hydrate/persist an outdated market checkpoint. Test callers may
+// supply their observation instant; the CLI always uses the actual clock.
 const HEADLESS_MAX_SCHEDULE_LAG_MS=90*60*1000;
-export function scheduleDelayGuard(schedule,scheduledAt){
+export function scheduleDelayGuard(schedule,scheduledAt,{observedAt=scheduledAt}={}){
  const slot=SCHEDULE_SLOTS[String(schedule||'').trim()];
  if(!slot||typeof scheduledAt!=='string'||!scheduledAt||
   Number.isNaN(Date.parse(scheduledAt)))
   return {allowed:false,reason:'SCHEDULE_ANCHOR_UNVERIFIED'};
  const anchor=new Date(scheduledAt);
+ const observed=new Date(observedAt);
+ if(!Number.isFinite(observed.getTime())||observed<anchor)
+  return {allowed:false,reason:'SCHEDULE_RUNTIME_UNVERIFIED'};
  for(let offset=0;offset<8;offset++){
   const at=new Date(Date.UTC(anchor.getUTCFullYear(),anchor.getUTCMonth(),
    anchor.getUTCDate()-offset,slot.hour,slot.minute));
   if(!slot.weekdays.includes(at.getUTCDay())||at>anchor)continue;
-  const elapsed=anchor.getTime()-at.getTime();
+  const elapsed=observed.getTime()-at.getTime();
   return {allowed:elapsed<=HEADLESS_MAX_SCHEDULE_LAG_MS,
    reason:elapsed<=HEADLESS_MAX_SCHEDULE_LAG_MS?'ON_TIME':'STALE_SCHEDULE_BLOCKED',
    lagMinutes:Math.floor(elapsed/60000)};
@@ -293,18 +297,20 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const args = parseArgs(process.argv.slice(2));
   const guard=args.schedule
-   ?scheduleDelayGuard(args.schedule,args.scheduledAt)
+   ?scheduleDelayGuard(args.schedule,args.scheduledAt,{observedAt:new Date()})
    :{allowed:true,reason:'EXPLICIT_MANUAL_CHECKPOINT'};
   if(!guard.allowed){
     // Stop BEFORE any GAS API call, provider fetch or MARKET_MASTER write.
-    // A failed job is intentional: operators must not interpret a late
-    // scheduled write as a fresh checkpoint or trigger Telegram release.
+    // A known stale schedule is an explicit NO-OP, *not* a successful
+    // market publish. Missing/invalid anchors remain real failed jobs.
+    const stale=guard.reason==='STALE_SCHEDULE_BLOCKED';
     console.log(JSON.stringify({checkpoint:args.checkpoint,
      tradingDate:args.tradingDate,status:guard.reason,
-     published:false,masterPersistence:null,snapshotPersistence:null,
+     skipped:stale,completed:false,published:false,
+     masterPersistence:null,snapshotPersistence:null,
      scheduleLagMinutes:guard.lagMinutes??null,
      gasCalls:0,financeWrites:0,telegramSends:0}));
-    process.exitCode=1;
+    if(!stale)process.exitCode=1;
   }else{
     const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
     // A third-party last-observed value is diagnostic only. It must never enter
