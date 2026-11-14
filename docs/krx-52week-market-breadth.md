@@ -1,5 +1,19 @@
 # KRX 52-week market breadth — 252 trading-session data contract
 
+## 2026-11-14 #734: KIS 수정주가 252일 정합성 검증 구현 (OFFLINE audit only)
+
+**실행한 프로세스 점검:** [2026-11-14 05:57 KST 실제 source-only run #43506294072](https://github.com/cyyoung111-dev/portfolio/actions/runs/43506294072)에서 252/252 KRX 원시 OHLC가 *추가 요청 0건*으로 검증되었다. KRX 봉 저장/암호화·공식 익일 데이터의 출처가 문제인 것은 아니다. 예약 시각(전일 23:30) 대비 실제 GitHub schedule은 약 6시간 27분 지연되었지만, 이 수집기는 **데이터를 작성·발행하지 않는 source-only**이며 현재 필요한 마지막 KRX 완성 거래일(2026-11-12) 기준으로 실행되었다. GitHub schedule 지연은 다른 NAV 워크플로의 실시간 기동까지 보증하지 않는다.
+
+**추가한 소스-비교 단계:** [`scripts/krx-52week-kis-adjusted-audit.mjs`](../scripts/krx-52week-kis-adjusted-audit.mjs).
+- 공식 KIS 기간별시세 `FHKST03010100`, 경로 `/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`, KRX `J`, **`FID_ORG_ADJ_PRC=0`은 수정주가** (1은 원시가격). 영업일 252개를 **100/100/52개 정확한 KRX 날짜 범위**로 3개 요청으로 계획한다. 실제 KIS의 한 번의 응답 최대 100행이라는 제한을 반영했다.
+- KIS `output2`의 영업일·수정 고가·저가·종가를 날짜별 252/252 고유성/양수/OHLC 포함관계로 검증한다. 공휴일·부분응답·중복·대상일 불일치·원시 OHLC 기준 최신 고가/저가/종가 불일치는 **fail closed**.
+- 기존 252일 KRX archive와 동일 종목의 원시/수정 신고가·신저가 판정을 **읽기 전용 1종목 감사**로 대조한다. 합성 2:1 분할 사례에서 raw 신고가 NO → adjusted 신고가 YES, 허위 최신가·부분 기간·중복 응답 거부를 회귀검증한다.
+- **본 PR에는 KIS 계정/앱키/실제 토큰, 실조회, 전체 종목 수집/속도제한 대응, 라이선스 및 ETF/우선주/신규상장 모집단 검증이 없다.** 보유자료·GAS·Sheets·Telegram·Secret·운영 예약 변경도 없다. 그래서 신규 audit 결과는 `marketWideCertified=false`, `publicationAllowed=false`이며 공식 52주 통계로 홍보하지 않는다.
+- 실제 연결은 (1) KIS 개발자 계정·시세 사용조건과 rate-limit 확보, (2) 1~3개 권리변동 종목의 수정주가 252일 live 응답·KRX 최신가 대사, (3) 야간 별도 source-only 일별 증분 + 전종목 정밀한 종목코드·IPO·거래정지 분모 정의, (4) 승인된 전체시장 조정 통계 교차 검증, (5) 기존 브리핑과 독립한 추가 CI·릴리스 심사 순서이다.
+- 과거 raw 252일 기록이 완전하더라도 수정주가 쪽 데이터는 기업행위 발생 후 **과거 값이 소급 변경**될 수 있다. KIS를 사용할 때는 조회 시각·as-of·원본 검증 범위를 함께 기록해야 한다. 가격 비교 하나만으로 모든 권리변동이 검증됐다고 할 수 없다.
+
+공식 KIS 예시: https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py .
+
 ## Purpose and boundaries
 
 This pipeline computes the **number of individual KOSPI and KOSDAQ stocks making a strictly new 52-week intraday high or low** from 252 complete, validated KRX stock-daily OHLC sessions. This is not the same as:

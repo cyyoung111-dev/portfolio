@@ -1,3 +1,6 @@
+import {planKisAdjusted52WeekRequests,parseKisAdjusted52WeekPages,
+ auditKisAdjustedSymbol,KIS_ADJUSTED_TR,KIS_ADJUSTED_PATH}
+ from './krx-52week-kis-adjusted-audit.mjs';
 import assert from 'node:assert/strict';
 import {MARKETS,SOURCE,WINDOW,sessionStatus,expectedSessions,
  completedSession,parseOfficialStockDay,validMarketDay,verifyArchive,
@@ -297,4 +300,76 @@ assert.deepEqual(pruneRequests.filter(x=>x.method==='DELETE').map(x=>x.path),[
  '/repos/cyyoung111-dev/portfolio/actions/artifacts/1001'
 ]);
 assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
+
+// #734: KIS adjusted price audit is separate from the existing KRX raw
+// archive. A correct source contract requires three exact 100/100/52-session
+// requests, adjusted=0, dated high/low/close, and a same-date KRX crosscheck.
+// No KIS credentials, remote calls, public historical prices or finance writes.
+{
+ const pages=planKisAdjusted52WeekRequests(dates,'005930');
+ assert.deepEqual(pages.map(p=>p.expectedDates.length),[100,100,52]);
+ assert.equal(pages[0].trId,KIS_ADJUSTED_TR);
+ assert.equal(pages[0].path,KIS_ADJUSTED_PATH);
+ assert.equal(pages[0].params.FID_COND_MRKT_DIV_CODE,'J');
+ assert.equal(pages[0].params.FID_ORG_ADJ_PRC,'0','KIS 0 is adjusted, NOT raw');
+ assert.equal(pages[1].params.FID_INPUT_DATE_1,dates[100].replaceAll('-',''));
+ assert.equal(pages[2].params.FID_INPUT_DATE_2,TARGET.replaceAll('-',''));
+ assert.throws(()=>planKisAdjusted52WeekRequests(dates,'KR000000'),/CODE_UNVERIFIED/);
+ assert.throws(()=>planKisAdjusted52WeekRequests(dates.slice(1),'005930'),/WINDOW_INVALID/);
+ const archiveFixture=structuredClone(complete);
+ for(let i=0;i<archiveFixture.sessions.length;i++){
+  const rows=archiveFixture.sessions[i].markets.KOSPI.rows;
+  const row=rows.find(x=>x[0]==='KR000000');
+  assert.ok(row);
+  row[0]='005930';
+  if(i<WINDOW-1){row[1]=200;row[2]=100;row[3]=150;}
+  else{row[1]=160;row[2]=120;row[3]=140;}
+  rows.sort((a,b)=>a[0].localeCompare(b[0],'en'));
+ }
+ assert.equal(verifyArchive(archiveFixture).sessions.length,WINDOW);
+ const responsePages=pages.map(p=>({
+  rt_cd:'0',
+  // Official output2 may be reverse chronological; keep date mapping exact.
+  output2:[...p.expectedDates].reverse().map(date=>{
+   const last=date===TARGET;
+   return {stck_bsop_date:date.replaceAll('-',''),
+    stck_hgpr:last?'160':'100',stck_lwpr:last?'120':'50',
+    stck_clpr:last?'140':'75'};
+  })
+ }));
+ const parsed=parseKisAdjusted52WeekPages(dates,'005930',responsePages);
+ assert.equal(parsed.bars.length,252);
+ assert.equal(parsed.bars.at(-1).date,TARGET);
+ const audit=auditKisAdjustedSymbol(archiveFixture,dates,'KOSPI','005930',responsePages);
+ assert.deepEqual(audit.raw,{newHigh:false,newLow:false});
+ assert.deepEqual(audit.adjusted,{newHigh:true,newLow:false},
+  'synthetic 2:1 split changes the high classification');
+ assert.equal(audit.marketWideCertified,false);
+ assert.equal(audit.publicationAllowed,false);
+ assert.equal(audit.gasWrites,0);
+ assert.equal(audit.portfolioWrites,0);
+ assert.equal(audit.telegramSends,0);
+ const tamper=(which,edit)=>{
+  const cloned=structuredClone(responsePages);
+  edit(cloned[which].output2);
+  assert.throws(()=>parseKisAdjusted52WeekPages(dates,'005930',cloned),
+   /KRX52_KIS_/);
+ };
+ tamper(0,rows=>{rows.pop()});
+ tamper(1,rows=>{rows[1].stck_bsop_date=rows[0].stck_bsop_date});
+ tamper(2,rows=>{rows[0].stck_hgpr='0'});
+ tamper(0,rows=>{rows[0].stck_bsop_date='20260101'});
+ const mismatched=structuredClone(responsePages);
+ mismatched[2].output2[0].stck_hgpr='161';
+ assert.throws(()=>auditKisAdjustedSymbol(archiveFixture,dates,
+  'KOSPI','005930',mismatched),/LATEST_KRX_PRICE_BASIS_MISMATCH/);
+ const rejected=structuredClone(responsePages);
+ rejected[0].rt_cd='1';
+ assert.throws(()=>parseKisAdjusted52WeekPages(dates,'005930',rejected),
+  /RESPONSE_OR_COVERAGE_UNVERIFIED/);
+ assert.throws(()=>auditKisAdjustedSymbol(archiveFixture,dates,
+  'KOSDAQ','005930',responsePages),/RAW_SECURITY_COVERAGE_UNVERIFIED/);
+ console.log('KRX52_KIS_ADJUSTED_SOURCE_CONTRACT_PASS three dated pages, corporate action, crosscheck, publication blocked');
+}
+
 console.log('KRX_52W_252_SESSION_MARKET_HISTORY_PASS exact OHLC, count, holidays, incomplete, reentry, source-only');
