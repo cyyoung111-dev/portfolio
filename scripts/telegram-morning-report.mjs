@@ -1,4 +1,5 @@
 import {krxSessionStatus} from './krx-session-calendar.mjs';
+import {usSessionStatus} from './us-market-session-calendar.mjs';
 import {fitAiFinancialEvidenceForBudget} from './briefing-financial-evidence.mjs';
 import {formatSemiconductorCompanyMetrics} from './briefing-semiconductor-company-views.mjs';
 import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
@@ -63,7 +64,19 @@ export function expectedMorningDate(id,date,now=null){
       if(state==='UNKNOWN')return null;
       continue;
     }
-    if(![0,6].includes(cursor.getUTCDay()))return candidate; // US/FX prior weekday
+    if(id==='UST10Y'){
+      const state=usSessionStatus(candidate,'BOND');
+      if(state==='OPEN')return candidate;
+      if(state==='UNKNOWN')return null;
+      continue;
+    }
+    if(['SPX','DOW','NDX','NASDAQ','SOX','NVDA','MU','VIX'].includes(id)){
+      const state=usSessionStatus(candidate,'EQUITY');
+      if(state==='OPEN')return candidate;
+      if(state==='UNKNOWN')return null;
+      continue;
+    }
+    if(![0,6].includes(cursor.getUTCDay()))return candidate; // FX/commodity existing policy
   }
   return null;
 }

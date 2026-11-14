@@ -242,9 +242,9 @@ const workflow=YAML.parse(fs.readFileSync('.github/workflows/kb-fund-nav-collect
 const cron=workflow.on?.schedule?.map(v=>v.cron);
 assert.ok(Array.isArray(cron));
 assert.ok(cron.includes('30 0 * * 1-5'),'09:30 KST weekday must remain');
-assert.ok(cron.includes('10 0 * * 0,6'),'09:10 KST weekend official NAV catch-up');
-assert.ok(cron.includes('10 9 * * *'),'18:10 KST primary must remain');
-assert.ok(cron.includes('17 10 * * *'),'19:17 KST fallback must remain');
+assert.ok(!cron.includes('10 0 * * 0,6'),'weekend NAV wake-ups disabled');
+assert.ok(cron.includes('10 9 * * 1-5'),'18:10 KST weekday primary must remain');
+assert.ok(cron.includes('17 10 * * 1-5'),'19:17 KST weekday fallback must remain');
 assert.equal(new Set(cron).size,cron.length,'duplicate cron wakes are wasteful');
 assert.deepEqual(workflow.on.workflow_run.workflows,
  ['KRX 252-session 52-week market breadth archive (source only)']);
@@ -328,19 +328,15 @@ console.log('KB NAV postflight: published-vs-persisted, close marker, safety and
  // 15:05 KST, timed out on two GAS STATUS reads, while postflight proved
  // already-complete NAV. A stale cron must never enter protected GAS.
 const navSlots=[
- ['2026-11-14T00:10:00Z','10 0 * * 0,6',true],
- ['2026-11-14T01:09:59Z','10 0 * * 0,6',true],
- ['2026-11-14T01:10:00Z','10 0 * * 0,6',false],
- ['2026-11-14T06:05:57Z','10 0 * * 0,6',false],
+ ['2026-11-14T00:10:00Z','10 0 * * 0,6',false],
+ ['2026-11-14T01:09:59Z','10 0 * * 0,6',false],
  ['2026-11-16T00:30:00Z','30 0 * * 1-5',true],
  ['2026-11-16T01:09:00Z','30 0 * * 1-5',true],
  ['2026-11-14T00:30:00Z','30 0 * * 1-5',false],
- ['2026-11-14T09:10:00Z','10 9 * * *',true],
- ['2026-11-14T10:16:00Z','10 9 * * *',true],
- ['2026-11-14T10:17:00Z','10 9 * * *',false],
- ['2026-11-14T10:17:00Z','17 10 * * *',true],
- ['2026-11-14T11:19:00Z','17 10 * * *',true],
- ['2026-11-14T11:20:00Z','17 10 * * *',false]
+ ['2026-11-14T09:10:00Z','10 9 * * 1-5',false],
+ ['2026-11-16T09:10:00Z','10 9 * * 1-5',true],
+ ['2026-11-16T10:17:00Z','17 10 * * 1-5',true],
+ ['2026-11-14T10:17:00Z','17 10 * * 1-5',false]
 ];
 for(const [instant,cron,admit] of navSlots){
  const outcome=assessNavScheduledAdmission({
