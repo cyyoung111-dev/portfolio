@@ -312,7 +312,10 @@ for(const retired of [
  'issue-507-date-discovery-read-profile.yml',
  'issue-507-global-snapshot-undated-readonly.yml',
  'issue-507-backup-pre-registry-orphan-readonly.yml',
- 'issue860-close-processes-readonly.yml'
+ 'issue860-close-processes-readonly.yml',
+ // Synthetic-only duplicate Actions wrappers: tests are in mandatory check:ci.
+ 'issue-507-snapshot-date-scoped-safety.yml',
+ 'issue-507-writer-ledger-provenance-contract.yml'
 ]){
  assert.equal(fs.existsSync(new URL(retired,dir)),false,
   'retired one-shot workflow unexpectedly returned: '+retired);
@@ -332,10 +335,21 @@ for(const [script,expected] of [
   ' '+String(run.stderr).slice(0,450));
  assert.ok(run.stdout.includes(expected),script+' did not confirm synthetic contract');
 }
+// The underlying safety checks MUST continue on every PR and main push.
+// These tests include the reproduced same-date external-writer TOCTOU risk;
+// retiring duplicate wrappers does not waive the production regression gate.
+const requiredCI=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8')).scripts['check:ci'];
+for(const script of [
+ 'scripts/check-issue507-snapshot-date-scoped.mjs',
+ 'scripts/check-issue507-writer-ledger-provenance.mjs'
+]){
+ assert.ok(requiredCI.includes('node '+script),
+  'retired workflow safety test must still be executed by required CI: '+script);
+}
 assert.ok(fs.existsSync(new URL('issue734-process-scope-audit-readonly.yml',dir)),
  'active protected OAuth scope audit must remain');
 assert.ok(fs.existsSync(new URL('issue-507-worker-execution-audit.yml',dir)),
  'reusable worker-process audit must remain');
 assert.ok(fs.existsSync(new URL('issue-507-fund-close-resume.yml',dir)),
  'manual recovery workflow must not be removed');
-console.log('ISSUE734_DEPRECATED_WORKFLOWS_RETIRED_SAFELY synthetic tests and live recovery preserved');
+console.log('ISSUE734_DEPRECATED_WORKFLOWS_RETIRED_SAFELY required safety tests and live recovery preserved');
