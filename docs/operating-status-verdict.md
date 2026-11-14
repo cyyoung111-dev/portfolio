@@ -5,7 +5,7 @@ Last reviewed: 2026-11-15 KST. Applies to the \`main\` workflow
 
 ## External authorization and writer-ownership exceptions (2026-11-15)
 
-- Google Apps Script process OAuth scope and KRX listing metadata approval need independent permissions. Both live diagnostics are manual-only; offline CI remains active. Code changes do NOT grant provider permissions.
+- Google Apps Script process OAuth scope and KRX listing metadata approval need independent permissions. Both live diagnostics are manual-only; offline CI remains active. The OAuth workflow is now itself **manual-only** (removed redundant PR/push source-check jobs): its test already runs in required `quality-check` on every PR/main push, with manual source-check before the protected OAuth stage. Code changes do NOT grant provider permissions.
 - Browser trade-ledger CAS and GAS ScriptLock do NOT establish atomic cross-client Snapshot updates for identical `(date,code)` against out-of-band owner-authorized Sheets writes. Owner-only sharing cannot prove other owner sessions are idle. Keep Snapshot full reconciliation and independent writer-ownership verification `NOT_FULLY_AUDITED`; no financial mutations.
 
 ## Purpose / scope
