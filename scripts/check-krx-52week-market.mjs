@@ -433,4 +433,121 @@ assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
  console.log('KRX52_KIS_ADJUSTED_SOURCE_CONTRACT_PASS three dated pages, corporate action, crosscheck, publication blocked');
 }
 
+
+// #734: Official KRX stock basic-info listing dates are a DISTINCT,
+ // approval-gated service. They may validate short late histories but cannot
+ // certify exchange halts, split adjustment or the all-stock 52-week total.
+{
+ const {parseKrxBaseInfo,analyzeOfficialListingCoverage,
+  fetchKrxBaseInfo,runKrxListingReadOnly,KRX_BASE_INFO_PATHS}
+  =await import('./krx-52week-listing-metadata-readonly.mjs');
+ const stamped=structuredClone(complete);
+ for(let i=0;i<stamped.sessions.length;i++){
+  const session=stamped.sessions[i];
+  for(const [market,renames] of [
+   ['KOSPI',{'KR000008':'005930','KR000009':'000660'}],
+   ['KOSDAQ',{'KQ000008':'035555'}]
+  ]){
+   const rows=session.markets[market].rows;
+   for(const row of rows)if(renames[row[0]])row[0]=renames[row[0]];
+   // 005930: first observed at index 200, official listing same day.
+   // 000660: existing stock with one interior gap, never claim halt.
+   // 035555: listed and first observed at index 80.
+   const trimmed=rows.filter(([code])=>
+    !(market==='KOSPI'&&code==='005930'&&i<200) &&
+    !(market==='KOSPI'&&code==='000660'&&i===125) &&
+    !(market==='KOSDAQ'&&code==='035555'&&i<80));
+   session.markets[market].totalRows-=rows.length-trimmed.length;
+   session.markets[market].rows=trimmed.sort((a,b)=>a[0].localeCompare(b[0],'en'));
+  }
+ }
+ verifyArchive(stamped);
+ const fixture=m=>{
+  const rows=Array.from({length:MARKETS[m].min+5},(_,i)=>({
+   ISU_SRT_CD:String(i+100000).padStart(6,'0'),
+   ISU_CD:'KR7'+String(i).padStart(9,'0'),
+   LIST_DD:'20200102',SECUGRP_NM:'주권',KIND_STKCERT_TP_NM:'보통주'
+  }));
+  if(m==='KOSPI'){
+   rows[0].ISU_SRT_CD='005930';
+   rows[0].LIST_DD=dates[200].replaceAll('-','');
+   rows[1].ISU_SRT_CD='000660';
+  }else{
+   rows[0].ISU_SRT_CD='035555';
+   rows[0].LIST_DD=dates[80].replaceAll('-','');
+  }
+  return {OutBlock_1:rows};
+ };
+ const payloadK=fixture('KOSPI'),payloadQ=fixture('KOSDAQ');
+ const metaK=parseKrxBaseInfo(TARGET,'KOSPI',payloadK);
+ const metaQ=parseKrxBaseInfo(TARGET,'KOSDAQ',payloadQ);
+ assert.equal(metaK.codes.get('005930').listed,dates[200]);
+ assert.equal(metaQ.codes.get('035555').listed,dates[80]);
+ assert.throws(()=>parseKrxBaseInfo(TARGET,'KOSPI',{}),/SCHEMA_OR_COVERAGE/);
+ const duplicate=structuredClone(payloadK);
+ duplicate.OutBlock_1[1].ISU_SRT_CD=duplicate.OutBlock_1[0].ISU_SRT_CD;
+ assert.throws(()=>parseKrxBaseInfo(TARGET,'KOSPI',duplicate),/CODE_IDENTITY_OR_DUPLICATE/);
+ const future=structuredClone(payloadK);
+ future.OutBlock_1[0].LIST_DD='20261201';
+ assert.throws(()=>parseKrxBaseInfo(TARGET,'KOSPI',future),/FUTURE_LISTING/);
+ const report=analyzeOfficialListingCoverage(stamped,dates,{KOSPI:metaK,KOSDAQ:metaQ});
+ assert.equal(report.publicationAllowed,false);
+ assert.equal(report.corporateActionsVerified,false);
+ assert.equal(report.markets.KOSPI.matched,2);
+ assert.equal(report.markets.KOSPI.matchedLateContinuous,1);
+ assert.equal(report.markets.KOSPI.matchedInterrupted,1);
+ assert.equal(report.markets.KOSPI.confirmedListedWithinWindowLate,1);
+ assert.equal(report.markets.KOSPI.listedBeforeWindowButInterrupted,1);
+ assert.equal(report.markets.KOSDAQ.matched,1);
+ assert.equal(report.markets.KOSDAQ.confirmedListedWithinWindowLate,1);
+ assert.equal(report.markets.KOSPI.sourceStatus,'PARTIAL_OR_IDENTITY_CONFLICT');
+ const badIdentity=structuredClone(payloadK);
+ badIdentity.OutBlock_1[0].LIST_DD=dates[201].replaceAll('-','');
+ const conflict=analyzeOfficialListingCoverage(stamped,dates,{
+  KOSPI:parseKrxBaseInfo(TARGET,'KOSPI',badIdentity),KOSDAQ:metaQ
+ });
+ assert.equal(conflict.markets.KOSPI.listedDateAfterFirstQuote,1);
+ assert.equal(conflict.markets.KOSPI.sourceStatus,'PARTIAL_OR_IDENTITY_CONFLICT');
+ let calls=[];
+ const fake=async (url,o)=>{
+  const u=new URL(url);
+  calls.push(u.pathname);
+  assert.equal(o.method,'GET');
+  assert.equal(u.searchParams.get('basDd'),'20261113');
+  const q=u.pathname===KRX_BASE_INFO_PATHS.KOSDAQ;
+  return {ok:true,headers:{get:()=>null},json:async()=>q?payloadQ:payloadK};
+ };
+ const valid=await runKrxListingReadOnly({archive:stamped,
+  key:'TEST_KRX_KEY_123456789',fetchImpl:fake,
+  now:new Date('2026-11-16T09:30:00+09:00')});
+ assert.deepEqual(calls,[KRX_BASE_INFO_PATHS.KOSPI,KRX_BASE_INFO_PATHS.KOSDAQ]);
+ assert.equal(valid.markets.KOSPI.confirmedListedWithinWindowLate,1);
+ assert.equal(valid.markets.KOSDAQ.confirmedListedWithinWindowLate,1);
+ assert.equal(valid.status,'LISTING_METADATA_AUDIT_ONLY');
+ assert.equal(valid.publicationAllowed,false);
+ const denied=await runKrxListingReadOnly({archive:stamped,
+  key:'TEST_KRX_KEY_123456789',
+  fetchImpl:async()=>({ok:false,status:403}),
+  now:new Date('2026-11-16T09:30:00+09:00')});
+ assert.equal(denied.status,'SOURCE_UNVERIFIED');
+ assert.equal(denied.sourceStatus.KOSPI,'KRX_SERVICE_APPROVAL_REQUIRED');
+ assert.equal(denied.marketWideCertified,false);
+ assert.equal(denied.gasWrites,0);
+ assert.equal(denied.portfolioWrites,0);
+ const stale=await runKrxListingReadOnly({archive:stamped,
+  key:'TEST_KRX_KEY_123456789',fetchImpl:()=>{throw Error('should_not_call');},
+  now:new Date('2026-11-17T09:30:00+09:00')});
+ assert.equal(stale.status,'ARCHIVE_STALE');
+ assert.equal(stale.portfolioWrites,0);
+ const script=(await import('node:fs')).readFileSync(
+  '.github/workflows/krx-52week-listing-audit-readonly.yml','utf8');
+ assert.match(script,/node scripts\/krx-52week-listing-metadata-readonly\.mjs/);
+ assert.match(script,/--input=\.krx-52week\/listing\/history\.json/);
+ assert.match(script,/gh run download/);
+ assert.match(script,/history\.k52e/);
+ assert.match(script,/process\.env\.KRX_AUTH_KEY|KRX_AUTH_KEY:/);
+ assert.doesNotMatch(script,/actions\/upload-artifact|gas-deploy|workflow_run:|TELEGRAM_/);
+ console.log('KRX52_OFFICIAL_LISTING_DATE_SOURCE_CONTRACT_PASS source approval, real dates, unknown-halt, zero writes');
+}
+
 console.log('KRX_52W_252_SESSION_MARKET_HISTORY_PASS exact OHLC, count, holidays, incomplete, reentry, source-only');
