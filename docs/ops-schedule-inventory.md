@@ -18,7 +18,7 @@
 | `nh-night-capture-health.yml` | 1 | **유지** — 실제 아티팩트 누락 감시 |
 | `kb-fund-nav-collect.yml` | 3 | **유지** — 날짜별 저장·읽기 검증과 별도 fallback |
 | `market-briefing-headless.yml` | 2 | **유지** — 16:30 및 20:15 체크포인트 별도 |
-| `krx-nightly-health.yml` | 1 | **유지** — 야간 소스/저장 상태 판정. 일요일 불필요 여부는 관측 후 점검 |
+| `krx-nightly-health.yml` | 1 | **월요일 02:30 정기 실행 제외** — UTC 월~토 17:30 = KST 화~일 02:30. 금요일 미국장 이후 주말 Snapshot 확인 여지를 위해 일요일 유지, 수동 진단 유지 |
 | `krx-52week-history.yml` | 1 | **유지** — T+1 252일 archive 수집 |
 | `krx-tplus1-morning-readonly.yml` | 1 | **유지** — 공식 익영업일 발표 확인 |
 | `dividend-source-refresh.yml` | 1 | **유지** — 매월 5·10일 2회, 1개 cron 표현식 |
@@ -26,7 +26,7 @@
 | `briefing-public-source-timeliness-readonly.yml` | 5 | **실측 계속** — 16:52/17:08/17:35/07:30/08:15 시점별 공식 공표 지연 비교. 단순 중복 아님 |
 | `probe-standalone-performance-gas-20261103.yml` | 1 | **주 1회로 축소** — 7일 성능 지표 진단만 수행, Writer/브리핑 선행조건 아님 |
 
-합계 **35개 cron 표현식**. 7일 기준 독립 성능 진단은 기존 매일 7회에서 **월요일 09:05 KST 주 1회**로 감소(주 6회 절감). 공식 성능 자료 7일 이동창 유지, `workflow_dispatch` 수동 진단과 PR 자가검증 유지. [11/14 실조회 #43564712919](https://github.com/cyyoung111-dev/portfolio/actions/runs/43564712919): 7일 `sampleCount=0`; 해당 결과만으로 성능 문제가 없다고 주장할 수 없다.
+합계 **35개 cron 표현식**. 2026-11-15의 추가 축소는 `krx-nightly-health`의 월요일 02:30 KST 정기 실행 1회/주만 제거(기존 7회→6회). 토요일은 금요일 KRX 마감, 일요일은 금요일 미국장 마감 후 혼합자산 Snapshot 점검 가능성을 고려해 유지한다. 월요일 아침 최초 KRX 거래일 전 점검은 단순 반복 조회로 판정하지 않는다. `workflow_dispatch`는 그대로이며 금융 Writer/텔레그램/기타 예약은 변경하지 않는다. 7일 기준 독립 성능 진단은 기존 매일 7회에서 **월요일 09:05 KST 주 1회**로 감소(주 6회 절감). 공식 성능 자료 7일 이동창 유지, `workflow_dispatch` 수동 진단과 PR 자가검증 유지. [11/14 실조회 #43564712919](https://github.com/cyyoung111-dev/portfolio/actions/runs/43564712919): 7일 `sampleCount=0`; 해당 결과만으로 성능 문제가 없다고 주장할 수 없다.
 
 ## 범위 및 원칙
 
