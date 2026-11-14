@@ -3,7 +3,7 @@
 ## 현재 등록 현황 (main/.github/workflows 기준)
 
 * 예약을 정의한 워크플로 **16개**, cron 표현식 **35개**. 이 수치는 매일 실행 건수가 아니며, 평일/월별 예약도 포함한다.
-* 과거 Issue 기반 워크플로 45개(정기 cron 0개) 중 **4개 사용 종료**: 전체 워크플로 **100→96개**, Issue 기반 **45→41개**. **파일 수와 활성 cron 수는 별개**다. 활성 예약 워크플로 16개/cron 35개는 그대로 유지.
+* 과거 Issue 기반 워크플로 45개(정기 cron 0개) 중 **6개 사용 종료**: 전체 워크플로 **100→94개**, Issue 기반 **45→39개**. **파일 수와 활성 cron 수는 별개**다. 활성 예약 워크플로 16개/cron 35개는 그대로 유지. 11/15 2차 정리에서 `issue-507-snapshot-date-scoped-safety.yml`, `issue-507-writer-ledger-provenance-contract.yml` 두 개의 **중복·합성 전용 Actions wrapper**만 추가 삭제. 해당 운영 함수 회귀 검증은 `check:ci`에서 이미 매 PR 실행 중이며, 삭제 후에도 필수 실행을 유지하도록 검증기를 강화한다. 최근 main Actions 800회에서 두 워크플로 실행은 0회였다.
 * ChatGPT 외부 독립 기동(NAV 오전/저녁, Telegram 장전/마감)은 GitHub cron 표현식 35개에 포함되지 않는다.
 * GitHub cron은 약속된 시각에 실제 시작하지 않을 수 있다. 새 스케줄을 추가하는 것만으로 정시성을 보장할 수 없으며, `SENT`/공식 NAV 저장 증빙을 기준으로 판단한다.
 
@@ -35,7 +35,7 @@
 - **11/16(월) 운영 증빙 전에는** 장전 5 / 마감 6 / NH 4 / NAV 3을 임의로 줄이지 않는다. 장전·마감은 사전 기동 + Claim/SENT의 최종 결과가 정상이어야만 백업을 축소한다.
 - 다음 정리 때는 각 후보의 **기준거래일, 실제 시작시간, 실패/스킵 원인, 당일 성공 아티팩트와 최초 성공한 슬롯**을 함께 비교한다. 독립 자동화 및 다른 `workflow_run` 복구 경로도 포함해야 한다.
 - **4단계 완료 — NAV↔KRX 52주 `workflow_run` 연결 제거:** KRX 원시 OHLC는 T+1 시세 진단일 뿐 NAV 공표나 NAV 저장이 필요하다는 신호가 아니다. 실제 [11/14 05:58 KST NAV wake #43506362578](https://github.com/cyyoung111-dev/portfolio/actions/runs/43506362578)는 [KRX 23:30 예약의 지연 실행 #43506294072](https://github.com/cyyoung111-dev/portfolio/actions/runs/43506294072)에서 기동됐지만, KB imported=0, 한화 imported=0·writerInvoked=false, 공식 11/13 KB NAV 미공표, GAS CLOSE는 이미 COMPLETE였다. [11/14 KRX push에서 생성된 NAV #43590194264](https://github.com/cyyoung111-dev/portfolio/actions/runs/43590194264)는 4개 작업 모두 SKIPPED였다. 따라서 KRX↔NAV 연결만 제거하되, NAV 자체 **월~금 09:30/18:10/19:17** 예약, 독립 **10:20/20:30** fallback, 명시적 `workflow_dispatch`, 금융 CAS·원천공표 검증, Writer 간 직렬화는 유지한다. **11/16 실제 NAV 저장·재조회 성공 여부는 별도 운영검증 필요**.
-- 전체 워크플로 파일 정리는 **별도 5단계**로 보류: 최종 호출 여부, 수동 응급 복구 기능, 날짜 제한과 안전 검증을 각 파일별로 확인한 후 삭제.
+- 5단계 워크플로 정리는 **2차 진행 중**: 지난 800회 Actions 실행 이력·종속성·필수 CI 수록을 확인하고 합성 전용 중복 wrapper 총 6개만 단계적으로 삭제. 수동 금융 복구·실제 조회·OAuth 감사·날짜별 검증이 필요한 워크플로는 보존한다.
 - [단일 운영 결과표](operating-status-verdict.md)로 NAV·저장 CLOSE·SENT는 각각의 증빙 수준만 PASS로 기록한다.
 
 ## 다음 실증용 질문
