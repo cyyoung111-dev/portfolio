@@ -237,3 +237,32 @@ for(const options of [
 }
 console.log(JSON.stringify({kind:'HANWHA_RECENT_NAV_GRACE_OFFLINE_PASS',
  scenarios:16,financeWrites:0,gasDeployments:0,telegramSends:0}));
+
+// #734: a previously confirmed close must not burn 180s on each blocked
+// Hanwha STATUS read. The probe and owner read have bounded time budgets.
+{
+ const observed=[],actions=[];
+ const original=AbortSignal.timeout;
+ AbortSignal.timeout=ms=>{observed.push(ms);return original(ms);};
+ try{
+  await assert.rejects(()=>run({
+   url:'https://script.google.com/macros/s/Test/exec',
+   token:'TEST_SECRET',apply:true,now:new Date('2026-11-14T09:15:00Z'),
+   fetchImpl:async(_url,o)=>{
+    const action=o.body?.get('action');actions.push(action);
+    assert.equal(action,'getAutomationStatus');
+    return {ok:true,json:async()=>o.body?.get('accessToken')==='HANWHA_AUTH_PROBE'
+      ?{status:'error',message:'인증 실패'}
+      :{status:'ok',gasVersion:'9.294',automation:{
+        closeRun:{state:'COMPLETE',runDate:'2026-11-13'},
+        fundAttempt:{state:'IN_PROGRESS'},
+        tradeSnapshotDeferredCount:0}}};
+   }
+  }),/HANWHA_WRITER_BUSY/);
+  assert.deepEqual(observed,[120000,120000],
+   'both Hanwha STATUS gates must use the bounded read-only budget');
+  assert.deepEqual(actions,['getAutomationStatus','getAutomationStatus'],
+   'no additional NAV read or write while active fund owner is unverified');
+ }finally{AbortSignal.timeout=original;}
+}
+console.log('ISSUE734_HANWHA_STATUS_READ_BUDGET_PASS 120s_readonly_no_finance_writes');
