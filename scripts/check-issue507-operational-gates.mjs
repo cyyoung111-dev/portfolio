@@ -303,3 +303,39 @@ for(const [before,after] of [
  if(alternate!==jointAuditFile)
   assert.throws(()=>verifyJointIssue507NhReadOnlyWorkflow(alternate));
 }
+
+
+// #734 phase 5: Retire historical standalone Actions without losing the
+// synthetic financial safety checks. The old Nov 10 process workflow is
+// superseded by current, protected OAuth scope and worker diagnostics.
+for(const retired of [
+ 'issue-507-date-discovery-read-profile.yml',
+ 'issue-507-global-snapshot-undated-readonly.yml',
+ 'issue-507-backup-pre-registry-orphan-readonly.yml',
+ 'issue860-close-processes-readonly.yml'
+]){
+ assert.equal(fs.existsSync(new URL(retired,dir)),false,
+  'retired one-shot workflow unexpectedly returned: '+retired);
+}
+for(const [script,expected] of [
+ ['scripts/issue507-date-discovery-read-profile.mjs',
+  'Issue #507 production DATE_DISCOVERY synthetic read profile: PASS'],
+ ['scripts/issue507-global-snapshot-undated-readonly.mjs',
+  'ISSUE507_GLOBAL_SNAPSHOT_READ_ONLY_CONTRACT_PASS']
+]){
+ const run=spawnSync(process.execPath,[script,'--self-test'],{
+  encoding:'utf8',timeout:25000,
+  env:{...process.env,GAS_ACCESS_TOKEN:'',GAS_WEB_APP_URL:'',
+    GOOGLE_APPLICATION_CREDENTIALS:'',GITHUB_TOKEN:'',GH_TOKEN:''}
+ });
+ assert.equal(run.status,0,'offline retired-workflow test failed: '+script+
+  ' '+String(run.stderr).slice(0,450));
+ assert.ok(run.stdout.includes(expected),script+' did not confirm synthetic contract');
+}
+assert.ok(fs.existsSync(new URL('issue734-process-scope-audit-readonly.yml',dir)),
+ 'active protected OAuth scope audit must remain');
+assert.ok(fs.existsSync(new URL('issue-507-worker-execution-audit.yml',dir)),
+ 'reusable worker-process audit must remain');
+assert.ok(fs.existsSync(new URL('issue-507-fund-close-resume.yml',dir)),
+ 'manual recovery workflow must not be removed');
+console.log('ISSUE734_DEPRECATED_WORKFLOWS_RETIRED_SAFELY synthetic tests and live recovery preserved');
