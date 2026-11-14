@@ -300,8 +300,11 @@ function assertNightlyWorkflowGuard(source) {
   const wf=doc.toJS({maxAliasCount:0});
   assert.equal(wf.permissions?.contents,'read','nightly workflow read rights');
   assert.ok(wf.on && Object.hasOwn(wf.on,'workflow_dispatch'),'nightly manual event');
-  assert.deepEqual(wf.on.schedule?.map(x=>x.cron),['30 17 * * *'],
-    '02:30 KST nightly schedule must not drift');
+  assert.deepEqual(wf.on.schedule?.map(x=>x.cron),['30 17 * * 1-6'],
+    '02:30 KST Tue-Sun only, no Monday no-new-session audit');
+  // UTC Mon-Sat 17:30 corresponds to KST Tue-Sun 02:30. Preserve Sunday
+  // after US Friday close; skip KST Monday without disabling manual audit.
+  assert.deepEqual([1,2,3,4,5,6].map(utcDow=>(utcDow+1)%7),[2,3,4,5,6,0]);
   assert.ok(!Object.hasOwn(wf.on,'push'),'push must not run GAS secrets');
   assert.deepEqual(Object.keys(wf.jobs||{}),['check'],'no unguarded extra jobs');
   const job=wf.jobs.check;
@@ -326,6 +329,9 @@ function assertNightlyWorkflowGuard(source) {
 }
 const nightlySource=fs.readFileSync(workflowPath,'utf8');
 assertNightlyWorkflowGuard(nightlySource);
+assert.throws(()=>assertNightlyWorkflowGuard(nightlySource.replace(
+  "cron: '30 17 * * 1-6'","cron: '30 17 * * *'")),
+  /02:30 KST Tue-Sun only/,'do not reintroduce Monday 02:30 no-new-session run');
 for (const weaker of [
  "github.event_name == 'workflow_dispatch'",
  "github.ref == 'refs/heads/main'",
