@@ -36,7 +36,9 @@ export async function verifyLateCloseSent({
   date:date||'-',telegramSends:0,financeWrites:0};
  if(!date||repository!==REPO||typeof token!=='string'||token.length<8)
   return {...base,status:'SENT_PROOF_UNVERIFIED',verified:false};
- const artifact='telegram-close-claim-'+date+'-sent';
+ const claimName='telegram-close-claim-'+date;
+ const start=Date.parse(date+'T17:00:00+09:00');
+ const end=Date.parse(date+'T18:00:00+09:00');
  const headers={Accept:'application/vnd.github+json',Authorization:'Bearer '+token};
  async function get(path){
   const url='https://api.github.com/repos/'+repository+path;
@@ -46,21 +48,29 @@ export async function verifyLateCloseSent({
   return response.json();
  }
  try{
-  const data=await get('/actions/artifacts?name='+encodeURIComponent(artifact)+'&per_page=100');
-  if(!data||!Array.isArray(data.artifacts)||!Number.isSafeInteger(data.total_count)
-    ||data.total_count>100||data.total_count!==data.artifacts.length)
-   return {...base,status:'SENT_PROOF_UNVERIFIED',verified:false};
-  for(const item of data.artifacts){
-   if(item.name!==artifact||item.expired!==false||!Number.isSafeInteger(item.workflow_run?.id))
-    return {...base,status:'SENT_PROOF_UNVERIFIED',verified:false};
-   const run=await get('/actions/runs/'+item.workflow_run.id);
-   if(run?.head_branch==='main'&&run?.head_repository?.full_name===REPO
-     &&PATHS.has(run?.path)
-     &&run?.event!=='pull_request')
-    return {...base,status:'PRIOR_SENT_ARTIFACT_VERIFIED',
-     verified:true};
+  async function artifact(name){
+   const data=await get('/actions/artifacts?name='+encodeURIComponent(name)+'&per_page=100');
+   if(!data||data.total_count!==1||!Array.isArray(data.artifacts)
+     ||data.artifacts.length!==1)throw Error('CLOSE_LATE_ARTIFACT_UNVERIFIED');
+   const a=data.artifacts[0],created=Date.parse(a?.created_at);
+   if(a?.name!==name||a.expired!==false||!Number.isSafeInteger(a.id)
+     ||!Number.isSafeInteger(a.workflow_run?.id)
+     ||!Number.isFinite(created)||created<start||created>=end)
+    throw Error('CLOSE_LATE_ARTIFACT_UNVERIFIED');
+   return {runId:a.workflow_run.id,created};
   }
-  return {...base,status:'NO_TRUSTED_SENT_PROOF',verified:false};
+  const sent=await artifact(claimName+'-sent');
+  const claim=await artifact(claimName);
+  if(sent.runId!==claim.runId||claim.created>sent.created)
+   throw Error('CLOSE_LATE_CLAIM_UNVERIFIED');
+  const run=await get('/actions/runs/'+sent.runId);
+  if(run?.id!==sent.runId||run?.status!=='completed'||run?.conclusion!=='success'
+     ||run.head_branch!=='main'||run.head_repository?.full_name!==REPO
+     ||!PATHS.has(run.path)||run.run_attempt!==1
+     ||!['schedule','workflow_dispatch','workflow_run','push'].includes(run.event))
+   throw Error('CLOSE_LATE_RUN_UNVERIFIED');
+  return {...base,status:'PRIOR_SENT_ARTIFACT_VERIFIED',verified:true,
+   githubReads:3};
  }catch{return {...base,status:'SENT_PROOF_UNVERIFIED',verified:false};}
 }
 
