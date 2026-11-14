@@ -187,6 +187,12 @@ for(const c of checks){
      'prove the prior sentinel source before accepting the push');
    assert.ok(String(waiting.env.TELEGRAM_CLOSE_SENTINEL_VERIFIED||'')
      .includes('steps.verify_sentinel.outputs.verified'));
+   const late=steps.find(step=>step.name==='Verify trusted SENT on delayed close arm (no re-send)');
+   assert.ok(late&&steps.indexOf(late)>steps.indexOf(waiting)
+     &&steps.indexOf(late)<steps.findIndex(step=>step.id==='prepare'));
+   assert.equal(late.if,"github.event_name == 'schedule' && steps.arm.outputs.ready != 'true'");
+   assert.equal(late.run,'node scripts/telegram-close-late-verdict.mjs --check-scheduled-arm');
+   assert.ok(String(late.env.GITHUB_TOKEN).includes('github.token'));
    assert.equal(steps.find(step=>step.uses==='actions/checkout@v7').with['fetch-depth'],2);
  }else{
    assert.deepEqual(Object.keys(y.on),['schedule','workflow_dispatch','push'],
