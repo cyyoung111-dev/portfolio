@@ -195,7 +195,10 @@ assert.throws(()=>audit52WeekRawDiscontinuity(discontinuous,dates.slice(1),
   if(i===120)absent.add('KR000009');
   if(i<80||i===125)absent.add('KR000010');
   if(i<WINDOW-1)absent.add('KR000011');
-  coverageFixture.sessions[i].markets.KOSPI.rows=rows.filter(x=>!absent.has(x[0]));
+  const retained=rows.filter(x=>!absent.has(x[0]));
+  const dayMarket=coverageFixture.sessions[i].markets.KOSPI;
+  dayMarket.totalRows-=rows.length-retained.length;
+  dayMarket.rows=retained;
  }
  const today=coverageFixture.sessions.at(-1).markets.KOSPI.rows;
  const split= today.find(x=>x[0]==='KR000008');
