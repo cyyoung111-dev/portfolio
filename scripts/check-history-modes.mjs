@@ -266,9 +266,28 @@ assert.match(pipelineSource, /충돌 분류 · MANUAL 보호/);
   {portfolioCloseRunStale:true},{fundLastError:'PRIVATE ERROR'},
   {fundAttempt:{date:'2026-11-12',state:'DONE'}},
   {pendingKrxCloseDates:['2026-11-13']},
-  {tradeLedgerWriteUnverified:true}
+  {tradeLedgerWriteUnverified:true},
+  {tradeLedgerWriteUnverified:undefined},
+  {pendingTradeSnapshotRebuildFrom:undefined},
+  {pendingTradeSnapshotRebuildFrom:'2026-11-12'},
+  {tradeSnapshotDeferredCount:null},
+  {tradeSnapshotDeferredCount:undefined},
+  {tradeSnapshotDeferredCount:''},
+  {tradeSnapshotDeferredCount:'0'},
+  {tradeSnapshotDeferredCount:false},
+  {tradeSnapshotDeferredCount:-1},
+  {tradeSnapshotDeferredCount:2}
  ]) {
   assert.equal(ctx.displayClose({...normal,...bad}),null,
     'bad or stale CLOSE must retain original failure classification');
+ }
+ // Absence differs from a safe explicit false/zero. Old API versions or
+ // partial payloads must never receive a completed-close badge.
+ for(const field of ['tradeLedgerWriteUnverified',
+   'pendingTradeSnapshotRebuildFrom','tradeSnapshotDeferredCount']) {
+  const unknown={...normal};
+  delete unknown[field];
+  assert.equal(ctx.displayClose(unknown),null,
+    'missing '+field+' is not a verified completed close');
  }
 }
