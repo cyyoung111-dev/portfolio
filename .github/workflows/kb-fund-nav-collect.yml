@@ -135,6 +135,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      # A 09:10 weekend cron started at 15:05 KST on 2026-11-14.
+      # Fail stale schedules before the slow GAS status probe so the
+      # independent NAV rescue can still see an unsuccessful normal run.
+      - name: Block stale scheduled NAV starts before private GAS
+        env:
+          NAV_SCHEDULE_CRON: ${{ github.event.schedule }}
+        run: node scripts/nav-schedule-admission.mjs
       - name: Collect exact KB S-T published NAV and verify import
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
@@ -156,6 +163,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      # A 09:10 weekend cron started at 15:05 KST on 2026-11-14.
+      # Fail stale schedules before the slow GAS status probe so the
+      # independent NAV rescue can still see an unsuccessful normal run.
+      - name: Block stale scheduled NAV starts before private GAS
+        env:
+          NAV_SCHEDULE_CRON: ${{ github.event.schedule }}
+        run: node scripts/nav-schedule-admission.mjs
       - name: Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
