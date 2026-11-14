@@ -1,5 +1,18 @@
 # KRX 52-week market breadth — 252 trading-session data contract
 
+## 2026-11-14 #734: 상장일 공식 원천 대조 준비 — KRX 기본정보 2종 (일회성 승인점검)
+
+**KRX 공식 추가 원천:**
+- 유가증권 `/svc/apis/sto/stk_isu_base_info` [공식 안내](https://openapi.krx.co.kr/contents/OPP/USES/service/OPPUSES002_S2.cmd?BO_ID=PiwgMdTwmsenXhmqqxuj)
+- 코스닥 `/svc/apis/sto/ksq_isu_base_info` [공식 안내](https://openapi.krx.co.kr/contents/OPP/USES/service/OPPUSES002_S2.cmd?BO_ID=CifLHplnUFMgpHIMMPXs)
+
+**검증기:** [`scripts/krx-52week-listing-metadata-readonly.mjs`](../scripts/krx-52week-listing-metadata-readonly.mjs)와 [일회성 감사 워크플로](../.github/workflows/krx-52week-listing-audit-readonly.yml).
+- 기존 252/252 암호화 KRX OHLC 저장을 GitHub Actions runner 안에서만 복원하고, 동일 기준거래일 `basDd`의 **공식 종목기본정보**를 두 경로에서만 읽기 전용 호출한다. `ISU_SRT_CD`(단축 6자리), `ISU_CD`(표준 12자리), `LIST_DD`(상장일), `SECUGRP_NM`·`KIND_STKCERT_TP_NM`(증권/주식 종류)을 엄격하게 점검한다.
+- 신규 관측종목의 최초 유효 OHLC 날짜와 **실제 상장일**을 비교해 52주 창 안에 상장한 경우와 이미 상장된 뒤 비정상적으로 늦게 관측된 경우를 구분한다. 관측 후 공백 종목도 상장일과 비교하지만 **공백 원인을 거래정지·상장폐지·분할·종목코드 변경으로 확정하지 않는다**. 상장일이 기존 확인된 시세보다 뒤이면 시계열/종목식별자 충돌로 진단한다. 당일 OHLC 미존재 종목의 가격은 임의 보정하지 않는다.
+- 연결 성공 여부는 기본정보 API **서비스별 이용 승인**에 종속된다. 기존 `KRX_AUTH_KEY`에서 시세 2종이 된다고 기본정보 2종의 승인도 있다고 추측할 수 없다. 공식 안내상 서비스 활용신청 후 관리자 승인이 필요하다. [KRX 이용절차](https://openapi.krx.co.kr/contents/OPP/INFO/OPPINFO003.jsp). 미승인 시 `KRX_SERVICE_APPROVAL_REQUIRED`로 분류하고 자동 재호출하지 않는다.
+- 이 워크플로는 **cron 없음**, 모듈/워크플로의 `main` 변경 시 최초 1회 및 명시적 수동 호출만 허용. 운영 KRX 수집, NAV, GAS, Sheets, Portfolio 원본, Telegram, Secrets, 예약 정의를 수정하지 않는다. **공식 API 원본/가격/종목별 상장정보 아티팩트 업로드 없음**. 콘솔에는 상장일별 일치/불일치 집계와 고정 상태값만 출력.
+- 성공하더라도 `marketWideCertified=false`, `publicationAllowed=false`: 상장일 일치만으로는 과거 액면분할·무상증자 권리조정과 거래정지 공식 이력, 전 시장 모집단 및 라이선스가 증명되지 않는다. **실제 52주 공인 지표 발행은 계속 차단**한다.
+
 ## 2026-11-14 #734: 전 종목 모집단 제외 사유 진단 (source-only)
 
 - [`audit52WeekHistoryEligibility`](../scripts/krx-52week-market.mjs)은 오늘 KRX 원시 OHLC에 포함되는 **각 종목**을 기존 252거래일 봉으로 추적한다. 기존 `countNewHighsAndLows`의 엄격한 과거 251영업일 모집단과 계산 결과는 **수정하지 않는다**.
