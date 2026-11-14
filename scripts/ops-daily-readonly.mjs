@@ -83,7 +83,7 @@ export function classifyNavRuns(runs,jobsByRunId,date){
  if(!Array.isArray(runs)||runs.length>100)return 'RUN_LIST_UNVERIFIED';
  const candidates=runs.filter(r=>
   r?.head_branch==='main'&&r?.run_attempt===1
-  &&['schedule','workflow_dispatch','workflow_run'].includes(r.event)
+  &&['schedule','workflow_dispatch'].includes(r.event)
   &&Number.isSafeInteger(r.id)&&Number.isFinite(Date.parse(r.created_at))
   &&kstClock(new Date(r.created_at)).day===date);
  if(!candidates.length)return 'NO_ACCEPTED_EXECUTION_OBSERVED';
