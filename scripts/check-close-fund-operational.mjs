@@ -116,7 +116,9 @@ for(const change of [
  const v=report({close:postNavCleanClose,funds:f});
  assert.equal(v.persistedWarningReviewOnly,false,
   'fund source or historical reconciliation cannot be called residual-only');
- assert.equal(v.actionRequired,true);
+ if(change.navMissingDates)
+  assert.equal(v.health,'CLOSE_COMPLETE_RECENT_NAV_SOURCE_UNVERIFIED');
+ else assert.equal(v.actionRequired,true);
 }
 const staleWarning=report({funds:funds.map(f=>({...f,unpublishedDates:[]}))});
 assert.equal(staleWarning.health,'PERSISTED_WARNING_UNCLASSIFIED');
