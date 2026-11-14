@@ -74,8 +74,11 @@ jobs:
             since="$(date -u -d "$kst_day 17:00:00 +0900" +%FT%TZ)"
             echo 'NAV_FALLBACK_EVENING_DEDUPE_SINCE_1700_KST'
           else
-            since="$(date -u -d "$kst_day 00:00:00 +0900" +%FT%TZ)"
-            echo 'NAV_FALLBACK_MORNING_DEDUPE_SINCE_0000_KST'
+            # A 02:10/05:58 collector can succeed while the Friday NAV
+            # is still unpublished. It must not suppress the *09:10/09:30*
+            # source catch-up when that later cron is missing.
+            since="$(date -u -d "$kst_day 08:45:00 +0900" +%FT%TZ)"
+            echo 'NAV_FALLBACK_MORNING_DEDUPE_SINCE_0845_KST'
           fi
           recent="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/kb-fund-nav-collect.yml/runs?per_page=50" |
             jq -r --arg since "$since" '[.workflow_runs[]
