@@ -60,6 +60,9 @@ assert.equal(classifyNavRuns([run],jobs,fri),
  'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
 assert.equal(classifyNavRuns([{...run,event:'push'}],jobs,fri),
  'NO_ACCEPTED_EXECUTION_OBSERVED');
+assert.equal(classifyNavRuns([{...run,event:'workflow_run'}],jobs,fri),
+ 'NO_ACCEPTED_EXECUTION_OBSERVED',
+ 'retired KRX-triggered collector is not evidence of allowed NAV execution');
 assert.equal(classifyNavRuns([{...run,head_branch:'feature'}],jobs,fri),
  'NO_ACCEPTED_EXECUTION_OBSERVED');
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],jobs,fri),
