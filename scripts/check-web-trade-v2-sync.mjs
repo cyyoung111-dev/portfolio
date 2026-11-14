@@ -248,6 +248,12 @@ mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]=null;
 assert.equal(await mobile.device.manualStockV2Guard(),false,
  'a v2-required connection without its baseline fails closed');
 mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]=savedBaseline;
+mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]={
+ ...savedBaseline,trades:[{...savedBaseline.trades[0],memo:'tampered local preimage'}]
+};
+assert.equal(await mobile.device.manualStockV2Guard(),false,
+ 'corrupted local baseline cannot authorize earlier Settings/Holdings writes');
+mobile.deviceWindow._tradeLedgerV2BaselineTargets[url]=savedBaseline;
 mobile.device.rawTrades=[{...pulled.trades[0],acct:'ISA',memo:'Android after pull'}];
 const mobileSaved=await mobile.device.save({targetUrl:url,generation});
 assert.equal(mobileSaved.status,'ok',JSON.stringify(mobileSaved));
