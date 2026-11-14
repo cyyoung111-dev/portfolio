@@ -1,5 +1,8 @@
 # Issue #507 — PR #787/#788 병합 후 Actions 운영 이력 독립 감사
 
+> **2026-11-15 보관 상태:** 해당 일회성 GitHub Actions 워크플로(`issue507-postmerge-actions-readonly.yml`)는 조사 대상 병합일(2026-10-31) 기준 14일의 인증 이력 재조회 기한이 경과하여 `ISSUE507_AUDIT_WINDOW_TOO_OLD`로 실패합니다. [#734 이력 정리]에 따라 워크플로 실행 버튼만 제거하고 원래 증빙·스크립트·필수 CI 합성 검사(`check-issue507-postmerge-actions.mjs`)는 유지합니다. 아래 설명은 **당시의 기록**이며 현재 Actions에 워크플로가 있다는 뜻이 아닙니다.
+
+
 ## 배경
 
 - PR #787 `main` 병합: `c2298b9ad69b806cffd8eb4ba0115ac10098858a`
