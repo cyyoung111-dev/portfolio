@@ -1,12 +1,7 @@
 name: KRX 52-week official listing-date audit (READ ONLY)
 on:
-  # A single live probe after the protected source contract is merged.
-  # There is NO cron: an unapproved metadata endpoint must not be polled.
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/krx-52week-listing-metadata-readonly.mjs'
-      - '.github/workflows/krx-52week-listing-audit-readonly.yml'
+  # KRX listing metadata was HTTP 401; service approval is unverified.
+  # Explicit operator dispatch ONLY, not automatic source-edit polling.
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,7 +15,7 @@ jobs:
       github.repository == 'cyyoung111-dev/portfolio' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      github.event_name == 'workflow_dispatch'
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 9
