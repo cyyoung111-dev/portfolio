@@ -57,37 +57,31 @@ await assert.rejects(()=>inspectGoogleProcessScope({token,
 await assert.rejects(()=>inspectGoogleProcessScope({token,
  fetchImpl:async()=>({ok:true,json:async()=>({email:'PRIVATE'})})}),
  /ISSUE734_PROCESS_SCOPE_RESPONSE_SCHEMA/);
-// A source edit may run the offline contract, but Google tokeninfo must only
-// run after a trusted manual workflow_dispatch; avoid repeated 401/scope alarms.
-const scopeYaml=fs.readFileSync(
- '.github/workflows/issue734-process-scope-audit-readonly.yml','utf8');
-function checkProtectedManualScope(source){
- const doc=YAML.parseDocument(source,{uniqueKeys:true,version:'1.2'});
+// Test the actual workflow source. Automatic PR/push may run offline tests;
+// only the main-branch manual workflow may call Google's tokeninfo endpoint.
+const auditYaml=fs.readFileSync('.github/workflows/issue734-process-scope-audit-readonly.yml','utf8');
+function enforceManualScopeAudit(source){
+ const doc=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
  assert.equal(doc.errors.length,0);
  const cfg=doc.toJS({maxAliasCount:0});
  assert.ok(Object.hasOwn(cfg.on,'workflow_dispatch'));
  assert.equal(cfg.on.schedule,undefined);
+ assert.ok(cfg.on.push&&cfg.on.pull_request);
  assert.deepEqual(cfg.permissions,{contents:'read'});
- assert.equal(cfg.jobs['scope-audit'].needs,'source-check');
- assert.equal(cfg.jobs['scope-audit'].environment,'portfolio-production-gas');
- assert.equal(cfg.jobs['scope-audit'].if,
-  "github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1");
- assert.equal(cfg.jobs['scope-audit'].env.CLASPRC_JSON,
-  '
- negativeScenarios:8,diagnosticOnly:true,oauthCredentialChanges:0,
- gasWrites:0,financialWrites:0}));
-+'{{ secrets.CLASPRC_JSON }}');
- assert.equal(cfg.jobs['scope-audit'].steps.at(-1).run,
-  'node scripts/issue734-process-scope-audit-readonly.mjs');
- assert.ok(cfg.on.pull_request&&cfg.on.push,'offline checks must stay PR/push-triggered');
+ const job=cfg.jobs['scope-audit'];
+ assert.equal(job.needs,'source-check');
+ assert.equal(job.environment,'portfolio-production-gas');
+ assert.equal(job.if,"github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1");
+ assert.ok(String(job.env.CLASPRC_JSON).includes('secrets.CLASPRC_JSON'));
+ assert.equal(job.steps.at(-1).run,'node scripts/issue734-process-scope-audit-readonly.mjs');
 }
-checkProtectedManualScope(scopeYaml);
-assert.throws(()=>checkProtectedManualScope(scopeYaml.replace(
+enforceManualScopeAudit(auditYaml);
+assert.throws(()=>enforceManualScopeAudit(auditYaml.replace(
  "github.event_name == 'workflow_dispatch' && github.run_attempt == 1",
  "github.event_name != 'pull_request' && github.run_attempt == 1")));
-assert.throws(()=>checkProtectedManualScope(scopeYaml.replace(
- "  workflow_dispatch:\n",
- "  schedule:\n    - cron: '0 0 * * *'\n  workflow_dispatch:\n")));
+assert.throws(()=>enforceManualScopeAudit(auditYaml.replace(
+ '  workflow_dispatch:',
+ '  schedule:' + String.fromCharCode(10) + '    - cron: 0 0 * * *' + String.fromCharCode(10) + '  workflow_dispatch:')));
 console.log(JSON.stringify({kind:'ISSUE734_PROCESS_SCOPE_SOURCE_PASS',
  negativeScenarios:8,diagnosticOnly:true,oauthCredentialChanges:0,
  gasWrites:0,financialWrites:0}));
