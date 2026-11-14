@@ -531,8 +531,9 @@ function _describePortfolioCloseStatus(a) {
     // clean state. Only explicit safety evidence can justify "마감 완료".
     && a.tradeLedgerWriteUnverified === false
     && Object.prototype.hasOwnProperty.call(a, 'pendingTradeSnapshotRebuildFrom')
-    && a.pendingTradeSnapshotRebuildFrom !== undefined
-    && !a.pendingTradeSnapshotRebuildFrom
+    && (a.pendingTradeSnapshotRebuildFrom === ''
+      || a.pendingTradeSnapshotRebuildFrom === '-'
+      || a.pendingTradeSnapshotRebuildFrom === null)
     && Number.isSafeInteger(a.tradeSnapshotDeferredCount)
     && a.tradeSnapshotDeferredCount === 0;
   if (!completed || !['NORMAL', 'WARNING'].includes(a.overallStatus)) return null;
