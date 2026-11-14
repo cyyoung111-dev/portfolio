@@ -229,3 +229,15 @@ await assert.rejects(()=>sendCorrection(correction,{now:()=>new Date('2026-10-31
 assert.equal(correctionSends,1);
 
 console.log('Full morning Telegram report: grouping, verified date, missing flags, rate cap, scenarios PASS');
+
+// 2026 verified NYSE/SIFMA calendars: stock and bond holidays diverge.
+assert.equal(expectedMorningDate('SPX','2026-11-12'),'2026-11-11');
+assert.equal(expectedMorningDate('UST10Y','2026-11-12'),'2026-11-10');
+assert.equal(expectedMorningDate('SPX','2026-10-13'),'2026-10-12');
+assert.equal(expectedMorningDate('UST10Y','2026-10-13'),'2026-10-09');
+assert.equal(expectedMorningDate('SPX','2026-04-06'),'2026-04-02');
+assert.equal(expectedMorningDate('UST10Y','2026-04-06'),'2026-04-03');
+assert.equal(expectedMorningDate('SPX','2026-11-16'),'2026-11-13');
+assert.equal(expectedMorningDate('UST10Y','2026-11-16'),'2026-11-13');
+assert.equal(expectedMorningDate('SPX','2027-01-05'),null,
+ 'unverified future-year holidays must not be treated as trading sessions');
