@@ -74,12 +74,16 @@ async function _manualStockSyncV2ReadGuard() {
         ||result.trades.some(t=>
           !/^(tr|srv)_[A-Za-z0-9_-]{6,128}$/.test(String(t?.id||''))))
       return false;
-    const digest=await _tradeV2BrowserSha256(
-      result.trades.slice().sort((a,b)=>
+    const canonicalDigest=rows=>_tradeV2BrowserSha256(
+      rows.slice().sort((a,b)=>
         String(a.date||'').localeCompare(String(b.date||'')))
         .map(_tradeV2BrowserCanonical));
+    const [remoteDigest,baselineDigest]=await Promise.all([
+      canonicalDigest(result.trades),canonicalDigest(baseline.trades)
+    ]);
     return isGsheetConnectionCurrent(targetUrl,generation)
-      &&digest===baseline.revision;
+      &&remoteDigest===baseline.revision
+      &&baselineDigest===baseline.revision;
   } catch(ignore) {
     return false;
   }
