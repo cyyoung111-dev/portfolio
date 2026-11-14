@@ -67,12 +67,50 @@ export function assessCloseFundOperational({close,funds,asOf}) {
   &&close.pendingKrxDatesCount===0&&datesMatch;
  const safeWarning=['NONE','NAV_PUBLICATION_OR_INPUT_PENDING',
   'PARTIAL_FUND_VALUATION'].includes(close.fundWarningClass);
+ // #734: the independent collector can repair an official NAV/derived row
+ // without rewriting GAS's older fund_last_warning Script Property. This is
+ // a READ-ONLY review classification, not a warning clear or a claim of
+ // independent official-source/Apps Script process-owner proof.
+ //
+ // Require exact complete CLOSE + no pending finance work + all 32-day
+ // fund rows reconciled before making a saved PARTIAL warning non-blocking.
+ // Today's pre-close Snapshot rows may legitimately still be pending.
+ const savedWarningReviewOnly=complete
+  &&close.overallStatus==='WARNING'
+  &&close.fundWarningPresent===true
+  &&close.fundWarningClass==='PARTIAL_FUND_VALUATION'
+  &&close.fundWarningReview==='SAVED_WARNING_WITH_COMPLETE_CLOSE_NEEDS_SOURCE_RECHECK'
+  &&close.portfolioCloseRunStale===false
+  &&close.portfolioCloseLastErrorPresent===false
+  &&close.tradeLedgerWriteUnverified===false
+  &&close.pendingTradeSnapshotRebuildPresent===false
+  &&close.tradeSnapshotDeferredCount===0
+  &&needsRepair.length===0&&late.length===0
+  &&pending.length===0&&sourceUnverified.length===0
+  &&FUNDS.every(code=>{
+   const f=byCode.get(code);
+   return f.navMissingDates.length===0&&f.unpublishedDates.length===0
+    &&f.writerBlockedDates.length===0
+    &&f.unitsNotAppliedDates.every(d=>d===asOf)
+    &&f.unreconciledDates.every(d=>d===asOf)
+    &&f.evaluationPendingDates.every(d=>d===asOf)
+    &&f.snapshotPendingDates.every(d=>d===asOf);
+  })
+  &&['F00001','F00002'].every(code=>{
+   const f=byCode.get(code);
+   return f.activeDays>0&&Number.isSafeInteger(f.confirmedNavDays)
+    &&f.confirmedNavDays>=1&&f.confirmedNavDays<=f.activeDays;
+  });
  let health='CLOSE_DATA_VERIFIED',actionRequired=false;
  if(close.overallStatus==='ERROR'||close.overallStatus==='INCOMPLETE'
   ||!complete) {health='CLOSE_INCOMPLETE_OR_UNVERIFIED';actionRequired=true;}
  else if(needsRepair.length||late.length) {
   health='FUND_NAV_OR_DERIVED_OVERDUE';actionRequired=true;
- } else if(!safeWarning||!['NORMAL','WARNING'].includes(close.overallStatus)
+ } else if(savedWarningReviewOnly){
+  health='CLOSE_COMPLETE_SAVED_FUND_WARNING_RECHECK_ONLY';
+  actionRequired=false;
+ }
+ else if(!safeWarning||!['NORMAL','WARNING'].includes(close.overallStatus)
    ||(close.fundWarningPresent===true&&!pending.length&&!sourceUnverified.length)
    ||(close.overallStatus==='WARNING'&&(!close.fundWarningPresent
      ||(!pending.length&&!sourceUnverified.length)))) {
@@ -87,6 +125,7 @@ export function assessCloseFundOperational({close,funds,asOf}) {
   overdueFunds:needsRepair,publicationOverdueFunds:late,
   publicationPendingFunds:pending,navSourceUnverifiedFunds:sourceUnverified,
   closePersistedComplete:complete,
+  persistedWarningReviewOnly:savedWarningReviewOnly,
   executionOwnerIndependentlyVerified:false,
   source:'PERSISTED_GAS_STATUS_AND_DATE_SCOPED_FUND_READONLY',
   financialWrites:0,gasDeployments:0,telegramSends:0};
