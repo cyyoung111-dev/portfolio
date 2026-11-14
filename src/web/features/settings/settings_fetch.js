@@ -648,7 +648,12 @@ function getDateStr(daysAgo) {
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
 const EXPECTED_GAS_VERSION = '9.285';
-const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287']);
+// The checked-in GAS source stays pinned at the staged 9.285 baseline.
+// Published production 9.294 is independently observed by the protected
+// 2026-11-15 overnight read; it shares the current bootstrap response contract.
+// An explicitly approved live version must not trigger a spurious redeploy
+// warning. Unknown future versions still warn (no broad numeric >= match).
+const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287', '9.294']);
 
 
 async function autoLoadPrices() {
