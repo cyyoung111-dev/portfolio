@@ -8,9 +8,8 @@ import {pathToFileURL} from 'node:url';
 
 const SLOTS=Object.freeze({
  '30 0 * * 1-5':Object.freeze({name:'WEEKDAY_0930',from:570,through:609,days:[1,2,3,4,5]}),
- '10 0 * * 0,6':Object.freeze({name:'WEEKEND_0910',from:550,through:609,days:[0,6]}),
- '10 9 * * *':Object.freeze({name:'EVENING_1810',from:1090,through:1156,days:[0,1,2,3,4,5,6]}),
- '17 10 * * *':Object.freeze({name:'EVENING_1917',from:1157,through:1219,days:[0,1,2,3,4,5,6]})
+ '10 9 * * 1-5':Object.freeze({name:'EVENING_1810',from:1090,through:1156,days:[1,2,3,4,5]}),
+ '17 10 * * 1-5':Object.freeze({name:'EVENING_1917',from:1157,through:1219,days:[1,2,3,4,5]})
 });
 export function assessNavScheduledAdmission({eventName,cron,now=new Date()}={}){
  if(!(now instanceof Date)||!Number.isFinite(now.getTime()))
