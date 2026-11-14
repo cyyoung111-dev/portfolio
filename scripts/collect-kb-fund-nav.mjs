@@ -124,9 +124,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
       throw Error('NAV_'+phase+'_'+kind+'_UNVERIFIED');
     }
   };
-  const probe=await request('getAutomationStatus',{},token==='NAV_AUTH_PROBE'?'NAV_AUTH_PROBE_ALT':'NAV_AUTH_PROBE');
+  // A protected GAS STATUS is a read-only gate, never the writer. The live
+  // 2026-11-14 cron hung for 300s here after previously verified NAV/close.
+  // Bound both auth-probe and state reads, without retrying any NAV writer.
+  const statusReadBudgetMs=120000;
+  const probe=await request('getAutomationStatus',{},token==='NAV_AUTH_PROBE'?'NAV_AUTH_PROBE_ALT':'NAV_AUTH_PROBE',statusReadBudgetMs);
   if(probe.status!=='error'||probe.message!=='인증 실패')throw Error('NAV_AUTH_GUARD');
-  const status=await request('getAutomationStatus');
+  const status=await request('getAutomationStatus',{},token,statusReadBudgetMs);
   if(status.status!=='ok'||!supportsPublishedFundNavGasVersion('KB',status.gasVersion))throw Error('NAV_VERSION');
   const a=status.automation;
   if(!a||a.closeRun?.state==='RUNNING'||a.tradeSnapshotWorkerLastResult?.status==='RUNNING'||a.tradeLedgerWriteUnverified||a.pendingTradeSnapshotRebuildFrom||a.tradeSnapshotDeferredCount>0)throw Error('NAV_WRITER_BUSY');

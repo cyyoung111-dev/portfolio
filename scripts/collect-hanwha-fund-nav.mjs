@@ -82,9 +82,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
      throw Error('HANWHA_'+phase+'_'+kind+'_UNVERIFIED');
    }
  };
- const probe=await request('getAutomationStatus',{},'HANWHA_AUTH_PROBE');
+ // The live 2026-11-14 cron waited 180s for a GAS STATUS despite
+ // independently verified NAV/close. Bound the two read-only gates only.
+ // All import/refresh writes keep their existing timeout/no-retry policy.
+ const statusReadBudgetMs=120000;
+ const probe=await request('getAutomationStatus',{},'HANWHA_AUTH_PROBE',statusReadBudgetMs);
  if(probe.status!=='error'||probe.message!=='인증 실패')throw Error('HANWHA_AUTH_GUARD');
- const state=await request('getAutomationStatus');
+ const state=await request('getAutomationStatus',{},token,statusReadBudgetMs);
  if(state.status!=='ok'||!supportsPublishedFundNavGasVersion('HANWHA',state.gasVersion))
    throw Error('HANWHA_VERSION_UNVERIFIED');
  const a=state.automation;
