@@ -251,6 +251,11 @@ assert.match(pipelineSource, /충돌 분류 · MANUAL 보호/);
  assert.match(nav.detail,/최종 NAV 공표·수집은 별도 확인/);
  assert.match(viewSource,/closeDisplay\?\.label \|\| mapped\[0\]/,'UI must show close and warning distinctly');
  assert.match(viewSource,/원본 전체 상태:/,'never conceal saved warning classification');
+ for(const emptyMarker of ['', '-', null]) {
+  const safe=ctx.displayClose({...normal,pendingTradeSnapshotRebuildFrom:emptyMarker});
+  assert.equal(safe?.label,'마감 완료 · NAV 확인',
+    'explicit empty GAS worker marker must not hide completed close');
+ }
  const actualNormal=ctx.displayClose({...normal,overallStatus:'NORMAL',fundLastWarning:''});
  assert.equal(actualNormal.label,'마감 완료');
  assert.equal(actualNormal.navPending,false);
@@ -270,6 +275,9 @@ assert.match(pipelineSource, /충돌 분류 · MANUAL 보호/);
   {tradeLedgerWriteUnverified:undefined},
   {pendingTradeSnapshotRebuildFrom:undefined},
   {pendingTradeSnapshotRebuildFrom:'2026-11-12'},
+  {pendingTradeSnapshotRebuildFrom:false},
+  {pendingTradeSnapshotRebuildFrom:0},
+  {pendingTradeSnapshotRebuildFrom:' - '},
   {tradeSnapshotDeferredCount:null},
   {tradeSnapshotDeferredCount:undefined},
   {tradeSnapshotDeferredCount:''},
