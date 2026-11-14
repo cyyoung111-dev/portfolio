@@ -1,5 +1,9 @@
 # KRX 52-week market breadth — 252 trading-session data contract
 
+## 2026-11-15 #734: 외부 승인 전 자동 실조회 중지
+
+- KRX 기본정보 2종의 서비스별 이용 승인이 미확인이다. 소스 변경 시 HTTP 401을 다시 조회·실패하는 push 경로를 제거한다. 정규 KRX 원시 OHLC 수집과 252일 암호화 아카이브, `publicationAllowed=false` 판정은 변경하지 않는다.
+
 ## 2026-11-14 #734: 종목기본정보 원천 권한·판정 프로세스 보완
 
 - **실증 문제:** [run #43591485713](https://github.com/cyyoung111-dev/portfolio/actions/runs/43591485713)은 원래 워크플로 SUCCESS였으나 실제 결과는 `status=SOURCE_UNVERIFIED`, `KOSPI=KRX_SERVICE_APPROVAL_REQUIRED`, KOSDAQ 미조회였다. GitHub 초록색 상태를 데이터 취득 성공으로 오판할 위험이 있었다.
@@ -17,7 +21,7 @@
 - 기존 252/252 암호화 KRX OHLC 저장을 GitHub Actions runner 안에서만 복원하고, 동일 기준거래일 `basDd`의 **공식 종목기본정보**를 두 경로에서만 읽기 전용 호출한다. `ISU_SRT_CD`(단축 6자리), `ISU_CD`(표준 12자리), `LIST_DD`(상장일), `SECUGRP_NM`·`KIND_STKCERT_TP_NM`(증권/주식 종류)을 엄격하게 점검한다.
 - 신규 관측종목의 최초 유효 OHLC 날짜와 **실제 상장일**을 비교해 52주 창 안에 상장한 경우와 이미 상장된 뒤 비정상적으로 늦게 관측된 경우를 구분한다. 관측 후 공백 종목도 상장일과 비교하지만 **공백 원인을 거래정지·상장폐지·분할·종목코드 변경으로 확정하지 않는다**. 상장일이 기존 확인된 시세보다 뒤이면 시계열/종목식별자 충돌로 진단한다. 당일 OHLC 미존재 종목의 가격은 임의 보정하지 않는다.
 - 연결 성공 여부는 기본정보 API **서비스별 이용 승인**에 종속된다. 기존 `KRX_AUTH_KEY`에서 시세 2종이 된다고 기본정보 2종의 승인도 있다고 추측할 수 없다. 공식 안내상 서비스 활용신청 후 관리자 승인이 필요하다. [KRX 이용절차](https://openapi.krx.co.kr/contents/OPP/INFO/OPPINFO003.jsp). 미승인 시 `KRX_SERVICE_APPROVAL_REQUIRED`로 분류하고 자동 재호출하지 않는다.
-- 이 워크플로는 **cron 없음**, 모듈/워크플로의 `main` 변경 시 최초 1회 및 명시적 수동 호출만 허용. 운영 KRX 수집, NAV, GAS, Sheets, Portfolio 원본, Telegram, Secrets, 예약 정의를 수정하지 않는다. **공식 API 원본/가격/종목별 상장정보 아티팩트 업로드 없음**. 콘솔에는 상장일별 일치/불일치 집계와 고정 상태값만 출력.
+- 이 워크플로는 **cron·push 자동 실행 없음**. KRX 두 종목기본정보 서비스가 HTTP 401을 반환하는 동안 실패 워크플로가 반복되지 않도록 **운영자가 서비스별 승인을 확인한 뒤 명시적 `workflow_dispatch`에서만** 실제 원천을 1회 점검한다. 오프라인 가격·상장일·차단 테스트는 필수 전체 CI에서 유지한다. 운영 KRX 수집, NAV, GAS, Sheets, Portfolio 원본, Telegram, Secrets, 예약 정의를 수정하지 않는다. **공식 API 원본/가격/종목별 상장정보 아티팩트 업로드 없음**. 콘솔에는 상장일별 일치/불일치 집계와 고정 상태값만 출력.
 - 성공하더라도 `marketWideCertified=false`, `publicationAllowed=false`: 상장일 일치만으로는 과거 액면분할·무상증자 권리조정과 거래정지 공식 이력, 전 시장 모집단 및 라이선스가 증명되지 않는다. **실제 52주 공인 지표 발행은 계속 차단**한다.
 
 ## 2026-11-14 #734: 전 종목 모집단 제외 사유 진단 (source-only)
