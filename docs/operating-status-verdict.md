@@ -60,10 +60,13 @@ workflow run list is for *execution diagnostics only*.
    The next actual business-day stored NAV readback still requires verification.
 5. **Cleanup phase 2:** reviewed issue-only workflow dependencies and the last
    800 main Actions runs. Removed two more duplicate **synthetic-only** wrappers
-   for Snapshot date-scoped and ledger fingerprint safety. Six total retired:
-   94 workflow files remain with 39 Issue-derived names. Both safety checks
+   for Snapshot date-scoped and ledger fingerprint safety. Seven total retired:
+   93 workflow files remain with 38 Issue-derived names. Both safety checks
    remain directly mandatory in `check:ci` and deletion is enforced by CI;
-   no financial writer, public-source collector, recovery, or OAuth scope
+   plus one Oct 31–anchored audit with an expired 14-day window was retired.
+   Its original run evidence remains in `ops/issue507/postmerge-actions-evidence.md`
+   and the offline rerun-attempt test remains mandatory in `check:ci`.
+   No financial writer, public-source collector, recovery, or OAuth scope
    diagnostics were removed. Never bulk-delete manual financial recovery or
    date-scoped forensic source investigation scripts.
 6. External heartbeat/dead-man switch is optional, not a prerequisite for

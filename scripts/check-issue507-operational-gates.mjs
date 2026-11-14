@@ -315,7 +315,10 @@ for(const retired of [
  'issue860-close-processes-readonly.yml',
  // Synthetic-only duplicate Actions wrappers: tests are in mandatory check:ci.
  'issue-507-snapshot-date-scoped-safety.yml',
- 'issue-507-writer-ledger-provenance-contract.yml'
+ 'issue-507-writer-ledger-provenance-contract.yml',
+ // Expired post-merge audit targets two Oct 31 commits; hard 14-day gate.
+ // It cannot be manually executed on/after Nov 15, 2026.
+ 'issue507-postmerge-actions-readonly.yml'
 ]){
  assert.equal(fs.existsSync(new URL(retired,dir)),false,
   'retired one-shot workflow unexpectedly returned: '+retired);
@@ -341,7 +344,9 @@ for(const [script,expected] of [
 const requiredCI=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8')).scripts['check:ci'];
 for(const script of [
  'scripts/check-issue507-snapshot-date-scoped.mjs',
- 'scripts/check-issue507-writer-ledger-provenance.mjs'
+ 'scripts/check-issue507-writer-ledger-provenance.mjs',
+ // Synthetic job-attempt audit remains in required CI after stale wrapper removal.
+ 'scripts/check-issue507-postmerge-actions.mjs'
 ]){
  assert.ok(requiredCI.includes('node '+script),
   'retired workflow safety test must still be executed by required CI: '+script);
