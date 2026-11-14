@@ -47,6 +47,63 @@ assert.deepEqual(sanitizeCloseOptionalSourceReason({
  rawBody:'SECRET'}),{kind:'KRX_TURNOVER_READ',status:'KRX_TPLUSONE_NOT_PUBLISHED'});
 
 
+// #734: A stale close cron must distinguish already SENT (archived by the
+// trusted workflow) from delivery never evidenced. ALL checks are GET-only.
+{
+ const {lateCloseTargetDate,verifyLateCloseSent}=await import('./telegram-close-late-verdict.mjs');
+ const Friday=new Date('2026-11-13T20:32:00+09:00');
+ const Saturday=new Date('2026-11-14T02:32:00+09:00');
+ assert.equal(lateCloseTargetDate(Friday),'2026-11-13');
+ assert.equal(lateCloseTargetDate(Saturday),'2026-11-13',
+  'late GitHub schedule crossing KST midnight must check Friday SENT');
+ const repo='cyyoung111-dev/portfolio',key='TEST_TOKEN_FOR_READ_ONLY';
+ const artifactName='telegram-close-claim-2026-11-13-sent';
+ const rows={total_count:1,artifacts:[{
+   name:artifactName,expired:false,workflow_run:{id:123}
+ }]};
+ const recorded=[];
+ const source=async (url,init)=>{
+  const u=new URL(url);
+  recorded.push({path:u.pathname,method:init.method});
+  if(u.pathname.endsWith('/actions/artifacts'))
+   return {ok:true,json:async()=>rows};
+  if(u.pathname.endsWith('/actions/runs/123'))
+   return {ok:true,json:async()=>({
+    head_branch:'main',head_repository:{full_name:repo},
+    path:'.github/workflows/telegram-close-briefing.yml',
+    event:'schedule',conclusion:'success'})};
+  throw Error('unexpected URL');
+ };
+ const proven=await verifyLateCloseSent({now:Friday,token:key,fetchImpl:source});
+ assert.equal(proven.status,'PRIOR_SENT_ARTIFACT_VERIFIED');
+ assert.equal(proven.verified,true);
+ assert.equal(proven.telegramSends,0);
+ assert.equal(proven.financeWrites,0);
+ assert.equal(recorded.length,2);
+ assert.ok(recorded.every(x=>x.method==='GET'));
+ const missing=await verifyLateCloseSent({now:Saturday,token:key,
+  fetchImpl:async()=>({ok:true,json:async()=>({total_count:0,artifacts:[]})})});
+ assert.equal(missing.status,'NO_TRUSTED_SENT_PROOF');
+ assert.equal(missing.verified,false);
+ const unknown=await verifyLateCloseSent({now:Friday,token:key,
+  fetchImpl:async()=>({ok:false,status:403})});
+ assert.equal(unknown.status,'SENT_PROOF_UNVERIFIED');
+ assert.equal(unknown.verified,false);
+ const wrongRun=await verifyLateCloseSent({now:Friday,token:key,
+  fetchImpl:async(url)=>({ok:true,json:async()=>url.includes('/actions/artifacts')
+   ?rows:{head_branch:'feature',head_repository:{full_name:repo},
+    path:'.github/workflows/telegram-close-briefing.yml'}})});
+ assert.equal(wrongRun.status,'NO_TRUSTED_SENT_PROOF');
+ const noKey=await verifyLateCloseSent({now:Friday,token:''});
+ assert.equal(noKey.status,'SENT_PROOF_UNVERIFIED');
+ const code=fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8');
+ assert.match(code,/verifyLateCloseSent/);
+ assert.match(code,/process\.exit\(proof\.verified\?0:1\)/);
+ const wf=fs.readFileSync('.github/workflows/telegram-close-briefing.yml','utf8');
+ assert.match(wf,/GITHUB_TOKEN:/);
+ console.log('TELEGRAM_CLOSE_LATE_SENT_OR_FAILURE_CONTRACT_PASS target date, archive provenance, GET only, no replay');
+}
+
 assert.equal(closeWindow(new Date(day+'T16:59:59+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T16:45:00+09:00')).allowed,false,'preparation can run early but delivery may not');
 assert.equal(closeWindow(now()).allowed,true);
