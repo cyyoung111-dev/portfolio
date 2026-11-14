@@ -21,5 +21,10 @@ const swCacheRelease=sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d
 if(!swCacheRelease)fail('Missing versioned service worker cache name');
 if(!html.includes(`sw.js?v=${swCacheRelease}`))fail('Stale service worker registration');
 if(!sw.includes(`portfolio-cache-${swCacheRelease}`))fail('Stale service worker cache name');
+// UI rollout must never pin one settings_fetch URL in HTML while offline
+// PWA precache continues to serve a different source revision.
+const pricePollVersion=html.match(/<script defer src="(features\/settings\/settings_fetch\.js\?v=[^"]+)"/); 
+if(!pricePollVersion)fail('Missing versioned price polling script in viewer HTML');
+else if(!sw.includes(`'./${pricePollVersion[1]}'`))fail('Stale price polling asset in offline PWA cache');
 if(process.exitCode&&process.exitCode!==0)process.exit(process.exitCode);
 ok('Market briefing bootstrap, dynamic module and service worker release versions aligned');
