@@ -5,6 +5,18 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 
+// CI runner optimization contract: stale PR checks may be cancelled, but
+// main-push CI must always run and remain eligible for protected GAS release.
+const qualityWorkflow=YAML.parse(fs.readFileSync(
+ '.github/workflows/quality-check.yml','utf8'));
+assert.deepEqual(qualityWorkflow.concurrency,{
+ group:"quality-${{ github.event.pull_request.number || github.run_id }}",
+ 'cancel-in-progress':"${{ github.event_name == 'pull_request' }}"
+},'only repeated commits of one PR can supersede their stale CI; main run_id is unique');
+assert.ok(qualityWorkflow.on.pull_request,'required PR CI must remain unfiltered');
+assert.deepEqual(qualityWorkflow.on.push.branches,['main'],
+ 'main production release checks must remain unfiltered and uncancelled');
+
 // Every scripts/check-*.mjs file must be executed by the CI suite that runs
 // whenever a check script changes. A workflow trigger alone is not coverage.
 function collectExecutedChecks(scripts, entry = 'check:ci') {
