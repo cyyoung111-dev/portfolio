@@ -155,6 +155,55 @@ for (const failed of ['tradesOk','holdingsOk']) {
   assert.equal(x.writes,0);
   assert.equal(x.ctx._getPortfolioRemoteDirty(),null);
 }
+// #734: v9.294 Bootstrap advertises protocol 0 if only its trades subread
+// fails. An independently successful getTrades GET may return the 14-column
+// ledger and a valid revision. It must restore BOTH the data and the v2 CAS
+// capability, never allow a silent 13-column/legacy syncTrades fallback.
+for(const mode of ['valid-v2','bad-revision','missing-id','downgrade']) {
+ const x=setup(),actions=[];
+ const target=vm.runInContext('GSHEET_API_URL',x.ctx);
+ x.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+ x.response.portfolioReadStatus.tradesOk=false;
+ x.response.tradeLedgerProtocolVersion=0;
+ x.response.ledgerRevision='';
+ x.response.trades=[];
+ const trade={id:'tr_partialV2_000001',date:'2026-10-07',tradeType:'buy',
+  acct:'일반',name:'테스트',code:'005930',qty:2,price:100,
+  assetType:'주식',memo:'',ratio:0,fractionalCash:0};
+ const fallback={
+  status:'ok',tradeLedgerProtocolVersion:mode==='downgrade'?0:2,
+  ledgerRevision:mode==='bad-revision'?'bad-revision':'a'.repeat(64),
+  trades:mode==='missing-id'?[{...trade,id:''}]:[trade]
+ };
+ // A previously pinned v2 target must not be downgraded by a partial GET.
+ if(mode==='downgrade')x.ctx._tradeLedgerV2RequiredTargets={[target]:true};
+ x.ctx.requestGsheetActionJson=async action=>{
+  actions.push(action);
+  if(action==='getBootstrap')return x.response;
+  if(action==='getTrades')return fallback;
+  throw Error('unexpected extra read or mutation '+action);
+ };
+ const loaded=await x.ctx.loadSettings();
+ assert.equal(loaded,mode==='valid-v2','partial v2 recovery '+mode);
+ assert.deepEqual(actions,['getBootstrap','getTrades'],
+  'bounded single fallback GET; no remote write '+mode);
+ assert.equal(x.writes,0,'never mutate production finance in a restore');
+ if(mode==='valid-v2'){
+  assert.equal(x.ctx._tradeLedgerV2RequiredTargets[target],true);
+  const base=x.ctx._tradeLedgerV2BaselineTargets[target];
+  assert.equal(base?.protocol,2);
+  assert.equal(base?.revision,'a'.repeat(64));
+  assert.deepEqual(Array.from(base.trades.map(t=>t.id)),[trade.id]);
+  assert.equal(vm.runInContext('rawTrades.length',x.ctx),1);
+  assert.equal(x.ctx._getPortfolioRemoteDirty(),null);
+ }else{
+  assert.equal(vm.runInContext('_gsBootRestored',x.ctx),false);
+  assert.equal(vm.runInContext('rawTrades.length',x.ctx),0);
+  assert.match(x.ctx.getGsheetSettingsLoadFailure(),
+   /TRADE_V2_FALLBACK_(?:REVISION|PROTOCOL)_UNVERIFIED/);
+  assert.equal(x.ctx._tradeLedgerV2BaselineTargets?.[target],undefined);
+ }
+}
 // Apps Script denies a bad token with JSON HTTP 200; do not misreport it as
 // missing stock codes or a generic invalid Settings payload.
 {
