@@ -128,6 +128,17 @@ assert.ok(protectedWorkflowNames.includes('issue860-readonly-9282-dryrun.yml'),
   'integrated v9.282 read-only dry-run must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('probe-standalone-performance-gas-20261103.yml'),
   'isolated GAS live probe must require protected Environment');
+const weeklyTelemetry=YAML.parse(fs.readFileSync(new URL(
+  'probe-standalone-performance-gas-20261103.yml',dir),'utf8'));
+assert.deepEqual(weeklyTelemetry.on.schedule,[{cron:'5 0 * * 1'}],
+  'optional seven-day performance readback must not run every day');
+assert.ok(Object.hasOwn(weeklyTelemetry.on,'workflow_dispatch'),
+  'performance readback must retain direct manual access');
+assert.ok(Object.hasOwn(weeklyTelemetry.on,'pull_request'),
+  'performance self-test must retain pull-request CI');
+assert.equal(weeklyTelemetry.jobs['live-readonly'].environment,productionEnvironment);
+assert.equal(weeklyTelemetry.jobs['live-readonly'].if.includes("github.event_name != 'pull_request'"),true,
+  'pull requests cannot read production performance credentials');
 assert.ok(protectedWorkflowNames.includes('provision-standalone-performance-gas-20261103.yml'),
   'independent GAS provisioning must run only in protected production Environment');
 assert.ok(protectedWorkflowNames.includes('gas-deployment-usage-metrics-readonly.yml'),

@@ -9,8 +9,11 @@ on:
     paths:
       - '.github/workflows/probe-standalone-performance-gas-20261103.yml'
   workflow_dispatch:
+  # Read-only seven-day performance sample is advisory, never a financial
+  # job dependency. Weekly cadence avoids seven near-identical probes/week;
+  # explicit manual diagnostics and PR contract checks remain available.
   schedule:
-    - cron: '5 0 * * *' # 09:05 KST, scheduled execution may be delayed
+    - cron: '5 0 * * 1' # 09:05 KST Monday, best-effort only
 
 permissions:
   contents: read
@@ -35,7 +38,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Daily private-token readback; logs only anonymous 7-day device/step aggregates
+      - name: Weekly private-token readback; logs only anonymous 7-day device/step aggregates
         env:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/probe-standalone-performance-gas.mjs
