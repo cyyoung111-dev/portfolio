@@ -3,7 +3,7 @@
 ## 2026-11-14 #734: 종목기본정보 원천 권한·판정 프로세스 보완
 
 - **실증 문제:** [run #43591485713](https://github.com/cyyoung111-dev/portfolio/actions/runs/43591485713)은 원래 워크플로 SUCCESS였으나 실제 결과는 `status=SOURCE_UNVERIFIED`, `KOSPI=KRX_SERVICE_APPROVAL_REQUIRED`, KOSDAQ 미조회였다. GitHub 초록색 상태를 데이터 취득 성공으로 오판할 위험이 있었다.
-- **수정:** 동일일·동일 원천의 서로 다른 두 서비스에서 **첫 번째 시장 403 발생 시 두 번째 시장도 읽기 전용 1회 검사**하여 서비스별 인가를 구분한다. `401=KRX_AUTHENTICATION_DENIED`(공용 인증 문제), `403=KRX_SERVICE_ACCESS_DENIED`(추가 승인, IP 또는 기타 접근 정책 확인 필요), `429=RATE_LIMITED`(다음 호출 즉시 중단)으로 분리한다. 어떤 경우에도 재시도/가격 원본 쓰기/종목정보 업로드는 하지 않는다.
+- **실조회 보완:** [main run #43592555155](https://github.com/cyyoung111-dev/portfolio/actions/runs/43592555155)는 동일 기본정보 API에서 이번에는 HTTP **401**을 반환해 기존의 공통인증 실패 판단이 다시 KOSDAQ 독립 검사를 막았다. KRX는 서비스별 승인에 따라 401/403을 반환할 수 있어 **HTTP 상태만으로 공통 인증키 오류·서비스 권한·IP 제한을 확정할 수 없다**. 이를 반영해 **401과 403 모두** 각 시장별로 정확히 한 번씩 체크하고, `401=KRX_HTTP401_ACCESS_DENIED`, `403=KRX_HTTP403_ACCESS_DENIED`로 원인 추측 없이 기록한다. 키 자체 부재·429 호출 제한일 때만 두 번째 호출을 중단한다. 어떠한 경우에도 자동 재시도/가격 원본 쓰기/종목정보 업로드는 없다.
 - **정상 가동 판정:** 두 원천 모두 성공하고 KRX 252일 현재 종목 전체에서 공식 상장일/식별자 대사가 충족된 경우에만 일회성 감사 워크플로 0 반환. `SOURCE_UNVERIFIED`, `ARCHIVE_STALE`, `PARTIAL_OR_IDENTITY_CONFLICT`은 **명시적 non-zero**로 종료해 GitHub 결과를 미검증 상태로 표시한다. 공식 권리변동·수정 OHLC·거래정지 원인까지 입증되지는 않으므로 녹색 상태에서도 `publicationAllowed=false`는 유지.
 - **다음 외부 선행조건:** KRX 홈페이지에서 유가증권·코스닥 **종목기본정보 각각 서비스 활용신청과 승인 확인** 후 단 한 차례 읽기 전용 재실행. 코드 수정을 반복해 403을 우회하거나 보유 인증키·Sheet를 변경하지 않는다.
 
