@@ -11,6 +11,13 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Cancel only superseded checks on the SAME PR. Every main push and manual
+# run gets its own run_id group: never cancel or serialize a financial
+# release-eligible main quality result.
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

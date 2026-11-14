@@ -28,6 +28,11 @@
 
 합계 **35개 cron 표현식**. 2026-11-15의 추가 축소는 `krx-nightly-health`의 월요일 02:30 KST 정기 실행 1회/주만 제거(기존 7회→6회). 토요일은 금요일 KRX 마감, 일요일은 금요일 미국장 마감 후 혼합자산 Snapshot 점검 가능성을 고려해 유지한다. 월요일 아침 최초 KRX 거래일 전 점검은 단순 반복 조회로 판정하지 않는다. `workflow_dispatch`는 그대로이며 금융 Writer/텔레그램/기타 예약은 변경하지 않는다. 7일 기준 독립 성능 진단은 기존 매일 7회에서 **월요일 09:05 KST 주 1회**로 감소(주 6회 절감). 공식 성능 자료 7일 이동창 유지, `workflow_dispatch` 수동 진단과 PR 자가검증 유지. [11/14 실조회 #43564712919](https://github.com/cyyoung111-dev/portfolio/actions/runs/43564712919): 7일 `sampleCount=0`; 해당 결과만으로 성능 문제가 없다고 주장할 수 없다.
 
+## 필수 CI의 중복 실행 절감 (2026-11-15)
+
+- `quality-check.yml`에서 **같은 PR의 구버전 CI만 취소**한다. 새 커밋이 올라오면 오래된 PR 분석에 러너를 중복 사용하지 않는다. **`main` push와 수동 CI는 각 run ID에 고유한 concurrency 그룹을 부여**하므로 이전 main 검사 취소·대기 교체·GAS 자동배포 증빙 누락을 발생시키지 않는다.
+- 필수 `check:ci` 범위, 전체 검사 통과 조건, 브랜치 제한, GAS `workflow_run` 연결은 불변이다. 실행시간 절감 규모는 후속 PR 수정 사례의 실제 취소 런과 Actions 분 단위로 별도 검증한다. `cancelled` PR은 통과 증빙이 아니다.
+
 ## 외부 승인형 진단의 실행 정책 (2026-11-15)
 
 - `issue734-process-scope-audit-readonly.yml`: **워크플로 전체를 main 운영자 수동 실행 전용으로 단순화**. 기존 PR/push에서 별도 Actions `source-check`를 반복 실행했으나, 동일 `scripts/check-issue734-process-scope-audit-readonly.mjs`가 `quality-check` 필수 `check:ci`에 이미 수록돼 있어 중복만 제거한다. 수동 선택 시에는 source-check→보호된 GAS 환경의 실제 OAuth scope audit 순서와 재실행 차단 정책을 유지하며 OAuth 권한 부재를 자동 오류로 만들지 않는다.
