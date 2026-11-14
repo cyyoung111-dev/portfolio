@@ -1,0 +1,35 @@
+name: Portfolio daily operating verdict (READ ONLY)
+# Manual only. A green source-public job or GAS source validation is not
+# evidence that NAV and Telegram were delivered. No new cron/Writer.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: portfolio-daily-operating-verdict-readonly
+  cancel-in-progress: false
+jobs:
+  verdict:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate status-contract tests offline
+        run: node scripts/check-ops-daily-readonly.mjs
+      - name: One scoped evidence verdict for last KRX session (no writes)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/ops-daily-readonly.mjs
