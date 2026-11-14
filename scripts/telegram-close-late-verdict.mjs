@@ -50,6 +50,9 @@ export async function verifyLateCloseSent({
  try{
   async function artifact(name){
    const data=await get('/actions/artifacts?name='+encodeURIComponent(name)+'&per_page=100');
+   if(name===claimName+'-sent'&&data?.total_count===0&&
+      Array.isArray(data.artifacts)&&data.artifacts.length===0)
+    throw Error('CLOSE_LATE_NO_SENT_PROOF');
    if(!data||data.total_count!==1||!Array.isArray(data.artifacts)
      ||data.artifacts.length!==1)throw Error('CLOSE_LATE_ARTIFACT_UNVERIFIED');
    const a=data.artifacts[0],created=Date.parse(a?.created_at);
@@ -71,7 +74,8 @@ export async function verifyLateCloseSent({
    throw Error('CLOSE_LATE_RUN_UNVERIFIED');
   return {...base,status:'PRIOR_SENT_ARTIFACT_VERIFIED',verified:true,
    githubReads:3};
- }catch{return {...base,status:'SENT_PROOF_UNVERIFIED',verified:false};}
+ }catch(e){return {...base,status:e?.message==='CLOSE_LATE_NO_SENT_PROOF'
+  ?'NO_TRUSTED_SENT_PROOF':'SENT_PROOF_UNVERIFIED',verified:false};}
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
