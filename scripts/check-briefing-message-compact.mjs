@@ -72,4 +72,26 @@ await sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345',morning,sendOptions)
 await sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345',close,sendOptions);
 await sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345','시험',sendOptions);
 assert.deepEqual(outbound,[mc,cc,'시험']);
+// Regression: a real raw report can exceed 5k when many optional inputs are
+// missing. The transport must compact rather than bypass and resend the raw
+// repetitive diagnostics. The valid observations and core QC must remain.
+const longMorning=morning+'\n'+Array.from({length:500},
+  ()=>'KOSDAQ: 미확보').join('\n');
+const longClose=close+'\n'+Array.from({length:500},
+  ()=>'VKOSPI: 당일 확정치 미확보').join('\n');
+assert.ok(longMorning.length>5000&&longClose.length>5000);
+for(const [raw,mode,mustKeep] of [
+ [longMorning,'morning',/■ QC: 기준 거래일/],
+ [longClose,'close',/KOSPI: 5,030\.50/]
+]){
+ const compact=compactBriefingForDelivery(raw,{mode});
+ assert.ok(compact.length<4000,'long raw diagnostics must fit Telegram after cleanup');
+ assert.match(compact,mustKeep,'verified core data and QC cannot be dropped');
+ assert.ok(!compact.includes('KOSDAQ: 미확보'));
+ assert.ok(!compact.includes('VKOSPI: 당일 확정치 미확보'));
+ await sendTelegram('123:abcdefghijklmnopqrstuvwxyz','12345',raw,sendOptions);
+ assert.equal(outbound.at(-1),compact,'transport must send compacted payload');
+}
+assert.equal(outbound.length,5);
+
 console.log('BRIEFING_MESSAGE_COMPACT_PASS preserve_verified_values_and_core_qc_no_empty_optional_sections');

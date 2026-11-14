@@ -36,7 +36,10 @@ function cleanRow(line,mode) {
 export function compactBriefingForDelivery(message,{mode}={}){
  if(typeof message!=='string'||!['morning','close'].includes(mode))
    throw Error('BRIEFING_COMPACT_INPUT_INVALID');
- if(message.length>5000)return message;
+ // Long raw reports can exceed 5,000 chars precisely because many optional
+ // indicators are unavailable. Always compact before Telegram delivery;
+ // returning the raw text here resurrects repetitive missing-value warnings.
+ // No verified value, section title or QC row is truncated by this pass.
  const lines=message.split('\n').map(line=>cleanRow(line,mode)).filter(line=>line!==null);
  const kept=[];
  for(let i=0;i<lines.length;){
