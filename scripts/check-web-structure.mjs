@@ -21,6 +21,12 @@ const swCacheRelease=sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d
 if(!swCacheRelease)fail('Missing versioned service worker cache name');
 if(!html.includes(`sw.js?v=${swCacheRelease}`))fail('Stale service worker registration');
 if(!sw.includes(`portfolio-cache-${swCacheRelease}`))fail('Stale service worker cache name');
+// Version both changed mobile CSS layers: cached legacy media rules must
+// never outlive the deployed unified styles on installed mobile PWAs.
+const mobileResponsiveAsset=html.match(/<link rel="stylesheet" href="(styles\/responsive\.css\?v=\d{8}-\d+)">/);
+if(!mobileResponsiveAsset)fail('Missing versioned responsive viewer stylesheet');
+else if(!sw.includes("'./"+mobileResponsiveAsset[1]+"'"))
+  fail('Responsive CSS version drift between viewer HTML and PWA precache');
 const unifiedCssTag=html.match(/<link rel="stylesheet" href="(styles\/ui-unified\.css\?v=\d{8}-\d+)">/);
 if(!unifiedCssTag) fail('Unified viewer stylesheet missing or unversioned');
 else {
