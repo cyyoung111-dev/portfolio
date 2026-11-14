@@ -58,9 +58,11 @@ workflow run list is for *execution diagnostics only*.
    not yet published. Independent 09:30/18:10/19:17 weekday NAV cron slots,
    protected 10:20/20:30 independent fallback and manual dispatch remain.
    The next actual business-day stored NAV readback still requires verification.
-5. Repository presently has 99 Actions workflow files, 45 with Issue-derived
-   names. Do **not** bulk-delete. Inventory manual writer/recovery
-   consumers, paths, and last successful references before separate cleanup.
+5. **Cleanup started:** reviewed all 45 Issue-derived workflow definitions.
+   Removed four obsolete no-cron diagnostic wrappers only; now 96 workflow
+   files with 41 Issue-derived names. Synthetic tests and protected current
+   OAuth/worker-process diagnostics remain. Never bulk-delete manual recovery
+   actions or date-scoped historical source investigation scripts.
 6. External heartbeat/dead-man switch is optional, not a prerequisite for
    reliable financial close. It should monitor on-time evidence, not
    merely receipt of any GitHub green status.
