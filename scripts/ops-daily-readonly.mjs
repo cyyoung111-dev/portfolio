@@ -111,7 +111,14 @@ async function navRunnerEvidence({token,date,fetchImpl=fetch}){
   return resp.json();
  };
  try{
-  const data=await get('/actions/workflows/kb-fund-nav-collect.yml/runs?branch=main&per_page=100');
+  // Query a single KST day in UTC, not the repository's entire lifetime
+  // (which exceeds 100 historical runs and would always be "unverified").
+  const from=new Date(date+'T00:00:00+09:00');
+  const until=new Date(from.getTime()+86400000-1000);
+  const created=from.toISOString().replace('.000Z','Z')+'..'+
+    until.toISOString().replace('.000Z','Z');
+  const data=await get('/actions/workflows/kb-fund-nav-collect.yml/runs?branch=main&created='+
+    encodeURIComponent(created)+'&per_page=100');
   if(!Array.isArray(data?.workflow_runs)||data.workflow_runs.length>100
      ||Number(data.total_count)>100)return 'RUN_LIST_UNVERIFIED';
   const interested=data.workflow_runs.filter(x=>Number.isFinite(Date.parse(x?.created_at))
