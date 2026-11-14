@@ -13,7 +13,10 @@ assert.deepEqual(qualityWorkflow.concurrency,{
  group:"quality-${{ github.event.pull_request.number || github.run_id }}",
  'cancel-in-progress':"${{ github.event_name == 'pull_request' }}"
 },'only repeated commits of one PR can supersede their stale CI; main run_id is unique');
-assert.ok(qualityWorkflow.on.pull_request,'required PR CI must remain unfiltered');
+assert.ok(Object.hasOwn(qualityWorkflow.on,'pull_request'),
+ 'required PR CI trigger must remain registered');
+assert.equal(qualityWorkflow.on.pull_request,null,
+ 'required PR CI must remain unfiltered');
 assert.deepEqual(qualityWorkflow.on.push.branches,['main'],
  'main production release checks must remain unfiltered and uncancelled');
 
