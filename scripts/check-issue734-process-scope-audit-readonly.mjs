@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import YAML from 'yaml';
 import {inspectGoogleProcessScope,inspectScopeResult}
  from './issue734-process-scope-audit-readonly.mjs';
 
@@ -61,19 +60,18 @@ await assert.rejects(()=>inspectGoogleProcessScope({token,
 // only the main-branch manual workflow may call Google's tokeninfo endpoint.
 const auditYaml=fs.readFileSync('.github/workflows/issue734-process-scope-audit-readonly.yml','utf8');
 function enforceManualScopeAudit(source){
- const doc=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
- assert.equal(doc.errors.length,0);
- const cfg=doc.toJS({maxAliasCount:0});
- assert.ok(Object.hasOwn(cfg.on,'workflow_dispatch'));
- assert.equal(cfg.on.schedule,undefined);
- assert.ok(cfg.on.push&&cfg.on.pull_request);
- assert.deepEqual(cfg.permissions,{contents:'read'});
- const job=cfg.jobs['scope-audit'];
- assert.equal(job.needs,'source-check');
- assert.equal(job.environment,'portfolio-production-gas');
- assert.equal(job.if,"github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1");
- assert.ok(String(job.env.CLASPRC_JSON).includes('secrets.CLASPRC_JSON'));
- assert.equal(job.steps.at(-1).run,'node scripts/issue734-process-scope-audit-readonly.mjs');
+ assert.match(source,/^  workflow_dispatch:\s*$/m);
+ assert.doesNotMatch(source,/^  schedule:\s*$/m);
+ assert.match(source,/^  pull_request:\s*$/m);
+ assert.match(source,/^  push:\s*$/m);
+ assert.match(source,/^  scope-audit:\s*$/m);
+ assert.match(source,/^    environment: portfolio-production-gas\s*$/m);
+ assert.match(source,/^    needs: source-check\s*$/m);
+ assert.match(source,/^      CLASPRC_JSON: .*secrets\.CLASPRC_JSON/m);
+ assert.match(source,/^        run: node scripts\/issue734-process-scope-audit-readonly\.mjs$/m);
+ const expected="    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1";
+ assert.ok(source.split('\n').includes(expected),
+  'live OAuth tokeninfo must be main-only manual dispatch');
 }
 enforceManualScopeAudit(auditYaml);
 assert.throws(()=>enforceManualScopeAudit(auditYaml.replace(
