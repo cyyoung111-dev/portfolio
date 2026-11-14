@@ -110,8 +110,12 @@ assert.ok(protectedWorkflowNames.includes('issue860-postmigration-readiness-read
   'postmigration readonly editor-cleanup audit must be Environment-protected');
 assert.ok(fs.readFileSync(new URL('kb-fund-nav-collect.yml',dir),'utf8').includes('hanwha-collect:'),
   'Hanwha F00001 collector must be present and environment-gated');
-assert.ok(protectedWorkflowNames.includes('issue860-close-processes-readonly.yml'),
-  'one-shot process audit must use protected GAS Environment');
+// Historical Nov 10 process audit workflow retired. A current protected
+// OAuth scope audit remains, and the reusable script.processes job is manual.
+assert.ok(!protectedWorkflowNames.includes('issue860-close-processes-readonly.yml'),
+  'obsolete dated Nov 10 GAS process workflow must not remain registered');
+assert.ok(protectedWorkflowNames.includes('issue734-process-scope-audit-readonly.yml'),
+  'current manual process scope diagnosis remains Environment-protected');
 assert.ok(protectedWorkflowNames.includes('issue860-hanwha-secondary-nav-crosscheck.yml'),
   'new Hanwha private NAV read-only crosscheck must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('issue860-once-close-status-readonly.yml'),
