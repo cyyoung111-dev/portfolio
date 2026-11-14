@@ -65,6 +65,59 @@ assert.equal(green.actionRequired,false);
 assert.throws(()=>report({funds:funds.map(f=>({...f,to:'2026-11-13'}))}),
  /CLOSE_FUND_EVIDENCE_SCHEMA/,'date-scoped evidence must reach exact KST audit date');
 
+// The real 2026-11-14 post-NAV repair state: F00001/F00002 have all
+// historical rows reconciled; only the *current Saturday* valuation/Snapshot
+// is not yet created. A saved partial warning must not produce another red
+// overnight KRX alert, but the raw warning and lack of process proof remain.
+const postNavCleanClose={...close,
+ fundWarningReview:'SAVED_WARNING_WITH_COMPLETE_CLOSE_NEEDS_SOURCE_RECHECK',
+ portfolioCloseRunStale:false,portfolioCloseLastErrorPresent:false,
+ tradeLedgerWriteUnverified:false,pendingTradeSnapshotRebuildPresent:false,
+ tradeSnapshotDeferredCount:0
+};
+const postNavFunds=funds.map(f=>f.code==='F00003'?{...f}:{...f,
+ confirmedNavDays:f.code==='F00001'?22:23,
+ unpublishedDates:[],evaluationPendingDates:[asOf],snapshotPendingDates:[asOf]
+});
+const afterLiveNav=report({close:postNavCleanClose,funds:postNavFunds});
+assert.equal(afterLiveNav.health,'CLOSE_COMPLETE_SAVED_FUND_WARNING_RECHECK_ONLY');
+assert.equal(afterLiveNav.actionRequired,false);
+assert.equal(afterLiveNav.persistedWarningReviewOnly,true);
+assert.equal(afterLiveNav.rawOverallStatus,'WARNING');
+assert.equal(afterLiveNav.rawFundWarningClass,'PARTIAL_FUND_VALUATION');
+assert.equal(afterLiveNav.executionOwnerIndependentlyVerified,false);
+assert.deepEqual([afterLiveNav.financialWrites,afterLiveNav.gasDeployments,
+ afterLiveNav.telegramSends],[0,0,0]);
+for(const change of [
+ {fundWarningReview:'UNCLASSIFIED_OR_PROTECTED'},
+ {fundWarningReview:'SAVED_WARNING_WITH_PENDING_OR_UNVERIFIED_EVIDENCE'},
+ {portfolioCloseRunStale:true},{portfolioCloseLastErrorPresent:true},
+ {tradeLedgerWriteUnverified:true},{pendingTradeSnapshotRebuildPresent:true},
+ {tradeSnapshotDeferredCount:1},{tradeSnapshotDeferredCount:undefined},
+ {fundWarningClass:'SNAPSHOT_PROTECTED'},
+ {overallStatus:'ERROR'},{fundErrorPresent:true},
+ {fundWarningPresent:false}
+]){
+ const v=report({close:{...postNavCleanClose,...change},funds:postNavFunds});
+ assert.equal(v.persistedWarningReviewOnly,false,
+  'invalid or incomplete evidence must never suppress saved warning');
+ assert.equal(v.actionRequired,true,'independent failure remains actionable');
+}
+for(const change of [
+ {navMissingDates:[closeDate]},
+ {unitsNotAppliedDates:[closeDate]},
+ {unreconciledDates:[closeDate]},
+ {evaluationPendingDates:[closeDate]},
+ {snapshotPendingDates:[closeDate]},
+ {writerBlockedDates:[asOf]},
+ {confirmedNavDays:0}
+]){
+ const f=postNavFunds.map(x=>x.code==='F00001'?{...x,...change}:x);
+ const v=report({close:postNavCleanClose,funds:f});
+ assert.equal(v.persistedWarningReviewOnly,false,
+  'fund source or historical reconciliation cannot be called residual-only');
+ assert.equal(v.actionRequired,true);
+}
 const staleWarning=report({funds:funds.map(f=>({...f,unpublishedDates:[]}))});
 assert.equal(staleWarning.health,'PERSISTED_WARNING_UNCLASSIFIED');
 assert.equal(staleWarning.actionRequired,true);
