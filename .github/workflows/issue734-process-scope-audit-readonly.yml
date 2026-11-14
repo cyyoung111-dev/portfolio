@@ -31,8 +31,10 @@ jobs:
           node-version: '24'
       - name: Verify secret-free OAuth diagnostics
         run: node scripts/check-issue734-process-scope-audit-readonly.mjs
+  # Real Google tokeninfo needs explicit main-only operator dispatch.
+  # PR/push execute only the offline contract above.
   scope-audit:
-    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.run_attempt == 1
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1
     needs: source-check
     runs-on: ubuntu-latest
     environment: portfolio-production-gas

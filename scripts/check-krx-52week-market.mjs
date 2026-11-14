@@ -2,6 +2,7 @@ import {planKisAdjusted52WeekRequests,parseKisAdjusted52WeekPages,
  auditKisAdjustedSymbol,KIS_ADJUSTED_TR,KIS_ADJUSTED_PATH}
  from './krx-52week-kis-adjusted-audit.mjs';
 import assert from 'node:assert/strict';
+import YAML from 'yaml';
 import {MARKETS,SOURCE,WINDOW,sessionStatus,expectedSessions,
  completedSession,parseOfficialStockDay,validMarketDay,verifyArchive,
  appendArchive,countNewHighsAndLows,audit52WeekRawDiscontinuity,
@@ -595,6 +596,26 @@ assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
  assert.match(script,/history\.k52e/);
  assert.match(script,/process\.env\.KRX_AUTH_KEY|KRX_AUTH_KEY:/);
  assert.doesNotMatch(script,/actions\/upload-artifact|gas-deploy|workflow_run:|TELEGRAM_/);
+ // KRX listing metadata cannot be polled before service approval. The
+ // synthetic 401/403 source refusal tests stay in the required full CI.
+ function enforceManualKrxListing(source){
+  const doc=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
+  assert.equal(doc.errors.length,0);
+  const cfg=doc.toJS({maxAliasCount:0});
+  assert.deepEqual(Object.keys(cfg.on),['workflow_dispatch']);
+  assert.deepEqual(cfg.permissions,{contents:'read',actions:'read'});
+  const job=cfg.jobs['listing-date-audit'];
+  assert.equal(job.environment,'portfolio-production-gas');
+  assert.equal(job.if,"github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event_name == 'workflow_dispatch'");
+  assert.ok(String(job.steps.at(-1).env.KRX_AUTH_KEY).includes('secrets.KRX_AUTH_KEY'));
+ }
+ enforceManualKrxListing(script);
+ assert.throws(()=>enforceManualKrxListing(script.replace(
+  '  workflow_dispatch:',
+  '  push:' + String.fromCharCode(10) + '    branches: [main]' + String.fromCharCode(10) + '  workflow_dispatch:')));
+ assert.throws(()=>enforceManualKrxListing(script.replace(
+  "github.event_name == 'workflow_dispatch'",
+  "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')")));
  console.log('KRX52_OFFICIAL_LISTING_DATE_SOURCE_CONTRACT_PASS source approval, real dates, unknown-halt, zero writes');
 }
 
