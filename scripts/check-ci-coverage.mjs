@@ -5,21 +5,6 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 
-// CI runner optimization contract: stale PR checks may be cancelled, but
-// main-push CI must always run and remain eligible for protected GAS release.
-const qualityWorkflow=YAML.parse(fs.readFileSync(
- '.github/workflows/quality-check.yml','utf8'));
-assert.deepEqual(qualityWorkflow.concurrency,{
- group:"quality-${{ github.event.pull_request.number || github.run_id }}",
- 'cancel-in-progress':"${{ github.event_name == 'pull_request' }}"
-},'only repeated commits of one PR can supersede their stale CI; main run_id is unique');
-assert.ok(Object.hasOwn(qualityWorkflow.on,'pull_request'),
- 'required PR CI trigger must remain registered');
-assert.equal(qualityWorkflow.on.pull_request,null,
- 'required PR CI must remain unfiltered');
-assert.deepEqual(qualityWorkflow.on.push.branches,['main'],
- 'main production release checks must remain unfiltered and uncancelled');
-
 // Every scripts/check-*.mjs file must be executed by the CI suite that runs
 // whenever a check script changes. A workflow trigger alone is not coverage.
 function collectExecutedChecks(scripts, entry = 'check:ci') {
@@ -127,7 +112,7 @@ function validateQualityWorkflow(source) {
   assert.equal(doc.errors.length, 0,
     'YAML 구문 오류/중복 키: ' + doc.errors.map(e => e.message).join('; '));
   const root = mapping(doc.toJS({ maxAliasCount:0 }), 'workflow');
-  keysExactly(root, ['name','on','permissions','jobs'], 'workflow');
+  keysExactly(root, ['name','on','concurrency','permissions','jobs'], 'workflow');
   assert.equal(root.name, 'quality-check');
 
   const events = mapping(root.on, 'on');
@@ -137,6 +122,17 @@ function validateQualityWorkflow(source) {
       && !Array.isArray(events.pull_request)
       && Object.keys(events.pull_request).length === 0),
     '필수 상태는 모든 PR에 생성되어야 합니다(경로·브랜치·종류 필터 금지).');
+
+  // Only superseded checks on the same PR may be cancelled; every main or
+  // manual run keeps its own unique run_id for financial release proof.
+  const concurrent = mapping(root.concurrency, 'concurrency');
+  keysExactly(concurrent, ['group','cancel-in-progress'], 'concurrency');
+  assert.equal(concurrent.group,
+    "quality-${{ github.event.pull_request.number || github.run_id }}",
+    'concurrency must be scoped to one PR or one individual main run');
+  assert.equal(concurrent['cancel-in-progress'],
+    "${{ github.event_name == 'pull_request' }}",
+    'main push and manual quality checks must never be cancelled');
 
   const permission = mapping(root.permissions, 'permissions');
   keysExactly(permission, ['contents'], 'permissions');
@@ -198,6 +194,9 @@ const validWorkflow = [
   '    paths:',
   "      - 'scripts/check-*.mjs'",
   '  workflow_dispatch:',
+  'concurrency:',
+  "  group: quality-${{ github.event.pull_request.number || github.run_id }}",
+  "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
   'permissions:',
   '  contents: read',
   'jobs:',
@@ -231,6 +230,15 @@ function invalidMutation(source, textToReplace, replacement, message) {
     message || /./);
 }
 assert.doesNotThrow(() => validateQualityWorkflow(validWorkflow));
+// Never let obsolete-PR cancellation silently extend to main production.
+invalidMutation(validWorkflow,
+  "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+  "  cancel-in-progress: true",
+  /main push and manual quality checks/);
+invalidMutation(validWorkflow,
+  "  group: quality-${{ github.event.pull_request.number || github.run_id }}",
+  "  group: quality-all",
+  /concurrency must be scoped/);
 
 // Required check must not disappear on a GAS-only or Web-only PR.
 invalidMutation(validWorkflow, '  pull_request:\n', '', /안전하지 않거나 누락된 YAML 속성/);
