@@ -530,7 +530,43 @@ assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
   fetchImpl:async()=>({ok:false,status:403}),
   now:new Date('2026-11-16T09:30:00+09:00')});
  assert.equal(denied.status,'SOURCE_UNVERIFIED');
- assert.equal(denied.sourceStatus.KOSPI,'KRX_SERVICE_APPROVAL_REQUIRED');
+ assert.equal(denied.sourceStatus.KOSPI,'KRX_SERVICE_ACCESS_DENIED');
+ assert.equal(denied.sourceStatus.KOSDAQ,'KRX_SERVICE_ACCESS_DENIED',
+  '403 in the first market must not hide independent second-market approval');
+ // Explicit same-day one-shot proof: KOSPI denied, KOSDAQ approved, still
+ // SOURCE_UNVERIFIED. No portfolio write and no false overall SUCCESS.
+ const checked=[];
+ const separatelyApproved=await runKrxListingReadOnly({archive:stamped,
+  key:'TEST_KRX_KEY_123456789',now:new Date('2026-11-16T09:30:00+09:00'),
+  fetchImpl:async url=>{
+   const p=new URL(url).pathname;checked.push(p);
+   if(p===KRX_BASE_INFO_PATHS.KOSPI)return {ok:false,status:403};
+   return {ok:true,headers:{get:()=>null},json:async()=>payloadQ};
+  }});
+ assert.deepEqual(checked,[KRX_BASE_INFO_PATHS.KOSPI,KRX_BASE_INFO_PATHS.KOSDAQ]);
+ assert.deepEqual(separatelyApproved.sourceStatus,{
+  KOSPI:'KRX_SERVICE_ACCESS_DENIED',KOSDAQ:'VERIFIED'});
+ assert.equal(separatelyApproved.status,'SOURCE_UNVERIFIED');
+ assert.equal(separatelyApproved.publicationAllowed,false);
+ let authCalls=0;
+ const invalidSharedAuth=await runKrxListingReadOnly({archive:stamped,
+  key:'TEST_KRX_KEY_123456789',now:new Date('2026-11-16T09:30:00+09:00'),
+  fetchImpl:async()=>{authCalls++;return {ok:false,status:401};}});
+ assert.equal(authCalls,1,'shared authentication failure stops both service probes');
+ assert.equal(invalidSharedAuth.sourceStatus.KOSPI,'KRX_AUTHENTICATION_DENIED');
+ assert.equal(invalidSharedAuth.sourceStatus.KOSDAQ,undefined);
+ assert.equal(invalidSharedAuth.status,'SOURCE_UNVERIFIED');
+ let throttleCalls=0;
+ const throttled=await runKrxListingReadOnly({archive:stamped,
+  key:'TEST_KRX_KEY_123456789',now:new Date('2026-11-16T09:30:00+09:00'),
+  fetchImpl:async()=>{throttleCalls++;return {ok:false,status:429};}});
+ assert.equal(throttleCalls,1);
+ assert.equal(throttled.sourceStatus.KOSPI,'RATE_LIMITED');
+ const statusCli=(await import('node:fs')).readFileSync(
+  'scripts/krx-52week-listing-metadata-readonly.mjs','utf8');
+ assert.match(statusCli,/process\.exitCode=2/,
+  'source / identity unverified must return a failing job outcome');
+ assert.match(statusCli,/SOURCE_OR_IDENTITY_NOT_VERIFIED/);
  assert.equal(denied.marketWideCertified,false);
  assert.equal(denied.gasWrites,0);
  assert.equal(denied.portfolioWrites,0);

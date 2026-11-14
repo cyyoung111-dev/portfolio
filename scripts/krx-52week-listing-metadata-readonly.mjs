@@ -151,9 +151,13 @@ export async function fetchKrxBaseInfo(date,market,{key,fetchImpl=fetch}={}){
    signal:AbortSignal.timeout(12000)});
  }catch{return {status:'NETWORK_OR_TIMEOUT',data:null};}
  if(!response?.ok){
-  return {status:[401,403].includes(Number(response?.status))
-   ?'KRX_SERVICE_APPROVAL_REQUIRED'
-   :Number(response?.status)===429?'RATE_LIMITED':'HTTP_UNVERIFIED',data:null};
+  // 401: shared authentication problem; 403: this service was denied
+  // (approval, IP restriction, or policy). Neither proves which exact
+  // permission is missing; never claim approval alone as the cause.
+  const status=Number(response?.status);
+  return {status:status===401?'KRX_AUTHENTICATION_DENIED':
+   status===403?'KRX_SERVICE_ACCESS_DENIED':
+   status===429?'RATE_LIMITED':'HTTP_UNVERIFIED',data:null};
  }
  const size=Number(response.headers?.get?.('content-length')||0);
  if(size>4500000)return {status:'SOURCE_TOO_LARGE',data:null};
@@ -178,7 +182,10 @@ export async function runKrxListingReadOnly({archive,key,fetchImpl=fetch,now=new
   const x=await fetchKrxBaseInfo(date,market,{key,fetchImpl});
   sourceStatus[market]=x.status;
   if(x.status==='VERIFIED')base[market]=x.data;
-  if(['KRX_KEY_UNAVAILABLE','KRX_SERVICE_APPROVAL_REQUIRED','RATE_LIMITED'].includes(x.status))break;
+  // Each market has its OWN KRX service approval: 403 for KOSPI must not
+  // suppress a bounded one-shot KOSDAQ check. A shared invalid key or 429
+  // blocks further calls to avoid pointless attempts and rate pressure.
+  if(['KRX_KEY_UNAVAILABLE','KRX_AUTHENTICATION_DENIED','RATE_LIMITED'].includes(x.status))break;
  }
  if(Object.keys(base).length!==2)
   return {kind:'KRX52_OFFICIAL_LISTING_DATE_READONLY',status:'SOURCE_UNVERIFIED',
@@ -194,6 +201,15 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const archive=readArchiveFile(arg[0].slice('--input='.length));
   const report=await runKrxListingReadOnly({archive,key:process.env.KRX_AUTH_KEY});
   console.log(JSON.stringify(report));
+  // A green job for SOURCE_UNVERIFIED misleadingly looks like official
+  // listing dates were reconciled. Mark the ONE-SHOT diagnostic unsuccessful,
+  // while retaining a machine-readable safe summary and zero source writes.
+  if(report.status!=='LISTING_METADATA_AUDIT_ONLY'||
+     Object.values(report.markets).some(m=>
+      m.sourceStatus!=='MATCHED_LISTING_DATES_NOT_BREADTH_CERTIFIED')){
+   console.error('KRX52_LISTING_SOURCE_OR_IDENTITY_NOT_VERIFIED');
+   process.exitCode=2;
+  }
  }catch(e){
   console.error(/^KRX52_LISTING_[A-Z_]+$/.test(String(e?.message))?
    e.message:'KRX52_LISTING_AUDIT_UNVERIFIED');
