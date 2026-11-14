@@ -102,15 +102,46 @@ const cliBlocked=spawnSync(process.execPath,[
  '--schedule','15 11 * * 1-5','--scheduled-at','2026-11-02T20:44:04Z'
 ],{encoding:'utf8',timeout:20000,env:{...process.env,
  GAS_WEB_APP_URL:'',GAS_ACCESS_TOKEN:''}});
-assert.equal(cliBlocked.status,1,
- 'stale CI schedule must fail before API calls even if GAS credentials absent');
+assert.equal(cliBlocked.status,0,
+ 'known stale cron must stop safely without fabricating an operational failure');
 const cliDiagnostic=JSON.parse(cliBlocked.stdout.trim().split('\n').at(-1));
 assert.equal(cliDiagnostic.status,'STALE_SCHEDULE_BLOCKED');
+assert.equal(cliDiagnostic.skipped,true);
+assert.equal(cliDiagnostic.completed,false);
 assert.equal(cliDiagnostic.gasCalls,0);
 assert.equal(cliDiagnostic.financeWrites,0);
 assert.equal(cliDiagnostic.published,false);
 assert.equal(cliDiagnostic.masterPersistence,null);
 assert.equal(cliDiagnostic.snapshotPersistence,null);
+// The real GitHub run may be created promptly yet queue for 2+ hours.
+// Reading just created_at would otherwise permit stale MARKET_MASTER writes.
+for(const [created,observed,expected] of [
+ ['2026-11-02T11:16:00Z','2026-11-02T11:20:00Z','ON_TIME'],
+ ['2026-11-02T11:16:00Z','2026-11-02T12:45:00Z','ON_TIME'],
+ ['2026-11-02T11:16:00Z','2026-11-02T12:46:00Z','STALE_SCHEDULE_BLOCKED'],
+ ['2026-11-02T11:16:00Z','2026-11-02T13:45:00Z','STALE_SCHEDULE_BLOCKED'],
+ ['2026-11-02T11:16:00Z','2026-11-02T11:15:00Z','SCHEDULE_RUNTIME_UNVERIFIED'],
+ ['2026-11-02T11:16:00Z','not-a-date','SCHEDULE_RUNTIME_UNVERIFIED']
+]) {
+ const result=scheduleDelayGuard('15 11 * * 1-5',created,{observedAt:observed});
+ assert.equal(result.reason,expected,'queued-run guard must use actual clock');
+ assert.equal(result.allowed,expected==='ON_TIME');
+}
+assert.equal(scheduleDelayGuard('15 11 * * 1-5','',{
+ observedAt:'2026-11-02T11:25:00Z'}).reason,'SCHEDULE_ANCHOR_UNVERIFIED');
+const invalidAnchorCli=spawnSync(process.execPath,[
+ 'scripts/run-market-briefing-headless.mjs','--checkpoint','EVENING',
+ '--schedule','15 11 * * 1-5'
+],{encoding:'utf8',timeout:20000,env:{...process.env,
+ GAS_WEB_APP_URL:'',GAS_ACCESS_TOKEN:''}});
+assert.equal(invalidAnchorCli.status,1,
+ 'missing GitHub scheduled-at provenance is a real diagnostic failure');
+const invalidDiag=JSON.parse(invalidAnchorCli.stdout.trim().split('\\n').at(-1));
+assert.equal(invalidDiag.status,'SCHEDULE_ANCHOR_UNVERIFIED');
+assert.equal(invalidDiag.skipped,false);
+assert.equal(invalidDiag.gasCalls,0);
+assert.equal(invalidDiag.financeWrites,0);
+
 assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedule','30 22 * * 0-4']).tradingDate,'2026-09-18','수동 --date가 schedule보다 우선');
 const anchoredArgs=['--checkpoint','MORNING','--schedule','30 22 * * 0-4','--scheduled-at','2026-09-21T22:31:00Z'];
 assert.equal(parseArgs(anchoredArgs).tradingDate,'2026-09-22','workflow 최초 created_at으로 화요일 거래일 고정');
