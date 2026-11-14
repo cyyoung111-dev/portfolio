@@ -56,14 +56,14 @@ await assert.rejects(()=>inspectGoogleProcessScope({token,
 await assert.rejects(()=>inspectGoogleProcessScope({token,
  fetchImpl:async()=>({ok:true,json:async()=>({email:'PRIVATE'})})}),
  /ISSUE734_PROCESS_SCOPE_RESPONSE_SCHEMA/);
-// Test the actual workflow source. Automatic PR/push may run offline tests;
-// only the main-branch manual workflow may call Google's tokeninfo endpoint.
+// Test the actual workflow source. Only manual dispatch launches this
+// wrapper; the exact same offline test stays in mandatory check:ci.
 const auditYaml=fs.readFileSync('.github/workflows/issue734-process-scope-audit-readonly.yml','utf8');
 function enforceManualScopeAudit(source){
  assert.match(source,/^  workflow_dispatch:\s*$/m);
  assert.doesNotMatch(source,/^  schedule:\s*$/m);
- assert.match(source,/^  pull_request:\s*$/m);
- assert.match(source,/^  push:\s*$/m);
+ assert.doesNotMatch(source,/^  pull_request:\s*$/m);
+ assert.doesNotMatch(source,/^  push:\s*$/m);
  assert.match(source,/^  scope-audit:\s*$/m);
  assert.match(source,/^    environment: portfolio-production-gas\s*$/m);
  assert.match(source,/^    needs: source-check\s*$/m);
@@ -79,7 +79,13 @@ assert.throws(()=>enforceManualScopeAudit(auditYaml.replace(
  "github.event_name != 'pull_request' && github.run_attempt == 1")));
 assert.throws(()=>enforceManualScopeAudit(auditYaml.replace(
  '  workflow_dispatch:',
+ '  push:' + String.fromCharCode(10) + '    branches: [main]' + String.fromCharCode(10) + '  workflow_dispatch:')));
+assert.throws(()=>enforceManualScopeAudit(auditYaml.replace(
+ '  workflow_dispatch:',
  '  schedule:' + String.fromCharCode(10) + '    - cron: 0 0 * * *' + String.fromCharCode(10) + '  workflow_dispatch:')));
+const packageScripts=JSON.parse(fs.readFileSync('package.json','utf8')).scripts;
+assert.match(packageScripts['check:ci'],/node scripts\/check-issue734-process-scope-audit-readonly\.mjs/,
+ 'manual-only OAuth workflow must retain mandatory PR/main source check');
 console.log(JSON.stringify({kind:'ISSUE734_PROCESS_SCOPE_SOURCE_PASS',
  negativeScenarios:8,diagnosticOnly:true,oauthCredentialChanges:0,
  gasWrites:0,financialWrites:0}));
