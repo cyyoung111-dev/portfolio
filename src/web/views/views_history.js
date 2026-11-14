@@ -527,8 +527,15 @@ function _describePortfolioCloseStatus(a) {
     && !a.portfolioCloseLastError && !a.fundLastError
     && (!Array.isArray(close.errors) || close.errors.length === 0)
     && Array.isArray(a.pendingKrxCloseDates) && a.pendingKrxCloseDates.length === 0
-    && !a.tradeLedgerWriteUnverified && !a.pendingTradeSnapshotRebuildFrom
-    && !(Number(a.tradeSnapshotDeferredCount) > 0);
+    // A missing Writer/deferred-work field is UNKNOWN, not a verified
+    // clean state. Only explicit safety evidence can justify "마감 완료".
+    && a.tradeLedgerWriteUnverified === false
+    && Object.prototype.hasOwnProperty.call(a, 'pendingTradeSnapshotRebuildFrom')
+    && (a.pendingTradeSnapshotRebuildFrom === ''
+      || a.pendingTradeSnapshotRebuildFrom === '-'
+      || a.pendingTradeSnapshotRebuildFrom === null)
+    && Number.isSafeInteger(a.tradeSnapshotDeferredCount)
+    && a.tradeSnapshotDeferredCount === 0;
   if (!completed || !['NORMAL', 'WARNING'].includes(a.overallStatus)) return null;
   const fundWarning = typeof a.fundLastWarning === 'string'
     ? a.fundLastWarning : '';
