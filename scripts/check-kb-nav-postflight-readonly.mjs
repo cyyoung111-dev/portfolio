@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
+import {assessNavScheduledAdmission} from './nav-schedule-admission.mjs';
 import {assessKbNavPostflight,auditKbNavPostflight,
  expectedKbOfficialReferenceDate,verifyKbOfficialNavPreview,readKbExactNavPreview}
  from './audit-kb-nav-postflight-readonly.mjs';
@@ -322,3 +323,56 @@ const preview=await readKbExactNavPreview({
 assert.equal(requestAction,'previewFundNavImport');
 assert.equal(verifyKbOfficialNavPreview(date,2100.55,preview),true);
 console.log('KB NAV postflight: published-vs-persisted, close marker, safety and workflow PASS');
+
+ // 2026-11-14: weekend 09:10 scheduled GitHub action actually started
+ // 15:05 KST, timed out on two GAS STATUS reads, while postflight proved
+ // already-complete NAV. A stale cron must never enter protected GAS.
+const navSlots=[
+ ['2026-11-14T00:10:00Z','10 0 * * 0,6',true],
+ ['2026-11-14T01:09:59Z','10 0 * * 0,6',true],
+ ['2026-11-14T01:10:00Z','10 0 * * 0,6',false],
+ ['2026-11-14T06:05:57Z','10 0 * * 0,6',false],
+ ['2026-11-16T00:30:00Z','30 0 * * 1-5',true],
+ ['2026-11-16T01:09:00Z','30 0 * * 1-5',true],
+ ['2026-11-14T00:30:00Z','30 0 * * 1-5',false],
+ ['2026-11-14T09:10:00Z','10 9 * * *',true],
+ ['2026-11-14T10:16:00Z','10 9 * * *',true],
+ ['2026-11-14T10:17:00Z','10 9 * * *',false],
+ ['2026-11-14T10:17:00Z','17 10 * * *',true],
+ ['2026-11-14T11:19:00Z','17 10 * * *',true],
+ ['2026-11-14T11:20:00Z','17 10 * * *',false]
+];
+for(const [instant,cron,admit] of navSlots){
+ const outcome=assessNavScheduledAdmission({
+  eventName:'schedule',cron,now:new Date(instant)
+ });
+ assert.equal(outcome.admit,admit,'schedule slot '+cron+' / '+instant);
+}
+assert.equal(assessNavScheduledAdmission({
+ eventName:'schedule',cron:'unknown',now:new Date('2026-11-14T00:10:00Z')
+}).admit,false,'unsupported NAV cron fails closed');
+assert.equal(assessNavScheduledAdmission({
+ eventName:'workflow_dispatch',now:new Date('2026-11-14T06:05:57Z')
+}).admit,true,'explicit manual run keeps existing GAS/lease safety checks');
+assert.equal(assessNavScheduledAdmission({
+ eventName:'workflow_run',now:new Date('2026-11-14T06:05:57Z')
+}).admit,true,'existing upstream-KRX workflow_run behavior is unchanged');
+assert.throws(()=>assessNavScheduledAdmission({
+ eventName:'schedule',cron:'10 0 * * 0,6',now:new Date(NaN)
+}),/NAV_ADMISSION_CLOCK_INVALID/);
+for(const [label,jobName,writerName] of [
+ ['KB','collect','Collect exact KB S-T published NAV and verify import'],
+ ['HANWHA','hanwha-collect','Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease']
+]){
+ const steps=workflow.jobs[jobName].steps;
+ const admission=steps.findIndex(x=>x.name==='Block stale scheduled NAV starts before private GAS');
+ const privateStep=steps.findIndex(x=>x.name===writerName);
+ assert.ok(admission>=0&&privateStep>admission,
+  label+' must check stale schedule before private GAS credentials/writer');
+ assert.equal(steps[admission].run,'node scripts/nav-schedule-admission.mjs');
+ assert.match(String(steps[admission].env.NAV_SCHEDULE_CRON),/github\.event\.schedule/);
+}
+console.log('NAV_SCHEDULE_DELAYED_ADMISSION_PASS '+JSON.stringify({
+ simulatedSaturday0910Started1505:true,slots:navSlots.length,
+ staleScheduleCannotReachGas:true,financialWrites:0
+}));
