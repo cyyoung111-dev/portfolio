@@ -8,6 +8,8 @@ on:
     paths:
       - '.github/workflows/issue734-current-close-status-readonly.yml'
       - 'scripts/issue860-close-single-status-readonly.mjs'
+      - 'scripts/assess-close-fund-operational.mjs'
+      - 'scripts/check-close-fund-operational.mjs'
 permissions:
   contents: read
 concurrency:
