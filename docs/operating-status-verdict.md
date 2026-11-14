@@ -3,6 +3,12 @@
 Last reviewed: 2026-11-15 KST. Applies to the \`main\` workflow
 [Portfolio daily operating verdict (READ ONLY)](../.github/workflows/portfolio-daily-ops-readonly.yml).
 
+## 2026-11-15 — Viewer live GAS version warning correction
+
+- Live protected GAS nightly read [#43643936591](https://github.com/cyyoung111-dev/portfolio/actions/runs/43643936591) returned `gasVersion=9.294`, `overallStatus=NORMAL`, while the browser `settings_fetch.js` bounded compatibility array stopped at `9.287`. The successful `bootstrapGsheetSettings()` check in `settings.js` would therefore show a **spurious version-mismatch/redeploy toast**.
+- Keep the checked-in GAS baseline `EXPECTED_GAS_VERSION='9.285'` exactly as required by staged release integrity and historical audit; add only independently observed `9.294` to `COMPATIBLE_GAS_VERSIONS`. No assertion that 9.288–9.293 or unapproved future versions are safe. Unknown versions retain existing warning. The fix is UI-only and does not alter GAS source or deployed GAS, Sheet data, price, NAV, Snapshot, writer gates or workflow schedules.
+- Required CI regression protects the staged baseline, live allowlist, unknown-version warning path, no duplicates and historical 9.286 source preview. Mobile/PC PWA update requires versioned JS URL + service-worker cache revision when source changes.
+
 ## External authorization and writer-ownership exceptions (2026-11-15)
 
 - Google Apps Script process OAuth scope and KRX listing metadata approval need independent permissions. Both live diagnostics are manual-only; offline CI remains active. The OAuth workflow is now itself **manual-only** (removed redundant PR/push source-check jobs): its test already runs in required `quality-check` on every PR/main push, with manual source-check before the protected OAuth stage. Code changes do NOT grant provider permissions.
