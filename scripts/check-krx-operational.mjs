@@ -1243,3 +1243,34 @@ console.log('Fund resume explicit APPLY consent and scheduled/manual NAV gating 
  assert.ok(d.includes("github.ref == 'refs/heads/main'"));
 }
 console.log('Dedicated fund readonly status: no apply option, no scheduled fanout PASS');
+
+// #734: the actual 2026-11-14 scheduled collector spent 300s on GAS STATUS.
+// Both read-only STATUS gates have a bounded 120s deadline; no writer retry
+// and no longer timeout is permitted before an authorized NAV import.
+{
+ const {run}=await import('./collect-kb-fund-nav.mjs');
+ const observed=[],actions=[];
+ const original=AbortSignal.timeout;
+ AbortSignal.timeout=ms=>{observed.push(ms);return original(ms);};
+ try{
+  const result=await run({
+   url:'https://script.google.com/macros/s/Test/exec',token:'TEST_SECRET',
+   apply:true,now:new Date('2026-11-14T09:15:00Z'),
+   fetchImpl:async(_url,o)=>{
+    const action=o.body?.get('action');actions.push(action);
+    assert.equal(action,'getAutomationStatus');
+    return {ok:true,json:async()=>o.body?.get('accessToken')==='NAV_AUTH_PROBE'
+      ?{status:'error',message:'인증 실패'}
+      :{status:'ok',gasVersion:'9.294',automation:{
+        closeRun:{state:'COMPLETE',runDate:'2026-11-13'},
+        fundAttempt:{state:'IN_PROGRESS'},tradeSnapshotDeferredCount:0}}};
+   }
+  });
+  assert.equal(result.mode,'DEFERRED');
+  assert.deepEqual(observed,[120000,120000],
+   'both KB STATUS requests must stay within the bounded read-only budget');
+  assert.deepEqual(actions,['getAutomationStatus','getAutomationStatus'],
+   'active writer short-circuits before every import/refresh');
+ } finally {AbortSignal.timeout=original;}
+}
+console.log('ISSUE734_KB_STATUS_READ_BUDGET_PASS 120s_readonly_no_finance_writes');
