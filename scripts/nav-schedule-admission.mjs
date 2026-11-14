@@ -39,7 +39,7 @@ if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
   if(process.env.GITHUB_STEP_SUMMARY){
    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
     'NAV scheduled admission: '+result.status+' / '+result.slot+
-    ' (protected GAS calls 0 during this check)\\n');
+    ' (protected GAS calls 0 during this check)\n');
   }
   // GitHub scheduled-run success is used by the independent fallback as
   // evidence that normal NAV collection ran. Never mark a skipped private
