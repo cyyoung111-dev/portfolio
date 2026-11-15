@@ -1,0 +1,78 @@
+name: GAS 9.295 source integrity and master coverage (READ ONLY)
+# One-shot push after introduction; manual recheck only when explicitly asked.
+# No schedules, writers, source repairs, raw holdings or monetary output.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/portfolio-9295-source-integrity-readonly.yml']
+  pull_request:
+    paths:
+      - '.github/workflows/portfolio-9295-source-integrity-readonly.yml'
+      - 'scripts/audit-post9295-source-reconciliation-readonly.mjs'
+      - 'scripts/check-post9295-source-reconciliation-readonly.mjs'
+permissions:
+  contents: read
+# Serialise with existing protected heavy GAS read-only jobs.
+concurrency:
+  group: portfolio-heavy-gas-readonly
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit
+      - name: Synthetic source reconciliation and no-write contract
+        run: node scripts/check-post9295-source-reconciliation-readonly.mjs
+  audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))
+    needs: contract
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Aggregate-only USD code-master vs connected holdings and trade ledger
+        id: coverage
+        continue-on-error: true
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-post9295-source-reconciliation-readonly.mjs coverage
+      - name: Independently recompute exact 2026-11-14 Snapshot under strict Snapshot read-only source lock
+        id: snapshot
+        continue-on-error: true
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-post9295-source-reconciliation-readonly.mjs snapshot
+      - name: Report separate evidence without normalizing incomplete proof to success
+        if: always()
+        env:
+          CONTRACT: ${{ needs.contract.result }}
+          COVERAGE: ${{ steps.coverage.outcome }}
+          SNAPSHOT: ${{ steps.snapshot.outcome }}
+        shell: bash
+        run: |
+          echo "POST9295_CONTRACT=$CONTRACT"
+          echo "POST9295_MASTER_COVERAGE=$COVERAGE"
+          echo "POST9295_SNAPSHOT_RECALC=$SNAPSHOT"
+          echo 'POST9295_FINANCIAL_WRITES=0'
+          echo 'POST9295_US_BROKERAGE_EXTERNAL_SCOPE=UNVERIFIED'
+          if [ "$CONTRACT" != 'success' ] || [ "$COVERAGE" != 'success' ] || [ "$SNAPSHOT" != 'success' ]; then
+            echo 'POST9295_INDEPENDENT_EVIDENCE_INCOMPLETE'
+            exit 2
+          fi
+          echo 'POST9295_READONLY_SOURCE_RECONCILIATION_COMPLETED'
