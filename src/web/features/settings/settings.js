@@ -595,6 +595,18 @@ async function loadSettings(onProgress, options) {
     let data = await requestGsheetActionJson('getBootstrap', {}, { timeoutMs: 15000, retry: 1, targetUrl: loadTarget, preserveError: true });
     if (!isLoadConnectionCurrent()) return false;
     const isBootstrap = !!(data && data.status === 'ok' && data.settings && Array.isArray(data.codes));
+    // Only older GAS deployments with an unsupported Bootstrap action need
+    // a getSettings fallback. An already-retried auth/transport/server error
+    // cannot be repaired by a second legacy request; it doubles the wait and
+    // may obscure the original, actionable restore failure.
+    const bootstrapFailureCode = data?.status === 'error' && data?.message === '인증 실패'
+      ? 'GAS_AUTH_REJECTED' : String(data?.errorCode || '');
+    if (!isBootstrap && [
+      'CLIENT_TIMEOUT', 'INVALID_RESPONSE', 'SERVER_ERROR',
+      'HTTP_401', 'HTTP_403', 'HTTP_429', 'GAS_AUTH_REJECTED'
+    ].includes(bootstrapFailureCode)) {
+      return failLoad(bootstrapFailureCode);
+    }
     if (!isBootstrap) {
       data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1, targetUrl: loadTarget, preserveError: true });
       if (!isLoadConnectionCurrent()) return false;
