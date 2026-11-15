@@ -349,26 +349,46 @@ function _priceDiagSummary(results) {
   return `<span style="color:var(--amber)">🧪 검증 변경 ${changed.length}/${entries.length}${sample ? ' (' + sample + (changed.length > 3 ? ' 외' : '') + ')' : ''}</span>`;
 }
 
+// Friendly UI timing in seconds; never replace absent timing with zero.
+function _priceLookupDuration(ms) {
+  if (ms === null || ms === undefined || ms === '') return '미확인';
+  const n = Number(ms);
+  return Number.isFinite(n) && n >= 0
+    ? (Math.round(n / 100) / 10).toFixed(1) + '초' : '미확인';
+}
+
 function _priceLookupSummary() {
   const meta = window._lastPriceLookup;
   if (!meta || typeof meta !== 'object') return '';
-  const elapsed = Number.isFinite(Number(meta.serverElapsedMs)) ? `${Math.max(0, Math.round(Number(meta.serverElapsedMs)))}ms` : '?';
-  const roundTrip = Number.isFinite(Number(meta.clientRoundTripMs)) ? `${Math.max(0, Math.round(Number(meta.clientRoundTripMs)))}ms` : '?';
+  const elapsed = _priceLookupDuration(meta.serverElapsedMs);
+  const roundTrip = _priceLookupDuration(meta.clientRoundTripMs);
+  const tripMs = meta.clientRoundTripMs === null || meta.clientRoundTripMs === undefined
+    ? NaN : Number(meta.clientRoundTripMs);
+  // Timing color is a hint about delay, NOT whether prices are correct.
+  const latencyTone = Number.isFinite(tripMs) && tripMs >= 30000 ? ' is-slow'
+    : Number.isFinite(tripMs) && tripMs >= 10000 ? ' is-elevated' : '';
   const toss = Math.max(0, Number(meta.tossResultCount) || 0);
   const krx = Math.max(0, Number(meta.krxResultCount) || 0);
   const history = Math.max(0, Number(meta.recentHistoryFallbackCount) || 0);
   const tossStatus = String(meta.tossStatus || (toss > 0 ? 'SUCCESS' : 'UNKNOWN'));
-  const tossSuffix = tossStatus === 'ERROR' ? ' · 오류' : tossStatus === 'EMPTY' ? ' · 응답 0' : tossStatus === 'NOT_RUN' ? ' · 미실행' : '';
-  const chips = [
-    `<button type="button" class="price-status-chip is-action" data-price-detail="providers">NH ${toss}건${tossSuffix}</button>`,
-    `KRX ${krx}건`,
-    'GOOGLEFINANCE 가격 미사용',
-    `<button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>`,
-    `왕복 ${roundTrip}`,
-    `<button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>`,
-    ...(meta.cacheHit ? ['60초 캐시'] : []),
-  ];
-  return `<details class="price-status-diagnostics" style="display:inline-block;max-width:100%"><summary style="cursor:pointer;color:var(--muted);font-size:.68rem">조회 상세 · 왕복 ${roundTrip}</summary><span class="price-status-chips">${chips.map(label => label.startsWith('<button') ? label : `<span class="price-status-chip">${label}</span>`).join('')}</span></details>`;
+  const tossSuffix = tossStatus === 'ERROR' ? ' · 오류' : tossStatus === 'EMPTY' ? ' · 응답 0'
+    : tossStatus === 'NOT_RUN' ? ' · 미실행' : '';
+  return `<section class="price-lookup-summary" aria-label="조회 상세">
+    <div class="price-lookup-summary-head">
+      <strong class="price-lookup-summary-title">조회 상세</strong>
+      <span class="price-lookup-latency${latencyTone}">왕복 <strong>${roundTrip}</strong></span>
+    </div>
+    <div class="price-lookup-source-chips" aria-label="가격 조회 원천">
+      <button type="button" class="price-status-chip is-action" data-price-detail="providers">NH ${toss}건${tossSuffix}</button>
+      <span class="price-status-chip">KRX ${krx}건</span>
+      <span class="price-status-chip price-lookup-subtle">GOOGLEFINANCE 미사용</span>
+    </div>
+    <div class="price-lookup-extra-chips" aria-label="추가 조회 정보">
+      <button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>
+      <button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>
+      ${meta.cacheHit ? '<span class="price-status-chip">60초 캐시</span>' : ''}
+    </div>
+  </section>`;
 }
 
 function _priceLookupDetail(kind) {
@@ -440,10 +460,11 @@ function _priceLookupDetail(kind) {
   wrap.dataset.open = kind;
 }
 
-function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
+function _priceStatusLayout(primaryHtml, metaHtml, noteHtml, lookupHtml = '') {
   return `<div class="price-status-content">
     <div class="price-status-primary">${primaryHtml}</div>
     ${metaHtml ? `<div class="price-status-meta">${metaHtml}</div>` : ''}
+    ${lookupHtml}
     ${noteHtml ? `<div class="price-status-note">${noteHtml}</div>` : ''}
     <div id="price-lookup-detail" class="price-lookup-detail" hidden></div>
   </div>`;
@@ -612,12 +633,13 @@ async function quickFetchByDate() {
       const total = _currentPriceTargetCount();
       const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
       const primary = `✅ 업데이트 완료 <span class="price-status-divider">·</span> <span class="c-gold">${dayLabel}</span> <span class="price-status-count">${cnt}/${total}개</span>`;
-      const meta = _pricePortfolioSummary() + restoreWarning + _priceDiagSummary(results) + _priceLookupSummary();
+      const meta = _pricePortfolioSummary() + restoreWarning + _priceDiagSummary(results);
+      const lookupMsg = _priceLookupSummary();
       let note = '';
       if (isFallback) {
         note = `↩ 요청일 ${targetDate.replace(/-/g,'.')} 데이터 없음 · ${usedDate.replace(/-/g,'.')} 사용`;
       }
-      setStatusLabel(_priceStatusLayout(primary, meta, note), 'ok');
+      setStatusLabel(_priceStatusLayout(primary, meta, note, lookupMsg), 'ok');
       const renderStartedAt = Date.now();
       refreshAll();
       fullUpdateTiming.renderMs = Date.now() - renderStartedAt;
@@ -791,7 +813,7 @@ async function autoLoadPrices() {
       const lookupMsg = _priceLookupSummary();
       const primary = `✅ 업데이트 완료 <span class="price-status-divider">·</span> <span class="c-gold">${dayLabel}</span> <span class="price-status-count">${cnt}/${total}개</span>`;
       const note = isFallback ? `↩ 오늘 ${dateStr.replace(/-/g,'.')} 데이터 없음 · ${usedDateStr.replace(/-/g,'.')} 사용` : '';
-      setStatusLabel(_priceStatusLayout(primary, portfolioMsg + diagMsg + lookupMsg, note), 'ok');
+      setStatusLabel(_priceStatusLayout(primary, portfolioMsg + diagMsg, note, lookupMsg), 'ok');
       refreshAll();
     } else {
       // ── GSheet 실패 → 캐시 가격으로 대체 ──
@@ -909,8 +931,9 @@ async function pollCurrentPrices() {
       sameQuoteInputs
         ? `✅ 현재가 확인 · ${entries.length}개 · 변동 없음`
         : `✅ 현재가 갱신 · ${entries.length}개 · 화면만 반영`,
-      lookupMsg,
-      [dateNotice, '저장 이력/Snapshot 미변경'].filter(Boolean).join(' · ')
+      '',
+      [dateNotice, '저장 이력/Snapshot 미변경'].filter(Boolean).join(' · '),
+      lookupMsg
     ), 'ok');
     if (sameQuoteInputs) return true;
     const repaintStartedAt = Date.now();
