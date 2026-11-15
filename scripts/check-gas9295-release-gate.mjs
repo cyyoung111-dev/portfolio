@@ -45,7 +45,6 @@ assert.doesNotThrow(()=>assertIssue7349295Prerequisites({
  version:'9.295',publishedVersion:'9.294',liveIdleVerified:true
 }));
 const trades=[{id:'tr_abc123'},{id:'srv_000111'}];
-const settings={status:'ok',gasVersion:'9.294',settings:{}};
 const ledger={status:'ok',tradeLedgerProtocolVersion:2,
  ledgerRevision:'a'.repeat(64),trades};
 const gate={status:'ok',gasVersion:'9.294',writerGate:{
@@ -57,7 +56,7 @@ const status={mode:'READ_ONLY',gasVersion:'9.294',gasVersionReady:true,
  overallStatus:'NORMAL',tradeSnapshotWorkerRuntimeAssessment:'NOT_RUNNING',
  close:{state:'COMPLETE',stage:'COMPLETE',fundState:'DONE'}};
 const assess=(o={})=>assessGas9295ReleaseState({
- settings:o.settings??settings,ledger:o.ledger??ledger,gate:o.gate??gate,
+ ledger:o.ledger??ledger,gate:o.gate??gate,
  status:o.status??status,expectedVersion:o.expectedVersion??'9.294'
 });
 const ok=assess();
@@ -67,7 +66,6 @@ assert.equal(ok.tradeRows,2,'ledger count cannot be hardcoded to 338');
 assert.equal(ok.snapshotIndependentRowProof,false);
 assert.equal(ok.financeWrites,0);
 for(const invalid of [
- {settings:{...settings,gasVersion:'9.293'}},
  {gate:{...gate,gasVersion:'9.293'}},
  {ledger:{...ledger,tradeLedgerProtocolVersion:1}},
  {ledger:{...ledger,ledgerRevision:'invalid'}},
@@ -87,8 +85,7 @@ for(const invalid of [
  {status:{...status,triggerReady:false}},
  {status:{...status,overallStatus:'ERROR'}}
 ])assert.throws(()=>assess(invalid),/GAS9295_READONLY_/);
-const after=assess({settings:{...settings,gasVersion:'9.295'},
- gate:{...gate,gasVersion:'9.295'},
+const after=assess({gate:{...gate,gasVersion:'9.295'},
  status:{...status,gasVersion:'9.295'},expectedVersion:'9.295'});
 assert.equal(after.version,'9.295');
 let attempts=0;
@@ -137,8 +134,10 @@ assert(!steps.some(step=>step.name==='Deploy GAS'&&
 const source=fs.readFileSync('scripts/issue734-gas9295-release-readonly.mjs','utf8');
 assert.doesNotMatch(source,/fetchPricesToss|handleGetPricesCompat|batchUpsertPriceHistory|syncTrades|runDailyPriceHistory/);
 assert.doesNotMatch(source,/requestGsheetFormJson|setValues|appendRow/);
+assert.doesNotMatch(source,/request\(endpoint,token,'getSettings'/,
+ 'GAS getSettings is not guaranteed read-only: it can settle pending code deletion');
 console.log('GAS9295_RELEASE_GATE_READY '+JSON.stringify({
  sourcePin:PIN,manualApprovalRequired:true,dryRunDefault:true,
- negativePreflightCases:18,postdeployRetries:2,
+ negativePreflightCases:17,postdeployRetries:2,
  liveDataFetched:false,financeWrites:0,gasDeployments:0
 }));
