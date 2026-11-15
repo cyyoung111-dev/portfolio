@@ -527,12 +527,35 @@ for(const scenario of ['COUNT_MISSING','PRICE_MISSING','WRONG_PROVIDER']){
  assert.equal(summaries.length,1);
  assert.doesNotMatch(JSON.stringify(summaries),/005930|000660|private-token|232000|260000/);
 }
+// The preceding real 9.295 run failed with the old, ambiguous generic
+// NETWORK code. Prove the new classifications against either GAS POST stage.
+for(const phase of ['getCodeListReadOnly','getPrices']){
+ await assert.rejects(runRegisteredNhReadOnly({
+  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+  expectedGasVersion:'9.284',
+  fetchImpl:async(url,options)=>{
+   const action=new URLSearchParams(options.body).get('action');
+   if(action===phase)throw Error('SIMULATED_NETWORK_OR_TIMEOUT');
+   return nhProbeFetch(url,options);
+  }
+ }),new RegExp('NH_MASTER_PROBE_'+(phase==='getPrices'?'PRICE':'MASTER')+'_NETWORK_OR_TIMEOUT'),
+ 'the failing GAS action must be identified without exposing any symbol');
+}
 const nhProbeWorkflow=fs.readFileSync('.github/workflows/nh-master-registered-readonly.yml','utf8');
 assert.match(nhProbeWorkflow,/paths: \['\.github\/workflows\/nh-master-registered-readonly\.yml'\]/);
 assert.match(nhProbeWorkflow,/run: node scripts\/nh-master-registered-readonly\.mjs/);
 assert.match(nhProbeWorkflow,/NH_EXPECTED_GAS_VERSION: '9.295'/,
  'production read-only one-shot must pin the published release');
 assert.doesNotMatch(nhProbeWorkflow,/GAS_DEPLOY_DRY_RUN|--apply|saveNhConfig|retireLegacyMarketData/i);
+const closeAuditWorkflow=fs.readFileSync('.github/workflows/issue734-current-close-status-readonly.yml','utf8');
+for(const yaml of [nhProbeWorkflow,closeAuditWorkflow]){
+ assert.match(yaml,/group: portfolio-heavy-gas-readonly/,
+  'NH quote and 32-day NAV audit must not compete for GAS at the same time');
+ assert.match(yaml,/cancel-in-progress: false/,
+  'later read-only requests must never preempt a running financial audit');
+}
+assert.doesNotMatch(nhProbeWorkflow,/schedule:/,
+ 'the postdeploy registered quote check must remain one-shot, not a recurring poll');
 
 // Reproduce the reviewed valuation defect using the actual fetch normalization
 // and actual production computeRows, with independent KRW expectations.
