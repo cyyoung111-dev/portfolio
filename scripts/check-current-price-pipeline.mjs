@@ -52,8 +52,11 @@ assert.match(web, /const isCurrentConnection = \(\) =>[\s\S]*isGsheetConnectionC
   '현재가 응답 적용 전 연결 generation 검증');
 assert.match(web, /requestGsheetActionJson\([\s\S]*'getPrices'[\s\S]*targetUrl[\s\S]*if \(!isCurrentConnection\(\)\) return null/,
   '이전 연결 getPrices 응답을 새 연결 전역 상태에 적용하지 않음');
-assert.match(index, /event_delegation\.js\?v=20261101-9/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
+const eventDelegationVersion = index.match(/app\/event_delegation\.js\?v=(\d{8}-\d+)/)?.[1];
+assert.ok(eventDelegationVersion, 'event delegation script must be versioned');
+assert.ok(sw.includes('app/event_delegation.js?v=' + eventDelegationVersion),
+  'HTML and offline PWA must reference the same event delegation revision');
 assert.match(sw, /portfolio-cache-\d{8}-\d+/);
 assert.match(sw, /components\.css\?v=\d{8}-\d+/);
 

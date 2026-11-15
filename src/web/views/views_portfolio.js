@@ -18,6 +18,52 @@ let _donutModelCache = { key: '', model: null };
 let _acctEnrichedCache = { key: '', data: [] };
 let _mergeListCache = { key: '', list: [] };
 
+// Filter layout preference is deliberately distinct from the financial
+// ACCT_ORDER master; GAS restore and trading/valuation are unaffected.
+const ACCT_FILTER_DISPLAY_ORDER_KEY = 'pf_ui_acct_filter_order_v1';
+const _acctSavedUiOrder = typeof lsGet === 'function' ? lsGet(ACCT_FILTER_DISPLAY_ORDER_KEY, []) : [];
+let _acctUiOrder = Array.isArray(_acctSavedUiOrder)
+  ? _acctSavedUiOrder.filter(item => typeof item === 'string' && item !== '전체')
+  : [];
+let _acctOrderEditorOpen = false;
+
+function _orderedAcctFilters() {
+  const names = [...new Set(ACCT_ORDER.filter(name => typeof name === 'string' && name && name !== '전체'))];
+  const prioritized = [...new Set(_acctUiOrder)].filter(name => names.includes(name));
+  return [...prioritized, ...names.filter(name => !prioritized.includes(name))];
+}
+
+function _acctRerenderFilters() {
+  const priorScroll = typeof document !== 'undefined' ? (document.querySelector?.('.acct-filter-track')?.scrollLeft || 0) : 0;
+  // A layout-only preference is not part of the financial data hash.
+  renderView(true);
+  const track = typeof document !== 'undefined' ? document.querySelector?.('.acct-filter-track') : null;
+  if (track) track.scrollLeft = priorScroll;
+}
+
+function toggleAcctFilterOrderEditor() {
+  _acctOrderEditorOpen = !_acctOrderEditorOpen;
+  _acctRerenderFilters();
+}
+
+function moveAcctFilterOrder(name, direction) {
+  if (direction !== -1 && direction !== 1) return;
+  const names = _orderedAcctFilters();
+  const idx = names.indexOf(name);
+  const next = idx + direction;
+  if (idx < 0 || next < 0 || next >= names.length) return;
+  [names[idx], names[next]] = [names[next], names[idx]];
+  _acctUiOrder = names;
+  lsSave(ACCT_FILTER_DISPLAY_ORDER_KEY, names);
+  _acctRerenderFilters();
+}
+
+function resetAcctFilterOrder() {
+  _acctUiOrder = [];
+  lsRemove(ACCT_FILTER_DISPLAY_ORDER_KEY);
+  _acctRerenderFilters();
+}
+
 function _portfolioDataKey() {
   // Row counts and lastUpdated alone are not a revision: editing an old trade,
   // changing a price, or reclassifying an asset can preserve all five values.
@@ -44,26 +90,44 @@ function _portfolioAssetType(row) {
 }
 
 function renderAcctView(area) {
-  const accts = ACCT_ORDER.filter(a => a !== '전체');
-  const acctOpts = ['전체',...accts].map(a => {
-    // Only the visual label wraps; retain the exact original account filter identifier.
+  const accts = _orderedAcctFilters();
+  const acctOpts = ['전체', ...accts].map(a => {
+    // Broker is displayed as two short lines; subtype (IRP/ISA) gets a third.
+    // The unmodified account key is used for all filtering and calculations.
     const parts = /^(.+?)\s*\((연금|IRP|ISA)\)$/.exec(a);
-    const label = parts
-      ? `<span class="acct-filter-name">${_escapeHtml(parts[1])}</span><span class="acct-filter-type">(${_escapeHtml(parts[2])})</span>`
-      : _escapeHtml(a);
-    return `<button type="button" data-portfolio-action="acct-filter" data-value="${_escapeHtml(a)}" aria-label="${_escapeHtml(a)}" class="${_fBtnClass(acctFilter===a)} acct-filter-btn${parts ? ' is-multiline' : ''}">${label}</button>`;
+    const broker = parts ? parts[1] : a;
+    const brokerLabel = broker === '미래에셋'
+      ? '<span class="acct-filter-name">미래</span><span class="acct-filter-name">에셋</span>'
+      : `<span class="acct-filter-name">${_escapeHtml(broker)}</span>`;
+    const label = a === '전체'
+      ? '<span class="acct-filter-name">전체</span>'
+      : brokerLabel + (parts ? `<span class="acct-filter-type">(${_escapeHtml(parts[2])})</span>` : '');
+    return `<button type="button" data-portfolio-action="acct-filter" data-value="${_escapeHtml(a)}" aria-label="${_escapeHtml(a)}" aria-pressed="${acctFilter===a}" class="${_fBtnClass(acctFilter===a)} acct-filter-btn${parts || broker==='미래에셋' ? ' is-multiline' : ''}">${label}</button>`;
   }).join('');
+  const orderItems = _acctOrderEditorOpen ? `<div class="acct-order-editor" role="group" aria-label="계좌 표시 순서 편집">
+    <div class="acct-order-editor-head"><span>표시 순서</span>
+      <button type="button" data-portfolio-action="acct-order-reset" class="acct-order-reset">기본 순서</button>
+    </div>
+    <div class="acct-order-list">${accts.map((a,i) => `<div class="acct-order-item">
+      <span class="acct-order-name">${_escapeHtml(a)}</span>
+      <button type="button" data-portfolio-action="acct-order-up" data-value="${_escapeHtml(a)}" aria-label="${_escapeHtml(a)} 위로 이동" ${i===0?'disabled':''}>↑</button>
+      <button type="button" data-portfolio-action="acct-order-down" data-value="${_escapeHtml(a)}" aria-label="${_escapeHtml(a)} 아래로 이동" ${i===accts.length-1?'disabled':''}>↓</button>
+    </div>`).join('')}</div>
+    <div class="acct-order-help">이 기기에서 표시 순서만 변경되며 보유 데이터는 변경되지 않습니다.</div>
+  </div>` : '';
 
   // ★ [계좌별 taxType] 종류 필터 = 자산 종류만 (ISA/IRP/연금은 계좌 구분으로 이동)
   const typeList = ['전체','주식','ETF','펀드','TDF'];
   const typeOpts = typeList.map(t =>
     `<button data-portfolio-action="type-filter" data-value="${_escapeHtml(t)}" class="${_fBtnClass(typeFilter===t)}">${_escapeHtml(t)}</button>`).join('');
 
-  let html = `<div data-view-section="acct"><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+  let html = `<div data-view-section="acct"><div class="acct-filter-controls">
+    <div class="acct-filter-heading">
       <span class="txt-muted-72">🏦 계좌</span>
-      <div class="flex-wrap-gap4">${acctOpts}</div>
+      <button type="button" class="acct-order-trigger" data-portfolio-action="acct-order-toggle" aria-expanded="${_acctOrderEditorOpen}">${_acctOrderEditorOpen ? '순서 편집 닫기' : '순서 편집'}</button>
     </div>
+    <div class="acct-filter-track" role="group" aria-label="계좌 선택" style="--acct-filter-count:${accts.length+1}">${acctOpts}</div>
+    ${orderItems}
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span class="txt-muted-72">📂 종류</span>
       <div class="flex-wrap-gap4">${typeOpts}</div>
@@ -87,7 +151,14 @@ function renderAcctView(area) {
   html += `<div id="tc_${tableId}">${buildTableInner(data, tableId, null)}</div></div>`;
   area.innerHTML = html;
 }
-function setAcctFilter(f) { acctFilter = f; renderView(); renderDonut(); }
+function setAcctFilter(f) {
+  const priorScroll = typeof document !== 'undefined' ? (document.querySelector?.('.acct-filter-track')?.scrollLeft || 0) : 0;
+  acctFilter = f;
+  renderView();
+  const track = typeof document !== 'undefined' ? document.querySelector?.('.acct-filter-track') : null;
+  if (track) track.scrollLeft = priorScroll;
+  renderDonut();
+}
 function setTypeFilter(f) { typeFilter = f; renderView(); renderDonut(); }
 
 // ── 섹터별 뷰

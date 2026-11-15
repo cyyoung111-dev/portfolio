@@ -98,6 +98,10 @@ function registerGlobalEventDelegation() {
     if (portfolioAction) {
       const action = portfolioAction.dataset.portfolioAction;
       if (action === 'acct-filter' && typeof setAcctFilter === 'function') setAcctFilter(portfolioAction.dataset.value || '전체');
+      else if (action === 'acct-order-toggle' && typeof toggleAcctFilterOrderEditor === 'function') toggleAcctFilterOrderEditor();
+      else if (action === 'acct-order-up' && typeof moveAcctFilterOrder === 'function') moveAcctFilterOrder(portfolioAction.dataset.value || '', -1);
+      else if (action === 'acct-order-down' && typeof moveAcctFilterOrder === 'function') moveAcctFilterOrder(portfolioAction.dataset.value || '', 1);
+      else if (action === 'acct-order-reset' && typeof resetAcctFilterOrder === 'function') resetAcctFilterOrder();
       else if (action === 'type-filter' && typeof setTypeFilter === 'function') setTypeFilter(portfolioAction.dataset.value || '전체');
       else if (action === 'open-dividend' && typeof switchView === 'function') switchView('div');
       else if (action === 'open-retirement' && typeof switchView === 'function') switchView('plan');
