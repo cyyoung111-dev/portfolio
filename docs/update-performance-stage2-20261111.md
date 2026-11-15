@@ -104,3 +104,10 @@
 - 두 소스 차이에 대해 원본 문자열, 종목코드, NAV 금액을 공개하지 않고 고정된 `FUND_NAV_CARRY`, `KRX`, `MANUAL` 등 **안전한 분류 이름과 개수**, 실제 `fundNavStates[].sourceDate`와 정확히 매칭한 날짜 유무만 출력하는 후속 진단을 추가함. 날짜가 붙은 NAV 이월과 날짜 없는 NAV 이월의 표기 동등성 *검토 후보*도 **실제 sourceDate와 일치할 때만** 세며 실제 불일치를 성공으로 변경하거나 임의 저장값을 덮어쓰지 않음.
 - 이미 USD/마스터/보유종목/거래원장 단발 대사를 마쳤으므로 다음 workflow source-change push는 **Snapshot 엄격 조회 한 단계만** 재실행. 전체 4 API 읽기를 다시 반복하지 않음. 수동 dispatch에서만 기존 전체 감사 범위를 다시 실행할 수 있음. 모든 조회가 strict read-only이며 자동 쓰기·수정·재시도 없음.
 - 원천 문자열 차이가 어떤 의미인지 판단하려면 이 추가 소스 유형 결과가 필요함. 외부 공식 데이터 출처 증빙·사용자 모바일/웹 전체 업데이트 속도 실측은 여전히 별도 과제임.
+
+## 2026-11-15 — 9.295 Snapshot 출처 표시 2건: 재계산 금액 확인과 소스 표기 차이 분리
+
+- [소스 유형만 재조회한 #43695703206](https://github.com/cyyoung111-dev/portfolio/actions/runs/43695703206)의 사실: 2026-11-14 strict Snapshot 원장 재계산 기대/저장 **39/39행**; 수량·매입원금·평가단가·평가금액 불일치 **각 0건**, 총 평가차 **0**, 중복·금액 원천 오류·Revision 변경 **0**. `sourceMismatches=2`는 **둘 다 펀드**이고, 안전한 유형쌍은 `DATED_FUND_NAV_CARRY__VS__UNDATED_FUND_NAV_CARRY` 2건. **각각 펀드 NAV 원천일과 예상 라벨의 날짜가 정확히 맞는** 호환 검토 후보 2건임.
+- 기존 진단에서 `MISMATCH`와 source 라벨 2건은 그대로 남긴다. 단 **금액/수량 재계산 성공**과 **날짜가 없는 저장 라벨 표기 검토**를 섞어서 전체 금액 정합성 실패로 알리지 않도록 `RECALC_VALUES_CONFIRMED_NAV_CARRY_LABEL_REVIEW` 별도 결과를 추가한다. `fullSourceProvenanceMatched=false`, `manualSourceLabelReviewOpen=true`, `automaticRepairAuthorized=false`를 명시하며 위 검토 상태는 독립 외부 공시 진위 및 저장 행의 완전한 소스 문자열 동등성을 보증하지 않는다.
+- 오직 전체 숫자 비교와 source SHA/revision 검증이 성공하고, **유일한 오류가 원천일이 정확한 펀드의 날짜 포함 NAV 이월 라벨 대 날짜 없는 NAV 이월 라벨**일 때만 후속 감사의 *비조치 검토*로 분류한다. 이 중 어느 한 건이라도 날짜 불일치, 다른 자산 유형, 금액/수량/중복/환율/가격 원천 오류 또는 추가 source mismatch가 있으면 즉시 기존 `RECALC_REVIEW_REQUIRED` 실패로 유지한다.
+- 이 변경은 읽기 전용 감사 판정에 한정된다. 금융 원본을 업데이트하거나 `GAS diagnoseSnapshotIntegrityRange`의 `MISMATCH`를 조작하지 않는다. 원본 소스 문자열도 덮어쓰지 않는다. 향후 별도 writer 승인 없이 자동 치환하거나 레거시 라벨을 금융 원본에서 일괄 정리하지 않는다.
