@@ -94,6 +94,63 @@ export function summarizeMasterCoverage(master,holdings,trades){
  return result;
 }
 
+// Aggregate-only classification of already-proven source label differences.
+// All strings/codes remain in-memory; no auto-equivalence or writer repair.
+export function classifySnapshotSourceLabels(d){
+ const rows=d?.sourceMismatches;
+ if(!Array.isArray(rows)||rows.length>500)fail('SOURCE_LABEL_SCHEMA');
+ const nav=Array.isArray(d.fundNavStates)?d.fundNavStates:[];
+ const kind=s=>{
+  if(s==='')return 'UNLABELED';
+  if(s==='MANUAL')return 'MANUAL';
+  if(s==='FUND_NAV')return 'CONFIRMED_FUND_NAV';
+  if(/^FUND_NAV_CARRY@\d{4}-\d{2}-\d{2}$/.test(s))return 'DATED_FUND_NAV_CARRY';
+  if(s==='FUND_NAV_CARRY')return 'UNDATED_FUND_NAV_CARRY';
+  if(/^FUND_NAV_CARRY_INPUT_REQUIRED(?:@\d{4}-\d{2}-\d{2})?$/.test(s))
+   return 'FUND_NAV_CARRY_INPUT_REQUIRED';
+  if(/^(?:KRX|KRX_CONFIRMED_CLOSE|KRX_OTP)$/.test(s))return 'KRX_SOURCE';
+  if(/^KRX_CARRY(?:@\d{4}-\d{2}-\d{2})?$/.test(s))return 'KRX_CARRY';
+  if(/^(?:NH|NH_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE)$/.test(s))
+   return 'OTHER_CONFIRMED_CLOSE_LABEL';
+  if(/^TOSS_CONFIRMED_DAILY_CLOSE$/.test(s))return 'LEGACY_CONFIRMED_CLOSE';
+  if(s==='PRICE_HISTORY')return 'PRICE_HISTORY_UNDATED';
+  if(s==='COST_FALLBACK')return 'COST_FALLBACK';
+  return 'OTHER_UNCLASSIFIED';
+ };
+ const counts=new Map();let fundRows=0,nonFundRows=0,aliases=0;
+ const checked=new Set();
+ for(const r of rows){
+  if(!r||typeof r.code!=='string'||!clean(r.code)||
+    typeof r.expected!=='string'||typeof r.stored!=='string'||
+    r.expected===r.stored||checked.has(clean(r.code)))
+   fail('SOURCE_LABEL_ROW_SCHEMA');
+  const code=clean(r.code);checked.add(code);
+  const f=/^F\d{5}$/.test(code);
+  if(f)fundRows++;else nonFundRows++;
+  const name=kind(r.expected)+'__VS__'+kind(r.stored);
+  counts.set(name,(counts.get(name)||0)+1);
+  // A dated/undated NAV carry label is a review candidate only when
+  // its recorded exact NAV source date agrees with the explicit date.
+  const x=nav.filter(v=>v?.code===r.code);
+  if(f&&x.length===1&&typeof x[0].sourceDate==='string'&&
+     /^\d{4}-\d{2}-\d{2}$/.test(x[0].sourceDate)){
+    const dated='FUND_NAV_CARRY@'+x[0].sourceDate;
+    if((r.expected===dated&&r.stored==='FUND_NAV_CARRY')||
+       (r.stored===dated&&r.expected==='FUND_NAV_CARRY'))aliases++;
+  }
+ }
+ return {
+  fundSourceLabelMismatchRows:cnt(fundRows,500),
+  nonFundSourceLabelMismatchRows:cnt(nonFundRows,500),
+  exactNavDatedCarryAliasReviewCandidates:cnt(aliases,500),
+  labelKindPairs:[...counts].sort(([a],[b])=>a.localeCompare(b))
+   .map(([pair,count])=>({pair,count:cnt(count,500)})),
+  // A carry-label review candidate is NEVER a financial write approval,
+  // nor evidence of independent official NAV publication.
+  allMismatchesResolved:false,automaticRepairAuthorized:false
+ };
+}
+
 export function summarizeSnapshotIntegrity(payload,date=SNAPSHOT_DATE){
  if(payload?.status!=='ok'||!Array.isArray(payload.checkedDates)||
   payload.checkedDates.length!==1||payload.checkedDates[0]!==date||
@@ -129,6 +186,7 @@ export function summarizeSnapshotIntegrity(payload,date=SNAPSHOT_DATE){
   gasVersion:REQUIRED_GAS_VERSION,
   integrityState:d.status,expectedRows:expected,storedRows:stored,
   issues,duplicateGroups,
+  sourceLabelReview:classifySnapshotSourceLabels(d),
   differenceZeroVerified:zeroDifferenceVerified,
   strictSourceDigestPresent:strictDigestVerified,
   sourceRevisionPresent:revisionVerified,

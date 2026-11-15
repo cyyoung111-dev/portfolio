@@ -1,5 +1,6 @@
 name: GAS 9.295 source integrity and master coverage (READ ONLY)
-# One-shot push after introduction; manual recheck only when explicitly asked.
+# Source-label follow-up: one-shot push now checks only the latest strict Snapshot.
+# Manual dispatch retains BOTH coverage + Snapshot on explicit request.
 # No schedules, writers, source repairs, raw holdings or monetary output.
 on:
   workflow_dispatch:
@@ -45,6 +46,7 @@ jobs:
           node-version: '24'
       - name: Aggregate-only USD code-master vs connected holdings and trade ledger
         id: coverage
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
@@ -63,6 +65,7 @@ jobs:
           CONTRACT: ${{ needs.contract.result }}
           COVERAGE: ${{ steps.coverage.outcome }}
           SNAPSHOT: ${{ steps.snapshot.outcome }}
+          EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
           echo "POST9295_CONTRACT=$CONTRACT"
@@ -70,7 +73,7 @@ jobs:
           echo "POST9295_SNAPSHOT_RECALC=$SNAPSHOT"
           echo 'POST9295_FINANCIAL_WRITES=0'
           echo 'POST9295_US_BROKERAGE_EXTERNAL_SCOPE=UNVERIFIED'
-          if [ "$CONTRACT" != 'success' ] || [ "$COVERAGE" != 'success' ] || [ "$SNAPSHOT" != 'success' ]; then
+          if [ "$CONTRACT" != 'success' ] || [ "$SNAPSHOT" != 'success' ] || { [ "$EVENT_NAME" = 'workflow_dispatch' ] && [ "$COVERAGE" != 'success' ]; }; then
             echo 'POST9295_INDEPENDENT_EVIDENCE_INCOMPLETE'
             exit 2
           fi
