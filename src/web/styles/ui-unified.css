@@ -369,3 +369,100 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
     grid-column:1/-1;
   }
 }
+
+/* Lookup status layout — full-width on mobile, never shrink-to-fit.
+   Closed summary sits beside the status; expanded details span the card. */
+.action-bar .action-update-card > #price-updated-label.has-price-details {
+  box-sizing:border-box;
+  display:block;
+  width:100%;
+  max-width:none;
+  min-width:0;
+  min-height:0;
+  overflow:visible;
+  padding:8px 5px 4px;
+  border:0;
+  border-top:1px solid var(--ui-edge);
+  border-radius:0;
+  background:transparent;
+}
+.action-bar .price-status-content{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  column-gap:8px;
+  row-gap:5px;
+  width:100%;
+  min-width:0;
+}
+.action-bar .price-status-primary{
+  grid-column:1;
+  grid-row:1;
+  min-width:0;
+}
+.action-bar .price-status-meta,
+.action-bar .price-status-note{
+  grid-column:1/-1;
+  min-width:0;
+}
+.action-bar .price-status-content > .price-lookup-summary{
+  grid-column:2;
+  grid-row:1;
+  justify-self:end;
+  width:auto;
+  max-width:100%;
+  margin:0;
+  padding:0;
+  border:0;
+  background:transparent;
+}
+.action-bar .price-lookup-summary-head{
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  min-height:30px;
+  padding:5px 9px;
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-control);
+  background:var(--s2);
+  white-space:nowrap;
+}
+.action-bar .price-status-content > .price-lookup-summary[open]{
+  grid-column:1/-1;
+  grid-row:auto;
+  justify-self:stretch;
+  box-sizing:border-box;
+  width:100%;
+  min-width:0;
+  padding:9px 10px;
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-control);
+  background:var(--s2);
+}
+.action-bar .price-lookup-summary[open] > .price-lookup-summary-head{
+  display:flex;
+  justify-content:space-between;
+  width:100%;
+  min-height:24px;
+  padding:0 0 7px;
+  border:0;
+  border-bottom:1px solid var(--ui-edge);
+  border-radius:0;
+  background:transparent;
+}
+.action-bar .price-lookup-summary-head::after{margin-left:0}
+.action-bar .price-lookup-summary[open] > .price-lookup-summary-head::after{margin-left:auto}
+.action-bar .price-lookup-expanded{display:block;min-width:0;width:100%}
+.action-bar .price-lookup-source-chips{width:100%;min-width:0}
+.action-bar .price-lookup-summary .price-status-chip{min-width:0}
+.action-bar .price-lookup-detail{min-width:0;max-width:100%;overflow-wrap:anywhere}
+@media(max-width:340px){
+  .action-bar .price-status-content{grid-template-columns:minmax(0,1fr)}
+  .action-bar .price-status-content>.price-lookup-summary{
+    grid-column:1;
+    grid-row:auto;
+    justify-self:start;
+  }
+  .action-bar .price-status-content>.price-lookup-summary[open]{justify-self:stretch}
+}

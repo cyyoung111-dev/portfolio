@@ -70,6 +70,11 @@ for(const action of ['providers','recent-history','timings'])
 assert.doesNotMatch(card,/69933ms|14456ms/);
 assert.equal((card.match(/class="price-lookup-source-chips"/g)||[]).length,1,
  '조회 원천과 GAS 시간을 한 묶음으로 표시합니다.');
+assert.ok(card.indexOf('id="price-lookup-detail"') < card.indexOf('</details>'),
+ '개별 진단 결과는 펼쳐진 조회 상세 내부에 있어야 합니다.');
+assert.match(card,/class="price-lookup-foot"/);
+assert.ok(card.indexOf('price-lookup-foot') > card.indexOf('price-lookup-source-chips'),
+ '왕복시간과 미사용 원천은 요약 아래 보조 정보로 보여줍니다.');
 assert.doesNotMatch(card,/price-lookup-extra-chips/,'큰 조회 상세 두 번째 행이 다시 생기면 안 됩니다.');
 
 const layout=vm.runInContext(
@@ -78,7 +83,14 @@ const layout=vm.runInContext(
 assert.ok(layout.indexOf('거래 338건')>0 && layout.indexOf('거래 338건')<layout.indexOf('조회 상세'),
  'holdings status row must precede the independent provider details');
 assert.match(layout,/class="price-status-meta"/);
-assert.match(layout,/id="price-lookup-detail" class="price-lookup-detail" hidden/);
+assert.match(layout,/class="price-lookup-summary"/);
+const readonlyLayout=vm.runInContext(
+ '_priceStatusLayout("현재가 갱신", "", "저장 이력/Snapshot 미변경", _priceLookupSummary(), "info")',
+ lookupCtx);
+assert.match(readonlyLayout,/class="price-status-note is-info"/);
+assert.match(card,/id="price-lookup-detail" class="price-lookup-detail" hidden/);
+assert.doesNotMatch(layout,/<\/details>[\s\S]*?<div id="price-lookup-detail"/,
+ '진단 상세를 접이식 영역 바깥에 중복 생성하면 안 됩니다.');
 lookupCtx.window._lastPriceLookup={clientRoundTripMs:null,serverElapsedMs:undefined,
  tossResultCount:0,krxResultCount:0,tossStatus:'NOT_RUN',recentHistoryFallbackCount:0};
 assert.match(vm.runInContext('_priceLookupSummary()',lookupCtx),/왕복 <strong>미확인<\/strong>/);
