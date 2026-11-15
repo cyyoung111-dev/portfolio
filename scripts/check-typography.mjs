@@ -196,10 +196,17 @@ assert.match(componentsCss, /\.price-lookup-summary \.price-status-chip\{[^}]*mi
 assert.match(componentsCss, /\.price-status-meta \.price-status-chip\{[^}]*min-height:24px/,
  '거래·보유 상태 칩이 과도하게 커지지 않아야 합니다.');
 const compactPhoneCss=unifiedCss.slice(unifiedCss.indexOf('@media(max-width:480px)'));
-assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn\s*\{[\s\S]*?height:40px;[\s\S]*?min-height:40px;/,
- '모바일 업데이트·현재가 버튼 높이를 40px로 통일해야 합니다.');
-assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn svg\s*\{[^}]*width:15px;/,
+assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn\s*\{[\s\S]*?height:36px;[\s\S]*?min-height:36px;/,
+ '모바일 업데이트·현재가 버튼 높이를 36px로 통일해야 합니다.');
+assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn svg\s*\{[^}]*width:14px;/,
  '큰 버튼용 아이콘 대신 작은 모바일 아이콘을 사용해야 합니다.');
 assert.match(compactPhoneCss, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
  '모바일 업데이트·현재가는 동일한 두 열을 유지합니다.');
 assert.doesNotMatch(compactPhoneCss,/height:46px;/,'기존 큰 버튼 높이로 회귀하면 안 됩니다.');
+assert.match(unifiedCss, /\.acct-filter-btn\.is-multiline\s*\{[^}]*flex-direction:column;/,
+  '연금·IRP·ISA 계좌 필터는 증권사와 계좌 유형을 두 줄로 표시합니다.');
+const acctView = fs.readFileSync('src/web/views/views_portfolio.js','utf8');
+assert.match(acctView, /data-value="\$\{_escapeHtml\(a\)\}"/,
+  '계좌 원본 식별자를 변경하면 안 됩니다.');
+assert.match(acctView, /acct-filter-type/,
+  '계좌 유형의 두 번째 줄을 유지합니다.');
