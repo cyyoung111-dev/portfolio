@@ -11,13 +11,10 @@ const HASH=/^[0-9a-f]{64}$/;
 const fail=code=>{throw Error('GAS9295_READONLY_'+code)};
 const goodInt=(n,max)=>Number.isSafeInteger(n)&&n>=0&&n<=max;
 
-export function assessGas9295ReleaseState({settings,ledger,gate,status,
+export function assessGas9295ReleaseState({ledger,gate,status,
  expectedVersion='9.294',requireIdle=true}={}){
  if(!['9.294','9.295'].includes(expectedVersion))fail('EXPECTED_VERSION_INVALID');
- if(settings?.status!=='ok'||settings.gasVersion!==expectedVersion
-  ||!settings.settings||typeof settings.settings!=='object'
-  ||Array.isArray(settings.settings)
-  ||gate?.status!=='ok'||gate.gasVersion!==expectedVersion
+ if(gate?.status!=='ok'||gate.gasVersion!==expectedVersion
   ||status?.gasVersion!==expectedVersion)fail('VERSION_MISMATCH');
  if(ledger?.status!=='ok'||ledger.tradeLedgerProtocolVersion!==2
   ||!Array.isArray(ledger.trades)||ledger.trades.length>50000
@@ -92,12 +89,13 @@ export async function verifyGas9295ReleaseReadOnly({url,token,
  expectedVersion='9.294',fetchImpl=fetch}={}) {
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)fail('AUTH_MISSING');
- const settings=await request(endpoint,token,'getSettings',fetchImpl);
+ // getSettings is deliberately excluded: it may settle a pending code
+ // deletion under ScriptLock even though the HTTP action looks like a read.
  const ledger=await request(endpoint,token,'getTrades',fetchImpl);
  const gate=await request(endpoint,token,'getWriterGateStatus',fetchImpl);
  const status=await runBackfillStatus({url:endpoint,token,fetchImpl});
  const summary=assessGas9295ReleaseState({
-  settings,ledger,gate,status,expectedVersion
+  ledger,gate,status,expectedVersion
  });
  // Recheck immediately before publication: an intervening trade or writer
  // must not be confused with the static same-moment proof.
