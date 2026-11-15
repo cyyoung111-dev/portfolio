@@ -47,7 +47,9 @@
 - `scripts/compose-gas9295-code-master-reuse-preview.mjs`는 이미 게시된 v9.294의 정확한 전체 소스 SHA `f5e31eeb2255539a021546d8b90a71d5cc7ca33d`에서 생성하며 v9.295 후보 전체 SHA는 `a360a32a2d459d1f28dee94365a28d8c3ca24367`입니다. 그 외 변경 소스는 배포에서 거부합니다.
 - `gas-deploy`의 수동 입력에서 `candidate_version=9.295` 선택, `dry_run=true`로 먼저 무변경 검증을 실행할 수 있습니다. **실제 운영 배포는 별도 명시적 `approve_9295=true` 및 `dry_run=false`가 모두 필요**합니다. 기존 9.294 수동 경로는 선택 메뉴로 유지합니다.
 - 실배포 시 같은 워크플로에서 독립적으로 현재 9.294의 정확한 버전, 거래원장 v2와 고유 거래 ID·동적 행 수·SHA256 원장Revision, Writer Gate `OPEN` 및 활성 Writer 0, pending/deferral 0, 클로즈·NAV 실행 중 아님을 확인합니다. 승인 전 상태가 변하면 차단하고, 무인 자동 배포 경로는 계속 불허합니다.
-- 배포 시 기존의 전체 deployment 인벤토리, 현재 HEAD/게시본 Writer Gate 전환, Snapshot 보호·복구 게이트, GitHub main SHA 검증, 원본 백업 및 실패 시 rollback을 유지합니다. 배포 후 v9.295 `getSettings / getTrades / getWriterGateStatus / getAutomationStatus`를 독립 재조회하며 원장 행 수를 **338행으로 고정하지 않습니다**. 최근 9.294 실제 장부 수를 검증하지 않고 338행이라고 가정하면 올바른 수정까지 막을 수 있기 때문입니다.
+- 배포 시 기존의 전체 deployment 인벤토리, 현재 HEAD/게시본 Writer Gate 전환, Snapshot 보호·복구 게이트, GitHub main SHA 검증, 원본 백업 및 실패 시 rollback을 유지합니다. 배포 후 v9.295 `getTrades / getWriterGateStatus / getAutomationStatus`를 독립 재조회하며 원장 행 수를 **338행으로 고정하지 않습니다**. 최근 9.294 실제 장부 수를 검증하지 않고 338행이라고 가정하면 올바른 수정까지 막을 수 있기 때문입니다.
 - 조회 프로토콜 호환성에 9.295를 사전 등록하고 PWA 캐시 버전을 갱신했습니다. **이는 9.295 운영 배포의 증거가 아닙니다.** 기존 9.285 기준 GAS 파일은 그대로 보존합니다.
 - 차기 릴리스에는 공식 주가 기준일·펀드 NAV 원본·Snapshot 39행의 **독립 실제 readback**이 추가로 필요합니다. 위의 Writer Gate·원장 검사만으로 해당 수치의 독립 정합성까지 보증하지 않습니다. 실제 성능 개선도 PC/모바일 중앙값·p95 및 GAS 단계별 측정 전까지 미확정입니다.
 - PR 품질검사 통과, GitHub Pages 배포, `gas-deploy` 검증 성공과 `deploy skipped`는 금융 GAS 운영 게시 성공이 아닙니다. 승인된 수동 실행의 **Deploy GAS 성공 및 운영 WebApp v9.295 readback 통과**가 있을 때만 서버 적용을 완료로 판정합니다.
+
+- **추가 원인 확인:** GAS `getSettings`는 `_settlePendingCodeDeleteForRead_`를 호출하며, 삭제 대기 트랜잭션이 있으면 ScriptLock 하에서 후속 정리를 수행할 수 있습니다. 따라서 새 9.295 사전·사후 'READ ONLY' 검사에서 `getSettings` 자체를 제외했습니다. 이는 새 검사 경로만의 보장입니다. 기존 `deploy-gas.mjs`가 배포 전후에 사용하는 WebApp 검증 등 다른 경로까지 모든 쓰기 가능성을 제거했다고 주장하지 않습니다.
