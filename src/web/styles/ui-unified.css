@@ -599,3 +599,123 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   outline:2px solid var(--blue-lt);
   outline-offset:2px;
 }
+
+/* === Compact typography hierarchy: one readable scale across all views ===
+   --type-* comes from the user's UI size setting (8–12). Avoid body zoom
+   and blanket precedence overrides that could hide charts, numeric detail,
+   or explicit accessibility preferences. All controls keep their hit areas. */
+.wrap, .wrap :is(button,input,select,textarea,table,summary) {
+  font-family:var(--font-ui);
+}
+/* Brand heading: quieter than the KPI values; same face and weights on PC/mobile. */
+.wrap > .hdr h1 {
+  font-size:calc(var(--type-title) + 4px);
+  line-height:1.25;
+  font-weight:750;
+  letter-spacing:-.035em;
+}
+.wrap > .hdr p {
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+  letter-spacing:0;
+}
+.wrap > .hdr .date-badge {
+  font-size:var(--type-caption);
+  font-weight:650;
+}
+/* Summary KPIs: value > label > note, not 24–30px decorative numbers. */
+.wrap .sum-row .sc {
+  padding:clamp(9px,var(--ui-card-padding,12px),14px);
+}
+.wrap .sum-row .sc .lbl {
+  font-size:var(--type-caption);
+  font-weight:600;
+  line-height:var(--line-compact);
+  letter-spacing:0;
+  margin-bottom:4px;
+}
+.wrap .sum-row .sc .val {
+  font-size:calc(var(--type-value) + 3px);
+  font-weight:700;
+  line-height:1.25;
+  letter-spacing:-.025em;
+  font-variant-numeric:tabular-nums;
+  overflow-wrap:anywhere;
+}
+.wrap .sum-row .sc .sub {
+  font-size:var(--type-caption);
+  line-height:var(--line-body);
+  margin-top:5px;
+}
+.wrap .sum-row-2 .sc .val {
+  font-size:calc(var(--type-value) + 1px);
+}
+/* Cards and tables share a restrained title / body scale. */
+#view-area[data-active-view] :is(.tbl-head h3,.h3-card,.h3-section,.section-title,.card-title) {
+  font-size:var(--type-title);
+  line-height:1.35;
+  font-weight:700;
+}
+#view-area[data-active-view] .tbl-head .tsum {
+  font-size:var(--type-body);
+  line-height:var(--line-body);
+}
+#view-area[data-active-view] :is(.hist-kpi-number,.hist-extreme-primary,.hist-mdd-value) {
+  font-size:calc(var(--type-value) + 1px);
+  line-height:1.3;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+#view-area[data-active-view] :is(.hist-kpi-label,.hist-extreme-title,.hist-extreme-date,
+  .hist-kpi-caption,.hist-kpi-note,.hist-mdd-when span,
+  .div-stat-label,.div-stat-sub,.trade-stat-label,.hist-benchmark-summary-note) {
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+}
+#view-area[data-active-view] :is(.hist-extreme-heading,.hist-mdd-when strong,
+  .div-monthly-matrix-head strong,.retirement-cashflow-heading) {
+  font-size:var(--type-label);
+  line-height:var(--line-compact);
+}
+#view-area[data-active-view] :is(.div-stat-value,.trade-stat-value,.metric-value) {
+  font-size:var(--type-value);
+  line-height:1.3;
+  font-variant-numeric:tabular-nums;
+}
+#view-area[data-active-view] :is(.hist-filter-details>summary,
+  .hist-detail-panel>summary,.hist-benchmark-details>summary,
+  .hist-source-coverage>summary,.hist-extreme-details>summary,
+  .hist-mdd-more summary,.hist-benchmark-toggle) {
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+}
+#view-area[data-active-view] :is(.hist-extreme-card,.hist-kpi-grid>.hist-kpi-card,
+  .trade-stat-card,.div-stat-card) {
+  padding:var(--space-sm) var(--space-md);
+}
+#view-area[data-active-view] :is(.hist-kpi-grid,.hist-extreme-grid) {
+  gap:var(--space-sm);
+}
+/* Data grids remain legible without stretching the table or enlarging controls. */
+#view-area[data-active-view] table :is(th,td) {
+  font-family:inherit;
+  font-variant-numeric:tabular-nums;
+}
+#view-area[data-active-view] .tbl-head {
+  padding:var(--space-sm) var(--space-md);
+}
+#view-area[data-active-view] :is(.div-monthly-matrix-head span,
+  .div-monthly-matrix-head small,.retirement-cashflow-note,
+  .hist-source-coverage-body,.hist-mdd-detail,.hist-kpi-caption) {
+  font-size:var(--type-caption);
+  line-height:var(--line-body);
+}
+@media(max-width:768px) {
+  .wrap > .hdr h1 {font-size:calc(var(--type-title) + 2px)}
+  .wrap .sum-row {gap:var(--space-sm)}
+  .wrap .sum-row .sc {
+    padding:clamp(8px,calc(var(--ui-card-padding,12px) - 2px),12px);
+  }
+  .wrap .sum-row .sc .val {font-size:calc(var(--type-value) + 1px)}
+  .wrap .sum-row-2 .sc .val {font-size:var(--type-value)}
+}
