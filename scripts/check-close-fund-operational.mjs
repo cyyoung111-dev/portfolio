@@ -62,6 +62,73 @@ const green=report({close:{...close,overallStatus:'NORMAL',
 assert.equal(green.health,'CLOSE_DATA_VERIFIED');
 assert.equal(green.actionRequired,false);
 
+// Actual 2026-11-15 production v9.295 saved receipt: KRX price source remains
+// 11/13 Friday while the completed close/Snapshot/history are stamped 11/14
+// Saturday. This is not a missing Friday quote or an actionable NAV alert.
+const sundayAsOf='2026-11-15',saturdayDate='2026-11-14';
+const weekendClose={...close,closeRunDate:saturdayDate,
+ storedPriceDate:'2026-11-13',snapshotLastDate:saturdayDate,
+ priceHistoryLastDate:saturdayDate,expectedSnapshotDate:saturdayDate,
+ fundAttemptDate:saturdayDate,
+ overallStatus:'NORMAL',fundWarningPresent:false,fundWarningClass:'NONE'};
+const weekendFunds=funds.map(f=>({...f,from:'2026-10-15',to:sundayAsOf,
+ unpublishedDates:[],navMissingDates:[],
+ evaluationPendingDates:f.code==='F00003'?[]:[sundayAsOf],
+ snapshotPendingDates:f.code==='F00003'?[]:[sundayAsOf]}));
+const weekendReport=(changes={})=>assessCloseFundOperational({
+ close:{...weekendClose,...(changes.close||{})},
+ asOf:changes.asOf||sundayAsOf,
+ funds:changes.funds||weekendFunds
+});
+const weekend=weekendReport();
+assert.equal(weekend.health,'CLOSE_DATA_VERIFIED');
+assert.equal(weekend.actionRequired,false);
+assert.equal(weekend.closePersistedComplete,true);
+assert.equal(weekend.weekendFridayPriceCarryAccepted,true);
+assert.equal(weekend.executionOwnerIndependentlyVerified,false);
+assert.deepEqual([weekend.financialWrites,weekend.gasDeployments,
+ weekend.telegramSends],[0,0,0]);
+// Still reject stale weekday prices, earlier Thursday, mismatched snapshots,
+// incomplete CLOSE evidence and any genuinely overdue fund valuation.
+for(const change of [
+ {storedPriceDate:'2026-11-12'},
+ {storedPriceDate:'2026-11-15'},
+ {snapshotLastDate:'2026-11-13'},
+ {priceHistoryLastDate:'2026-11-13'},
+ {expectedSnapshotDate:'2026-11-13'},
+ {snapshotStale:true},
+ {fundAttemptDate:'2026-11-13'},
+ {priceOk:false},
+ {fundOk:false},
+ {closeState:'INCOMPLETE'}
+]) {
+ const x=weekendReport({close:change});
+ assert.equal(x.actionRequired,true,'incomplete weekend evidence must still fail');
+ assert.equal(x.weekendFridayPriceCarryAccepted,false,
+  'only an exact complete, valid weekend proof can be accepted');
+}
+// A Sunday stamped saved CLOSE may also legitimately carry Friday's KRX date.
+const sundayClose=weekendReport({close:{
+ closeRunDate:sundayAsOf,snapshotLastDate:sundayAsOf,
+ priceHistoryLastDate:sundayAsOf,expectedSnapshotDate:sundayAsOf,
+ fundAttemptDate:sundayAsOf}});
+assert.equal(sundayClose.actionRequired,false);
+assert.equal(sundayClose.weekendFridayPriceCarryAccepted,true);
+const mondayDate='2026-11-16';
+const mondayFunds=weekendFunds.map(f=>({...f,from:'2026-10-16',to:mondayDate,
+ evaluationPendingDates:[],snapshotPendingDates:[]}));
+const invalidWeekdayCarry=weekendReport({asOf:mondayDate,funds:mondayFunds,
+ close:{closeRunDate:mondayDate,snapshotLastDate:mondayDate,
+ priceHistoryLastDate:mondayDate,expectedSnapshotDate:mondayDate,
+ fundAttemptDate:mondayDate}});
+assert.equal(invalidWeekdayCarry.health,'CLOSE_INCOMPLETE_OR_UNVERIFIED');
+assert.equal(invalidWeekdayCarry.actionRequired,true);
+assert.equal(invalidWeekdayCarry.weekendFridayPriceCarryAccepted,false);
+const weekendOverdue=weekendReport({funds:weekendFunds.map(f=>f.code==='F00001'
+ ? {...f,snapshotPendingDates:['2026-11-10',sundayAsOf]}:f)});
+assert.equal(weekendOverdue.health,'FUND_NAV_OR_DERIVED_OVERDUE');
+assert.equal(weekendOverdue.actionRequired,true);
+
 assert.throws(()=>report({funds:funds.map(f=>({...f,to:'2026-11-13'}))}),
  /CLOSE_FUND_EVIDENCE_SCHEMA/,'date-scoped evidence must reach exact KST audit date');
 
