@@ -1,5 +1,6 @@
 name: GAS 9.295 source integrity and master coverage (READ ONLY)
-# Source-label follow-up: one-shot push now checks only the latest strict Snapshot.
+# One-shot qualified NAV label-only verdict after exact 2/2 dated source alias proof.
+# Still preserves MISMATCH and source metadata review; no finance writes.
 # Manual dispatch retains BOTH coverage + Snapshot on explicit request.
 # No schedules, writers, source repairs, raw holdings or monetary output.
 on:
