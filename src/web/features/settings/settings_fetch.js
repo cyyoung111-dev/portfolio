@@ -501,6 +501,9 @@ async function quickFetchByDate() {
 
   const fullUpdateStartedAt = Date.now();
   let fullUpdateSucceeded = false;
+  // One user click = one timing record, unlike independent stage samples.
+  // In-memory only: no account/position/price/URL/date in the record.
+  const fullUpdateTiming = {restoreMs:null,pricesMs:null,renderMs:null};
   _fullPortfolioUpdateInProgress = true;
   btn.disabled = true;
   if (priceBtn) priceBtn.disabled = true;
@@ -535,8 +538,9 @@ async function quickFetchByDate() {
           { forcePortfolioRestore: true }
         )
       : false;
+    fullUpdateTiming.restoreMs = Date.now() - restoreStartedAt;
     if (typeof _recordLookupPerf === 'function')
-      _recordLookupPerf('load.full-restore', Date.now() - restoreStartedAt,
+      _recordLookupPerf('load.full-restore', fullUpdateTiming.restoreMs,
         settingsLoaded ? 'ok' : 'error');
     if (!settingsLoaded) {
       const detail = typeof getGsheetSettingsLoadFailure === 'function'
@@ -589,8 +593,9 @@ async function quickFetchByDate() {
       usedDate = results?.__gsheetResolvedPriceDate || getDateStr(1);
     }
 
+    fullUpdateTiming.pricesMs = Date.now() - priceStartedAt;
     if (typeof _recordLookupPerf === 'function')
-      _recordLookupPerf('load.full-prices', Date.now() - priceStartedAt,
+      _recordLookupPerf('load.full-prices', fullUpdateTiming.pricesMs,
         results && Object.keys(results).length ? 'ok' : 'error');
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDate === getDateStr(0));
@@ -615,8 +620,9 @@ async function quickFetchByDate() {
       setStatusLabel(_priceStatusLayout(primary, meta, note), 'ok');
       const renderStartedAt = Date.now();
       refreshAll();
+      fullUpdateTiming.renderMs = Date.now() - renderStartedAt;
       if (typeof _recordLookupPerf === 'function')
-        _recordLookupPerf('load.full-render', Date.now() - renderStartedAt);
+        _recordLookupPerf('load.full-render', fullUpdateTiming.renderMs);
       fullUpdateSucceeded = true;
     } else {
       setStatusLabel('❌ 자료 복원 완료 · ' + targetDate + ' 가격 조회 결과 없음 · 보유종목 코드와 가격 원천을 확인해주세요' + restoreWarning, 'error');
@@ -632,8 +638,24 @@ async function quickFetchByDate() {
     if (priceBtn) priceBtn.disabled = false;
     btn.removeAttribute('aria-busy');
     btn.querySelector('span').textContent = '업데이트';
+    const totalMs = Date.now() - fullUpdateStartedAt;
+    // A failed restore/prices/render is recorded as failed, with absent
+    // substage durations left null (NEVER 0ms success). Financial events
+    // and unverified requests are not logged or retransmitted.
+    if (typeof window !== 'undefined' && Number.isFinite(totalMs)) {
+      const completed = Array.isArray(window.__PF_FULL_UPDATE_RUNS)
+        ? window.__PF_FULL_UPDATE_RUNS : (window.__PF_FULL_UPDATE_RUNS = []);
+      completed.push({
+        result: fullUpdateSucceeded ? 'ok' : 'error',
+        totalMs: Math.max(0, Math.round(totalMs)),
+        restoreMs: fullUpdateTiming.restoreMs === null ? null : Math.max(0, Math.round(fullUpdateTiming.restoreMs)),
+        pricesMs: fullUpdateTiming.pricesMs === null ? null : Math.max(0, Math.round(fullUpdateTiming.pricesMs)),
+        renderMs: fullUpdateTiming.renderMs === null ? null : Math.max(0, Math.round(fullUpdateTiming.renderMs))
+      });
+      if (completed.length > 12) completed.splice(0, completed.length - 12);
+    }
     if (typeof _recordLookupPerf === 'function')
-      _recordLookupPerf('load.full-update', Date.now() - fullUpdateStartedAt,
+      _recordLookupPerf('load.full-update', totalMs,
         fullUpdateSucceeded ? 'ok' : 'error');
   }
 }
