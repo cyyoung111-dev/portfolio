@@ -133,6 +133,8 @@
   // Immediate, in-memory diagnostic. No consent, GAS write or network call.
   // The opt-in standalone collector keeps its existing published allowlist.
   const LOCAL_STAGE_LABELS = Object.freeze({
+    'load.initial-restore': '최초 데이터 복원',
+    'load.initial-prices': '최초 자동 가격조회',
     'load.full-update': '전체 업데이트',
     'load.full-restore': '데이터 복원',
     'load.full-prices': '가격 재조회',
@@ -145,36 +147,95 @@
     'price.poll-network': '현재가 네트워크',
     'price.poll-render': '현재가 화면 반영'
   });
+  // Current-tab-only aggregates: successful samples form the quantiles;
+  // errors remain visible as counts, never transformed to short timings.
+  // The standalone collector has a narrower schema and is not changed.
+  function pftelemetry_localStats(raw) {
+    const grouped = new Map();
+    (Array.isArray(raw) ? raw.slice(-60) : []).forEach(entry => {
+      if (!entry || !Object.prototype.hasOwnProperty.call(LOCAL_STAGE_LABELS, entry.stage)
+          || !Number.isFinite(entry.ms) || entry.ms < 0 || entry.ms > 120000
+          || !['ok', 'error'].includes(entry.result)) return;
+      let item = grouped.get(entry.stage);
+      if (!item) {
+        item = { latest: null, successes: [], failures: 0 };
+        grouped.set(entry.stage, item);
+      }
+      item.latest = entry;
+      if (entry.result === 'ok') item.successes.push(Math.round(entry.ms));
+      else item.failures++;
+    });
+    return Object.entries(LOCAL_STAGE_LABELS).filter(([stage]) => grouped.has(stage))
+      .map(([stage, label]) => {
+        const item = grouped.get(stage);
+        const sorted = item.successes.slice().sort((a,b) => a-b);
+        // Require at least three successful runs. Match server nearest-rank
+        // p95 and lower-middle median, not a made-up extrapolated percentile.
+        const ready = sorted.length >= 3;
+        return {
+          stage, label, latestMs: Math.round(item.latest.ms),
+          latestResult: item.latest.result, successes: sorted.length,
+          failures: item.failures,
+          medianMs: ready ? sorted[Math.floor((sorted.length-1)/2)] : null,
+          p95Ms: ready ? sorted[Math.ceil(sorted.length*0.95)-1] : null
+        };
+      });
+  }
+  function pftelemetry_localDiagnosis(stats) {
+    const full = stats.find(x => x.stage === 'load.full-update');
+    const parts = ['load.full-restore','load.full-prices','load.full-render']
+      .map(stage => stats.find(x => x.stage === stage));
+    if (!full || full.successes < 3 || parts.some(x => !x || x.successes < 3))
+      return '전체 업데이트와 복원·가격·화면 구간을 각각 정상 3회 이상 측정하면 병목 후보가 표시됩니다.';
+    const slowest = parts.reduce((a,b) => a.medianMs >= b.medianMs ? a : b);
+    return '병목 후보: ' + slowest.label + ' (정상 호출별 중앙값 기준 · 서로 다른 실행의 표본일 수 있습니다).';
+  }
+  function pftelemetry_localReport(stats) {
+    if (!stats.length) return '';
+    const device = pftelemetry_device();
+    const rows = [
+      '포트폴리오 조회시간 ('+(device === 'mobile' ? '모바일'
+        : device === 'desktop' ? 'PC' : '기기 미확인')+')',
+      '이 탭의 최근 최대 60개 측정값 · 정상 3회 이상인 구간만 중앙값/p95 산출',
+      '단위: 밀리초(ms) · 성공 표본과 실패 건수는 분리'
+    ];
+    stats.forEach(x => rows.push(x.label+': 최근 '+x.latestMs+'ms ('+
+      (x.latestResult === 'ok' ? '성공' : '실패')+'), 정상 '+x.successes+
+      '건, 실패 '+x.failures+'건, 중앙값 '+
+      (x.medianMs === null ? '미측정' : x.medianMs+'ms')+', p95 '+
+      (x.p95Ms === null ? '미측정' : x.p95Ms+'ms')));
+    rows.push(pftelemetry_localDiagnosis(stats));
+    return rows.join('\n');
+  }
   function pftelemetry_renderLocal() {
     const wrap = document.getElementById('perfLocalSummaryBody');
     if (!wrap) return;
-    const raw = Array.isArray(window.__PF_LOOKUP_TIMES) ? window.__PF_LOOKUP_TIMES.slice(-60) : [];
-    const latest = new Map();
-    raw.forEach(entry => {
-      if (!entry || !Object.prototype.hasOwnProperty.call(LOCAL_STAGE_LABELS, entry.stage)
-          || !Number.isFinite(entry.ms) || entry.ms < 0 || entry.ms > 120000) return;
-      latest.set(entry.stage, entry);
-    });
-    if (!latest.size) {
+    const stats = pftelemetry_localStats(window.__PF_LOOKUP_TIMES);
+    if (!stats.length) {
       wrap.textContent = '이 탭의 측정값이 없습니다. 업데이트 또는 현재가 갱신 후 다시 눌러주세요.';
       return;
     }
+    const note = document.createElement('p');
+    note.textContent = pftelemetry_localDiagnosis(stats);
+    note.style.margin = '6px 0';
     const table = document.createElement('table');
     table.style.width = '100%';
     table.style.fontVariantNumeric = 'tabular-nums';
     const header = document.createElement('tr');
-    for (const name of ['구간', '최근 소요', '결과']) {
+    for (const name of ['구간', '최근', '중앙값', 'p95', '정상 / 실패']) {
       const cell = document.createElement('th');
       cell.textContent = name;
       header.appendChild(cell);
     }
     table.appendChild(header);
-    Object.entries(LOCAL_STAGE_LABELS).forEach(([stage, label]) => {
-      const point = latest.get(stage);
-      if (!point) return;
+    const displayMs = n => n === null ? '3회 미만' : n.toLocaleString('ko-KR') + 'ms';
+    stats.forEach(x => {
       const row = document.createElement('tr');
-      for (const value of [label, point.ms.toLocaleString('ko-KR') + 'ms',
-          point.result === 'error' ? '실패' : '성공']) {
+      for (const value of [x.label,
+          x.latestMs.toLocaleString('ko-KR') + 'ms · '+
+            (x.latestResult === 'error' ? '실패' : '성공'),
+          displayMs(x.medianMs), displayMs(x.p95Ms),
+          x.successes + ' / ' + x.failures]) {
         const cell = document.createElement('td');
         cell.textContent = value;
         cell.style.padding = '5px 7px';
@@ -182,7 +243,7 @@
       }
       table.appendChild(row);
     });
-    wrap.replaceChildren(table);
+    wrap.replaceChildren(note, table);
   }
   function pftelemetry_renderSettingsHtml() {
     return '<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:12px">'
@@ -190,13 +251,14 @@
       + '<p style="font-size:.66rem;color:var(--muted);margin:7px 0">새 계정 없이 기존 Google 계정의 독립 성능 수집기를 사용합니다. 기기 구분·조회 단계·소요시간·성공 여부만 7일간 전용 스크립트 저장소에 보관합니다. 금융 원본과 무관하며 기기별 동의가 필요합니다.</p>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
       + '<button id="perfLocalSummary" type="button" class="btn-ghost-sm">이 기기 최근 조회시간</button>'
+      + '<button id="perfLocalCopy" type="button" class="btn-ghost-sm">측정 요약 복사</button>'
       + '<button id="perfGasEnable" type="button" class="btn-purple-sm">수집 시작·연결 확인</button>'
       + '<button id="perfGasSummary" type="button" class="btn-purple-sm">PC·모바일 비교</button>'
       + '<button id="perfGasStop" type="button" class="btn-ghost-sm">수집 중지</button></div>'
       + '<p id="perfGasStatus" role="status" style="font-size:.65rem;color:var(--muted);margin:7px 0">'
       + (pftelemetry_enabled() ? '수집 사용 중 (기기별 동의 저장)' : '수집 비활성화 · 수집 시작을 눌러 기기별 연결 확인')
       + '</p><div id="perfLocalSummaryBody" style="overflow-x:auto;font-size:.69rem;margin:8px 0"></div>'
-      + '<p style="font-size:.61rem;color:var(--muted);margin:5px 0">이 기기 최근 조회시간은 현재 탭의 메모리에만 표시하며 전송·저장하지 않습니다. 새로고침 후 기록은 초기화됩니다.</p>'
+      + '<p style="font-size:.61rem;color:var(--muted);margin:5px 0">현재 탭의 최근 최대 60개 측정값입니다. 정상 3회 이상일 때 중앙값·p95를 표시하고 실패 건수는 별도로 보입니다. 요약 복사는 조회시간만 복사하며 금융 자료를 포함하지 않습니다. 새로고침 후 기록은 초기화됩니다.</p>'
       + '<div id="perfGasSummaryBody" style="overflow-x:auto;font-size:.66rem"></div></div>';
   }
   function pftelemetry_status(message) {
@@ -242,6 +304,15 @@
   document.addEventListener('click', async e => {
     const id=e.target.closest?.('button')?.id;
     if (id === 'perfLocalSummary') { pftelemetry_renderLocal(); }
+    else if (id === 'perfLocalCopy') {
+      const summary = pftelemetry_localReport(pftelemetry_localStats(window.__PF_LOOKUP_TIMES));
+      if (!summary) { pftelemetry_status('복사할 성능 측정값이 없습니다.'); return; }
+      try {
+        if (!navigator.clipboard?.writeText) throw Error('CLIPBOARD_UNAVAILABLE');
+        await navigator.clipboard.writeText(summary);
+        pftelemetry_status('기기별 조회시간 요약 복사 완료 · 종목·계좌·가격 정보 없음');
+      } catch (_) { pftelemetry_status('클립보드 접근 불가 · 이 기기 최근 조회시간을 확인해주세요.'); }
+    }
     else if (id === 'perfGasStop') { pftelemetry_stop(); pftelemetry_status('수집 중지 · 대기 중인 로그 삭제'); }
     else if (id === 'perfGasEnable') {
       pftelemetry_guardConnection();
