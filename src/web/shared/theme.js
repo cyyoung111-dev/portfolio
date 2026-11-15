@@ -270,7 +270,7 @@ const FONT_PRESETS = {
 };
 let _currentFont = 'pretendard';
 let _currentDensity = 'default';
-let _currentFontSize = 12;
+let _currentFontSize = 11;
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
@@ -399,7 +399,7 @@ function applyFontSize(size, opts = {}) {
 }
 
 function loadFontSize() {
-  const saved = typeof lsGet === 'function' ? lsGet(FONT_SIZE_STORAGE_KEY, 12) : 12;
+  const saved = typeof lsGet === 'function' ? lsGet(FONT_SIZE_STORAGE_KEY, 11) : 11;
   applyFontSize(saved, { skipSave: true });
 }
 
@@ -431,7 +431,7 @@ function _buildFontSelectorHTML() {
     <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">모든 기기와 화면에 Pretendard Variable을 동일하게 적용합니다.</div>
     <div style="display:flex;flex-direction:column;gap:6px">${buttons}</div>
     <div style="font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔎 UI 크기</div>
-    <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">글자·버튼·입력창·카드와 표 간격을 함께 조절합니다. 모바일 터치 영역은 단계별 최소 높이를 유지합니다.</div>
+    <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">기본 11px · 작고 정돈된 UI를 권장합니다. 기존에 선택한 크기는 그대로 유지하며 모바일 터치 영역은 확보합니다.</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">${sizeButtons}</div>
   </div>`;
 }
