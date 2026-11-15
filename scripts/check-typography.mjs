@@ -110,7 +110,7 @@ assert.match(settingsFetch, /_pricePortfolioSummary\(\) \+ restoreWarning/, '수
 assert.match(settingsFetch, /_priceStatusLayout\(primary, portfolioMsg \+ diagMsg, note, lookupMsg\)/, '자동 업데이트 공통 요약과 독립 조회카드 연결 누락');
 assert.match(settingsFetch, /_priceStatusLayout\(primary, meta, note, lookupMsg\)/, '수동 업데이트 독립 조회카드 연결 누락');
 assert.match(componentsCss, /\.price-lookup-summary\{[\s\S]*?width:100%;[\s\S]*?max-width:100%/,'상세 정보 카드가 작은 화면 밖으로 넘치지 않아야 합니다.');
-assert.match(componentsCss, /\.price-lookup-source-chips,[\s\S]*?flex-wrap:wrap/,'NH/KRX 제공자 칩이 자동 줄바꿈되어야 합니다.');
+assert.match(componentsCss, /\.price-lookup-source-chips\{[\s\S]*?flex-wrap:wrap/,'조회 칩이 한 묶음으로 자동 줄바꿈되어야 합니다.');
 assert.doesNotMatch(settingsFetch, /gsheetMissingHint/, '자동 업데이트 전용 미조회 표시가 남아 있습니다.');
 assert.doesNotMatch(settingsFetch, /restoreSummary/, '제거된 수동 업데이트 상태 변수가 남아 있습니다.');
 assert.match(settingsFetch, /function _isCurrentPriceTarget\(item\)/, '현재가 보유수량 대상 판정 누락');
@@ -188,3 +188,18 @@ assert.match(unifiedCss, /html\[data-theme-mode="light"\] input\[type="date"\]::
   'light theme calendar icon must not be inverted');
 assert.match(unifiedCss, /\.action-bar #price-updated-label\s*\{\s*font-size:var\(--type-caption\);/,
   'mobile status label must honor user-defined font size');
+
+assert.match(componentsCss, /\.price-lookup-summary-title\{[^}]*font-size:var\(--type-caption\)/,
+ '조회 상세 제목은 업데이트 상태 글자 크기를 따라야 합니다.');
+assert.match(componentsCss, /\.price-lookup-summary \.price-status-chip\{[^}]*min-height:26px;[^}]*font-size:var\(--type-caption\)/,
+ '조회 정보의 컴팩트한 칩 높이와 글자 크기를 보장합니다.');
+assert.match(componentsCss, /\.price-status-meta \.price-status-chip\{[^}]*min-height:24px/,
+ '거래·보유 상태 칩이 과도하게 커지지 않아야 합니다.');
+const compactPhoneCss=unifiedCss.slice(unifiedCss.indexOf('@media(max-width:480px)'));
+assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn\s*\{[\s\S]*?height:40px;[\s\S]*?min-height:40px;/,
+ '모바일 업데이트·현재가 버튼 높이를 40px로 통일해야 합니다.');
+assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn svg\s*\{[^}]*width:15px;/,
+ '큰 버튼용 아이콘 대신 작은 모바일 아이콘을 사용해야 합니다.');
+assert.match(compactPhoneCss, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+ '모바일 업데이트·현재가는 동일한 두 열을 유지합니다.');
+assert.doesNotMatch(compactPhoneCss,/height:46px;/,'기존 큰 버튼 높이로 회귀하면 안 됩니다.');

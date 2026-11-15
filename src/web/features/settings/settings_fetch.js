@@ -378,12 +378,10 @@ function _priceLookupSummary() {
       <strong class="price-lookup-summary-title">조회 상세</strong>
       <span class="price-lookup-latency${latencyTone}">왕복 <strong>${roundTrip}</strong></span>
     </div>
-    <div class="price-lookup-source-chips" aria-label="가격 조회 원천">
+    <div class="price-lookup-source-chips" aria-label="가격 조회 원천 및 처리시간">
       <button type="button" class="price-status-chip is-action" data-price-detail="providers">NH ${toss}건${tossSuffix}</button>
       <span class="price-status-chip">KRX ${krx}건</span>
       <span class="price-status-chip price-lookup-subtle">GOOGLEFINANCE 미사용</span>
-    </div>
-    <div class="price-lookup-extra-chips" aria-label="추가 조회 정보">
       <button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>
       <button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>
       ${meta.cacheHit ? '<span class="price-status-chip">60초 캐시</span>' : ''}

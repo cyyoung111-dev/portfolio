@@ -985,72 +985,71 @@ html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{paddin
 .fund-nav-manual{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0;padding:10px;border:1px solid var(--border);border-radius:8px}.fund-nav-manual .fund-action{grid-column:1/-1}.fund-nav-warning-ack{display:flex!important;align-items:center;gap:7px;margin:10px 0;color:var(--amber);font-weight:700}
 @media(max-width:600px){.fund-units-history>div{grid-template-columns:72px 82px minmax(100px,1fr)}.fund-units-history>div em{grid-column:3;justify-self:start}.fund-nav-import-counts,.fund-nav-manual{grid-template-columns:1fr}}
 
-/* Price lookup detail is a legible standalone card below update status.
-   Unlike the former inline <details>, provider chips can wrap on phones. */
+/* Price lookup detail: compact, readable, wrapping on PC and mobile.
+   Caption-size labels match the adjacent update-complete text. */
 .price-lookup-summary{
   box-sizing:border-box;
-  display:grid;
-  gap:9px;
+  display:flex;
+  flex-direction:column;
+  gap:5px;
   width:100%;
   max-width:100%;
   min-width:0;
-  margin-top:7px;
-  padding:11px 13px;
+  margin-top:3px;
+  padding:7px 9px;
   border:1px solid var(--c-blue2-30);
-  border-radius:12px;
-  background:rgba(23,36,61,.72);
+  border-radius:9px;
+  background:rgba(23,36,61,.55);
   color:var(--text);
 }
 .price-lookup-summary-head{
   display:flex;
-  align-items:baseline;
+  align-items:center;
   justify-content:space-between;
   flex-wrap:wrap;
-  gap:5px 14px;
+  gap:4px 10px;
   min-width:0;
 }
 .price-lookup-summary-title{
   color:var(--text);
-  font-size:.90rem;
-  font-weight:750;
-  line-height:1.4;
+  font-size:var(--type-caption);
+  font-weight:700;
+  line-height:1.35;
 }
 .price-lookup-latency{
   color:var(--muted);
-  font-size:.82rem;
+  font-size:var(--type-caption);
   font-weight:600;
   font-variant-numeric:tabular-nums;
   white-space:nowrap;
 }
-.price-lookup-latency strong{color:var(--text);font-weight:750}
+.price-lookup-latency strong{color:var(--text);font-weight:700}
 .price-lookup-latency.is-elevated strong{color:var(--gold)}
 .price-lookup-latency.is-slow strong{color:var(--amber)}
-.price-lookup-source-chips,
-.price-lookup-extra-chips{
+.price-lookup-source-chips{
   display:flex;
   flex-wrap:wrap;
   align-items:center;
-  gap:6px;
+  gap:4px;
   min-width:0;
 }
-.price-lookup-extra-chips{
-  border-top:1px solid var(--border);
-  padding-top:8px;
-}
-.price-lookup-summary .price-status-chip,
-.price-status-meta .price-status-chip{
+.price-lookup-summary .price-status-chip{
   box-sizing:border-box;
-  min-height:30px;
+  min-height:26px;
   max-width:100%;
-  padding:5px 10px;
-  font-size:.78rem;
+  padding:3px 7px;
+  font-size:var(--type-caption);
   line-height:1.3;
   color:var(--text);
-}
-.price-lookup-summary .price-status-chip{
   white-space:normal;
   overflow-wrap:anywhere;
   text-align:center;
+}
+.price-status-meta .price-status-chip{
+  min-height:24px;
+  padding:2px 7px;
+  font-size:var(--type-caption);
+  line-height:1.25;
 }
 .price-lookup-summary .price-status-chip.price-lookup-subtle{
   color:var(--muted);
@@ -1061,12 +1060,10 @@ html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{paddin
   outline-offset:2px;
 }
 @media(max-width:480px){
-  .price-lookup-summary{padding:10px;gap:8px;margin-top:6px}
-  .price-lookup-summary-head{gap:4px 10px}
-  .price-lookup-summary-title{font-size:.90rem}
-  .price-lookup-source-chips .price-status-chip,
-  .price-lookup-extra-chips .price-status-chip{
-    min-height:33px;
+  .price-lookup-summary{padding:6px 8px;gap:4px;margin-top:2px}
+  .price-lookup-summary-head{gap:3px 8px}
+  .price-lookup-source-chips .price-status-chip{
+    min-height:26px;
     flex:0 1 auto;
   }
 }

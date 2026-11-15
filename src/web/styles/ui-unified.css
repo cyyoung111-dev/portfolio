@@ -314,17 +314,26 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 @media(max-width:480px) {
   .action-bar .action-update-card {
     grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:6px;
+    gap:4px;
+    padding:6px;
   }
-  .action-bar .action-update-card>.action-date-input {grid-column:1/-1;width:100%}
+  .action-bar .action-update-card>.action-date-input {grid-column:1/-1;
+    width:100%;
+    min-height:42px;
+    padding:5px 9px;
+  }
   .action-bar .action-update-card>.action-refresh-btn {
     width:100%;
     min-width:0;
-    height:46px;
-    min-height:46px;
+    height:40px;
+    min-height:40px;
     flex-direction:row;
-    gap:7px;
-    padding:7px 8px;
+    gap:5px;
+    padding:4px 7px;
+  }
+  .action-bar .action-update-card>.action-refresh-btn svg {
+    width:15px;
+    height:15px;
   }
   .action-bar .action-update-card>.action-refresh-btn span {
     display:block;white-space:nowrap;overflow:visible;
