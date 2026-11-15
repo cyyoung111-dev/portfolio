@@ -10,16 +10,19 @@ export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim())throw Error('NH_MASTER_PROBE_AUTH_MISSING');
  const call=async(action,args={})=>{
+  // Same 90s upper bound, but distinguish a slow master read from the quote
+  // read in failure logs; never disclose the requested symbols or payload.
+  const phase=action==='getPrices'?'PRICE':'MASTER';
   let response;
   try{
    response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
     headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
     body:new URLSearchParams({action,accessToken:token,...args}),
     signal:AbortSignal.timeout(90000)});
-  }catch{throw Error('NH_MASTER_PROBE_NETWORK_UNVERIFIED');}
-  if(!response?.ok)throw Error('NH_MASTER_PROBE_HTTP_UNVERIFIED');
+  }catch{throw Error('NH_MASTER_PROBE_'+phase+'_NETWORK_OR_TIMEOUT');}
+  if(!response?.ok)throw Error('NH_MASTER_PROBE_'+phase+'_HTTP_UNVERIFIED');
   try{return await response.json();}
-  catch{throw Error('NH_MASTER_PROBE_JSON_UNVERIFIED');}
+  catch{throw Error('NH_MASTER_PROBE_'+phase+'_JSON_UNVERIFIED');}
  };
  const master=await call('getCodeListReadOnly');
  // Admit only explicitly audited read-only quote contract releases.
