@@ -71,3 +71,11 @@
 - 이 변경이 반영된 운영 조회를 1회 확인한 다음, 새 성능 병목 판단 시에는 `getPrices`의 정상 성공 호출과 기준일을 최소 3회 비교해야 함. 단일 샘플의 응답시간이나 이전 미측정 상태에서 절감률을 만들지 않음.
 
 - 9.295 게시 이후의 단일 CLOSE 상태진단 `issue860-close-single-status-readonly.mjs`는 이전에 v9.294까지만 허용해 정상 v9.295를 `ISSUE860_STATUS_VERSION_OR_SCHEMA`로 오판할 수 있었음. 이 읽기 전용 검사에만 v9.295를 명시적으로 추가하고 9.296 및 불일치된 안팎 버전은 계속 거부. 가격/펀드/원장 Writer, GAS 배포, 브리핑에는 영향 없음.
+
+## 2026-11-15 — 운영 9.295 후속 진단 동시 요청 및 실패 단계 구분
+
+- [NH 등록종목 실운영 감사 #43679061051](https://github.com/cyyoung111-dev/portfolio/actions/runs/43679061051)는 `NH_MASTER_PROBE_NETWORK_UNVERIFIED`로 실패했으며 총 실행 약 90초였습니다. 이 오류는 `getCodeListReadOnly`와 `getPrices(persist:0)`의 **공통** 오류 코드라서 특정 단계에서 지연됐다고 단정할 수 없습니다. 실제 배포 #43677984917의 NH 가격 2/2 성공과는 별개입니다.
+- [단일 CLOSE 감사 #43679061080](https://github.com/cyyoung111-dev/portfolio/actions/runs/43679061080)는 운영 `9.295`, 상태 `NORMAL`, `COMPLETE`, 저장 가격 39행, 기준일 11/13, Snapshot 지연 없음, Writer/복구 대기 0건을 확인했습니다. 뒤의 **32일 펀드 NAV 자료 조회**에서 `FUND_AUDIT_JSON_UNVERIFIED`가 발생해 전체 펀드 검증은 미완료입니다.
+- 두 GitHub 작업은 동시에 시작해 같은 GAS 백엔드에 긴 인증 POST 요청을 보냈습니다. 동시 요청 경합이 원인인지 **아직 실증되지 않았으므로**, 먼저 두 *읽기 전용* 워크플로에 동일한 repository-wide concurrency group을 지정해 실행을 직렬화합니다. 기존 금융 Writer·일정·마감 프로세스에는 추가 대기나 수정을 넣지 않습니다.
+- NH 코드마스터와 가격조회 각각의 `NETWORK_OR_TIMEOUT`/`HTTP_UNVERIFIED`/`JSON_UNVERIFIED`를 구분해 **다음 실패 시 실제 단계가 명확**하도록 했습니다. 민감한 종목/가격/토큰 값은 표시하지 않습니다. 작업 재시도, timeout 확장, 무조건 성공 처리, 추가 금융 데이터 쓰기는 도입하지 않습니다.
+- 자동 일회성 감사는 워크플로 파일 변경 후 1회 시작하며, 그 결과를 보고 **NH 등록종목 2개만 검증**할 수 있습니다. NAV의 공식 공시·전종목 커버리지·Snapshot 금액 동등성 및 정상 전체 업데이트의 중앙값·p95는 별도 증빙이 필요합니다.
