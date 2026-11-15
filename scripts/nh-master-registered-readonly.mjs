@@ -65,6 +65,7 @@ export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  try{const result=await runRegisteredNhReadOnly({
   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+  expectedGasVersion:process.env.NH_EXPECTED_GAS_VERSION||null,
   report:row=>console.log(JSON.stringify(row))});
   console.log(JSON.stringify(result));
  }catch(e){
