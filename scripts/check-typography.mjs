@@ -110,7 +110,8 @@ assert.match(settingsFetch, /_pricePortfolioSummary\(\) \+ restoreWarning/, '수
 assert.match(settingsFetch, /_priceStatusLayout\(primary, portfolioMsg \+ diagMsg, note, lookupMsg\)/, '자동 업데이트 공통 요약과 독립 조회카드 연결 누락');
 assert.match(settingsFetch, /_priceStatusLayout\(primary, meta, note, lookupMsg\)/, '수동 업데이트 독립 조회카드 연결 누락');
 assert.match(componentsCss, /\.price-lookup-summary\{[\s\S]*?width:100%;[\s\S]*?max-width:100%/,'상세 정보 카드가 작은 화면 밖으로 넘치지 않아야 합니다.');
-assert.match(componentsCss, /\.price-lookup-source-chips\{[\s\S]*?flex-wrap:wrap/,'조회 칩이 한 묶음으로 자동 줄바꿈되어야 합니다.');
+assert.match(componentsCss, /\.price-lookup-source-chips\{[\s\S]*?display:grid;[\s\S]*?grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+ '조회 상세 2열 정보는 모바일에서 잘리지 않아야 합니다.');
 assert.doesNotMatch(settingsFetch, /gsheetMissingHint/, '자동 업데이트 전용 미조회 표시가 남아 있습니다.');
 assert.doesNotMatch(settingsFetch, /restoreSummary/, '제거된 수동 업데이트 상태 변수가 남아 있습니다.');
 assert.match(settingsFetch, /function _isCurrentPriceTarget\(item\)/, '현재가 보유수량 대상 판정 누락');
@@ -195,6 +196,12 @@ assert.match(componentsCss, /\.price-lookup-summary \.price-status-chip\{[^}]*mi
  '조회 정보의 컴팩트한 칩 높이와 글자 크기를 보장합니다.');
 assert.match(componentsCss, /\.price-status-meta \.price-status-chip\{[^}]*min-height:24px/,
  '거래·보유 상태 칩이 과도하게 커지지 않아야 합니다.');
+assert.match(unifiedCss, /\.action-bar \.action-update-card > #price-updated-label\.has-price-details\s*\{[^}]*width:100%;[^}]*max-width:none;/,
+ '조회 완료 상태 영역은 모바일 폭 전체를 채워야 합니다.');
+assert.match(unifiedCss, /\.action-bar \.price-status-content\s*\{[^}]*display:grid;/,
+ '상태 제목과 조회 상세는 한 줄 격자로 표시합니다.');
+assert.match(unifiedCss, /\.action-bar \.price-status-content > \.price-lookup-summary\[open\]\s*\{[^}]*grid-column:1\/-1;/,
+ '펼친 조회 상세는 화면 가로 전체를 사용합니다.');
 const compactPhoneCss=unifiedCss.slice(unifiedCss.indexOf('@media(max-width:480px)'));
 assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn\s*\{[\s\S]*?height:36px;[\s\S]*?min-height:36px;/,
  '모바일 업데이트·현재가 버튼 높이를 36px로 통일해야 합니다.');
