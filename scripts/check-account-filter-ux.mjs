@@ -44,6 +44,11 @@ ctx.area=area;
 run('renderAcctView(area)');
 const html=area.innerHTML;
 assert.match(html,/class="acct-filter-track"/);
+assert.match(html,/<section class="acct-filter-group" aria-label="계좌 필터">/);
+assert.match(html,/<section class="acct-type-filter-group" aria-label="자산 종류 필터">/);
+assert.match(html,/class="acct-type-filter-options flex-wrap-gap4"/);
+assert.ok(html.indexOf('acct-filter-track') < html.indexOf('acct-type-filter-group'),
+  '계좌 필터는 종류 필터 위에 있어야 합니다.');
 assert.match(html,/--acct-filter-count:11/);
 assert.doesNotMatch(html,/class="flex-wrap-gap4">.*data-portfolio-action="acct-filter"/);
 assert.equal((html.match(/data-portfolio-action="acct-filter"/g)||[]).length,11);
@@ -56,6 +61,15 @@ for(const [name,rows] of [['미래에셋',2],['미래에셋 (IRP)',3],['미래�
 }
 assert.match(css,/grid-template-columns:repeat\(var\(--acct-filter-count\),minmax\(30px,1fr\)\)/);
 assert.match(css,/overflow-x:auto/);
+assert.match(css,/#viewSwitcher\{margin-bottom:16px\}/);
+for (const rule of [
+  /\.acct-filter-controls\{[^}]*margin-bottom:16px/,
+  /\.acct-filter-group,[\s\S]*?\.acct-type-filter-group\{[^}]*gap:8px/,
+  /\.acct-type-filter-group\{[^}]*margin-top:14px/,
+  /\.acct-filter-track \.acct-filter-btn,[\s\S]*?font-weight:500/,
+  /\.acct-filter-track \.acct-filter-btn:is\(\.active,\[aria-pressed="true"\]\),[\s\S]*?font-weight:600/,
+  /\.acct-type-filter-options \.f-btn\{[^}]*font-weight:500/,
+]) assert.match(css,rule,'account spacing/weight contract failed: '+rule);
 for(const cmd of ['acct-order-toggle','acct-order-up','acct-order-down','acct-order-reset'])
   assert.ok(handlers.includes("action === '"+cmd+"'"),'missing event '+cmd);
 

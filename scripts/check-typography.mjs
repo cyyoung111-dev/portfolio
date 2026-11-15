@@ -239,6 +239,14 @@ assert.match(unifiedCss, /\.acct-filter-track \.acct-filter-btn\.is-multiline\s*
   '미래에셋 계좌를 2/3행으로 표시해야 합니다.');
 assert.match(unifiedCss, /\.acct-order-list\s*\{[^}]*display:grid;/,
   '계좌 순서 편집 UI를 유지합니다.');
+assert.match(unifiedCss, /\.acct-filter-controls\s*\{[^}]*margin-bottom:16px;/,
+  '필터와 종목표 사이 간격을 16px로 유지합니다.');
+assert.match(unifiedCss, /\.acct-type-filter-group\s*\{[^}]*margin-top:14px;/,
+  '계좌 및 종류 필터 그룹 간격은 14px입니다.');
+assert.match(unifiedCss, /\.acct-filter-track \.acct-filter-btn,[\s\S]*?font-weight:500;/,
+  '일반 계좌 글자 굵기는 500입니다.');
+assert.match(unifiedCss, /\.acct-filter-track \.acct-filter-btn:is\(\.active,\[aria-pressed="true"\]\),[\s\S]*?font-weight:600;/,
+  '선택한 계좌 글자 굵기는 600입니다.');
 const acctView = fs.readFileSync('src/web/views/views_portfolio.js','utf8');
 assert.match(acctView, /data-value="\$\{_escapeHtml\(a\)\}"/,
   '계좌 원본 식별자를 변경하면 안 됩니다.');
