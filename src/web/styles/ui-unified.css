@@ -602,8 +602,8 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 
 /* === Compact typography hierarchy: one readable scale across all views ===
    --type-* comes from the user's UI size setting (8–12). Avoid body zoom
-   and blanket precedence overrides that would hide charts or numeric detail
-   explicit accessibility preferences. All controls keep their hit areas. */
+   and blanket precedence overrides that could hide charts, numeric detail,
+   or explicit accessibility preferences. All controls keep their hit areas. */
 .wrap, .wrap :is(button,input,select,textarea,table,summary) {
   font-family:var(--font-ui);
 }
