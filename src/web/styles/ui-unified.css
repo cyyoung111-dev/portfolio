@@ -466,3 +466,136 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   }
   .action-bar .price-status-content>.price-lookup-summary[open]{justify-self:stretch}
 }
+
+/* Account filters: keep all accounts on one horizontal row whenever 30px
+   minimum columns fit. Extra accounts/very narrow screens scroll, never wrap. */
+#view-area[data-active-view] .acct-filter-controls{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width:0;
+  width:100%;
+}
+#view-area[data-active-view] .acct-filter-heading{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:20px;
+}
+#view-area[data-active-view] .acct-order-trigger,
+#view-area[data-active-view] .acct-order-reset{
+  border:0;
+  background:transparent;
+  color:var(--blue-lt);
+  font-size:var(--type-caption);
+  padding:3px 5px;
+  cursor:pointer;
+}
+#view-area[data-active-view] .acct-filter-track{
+  display:grid;
+  grid-template-columns:repeat(var(--acct-filter-count),minmax(30px,1fr));
+  gap:3px;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+  scroll-padding:4px;
+}
+#view-area[data-active-view] .acct-filter-track .acct-filter-btn,
+#view-area[data-active-view] .acct-filter-track .acct-filter-btn.is-multiline{
+  display:flex;
+  box-sizing:border-box;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  gap:0;
+  width:100%;
+  min-width:0;
+  height:54px;
+  min-height:54px;
+  padding:2px 1px;
+  border-radius:7px;
+  text-align:center;
+  white-space:normal;
+  line-height:1.15;
+  font-size:clamp(9px,2.5vw,11px);
+  letter-spacing:-.02em;
+}
+#view-area[data-active-view] .acct-filter-track .acct-filter-name,
+#view-area[data-active-view] .acct-filter-track .acct-filter-type{
+  display:block;
+  max-width:100%;
+  white-space:nowrap;
+  font-size:inherit;
+  line-height:1.15;
+  overflow:hidden;
+  text-overflow:clip;
+}
+#view-area[data-active-view] .acct-filter-track .acct-filter-type{
+  font-size:inherit;
+  opacity:.9;
+}
+#view-area[data-active-view] .acct-order-editor{
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-control);
+  padding:8px;
+  background:var(--s1);
+  min-width:0;
+}
+#view-area[data-active-view] .acct-order-editor-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  color:var(--muted);
+  font-size:var(--type-caption);
+  font-weight:600;
+  padding:1px 3px 5px;
+}
+#view-area[data-active-view] .acct-order-list{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(155px,1fr));
+  gap:4px;
+}
+#view-area[data-active-view] .acct-order-item{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  min-width:0;
+  padding:3px 6px;
+  border:1px solid var(--ui-edge);
+  border-radius:6px;
+  background:var(--s2);
+}
+#view-area[data-active-view] .acct-order-name{
+  flex:1;
+  min-width:0;
+  font-size:var(--type-caption);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+#view-area[data-active-view] .acct-order-item button{
+  flex:0 0 30px;
+  width:30px;
+  height:30px;
+  border:1px solid var(--ui-edge);
+  border-radius:6px;
+  background:var(--s1);
+  color:var(--text);
+  cursor:pointer;
+}
+#view-area[data-active-view] .acct-order-item button:disabled{opacity:.3;cursor:default}
+#view-area[data-active-view] .acct-order-help{
+  margin-top:6px;
+  font-size:var(--type-caption);
+  color:var(--muted);
+}
+#view-area[data-active-view] .acct-order-trigger:focus-visible,
+#view-area[data-active-view] .acct-order-item button:focus-visible{
+  outline:2px solid var(--blue-lt);
+  outline-offset:2px;
+}
