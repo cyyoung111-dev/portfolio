@@ -13,11 +13,16 @@ assert.match(source,/id="perfLocalCopy"/);
 assert.match(source,/if \(id === 'perfLocalSummary'\) \{ pftelemetry_renderLocal\(\)/);
 assert.match(source,/navigator\.clipboard\.writeText\(summary\)/);
 assert.match(net,/samples\.length > 60/,'in-memory sample buffer remains bounded');
+assert.match(fetch,/window\.__PF_FULL_UPDATE_RUNS/);
+assert.match(fetch,/completed\.length > 12/,'per-click records bounded');
+assert.match(fetch,/result: fullUpdateSucceeded \? 'ok' : 'error'/);
+for(const key of ['restoreMs','pricesMs','renderMs'])
+ assert.match(fetch,new RegExp('fullUpdateTiming\\.'+key),'stage not correlated: '+key);
 for(const stage of ['load.full-update','load.full-restore','load.full-prices','load.full-render'])
  assert.match(fetch,new RegExp(stage.replaceAll('.','\\.'),'g'),'full-update stage missing: '+stage);
-assert.match(html,/settings_perf_monitor\.js\?v=20261115-4/);
-assert.match(sw,/settings_perf_monitor\.js\?v=20261115-4/);
-assert.match(sw,/portfolio-cache-20261115-9/);
+assert.match(html,/settings_perf_monitor\.js\?v=20261115-5/);
+assert.match(sw,/settings_perf_monitor\.js\?v=20261115-5/);
+assert.match(sw,/portfolio-cache-20261115-10/);
 const start=source.indexOf('  const LOCAL_STAGE_LABELS');
 const end=source.indexOf('  function pftelemetry_renderSettingsHtml()',start);
 assert.ok(start>0&&end>start);
@@ -67,21 +72,54 @@ assert.equal(stats.find(x=>x.stage==='load.full-restore').medianMs,3200);
 assert.equal(stats.find(x=>x.stage==='load.full-render').medianMs,140);
 assert(!JSON.stringify(stats).includes(privateId));
 assert.equal(stats.find(x=>x.stage==='not-allowed'),undefined);
+ctx.window.__PF_FULL_UPDATE_RUNS=[
+ {result:'ok',totalMs:10000,restoreMs:3000,pricesMs:6800,renderMs:100},
+ {result:'ok',totalMs:8000,restoreMs:2600,pricesMs:5200,renderMs:100},
+ {result:'ok',totalMs:12000,restoreMs:3500,pricesMs:8100,renderMs:200},
+ {result:'error',totalMs:90000,restoreMs:87000,pricesMs:null,renderMs:null}
+];
+const paired=JSON.parse(JSON.stringify(vm.runInContext(
+ 'pftelemetry_pairedSummary(window.__PF_FULL_UPDATE_RUNS)',ctx)));
+assert.deepEqual({
+ runs:paired.runs,successes:paired.successes,failures:paired.failures,
+ median:paired.medianTotalMs,p95:paired.p95TotalMs,
+ stage:paired.slowestStage,share:paired.slowestSharePct
+},{runs:4,successes:3,failures:1,median:10000,p95:12000,
+ stage:'가격 재조회',share:67});
+assert.equal(paired.stages.find(x=>x.key==='prices').medianMs,6800);
+assert.equal(paired.stages.find(x=>x.key==='restore').sharePct,30);
+assert.equal(paired.stages.find(x=>x.key==='render').sharePct,1);
+const insufficientPair=JSON.parse(JSON.stringify(vm.runInContext(
+ "pftelemetry_pairedSummary([{result:'ok',totalMs:50,restoreMs:5,pricesMs:5,renderMs:5},{result:'error',totalMs:120,restoreMs:120,pricesMs:null,renderMs:null}])",ctx)));
+assert.equal(insufficientPair.successes,1);
+assert.equal(insufficientPair.failures,1);
+assert.equal(insufficientPair.medianTotalMs,null);
+assert.equal(insufficientPair.slowestStage,null);
+const invalidPair=JSON.parse(JSON.stringify(vm.runInContext(
+ "pftelemetry_pairedSummary([{result:'ok',totalMs:20,restoreMs:15,pricesMs:15,renderMs:2},{result:'ok',totalMs:0,restoreMs:null,pricesMs:null,renderMs:null}])",ctx)));
+assert.equal(invalidPair.successes,0);
+assert.equal(invalidPair.incompleteSuccesses,2);
+for(const secret of ['AAPL','005930','PRIVATE_ACCOUNT_AND_TICKER','accessToken'])
+ assert(!JSON.stringify(paired).includes(secret));
 vm.runInContext('pftelemetry_renderLocal()',ctx);
 assert.equal(wrap.children.length,2);
 const [note,table]=wrap.children;
 assert.equal(note.tag,'p');
 assert.match(note.textContent,/병목 후보: 가격 재조회/);
+assert.match(note.textContent,/동일 업데이트 정상 3회\/실패 1회/);
+assert.match(note.textContent,/실제 동일 실행 합산 67%/);
 assert.equal(table.tag,'table');
 const lines=table.children.map(row=>row.children.map(cell=>cell.textContent).join('|'));
 assert.ok(lines.some(x=>x.includes('전체 업데이트|90,000ms · 실패|8,540ms|9,000ms|3 / 1')));
 assert.ok(lines.some(x=>x.includes('가격 재조회|6,100ms · 성공|5,200ms|6,100ms|3 / 0')));
 assert.ok(lines.some(x=>x.includes('화면 재계산|200ms · 성공|140ms|200ms|3 / 0')));
 const report=vm.runInContext(
- 'pftelemetry_localReport(pftelemetry_localStats(window.__PF_LOOKUP_TIMES))',ctx);
+ 'pftelemetry_localReport(pftelemetry_localStats(window.__PF_LOOKUP_TIMES), pftelemetry_pairedSummary(window.__PF_FULL_UPDATE_RUNS))',ctx);
 assert.match(report,/모바일/);
 assert.match(report,/성공 표본/);
 assert.match(report,/정상 3건, 실패 1건, 중앙값 8540ms, p95 9000ms/);
+assert.match(report,/전체 중앙값 10000ms, p95 12000ms/);
+assert.match(report,/동일 업데이트 가격 재조회: 중앙값 6800ms, 합산 비중 67%/);
 assert(!report.includes(privateId));
 for(const code of ['AAPL','005930','GSHEET_API_URL','accessToken'])
  assert(!report.includes(code));
@@ -97,6 +135,7 @@ assert.equal(dense[0].successes,60);
 assert.equal(dense[0].medianMs,59);
 assert.equal(dense[0].p95Ms,86);
 ctx.window.__PF_LOOKUP_TIMES=[];
+ctx.window.__PF_FULL_UPDATE_RUNS=[];
 vm.runInContext('pftelemetry_renderLocal()',ctx);
 assert.match(wrap.textContent,/측정값이 없습니다/);
 assert.equal(vm.runInContext(
