@@ -21,7 +21,7 @@ let _mergeListCache = { key: '', list: [] };
 // Filter layout preference is deliberately distinct from the financial
 // ACCT_ORDER master; GAS restore and trading/valuation are unaffected.
 const ACCT_FILTER_DISPLAY_ORDER_KEY = 'pf_ui_acct_filter_order_v1';
-const _acctSavedUiOrder = lsGet(ACCT_FILTER_DISPLAY_ORDER_KEY, []);
+const _acctSavedUiOrder = typeof lsGet === 'function' ? lsGet(ACCT_FILTER_DISPLAY_ORDER_KEY, []) : [];
 let _acctUiOrder = Array.isArray(_acctSavedUiOrder)
   ? _acctSavedUiOrder.filter(item => typeof item === 'string' && item !== '전체')
   : [];
@@ -34,10 +34,10 @@ function _orderedAcctFilters() {
 }
 
 function _acctRerenderFilters() {
-  const priorScroll = document.querySelector('.acct-filter-track')?.scrollLeft || 0;
+  const priorScroll = typeof document !== 'undefined' ? (document.querySelector?.('.acct-filter-track')?.scrollLeft || 0) : 0;
   // A layout-only preference is not part of the financial data hash.
   renderView(true);
-  const track = document.querySelector('.acct-filter-track');
+  const track = typeof document !== 'undefined' ? document.querySelector?.('.acct-filter-track') : null;
   if (track) track.scrollLeft = priorScroll;
 }
 
@@ -152,10 +152,10 @@ function renderAcctView(area) {
   area.innerHTML = html;
 }
 function setAcctFilter(f) {
-  const priorScroll = document.querySelector('.acct-filter-track')?.scrollLeft || 0;
+  const priorScroll = typeof document !== 'undefined' ? (document.querySelector?.('.acct-filter-track')?.scrollLeft || 0) : 0;
   acctFilter = f;
   renderView();
-  const track = document.querySelector('.acct-filter-track');
+  const track = typeof document !== 'undefined' ? document.querySelector?.('.acct-filter-track') : null;
   if (track) track.scrollLeft = priorScroll;
   renderDonut();
 }
