@@ -94,6 +94,17 @@ assert.equal(afterCurrent294.fundCloseState,'PENDING');
 assert.equal(afterCurrent294.closeComplete,false);
 assert.equal(afterCurrent294.financialWrites,0);
 assert.equal(afterCurrent294.requestCount,1);
+const afterCurrent295=await readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.295',
+  automation:{...data.automation,gasVersion:'9.295',
+   closeRun:{runDate:'2026-11-13',state:'COMPLETE',stage:'COMPLETE'},
+   portfolioClose:{...data.automation.portfolioClose,runDate:'2026-11-13',
+    priceDate:'2026-11-13',priceRows:39,priceOk:true,fundOk:true}}})
+})});
+assert.equal(afterCurrent295.gasVersion,'9.295');
+assert.equal(afterCurrent295.storedPriceRows,39);
+assert.equal(afterCurrent295.financialWrites,0);
+assert.equal(afterCurrent295.requestCount,1);
 assert.equal(classifySavedFundWarning('F00001 NAV 미확보 1일'),
  'NAV_PUBLICATION_OR_INPUT_PENDING');
 assert.equal(classifySavedFundWarning('Snapshot 보호 충돌 2건'),
@@ -180,6 +191,10 @@ await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.290',
   automation:{...data.automation,gasVersion:'9.290'}})
 })}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.290 must not pass');
+await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
+ ok:true,json:async()=>({...data,gasVersion:'9.296',
+  automation:{...data.automation,gasVersion:'9.296'}})
+})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.296 must not pass');
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.288',
   automation:{...data.automation,gasVersion:'9.287'}})
