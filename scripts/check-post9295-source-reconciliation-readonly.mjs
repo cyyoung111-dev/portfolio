@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {summarizeMasterCoverage,summarizeSnapshotIntegrity,auditPost9295,
+import {summarizeMasterCoverage,summarizeSnapshotIntegrity,
+ classifySnapshotSourceLabels,auditPost9295,
  SNAPSHOT_DATE,REQUIRED_GAS_VERSION} from './audit-post9295-source-reconciliation-readonly.mjs';
 
 const codeMaster={status:'ok',gasVersion:'9.295',readOnly:true,codes:[
@@ -76,6 +77,32 @@ assert.equal(clean.officialExternalSourceIndependentlyVerified,false);
 assert.equal(clean.processWriterOwnerIndependentlyVerified,false);
 assert(!JSON.stringify(clean).includes('PRIVATE'));
 assert(!JSON.stringify(clean).includes('123456789'));
+const mismatched={...diagnostic,status:'MISMATCH',
+ sourceMismatches:[
+  {code:'F00001',expected:'FUND_NAV_CARRY@2026-11-13',
+   stored:'FUND_NAV_CARRY'},
+  {code:'F00002',expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}
+ ],
+ fundNavStates:[
+  {code:'F00001',sourceDate:'2026-11-13'},
+  {code:'F00002',sourceDate:'2026-11-13'}]
+};
+const labelKinds=classifySnapshotSourceLabels(mismatched);
+assert.equal(labelKinds.fundSourceLabelMismatchRows,2);
+assert.equal(labelKinds.nonFundSourceLabelMismatchRows,0);
+assert.equal(labelKinds.exactNavDatedCarryAliasReviewCandidates,1);
+assert.equal(labelKinds.allMismatchesResolved,false);
+assert.equal(labelKinds.automaticRepairAuthorized,false);
+assert(labelKinds.labelKindPairs.some(x=>x.pair==='DATED_FUND_NAV_CARRY__VS__UNDATED_FUND_NAV_CARRY'&&x.count===1));
+const mismatchOut=summarizeSnapshotIntegrity({...packet,diagnostics:[mismatched]});
+assert.equal(mismatchOut.status,'RECALC_REVIEW_REQUIRED',
+ 'even an exact dated fund carry source alias may not override strict integrity');
+assert.equal(mismatchOut.sourceLabelReview.fundSourceLabelMismatchRows,2);
+for(const secret of ['F00001','F00002','2026-11-13','PRIVATE'])
+ assert(!JSON.stringify(mismatchOut.sourceLabelReview).includes(secret));
+assert.throws(()=>classifySnapshotSourceLabels({...mismatched,
+ sourceMismatches:[{code:'PRIVATE',expected:'FUND_NAV',stored:'FUND_NAV'}]}),
+ /POST9295_SOURCE_LABEL_ROW_SCHEMA/);
 for(const delta of [
  {diagnostic:{...diagnostic,status:'MISMATCH',
   evalAmtMismatches:[{code:'PRIVATE',amount:123456789}]}},
@@ -135,6 +162,8 @@ const workflowSource=fs.readFileSync(
 assert.match(workflowSource,/environment: portfolio-production-gas/);
 assert.match(workflowSource,/group: portfolio-heavy-gas-readonly/);
 assert.match(workflowSource,/cancel-in-progress: false/);
+assert.match(workflowSource,/if: github.event_name == 'workflow_dispatch'/,
+ 'further one-shot pushes must run only Snapshot, not re-export the whole ledger');
 assert.match(workflowSource,/strict.*Snapshot|Snapshot.*strict/i);
 assert.match(workflowSource,/workflow_dispatch/);
 assert(!/schedule:/.test(workflowSource));
