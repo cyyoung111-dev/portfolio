@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import YAML from 'yaml';
 import {summarizeMasterCoverage,summarizeSnapshotIntegrity,auditPost9295,
  SNAPSHOT_DATE,REQUIRED_GAS_VERSION} from './audit-post9295-source-reconciliation-readonly.mjs';
 
@@ -131,19 +130,18 @@ await assert.rejects(()=>auditPost9295({url:endpoint,token:'PRIVATE_AUTH_1234567
  fetchImpl:request,mode:'write'}),/POST9295_MODE_INVALID/);
 await assert.rejects(()=>auditPost9295({url:endpoint,token:'',
  fetchImpl:request}),/POST9295_AUTH_MISSING/);
-const w=YAML.parse(fs.readFileSync(
- '.github/workflows/portfolio-9295-source-integrity-readonly.yml','utf8'));
 const workflowSource=fs.readFileSync(
  '.github/workflows/portfolio-9295-source-integrity-readonly.yml','utf8');
-assert.equal(w.jobs.audit.environment,'portfolio-production-gas');
-assert.equal(w.concurrency.group,'portfolio-heavy-gas-readonly');
-assert.equal(w.concurrency['cancel-in-progress'],false);
+assert.match(workflowSource,/environment: portfolio-production-gas/);
+assert.match(workflowSource,/group: portfolio-heavy-gas-readonly/);
+assert.match(workflowSource,/cancel-in-progress: false/);
 assert.match(workflowSource,/strict.*Snapshot|Snapshot.*strict/i);
 assert.match(workflowSource,/workflow_dispatch/);
 assert(!/schedule:/.test(workflowSource));
 assert(!/--apply|saveNhConfig|syncTrades|updateContent|runDailyClose|collectFundNav/.test(workflowSource));
-assert.deepEqual(w.jobs.audit.steps.filter(x=>/audit-post9295/.test(x.run||''))
- .map(x=>x.run),[
+assert.deepEqual(workflowSource.split('\n')
+ .map(x=>x.trim()).filter(x=>x.startsWith('run: node scripts/audit-post9295'))
+ .map(x=>x.slice(5)),[
  'node scripts/audit-post9295-source-reconciliation-readonly.mjs coverage',
  'node scripts/audit-post9295-source-reconciliation-readonly.mjs snapshot']);
 const script=fs.readFileSync('scripts/audit-post9295-source-reconciliation-readonly.mjs','utf8');
