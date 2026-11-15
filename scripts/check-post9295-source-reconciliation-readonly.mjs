@@ -67,6 +67,9 @@ const packet={status:'ok',checkedDates:[SNAPSHOT_DATE],
  calculationMs:4000}};
 const clean=summarizeSnapshotIntegrity(packet);
 assert.equal(clean.status,'RECALC_MATCH_CONFIRMED');
+assert.equal(clean.financialAmountsRecomputedAndMatched,true);
+assert.equal(clean.fullSourceProvenanceMatched,true);
+assert.equal(clean.manualSourceLabelReviewOpen,false);
 assert.equal(clean.expectedRows,39);
 assert.equal(clean.storedRows,39);
 assert.equal(clean.differenceZeroVerified,true);
@@ -81,7 +84,7 @@ const mismatched={...diagnostic,status:'MISMATCH',
  sourceMismatches:[
   {code:'F00001',expected:'FUND_NAV_CARRY@2026-11-13',
    stored:'FUND_NAV_CARRY'},
-  {code:'F00002',expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}
+  {code:'F00002',expected:'FUND_NAV_CARRY@2026-11-13',stored:'FUND_NAV_CARRY'}
  ],
  fundNavStates:[
   {code:'F00001',sourceDate:'2026-11-13'},
@@ -90,14 +93,34 @@ const mismatched={...diagnostic,status:'MISMATCH',
 const labelKinds=classifySnapshotSourceLabels(mismatched);
 assert.equal(labelKinds.fundSourceLabelMismatchRows,2);
 assert.equal(labelKinds.nonFundSourceLabelMismatchRows,0);
-assert.equal(labelKinds.exactNavDatedCarryAliasReviewCandidates,1);
+assert.equal(labelKinds.exactNavDatedCarryAliasReviewCandidates,2);
 assert.equal(labelKinds.allMismatchesResolved,false);
 assert.equal(labelKinds.automaticRepairAuthorized,false);
-assert(labelKinds.labelKindPairs.some(x=>x.pair==='DATED_FUND_NAV_CARRY__VS__UNDATED_FUND_NAV_CARRY'&&x.count===1));
+assert(labelKinds.labelKindPairs.some(x=>x.pair==='DATED_FUND_NAV_CARRY__VS__UNDATED_FUND_NAV_CARRY'&&x.count===2));
 const mismatchOut=summarizeSnapshotIntegrity({...packet,diagnostics:[mismatched]});
-assert.equal(mismatchOut.status,'RECALC_REVIEW_REQUIRED',
- 'even an exact dated fund carry source alias may not override strict integrity');
+assert.equal(mismatchOut.status,'RECALC_VALUES_CONFIRMED_NAV_CARRY_LABEL_REVIEW',
+ 'exact dated carry may be NON-WRITE label review but not full source parity');
+assert.equal(mismatchOut.integrityState,'MISMATCH');
+assert.equal(mismatchOut.financialAmountsRecomputedAndMatched,true);
+assert.equal(mismatchOut.fullSourceProvenanceMatched,false);
+assert.equal(mismatchOut.manualSourceLabelReviewOpen,true);
+assert.equal(mismatchOut.automaticRepairAuthorized,false);
 assert.equal(mismatchOut.sourceLabelReview.fundSourceLabelMismatchRows,2);
+for(const delta of [
+ {sourceMismatches:[{code:'F00001',expected:'FUND_NAV_CARRY@2026-11-12',
+    stored:'FUND_NAV_CARRY'},...mismatched.sourceMismatches.slice(1)]},
+ {sourceMismatches:[mismatched.sourceMismatches[0],
+  {code:'F00002',expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}]},
+ {evalAmtMismatches:[{code:'F00001',expected:100,stored:101}]},
+ {priceIntegrity:[{status:'FX_MISSING'}]},
+ {totalEvalDifference:1},
+ {duplicateSummary:{groups:1}}
+]){
+ const v=summarizeSnapshotIntegrity({...packet,diagnostics:[{...mismatched,...delta}]});
+ assert.equal(v.status,'RECALC_REVIEW_REQUIRED');
+ assert.equal(v.financialAmountsRecomputedAndMatched,false);
+ assert.equal(v.automaticRepairAuthorized,false);
+}
 for(const secret of ['F00001','F00002','2026-11-13','PRIVATE'])
  assert(!JSON.stringify(mismatchOut.sourceLabelReview).includes(secret));
 assert.throws(()=>classifySnapshotSourceLabels({...mismatched,
