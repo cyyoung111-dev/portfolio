@@ -121,9 +121,28 @@ assert.match(env.GAS_9294_CLOSE_OWNER_NAV,/candidate_version == '9.294'/);
 const steps=wf.jobs.deploy.steps;
 const pre=steps.find(step=>step.id==='gas9295_gate');
 assert(pre);
+assert.match(pre.if,/GAS_9295_PRICE_MASTER_REUSE == 'true'/);
 assert.match(pre.if,/GAS_9295_RELEASE_APPROVAL == 'true'/);
-assert.match(pre.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
+assert.match(pre.if,/GAS_DEPLOY_DRY_RUN == 'true'/,
+ 'dry-run must execute the same Writer Gate preflight as live approval');
+assert.equal(pre['continue-on-error'],undefined,
+ 'failed 9.295 preflight must block green dry-run and production');
 assert.match(pre.run,/issue734-gas9295-release-readonly.mjs pre/);
+const dryInventory=steps.find(x=>x.name===
+ 'Require clean full GAS deployment inventory on 9.295 dry-run');
+const realInventory=steps.find(x=>x.name===
+ 'Require clean full GAS deployment inventory before real deploy');
+assert(dryInventory&&realInventory,'both dry-run and real inventory gates required');
+assert.match(dryInventory.if,/GAS_9295_PRICE_MASTER_REUSE == 'true'/);
+assert.match(dryInventory.if,/GAS_DEPLOY_DRY_RUN == 'true'/);
+assert.equal(dryInventory['continue-on-error'],undefined,
+ 'missing deployment ownership proof must fail dry-run');
+assert.equal(dryInventory.run,realInventory.run,
+ 'dry-run inventory must execute the exact production audit');
+assert.equal(steps.indexOf(dryInventory)<steps.indexOf(pre),true,
+ 'inventory before Writer Gate preflight');
+assert.equal(steps.indexOf(pre)<steps.findIndex(x=>x.name==='Deploy GAS'),true,
+ 'Writer Gate proof must precede deploy, including dry-run');
 const deploy=steps.find(step=>step.name==='Deploy GAS');
 assert(deploy);
 assert.match(deploy.env.GAS_9295_LIVE_PREFLIGHT_VERIFIED,/gas9295_gate/);

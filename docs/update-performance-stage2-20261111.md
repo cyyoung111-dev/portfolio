@@ -53,3 +53,11 @@
 - PR 품질검사 통과, GitHub Pages 배포, `gas-deploy` 검증 성공과 `deploy skipped`는 금융 GAS 운영 게시 성공이 아닙니다. 승인된 수동 실행의 **Deploy GAS 성공 및 운영 WebApp v9.295 readback 통과**가 있을 때만 서버 적용을 완료로 판정합니다.
 
 - **추가 원인 확인:** GAS `getSettings`는 `_settlePendingCodeDeleteForRead_`를 호출하며, 삭제 대기 트랜잭션이 있으면 ScriptLock 하에서 후속 정리를 수행할 수 있습니다. 따라서 새 9.295 사전·사후 'READ ONLY' 검사에서 `getSettings` 자체를 제외했습니다. 이는 새 검사 경로만의 보장입니다. 기존 `deploy-gas.mjs`가 배포 전후에 사용하는 WebApp 검증 등 다른 경로까지 모든 쓰기 가능성을 제거했다고 주장하지 않습니다.
+
+## 2026-11-15 — 수동 9.295 dry-run 실행 #43671530618 이후 필수 사전검사 보완
+
+- 수동 `candidate_version=9.295` / `dry_run=true` / `approve_9295=false` 실행 #43671530618은 모든 CI 및 API 자격/소스 검증을 통과했습니다. GAS HEAD와 게시본은 모두 승인된 9.294, 현재 게시판 versionNumber 351이며 실제 GAS/시트/배포 쓰기는 없었습니다.
+- **발견된 누락:** 기존 워크플로는 9.295 dry-run에서 `issue507-deployment-inventory-readonly`와 `issue734-gas9295-release-readonly pre`를 건너뜁니다. 그러므로 해당 성공은 실제 9.295 배포 가능 상태·원장·Writer Gate가 확인됐다는 뜻이 아닙니다.
+- **수정:** 이후의 **9.295 dry-run도 실배포와 같은 전체 deployment inventory(실패 시 중단) 및 운영 9.294 Writer Gate/거래원장 v2/복구 중 아님/자동화 상태 사전검사(실패 시 중단)**를 필수 실행합니다. 기존 9.294 dry-run의 비차단 인벤토리는 유지합니다.
+- 적절한 재실행 결과에서는 두 필수 검사가 실제 `success`인지 확인해야 합니다. `Deploy GAS` 단계가 `success`라도 `dry_run=true`면 **실제 배포가 아니라 검증 완료**입니다. 이번 코드 수정은 GAS 서버 코드·스프레드시트·기존 Writer 소유권을 변경하지 않습니다.
+- 진단이 실패하면 그 이유와 권한·인벤토리·원장/Writer 상태부터 복구해야 하며 `approve_9295=true`로 우회하지 않습니다. 별도 승인된 실제 운영 배포 이후에도 버전 readback, 수치 정합성 및 성능 측정은 별개입니다.

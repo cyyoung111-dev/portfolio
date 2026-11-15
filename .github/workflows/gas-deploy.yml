@@ -143,9 +143,15 @@ jobs:
       - name: Require clean full GAS deployment inventory before real deploy
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Read-only full deployment inventory on manual candidate dry-run
+      - name: Read-only full deployment inventory on 9.294 dry-run (advisory)
         if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
         continue-on-error: true
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
+      # 9.295 dry-run is a RELEASE-READINESS check, not just a code preview.
+      # The production inventory gate is identical and mandatory. Catch
+      # blockers before anyone authorizes a financial GAS deployment.
+      - name: Require clean full GAS deployment inventory on 9.295 dry-run
+        if: env.GAS_9295_PRICE_MASTER_REUSE == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       # Historical 9.287-9.292 manual release gates are no longer selectable.
       - name: Verify existing 9.293 owner, 39/39 Snapshot and idle Gate before 9.294
@@ -157,7 +163,9 @@ jobs:
         run: node scripts/issue734-gas9294-predeploy-readonly.mjs
       - name: Verify published 9.294 idle writer, ledger v2 and no pending recovery for 9.295
         id: gas9295_gate
-        if: env.GAS_9295_PRICE_MASTER_REUSE == 'true' && env.GAS_9295_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        # Preview must prove the SAME safe state as an approved real deploy.
+        # A failed read-only gate must fail the run, never be hidden as green.
+        if: env.GAS_9295_PRICE_MASTER_REUSE == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9295_RELEASE_APPROVAL == 'true') && env.GAS_FIRST_GATE_PHASE == 'none'
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
