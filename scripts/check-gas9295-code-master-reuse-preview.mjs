@@ -114,7 +114,10 @@ function run(fn,{persist=false,cacheHit=false,codes='005930,AAPL',caseType='full
     if(copy.priceLookup)delete copy.priceLookup.serverElapsedMs;
     return copy;
   }
-  return {value:stripDynamic(result),effects,masterReads,saved:saved.map(stripDynamic)};
+  // VM-generated nested arrays have foreign prototypes; compare serialized
+  // values and operation order, not isolated-realm object identities.
+  return {value:stripDynamic(result),effects:JSON.parse(JSON.stringify(effects)),
+    masterReads,saved:saved.map(stripDynamic)};
 }
 for (const scenario of [
   {name:'current-read',persist:false},
