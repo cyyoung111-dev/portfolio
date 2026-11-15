@@ -32,7 +32,7 @@ assert.equal(undone,parent,'only one price function and exact version tags may c
 assert.equal((oldFn.match(/getCodeItems\(ss\)/g)||[]).length,2);
 assert.equal((nextFn.match(/getCodeItems\(ss\)/g)||[]).length,1);
 const deploy=fs.readFileSync('scripts/deploy-gas.mjs','utf8');
-assert.match(deploy,/'9\\.295': 'a360a32a2d459d1f28dee94365a28d8c3ca24367'/,
+assert.ok(deploy.includes("'9.295': 'a360a32a2d459d1f28dee94365a28d8c3ca24367'"),
  'only the exact reviewed full 9.295 source may be selected');
 assert.match(deploy,/GAS_9295_EXPLICIT_MANUAL_RELEASE_REQUIRED/,
  'source pin is never approval for an unattended release');
