@@ -63,6 +63,10 @@ assert.match(card,/GOOGLEFINANCE 미사용/);
 for(const action of ['providers','recent-history','timings'])
  assert.match(card,new RegExp('data-price-detail="'+action+'"'));
 assert.doesNotMatch(card,/<details|<summary|69933ms|14456ms/);
+assert.equal((card.match(/class="price-lookup-source-chips"/g)||[]).length,1,
+ '조회 원천과 GAS 시간을 한 묶음으로 표시합니다.');
+assert.doesNotMatch(card,/price-lookup-extra-chips/,'큰 조회 상세 두 번째 행이 다시 생기면 안 됩니다.');
+
 const layout=vm.runInContext(
  '_priceStatusLayout("완료 39/39개","<span>거래 338건 · 보유 61건</span>","",_priceLookupSummary())',
  lookupCtx);
