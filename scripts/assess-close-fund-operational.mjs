@@ -55,8 +55,23 @@ export function assessCloseFundOperational({close,funds,asOf}) {
  const pending=distinct(awaitingPublication),late=distinct(publicationOverdue),
    sourceUnverified=distinct(recentNavSourceUnverified),
    needsRepair=distinct(overdueFunds);
- const date=close.closeRunDate,datesMatch=day(date)&&date<=asOf
-  &&['storedPriceDate','snapshotLastDate','priceHistoryLastDate',
+ const date=close.closeRunDate;
+ // Weekend-only KRX close receipt: the persisted run may be stamped on
+ // Saturday/Sunday while its last independently confirmed *price date* is
+ // Friday. Keep all other saved Snapshot/history dates matched to run date.
+ // Never allow Thursday carry or a stale weekday price via this exception.
+ let weekendFridayPriceCarry=false;
+ if(day(date)&&date<=asOf) {
+  const weekday=new Date(date+'T00:00:00Z').getUTCDay();
+  if(weekday===6||weekday===0) {
+   const friday=new Date(Date.parse(date+'T00:00:00Z')
+    -(weekday===6?1:2)*86400000).toISOString().slice(0,10);
+   weekendFridayPriceCarry=close.storedPriceDate===friday;
+  }
+ }
+ const datesMatch=day(date)&&date<=asOf
+  &&(close.storedPriceDate===date||weekendFridayPriceCarry)
+  &&['snapshotLastDate','priceHistoryLastDate',
     'expectedSnapshotDate'].every(k=>close[k]===date)
   &&close.snapshotStale===false;
  const complete=close.closeComplete===true&&close.closeState==='COMPLETE'
@@ -125,6 +140,7 @@ export function assessCloseFundOperational({close,funds,asOf}) {
   overdueFunds:needsRepair,publicationOverdueFunds:late,
   publicationPendingFunds:pending,navSourceUnverifiedFunds:sourceUnverified,
   closePersistedComplete:complete,
+  weekendFridayPriceCarryAccepted:complete&&weekendFridayPriceCarry,
   persistedWarningReviewOnly:savedWarningReviewOnly,
   executionOwnerIndependentlyVerified:false,
   source:'PERSISTED_GAS_STATUS_AND_DATE_SCOPED_FUND_READONLY',
