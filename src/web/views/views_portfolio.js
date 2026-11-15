@@ -122,16 +122,18 @@ function renderAcctView(area) {
     `<button data-portfolio-action="type-filter" data-value="${_escapeHtml(t)}" class="${_fBtnClass(typeFilter===t)}">${_escapeHtml(t)}</button>`).join('');
 
   let html = `<div data-view-section="acct"><div class="acct-filter-controls">
-    <div class="acct-filter-heading">
-      <span class="txt-muted-72">🏦 계좌</span>
-      <button type="button" class="acct-order-trigger" data-portfolio-action="acct-order-toggle" aria-expanded="${_acctOrderEditorOpen}">${_acctOrderEditorOpen ? '순서 편집 닫기' : '순서 편집'}</button>
-    </div>
-    <div class="acct-filter-track" role="group" aria-label="계좌 선택" style="--acct-filter-count:${accts.length+1}">${acctOpts}</div>
+    <section class="acct-filter-group" aria-label="계좌 필터">
+      <div class="acct-filter-heading">
+        <span class="txt-muted-72">🏦 계좌</span>
+        <button type="button" class="acct-order-trigger" data-portfolio-action="acct-order-toggle" aria-expanded="${_acctOrderEditorOpen}">${_acctOrderEditorOpen ? '순서 편집 닫기' : '순서 편집'}</button>
+      </div>
+      <div class="acct-filter-track" role="group" aria-label="계좌 선택" style="--acct-filter-count:${accts.length+1}">${acctOpts}</div>
+    </section>
     ${orderItems}
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span class="txt-muted-72">📂 종류</span>
-      <div class="flex-wrap-gap4">${typeOpts}</div>
-    </div>
+    <section class="acct-type-filter-group" aria-label="자산 종류 필터">
+      <div class="acct-type-filter-heading"><span class="txt-muted-72">📂 종류</span></div>
+      <div class="acct-type-filter-options flex-wrap-gap4" role="group" aria-label="자산 종류 선택">${typeOpts}</div>
+    </section>
   </div>`;
 
   const acctDataKey = _portfolioDataKey();
