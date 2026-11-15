@@ -757,3 +757,29 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 
 /* Consistent distance from main navigation to the first active-view section. */
 #viewSwitcher{margin-bottom:16px}
+
+/* Mobile/desktop final viewport contracts: only the data grid scrolls sideways. */
+#view-area[data-active-view],
+#view-area[data-active-view] [data-view-section="acct"],
+#view-area[data-active-view] .tbl-wrap {
+  box-sizing:border-box;
+  max-width:100%;
+  min-width:0;
+}
+.action-bar .price-status-primary,
+.action-bar .price-status-meta,
+.action-bar .price-status-note {
+  overflow-wrap:anywhere;
+  word-break:keep-all;
+}
+#view-area[data-active-view] .acct-filter-track .acct-filter-btn:focus-visible {
+  outline:2px solid var(--blue-lt);
+  outline-offset:-2px;
+}
+@media(max-width:480px) {
+  .wrap .sum-row .sc .sub {
+    min-width:0;
+    overflow-wrap:anywhere;
+    word-break:keep-all;
+  }
+}
