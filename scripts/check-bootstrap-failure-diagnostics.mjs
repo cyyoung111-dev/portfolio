@@ -2004,6 +2004,9 @@ console.log('✅ 실제 Settings/Bootstrap API 키 상태 복원·부동산 부�
 // A transient HTTP 500 may still recover on the configured bounded retry.
 {
   const x=setup();
+  // The generic VM fixture suppresses timers; this test needs a real retry tick.
+  x.ctx.setTimeout=setTimeout;
+  x.ctx.clearTimeout=clearTimeout;
   let attempts=0;
   x.ctx.fetch=async()=>{
     attempts++;
@@ -2011,7 +2014,7 @@ console.log('✅ 실제 Settings/Bootstrap API 키 상태 복원·부동산 부�
       {ok:true,json:async()=>({status:'ok',settings:{}})};
   };
   const result=await x.ctx.requestJsonWithPolicy('https://example.invalid',{
-    preserveError:true,retry:1,action:'getBootstrap'
+    preserveError:true,retry:1,delayMs:0,action:'getBootstrap'
   });
   assert.equal(result.status,'ok');
   assert.equal(attempts,2,'transient 5xx keeps its existing recovery retry');
