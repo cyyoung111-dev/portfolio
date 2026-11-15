@@ -25,6 +25,25 @@ assert.equal(proof.kbNav.state,'PASS');
 assert.equal(proof.kbNav.execution,'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
 assert.equal(proof.savedClose.state,'PASS');
 assert.equal(proof.snapshot.state,'NOT_FULLY_AUDITED');
+const exactSnapshot={date:fri,state:'VERIFIED',storedRows:39,
+ internalRevaluationVerified:true,externalWriterExcludedVerified:false,
+ exactWriterOwnerVerified:false,financialWrites:0};
+const withSnapshot=classifyDailyOperations({date:fri,now,morningProof:true,
+ closeProof:true,navRuns:'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
+ navReport:evidence,snapshotEvidence:exactSnapshot});
+assert.equal(withSnapshot.snapshot.state,'PASS');
+assert.equal(withSnapshot.snapshot.storedRows,39);
+assert.equal(withSnapshot.overall,'CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED');
+assert.equal(withSnapshot.externalWriterExcludedVerified,false);
+for(const bad of [
+ {...exactSnapshot,date:'2026-11-12'},
+ {...exactSnapshot,externalWriterExcludedVerified:true},
+ {...exactSnapshot,exactWriterOwnerVerified:true},
+ {...exactSnapshot,financialWrites:1},
+ {...exactSnapshot,state:'INCOMPLETE_OR_MISMATCH'}
+])assert.equal(classifyDailyOperations({date:fri,now,morningProof:true,
+ closeProof:true,navRuns:'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
+ navReport:evidence,snapshotEvidence:bad}).snapshot.state,'NOT_FULLY_AUDITED');
 assert.equal(proof.financialWrites,0);
 assert.equal(proof.telegramSends,0);
 const noProof=classifyDailyOperations({date:fri,now,morningProof:false,
@@ -78,12 +97,27 @@ const result=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
  closeReader:async args=>{observed.push('close:'+args.now.toISOString());
   return {date:fri,verified:true};},
  navRunReader:async()=>{observed.push('runs');return 'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED';},
- navReader:async()=>{observed.push('readback');return evidence;}
+ navReader:async()=>{observed.push('readback');return evidence;},
+ snapshotReader:async({date})=>{
+  observed.push('snapshot:'+date);return exactSnapshot;
+ }
 });
-assert.equal(result.overall,'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED');
+assert.equal(result.overall,'CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED');
 assert.equal(result.date,fri);
+assert.equal(result.snapshot.verified,true);
 assert.deepEqual(observed[0],'morning:'+fri);
-assert.deepEqual(observed.slice(2),['runs','readback']);
+assert.deepEqual(observed.slice(2),['runs','readback','snapshot:'+fri]);
+const failedSnapshot=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
+ repository:'cyyoung111-dev/portfolio',token:'test-read-only',
+ gasUrl:'https://example.invalid',gasToken:'test',
+ morningReader:async()=>({verifiedSent:true}),
+ closeReader:async()=>({date:fri,verified:true}),
+ navRunReader:async()=> 'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
+ navReader:async()=>evidence,
+ snapshotReader:async()=>{throw Error('PRIVATE_SOURCE_ERROR')}
+});
+assert.equal(failedSnapshot.snapshot.state,'NOT_FULLY_AUDITED');
+assert.equal(failedSnapshot.overall,'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED');
 const noCredentials=await runDailyOperations({
  now:at('2026-11-14T23:01:00+09:00'),
  token:null,gasUrl:null,gasToken:null,
