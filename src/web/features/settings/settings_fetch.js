@@ -373,20 +373,22 @@ function _priceLookupSummary() {
   const tossStatus = String(meta.tossStatus || (toss > 0 ? 'SUCCESS' : 'UNKNOWN'));
   const tossSuffix = tossStatus === 'ERROR' ? ' · 오류' : tossStatus === 'EMPTY' ? ' · 응답 0'
     : tossStatus === 'NOT_RUN' ? ' · 미실행' : '';
-  return `<section class="price-lookup-summary" aria-label="조회 상세">
-    <div class="price-lookup-summary-head">
+  return `<details class="price-lookup-summary" aria-label="조회 상세">
+    <summary class="price-lookup-summary-head">
       <strong class="price-lookup-summary-title">조회 상세</strong>
+    </summary>
+    <div class="price-lookup-expanded">
       <span class="price-lookup-latency${latencyTone}">왕복 <strong>${roundTrip}</strong></span>
-    </div>
-    <div class="price-lookup-source-chips" aria-label="가격 조회 원천 및 처리시간">
+      <div class="price-lookup-source-chips" aria-label="가격 조회 원천 및 처리시간">
       <button type="button" class="price-status-chip is-action" data-price-detail="providers">NH ${toss}건${tossSuffix}</button>
       <span class="price-status-chip">KRX ${krx}건</span>
       <span class="price-status-chip price-lookup-subtle">GOOGLEFINANCE 미사용</span>
       <button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>
       <button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>
       ${meta.cacheHit ? '<span class="price-status-chip">60초 캐시</span>' : ''}
+      </div>
     </div>
-  </section>`;
+  </details>`;
 }
 
 function _priceLookupDetail(kind) {

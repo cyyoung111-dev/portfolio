@@ -45,8 +45,14 @@ function _portfolioAssetType(row) {
 
 function renderAcctView(area) {
   const accts = ACCT_ORDER.filter(a => a !== '전체');
-  const acctOpts = ['전체',...accts].map(a =>
-    `<button data-portfolio-action="acct-filter" data-value="${_escapeHtml(a)}" class="${_fBtnClass(acctFilter===a)}">${_escapeHtml(a)}</button>`).join('');
+  const acctOpts = ['전체',...accts].map(a => {
+    // Only the visual label wraps; retain the exact original account filter identifier.
+    const parts = /^(.+?)\s*\((연금|IRP|ISA)\)$/.exec(a);
+    const label = parts
+      ? `<span class="acct-filter-name">${_escapeHtml(parts[1])}</span><span class="acct-filter-type">(${_escapeHtml(parts[2])})</span>`
+      : _escapeHtml(a);
+    return `<button type="button" data-portfolio-action="acct-filter" data-value="${_escapeHtml(a)}" aria-label="${_escapeHtml(a)}" class="${_fBtnClass(acctFilter===a)} acct-filter-btn${parts ? ' is-multiline' : ''}">${label}</button>`;
+  }).join('');
 
   // ★ [계좌별 taxType] 종류 필터 = 자산 종류만 (ISA/IRP/연금은 계좌 구분으로 이동)
   const typeList = ['전체','주식','ETF','펀드','TDF'];
