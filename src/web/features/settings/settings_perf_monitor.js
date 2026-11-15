@@ -181,17 +181,66 @@
         };
       });
   }
-  function pftelemetry_localDiagnosis(stats) {
-    const full = stats.find(x => x.stage === 'load.full-update');
-    const parts = ['load.full-restore','load.full-prices','load.full-render']
-      .map(stage => stats.find(x => x.stage === stage));
-    if (!full || full.successes < 3 || parts.some(x => !x || x.successes < 3))
-      return '전체 업데이트와 복원·가격·화면 구간을 각각 정상 3회 이상 측정하면 병목 후보가 표시됩니다.';
-    const slowest = parts.reduce((a,b) => a.medianMs >= b.medianMs ? a : b);
-    return '병목 후보: ' + slowest.label + ' (정상 호출별 중앙값 기준 · 서로 다른 실행의 표본일 수 있습니다).';
+  // Use only completed user-click records where all durations are from the
+  // SAME full update. These never leave this tab or enter remote telemetry.
+  function pftelemetry_pairedSummary(raw) {
+    const validMs = x => Number.isSafeInteger(x) && x >= 0 && x <= 120000;
+    const records = (Array.isArray(raw) ? raw.slice(-12) : [])
+      .filter(x => x && ['ok','error'].includes(x.result) && validMs(x.totalMs)
+        && ['restoreMs','pricesMs','renderMs'].every(k =>
+          x[k] === null || validMs(x[k])));
+    const complete = records.filter(x => x.result === 'ok' &&
+      ['restoreMs','pricesMs','renderMs'].every(k => validMs(x[k])) &&
+      x.restoreMs + x.pricesMs + x.renderMs <= x.totalMs);
+    const fullCount = records.length, successCount = complete.length;
+    if (!fullCount) return null;
+    const failures = records.filter(x => x.result === 'error').length;
+    const enough = successCount >= 3;
+    const combined = complete.reduce((sum,x) => {
+      sum.total += x.totalMs;
+      sum.restore += x.restoreMs;
+      sum.prices += x.pricesMs;
+      sum.render += x.renderMs;
+      return sum;
+    },{total:0,restore:0,prices:0,render:0});
+    const quantile = (xs,p) => {
+      if (!enough) return null;
+      const sorted = xs.slice().sort((a,b) => a-b);
+      return sorted[Math.max(0,Math.ceil(sorted.length*p)-1)];
+    };
+    const stages = [
+      ['restore','데이터 복원'],['prices','가격 재조회'],['render','화면 재계산']
+    ].map(([key,label]) => ({
+      key,label,medianMs:quantile(complete.map(x =>
+        x[key+'Ms']),0.5),
+      sharePct:combined.total>0 ? Math.round(combined[key]*100/combined.total) : null
+    }));
+    const main = stages.reduce((a,b) =>
+      (a.sharePct||0)>=(b.sharePct||0)?a:b);
+    return {runs:fullCount,successes:successCount,failures,
+      incompleteSuccesses:records.filter(x=>x.result==='ok').length-successCount,
+      medianTotalMs:quantile(complete.map(x=>x.totalMs),0.5),
+      p95TotalMs:quantile(complete.map(x=>x.totalMs),0.95),
+      slowestStage:enough ? main.label : null,
+      slowestSharePct:enough ? main.sharePct : null,stages};
   }
-  function pftelemetry_localReport(stats) {
-    if (!stats.length) return '';
+  function pftelemetry_pairedDiagnosis(paired) {
+    if (!paired) return '같은 실행의 복원·가격·화면 시간 기록이 아직 없습니다.';
+    if (paired.successes<3)
+      return '동일 업데이트 정상 '+paired.successes+'회/실패 '+paired.failures+
+        '회 · 병목 비중은 정상 3회 이상에서만 계산합니다.';
+    return '동일 업데이트 정상 '+paired.successes+'회/실패 '+paired.failures+
+      '회 · 전체 중앙값 '+paired.medianTotalMs+'ms, p95 '+paired.p95TotalMs+
+      'ms · 병목 후보: '+paired.slowestStage+' (실제 동일 실행 합산 '+
+      paired.slowestSharePct+'%)';
+  }
+  function pftelemetry_localDiagnosis(stats,paired) {
+    // Do not identify a misleading bottleneck by combining samples from
+    // separate full updates. Only paired user-click evidence is comparable.
+    return pftelemetry_pairedDiagnosis(paired);
+  }
+  function pftelemetry_localReport(stats,paired) {
+    if (!stats.length && !paired) return '';
     const device = pftelemetry_device();
     const rows = [
       '포트폴리오 조회시간 ('+(device === 'mobile' ? '모바일'
@@ -204,19 +253,23 @@
       '건, 실패 '+x.failures+'건, 중앙값 '+
       (x.medianMs === null ? '미측정' : x.medianMs+'ms')+', p95 '+
       (x.p95Ms === null ? '미측정' : x.p95Ms+'ms')));
-    rows.push(pftelemetry_localDiagnosis(stats));
+    rows.push(pftelemetry_localDiagnosis(stats,paired));
+    if (paired?.successes >= 3) paired.stages.forEach(x =>
+      rows.push('동일 업데이트 '+x.label+': 중앙값 '+x.medianMs+'ms, 합산 비중 '+x.sharePct+'%'));
+    if (paired?.incompleteSuccesses) rows.push('구간 누락으로 제외된 실행 '+paired.incompleteSuccesses+'회');
     return rows.join('\n');
   }
   function pftelemetry_renderLocal() {
     const wrap = document.getElementById('perfLocalSummaryBody');
     if (!wrap) return;
     const stats = pftelemetry_localStats(window.__PF_LOOKUP_TIMES);
-    if (!stats.length) {
+    const paired = pftelemetry_pairedSummary(window.__PF_FULL_UPDATE_RUNS);
+    if (!stats.length && !paired) {
       wrap.textContent = '이 탭의 측정값이 없습니다. 업데이트 또는 현재가 갱신 후 다시 눌러주세요.';
       return;
     }
     const note = document.createElement('p');
-    note.textContent = pftelemetry_localDiagnosis(stats);
+    note.textContent = pftelemetry_localDiagnosis(stats,paired);
     note.style.margin = '6px 0';
     const table = document.createElement('table');
     table.style.width = '100%';
@@ -258,7 +311,7 @@
       + '<p id="perfGasStatus" role="status" style="font-size:.65rem;color:var(--muted);margin:7px 0">'
       + (pftelemetry_enabled() ? '수집 사용 중 (기기별 동의 저장)' : '수집 비활성화 · 수집 시작을 눌러 기기별 연결 확인')
       + '</p><div id="perfLocalSummaryBody" style="overflow-x:auto;font-size:.69rem;margin:8px 0"></div>'
-      + '<p style="font-size:.61rem;color:var(--muted);margin:5px 0">현재 탭의 최근 최대 60개 측정값입니다. 정상 3회 이상일 때 중앙값·p95를 표시하고 실패 건수는 별도로 보입니다. 요약 복사는 조회시간만 복사하며 금융 자료를 포함하지 않습니다. 새로고침 후 기록은 초기화됩니다.</p>'
+      + '<p style="font-size:.61rem;color:var(--muted);margin:5px 0">동일 전체 업데이트 실행은 최근 최대 12회까지 별도로 묶어 합산합니다. 구간별 표본의 중앙값 합산은 사용하지 않습니다. 현재 탭의 최근 최대 60개 측정값입니다. 정상 3회 이상일 때 중앙값·p95를 표시하고 실패 건수는 별도로 보입니다. 요약 복사는 조회시간만 복사하며 금융 자료를 포함하지 않습니다. 새로고침 후 기록은 초기화됩니다.</p>'
       + '<div id="perfGasSummaryBody" style="overflow-x:auto;font-size:.66rem"></div></div>';
   }
   function pftelemetry_status(message) {
@@ -305,7 +358,8 @@
     const id=e.target.closest?.('button')?.id;
     if (id === 'perfLocalSummary') { pftelemetry_renderLocal(); }
     else if (id === 'perfLocalCopy') {
-      const summary = pftelemetry_localReport(pftelemetry_localStats(window.__PF_LOOKUP_TIMES));
+      const summary = pftelemetry_localReport(pftelemetry_localStats(window.__PF_LOOKUP_TIMES),
+        pftelemetry_pairedSummary(window.__PF_FULL_UPDATE_RUNS));
       if (!summary) { pftelemetry_status('복사할 성능 측정값이 없습니다.'); return; }
       try {
         if (!navigator.clipboard?.writeText) throw Error('CLIPBOARD_UNAVAILABLE');
