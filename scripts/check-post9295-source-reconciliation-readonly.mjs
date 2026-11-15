@@ -84,7 +84,7 @@ const mismatched={...diagnostic,status:'MISMATCH',
  sourceMismatches:[
   {code:'F00001',expected:'FUND_NAV_CARRY@2026-11-13',
    stored:'FUND_NAV_CARRY'},
-  {code:'F00002',expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}
+  {code:'F00002',expected:'FUND_NAV_CARRY@2026-11-13',stored:'FUND_NAV_CARRY'}
  ],
  fundNavStates:[
   {code:'F00001',sourceDate:'2026-11-13'},
@@ -93,10 +93,10 @@ const mismatched={...diagnostic,status:'MISMATCH',
 const labelKinds=classifySnapshotSourceLabels(mismatched);
 assert.equal(labelKinds.fundSourceLabelMismatchRows,2);
 assert.equal(labelKinds.nonFundSourceLabelMismatchRows,0);
-assert.equal(labelKinds.exactNavDatedCarryAliasReviewCandidates,1);
+assert.equal(labelKinds.exactNavDatedCarryAliasReviewCandidates,2);
 assert.equal(labelKinds.allMismatchesResolved,false);
 assert.equal(labelKinds.automaticRepairAuthorized,false);
-assert(labelKinds.labelKindPairs.some(x=>x.pair==='DATED_FUND_NAV_CARRY__VS__UNDATED_FUND_NAV_CARRY'&&x.count===1));
+assert(labelKinds.labelKindPairs.some(x=>x.pair==='DATED_FUND_NAV_CARRY__VS__UNDATED_FUND_NAV_CARRY'&&x.count===2));
 const mismatchOut=summarizeSnapshotIntegrity({...packet,diagnostics:[mismatched]});
 assert.equal(mismatchOut.status,'RECALC_VALUES_CONFIRMED_NAV_CARRY_LABEL_REVIEW',
  'exact dated carry may be NON-WRITE label review but not full source parity');
@@ -109,6 +109,8 @@ assert.equal(mismatchOut.sourceLabelReview.fundSourceLabelMismatchRows,2);
 for(const delta of [
  {sourceMismatches:[{code:'F00001',expected:'FUND_NAV_CARRY@2026-11-12',
     stored:'FUND_NAV_CARRY'},...mismatched.sourceMismatches.slice(1)]},
+ {sourceMismatches:[mismatched.sourceMismatches[0],
+  {code:'F00002',expected:'FUND_NAV',stored:'FUND_NAV_CARRY'}]},
  {evalAmtMismatches:[{code:'F00001',expected:100,stored:101}]},
  {priceIntegrity:[{status:'FX_MISSING'}]},
  {totalEvalDifference:1},
