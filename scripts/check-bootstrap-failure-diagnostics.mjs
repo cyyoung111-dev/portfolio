@@ -2001,14 +2001,36 @@ console.log('✅ 실제 Settings/Bootstrap API 키 상태 복원·부동산 부�
   assert.equal(timeout.errorCode,'CLIENT_TIMEOUT');
 }
 
+// A transient HTTP 500 may still recover on the configured bounded retry.
+{
+  const x=setup();
+  // The generic VM fixture suppresses timers; this test needs a real retry tick.
+  x.ctx.setTimeout=setTimeout;
+  x.ctx.clearTimeout=clearTimeout;
+  let attempts=0;
+  x.ctx.fetch=async()=>{
+    attempts++;
+    return attempts===1 ? {ok:false,status:500} :
+      {ok:true,json:async()=>({status:'ok',settings:{}})};
+  };
+  const result=await x.ctx.requestJsonWithPolicy('https://example.invalid',{
+    preserveError:true,retry:1,delayMs:0,action:'getBootstrap'
+  });
+  assert.equal(result.status,'ok');
+  assert.equal(attempts,2,'transient 5xx keeps its existing recovery retry');
+  assert.equal(x.writes,0);
+}
+
 // Mobile 401/403/429 must remain distinguishable without logging URL or tokens.
 for (const [http,code] of [[401,'HTTP_401'],[403,'HTTP_403'],[429,'HTTP_429']]) {
   const x=setup();
-  x.ctx.fetch=async()=>({ok:false,status:http});
+  let attempts=0;
+  x.ctx.fetch=async()=>{attempts++;return {ok:false,status:http};};
   const result=await x.ctx.requestJsonWithPolicy('https://example.invalid/?secret=hidden',{
-    preserveError:true,retry:0,action:'getBootstrap'
+    preserveError:true,retry:2,action:'getBootstrap'
   });
   assert.equal(result.errorCode,code);
+  assert.equal(attempts,1,'terminal '+http+' must not waste GAS retries');
   assert.ok(!JSON.stringify(result).includes('hidden'));
   x.ctx.requestGsheetActionJson=async()=>({status:'error',errorCode:code});
   assert.equal(await x.ctx.loadSettings(),false);
