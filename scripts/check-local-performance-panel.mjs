@@ -22,7 +22,7 @@ for(const stage of ['load.full-update','load.full-restore','load.full-prices','l
  assert.match(fetch,new RegExp(stage.replaceAll('.','\\.'),'g'),'full-update stage missing: '+stage);
 assert.match(html,/settings_perf_monitor\.js\?v=20261115-5/);
 assert.match(sw,/settings_perf_monitor\.js\?v=20261115-5/);
-assert.match(sw,/portfolio-cache-20261115-10/);
+assert.match(sw,/portfolio-cache-20261115-11/);
 const start=source.indexOf('  const LOCAL_STAGE_LABELS');
 const end=source.indexOf('  function pftelemetry_renderSettingsHtml()',start);
 assert.ok(start>0&&end>start);

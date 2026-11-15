@@ -103,14 +103,16 @@ assert.match(html,/mgmt_stock\.js\?v=20261014-5/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/sw\.js\?v=\d{8}-\d+/);
 assert.match(sw,/portfolio-cache-\d{8}-\d+/);
-assert.match(html,/styles\/responsive\.css\?v=20261115-1/);
-assert.match(sw,/styles\/responsive\.css\?v=20261115-1/);
+assert.match(html,/styles\/responsive\.css\?v=20261115-2/);
+assert.match(sw,/styles\/responsive\.css\?v=20261115-2/);
 assert.match(html,/id="quickFetchBtn"/);
 assert.match(html,/id="quickPriceBtn"/);
 const responsive=fs.readFileSync('src/web/styles/responsive.css','utf8');
 const viewerUnified=fs.readFileSync('src/web/styles/ui-unified.css','utf8');
-assert.match(responsive,/\.price-status-meta\{flex-wrap:nowrap;overflow-x:auto/,
-  'mobile status chips should not stack');
+assert.match(responsive,/\.price-status-meta\{flex-wrap:wrap;overflow-x:visible/,
+  'mobile status and lookup sources must wrap, not clip horizontally');
+assert.match(responsive,/\.price-status-chips\{flex-wrap:wrap\}/,
+  'mobile status chips must remain readable without horizontal scrolling');
 assert.match(responsive,/@media\(max-width:480px\)/);
 assert.doesNotMatch(responsive,/\.action-update-card>\.action-refresh-btn\{/,
   'legacy mobile size overrides must not fight unified layout');

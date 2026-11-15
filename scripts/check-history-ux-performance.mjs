@@ -39,7 +39,43 @@ assert.match(render,/hist-filter-details/);
 assert.match(render,/hist-detail-panel/);
 assert.match(pipeline,/details class="hist-source-coverage"/);
 assert.match(css,/hist-kpi-grid/);
-assert.match(fetch,/details class="price-status-diagnostics"/);
+assert.match(fetch,/section class="price-lookup-summary" aria-label="조회 상세"/);
+assert.doesNotMatch(fetch,/details class="price-status-diagnostics"/);
+assert.match(fetch,/function _priceLookupDuration\(ms\)/);
+
+const lookupFns=fetch.slice(fetch.indexOf('function _priceLookupDuration('),fetch.indexOf('function _priceLookupDetail('));
+const layoutFn=fetch.slice(fetch.indexOf('function _priceStatusLayout('),fetch.indexOf('function _pricePortfolioSummary('));
+assert.ok(lookupFns.startsWith('function _priceLookupDuration('));
+assert.match(layoutFn,/lookupHtml = ''/,'lookup UI must be separate from the holdings status');
+const lookupCtx=vm.createContext({window:{_lastPriceLookup:{
+ clientRoundTripMs:69933,serverElapsedMs:14456,tossResultCount:37,
+ krxResultCount:0,recentHistoryFallbackCount:0,tossStatus:'SUCCESS',cacheHit:false
+}},Number,NaN});
+vm.runInContext(lookupFns+layoutFn,lookupCtx);
+const card=vm.runInContext('_priceLookupSummary()',lookupCtx);
+assert.match(card,/class="price-lookup-summary" aria-label="조회 상세"/);
+assert.match(card,/조회 상세/);
+assert.match(card,/왕복 <strong>69\.9초<\/strong>/);
+assert.match(card,/GAS 14\.5초/);
+assert.match(card,/NH 37건/);
+assert.match(card,/KRX 0건/);
+assert.match(card,/GOOGLEFINANCE 미사용/);
+for(const action of ['providers','recent-history','timings'])
+ assert.match(card,new RegExp('data-price-detail="'+action+'"'));
+assert.doesNotMatch(card,/<details|<summary|69933ms|14456ms/);
+const layout=vm.runInContext(
+ '_priceStatusLayout("완료 39/39개","<span>거래 338건 · 보유 61건</span>","",_priceLookupSummary())',
+ lookupCtx);
+assert.ok(layout.indexOf('거래 338건')>0 && layout.indexOf('거래 338건')<layout.indexOf('조회 상세'),
+ 'holdings status row must precede the independent provider details');
+assert.match(layout,/class="price-status-meta"/);
+assert.match(layout,/id="price-lookup-detail" class="price-lookup-detail" hidden/);
+lookupCtx.window._lastPriceLookup={clientRoundTripMs:null,serverElapsedMs:undefined,
+ tossResultCount:0,krxResultCount:0,tossStatus:'NOT_RUN',recentHistoryFallbackCount:0};
+assert.match(vm.runInContext('_priceLookupSummary()',lookupCtx),/왕복 <strong>미확인<\/strong>/);
+assert.equal(vm.runInContext('_priceLookupDuration(-1)',lookupCtx),'미확인');
+assert.equal(vm.runInContext('_priceLookupDuration(990)',lookupCtx),'1.0초');
+
 const fullUpdate=fetch.slice(fetch.indexOf('async function quickFetchByDate()'),fetch.indexOf('function getDateStr(daysAgo)'));
 assert.ok(fullUpdate.includes('Delay the expensive full view repaint'));
 assert.ok(fullUpdate.includes('let results = await fetchFromGsheet(targetDate, { forceFresh: true, persist: true })'));
