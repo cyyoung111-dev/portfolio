@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+// #734/#860 — GAS 9.295 versioned read-only release checks.
+// No price requests, triggers, NAV imports, Snapshot rebuilds or mutations.
+import {appendFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
+import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
+import {runBackfillStatus} from './diagnose-backfill-status.mjs';
+
+const ID=/^(?:tr|srv)_[A-Za-z0-9_-]{6,128}$/;
+const HASH=/^[0-9a-f]{64}$/;
+const fail=code=>{throw Error('GAS9295_READONLY_'+code)};
+const goodInt=(n,max)=>Number.isSafeInteger(n)&&n>=0&&n<=max;
+
+export function assessGas9295ReleaseState({settings,ledger,gate,status,
+ expectedVersion='9.294',requireIdle=true}={}){
+ if(!['9.294','9.295'].includes(expectedVersion))fail('EXPECTED_VERSION_INVALID');
+ if(settings?.status!=='ok'||settings.gasVersion!==expectedVersion
+  ||!settings.settings||typeof settings.settings!=='object'
+  ||Array.isArray(settings.settings)
+  ||gate?.status!=='ok'||gate.gasVersion!==expectedVersion
+  ||status?.gasVersion!==expectedVersion)fail('VERSION_MISMATCH');
+ if(ledger?.status!=='ok'||ledger.tradeLedgerProtocolVersion!==2
+  ||!Array.isArray(ledger.trades)||ledger.trades.length>50000
+  ||!HASH.test(String(ledger.ledgerRevision||'')))fail('LEDGER_UNVERIFIED');
+ const ids=new Set();
+ for(const item of ledger.trades){
+  if(!item||!ID.test(item.id)||ids.has(item.id))fail('LEDGER_IDS_UNVERIFIED');
+  ids.add(item.id);
+ }
+ const g=gate.writerGate;
+ if(!g||g.mode!=='OPEN'||g.repairAuthorized!==false
+  ||!goodInt(g.activeCount,24)||!Array.isArray(g.activeOwners)
+  ||g.activeOwners.length!==g.activeCount
+  ||!goodInt(g.expiredUnconfirmedCount,100000)
+  ||!goodInt(g.timeoutRetirementCandidates,g.activeCount))
+   fail('WRITER_GATE_UNVERIFIED');
+ // Do not emit owners, trade rows, financial data or the raw revision.
+ if(JSON.stringify(g).includes('"token"'))fail('GATE_SECRET_EXPOSED');
+ if(requireIdle&&g.activeCount!==0)fail('WRITER_ACTIVE');
+ if(requireIdle&&g.timeoutRetirementCandidates!==0)fail('WRITER_RECONCILIATION_PENDING');
+ if(status?.mode!=='READ_ONLY'||status.gasVersionReady!==true
+  ||status.triggerReady!==true
+  ||status.tradeLedgerWriteUnverified!==false
+  ||status.pendingTradeSnapshotRebuildFrom!=='-'
+  ||!goodInt(status.tradeSnapshotDeferredCount,600)
+  ||!goodInt(status.pendingCount,600)
+  ||!status.close||typeof status.close!=='object')
+   fail('AUTOMATION_STATUS_UNVERIFIED');
+ if(requireIdle&&(status.tradeSnapshotDeferredCount!==0
+    ||status.pendingCount!==0))fail('PENDING_FINANCIAL_RECOVERY');
+ if(requireIdle&&(status.close.stage==='PRICE'
+    ||status.close.stage==='FUND'
+    ||status.close.stage==='FUND_PENDING'
+    ||status.close.fundState==='IN_PROGRESS'
+    ||['RUNNING_RECENT_UNCONFIRMED','RUNNING_START_UNAVAILABLE',
+        'FUTURE_START_UNVERIFIED'].includes(status.tradeSnapshotWorkerRuntimeAssessment)))
+   fail('CLOSE_OR_WORKER_ACTIVE');
+ if(!['NORMAL','WARNING'].includes(status.overallStatus))
+   fail('AUTOMATION_NOT_STABLE');
+ return {
+  kind:'GAS9295_READONLY_RELEASE_STATE',status:'VERIFIED',
+  version:expectedVersion,tradeLedgerProtocolVersion:2,
+  tradeRows:ids.size,writerGateMode:'OPEN',activeCount:g.activeCount,
+  tradeSnapshotDeferredCount:status.tradeSnapshotDeferredCount,
+  pendingCount:status.pendingCount,
+  snapshotIndependentRowProof:false,
+  // Revision remains private in the caller; never print it.
+  financeWrites:0,propertyWrites:0,gasDeployments:0
+ };
+}
+
+async function request(url,token,action,fetchImpl) {
+ const urlObj=new URL(url);
+ const isGet=action==='getWriterGateStatus';
+ const options={method:isGet?'GET':'POST',
+  redirect:'follow',signal:AbortSignal.timeout(isGet?30000:60000)};
+ if(isGet) {
+  urlObj.searchParams.set('action',action);
+  urlObj.searchParams.set('accessToken',token);
+ } else {
+  options.headers={'content-type':'application/x-www-form-urlencoded;charset=UTF-8'};
+  options.body=new URLSearchParams({action,accessToken:token});
+ }
+ let response;
+ try{response=await fetchImpl(isGet?urlObj.toString():url,options)}
+ catch{fail('NETWORK_UNVERIFIED')}
+ if(response?.ok!==true)fail('HTTP_UNVERIFIED');
+ try{return await response.json()}catch{fail('JSON_UNVERIFIED')}
+}
+
+export async function verifyGas9295ReleaseReadOnly({url,token,
+ expectedVersion='9.294',fetchImpl=fetch}={}) {
+ const endpoint=validateWebAppUrl(url);
+ if(typeof token!=='string'||token.length<12)fail('AUTH_MISSING');
+ const settings=await request(endpoint,token,'getSettings',fetchImpl);
+ const ledger=await request(endpoint,token,'getTrades',fetchImpl);
+ const gate=await request(endpoint,token,'getWriterGateStatus',fetchImpl);
+ const status=await runBackfillStatus({url:endpoint,token,fetchImpl});
+ const summary=assessGas9295ReleaseState({
+  settings,ledger,gate,status,expectedVersion
+ });
+ // Recheck immediately before publication: an intervening trade or writer
+ // must not be confused with the static same-moment proof.
+ if(expectedVersion==='9.294') {
+  const verifyLedger=await request(endpoint,token,'getTrades',fetchImpl);
+  const verifyGate=await request(endpoint,token,'getWriterGateStatus',fetchImpl);
+  if(verifyLedger?.status!=='ok'
+    ||verifyLedger.tradeLedgerProtocolVersion!==2
+    ||verifyLedger.ledgerRevision!==ledger.ledgerRevision
+    ||!Array.isArray(verifyLedger.trades)
+    ||verifyLedger.trades.length!==ledger.trades.length
+    ||verifyGate?.status!=='ok'
+    ||verifyGate.gasVersion!==expectedVersion
+    ||verifyGate.writerGate?.mode!=='OPEN'
+    ||verifyGate.writerGate?.activeCount!==0)
+   fail('PREFLIGHT_STATE_MOVED');
+ }
+ return summary;
+}
+export async function verifyGas9295PostdeployWithRetry({verify,
+ delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),maxAttempts=3}={}){
+ if(typeof verify!=='function'||typeof delay!=='function'
+  ||!Number.isSafeInteger(maxAttempts)||maxAttempts<1||maxAttempts>3)
+   fail('RETRY_CONTRACT_INVALID');
+ for(let attempt=1;attempt<=maxAttempts;attempt++){
+  try{
+   const result=await verify();
+   if(result?.status!=='VERIFIED'||result.version!=='9.295'
+      ||result.financeWrites!==0)fail('POSTDEPLOY_PROOF_INVALID');
+   return {...result,readbackAttempts:attempt};
+  }catch(e){
+   if(e?.message!=='GAS9295_READONLY_VERSION_MISMATCH'||attempt===maxAttempts)
+    throw e;
+   await delay(3000*attempt);
+  }
+ }
+ fail('POSTDEPLOY_RETRY_EXHAUSTED');
+}
+const invoked=process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href;
+if(invoked) {
+ const mode=process.argv[2];
+ if(!['pre','post'].includes(mode))fail('CLI_MODE_INVALID');
+ try {
+  const verify=()=>verifyGas9295ReleaseReadOnly({
+   url:process.env.GAS_WEB_APP_URL,
+   token:process.env.GAS_ACCESS_TOKEN,
+   expectedVersion:mode==='pre'?'9.294':'9.295'
+  });
+  const result=mode==='pre'?await verify()
+    :await verifyGas9295PostdeployWithRetry({verify});
+  console.log(JSON.stringify(result));
+  if(mode==='pre'&&process.env.GITHUB_OUTPUT)
+   appendFileSync(process.env.GITHUB_OUTPUT,'verified=true\n');
+ }catch(e){
+  const message=String(e?.message||'');
+  console.error(/^GAS9295_READONLY_[A-Z_]+$/.test(message)
+   ?message:'GAS9295_READONLY_UNVERIFIED');
+  process.exitCode=1;
+ }
+}
