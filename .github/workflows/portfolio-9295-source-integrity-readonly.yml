@@ -28,7 +28,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - run: npm ci --ignore-scripts --no-audit
       - name: Synthetic source reconciliation and no-write contract
         run: node scripts/check-post9295-source-reconciliation-readonly.mjs
   audit:
