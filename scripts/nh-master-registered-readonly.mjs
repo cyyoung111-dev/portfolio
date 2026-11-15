@@ -22,17 +22,24 @@ export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
   catch{throw Error('NH_MASTER_PROBE_JSON_UNVERIFIED');}
  };
  const master=await call('getCodeListReadOnly');
- // During a 9.284 -> 9.285 cutover both versions are recognized.
- // Forensic callers can still request a single exact GAS version.
+ // Admit only explicitly audited read-only quote contract releases.
+ // 9.295 is production as of release #43677984917; never accept an unknown
+ // future 9.x solely because its number is greater.
+ // Forensic callers can require one exact GAS version.
  const versionOk=expectedGasVersion===null
-   ?['9.284','9.285'].includes(master?.gasVersion)
+   ?['9.284','9.285','9.294','9.295'].includes(master?.gasVersion)
    :master?.gasVersion===expectedGasVersion;
  if(master?.status!=='ok'||master?.readOnly!==true
     ||!versionOk||!Array.isArray(master.codes))
   throw Error('NH_MASTER_PROBE_MASTER_UNVERIFIED');
  const codes=selectNhReadbackCodes(master.codes);
  if(codes.length<1||codes.length>2)throw Error('NH_MASTER_PROBE_SAMPLE_UNVERIFIED');
+ const priceStart=performance.now();
  const price=await call('getPrices',{codes:codes.join(','),persist:'0'});
+ const quoteHttpElapsedMs=Math.round(performance.now()-priceStart);
+ const rawServerMs=Number(price?.priceLookup?.serverElapsedMs);
+ const quoteServerElapsedMs=Number.isFinite(rawServerMs)&&rawServerMs>=0&&rawServerMs<=90000
+   ?Math.round(rawServerMs):null;
  const providerConfirmed=price?.priceLookup?.currentProvider==='NH';
  const reportedCount=Number(price?.priceLookup?.tossResultCount);
  const positiveReturned=codes.filter(c=>Number.isFinite(Number(price?.prices?.[c]))
@@ -44,7 +51,9 @@ export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
   usdRows:master.codes.filter(x=>x?.currency==='USD').length,
   requested:codes.length,providerConfirmed,
   reportedCount:Number.isSafeInteger(reportedCount)&&reportedCount>=0?reportedCount:null,
-  positiveReturned,persist:false,financialWrites:0};
+  positiveReturned,quoteHttpElapsedMs,quoteServerElapsedMs,
+  // A two-code sample cannot prove all registered instruments or EOD close.
+  persist:false,financialWrites:0};
  report(summary);
  if(price?.status!=='ok')throw Error('NH_MASTER_PROBE_RESPONSE_UNVERIFIED');
  if(!providerConfirmed)throw Error('NH_MASTER_PROBE_PROVIDER_UNVERIFIED');
@@ -56,6 +65,7 @@ export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  try{const result=await runRegisteredNhReadOnly({
   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+  expectedGasVersion:process.env.NH_EXPECTED_GAS_VERSION||null,
   report:row=>console.log(JSON.stringify(row))});
   console.log(JSON.stringify(result));
  }catch(e){

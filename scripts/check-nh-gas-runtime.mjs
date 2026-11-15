@@ -457,6 +457,10 @@ assert.equal(nhProbe.krwRows,3);
 assert.equal(nhProbe.usdRows,0);
 assert.equal(nhProbe.fullCoverageVerified,false);
 assert.equal(nhProbe.financialWrites,0);
+assert.ok(Number.isInteger(nhProbe.quoteHttpElapsedMs)&&nhProbe.quoteHttpElapsedMs>=0,
+ 'read-only quote probe reports a bounded non-sensitive HTTP duration');
+assert.equal(nhProbe.quoteServerElapsedMs,null,
+ 'missing GAS server timings must be reported as unmeasured, not fabricated');
 assert.deepEqual(nhProbeCalls,[{action:'getCodeListReadOnly',persist:null},
  {action:'getPrices',persist:'0'}]);
 assert.equal(nhProbeReports.length,1);
@@ -464,8 +468,8 @@ assert.doesNotMatch(JSON.stringify(nhProbeReports),/005930|000660|F00001|private
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
  expectedGasVersion:'9.283',fetchImpl:nhProbeFetch}),/MASTER_UNVERIFIED/);
-// The 9.284 live version and the successor 9.285 both work, but unreviewed
-// versions and explicit pinned-version mismatches continue to fail closed.
+// Historical 9.284/9.285 and vetted production 9.294/9.295 work, but
+// unreviewed future versions and mismatched explicit pins fail closed.
 const fetchVersion=version=>async(url,options)=>{
  const request=new URLSearchParams(options.body);
  if(request.get('action')==='getCodeListReadOnly')
@@ -478,12 +482,27 @@ const nextProbe=await runRegisteredNhReadOnly({
 });
 assert.equal(nextProbe.gasVersion,'9.285');
 assert.equal(nextProbe.persist,false);
+for(const version of ['9.294','9.295']){
+ const probe=await runRegisteredNhReadOnly({
+  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+  fetchImpl:fetchVersion(version),expectedGasVersion:version});
+ assert.equal(probe.gasVersion,version);
+ assert.equal(probe.requested,2);
+ assert.equal(probe.persist,false);
+ assert.equal(probe.fullCoverageVerified,false);
+}
+await assert.rejects(runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+ expectedGasVersion:'9.295',fetchImpl:fetchVersion('9.294')}),/MASTER_UNVERIFIED/);
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
  expectedGasVersion:'9.284',fetchImpl:fetchVersion('9.285')}),/MASTER_UNVERIFIED/);
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
  fetchImpl:fetchVersion('9.286')}),/MASTER_UNVERIFIED/);
+await assert.rejects(runRegisteredNhReadOnly({
+ url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
+ fetchImpl:fetchVersion('9.296')}),/MASTER_UNVERIFIED/);
 
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'',
@@ -511,6 +530,8 @@ for(const scenario of ['COUNT_MISSING','PRICE_MISSING','WRONG_PROVIDER']){
 const nhProbeWorkflow=fs.readFileSync('.github/workflows/nh-master-registered-readonly.yml','utf8');
 assert.match(nhProbeWorkflow,/paths: \['\.github\/workflows\/nh-master-registered-readonly\.yml'\]/);
 assert.match(nhProbeWorkflow,/run: node scripts\/nh-master-registered-readonly\.mjs/);
+assert.match(nhProbeWorkflow,/NH_EXPECTED_GAS_VERSION: '9.295'/,
+ 'production read-only one-shot must pin the published release');
 assert.doesNotMatch(nhProbeWorkflow,/GAS_DEPLOY_DRY_RUN|--apply|saveNhConfig|retireLegacyMarketData/i);
 
 // Reproduce the reviewed valuation defect using the actual fetch normalization
