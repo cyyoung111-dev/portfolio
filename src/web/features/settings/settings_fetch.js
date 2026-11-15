@@ -500,6 +500,7 @@ async function quickFetchByDate() {
   const targetDate = dateInput.value;
 
   const fullUpdateStartedAt = Date.now();
+  let fullUpdateSucceeded = false;
   _fullPortfolioUpdateInProgress = true;
   btn.disabled = true;
   if (priceBtn) priceBtn.disabled = true;
@@ -616,6 +617,7 @@ async function quickFetchByDate() {
       refreshAll();
       if (typeof _recordLookupPerf === 'function')
         _recordLookupPerf('load.full-render', Date.now() - renderStartedAt);
+      fullUpdateSucceeded = true;
     } else {
       setStatusLabel('❌ 자료 복원 완료 · ' + targetDate + ' 가격 조회 결과 없음 · 보유종목 코드와 가격 원천을 확인해주세요' + restoreWarning, 'error');
       try { refreshAll(); } catch(e) {}
@@ -631,7 +633,8 @@ async function quickFetchByDate() {
     btn.removeAttribute('aria-busy');
     btn.querySelector('span').textContent = '업데이트';
     if (typeof _recordLookupPerf === 'function')
-      _recordLookupPerf('load.full-update', Date.now() - fullUpdateStartedAt);
+      _recordLookupPerf('load.full-update', Date.now() - fullUpdateStartedAt,
+        fullUpdateSucceeded ? 'ok' : 'error');
   }
 }
 
