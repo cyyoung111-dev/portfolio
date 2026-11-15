@@ -80,6 +80,14 @@ assert.match(responsiveCss, /\.price-status-chip\{flex:0 0 auto\}/,
   '모바일도 가격 상태 칩의 PC 패딩을 공유해야 합니다.');
 assert.match(css, /--font-size-body:16px/);
 assert.match(css, /--font-size-body-mobile:15px/);
+assert.match(baseCss, /body,button,input,select,textarea\{font-family:var\(--font-ui\)\}/,
+  '전체 화면과 폼 컨트롤은 사용자 선택 글꼴을 공통 상속해야 합니다.');
+assert.doesNotMatch(baseCss,/font-family:'Pretendard Variable'/,
+  '사용자 글꼴 선택을 무시하는 하드코딩은 제거합니다.');
+assert.match(theme,/let _currentFontSize = 11;/,
+  '새 기기 기본 글자 크기는 11단계로 시작해야 합니다.');
+assert.match(theme,/lsGet\(FONT_SIZE_STORAGE_KEY, 11\) : 11/,
+  '기존 사용자 저장값은 우선하고 저장값이 없는 경우에만 11단계를 적용해야 합니다.');
 for (const size of [8, 9, 10, 11, 12]) {
   assert.match(css, new RegExp(`html\\[data-ui-font-size="${size}"\\]\\{--type-caption:${size}px`), `${size}px 사용자 글자 크기 토큰 누락`);
 }
@@ -202,6 +210,21 @@ assert.match(unifiedCss, /\.action-bar \.price-status-content\s*\{[^}]*display:g
  '상태 제목과 조회 상세는 한 줄 격자로 표시합니다.');
 assert.match(unifiedCss, /\.action-bar \.price-status-content > \.price-lookup-summary\[open\]\s*\{[^}]*grid-column:1\/-1;/,
  '펼친 조회 상세는 화면 가로 전체를 사용합니다.');
+// Final typography owner: value/title/body/caption should share the same user size tokens.
+assert.match(unifiedCss,/\.wrap > \.hdr h1\s*\{[^}]*font-size:calc\(var\(--type-title\) \+ 4px\)/,
+ '브랜드 제목의 크기가 독립 rem 값을 사용하면 안 됩니다.');
+assert.match(unifiedCss,/\.wrap \.sum-row \.sc \.val\s*\{[^}]*font-size:calc\(var\(--type-value\) \+ 3px\)/,
+ '요약 KPI 숫자를 기존 과대형 1.4rem으로 되돌리면 안 됩니다.');
+assert.match(unifiedCss,/\.wrap \.sum-row \.sc \.lbl\s*\{[^}]*font-size:var\(--type-caption\)/,
+ '요약 라벨은 공통 caption 크기를 사용합니다.');
+assert.match(unifiedCss,/#view-area\[data-active-view\] :is\(\.hist-kpi-number,\.hist-extreme-primary,\.hist-mdd-value\)/,
+ '손익 핵심 값은 공통 숫자 크기 정책을 따라야 합니다.');
+assert.match(unifiedCss,/#view-area\[data-active-view\] :is\(\.div-stat-value,\.trade-stat-value,\.metric-value\)/,
+ '배당·거래·공통 지표의 숫자 크기가 일치해야 합니다.');
+assert.match(unifiedCss,/@media\(max-width:768px\)\s*\{\s*\.wrap > \.hdr h1\s*\{font-size:calc\(var\(--type-title\) \+ 2px\)\}/,
+ '모바일 브랜드 제목은 데스크톱보다 작아야 합니다.');
+assert.doesNotMatch(unifiedCss,/font-size:\s*3[0-9]px;/,
+ '일괄 타이포그래피가 30px 이상의 거대 숫자를 새로 만들면 안 됩니다.');
 const compactPhoneCss=unifiedCss.slice(unifiedCss.indexOf('@media(max-width:480px)'));
 assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn\s*\{[\s\S]*?height:36px;[\s\S]*?min-height:36px;/,
  '모바일 업데이트·현재가 버튼 높이를 36px로 통일해야 합니다.');
