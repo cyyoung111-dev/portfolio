@@ -210,10 +210,23 @@ assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refres
 assert.match(compactPhoneCss, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
  '모바일 업데이트·현재가는 동일한 두 열을 유지합니다.');
 assert.doesNotMatch(compactPhoneCss,/height:46px;/,'기존 큰 버튼 높이로 회귀하면 안 됩니다.');
-assert.match(unifiedCss, /\.acct-filter-btn\.is-multiline\s*\{[^}]*flex-direction:column;/,
-  '연금·IRP·ISA 계좌 필터는 증권사와 계좌 유형을 두 줄로 표시합니다.');
+assert.match(unifiedCss, /\.acct-filter-track\s*\{[^}]*display:grid;[^}]*grid-template-columns:repeat\(var\(--acct-filter-count\),minmax\(30px,1fr\)\)/,
+  '모바일 계좌 필터는 줄바꿈 없이 1행으로 표시해야 합니다.');
+assert.match(unifiedCss, /\.acct-filter-track \.acct-filter-btn\.is-multiline\s*\{[^}]*flex-direction:column;/,
+  '미래에셋 계좌를 2/3행으로 표시해야 합니다.');
+assert.match(unifiedCss, /\.acct-order-list\s*\{[^}]*display:grid;/,
+  '계좌 순서 편집 UI를 유지합니다.');
 const acctView = fs.readFileSync('src/web/views/views_portfolio.js','utf8');
 assert.match(acctView, /data-value="\$\{_escapeHtml\(a\)\}"/,
   '계좌 원본 식별자를 변경하면 안 됩니다.');
 assert.match(acctView, /acct-filter-type/,
-  '계좌 유형의 두 번째 줄을 유지합니다.');
+  'ISA·IRP·연금 계좌 유형의 별도 행을 유지합니다.');
+assert.match(acctView, /broker === '미래에셋'/,
+  '미래에셋 증권사 이름을 미래/에셋 두 줄로 분리합니다.');
+assert.match(acctView, /ACCT_FILTER_DISPLAY_ORDER_KEY = 'pf_ui_acct_filter_order_v1'/,
+  '금융 계좌 원장 순서와 별도의 표시 순서 저장 키를 유지합니다.');
+assert.doesNotMatch(acctView, /saveAcctOrder\(/,
+  'UI 정렬 변경이 금융 계좌 원장 순서를 덮어쓰지 않아야 합니다.');
+const events = fs.readFileSync('src/web/app/event_delegation.js','utf8');
+for (const cmd of ['acct-order-toggle','acct-order-up','acct-order-down','acct-order-reset'])
+  assert.ok(events.includes("action === '" + cmd + "'"), '계좌 순서 버튼 이벤트 누락: '+cmd);
