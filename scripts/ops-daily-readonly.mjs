@@ -8,6 +8,7 @@ import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {verifyLateScheduledMorningSent} from './telegram-morning-late-sent-readonly.mjs';
 import {verifyLateCloseSent} from './telegram-close-late-verdict.mjs';
 import {auditKbNavPostflight} from './audit-kb-nav-postflight-readonly.mjs';
+import {auditSnapshotExact} from './issue734-snapshot-exact-readonly.mjs';
 
 const REPO='cyyoung111-dev/portfolio',DAY=/^\d{4}-\d{2}-\d{2}$/;
 function kstClock(now){
@@ -36,7 +37,7 @@ function isDue(now,day,minute){
  return clock.day>day||(clock.day===day&&clock.minute>=minute);
 }
 function safeStatus(value){return /^[A-Z0-9_]{1,90}$/.test(String(value||''))?value:'UNVERIFIED';}
-export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport}){
+export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,snapshotEvidence}){
  if(!DAY.test(date)||krxSessionStatus(date)!=='OPEN'
     ||!(now instanceof Date)||!Number.isFinite(now.getTime())
     ||date>kstClock(now).day)throw Error('OPS_CLASSIFY_INVALID');
@@ -67,13 +68,21 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
    isDue(now,date,21*60)?'EVIDENCE_MISSING':'WAITING',
   scope:'GAS_PERSISTED_CLOSE_FLAGS_NOT_ALL_SNAPSHOT_ROWS',
   verified:closePersisted};
- const snapshot={state:'NOT_FULLY_AUDITED',verified:false,
-  scope:'39_ROW_SNAPSHOT_AND_BROKER_RECONCILIATION_OUT_OF_SCOPE'};
+ const snapOk=snapshotEvidence?.date===date&&snapshotEvidence?.state==='VERIFIED'
+   &&snapshotEvidence.internalRevaluationVerified===true
+   &&snapshotEvidence.externalWriterExcludedVerified===false
+   &&snapshotEvidence.exactWriterOwnerVerified===false
+   &&snapshotEvidence.financialWrites===0;
+ const snapshot={state:snapOk?'PASS':'NOT_FULLY_AUDITED',verified:snapOk,
+  scope:'GAS_STORED_VS_RECOMPUTED_SNAPSHOT_NOT_EXTERNAL_WRITER_OR_OFFICIAL_PRICE',
+  storedRows:snapOk?snapshotEvidence.storedRows:null};
+ const coreVerified=morning.verified&&close.verified&&nav.verified&&savedClose.verified;
  return {kind:'PORTFOLIO_DAILY_OPERATIONS_READ_ONLY',date,
   morningTelegram:morning,closeTelegram:close,kbNav:nav,
   savedClose,snapshot,
-  overall:morning.verified&&close.verified&&nav.verified&&savedClose.verified
-    ?'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED':'CORE_EVIDENCE_INCOMPLETE',
+  overall:coreVerified?(snapOk?'CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED'
+    :'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED'):'CORE_EVIDENCE_INCOMPLETE',
+  writerOwnershipVerified:false,externalWriterExcludedVerified:false,
   financialWrites:0,gasWrites:0,telegramSends:0,deployments:0};
 }
 // Observing an admitted workflow run only says execution was attempted.
@@ -139,12 +148,12 @@ export async function runDailyOperations({
  fetchImpl=fetch,navReader=auditKbNavPostflight,
  morningReader=verifyLateScheduledMorningSent,
  closeReader=verifyLateCloseSent,
- navRunReader=navRunnerEvidence}={}){
+ navRunReader=navRunnerEvidence,snapshotReader=auditSnapshotExact}={}){
  if(repository!==REPO)throw Error('OPS_REPOSITORY_UNVERIFIED');
  const date=operatingReferenceDate(now);
  const morningDue=isDue(now,date,490),closeDue=isDue(now,date,1080),
   navDue=isDue(now,date,21*60+10);
- let morningProof=false,closeProof=false,navReport=null;
+ let morningProof=false,closeProof=false,navReport=null,snapshotEvidence=null;
  if(morningDue){
   try{const p=await morningReader({date,repository,token,fetchImpl});morningProof=p?.verifiedSent===true;}
   catch{morningProof=false;}
@@ -163,7 +172,17 @@ export async function runDailyOperations({
   try{navReport=await navReader({now,url:gasUrl,token:gasToken,fetchImpl});}
   catch{navReport=null;}
  }
- return classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport});
+ // Only after the verified close checkpoint: never fetch a partial snapshot
+ // while a financial Writer could still be in its closing window.
+ if(navDue&&gasUrl&&gasToken&&navReport?.closeDate===date
+   &&navReport?.closeComplete===true&&navReport?.priceOk===true
+   &&navReport?.fundOk===true) {
+   try{snapshotEvidence=await snapshotReader({date,url:gasUrl,token:gasToken,fetchImpl});}
+   catch{snapshotEvidence=null;}
+ }
+ return classifyDailyOperations({
+  date,now,morningProof,closeProof,navRuns,navReport,snapshotEvidence
+ });
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
@@ -182,9 +201,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    appendFileSync(process.env.GITHUB_STEP_SUMMARY,
     '### Daily portfolio evidence (read only)\n'+
     fields.map(k=>'- '+k+': **'+summary[k].state+'** ('+summary[k].scope+')').join('\n')+
-    '\nOverall: **'+summary.overall+'**. This never certifies all 39 Snapshot rows.\n');
+    '\nOverall: **'+summary.overall+'**. Snapshot is internal reconciliation only; external writer exclusion and official price origin remain unverified.\n');
   }
-  if(summary.overall!=='CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED')
+  if(!['CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED',
+   'CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED'].includes(summary.overall))
    process.exitCode=2;
  }catch{
   console.error('OPS_DAILY_VERDICT_UNVERIFIED');process.exitCode=2;
