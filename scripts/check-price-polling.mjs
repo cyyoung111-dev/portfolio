@@ -4,6 +4,7 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync('src/web/features/settings/settings_fetch.js', 'utf8');
 const portfolioSource = fs.readFileSync('src/web/domain/portfolio/portfolio_service.js', 'utf8');
+const dataSource = fs.readFileSync('src/web/domain/portfolio/data.js', 'utf8');
 const netSource = fs.readFileSync('src/web/features/settings/settings_net.js', 'utf8');
 assert.match(netSource, /function _recordLookupPerf\(stage, elapsedMs/);
 assert.match(netSource, /samples.length > 60/);
@@ -47,6 +48,7 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
   initialPrice = 1000, initialPriceLabel = '', initialUpdated = '2026.10.08',
   existingRows = false, exchangeRatesBefore = {}, exchangeRatesAfter = null } = {}) => {
   let networkCount = 0, repaintCount = 0, summaryCount = 0, cacheInvalidations = 0;
+  let preservedTabCalls = 0;
   let persistedCount = 0, badge = null, status = null, connected = true;
   const releaseConcurrentFetch = [];
   let generation = 1;
@@ -103,8 +105,9 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
     renderSummary:()=>{ summaryCount++; },
     // Other views keep the existing refreshAll contract. A Settings view must
     // never call it because that remounts the automation-status panel.
-    refreshAll:()=> {
+    refreshAll:(options)=> {
       repaintCount++;
+      if (options?.preserveTabBar === true) preservedTabCalls++;
       vm.runInContext('recomputeRows()', context);
       cacheInvalidations++;
       summaryCount++;
@@ -129,7 +132,7 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
   } else {
     await vm.runInContext('pollCurrentPrices()', context);
   }
-  return {networkCount,repaintCount,summaryCount,cacheInvalidations,persistedCount,cache,rows,
+  return {networkCount,repaintCount,summaryCount,cacheInvalidations,preservedTabCalls,persistedCount,cache,rows,
     dates:savedPriceDates, updated:context.lastUpdated, badge,status};
 };
 
@@ -159,6 +162,8 @@ for (const contextType of ['epoch','connection']) {
   assert.equal(switched.summaryCount,1);
 }
 assert.equal(account.repaintCount,1,'계좌 화면에서는 전체 새로 그리기');
+assert.equal(account.preservedTabCalls,1,'가격만 변경 시 상단 탭 DOM은 재생성하지 않음');
+assert.equal(settings.preservedTabCalls,0,'설정 화면은 기존 별도 revalue 경로 유지');
 assert.equal(account.rows[0].evalAmt,24690);
 assert.equal(account.cacheInvalidations,1);
 assert.equal(account.summaryCount,1);
@@ -239,6 +244,7 @@ for (const view of ['acct','gsheet']) {
     existingRows:true});
   assert.equal(noChange.networkCount,1,'fresh source still checked');
   assert.equal(noChange.repaintCount,0,'unchanged quote must not repaint');
+  assert.equal(noChange.preservedTabCalls,0,'변동 없는 가격은 탭 업데이트도 요구하지 않음');
   assert.equal(noChange.summaryCount,0,'unchanged quote must not recalculate totals');
   assert.equal(noChange.cacheInvalidations,0,'unchanged quote must retain view cache');
   assert.equal(noChange.rows[0].evalAmt,24690,'existing financial valuation preserved');
@@ -267,6 +273,29 @@ const changedQuote=await testPoll({view:'acct',initialPrice:12000,
   existingRows:true});
 assert.equal(changedQuote.repaintCount,1);
 assert.equal(changedQuote.rows[0].evalAmt,24690);
+// Exercise the real renderer, not just the price-polling mock: normal data
+// restore still rebuilds tabs, but quote-only updates preserve the DOM.
+const refreshSource = dataSource.match(/function refreshAll\(options\)\s*\{([\s\S]*?)\n\}/);
+assert.ok(refreshSource,'the production refreshAll must support a safe render option');
+const renderSteps=[];
+const refreshCtx=vm.createContext({
+  recomputeRows:()=>renderSteps.push('rows'),
+  invalidateViewCache:()=>renderSteps.push('invalidate'),
+  renderSummary:()=>renderSteps.push('summary'),
+  buildTabBar:()=>renderSteps.push('tabs'),
+  shouldRenderCharts:()=>true,
+  renderDonut:()=>renderSteps.push('donut'),
+  renderView:()=>renderSteps.push('view'),
+  currentView:'acct'
+});
+vm.runInContext('function refreshAll(options) {'+refreshSource[1]+'\n}',refreshCtx);
+vm.runInContext('refreshAll()',refreshCtx);
+assert.deepEqual(renderSteps,['rows','invalidate','summary','tabs','donut','view'],
+  'full restore/ledger changes must preserve the original refresh path');
+renderSteps.length=0;
+vm.runInContext('refreshAll({preserveTabBar:true})',refreshCtx);
+assert.deepEqual(renderSteps,['rows','invalidate','summary','donut','view'],
+  'price-only updates skip only tab rebuilding, never revaluation or charts');
 console.log('PRICE_POLL_UNCHANGED_RENDER_SKIP_PASS equalQuotes=2 dateFXChanges=2 firstPaint=1');
 console.log('✅ 현재가 polling 설정 탭 rows·손익·캐시 갱신, DOM 보존, 비영속성, 실패/hidden 회귀 통과');
 

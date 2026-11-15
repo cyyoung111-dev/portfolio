@@ -80,8 +80,10 @@ assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말�
 
 assert.match(html,/settings_sync\.js\?v=20261103-1/);
 
-assert.ok(html.includes('domain/portfolio/data.js?v=20261028-6'));
-assert.ok(sw.includes('domain/portfolio/data.js?v=20261028-6'));
+const portfolioDataAsset = html.match(/domain\/portfolio\/data\.js\?v=([\d-]+)/)?.[0];
+assert.ok(portfolioDataAsset,'portfolio model script must be explicitly versioned');
+assert.ok(sw.includes(portfolioDataAsset),
+  'HTML and PWA offline assets must use the same portfolio model version');
 
 // A partial master preview must not allow any mutation via the management
 // entry points. Both UI disable and handler-level guards are required.

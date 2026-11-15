@@ -493,9 +493,19 @@ function setStatusLabel(html, type) {
   // type: 'idle' | 'loading' | 'ok' | 'warn' | 'error'
   const el = $el('price-updated-label');
   if (!el) return;
-  const hasDetails = String(html || '').includes('price-status-content');
-  el.className = `action-status-label sl-${type in {idle:1,loading:1,ok:1,warn:1,error:1} ? type : 'idle'}${hasDetails ? ' has-price-details' : ''}`;
-  el.innerHTML = html;
+  const markup = String(html || '');
+  const hasDetails = markup.includes('price-status-content');
+  const nextClass = `action-status-label sl-${type in {idle:1,loading:1,ok:1,warn:1,error:1} ? type : 'idle'}${hasDetails ? ' has-price-details' : ''}`;
+  // Repeated timer/visibility notifications must not unnecessarily replace a
+  // live details DOM (or reset the user's open state).
+  if (el.className === nextClass && el.innerHTML === markup) return;
+  const priorDetailOpen = hasDetails && el.querySelector?.('details.price-lookup-summary')?.open === true;
+  el.className = nextClass;
+  el.innerHTML = markup;
+  if (priorDetailOpen) {
+    const detail = el.querySelector?.('details.price-lookup-summary');
+    if (detail) detail.open = true;
+  }
 }
 
 function _resolvePriceDateLabel(baseLabel, key, responseMeta) {
@@ -945,7 +955,9 @@ async function pollCurrentPrices() {
     // a portfolio-wide refresh would erase the visible status and refetch
     // it every 60 seconds even though prices do not change its contents.
     if (typeof currentView === 'undefined' || currentView !== 'gsheet') {
-      refreshAll();
+      // Quotes may revalue every active table/chart, but never change the tab
+      // definitions. Retain the navigation DOM and its horizontal scroll.
+      refreshAll({ preserveTabBar: true });
     } else {
       // Keep the Settings/GAS panel mounted, but do not leave rows, totals
       // or cached account/sector/chart views priced at the previous quote.

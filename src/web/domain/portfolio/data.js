@@ -2162,12 +2162,16 @@ let _tradeSort   = { key:'date', dir:-1 };            // key: date|name|acct|qty
 
 let rows = [];  // recomputeRows()로 초기화됨 (EDITABLE_PRICES 로드 후 refreshAll에서 호출)
 
-function refreshAll() {
+function refreshAll(options) {
   recomputeRows();
-  // 데이터 변경 시 뷰 캐시 전체 무효화
+  // 금융 데이터 변경 시 모든 화면 캐시는 동일하게 무효화합니다.
   if (typeof invalidateViewCache === 'function') invalidateViewCache();
   renderSummary();
-  try { buildTabBar(); } catch(e) {}
+  // 가격만 읽는 polling은 탭 목록·선택 순서를 바꾸지 않으므로 DOM과
+  // 스크롤/키보드 초점을 보존합니다. 전체 복원/거래 변경은 기존과 같이 재구성.
+  if (!options?.preserveTabBar) {
+    try { buildTabBar(); } catch(e) {}
+  }
   if (typeof shouldRenderCharts !== 'function' || shouldRenderCharts(currentView)) renderDonut();
   renderView();
 }

@@ -97,6 +97,32 @@ assert.match(vm.runInContext('_priceLookupSummary()',lookupCtx),/왕복 <strong>
 assert.equal(vm.runInContext('_priceLookupDuration(-1)',lookupCtx),'미확인');
 assert.equal(vm.runInContext('_priceLookupDuration(990)',lookupCtx),'1.0초');
 
+// Test the actual status helper without a browser: unchanged HTML must keep
+// its node tree, and changed price metadata must not collapse user diagnostics.
+const statusFn = fetch.slice(fetch.indexOf('function setStatusLabel('),
+  fetch.indexOf('function _resolvePriceDateLabel('));
+assert.ok(statusFn.startsWith('function setStatusLabel('));
+let writes=0, markup='', detailOpen=false;
+const statusEl={className:'action-status-label sl-idle',
+  querySelector(selector){
+    if(selector!=='details.price-lookup-summary' || !markup.includes('price-lookup-summary')) return null;
+    return {get open(){return detailOpen},set open(value){detailOpen=!!value}};
+  }
+};
+Object.defineProperty(statusEl,'innerHTML',{get:()=>markup,set:v=>{writes++;markup=v;detailOpen=false}});
+const statusCtx=vm.createContext({$el:()=>statusEl});
+vm.runInContext(statusFn,statusCtx);
+const setStatus=(html,type)=>vm.runInContext('setStatusLabel('+JSON.stringify(html)+','+JSON.stringify(type)+')',statusCtx);
+const detailMarkup='<div class="price-status-content"><details class="price-lookup-summary">A</details></div>';
+setStatus(detailMarkup,'ok');
+assert.equal(writes,1);
+setStatus(detailMarkup,'ok');
+assert.equal(writes,1,'identical status must not recreate the detail DOM');
+detailOpen=true;
+setStatus(detailMarkup.replace('>A<','>B<'),'ok');
+assert.equal(detailOpen,true,'a price metadata update must keep the details panel expanded');
+setStatus('조회 중...','loading');
+assert.equal(detailOpen,false,'loading/error status must not preserve obsolete details');
 const fullUpdate=fetch.slice(fetch.indexOf('async function quickFetchByDate()'),fetch.indexOf('function getDateStr(daysAgo)'));
 assert.ok(fullUpdate.includes('Delay the expensive full view repaint'));
 assert.ok(fullUpdate.includes('let results = await fetchFromGsheet(targetDate, { forceFresh: true, persist: true })'));
