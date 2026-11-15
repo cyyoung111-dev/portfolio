@@ -472,15 +472,42 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 #view-area[data-active-view] .acct-filter-controls{
   display:flex;
   flex-direction:column;
-  gap:6px;
-  min-width:0;
+  gap:0;
   width:100%;
+  min-width:0;
+  margin-bottom:16px;
+}
+#view-area[data-active-view] .acct-filter-group,
+#view-area[data-active-view] .acct-type-filter-group{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  width:100%;
+  min-width:0;
+}
+#view-area[data-active-view] .acct-type-filter-group{
+  margin-top:14px;
+}
+#view-area[data-active-view] .acct-type-filter-heading{
+  min-height:20px;
+  display:flex;
+  align-items:center;
+}
+#view-area[data-active-view] .acct-type-filter-options{
+  align-items:center;
+  margin:0;
+  gap:4px;
 }
 #view-area[data-active-view] .acct-filter-heading{
   display:flex;
   align-items:center;
   justify-content:space-between;
   min-height:20px;
+}
+#view-area[data-active-view] :is(.acct-filter-heading,.acct-type-filter-heading) .txt-muted-72{
+  font-size:var(--type-caption);
+  font-weight:600;
+  line-height:var(--line-compact);
 }
 #view-area[data-active-view] .acct-order-trigger,
 #view-area[data-active-view] .acct-order-reset{
@@ -523,7 +550,15 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   white-space:normal;
   line-height:1.15;
   font-size:clamp(9px,2.5vw,11px);
+  font-weight:500;
   letter-spacing:-.02em;
+}
+#view-area[data-active-view] .acct-filter-track .acct-filter-btn:is(.active,[aria-pressed="true"]),
+#view-area[data-active-view] .acct-type-filter-options .f-btn.active{
+  font-weight:600;
+}
+#view-area[data-active-view] .acct-type-filter-options .f-btn{
+  font-weight:500;
 }
 #view-area[data-active-view] .acct-filter-track .acct-filter-name,
 #view-area[data-active-view] .acct-filter-track .acct-filter-type{
@@ -719,3 +754,6 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   .wrap .sum-row .sc .val {font-size:calc(var(--type-value) + 1px)}
   .wrap .sum-row-2 .sc .val {font-size:var(--type-value)}
 }
+
+/* Consistent distance from main navigation to the first active-view section. */
+#viewSwitcher{margin-bottom:16px}
