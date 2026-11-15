@@ -660,8 +660,27 @@ const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284
 
 
 async function autoLoadPrices() {
+  // The startup read has lower priority than an explicit user refresh.
+  // Never launch a competing read while a full restore or price-only request
+  // already owns the viewport. This avoids p=0/p=1 overlapping GAS calls.
+  if (_fullPortfolioUpdateInProgress || _manualPriceRefreshInFlight) return;
   const dateStr = getDateStr(0);
   const badge = $el('dateBadge');
+  const selectedDate = $el('quickDateInput');
+  if (selectedDate?.value && selectedDate.value !== dateStr) return;
+  const targetUrl = String(GSHEET_API_URL || '').trim();
+  const generation = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration() : null;
+  const restoreEpoch = typeof _gsSettingsLoadEpoch !== 'undefined'
+    ? _gsSettingsLoadEpoch : null;
+  const stillCurrent = () =>
+    !_fullPortfolioUpdateInProgress && !_manualPriceRefreshInFlight
+    && getDateStr(0) === dateStr
+    && (!selectedDate?.value || selectedDate.value === dateStr)
+    && String(GSHEET_API_URL || '').trim() === targetUrl
+    && (restoreEpoch === null || _gsSettingsLoadEpoch === restoreEpoch)
+    && (generation === null || typeof isGsheetConnectionCurrent !== 'function'
+      || isGsheetConnectionCurrent(targetUrl, generation));
 
   // ── 중요: GSHEET 연동 시에는 항상 원격 재조회 ──
   // 과거에는 "오늘 캐시가 있으면 스킵" 최적화가 있었지만,
@@ -716,6 +735,9 @@ async function autoLoadPrices() {
 
     // 오늘 조회
     results = await fetchFromGsheet(dateStr);
+    // A manual restore may have completed while this lower-priority read was
+    // in flight; never reapply its earlier quote or start a history fallback.
+    if (!stillCurrent()) return;
     const resolvedDate = results?.__gsheetResolvedPriceDate ?? window._gsheetResolvedPriceDate;
     if (resolvedDate && resolvedDate < dateStr) {
       usedDateStr = resolvedDate;
@@ -724,6 +746,7 @@ async function autoLoadPrices() {
     // Same one-request fallback for initial automatic price restoration.
     if (!results || Object.keys(results).length === 0) {
       results = await fetchFromGsheet(getDateStr(1), { historyWindowStart: getDateStr(5) });
+      if (!stillCurrent()) return;
       usedDateStr = results?.__gsheetResolvedPriceDate || getDateStr(1);
     }
 
@@ -761,6 +784,7 @@ async function autoLoadPrices() {
       }
     }
   } catch(e) {
+    if (!stillCurrent()) return;
     if (cacheCount > 0) {
       const total = _currentPriceTargetCount();
       updateDateBadge(cachedDate || todayLabel, false);

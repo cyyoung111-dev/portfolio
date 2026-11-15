@@ -270,6 +270,89 @@ assert.equal(changedQuote.rows[0].evalAmt,24690);
 console.log('PRICE_POLL_UNCHANGED_RENDER_SKIP_PASS equalQuotes=2 dateFXChanges=2 firstPaint=1');
 console.log('✅ 현재가 polling 설정 탭 rows·손익·캐시 갱신, DOM 보존, 비영속성, 실패/hidden 회귀 통과');
 
+// Startup auto-quote is lower priority than an explicit user's full restore.
+// The actual function must not compete with a p=1 update, nor apply an old
+// response after the restore epoch, workbook, selection or manual poll changes.
+const startupMatch = source.match(/async function autoLoadPrices\(\) \{([\s\S]*?)\n\}/);
+assert.ok(startupMatch, 'startup price loader must be covered by actual-source VM');
+const startupSource = 'async function autoLoadPrices() {' + startupMatch[1] + '\n}';
+async function testStartupAuto({busy=false, manual=false, historical=false,
+  takeover='', empty=false}={}) {
+  let calls=0, paints=0, localSaves=0, generation=1;
+  let finish;
+  const gate=new Promise(resolve=>{finish=resolve;});
+  const selection={value:historical?'2026-11-14':'2026-11-15'};
+  const priceCache={'005930':100};
+  const badge={style:{}};
+  const ctx=vm.createContext({
+    _fullPortfolioUpdateInProgress:busy,
+    _manualPriceRefreshInFlight:manual?{}:null,
+    _gsSettingsLoadEpoch:1,
+    GSHEET_API_URL:'test-gas',
+    lastUpdated:'2026.11.14',
+    savedPrices:priceCache,
+    savedPriceDates:{'005930':'2026.11.14 종가'},
+    window:{},
+    getDateStr:daysAgo=>daysAgo===0?'2026-11-15':daysAgo===1?'2026-11-14':'2026-11-10',
+    getGsheetConnectionGeneration:()=>generation,
+    isGsheetConnectionCurrent:(url,gen)=>url===ctx.GSHEET_API_URL&&gen===generation,
+    $el:id=>id==='dateBadge'?badge:id==='quickDateInput'?selection:null,
+    fetchFromGsheet:async()=>{calls++;return gate;},
+    _currentPriceTargetCount:()=>1,
+    _resolvePriceDateLabel:()=> '2026.11.15 조회값',
+    _pricePortfolioSummary:()=>'',_priceDiagSummary:()=>'',_priceLookupSummary:()=>'',
+    _priceStatusLayout:(primary)=>primary,
+    setStatusLabel:()=>{}, updateDateBadge:()=>{}, savePriceCache:()=>{localSaves++;},
+    refreshAll:()=>{paints++;}
+  });
+  vm.runInContext(startupSource,ctx);
+  const done=vm.runInContext('autoLoadPrices()',ctx);
+  await Promise.resolve();
+  if(busy||manual||historical) {
+    assert.equal(calls,0,'higher-priority action or past-date display must skip startup GET');
+    await done;
+    return {calls,paints,localSaves,cache:priceCache};
+  }
+  assert.equal(calls,1,'uncontended startup still fetches fresh GAS quotes');
+  if(takeover==='restore') {
+    // User's latest full update finished before the startup network answered.
+    ctx._fullPortfolioUpdateInProgress=true;
+    ctx._gsSettingsLoadEpoch=2;
+    ctx._fullPortfolioUpdateInProgress=false;
+  } else if(takeover==='manual') {
+    ctx._manualPriceRefreshInFlight={};
+  } else if(takeover==='date') {
+    selection.value='2026-11-14';
+  } else if(takeover==='connection') {
+    ctx.GSHEET_API_URL='next-gas';
+    generation=2;
+  }
+  finish(empty?null:{'005930':150});
+  await done;
+  return {calls,paints,localSaves,cache:priceCache};
+}
+const startupNormal=await testStartupAuto();
+assert.equal(startupNormal.calls,1);
+assert.equal(startupNormal.paints,1,'uncontended initial load still renders');
+assert.equal(startupNormal.cache['005930'],150);
+assert.equal(startupNormal.localSaves,1);
+for (const opts of [{busy:true},{manual:true},{historical:true}]) {
+  const x=await testStartupAuto(opts);
+  assert.equal(x.calls,0);
+  assert.equal(x.paints,0);
+  assert.equal(x.localSaves,0);
+}
+for (const takeover of ['restore','manual','date','connection']) {
+  const x=await testStartupAuto({takeover});
+  assert.equal(x.calls,1);
+  assert.equal(x.paints,0,'stale startup GET must not repaint after '+takeover);
+  assert.equal(x.localSaves,0,'stale startup GET must not persist cache after '+takeover);
+  assert.equal(x.cache['005930'],100,'stale startup GET must not overwrite newer quote after '+takeover);
+}
+const emptyBeforeRestore=await testStartupAuto({takeover:'restore',empty:true});
+assert.equal(emptyBeforeRestore.calls,1,'do not launch a second historical GET after restore takeover');
+console.log('INITIAL_AUTO_PRICE_PRIORITY_PASS startupFresh=1 blockedBefore=3 staleAfter=4 financialWrites=0');
+
 // Actual price loader: fund history must start before the stock request finishes.
 // Deferred responses verify concurrency without a wall-clock performance threshold.
 const innerLoader = source.match(/async function _fetchFromGsheetInner\(dateStr, options\) \{[\s\S]*?\n\}/)?.[0];
