@@ -192,6 +192,24 @@
   color:var(--gold);
   font-weight:700;
 }
+/* Broker and account type appear on separate lines only for typed accounts. */
+#view-area[data-active-view] .acct-filter-btn.is-multiline {
+  flex-direction:column;
+  gap:1px;
+  min-height:44px;
+  padding:4px 9px;
+  white-space:normal;
+  line-height:1.15;
+}
+#view-area[data-active-view] .acct-filter-btn .acct-filter-name,
+#view-area[data-active-view] .acct-filter-btn .acct-filter-type {
+  display:block;
+  white-space:nowrap;
+}
+#view-area[data-active-view] .acct-filter-btn .acct-filter-type {
+  font-size:var(--type-caption);
+  opacity:.88;
+}
 /* Buy/sell choice must keep its semantic green/red overrides. */
 #view-area[data-active-view] #te-tradetype-buy.active {
   border-color:var(--c-green-30);
@@ -315,7 +333,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   .action-bar .action-update-card {
     grid-template-columns:repeat(2,minmax(0,1fr));
     gap:4px;
-    padding:6px;
+    padding:5px;
   }
   .action-bar .action-update-card>.action-date-input {grid-column:1/-1;
     width:100%;
@@ -325,15 +343,15 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   .action-bar .action-update-card>.action-refresh-btn {
     width:100%;
     min-width:0;
-    height:40px;
-    min-height:40px;
+    height:36px;
+    min-height:36px;
     flex-direction:row;
-    gap:5px;
-    padding:4px 7px;
+    gap:4px;
+    padding:3px 6px;
   }
   .action-bar .action-update-card>.action-refresh-btn svg {
-    width:15px;
-    height:15px;
+    width:14px;
+    height:14px;
   }
   .action-bar .action-update-card>.action-refresh-btn span {
     display:block;white-space:nowrap;overflow:visible;
