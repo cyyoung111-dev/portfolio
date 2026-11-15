@@ -118,6 +118,33 @@ for(const failedAction of ['getTrades','getHoldings']) {
   assert.deepEqual([...x.storage],before,'failed legacy financial read cannot mutate local storage');
   assert.equal(x.writes,0,'failed legacy read cannot POST financial payloads');
 }
+// Definite Bootstrap failures must not trigger a second 10s+ getSettings
+// request. Legacy UNKNOWN_ACTION still uses the compatibility fallback above.
+for (const failureCode of [
+  'CLIENT_TIMEOUT', 'INVALID_RESPONSE', 'SERVER_ERROR',
+  'HTTP_401', 'HTTP_403', 'HTTP_429'
+]) {
+  const x=setup(), calls=[];
+  x.ctx.requestGsheetActionJson=async action=>{
+    calls.push(action);
+    return {status:'error',errorCode:failureCode};
+  };
+  assert.equal(await x.ctx.loadSettings(),false,'Bootstrap '+failureCode+' must fail closed');
+  assert.deepEqual(calls,['getBootstrap'],'no redundant getSettings after '+failureCode);
+  assert.match(x.ctx.getGsheetSettingsLoadFailure(),new RegExp(failureCode));
+  assert.equal(x.writes,0,'failed Bootstrap never writes financial state');
+}
+{
+  const x=setup(),calls=[];
+  x.ctx.requestGsheetActionJson=async action=>{
+    calls.push(action);
+    return {status:'error',message:'인증 실패'};
+  };
+  assert.equal(await x.ctx.loadSettings(),false);
+  assert.deepEqual(calls,['getBootstrap'],'auth rejection must not downgrade to legacy');
+  assert.match(x.ctx.getGsheetSettingsLoadFailure(),/GAS_AUTH_REJECTED/);
+  assert.equal(x.writes,0);
+}
 // A partially successful Bootstrap can be recovered with exactly one
 // authenticated read-only GET per failed financial subread. Never echo a
 // successfully restored ledger back to GAS or create a dirty journal.
@@ -1882,7 +1909,14 @@ for(const mode of ['ok','read-failed','backup-failed']) {
    action==='getBootstrap'?h.response:{status:'error',errorCode:'SERVER_ERROR'};
  }
  if(mode==='backup-failed')h.ctx.localStorage.setItem=(k,v)=>{if(k==='portfolio_empty_dirty_restore_archive_v1')throw Error('quota');h.storage.set(k,v);};
- const q=quickFixture(h);await h.ctx.quickFetchByDate();
+ const q=quickFixture(h);
+ const fullUpdateTimings=[];
+ h.ctx._recordLookupPerf=(stage,ms,result='ok')=>{
+   if(stage==='load.full-update')fullUpdateTimings.push({ms,result});
+ };
+ await h.ctx.quickFetchByDate();
+ assert.equal(fullUpdateTimings.at(-1)?.result,mode==='ok'?'ok':'error',
+   'actual full-update telemetry must not count failed restore as successful');
  assert.equal(h.writes,0,'empty generic dirty must never delete remote ledger, holdings or fundDirect');
  if(mode==='ok') {
   assert.equal(vm.runInContext('rawTrades.length',h.ctx),1);assert.equal(vm.runInContext('rawHoldings.length',h.ctx),1);
