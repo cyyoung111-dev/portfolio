@@ -96,3 +96,11 @@ A missing due-date proof deliberately fails the read-only audit workflow,
 but **does not trigger a trade, NAV import, GAS deploy or Telegram retry**.
 Restore trusted source/permission evidence before considering any
 production code change.
+
+
+## 2026-11-16 — Read-only Daily Snapshot full-date reconciliation
+
+- Existing `portfolio-daily-ops-readonly` manual verdict now optionally checks one exact KRX date via GAS `diagnoseSnapshotIntegrityRange(strictReadonly=1)` and `getHistoryDetail`. It compares the whole stored vs expected code sets, expected/stored/retrieved row counts, duplicates, quantity/cost/evaluation/unit/source mismatches and source-data errors. **No fixed 39-row assumption:** current holdings determine cardinality.
+- Only call when same-date GAS close is fully confirmed and daily NAV has reached the evidence window; do not race the 19:00 Writer, schedule a new cron or modify the original record. On missing/error responses preserve `NOT_FULLY_AUDITED`; never call a Writer, retry finance persist or claim an error-free transaction from a green workflow.
+- Only an independent external Writer exclusion and an independently validated price/NAV source can attest transaction isolation. A new result `CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED` means *internal stored-vs-recomputed reconciliation only*, not production writer-owner audit.
+- Fully sanitized output: no holdings, account strings, codes, monetary values, tokens, GAS errors or private source digests in CI/workflow logs. Required CI contract exercises live request wiring with synthetic fixtures and fail-closed incomplete/duplicate/changed-date/mismatched group cases.
