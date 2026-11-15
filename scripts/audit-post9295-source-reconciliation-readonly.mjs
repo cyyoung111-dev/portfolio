@@ -174,10 +174,32 @@ export function summarizeSnapshotIntegrity(payload,date=SNAPSHOT_DATE){
    /^[a-f0-9]{64}$/i.test(payload.strictSourceDigest);
  const revisionVerified=typeof payload.integritySourceRevision==='string'&&
    payload.integritySourceRevision.trim().length>0;
+ const sourceLabelReview=classifySnapshotSourceLabels(d);
  const allRowMismatchCountsZero=Object.values(issues).every(x=>x===0);
- const dataMatch=d.status==='VALID'&&expected===stored&&expected>0&&
-   zeroDifferenceVerified&&duplicateGroups===0&&allRowMismatchCountsZero&&
-   strictDigestVerified&&revisionVerified;
+ const strongNumericProof=expected===stored&&expected>0&&
+   zeroDifferenceVerified&&duplicateGroups===0&&
+   MISMATCH_KEYS.filter(k=>k!=='sourceMismatches').every(k=>issues[k]===0)&&
+   strictDigestVerified&&revisionVerified&&
+   Array.isArray(d.priceIntegrity)&&d.priceIntegrity.every(row=>
+    row&&['VALID','MANUAL_PROTECTED'].includes(row.status));
+ const dataMatch=d.status==='VALID'&&strongNumericProof&&allRowMismatchCountsZero;
+ // Source labels still differ. A narrow NON-WRITE compatibility verdict
+ // suppresses a spurious monetary failure only when *every* mismatch is the
+ // same reviewed dated/undated fund NAV carry alias, with each sourceDate
+ // independently present in that fund's recomputed GAS NAV state.
+ const carryLabelOnly=d.status==='MISMATCH'&&strongNumericProof&&
+   issues.sourceMismatches>0&&
+   sourceLabelReview.fundSourceLabelMismatchRows===issues.sourceMismatches&&
+   sourceLabelReview.nonFundSourceLabelMismatchRows===0&&
+   sourceLabelReview.exactNavDatedCarryAliasReviewCandidates===
+      issues.sourceMismatches&&
+   sourceLabelReview.labelKindPairs.length===1&&
+   sourceLabelReview.labelKindPairs[0].pair===
+      'DATED_FUND_NAV_CARRY__VS__UNDATED_FUND_NAV_CARRY'&&
+   sourceLabelReview.labelKindPairs[0].count===issues.sourceMismatches;
+ const status=dataMatch?'RECALC_MATCH_CONFIRMED':
+   carryLabelOnly?'RECALC_VALUES_CONFIRMED_NAV_CARRY_LABEL_REVIEW':
+   'RECALC_REVIEW_REQUIRED';
  const perf=payload.performance||{};
  const safeMs=key=>Number.isSafeInteger(perf[key])&&perf[key]>=0&&perf[key]<=360000
   ?perf[key]:null;
@@ -186,11 +208,16 @@ export function summarizeSnapshotIntegrity(payload,date=SNAPSHOT_DATE){
   gasVersion:REQUIRED_GAS_VERSION,
   integrityState:d.status,expectedRows:expected,storedRows:stored,
   issues,duplicateGroups,
-  sourceLabelReview:classifySnapshotSourceLabels(d),
+  sourceLabelReview,
+  financialAmountsRecomputedAndMatched:dataMatch||carryLabelOnly,
+  fullSourceProvenanceMatched:dataMatch,
+  datedNavCarryLabelAliasReviewOnly:carryLabelOnly,
+  manualSourceLabelReviewOpen:carryLabelOnly,
+  automaticRepairAuthorized:false,
   differenceZeroVerified:zeroDifferenceVerified,
   strictSourceDigestPresent:strictDigestVerified,
   sourceRevisionPresent:revisionVerified,
-  status:dataMatch?'RECALC_MATCH_CONFIRMED':'RECALC_REVIEW_REQUIRED',
+  status,
   rangeTotalMs:safeMs('totalMs'),sheetReadMs:safeMs('readMs'),
   indexBuildMs:safeMs('indexBuildMs'),calculationMs:safeMs('calculationMs'),
   officialExternalSourceIndependentlyVerified:false,
