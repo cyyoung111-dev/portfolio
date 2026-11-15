@@ -378,15 +378,18 @@ function _priceLookupSummary() {
       <strong class="price-lookup-summary-title">조회 상세</strong>
     </summary>
     <div class="price-lookup-expanded">
-      <span class="price-lookup-latency${latencyTone}">왕복 <strong>${roundTrip}</strong></span>
       <div class="price-lookup-source-chips" aria-label="가격 조회 원천 및 처리시간">
-      <button type="button" class="price-status-chip is-action" data-price-detail="providers">NH ${toss}건${tossSuffix}</button>
-      <span class="price-status-chip">KRX ${krx}건</span>
-      <span class="price-status-chip price-lookup-subtle">GOOGLEFINANCE 미사용</span>
-      <button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>
-      <button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>
-      ${meta.cacheHit ? '<span class="price-status-chip">60초 캐시</span>' : ''}
+        <button type="button" class="price-status-chip is-action" data-price-detail="providers">NH ${toss}건${tossSuffix}</button>
+        <span class="price-status-chip">KRX ${krx}건</span>
+        <button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>
+        <button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>
       </div>
+      <div class="price-lookup-foot">
+        <span class="price-lookup-latency${latencyTone}">왕복 <strong>${roundTrip}</strong></span>
+        <span class="price-lookup-muted">GOOGLEFINANCE 미사용</span>
+        ${meta.cacheHit ? '<span class="price-lookup-muted">60초 캐시</span>' : ''}
+      </div>
+      <div id="price-lookup-detail" class="price-lookup-detail" hidden></div>
     </div>
   </details>`;
 }
@@ -460,13 +463,12 @@ function _priceLookupDetail(kind) {
   wrap.dataset.open = kind;
 }
 
-function _priceStatusLayout(primaryHtml, metaHtml, noteHtml, lookupHtml = '') {
+function _priceStatusLayout(primaryHtml, metaHtml, noteHtml, lookupHtml = '', noteTone = 'warn') {
   return `<div class="price-status-content">
     <div class="price-status-primary">${primaryHtml}</div>
     ${metaHtml ? `<div class="price-status-meta">${metaHtml}</div>` : ''}
     ${lookupHtml}
-    ${noteHtml ? `<div class="price-status-note">${noteHtml}</div>` : ''}
-    <div id="price-lookup-detail" class="price-lookup-detail" hidden></div>
+    ${noteHtml ? `<div class="price-status-note${noteTone === 'info' ? ' is-info' : ''}">${noteHtml}</div>` : ''}
   </div>`;
 }
 
@@ -933,7 +935,8 @@ async function pollCurrentPrices() {
         : `✅ 현재가 갱신 · ${entries.length}개 · 화면만 반영`,
       '',
       [dateNotice, '저장 이력/Snapshot 미변경'].filter(Boolean).join(' · '),
-      lookupMsg
+      lookupMsg,
+      'info'
     ), 'ok');
     if (sameQuoteInputs) return true;
     const repaintStartedAt = Date.now();
