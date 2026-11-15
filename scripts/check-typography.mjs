@@ -225,6 +225,12 @@ assert.match(unifiedCss,/@media\(max-width:768px\)\s*\{\s*\.wrap > \.hdr h1\s*\{
  '모바일 브랜드 제목은 데스크톱보다 작아야 합니다.');
 assert.doesNotMatch(unifiedCss,/font-size:\s*3[0-9]px;/,
  '일괄 타이포그래피가 30px 이상의 거대 숫자를 새로 만들면 안 됩니다.');
+assert.match(unifiedCss, /#view-area\[data-active-view\],[\s\S]*?\.tbl-wrap\s*\{[^}]*max-width:100%;[^}]*min-width:0;/,
+  '계좌·종목 표 영역은 모바일 가로뷰를 밀어내면 안 됩니다.');
+assert.match(unifiedCss, /\.action-bar \.price-status-primary,[\s\S]*?\.price-status-note\s*\{[^}]*overflow-wrap:anywhere;/,
+  '긴 현재가 상태 문구는 잘리지 않고 줄바꿈되어야 합니다.');
+assert.match(unifiedCss, /\.acct-filter-track \.acct-filter-btn:focus-visible\s*\{[^}]*outline:/,
+  '계좌 탭은 키보드 접근 시 포커스 표시가 유지되어야 합니다.');
 const compactPhoneCss=unifiedCss.slice(unifiedCss.indexOf('@media(max-width:480px)'));
 assert.match(compactPhoneCss, /\.action-bar \.action-update-card>\.action-refresh-btn\s*\{[\s\S]*?height:36px;[\s\S]*?min-height:36px;/,
  '모바일 업데이트·현재가 버튼 높이를 36px로 통일해야 합니다.');
