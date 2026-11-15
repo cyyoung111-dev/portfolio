@@ -10,7 +10,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: nh-master-registered-readonly
+  # Both workflows can make long-running authenticated GAS POST reads.
+  # Repository-wide concurrency prevents them from starting at the same time
+  # after this source change (no mutation or new scheduled retry).
+  group: portfolio-heavy-gas-readonly
   cancel-in-progress: false
 jobs:
   probe:
