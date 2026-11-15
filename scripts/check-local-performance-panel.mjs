@@ -5,43 +5,101 @@ import vm from 'node:vm';
 const source=fs.readFileSync('src/web/features/settings/settings_perf_monitor.js','utf8');
 const net=fs.readFileSync('src/web/features/settings/settings_net.js','utf8');
 const fetch=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
+const html=fs.readFileSync('src/web/index.html','utf8');
+const sw=fs.readFileSync('src/web/sw.js','utf8');
 assert.match(source,/id="perfLocalSummary"/);
 assert.match(source,/id="perfLocalSummaryBody"/);
+assert.match(source,/id="perfLocalCopy"/);
 assert.match(source,/if \(id === 'perfLocalSummary'\) \{ pftelemetry_renderLocal\(\)/);
-assert.match(net,/samples\.length > 60/,'in-memory samples remain bounded');
+assert.match(source,/navigator\.clipboard\.writeText\(summary\)/);
+assert.match(net,/samples\.length > 60/,'in-memory sample buffer remains bounded');
 for(const stage of ['load.full-update','load.full-restore','load.full-prices','load.full-render'])
- assert.match(fetch,new RegExp(stage.replaceAll('.','\\.')),'full update stage missing: '+stage);
+ assert.match(fetch,new RegExp(stage.replaceAll('.','\\.'),'g'),'full-update stage missing: '+stage);
+assert.match(html,/settings_perf_monitor\.js\?v=20261115-4/);
+assert.match(sw,/settings_perf_monitor\.js\?v=20261115-4/);
+assert.match(sw,/portfolio-cache-20261115-9/);
 const start=source.indexOf('  const LOCAL_STAGE_LABELS');
 const end=source.indexOf('  function pftelemetry_renderSettingsHtml()',start);
 assert.ok(start>0&&end>start);
-const nodes={};
-function el(tag){return {tag,children:[],textContent:'',style:{},appendChild(child){this.children.push(child);},
- replaceChildren(...newChildren){this.children=newChildren;this.textContent='';}};}
-const wrap=el('div');
-const ctx=vm.createContext({window:{__PF_LOOKUP_TIMES:[
+
+function el(tag){
+ return {tag,children:[],textContent:'',style:{},
+  appendChild(child){this.children.push(child);},
+  replaceChildren(...newChildren){this.children=newChildren;this.textContent='';}};
+}
+const wrap=el('div'),privateId='PRIVATE_ACCOUNT_AND_TICKER';
+const raw=[
+ {stage:'load.full-restore',ms:3000,result:'ok'},
+ {stage:'load.full-prices',ms:4800,result:'ok'},
+ {stage:'load.full-render',ms:120,result:'ok'},
+ {stage:'load.full-update',ms:8400,result:'ok'},
  {stage:'load.full-restore',ms:3200,result:'ok'},
  {stage:'load.full-prices',ms:5200,result:'ok'},
  {stage:'load.full-render',ms:140,result:'ok'},
  {stage:'load.full-update',ms:8540,result:'ok'},
- {stage:'load.full-prices',ms:4800,result:'ok'},
+ {stage:'load.full-restore',ms:3400,result:'ok'},
+ {stage:'load.full-prices',ms:6100,result:'ok'},
+ {stage:'load.full-render',ms:200,result:'ok'},
+ {stage:'load.full-update',ms:9000,result:'ok'},
+ {stage:'load.full-update',ms:90000,result:'error',account:privateId},
  {stage:'not-allowed',ms:99,result:'ok'},
- {stage:'load.full-render',ms:NaN,result:'ok'}
-]},document:{getElementById:id=>id==='perfLocalSummaryBody'?wrap:null,
- createElement:el},Object,Map,Array,Number});
+ {stage:'load.full-render',ms:NaN,result:'ok'},
+ {stage:'load.full-prices',ms:-2,result:'ok'},
+ {stage:'load.full-update',ms:123456789,result:'ok'}
+];
+const ctx=vm.createContext({window:{__PF_LOOKUP_TIMES:raw},
+ document:{getElementById:id=>id==='perfLocalSummaryBody'?wrap:null,
+  createElement:el},
+ pftelemetry_device:()=> 'mobile',
+ Object,Map,Array,Number});
 vm.runInContext(source.slice(start,end),ctx);
+const stats=JSON.parse(JSON.stringify(vm.runInContext(
+ 'pftelemetry_localStats(window.__PF_LOOKUP_TIMES)',ctx)));
+const full=stats.find(x=>x.stage==='load.full-update');
+assert.deepEqual({successes:full.successes,failures:full.failures,medianMs:full.medianMs,
+ p95Ms:full.p95Ms,latestResult:full.latestResult,latestMs:full.latestMs},
+ {successes:3,failures:1,medianMs:8540,p95Ms:9000,
+ latestResult:'error',latestMs:90000});
+const prices=stats.find(x=>x.stage==='load.full-prices');
+assert.equal(prices.medianMs,5200);
+assert.equal(prices.p95Ms,6100);
+assert.equal(stats.find(x=>x.stage==='load.full-restore').medianMs,3200);
+assert.equal(stats.find(x=>x.stage==='load.full-render').medianMs,140);
+assert(!JSON.stringify(stats).includes(privateId));
+assert.equal(stats.find(x=>x.stage==='not-allowed'),undefined);
 vm.runInContext('pftelemetry_renderLocal()',ctx);
-assert.equal(wrap.children.length,1);
-const table=wrap.children[0];
+assert.equal(wrap.children.length,2);
+const [note,table]=wrap.children;
+assert.equal(note.tag,'p');
+assert.match(note.textContent,/병목 후보: 가격 재조회/);
 assert.equal(table.tag,'table');
 const lines=table.children.map(row=>row.children.map(cell=>cell.textContent).join('|'));
-assert.ok(lines.includes('가격 재조회|4,800ms|성공'));
-assert.ok(lines.includes('화면 재계산|140ms|성공'));
-assert.ok(lines.includes('전체 업데이트|8,540ms|성공'));
-assert.ok(!lines.some(s=>s.includes('not-allowed')));
-const firstRowCount=table.children.length;
+assert.ok(lines.some(x=>x.includes('전체 업데이트|90,000ms · 실패|8,540ms|9,000ms|3 / 1')));
+assert.ok(lines.some(x=>x.includes('가격 재조회|6,100ms · 성공|5,200ms|6,100ms|3 / 0')));
+assert.ok(lines.some(x=>x.includes('화면 재계산|200ms · 성공|140ms|200ms|3 / 0')));
+const report=vm.runInContext(
+ 'pftelemetry_localReport(pftelemetry_localStats(window.__PF_LOOKUP_TIMES))',ctx);
+assert.match(report,/모바일/);
+assert.match(report,/성공 표본/);
+assert.match(report,/정상 3건, 실패 1건, 중앙값 8540ms, p95 9000ms/);
+assert(!report.includes(privateId));
+for(const code of ['AAPL','005930','GSHEET_API_URL','accessToken'])
+ assert(!report.includes(code));
+const insufficient=JSON.parse(JSON.stringify(vm.runInContext(
+ "pftelemetry_localStats([{stage:'load.full-update',ms:500,result:'ok'}, {stage:'load.full-update',ms:700,result:'ok'}, {stage:'load.full-update',ms:9999,result:'error'}])",ctx)));
+assert.equal(insufficient[0].successes,2);
+assert.equal(insufficient[0].failures,1);
+assert.equal(insufficient[0].medianMs,null);
+assert.equal(insufficient[0].p95Ms,null);
+const dense=JSON.parse(JSON.stringify(vm.runInContext(
+ "pftelemetry_localStats(Array.from({length:90},(_,i)=>({stage:'load.full-update',ms:i,result:'ok'})))",ctx)));
+assert.equal(dense[0].successes,60);
+assert.equal(dense[0].medianMs,59);
+assert.equal(dense[0].p95Ms,86);
 ctx.window.__PF_LOOKUP_TIMES=[];
 vm.runInContext('pftelemetry_renderLocal()',ctx);
-assert.equal(wrap.children.length,1,'display retains prior test mock children but empty uses textContent');
 assert.match(wrap.textContent,/측정값이 없습니다/);
-assert.ok(firstRowCount>=5);
-console.log('PASS local performance panel: last sample per stage, zero network, bounded memory, no private financial data');
+assert.equal(vm.runInContext(
+ 'pftelemetry_localReport(pftelemetry_localStats(window.__PF_LOOKUP_TIMES))',ctx),'');
+assert.doesNotMatch(source,/localStorage\.setItem\(['"]pf_perf_local_samples/);
+console.log('PASS local full-update median/p95 and no-write clipboard: success only, failures isolated, 3+ samples, capped 60, no private data');
