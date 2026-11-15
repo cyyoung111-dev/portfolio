@@ -14,7 +14,7 @@ jobs:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: portfolio-production-gas
-    timeout-minutes: 9
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,7 +23,9 @@ jobs:
         with:
           node-version: '24'
       - name: Validate status-contract tests offline
-        run: node scripts/check-ops-daily-readonly.mjs
+        run: |
+          node scripts/check-ops-daily-readonly.mjs
+          node scripts/check-issue734-snapshot-exact-readonly.mjs
       - name: One scoped evidence verdict for last KRX session (no writes)
         env:
           GITHUB_TOKEN: ${{ github.token }}
