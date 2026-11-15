@@ -989,9 +989,7 @@ html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{paddin
    Caption-size labels match the adjacent update-complete text. */
 .price-lookup-summary{
   box-sizing:border-box;
-  display:flex;
-  flex-direction:column;
-  gap:5px;
+  display:block;
   width:100%;
   max-width:100%;
   min-width:0;
@@ -1006,8 +1004,28 @@ html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{paddin
   display:flex;
   align-items:center;
   justify-content:space-between;
-  flex-wrap:wrap;
   gap:4px 10px;
+  min-width:0;
+  list-style:none;
+  cursor:pointer;
+}
+.price-lookup-summary-head::-webkit-details-marker{display:none}
+.price-lookup-summary-head::after{
+  content:'⌄';
+  font-size:var(--type-body);
+  color:var(--muted);
+  margin-left:auto;
+  line-height:1;
+  transition:transform .16s ease;
+}
+.price-lookup-summary[open] .price-lookup-summary-head::after{transform:rotate(180deg)}
+.price-lookup-summary-head:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+.price-lookup-expanded{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:5px;
+  margin-top:5px;
   min-width:0;
 }
 .price-lookup-summary-title{
@@ -1060,7 +1078,8 @@ html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{paddin
   outline-offset:2px;
 }
 @media(max-width:480px){
-  .price-lookup-summary{padding:6px 8px;gap:4px;margin-top:2px}
+  .price-lookup-summary{padding:6px 8px;margin-top:2px}
+  .price-lookup-expanded{gap:4px;margin-top:4px}
   .price-lookup-summary-head{gap:3px 8px}
   .price-lookup-source-chips .price-status-chip{
     min-height:26px;
