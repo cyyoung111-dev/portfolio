@@ -45,7 +45,7 @@ assert.match(fetch,/function _priceLookupDuration\(ms\)/);
 
 const lookupFns=fetch.slice(fetch.indexOf('function _priceLookupDuration('),fetch.indexOf('function _priceLookupDetail('));
 const layoutFn=fetch.slice(fetch.indexOf('function _priceStatusLayout('),fetch.indexOf('function _pricePortfolioSummary('));
-assert.ok(lookupFns.startsWith('// Friendly UI timing'));
+assert.ok(lookupFns.startsWith('function _priceLookupDuration('));
 assert.match(layoutFn,/lookupHtml = ''/,'lookup UI must be separate from the holdings status');
 const lookupCtx=vm.createContext({window:{_lastPriceLookup:{
  clientRoundTripMs:69933,serverElapsedMs:14456,tossResultCount:37,
