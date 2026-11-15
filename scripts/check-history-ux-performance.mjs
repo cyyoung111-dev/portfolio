@@ -39,7 +39,7 @@ assert.match(render,/hist-filter-details/);
 assert.match(render,/hist-detail-panel/);
 assert.match(pipeline,/details class="hist-source-coverage"/);
 assert.match(css,/hist-kpi-grid/);
-assert.match(fetch,/section class="price-lookup-summary" aria-label="조회 상세"/);
+assert.match(fetch,/details class="price-lookup-summary" aria-label="조회 상세"/);
 assert.doesNotMatch(fetch,/details class="price-status-diagnostics"/);
 assert.match(fetch,/function _priceLookupDuration\(ms\)/);
 
@@ -53,7 +53,12 @@ const lookupCtx=vm.createContext({window:{_lastPriceLookup:{
 }},Number,NaN});
 vm.runInContext(lookupFns+layoutFn,lookupCtx);
 const card=vm.runInContext('_priceLookupSummary()',lookupCtx);
-assert.match(card,/class="price-lookup-summary" aria-label="조회 상세"/);
+assert.match(card,/<details class="price-lookup-summary" aria-label="조회 상세">/);
+assert.match(card,/<summary class="price-lookup-summary-head">/);
+assert.ok(card.indexOf('</summary>') < card.indexOf('price-lookup-source-chips'),
+  '조회 상세 내역은 펼칠 때만 보여야 합니다.');
+assert.doesNotMatch(card,/<details[^>]*\sopen(?:\s|=|>)/,
+  '조회 상세는 처음에 닫혀 있어야 합니다.');
 assert.match(card,/조회 상세/);
 assert.match(card,/왕복 <strong>69\.9초<\/strong>/);
 assert.match(card,/GAS 14\.5초/);
@@ -62,7 +67,7 @@ assert.match(card,/KRX 0건/);
 assert.match(card,/GOOGLEFINANCE 미사용/);
 for(const action of ['providers','recent-history','timings'])
  assert.match(card,new RegExp('data-price-detail="'+action+'"'));
-assert.doesNotMatch(card,/<details|<summary|69933ms|14456ms/);
+assert.doesNotMatch(card,/69933ms|14456ms/);
 assert.equal((card.match(/class="price-lookup-source-chips"/g)||[]).length,1,
  '조회 원천과 GAS 시간을 한 묶음으로 표시합니다.');
 assert.doesNotMatch(card,/price-lookup-extra-chips/,'큰 조회 상세 두 번째 행이 다시 생기면 안 됩니다.');
