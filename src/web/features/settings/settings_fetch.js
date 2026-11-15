@@ -667,6 +667,7 @@ async function autoLoadPrices() {
   const dateStr = getDateStr(0);
   const badge = $el('dateBadge');
   const selectedDate = $el('quickDateInput');
+  if (selectedDate?.value && selectedDate.value !== dateStr) return;
   const targetUrl = String(GSHEET_API_URL || '').trim();
   const generation = typeof getGsheetConnectionGeneration === 'function'
     ? getGsheetConnectionGeneration() : null;
