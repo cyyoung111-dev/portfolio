@@ -72,6 +72,10 @@ async function requestJsonWithPolicy(url, opts) {
       } catch (error) { error.errorCode = 'INVALID_RESPONSE'; throw error; }
     } catch (error) {
       lastError = error;
+      // Retrying authentication denials or a rate-limit response after only
+      // 180ms duplicates GAS requests without fixing the underlying cause.
+      // Keep the existing retry policy for transient timeouts/5xx failures.
+      if (['HTTP_401', 'HTTP_403', 'HTTP_429'].includes(error?.errorCode)) break;
       if (i < retry) await new Promise(r => setTimeout(r, delayMs));
     }
   }
