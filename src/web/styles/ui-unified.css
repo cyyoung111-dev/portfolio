@@ -317,8 +317,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
     gap:4px;
     padding:6px;
   }
-  .action-bar .action-update-card>.action-date-input {
-    grid-column:1/-1;
+  .action-bar .action-update-card>.action-date-input {grid-column:1/-1;
     width:100%;
     min-height:42px;
     padding:5px 9px;
