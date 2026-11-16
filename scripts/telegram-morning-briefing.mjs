@@ -205,6 +205,10 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     kofiaMargin:Boolean(supplementRows.liquidity?.margin),
     investors:(supplementRows.investors?.markets?.length||0)
   }});}catch{}
+  // Status-only KRX provider outcomes. Exact prices, payloads, keys and
+  // account data stay out of Actions logs and Telegram message text.
+  try{onSourceDiagnostic({kind:'MORNING_KRX_SOURCE_REASONS',
+    reasons:supplementRows.krxReasons||[]});}catch{}
   const last=allowLateTest?lateTestWindow(now()):scheduledWindow(now());
   if(last.date!==first.date||!last.allowed)throw new Error('TELEGRAM_SCHEDULE_LATE');
   const reference=candidate && candidate.source==='NH' && /^K[A-Z0-9]{8}$/.test(candidate.contract||'') && candidate.kind==='REFERENCE'
