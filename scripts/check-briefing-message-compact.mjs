@@ -75,6 +75,25 @@ const noDate=compactBriefingForDelivery(
 assert.doesNotMatch(noDate,/주요 변동: S&P 500 /,
  'do not highlight a percentage without a dated source label');
 
+// Optional morning data that are normally unpublished or outside the source
+// window must not produce static missing-value paragraphs every trading day.
+// A partially verified market-breadth row must remain visible.
+const supplementary=[morning,
+ '미국 선물 ES/NQ/YM/RTY: 최근 검증된 시세 미확보',
+ 'VKOSPI: 확정 기준일 자료 미확보',
+ 'KOSPI·KOSDAQ 거래대금: 공식 기준일 자료 미확보',
+ '시장폭 A/D: KOSPI 미확보 · KOSDAQ 미확보 (공식 일봉 미검증)',
+ '시장폭 A/D: KOSPI 100↑/50↓/10→ · KOSDAQ 미확보 [2026-11-09 · KRX 참고]'
+].join('\n');
+const supple=compactBriefingForDelivery(supplementary,{mode:'morning'});
+for(const missingRow of ['최근 검증된 시세 미확보','확정 기준일 자료 미확보',
+ '공식 기준일 자료 미확보','KOSPI 미확보 · KOSDAQ 미확보'])
+ assert.ok(!supple.includes(missingRow),'no repetitive optional unverified row');
+assert.match(supple,/시장폭 A\/D: KOSPI 100↑\/50↓\/10→ · KOSDAQ 미확보/,
+ 'do not discard partial verified A/D readings');
+assert.match(supple,/■ QC: 기준 거래일과 일치한 일봉 2\/21/,
+ 'never hide core coverage when optional providers are unavailable');
+
 const close=[
  '[2026-11-10 장후 시장 브리핑]',
  '■ 국내 시장 (당일 종가)',
