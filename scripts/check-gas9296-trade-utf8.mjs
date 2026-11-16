@@ -78,3 +78,10 @@ const retry=await verifyGas9296WithRetry({verify:async()=>{
 assert.equal(retry.readbackAttempts,2);
 await assert.rejects(verifyGas9296WithRetry({verify:async()=>({status:'VERIFIED',version:'9.296'})}),/GAS9296_POSTDEPLOY_PROOF_INVALID/);
 console.log('PASS GAS 9.296 UTF-8 revision/CAS, Unicode collision regression and unchanged legacy signatures');
+
+const deploySource=readFileSync('scripts/deploy-gas.mjs','utf8');
+const webVerifier=deploySource.slice(deploySource.indexOf('async function verifyWebApp('),deploySource.indexOf('  let last =',deploySource.indexOf('async function verifyWebApp(')));
+assert.match(webVerifier,/expectedVersion==='9\.296'/);
+assert.match(webVerifier,/verifyGas9296PostDeploy/);
+assert.match(webVerifier,/return \{checked:true,ok:true/);
+assert.ok(!webVerifier.includes('getSettings'));

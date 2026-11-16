@@ -391,6 +391,10 @@ export async function verifyPortfolioReceiptReadOnly(url, accessToken, fetchImpl
 }
 
 async function verifyWebApp(url, accessToken, expectedVersion) {
+  if(expectedVersion==='9.296'){
+    const utf8Readback=await verifyGas9296WithRetry({verify:()=>verifyGas9296PostDeploy({url,token:accessToken})});
+    return {checked:true,ok:true,gasVersion:expectedVersion,utf8Readback};
+  }
   let last = '';
   for (let attempt = 1; attempt <= 12; attempt += 1) {
     try {
@@ -936,7 +940,6 @@ export async function deploy() {
     const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
     const automation=await runBackfillStatus({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')});
     if(automation.gasVersion!==expectedVersion)throw Error('GAS_AUTOMATION_VERSION_MISMATCH');
-    if(expectedVersion==='9.296') await verifyGas9296WithRetry({verify:()=>verifyGas9296PostDeploy({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')})});
     console.log(`배포 생략 · 현재 웹앱 deployment가 이미 GAS v${expectedVersion} 소스와 일치하며 운영 endpoint 검증도 통과했습니다.`);
     return { deployed: false, alreadyDeployed: true, version: expectedVersion, deploymentVersion: currentVersionNumber, webAppCheck };
   }
@@ -1008,9 +1011,7 @@ export async function deploy() {
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
   stage='AUTOMATION_VERIFY';
   if(expectedVersion==='9.296'){
-   console.log(JSON.stringify(await verifyGas9296WithRetry({
-    verify:()=>verifyGas9296PostDeploy({url:webAppUrl,token:env('GAS_ACCESS_TOKEN')})
-   })));
+   console.log(JSON.stringify(webAppCheck.utf8Readback));
   }else if(expectedVersion==='9.295'){
    const fresh=await verifyGas9295PostdeployWithRetry({
      verify:()=>verifyGas9295ReleaseReadOnly({
