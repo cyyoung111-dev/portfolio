@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {inspectTradeV2RevisionResponse,probeTradeHash}
+import {inspectTradeV2RevisionResponse,probeTradeHash,reconstructedRawSourceDigest}
  from './issue734-trade-v2-hash-readonly.mjs';
 
 const source=readFileSync('src/web/features/settings/settings_sync.js','utf8');
@@ -86,6 +86,7 @@ const withPreview=await probeTradeHash({
   return {ok:true,json:async()=>({
    status:'ok',migrationStatus:'READY',tradeLedgerProtocolVersion:2,
    sourceRows:rows.length,assignedIdsNeeded:0,existingIdsPreserved:rows.length,
+   sourceDigest:reconstructedRawSourceDigest(rows),
    proposedRevision:revision,migrationApplied:false,financeWrites:0
   })};
  }
@@ -94,7 +95,9 @@ assert.equal(previewCalls,2);
 assert.deepEqual(withPreview.migrationPreview,{
  status:'VERIFIED',sourceRows:2,assignedIdsNeeded:0,existingIdsPreserved:2,
  physicalRevisionMatchesGasGetTrades:true,
- physicalRevisionMatchesPcCanonical:true,rowCountMatchesApi:true
+ physicalRevisionMatchesPcCanonical:true,rowCountMatchesApi:true,
+ rawStringSourceDigestMatches:true,rawStringOptionalZeroMatches:false,
+ rawStringStockDefaultMatches:false
 });
 assert.ok(!JSON.stringify(withPreview).includes(secret));
 assert.ok(!JSON.stringify(withPreview).includes(revision));
