@@ -54,6 +54,35 @@ for(const opts of [{etf:false},{etf:false,stocks:true},{stocks:true,save:false},
 }
 {const u=ui({stocks:true});await u.ctx._autoFetchDiv({});assert.equal(u.labels.at(-1).state,'ok');assert.equal(await u.ctx.startDivFetch(),true);}
 {const u=ui();const old={source:'GOOGLEFINANCE',perShare:10,events:[],updatedAt:'old'};const v=u.ctx._normalizeDividendResponse({source:'PUBLIC_DATA',perShare:0},old);assert.equal(v.source,'GOOGLEFINANCE');assert.equal(v.updatedAt,'old');assert.equal(v.perShare,10);assert.equal(v.refreshState,'UNVERIFIED');}
+// Automatic UI refresh must leave the old persisted/public settings intact
+// when company-level common and preferred rows have the same payment identity.
+for(const isManual of [false,true]){
+ const u=ui({stocks:true});const prev={
+  source:'PUBLIC_DATA',perShare:15,updatedAt:'before',events:[
+   {date:'2026-01-01',payDate:'2026-01-10',amount:15,source:'PUBLIC_DATA'}
+  ]};
+ u.ctx.DIVDATA['111111']=structuredClone(prev);
+ u.ctx._fetchDividendSource=async()=>({'111111':{
+  source:'PUBLIC_DATA',perShare:6525,events:[
+   {date:'2026-04-01',payDate:'2026-04-24',amount:6500},
+   {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
+  ]
+ }});
+ let writes=0;
+ u.ctx.persistDividendSettings=async()=>{writes++;return true;};
+ assert.equal(u.ctx._publicDividendHasShareClassCollision({
+  source:'PUBLIC_DATA',events:[
+   {date:'2026-04-01',payDate:'2026-04-24',amount:6500},
+   {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
+  ]
+ }),true);
+ const result=isManual?await u.ctx.startDivFetch():await u.ctx._autoFetchDiv({});
+ if(isManual)assert.equal(result,false);
+ assert.equal(u.ctx.DIVDATA['111111'].perShare,15);
+ assert.equal(u.ctx.DIVDATA['111111'].events.length,1);
+ assert.equal(writes,isManual?1:0,'ambiguous public dividends must not enter a finance patch');
+ assert.equal(u.labels.at(-1).state,'fail');
+}
 console.log('PASS: actual mixed ETF refresh, verified zero-window skip, manual/history protection, backup/readback, no false success/GF fallback');
 
 const {runDividendRefresh,hasConflictingPublicDividendAmounts}=await import('./run-dividend-source-refresh.mjs');
