@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {inspectPhysicalTradeParity} from './issue734-trade-source-parity-readonly.mjs';
+import {composeGas9295CodeMasterReusePreview} from './compose-gas9295-code-master-reuse-preview.mjs';
 import {inspectTradeV2RevisionResponse,probeTradeHash,reconstructedRawSourceDigest}
  from './issue734-trade-v2-hash-readonly.mjs';
 
@@ -20,11 +22,11 @@ vm.runInContext(extract('_tradeV2NormalizeCode')+'\n'
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const rows=[
  {id:'srv_'+'a'.repeat(32),date:'2026-11-12',tradeType:'buy',
-  acct:'ISA',name:'테스트 ETF',code:'005930',qty:5,price:1000,
-  assetType:'주식',memo:'',ratio:0,fractionalCash:0},
+  acct:'ISA',name:'�׽�Ʈ ETF',code:'005930',qty:5,price:1000,
+  assetType:'�ֽ�',memo:'',ratio:0,fractionalCash:0},
  {id:'srv_'+'b'.repeat(32),date:'2026-11-13',tradeType:'buy',
-  acct:'PENSION',name:'테스트 펀드',code:'F00001',qty:3.5,price:2000,
-  assetType:'펀드',memo:''}
+  acct:'PENSION',name:'�׽�Ʈ �ݵ�',code:'F00001',qty:3.5,price:2000,
+  assetType:'�ݵ�',memo:''}
 ];
 const canonical=t=>JSON.parse(JSON.stringify(ctx.canonical(t)));
 const revision=hash(rows.map(canonical));
@@ -109,4 +111,31 @@ const badPreview=await probeTradeHash({
 assert.deepEqual(badPreview.migrationPreview,{
  status:'NOT_VERIFIED',errorClass:'TRADE_MIGRATION_SHEET_WIDTH_INVALID'
 });
-console.log('PASS issue734 read-only GAS v2 hash comparator');
+// Actual published GAS canonicalization, including its real digest wrapper.
+// The independent physical fixture preserves blank numeric cells exactly.
+const published=composeGas9295CodeMasterReusePreview().candidate;
+const physical=rows.map(t=>[t.date,t.tradeType,t.acct,t.name,t.code,
+ t.qty,t.price,t.assetType,t.memo,'','','','',t.id]);
+const preview={status:'ok',sourceRows:physical.length,migrationApplied:false,
+ financeWrites:0,sourceDigest:reconstructedRawSourceDigest(rows),proposedRevision:revision};
+const parity=inspectPhysicalTradeParity({source:published,physicalRows:physical,
+ api:response,preview});
+assert.equal(parity.status,'CONSISTENT');
+assert.equal(parity.mismatchedRows,0);
+const changed=inspectPhysicalTradeParity({source:published,physicalRows:physical,
+ api:{...response,trades:[{...rows[0],price:1001},rows[1]]},preview});
+assert.equal(changed.status,'EXACT_FIELD_DIVERGENCE');
+assert.deepEqual(changed.fieldMismatchCounts,{price:1});
+const otherSource=inspectPhysicalTradeParity({source:published,physicalRows:physical,
+ api:response,preview:{...preview,sourceDigest:'0'.repeat(64)}});
+assert.equal(otherSource.status,'PHYSICAL_SOURCE_NOT_MATCHED');
+const digestDrift=inspectPhysicalTradeParity({source:published,physicalRows:physical,
+ api:{...response,ledgerRevision:'0'.repeat(64)},preview});
+assert.equal(digestDrift.status,'RUNTIME_DIGEST_DIVERGENCE');
+for(const output of [parity,changed,otherSource,digestDrift]){
+ assert.equal(output.financeWrites,0);
+ assert.ok(!JSON.stringify(output).includes(rows[0].name));
+ assert.ok(!JSON.stringify(output).includes(rows[0].id));
+ assert.ok(!JSON.stringify(output).includes(revision));
+}
+console.log('PASS issue734 read-only GAS v2 hash comparator and exact source parity');
