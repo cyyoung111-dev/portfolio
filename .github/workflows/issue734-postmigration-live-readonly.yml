@@ -6,6 +6,7 @@ on:
       - 'scripts/issue734-postmigration-live-readonly.mjs'
       - 'scripts/check-issue734-postmigration-live-readonly.mjs'
       - 'scripts/issue734-trade-v2-hash-readonly.mjs'
+      - 'scripts/issue734-trade-source-parity-readonly.mjs'
       - 'scripts/check-issue734-trade-v2-hash-readonly.mjs'
       - '.github/workflows/issue734-postmigration-live-readonly.yml'
   push:
@@ -14,6 +15,7 @@ on:
       - 'scripts/issue734-postmigration-live-readonly.mjs'
       - 'scripts/check-issue734-postmigration-live-readonly.mjs'
       - 'scripts/issue734-trade-v2-hash-readonly.mjs'
+      - 'scripts/issue734-trade-source-parity-readonly.mjs'
       - 'scripts/check-issue734-trade-v2-hash-readonly.mjs'
       - '.github/workflows/issue734-postmigration-live-readonly.yml'
   workflow_dispatch:
@@ -39,7 +41,7 @@ jobs:
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.run_attempt == 1
     needs: mock-contract
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 6
     environment: portfolio-production-gas
     steps:
       - uses: actions/checkout@v7
@@ -58,3 +60,10 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue734-trade-v2-hash-readonly.mjs
+      - name: Compare published source and exact physical trade fields (NO WRITES)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node scripts/issue734-trade-source-parity-readonly.mjs
