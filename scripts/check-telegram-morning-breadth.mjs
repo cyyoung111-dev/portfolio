@@ -58,7 +58,9 @@ const after503=await readMorningBreadth(day,{
 assert.equal(after503.length,2,'transient 503 may retry and recover');
 assert.equal(transientCount,3,'one additional GET for the failed market only');
 let deniedCount=0;
+const deniedReasons=[];
 const denied=await readMorningBreadth(day,{
+ onDiagnostic:entry=>deniedReasons.push(entry),
  authKey:'TEST_KRX_KEY_123456789',now,fetchImpl:async url=>{
   deniedCount++;return url.includes('stk_bydd_trd')?{ok:false,status:401}
    :{ok:true,headers:{get:()=>null},json:async()=>kosdaq};
@@ -66,6 +68,15 @@ const denied=await readMorningBreadth(day,{
 });
 assert.equal(denied.length,1);
 assert.equal(deniedCount,2,'401 permission issue must not be retried');
+assert.deepEqual(deniedReasons.filter(x=>x.status==='KRX_DIRECT_ACCESS_DENIED'),
+ [{source:'BREADTH',status:'KRX_DIRECT_ACCESS_DENIED',market:'KOSPI'}]);
+assert.ok(deniedReasons.some(x=>x.source==='BREADTH'&&x.status==='VERIFIED'
+ &&x.market==='KOSDAQ'));
+const keylessReasons=[];
+assert.deepEqual(await readMorningBreadth(day,{authKey:'',
+ onDiagnostic:entry=>keylessReasons.push(entry),fetchImpl,now}),[]);
+assert.deepEqual(keylessReasons,[{source:'BREADTH',status:'KEY_UNAVAILABLE'}]);
+assert.equal(deniedCount,2,'no additional read on keyless source check');
 
 assert.equal(called,2);
 const message=formatFullMorningBriefing(day,null,[],{

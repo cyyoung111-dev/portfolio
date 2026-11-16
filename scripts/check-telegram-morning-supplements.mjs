@@ -85,6 +85,12 @@ assert.equal(extras.futures.length,4);
 assert.equal(extras.treasury.length,3);
 assert.equal(extras.vkospi.length,1);
 assert.equal(extras.turnover.length,1);
+assert.ok(Array.isArray(extras.krxReasons));
+assert.ok(extras.krxReasons.some(x=>x.source==='VKOSPI'&&x.status==='GAS_VERIFIED'));
+assert.ok(extras.krxReasons.some(x=>x.source==='TURNOVER'
+ &&x.status==='GAS_PARTIAL_OR_EMPTY'));
+assert.ok(extras.krxReasons.every(x=>!JSON.stringify(x).includes('TEST_ACCESS_123456')),
+ 'diagnostics must not leak GAS authentication token');
 assert.match(formatMorningFutures(date,extras.futures,now),/ES 7,000/);
 assert.match(formatMorningTreasury(date,extras.treasury),/10Y-2Y \+40bp/);
 assert.match(formatMorningVkospi(extras.vkospi),/24\.20/);
@@ -135,8 +141,11 @@ const fallback=async(day,args)=>{
  assert.equal(args.now().toISOString(),new Date(expected+'T17:08:00+09:00').toISOString());
  return official;
 };
+const turnoverReasons=[];
 const repaired=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
- authKey:'TEST_KRX_KEY_123456789',fetchImpl,fetchDirect:fallback});
+ authKey:'TEST_KRX_KEY_123456789',fetchImpl,fetchDirect:fallback,
+ onDiagnostic:entry=>turnoverReasons.push(entry)});
+assert.ok(turnoverReasons.some(x=>x.status==='DIRECT_BOTH_VERIFIED'));
 assert.deepEqual(repaired,official);
 assert.equal(fallbackCount,1);
 const noKey=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
@@ -147,6 +156,7 @@ const stale=await readMorningTurnover(expected,{url:'',token:'',authKey:'TEST_KR
 assert.deepEqual(stale,[],'wrong-date direct KRX data must fail closed');
 
 // KRX approved index fallback must never alter a valid GAS primary.
+const vkospiReasons=[];
 const recoveredVk=await readMorningVkospi(expected,{
  url:gasUrl,token:'TEST_ACCESS_123456',authKey:'KRX_APPROVED_TEST_KEY_123456',
  now:()=>now,fetchImpl:async()=>({ok:true,json:async()=>({
@@ -154,7 +164,9 @@ const recoveredVk=await readMorningVkospi(expected,{
  })}),fetchDirect:async(day)=>[{
   id:'VKOSPI',label:'VKOSPI',date:day,value:27.65,
   source:'KRX_OFFICIAL',role:'NON_NH_REFERENCE_ONLY'
- }]});
+ }],onDiagnostic:entry=>vkospiReasons.push(entry)});
+assert.ok(vkospiReasons.some(x=>x.status==='GAS_STATUS_UNVERIFIED'));
+assert.ok(vkospiReasons.some(x=>x.status==='KRX_DIRECT_VERIFIED'));
 assert.equal(recoveredVk.length,1);
 assert.equal(recoveredVk[0].value,27.65);
 const staleVk=await readMorningVkospi(expected,{

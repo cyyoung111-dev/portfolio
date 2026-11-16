@@ -124,42 +124,76 @@ async function readGas(date,action,params,{url,token,fetchImpl}){
 // The synthetic prior close timestamp only opens the provider's historical
 // read gate; it does not assert when the response was actually published.
 export async function readMorningTurnover(expectedKr,{url,token,authKey,fetchImpl=fetch,
- fetchDirect=fetchOfficialKrxTurnover}={}){
- if(!validDay(expectedKr))return [];
+ fetchDirect=fetchOfficialKrxTurnover,onDiagnostic=()=>{}}={}){
+ const emit=(status,market=null)=>{try{onDiagnostic({source:'TURNOVER',status,
+  ...(market?{market}:{})});}catch{}};
+ if(!validDay(expectedKr)){emit('DATE_UNVERIFIED');return [];}
  const data=await readGas(expectedKr,'getKrxMarketTurnover',{date:expectedKr},
   {url,token,fetchImpl});
  const primary=data?.status==='ok'&&data.date===expectedKr&&data.readOnly===true
   &&data.source==='KRX_OFFICIAL_INDEX_DAILY'&&Array.isArray(data.rows)
   ?verifyOfficialKrxTurnover(expectedKr,data.rows):[];
- if(primary.length===2)return primary;
- if(typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey))
-  return primary;
+ if(primary.length===2){emit('GAS_BOTH_VERIFIED');return primary;}
+ emit(!data?'GAS_UNAVAILABLE':data.status==='ok'?'GAS_PARTIAL_OR_EMPTY':'GAS_STATUS_UNVERIFIED');
+ if(typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey)){
+  emit('KEY_UNAVAILABLE');return primary;
+ }
+ let reported=false;
+ const allowed=new Set(['KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED',
+  'KRX_DIRECT_ACCESS_DENIED','KRX_DIRECT_HTTP_UNAVAILABLE',
+  'KRX_DIRECT_PAYLOAD_UNVERIFIED','KRX_DIRECT_NO_EXACT_ROW',
+  'KRX_DIRECT_NETWORK_OR_PARSE_FAILED','KRX_DIRECT_VERIFIED']);
  try{
   const direct=verifyOfficialKrxTurnover(expectedKr,await fetchDirect(expectedKr,{
-   authKey,fetchImpl,now:()=>new Date(expectedKr+'T17:08:00+09:00')
+   authKey,fetchImpl,now:()=>new Date(expectedKr+'T17:08:00+09:00'),
+   onDiagnostic:({market,status}={})=>{
+    if(allowed.has(status)&&['KOSPI','KOSDAQ'].includes(market)){
+     reported=true;emit(status,market);
+    }
+   }
   }));
-  return direct.length===2?direct:primary;
- }catch{return primary;}
+  if(direct.length===2){emit('DIRECT_BOTH_VERIFIED');return direct;}
+  if(!reported)emit('DIRECT_UNVERIFIED');
+  return primary;
+ }catch{emit('DIRECT_EXCEPTION');return primary;}
 }
 // Prefer exact-date GAS readback; if missing, query the already-approved
 // derivative KRX daily index directly with the Actions-only credential.
 export async function readMorningVkospi(date,{
  url,token,authKey=process.env.KRX_AUTH_KEY,fetchImpl=fetch,
- now=()=>new Date(),fetchDirect=readOfficialKrxVkospiDaily
+ now=()=>new Date(),fetchDirect=readOfficialKrxVkospiDaily,
+ onDiagnostic=()=>{}
 }={}){
- if(!validDay(date))return [];
+ const emit=status=>{try{onDiagnostic({source:'VKOSPI',status});}catch{}};
+ if(!validDay(date)){emit('DATE_UNVERIFIED');return [];}
  const gas=await readGas(date,'getBenchmark',{benchmark:'VKOSPI',from:date,to:date},
   {url,token,fetchImpl});
  const primary=selectClosingVkospi(date,gas);
- if(primary.length===1)return primary;
- try{return verifyClosingVkospi(date,await fetchDirect(date,{authKey,fetchImpl,now}));}
- catch{return [];}
+ if(primary.length===1){emit('GAS_VERIFIED');return primary;}
+ emit(!gas?'GAS_UNAVAILABLE':gas.status==='error'
+   ?'GAS_STATUS_UNVERIFIED':'GAS_NO_EXACT_VALID_ROW');
+ const allowed=new Set(['KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED',
+  'KRX_DIRECT_SESSION_UNVERIFIED','KRX_DIRECT_ACCESS_DENIED',
+  'KRX_DIRECT_HTTP_UNAVAILABLE','KRX_DIRECT_NO_EXACT_ROW',
+  'KRX_DIRECT_NETWORK_OR_PARSE_FAILED','KRX_DIRECT_VERIFIED']);
+ let reported=false;
+ try{
+  const valid=verifyClosingVkospi(date,await fetchDirect(date,{
+   authKey,fetchImpl,now,onDiagnostic:status=>{
+    if(allowed.has(status)){reported=true;emit(status);}
+   }
+  }));
+  if(!reported)emit(valid.length?'KRX_DIRECT_VERIFIED':'DIRECT_UNVERIFIED');
+  return valid;
+ }catch{emit('DIRECT_EXCEPTION');return [];}
 }
 
 export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=fetch,
  fetchDaily,nhRows=[],breadthKey=process.env.KRX_AUTH_KEY,url=process.env.GAS_WEB_APP_URL,
  token=process.env.GAS_ACCESS_TOKEN}={}){
  if(!validDay(date)||typeof fetchDaily!=='function')return {};
+ const krxReasons=[];
+ const onKrx=entry=>{if(krxReasons.length<16)krxReasons.push(entry);};
  const expectedUs=expectedMorningDate('SPX',date);
  const expectedKr=expectedMorningDate('KOSPI',date);
  const missing=US.filter(id=>!nhRows.some(r=>r?.symbol===MORNING_SERIES.find(x=>x.id===id)?.symbol
@@ -176,11 +210,15 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
   })).then(x=>x.filter(Boolean)),
   readTreasuryCurve(date,{fetchImpl}).catch(()=>[]),
   readMorningFutures(date,{now,fetchImpl}).catch(()=>[]),
-  readMorningVkospi(expectedKr,{url,token,authKey:breadthKey,fetchImpl,now}).catch(()=>[]),
-  readMorningTurnover(expectedKr,{url,token,authKey:breadthKey,fetchImpl}).catch(()=>[]),
-  readMorningBreadth(date,{authKey:breadthKey,now,fetchImpl}).catch(()=>[]),
+  readMorningVkospi(expectedKr,{url,token,authKey:breadthKey,fetchImpl,now,
+   onDiagnostic:onKrx}).catch(()=>[]),
+  readMorningTurnover(expectedKr,{url,token,authKey:breadthKey,fetchImpl,
+   onDiagnostic:onKrx}).catch(()=>[]),
+  readMorningBreadth(date,{authKey:breadthKey,now,fetchImpl,
+   onDiagnostic:onKrx}).catch(()=>[]),
   readKofiaLiquidity(date,{fetchImpl}).catch(()=>null),
   readInvestorTrends(date,{mode:'morning',now,fetchImpl}).catch(()=>null)
  ]);
- return {usReferences,treasury,futures,vkospi:vk,turnover,breadth,liquidity,investors,turnoverDate:expectedKr};
+ return {usReferences,treasury,futures,vkospi:vk,turnover,breadth,liquidity,investors,
+  turnoverDate:expectedKr,krxReasons};
 }

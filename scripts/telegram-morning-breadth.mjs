@@ -53,19 +53,21 @@ export function verifyKrxBreadth(date,rows=[]){
  });
 }
 export async function readMorningBreadth(date,{authKey=process.env.KRX_AUTH_KEY,
- fetchImpl=fetch,now=()=>new Date()}={}){
+ fetchImpl=fetch,now=()=>new Date(),onDiagnostic=()=>{}}={}){
+ const emit=(status,market=null)=>{try{onDiagnostic({source:'BREADTH',status,
+  ...(market?{market}:{})});}catch{}};
  const expected=expectedMorningDate('KOSPI',date);
  if(!expected||!strictDate(expected)||!strictDate(date)
-  ||typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey)
-  ||now().getTime()<Date.parse(date+'T06:30:00+09:00'))return [];
- // Two authenticated daily EOD endpoints, bounded. Missing KRX credentials
- // means exactly zero requests, not a public-site scraping fallback.
+  ||now().getTime()<Date.parse(date+'T06:30:00+09:00')){
+  emit('SESSION_UNVERIFIED');return [];
+ }
+ if(typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey)){
+  emit('KEY_UNAVAILABLE');return [];
+ }
+ // Both authenticated daily EOD endpoints; no additional call introduced.
  const result=await Promise.all(MARKETS.map(async spec=>{
   const target=new URL('https://data-dbg.krx.co.kr'+spec.path);
   target.searchParams.set('basDd',expected.replaceAll('-',''));
-  // One bounded retry for transient KRX 429/5xx or network failure.
-  // A real 401/403 (permission issue), wrong date, or invalid payload
-  // must NOT be retried or promoted to a verified observation.
   for(let attempt=0;attempt<2;attempt++){
    try{
     const resp=await fetchImpl(target.href,{
@@ -73,11 +75,19 @@ export async function readMorningBreadth(date,{authKey=process.env.KRX_AUTH_KEY,
      redirect:'error',signal:AbortSignal.timeout(6000)});
     if(!resp?.ok){
      if(attempt===0&&[429,502,503,504].includes(resp?.status))continue;
+     emit([401,403].includes(resp?.status)
+      ?'KRX_DIRECT_ACCESS_DENIED':'KRX_DIRECT_HTTP_UNAVAILABLE',spec.id);
      return null;
     }
-    if(Number(resp.headers?.get?.('content-length')||0)>2500000)return null;
-    return parseKrxBreadth(expected,spec.id,await resp.json());
-   }catch{if(attempt===1)return null;}
+    if(Number(resp.headers?.get?.('content-length')||0)>2500000){
+     emit('PAYLOAD_UNVERIFIED',spec.id);return null;
+    }
+    const row=parseKrxBreadth(expected,spec.id,await resp.json());
+    emit(row?'VERIFIED':'NO_EXACT_ROW',spec.id);
+    return row;
+   }catch{
+    if(attempt===1){emit('NETWORK_OR_PARSE_FAILED',spec.id);return null;}
+   }
   }
   return null;
  }));

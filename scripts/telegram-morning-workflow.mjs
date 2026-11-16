@@ -115,6 +115,31 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
             }]))}));
         return;
       }
+      if(entry?.kind==='MORNING_KRX_SOURCE_REASONS'){
+        // Fixed enumerations only: never print KRX auth key, URL, raw
+        // provider payload, account, or error body in a public CI log.
+        const sources=['VKOSPI','TURNOVER','BREADTH'];
+        const statuses=new Set([
+          'DATE_UNVERIFIED','SESSION_UNVERIFIED','KEY_UNAVAILABLE',
+          'GAS_VERIFIED','GAS_BOTH_VERIFIED','GAS_UNAVAILABLE',
+          'GAS_PARTIAL_OR_EMPTY','GAS_STATUS_UNVERIFIED','GAS_NO_EXACT_VALID_ROW',
+          'KRX_DIRECT_CONFIG_OR_SESSION_UNVERIFIED','KRX_DIRECT_SESSION_UNVERIFIED',
+          'KRX_DIRECT_ACCESS_DENIED','KRX_DIRECT_HTTP_UNAVAILABLE',
+          'KRX_DIRECT_PAYLOAD_UNVERIFIED','KRX_DIRECT_NO_EXACT_ROW',
+          'KRX_DIRECT_NETWORK_OR_PARSE_FAILED','KRX_DIRECT_VERIFIED',
+          'DIRECT_BOTH_VERIFIED','DIRECT_UNVERIFIED','DIRECT_EXCEPTION',
+          'PAYLOAD_UNVERIFIED','VERIFIED','NO_EXACT_ROW',
+          'NETWORK_OR_PARSE_FAILED'
+        ]);
+        const safe=Array.isArray(entry.reasons)?entry.reasons.slice(0,16)
+          .filter(r=>sources.includes(r?.source)&&statuses.has(r.status)
+            &&(r.market===undefined||['KOSPI','KOSDAQ'].includes(r.market)))
+          .map(r=>({source:r.source,status:r.status,
+            ...(r.market?{market:r.market}:{})})):[];
+        console.log(JSON.stringify({kind:'MORNING_KRX_SOURCE_REASONS',
+          date:window.date,results:safe}));
+        return;
+      }
       if(entry?.kind==='MORNING_OPTIONAL_COVERAGE'){
         const c=entry.coverage||{};
         const bounds={futures:4,treasury:3,vkospi:1,turnover:2,breadth:2,investors:2};
