@@ -26,6 +26,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      # This checker imports yaml (a declared npm dependency). Runner images
+      # do not include the repo's node_modules after setup-node.
+      - name: Install offline-check dependencies
+        run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts
       - name: Verify all KRX price/listing unit and rejection contracts offline
         run: node scripts/check-krx-52week-market.mjs
       - name: Restore ONLY latest authenticated 52-week source archive
