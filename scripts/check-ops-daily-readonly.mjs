@@ -59,11 +59,49 @@ const notDue=classifyDailyOperations({date:mon,now:at('2026-11-16T08:00:00+09:00
 assert.equal(notDue.morningTelegram.state,'WAITING');
 assert.equal(notDue.closeTelegram.state,'WAITING');
 assert.equal(notDue.kbNav.state,'WAITING');
-const publisher=classifyDailyOperations({date:fri,now,morningProof:true,
- closeProof:true,navRuns:'NAV_EXECUTION_FAILED',navReport:{
+const publisherReport={
  ...evidence,navWorkflowStatus:'OFFICIAL_NAV_AWAITING_PUBLICATION',
- officialNavMatched:false,storedNavConfirmed:false}});
+ officiallyPublished:false,closeDateVerified:true,
+ runStale:false,snapshotStale:false,
+ officialNavMatched:false,storedNavConfirmed:false
+};
+const publisher=classifyDailyOperations({date:fri,now,morningProof:true,
+ closeProof:true,navRuns:'NAV_EXECUTION_FAILED',navReport:publisherReport});
 assert.equal(publisher.kbNav.state,'PUBLICATION_PENDING');
+for(const bad of [
+ {officiallyPublished:true},
+ {officialReferenceDate:'2026-11-12'},
+ {closeDate:'2026-11-12'},
+ {closeDateVerified:false},
+ {runStale:true},
+ {snapshotStale:true}
+]){
+ const mismatched=classifyDailyOperations({date:fri,now,morningProof:true,
+  closeProof:true,navRuns:'NAV_EXECUTION_FAILED',
+  navReport:{...publisherReport,...bad}});
+ assert.equal(mismatched.kbNav.state,'EVIDENCE_MISSING',
+  'published, stale or unverified source cannot masquerade as pending');
+}
+// Production-shaped 2026-11-17 05:34 postflight: 11/16 stored GAS close
+// COMPLETE with carried 11/13 NAV, but 11/16 official NAV is not published.
+// The persisted-close checkpoint is real; official NAV verification is not.
+const completedWithUnpublishedNav=classifyDailyOperations({
+ date:mon,now:at('2026-11-17T05:34:43+09:00'),morningProof:true,
+ closeProof:true,navRuns:'NAV_EXECUTION_FAILED',
+ navReport:{
+  ...publisherReport,closeDate:mon,officialReferenceDate:mon,
+  closeState:'COMPLETE',closeComplete:true,priceOk:true,fundOk:true,
+  derivedConfirmed:true,officiallyPublished:false,
+  fundCloseCheckpointEvidence:{closeStage:'COMPLETE'}
+ },
+ snapshotEvidence:{...exactSnapshot,date:mon}
+});
+assert.equal(completedWithUnpublishedNav.savedClose.state,'PASS');
+assert.equal(completedWithUnpublishedNav.kbNav.state,'PUBLICATION_PENDING');
+assert.equal(completedWithUnpublishedNav.kbNav.verified,false);
+assert.equal(completedWithUnpublishedNav.snapshot.state,'PASS');
+assert.equal(completedWithUnpublishedNav.overall,'CORE_EVIDENCE_INCOMPLETE',
+ 'stored complete cannot certify unpublished official NAV');
 // Current official NAV may be unpublished at 21:10 even though all 37
 // regular-market prices and today's Snapshot are already persisted.
 // Report a separate pending state, never a false PASS or a generic missing
