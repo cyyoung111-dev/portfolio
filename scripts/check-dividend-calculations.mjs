@@ -233,4 +233,28 @@ console.log(JSON.stringify({kind:'ISSUE734_DIVIDEND_CASHFLOW_SOURCE_PASS',
   declaredGross:1000,bankNetConfirmed:846,verifiedTax:154,
   correctionDeduplicated:true,financeWrites:0,remoteCalls:0}));
 
+// The issuer-level public API can return SK common 6,500 and preferred
+// 6,550 under a single company registration. Neither may be silently picked
+// for the held 034730 common shares without a security-class match.
+const shareClassCtx=vm.createContext({
+ DIVDATA:{'SK':{source:'PUBLIC_DATA',perShare:6525,months:[4],events:[
+  {date:'2026-04-01',payDate:'2026-04-24',amount:6500,source:'PUBLIC_DATA'},
+  {date:'2026-04-01',payDate:'2026-04-24',amount:6550,source:'PUBLIC_DATA'},
+  {date:'2026-08-18',payDate:'2026-08-31',amount:1500,source:'PUBLIC_DATA'}
+ ]}},
+ EDITABLE_PRICES:[],rawHoldings:[{name:'SK',acct:'일반',qty:2}],
+ _kstYear:()=>2026,_kstTodayStr:()=> '2026-11-16',
+ getQtyAtDate:()=>2,getEP:()=>null,getDivRefDate:(y,m)=>y+'-'+String(m).padStart(2,'0')+'-30'
+});
+vm.runInContext(source,shareClassCtx);
+const shareClassRow=shareClassCtx.calcDividends().find(r=>r.name==='SK');
+assert.equal(shareClassRow.ambiguousPublicEvents,1);
+assert.equal(shareClassRow.actualDiv,3000,
+ 'only unambiguous August public distribution counts');
+assert.equal(shareClassRow.annualDiv,3000,
+ 'uncertain April amount must not be replaced by a forecast');
+assert.equal(shareClassRow.monthlyDiv[4],undefined);
+assert.equal(shareClassRow.monthlyDiv[8],3000);
+assert.match(source,/배당 기준일의 보통주·우선주 금액이 충돌/);
+
 console.log('PASS: declared distribution vs manually verified deposit and actual editor save');
