@@ -16,6 +16,37 @@ assert.equal(verifiedMorningMaster(date,[{...row,receivedAt:'2026-10-30T08:01:00
 assert.equal(verifiedMorningMaster(date,[{...row,sourceDate:date}]).length,0,
  'same-day incomplete domestic close must be rejected');
 assert.equal(verifiedMorningMaster(date,[{...row,status:'PARTIAL'}]).length,0);
+
+const monday='2026-11-16',morning=new Date(monday+'T07:40:00+09:00');
+const btcMaster={...row,seriesId:'BTC',value:70000,source:'MARKET_MASTER',
+ sourceDate:'2026-11-15',tradingDate:'2026-11-15',
+ receivedAt:'2026-11-16T07:20:00+09:00'};
+// At 07:40 KST on Monday, 11/15 UTC BTC candle is still in progress
+// (UTC calendar close is 09:00 KST). This superficially FINAL master
+// must not replace a verified 11/14 BTC Yahoo candle.
+assert.deepEqual(verifiedMorningMaster(monday,[btcMaster]),[],
+ 'unfinished UTC BTC candle cannot displace an exact-date verified source');
+const oldBtc={...btcMaster,sourceDate:'2026-11-14',
+ tradingDate:'2026-11-14',receivedAt:'2026-11-15T08:30:00+09:00'};
+assert.equal(verifiedMorningMaster(monday,[oldBtc]).length,1,
+ 'completed UTC BTC candle is allowed on Monday at 07:40 KST');
+const yahooBtc={label:'BTC',symbol:'BTC-USD',date:'2026-11-14',value:70010,
+ changePercent:0.7,source:'Yahoo Finance 일봉'};
+const keptBtc=mergeMorningSourceRows([yahooBtc],
+ verifiedMorningMaster(monday,[btcMaster,oldBtc]));
+assert.equal(keptBtc.length,1);
+assert.equal(keptBtc[0].date,'2026-11-14');
+assert.equal(keptBtc[0].value,70010);
+assert.equal(keptBtc[0].source,'Yahoo Finance 일봉');
+assert.match(formatFullMorningBriefing(monday,null,keptBtc,{now:morning}),
+ /BTC: 70,010.*2026-11-14/,
+ 'verified BTC must not turn into a false 20/21 missing report');
+const fxSunday={...row,seriesId:'USDKRW',value:1470,source:'MARKET_MASTER',
+ sourceDate:'2026-11-15',tradingDate:'2026-11-15',
+ receivedAt:'2026-11-16T07:20:00+09:00'};
+assert.equal(verifiedMorningMaster(monday,[fxSunday]).length,0,
+ 'unclosed Sunday FX calendar must not supersede Friday close');
+
 const yahoo=[{label:'KOSPI',symbol:'^KS11',value:4050,date:'2026-10-29',source:'Yahoo Finance 일봉'}];
 const master=verifiedMorningMaster(date,[row]);
 assert.equal(mergeMorningSourceRows(yahoo,master)[0].value,4100,'KRX official source wins equal-date Yahoo');
