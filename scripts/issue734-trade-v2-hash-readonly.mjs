@@ -28,6 +28,8 @@ const canonical=(t,{zeroBlank=true,normalizeCode=true}={})=>[
  number(t?.ratio??0,zeroBlank),number(t?.fractionalCash??0,zeroBlank),
  number(t?.priceRaw),number(t?.fxRateAtBuy)
 ];
+const byDateTradeRevision=rows=>sha(rows.slice().sort((a,b)=>
+ String(a.date||'').localeCompare(String(b.date||''))).map(t=>canonical(t)));
 export function inspectTradeV2RevisionResponse(result){
  if(result?.status!=='ok'||result.tradeLedgerProtocolVersion!==2
     ||!/^[0-9a-f]{64}$/.test(String(result.ledgerRevision||''))
@@ -60,6 +62,10 @@ export function inspectTradeV2RevisionResponse(result){
   rows:rows.length,uniqueIds:ids.size,
   pcCanonicalMatchesGasRevision:!mismatch,
   candidates:mismatch?alternatives:{},
+  alternativeDigestEncodingMatches:mismatch?{
+    utf16le:createHash('sha256').update(JSON.stringify(current),'utf16le').digest('hex')===hash,
+    latin1:createHash('sha256').update(JSON.stringify(current),'latin1').digest('hex')===hash
+  }:{},
   dateOrderInversions:rows.slice(1).filter((r,i)=>
     String(r.date||'')<String(rows[i]?.date||'')).length,
   emptyFxFields:rows.filter(t=>t.priceRaw==null&&t.fxRateAtBuy==null).length,
@@ -68,7 +74,7 @@ export function inspectTradeV2RevisionResponse(result){
   financeWrites:0
  };
 }
-export async function probeTradeHash({url,token,fetchImpl=fetch}={}){
+export async function probeTradeHash({url,token,fetchImpl=fetch,includeMigrationPreview=false}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)throw Error('AUTH_MISSING');
  let response;
@@ -81,7 +87,44 @@ export async function probeTradeHash({url,token,fetchImpl=fetch}={}){
  if(!response?.ok)throw Error('READBACK_HTTP_UNVERIFIED');
  let data;
  try{data=await response.json();}catch{throw Error('READBACK_JSON_UNVERIFIED');}
- return inspectTradeV2RevisionResponse(data);
+ const analysis=inspectTradeV2RevisionResponse(data);
+ if(!includeMigrationPreview)return analysis;
+ // This migration *preview* is a ScriptLock-protected read-only view of the
+ // exact physical 14-column sheet; its proposedRevision must agree with
+ // getTrades' computed revision when both see the same stable source.
+ let preview;
+ try{
+  const response2=await fetchImpl(endpoint,{
+   method:'POST',
+   headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+   redirect:'follow',signal:AbortSignal.timeout(30000),
+   body:new URLSearchParams({action:'previewTradeLedgerV2Migration',accessToken:token})
+  });
+  if(!response2?.ok)throw Error('PREVIEW_HTTP_UNVERIFIED');
+  preview=await response2.json();
+ }catch{return {...analysis,migrationPreview:{status:'READ_UNVERIFIED'}};}
+ const raw=preview?.status==='ok'&&preview.migrationApplied===false
+   &&preview.financeWrites===0
+   &&Number.isSafeInteger(preview.sourceRows)
+   &&Number.isSafeInteger(preview.assignedIdsNeeded)
+   &&Number.isSafeInteger(preview.existingIdsPreserved)
+   &&/^[0-9a-f]{64}$/.test(String(preview.proposedRevision||''));
+ const safeError=new Set(['TRADE_MIGRATION_SHEET_WIDTH_INVALID',
+   'TRADE_MIGRATION_HEADER_MISMATCH','TRADE_MIGRATION_SOURCE_INVALID',
+   'TRADE_MIGRATION_ROW_INVALID','TRADE_MIGRATION_DUPLICATE_ID',
+   'TRADE_MIGRATION_LOCK_BUSY','TRADE_MIGRATION_SOURCE_MISSING']);
+ if(!raw)return {...analysis,migrationPreview:{status:'NOT_VERIFIED',
+   errorClass:safeError.has(preview?.errorCode)?preview.errorCode:'OTHER_OR_UNAVAILABLE'}};
+ const calc=byDateTradeRevision(data.trades);
+ return {...analysis,migrationPreview:{
+  status:'VERIFIED',sourceRows:preview.sourceRows,
+  assignedIdsNeeded:preview.assignedIdsNeeded,
+  existingIdsPreserved:preview.existingIdsPreserved,
+  physicalRevisionMatchesGasGetTrades:preview.proposedRevision===data.ledgerRevision,
+  physicalRevisionMatchesPcCanonical:preview.proposedRevision===calc,
+  rowCountMatchesApi:preview.sourceRows===data.trades.length
+ }};
+
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
@@ -89,7 +132,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     process.env.GITHUB_REPOSITORY!=='cyyoung111-dev/portfolio')
     throw Error('MAIN_ONLY');
   const output=await probeTradeHash({
-   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+   url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+   includeMigrationPreview:true
   });
   console.log(JSON.stringify(output));
   if(output.status==='REVISION_DRIFT')
