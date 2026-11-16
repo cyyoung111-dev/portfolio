@@ -64,6 +64,50 @@ const publisher=classifyDailyOperations({date:fri,now,morningProof:true,
  ...evidence,navWorkflowStatus:'OFFICIAL_NAV_AWAITING_PUBLICATION',
  officialNavMatched:false,storedNavConfirmed:false}});
 assert.equal(publisher.kbNav.state,'PUBLICATION_PENDING');
+// Current official NAV may be unpublished at 21:10 even though all 37
+// regular-market prices and today's Snapshot are already persisted.
+// Report a separate pending state, never a false PASS or a generic missing
+// proof alarm. Unrelated errors and stale/mismatched dates still fail closed.
+const unpublishedClose={
+ ...evidence,
+ officiallyPublished:false,officialReferenceDate:fri,
+ navWorkflowStatus:'OFFICIAL_NAV_AWAITING_PUBLICATION',
+ officialNavMatched:false,storedNavConfirmed:false,derivedConfirmed:false,
+ closeState:'INCOMPLETE',closeDateVerified:true,
+ runStale:false,snapshotStale:false,
+ fundCloseCheckpointEvidence:{closeStage:'FUND_PENDING'},
+ closeComplete:false,priceOk:true,fundOk:false
+};
+const awaiting=classifyDailyOperations({date:fri,now,morningProof:true,
+ closeProof:true,navRuns:'NAV_EXECUTION_FAILED',navReport:unpublishedClose});
+assert.equal(awaiting.kbNav.state,'PUBLICATION_PENDING');
+assert.equal(awaiting.savedClose.state,'FUND_PUBLICATION_PENDING');
+assert.equal(awaiting.savedClose.verified,false);
+assert.equal(awaiting.overall,'CORE_EVIDENCE_INCOMPLETE',
+ 'unpublished fund NAV is a pending item, never a certified close');
+for(const unhealthy of [
+ {officiallyPublished:true},
+ {closeState:'ERROR'},
+ {closeDateVerified:false},
+ {runStale:true},
+ {snapshotStale:true},
+ {fundCloseCheckpointEvidence:{closeStage:'ERROR'}},
+ {fundCloseCheckpointEvidence:null},
+ {officialReferenceDate:'2026-11-12'},
+ {closeDate:'2026-11-12'},
+ {priceOk:false},
+ {fundOk:true},
+ {closeComplete:true}
+]){
+ const res=classifyDailyOperations({date:fri,now,morningProof:true,
+  closeProof:true,navRuns:'NAV_EXECUTION_FAILED',
+  navReport:{...unpublishedClose,...unhealthy}});
+ assert.equal(res.savedClose.state,'EVIDENCE_MISSING',
+  'bad close must never be downgraded to publication pending: '
+   +JSON.stringify(unhealthy));
+ assert.equal(res.overall,'CORE_EVIDENCE_INCOMPLETE');
+}
+
 const stale=classifyDailyOperations({date:fri,now,morningProof:true,
  closeProof:true,navRuns:'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
  navReport:{...evidence,closeDate:'2026-11-12'}});
