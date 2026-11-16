@@ -23,10 +23,56 @@ const morning=[
 const mc=compactBriefingForDelivery(morning,{mode:'morning'});
 assert.match(mc,/KOSPI: 5,000\.00/);
 assert.match(mc,/원\/달러: 1,420\.00/);
-assert.match(mc,/■ QC: 기준 거래일과 일치한 일봉 2\/21 · 야간선물 미확보/);
+assert.match(mc,/■ QC: 기준 거래일과 일치한 일봉 2\/21/);
+assert.doesNotMatch(mc,/■ QC:[^\n]*야간선물 미확보/);
 for(const text of ['KOSDAQ: 미확보','WTI: 미확보','BTC: 미확보',
  '미 10년물: 미확보','■ 6. 원자재','■ 4. 코스피200 야간선물','• 실수요:'])
  assert.ok(!mc.includes(text),'do not print unavailable market row: '+text);
+
+// Pin the three source-labelled US closes to the top of either briefing.
+// A material-move headline appears ONLY when an existing dated row changes
+// by >= 2%, never for missing prices or ordinary daily fluctuations.
+const headlineMessage=[
+ '[한국장 장전 종합 브리핑 | 2026-11-16]',
+ '기준: 07:30 KST · 기준일별 종가',
+ '■ 1. 오늘의 결론 / 시장 국면',
+ '위험선호 신호 우세',
+ '■ 2. 밤사이 미국장 / 반도체',
+ 'NASDAQ100: 22,300 (+0.20%) [2026-11-13 · NH PLUG]',
+ 'SOX: 11,000 (+0.30%) [2026-11-13 · Yahoo 참고]',
+ '다우존스: 48,200 (-2.10%) [2026-11-13 · Yahoo 참고]',
+ 'S&P 500: 6,800 (+2.50%) [2026-11-13 · NH PLUG]',
+ '■ QC: 기준 거래일과 일치한 일봉 21/21 · 야간선물 미확보'
+].join('\n');
+for(const mode of ['morning','close']){
+ const result=compactBriefingForDelivery(headlineMessage,{mode});
+ const lines=result.split('\n');
+ assert.ok(lines.indexOf('■ 미국 주요 3지수 (직전 완료장)')
+   <lines.indexOf('■ 1. 오늘의 결론 / 시장 국면'));
+ const indices=['S&P 500','다우존스','NASDAQ100'];
+ const starts=indices.map(name=>lines.findIndex(row=>row.startsWith(name+': ')));
+ assert.deepEqual(starts,[3,4,5]);
+ for(const name of indices)
+  assert.equal(lines.filter(row=>row.startsWith(name+': ')).length,1,
+   'no duplicated US index quote '+name);
+ assert.match(result,/S&P 500: 6,800 \(\+2\.50%\) \[2026-11-13 · NH PLUG\]/);
+ assert.match(result,/다우존스: 48,200 \(-2\.10%\) \[2026-11-13 · Yahoo 참고\]/);
+ assert.match(result,/주요 변동: S&P 500 \+2\.50% · 다우존스 -2\.10%/);
+ assert.match(result,/SOX: 11,000/,'do not remove unrelated verified source');
+}
+const quiet=compactBriefingForDelivery(
+ headlineMessage.replace('+2.50%','+1.99%').replace('-2.10%','-1.99%'),{mode:'morning'});
+assert.doesNotMatch(quiet,/주요 변동:/,'no unconditional daily highlight');
+const oneMissing=compactBriefingForDelivery(
+ headlineMessage.replace('다우존스: 48,200 (-2.10%) [2026-11-13 · Yahoo 참고]',
+ '다우존스: 미확보'),{mode:'morning'});
+assert.match(oneMissing,/다우존스: 미확보/,
+ 'keep the fixed three-index slot without manufacturing a close');
+assert.doesNotMatch(oneMissing,/주요 변동:.*다우존스/);
+const noDate=compactBriefingForDelivery(
+ headlineMessage.replace('[2026-11-13 · NH PLUG]','[날짜 미확인]'),{mode:'morning'});
+assert.doesNotMatch(noDate,/주요 변동: S&P 500 /,
+ 'do not highlight a percentage without a dated source label');
 
 const close=[
  '[2026-11-10 장후 시장 브리핑]',
