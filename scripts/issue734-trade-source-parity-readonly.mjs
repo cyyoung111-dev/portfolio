@@ -94,12 +94,12 @@ export async function runSourceParity({url,token,clasprc,scriptId,fetchImpl=fetc
  if(before?.status!=='ok'||before.migrationApplied!==false||before.financeWrites!==0
   ||!Number.isSafeInteger(before.sourceRows)||before.sourceRows<1||before.sourceRows>20000)
   fail('PREVIEW_UNVERIFIED');
- const range=encodeURIComponent("'�ŷ��̷�'!A1:N"+(before.sourceRows+1));
+ const range=encodeURIComponent("'거래이력'!A1:N"+(before.sourceRows+1));
  const native=await get('https://sheets.googleapis.com/v4/spreadsheets/'+SHEET+
   '/values/'+range+'?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER');
  const values=native?.values;
  if(!Array.isArray(values)||values.length!==before.sourceRows+1)fail('NATIVE_ROWS_UNVERIFIED');
- const headers=['��¥','�ż�/�ŵ�','����','�����','�����ڵ�','����','�ܰ�','�ڻ�����','�޸�','����','��������','��ȭ�ܰ�','����ȯ��','�ŷ�ID'];
+ const headers=['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산','외화단가','매입환율','거래ID'];
  if(JSON.stringify(values[0])!==JSON.stringify(headers))fail('NATIVE_HEADERS_UNVERIFIED');
  const physicalRows=values.slice(1).map(r=>{
   const row=Array.from({length:14},(_,i)=>r[i]??'');
