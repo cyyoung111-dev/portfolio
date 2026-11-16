@@ -16,7 +16,10 @@ export async function verifyGas9296PostDeploy({url,token,fetchImpl=fetch}){
 export async function verifyGas9296WithRetry({verify,
  delay=ms=>new Promise(r=>setTimeout(r,ms))}){
  for(let attempt=1;attempt<=3;attempt++){
-  try{return {...await verify(),readbackAttempts:attempt};}
+  try{const result=await verify();
+   if(result?.status!=='VERIFIED'||result.version!=='9.296'||result.financeWrites!==0
+    ||result.pcAndPhysicalRevisionMatch!==true)throw Error('GAS9296_POSTDEPLOY_PROOF_INVALID');
+   return {...result,readbackAttempts:attempt};}
   catch(e){if(!['GAS9295_READONLY_VERSION_MISMATCH','GAS9296_READONLY_HASH_MISMATCH']
    .includes(e?.message)||attempt===3)throw e;
    await delay(3000*attempt);

@@ -73,7 +73,8 @@ assertPublishedReleaseFundNavSupport('9.296');
 let calls=0;
 const retry=await verifyGas9296WithRetry({verify:async()=>{
  if(++calls===1)throw Error('GAS9296_READONLY_HASH_MISMATCH');
- return {status:'VERIFIED',version:'9.296'};
+ return {status:'VERIFIED',version:'9.296',financeWrites:0,pcAndPhysicalRevisionMatch:true};
 },delay:async()=>{}});
 assert.equal(retry.readbackAttempts,2);
+await assert.rejects(verifyGas9296WithRetry({verify:async()=>({status:'VERIFIED',version:'9.296'})}),/GAS9296_POSTDEPLOY_PROOF_INVALID/);
 console.log('PASS GAS 9.296 UTF-8 revision/CAS, Unicode collision regression and unchanged legacy signatures');
