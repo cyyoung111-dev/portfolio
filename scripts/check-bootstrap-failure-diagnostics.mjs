@@ -2406,6 +2406,10 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   ctx._readPortfolioRecoveryReceipts=()=>({[url]:{}});
   await ctx.diagnosePortfolioReceiptsReadOnly();
   assert.equal(calls,6,'no pending record must not probe or write');
+  assert.match(status.textContent,/PC에 미동기화 자료가 있으나 서버 저장 기록을 확인할 수 없습니다/);
+  ctx._getPortfolioRemoteDirty=()=>null;
+  await ctx.diagnosePortfolioReceiptsReadOnly();
+  assert.equal(calls,6,'no dirty data and no pending records must not trigger an API call');
   assert.match(status.textContent,/확인이 필요한 저장 기록이 없습니다/);
   const eventCode=fs.readFileSync('src/web/app/event_delegation.js','utf8');
   assert.match(eventCode,/portfolio-receipt-readonly.*diagnosePortfolioReceiptsReadOnly/);
