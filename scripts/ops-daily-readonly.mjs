@@ -54,10 +54,18 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
    &&navReport?.officialNavMatched===true
    &&navReport?.storedNavConfirmed===true
    &&navReport?.derivedConfirmed===true;
+ // A delayed or stale source must not turn a published-but-missing NAV
+ // into a harmless publication delay. Both reference date and close date
+ // must match the trading session with an explicit unpublished source.
+ const navPublicationPending=navReport?.navWorkflowStatus==='OFFICIAL_NAV_AWAITING_PUBLICATION'
+   &&navReport?.officiallyPublished===false
+   &&navReport?.officialReferenceDate===date
+   &&navReport?.closeDate===date
+   &&navReport?.closeDateVerified===true
+   &&navReport?.runStale===false&&navReport?.snapshotStale===false;
  const nav={state:navExact?'PASS':
    !navDue?'WAITING':
-   navReport?.navWorkflowStatus==='OFFICIAL_NAV_AWAITING_PUBLICATION'
-     ?'PUBLICATION_PENDING':'EVIDENCE_MISSING',
+   navPublicationPending?'PUBLICATION_PENDING':'EVIDENCE_MISSING',
   scope:'KB_OFFICIAL_NAV_AND_DERIVED',verified:navExact,
   // A green runner is execution evidence, not NAV data evidence.
   execution:safeStatus(navRuns)};
