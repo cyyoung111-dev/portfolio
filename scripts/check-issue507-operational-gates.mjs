@@ -79,7 +79,8 @@ console.log('Issue #507 credentialed GAS workflow gates: PASS (' + workflows.len
 // environment branch policy and environment secret were installed.
 const productionEnvironment='portfolio-production-gas';
 // Both credentials can access production GAS, including Apps Script deployment.
-const protectedSecrets=['secrets.GAS_ACCESS_TOKEN','secrets.CLASPRC_JSON'];
+const protectedSecrets=['secrets.GAS_ACCESS_TOKEN','secrets.CLASPRC_JSON',
+  'secrets.CLASPRC_PROCESS_JSON'];
 const dir=new URL('../.github/workflows/',import.meta.url);
 const workflowFiles=fs.readdirSync(dir).filter(file=>/\.ya?ml$/.test(file)).sort();
 function auditEnvironmentGuard(name,source){

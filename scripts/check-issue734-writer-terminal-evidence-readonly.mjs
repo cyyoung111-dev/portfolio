@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {TARGETS,inspectWriterProcesses,reconcileObservedProcesses} from './issue734-writer-terminal-evidence-readonly.mjs';
 
 assert.equal(TARGETS.length,14);
@@ -78,6 +79,11 @@ await assert.rejects(
    startTime:'2026-11-09T10:33:17Z',processStatus:'COMPLETED'}]}),
  }),
  /ISSUE734_WRITER_AUDIT_PROCESS_SCHEMA/);
+const workflow=readFileSync('.github/workflows/issue734-writer-terminal-evidence-readonly.yml','utf8');
+assert.match(workflow,/^          CLASPRC_JSON: .*secrets\.CLASPRC_PROCESS_JSON/m);
+assert.doesNotMatch(workflow,/^          CLASPRC_JSON: .*secrets\.CLASPRC_JSON\s*$/m);
+assert.match(workflow,/^  workflow_dispatch:$/m);
+assert.doesNotMatch(workflow,/^  schedule:$/m);
 console.log(JSON.stringify({kind:'ISSUE734_WRITER_TERMINAL_EVIDENCE_SOURCE_PASS',
  cases:9,targets:TARGETS.length,paginationFailClosed:true,scopeFailureFailClosed:true,
  exactOwnerNotClaimed:true,gasWrites:0,financialWrites:0}));

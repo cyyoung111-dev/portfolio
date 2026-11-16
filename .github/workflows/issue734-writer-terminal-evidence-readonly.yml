@@ -41,5 +41,5 @@ jobs:
       - name: GET process metadata only — never release or cleanup
         env:
           GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
-          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_PROCESS_JSON }}
         run: node scripts/issue734-writer-terminal-evidence-readonly.mjs

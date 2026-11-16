@@ -30,7 +30,7 @@ jobs:
     environment: portfolio-production-gas
     timeout-minutes: 3
     env:
-      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      CLASPRC_JSON: ${{ secrets.CLASPRC_PROCESS_JSON }}
     steps:
       - uses: actions/checkout@v7
         with:
