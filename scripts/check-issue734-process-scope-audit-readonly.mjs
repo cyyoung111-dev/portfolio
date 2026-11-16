@@ -67,7 +67,9 @@ function enforceManualScopeAudit(source){
  assert.match(source,/^  scope-audit:\s*$/m);
  assert.match(source,/^    environment: portfolio-production-gas\s*$/m);
  assert.match(source,/^    needs: source-check\s*$/m);
- assert.match(source,/^      CLASPRC_JSON: .*secrets\.CLASPRC_JSON/m);
+ assert.match(source,/^      CLASPRC_JSON: .*secrets\.CLASPRC_PROCESS_JSON/m);
+ assert.doesNotMatch(source,/^      CLASPRC_JSON: .*secrets\.CLASPRC_JSON\s*$/m,
+  'production deployment token must not be used for process audit');
  assert.match(source,/^        run: node scripts\/issue734-process-scope-audit-readonly\.mjs$/m);
  const expected="    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1";
  assert.ok(source.split('\n').includes(expected),
