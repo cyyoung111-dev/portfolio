@@ -132,6 +132,47 @@ for(const [name,runner,code] of [['KB',collectKb,'F00002'],
  assert.deepEqual([rejected,deniedDelays],[1,0],name+' auth/HTTP fail closed');
 }
 
+// 11/16 production: both GAS previews returned HTTP 200 but JSON parsing
+// failed. A single fresh READ-ONLY preview is safe; never retry an import.
+for(const [name,runner,code] of [['KB',collectKb,'F00002'],
+ ['HANWHA',collectHanwha,'F00001']]){
+ const normal=fixture('9.291',code);
+ let previews=0,delays=0,writers=0;
+ const transient=await runner({url,token,now,apply:false,
+  retryDelay:async()=>{delays++;},
+  fetchImpl:async(destination,options={})=>{
+   if(new URL(destination).hostname==='script.google.com'){
+    const action=options.body.get('action');
+    if(/^(?:collectKbFundNav|collectHanwhaFundNav)$/.test(action))writers++;
+    if(action==='previewFundNavImport'&&++previews===1)
+     return {ok:true,status:200,headers:{get:()=> 'text/html; charset=UTF-8'},
+      json:async()=>{throw new SyntaxError('not JSON')}};
+   }
+   return normal.fetchImpl(destination,options);
+  }});
+ assert.equal(transient.mode,'DRY_RUN',name+' single non-JSON preview recovered');
+ assert.deepEqual([previews,delays,writers],[2,1,0],
+  name+' read-only JSON retry; financial writer not retried');
+ const broken=fixture('9.291',code);
+ let failed=0,failedDelays=0,failedWrites=0;
+ await assert.rejects(()=>runner({url,token,now,apply:false,
+  retryDelay:async()=>{failedDelays++;},
+  fetchImpl:async(destination,options={})=>{
+   if(new URL(destination).hostname==='script.google.com'){
+    const action=options.body.get('action');
+    if(/^(?:collectKbFundNav|collectHanwhaFundNav)$/.test(action))failedWrites++;
+    if(action==='previewFundNavImport'){
+     failed++;
+     return {ok:true,status:200,headers:{get:()=> 'text/html'},
+      json:async()=>{throw new SyntaxError('invalid HTML body')}};
+    }
+   }
+   return broken.fetchImpl(destination,options);
+  }}),name==='KB'?/NAV_PREVIEW_JSON_UNVERIFIED/:/HANWHA_PREVIEW_JSON_UNVERIFIED/);
+ assert.deepEqual([failed,failedDelays,failedWrites],[2,1,0],
+  name+' persistent non-JSON remains blocked, never writes');
+}
+
 // An upstream 429/502/503/504 can be transient, but only for the initial
 // read-only NAV preview; import/refresh and authentication errors never retry.
 for(const [kind,runner,code] of [['KB',collectKb,'F00002'],
