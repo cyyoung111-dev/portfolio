@@ -83,17 +83,50 @@ for(const isManual of [false,true]){
  assert.equal(writes,0,'ambiguous public dividends must not call the settings writer');
  assert.equal(u.labels.at(-1).state,'fail');
 }
+// Even if the next company-wide query contains only the preferred amount,
+// neither background refresh nor manual update may replace the old payment.
+for(const manual of [false,true]){
+ const u=ui({stocks:true});u.ctx.DIVDATA['111111']={
+  source:'PUBLIC_DATA',perShare:6500,events:[
+   {date:'2026-04-01',payDate:'2026-04-24',amount:6500,source:'PUBLIC_DATA'}
+  ]
+ };
+ let writes=0;
+ u.ctx._fetchDividendSource=async()=>({'111111':{
+  source:'PUBLIC_DATA',perShare:6550,events:[
+   {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
+  ]
+ }});
+ u.ctx.persistDividendSettings=async()=>{writes++;return true;};
+ const old=structuredClone(u.ctx.DIVDATA['111111']);
+ assert.equal(u.ctx._publicDividendChangesVerifiedAmount(
+  {source:'PUBLIC_DATA',events:[{date:'2026-04-01',payDate:'2026-04-24',amount:6550}]},old),true);
+ if(manual) assert.equal(await u.ctx.startDivFetch(),false);
+ else await u.ctx._autoFetchDiv({});
+ assert.equal(u.ctx.DIVDATA['111111'].perShare,6500);
+ assert.equal(u.ctx.DIVDATA['111111'].events[0].amount,6500);
+ assert.equal(writes,0,'public source cannot overwrite old verified amount');
+ assert.equal(u.labels.at(-1).state,'fail');
+}
 console.log('PASS: actual mixed ETF refresh, verified zero-window skip, manual/history protection, backup/readback, no false success/GF fallback');
 
-const {runDividendRefresh,hasConflictingPublicDividendAmounts}=await import('./run-dividend-source-refresh.mjs');
+const {runDividendRefresh,hasConflictingPublicDividendAmounts,hasChangedVerifiedPublicDividendAmounts}=await import('./run-dividend-source-refresh.mjs');
 const skCommon={date:'2026-04-01',payDate:'2026-04-24',amount:6500};
 const skPreferred={date:'2026-04-01',payDate:'2026-04-24',amount:6550};
 assert.equal(hasConflictingPublicDividendAmounts([skCommon,skPreferred]),true);
 assert.equal(hasConflictingPublicDividendAmounts([skCommon,{...skCommon}]),false);
 assert.equal(hasConflictingPublicDividendAmounts([skCommon,{...skCommon,payDate:'2026-04-25',amount:6550}]),false);
+assert.equal(hasChangedVerifiedPublicDividendAmounts([skCommon],[skPreferred]),true,
+ 'one preferred amount must not replace the already verified common share');
+assert.equal(hasChangedVerifiedPublicDividendAmounts([skCommon],[{...skCommon}]),false);
+assert.equal(hasChangedVerifiedPublicDividendAmounts([skCommon],[{...skPreferred,date:'2026-08-01'}]),false,
+ 'a new declaration on a different record date is allowed');
+assert.equal(hasChangedVerifiedPublicDividendAmounts([skCommon],[{...skPreferred,payDate:'2026-04-25'}]),false,
+ 'a different payment date is not the same verified event');
 async function collectorFixture(mode='ok') {
  const calls=[],cache={'111111':{source:'SEIBRO',updatedAt:'2026-10-25'},'333333':{source:'GOOGLEFINANCE',perShare:7},'444444':{source:'MANUAL',perShare:99}};
  let saved=false;
+ if(mode==='single-preferred')cache['333333']={source:'PUBLIC_DATA',perShare:6500,events:[{date:'2026-04-01',payDate:'2026-04-24',amount:6500}]};
  const fetchImpl=async(_url,options)=>{
   const p=new URLSearchParams(options.body),action=p.get('action');calls.push(action);
   if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')return{ok:true,json:async()=>({status:mode==='auth-bad'?'ok':'error'})};
@@ -107,6 +140,11 @@ async function collectorFixture(mode='ok') {
   if(action==='dividendPublic'&&mode==='collision'){
     out.dividends={'333333':{source:'PUBLIC_DATA',perShare:6525,events:[
       {date:'2026-04-01',payDate:'2026-04-24',amount:6500},
+      {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
+    ]}};
+  }
+  if(action==='dividendPublic'&&mode==='single-preferred'){
+    out.dividends={'333333':{source:'PUBLIC_DATA',perShare:6550,events:[
       {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
     ]}};
   }
@@ -124,6 +162,13 @@ async function collectorFixture(mode='ok') {
  assert.equal(r.stockUnverified,1,'ambiguity is visible as unverified');
  assert.equal(f.cache['333333'].perShare,7,'original source data must be preserved');
  assert.ok(!f.calls.includes('saveDividendSettings'),'no ambiguous stock writer call');
+}
+{const f=await collectorFixture('single-preferred'),r=await f.run();
+ assert.equal(r.stockUpdated,0,'one wrong share class is not a verified payment');
+ assert.equal(r.stockUnverified,1);
+ assert.equal(f.cache['333333'].perShare,6500,'existing confirmed common amount remains');
+ assert.equal(f.cache['333333'].events[0].amount,6500);
+ assert.ok(!f.calls.includes('saveDividendSettings'),'single-value conflict must never reach stock writer');
 }
 {const f=await collectorFixture('future');await assert.rejects(f.run(),/DIVIDEND_VERSION/);assert.ok(!f.calls.includes('refreshEtfDividends'));}
 {const f=await collectorFixture('catalogFutureVersion');await assert.rejects(f.run(),/DIVIDEND_MASTER_READ_FAILED/);assert.ok(!f.calls.includes('saveDividendSettings'));}

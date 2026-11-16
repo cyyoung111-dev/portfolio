@@ -290,10 +290,35 @@ function _publicDividendHasShareClassCollision(obj) {
   return false;
 }
 
+// Issuer-level sources can change from two share-class amounts to just one.
+// An exact payment already held as verified PUBLIC_DATA must not be silently
+// replaced by a different amount even if the new response has no collision.
+function _publicDividendChangesVerifiedAmount(obj, prev) {
+  if (String(obj?.source || '').toUpperCase() !== 'PUBLIC_DATA'
+      || String(prev?.source || '').toUpperCase() !== 'PUBLIC_DATA') return false;
+  const known = new Map();
+  for (const ev of (Array.isArray(prev?.events) ? prev.events : [])) {
+    const d = String(ev?.date || '').slice(0, 10);
+    const p = String(ev?.payDate || '').slice(0, 10);
+    const amount = Number(ev?.amount);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !(amount > 0)) continue;
+    const key = d + '|' + p;
+    if (!known.has(key)) known.set(key, new Set());
+    known.get(key).add(amount);
+  }
+  return (Array.isArray(obj?.events) ? obj.events : []).some(ev => {
+    const d = String(ev?.date || '').slice(0, 10);
+    const p = String(ev?.payDate || '').slice(0, 10);
+    const amount = Number(ev?.amount);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && amount > 0
+      && known.has(d + '|' + p) && !known.get(d + '|' + p).has(amount);
+  });
+}
+
 function _normalizeDividendResponse(obj, prev) {
   // 수동 입력은 사용자가 명시적으로 관리하는 값이므로 자동 조회 결과로 덮어쓰지 않습니다.
   if (prev?.source === 'MANUAL') return { ...prev };
-  if (_publicDividendHasShareClassCollision(obj)) return {
+  if (_publicDividendHasShareClassCollision(obj) || _publicDividendChangesVerifiedAmount(obj, prev)) return {
     ...prev, refreshState: 'UNVERIFIED',
     lastAttemptAt: new Date().toISOString()
   };
@@ -561,7 +586,7 @@ async function _autoFetchDiv(area) {
       const storeKey = normCode || divKey;
       const prev = DIVDATA[storeKey] || DIVDATA[divKey] || {};
       if (String(prev.source || '').toUpperCase() === 'MANUAL') return;
-      if (_publicDividendHasShareClassCollision(obj)) {
+      if (_publicDividendHasShareClassCollision(obj) || _publicDividendChangesVerifiedAmount(obj, prev)) {
         sourceConflicts.push(name);
         return;
       }
@@ -582,7 +607,7 @@ async function _autoFetchDiv(area) {
     const complete = refreshedSeibro && sourceConflicts.length === 0
       && targetCodes.every(code => Number(dividends[code]?.perShare || 0) > 0);
     _setDividendLinkState(complete ? 'ok' : 'fail', sourceConflicts.length
-      ? '공공데이터 주식 종류별 배당 금액 충돌: '
+      ? '공공데이터 주식 종류·기존 확인금액 충돌: '
         + sourceConflicts.join(', ') + ' · 기존 원본 유지'
       : complete ? 'ETF·주식 배당 조회 및 저장 완료'
       : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends));
@@ -668,7 +693,7 @@ async function startDivFetch() {
       const storeKey = normCode || ((typeof getDivKey === 'function') ? getDivKey(name) : name);
       const prev = DIVDATA[storeKey] || {};
       if (String(prev.source || '').toUpperCase() === 'MANUAL') return;
-      if (_publicDividendHasShareClassCollision(obj)) {
+      if (_publicDividendHasShareClassCollision(obj) || _publicDividendChangesVerifiedAmount(obj, prev)) {
         skipped++; sourceConflicts++;
         return;
       }
@@ -686,12 +711,12 @@ async function startDivFetch() {
       }
     });
 
-    const resultMsg = `${refreshedSeibro && skipped === 0 ? '✅' : '⚠️'} 일반 종목 ${updated}개 갱신 · ${skipped}개 미확인${sourceConflicts ? ` (주식 종류별 금액 충돌 ${sourceConflicts}건, 원본 유지)` : ''} · ETF ${refreshedSeibro ? '완료' : '일부 미확인'}`;
+    const resultMsg = `${refreshedSeibro && skipped === 0 ? '✅' : '⚠️'} 일반 종목 ${updated}개 갱신 · ${skipped}개 미확인${sourceConflicts ? ` (주식 종류·기존 확인금액 충돌 ${sourceConflicts}건, 원본 유지)` : ''} · ETF ${refreshedSeibro ? '완료' : '일부 미확인'}`;
     if (sourceConflicts && updated === 0) {
       if (status) { status.style.color = 'var(--amber)'; status.textContent = resultMsg; }
       const stoppedButton = $el('divFetchBtn');
       if (stoppedButton) { stoppedButton.disabled = false; stoppedButton.textContent = '📥 배당 데이터 갱신'; }
-      _setDividendLinkState('fail', '주식 종류별 배당 금액 충돌 · 기존 원본 유지 · 자동 저장하지 않았습니다.');
+      _setDividendLinkState('fail', '주식 종류·기존 확인금액 충돌 · 기존 원본 유지 · 자동 저장하지 않았습니다.');
       return false;
     }
     const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
