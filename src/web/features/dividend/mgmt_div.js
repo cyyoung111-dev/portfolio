@@ -687,6 +687,13 @@ async function startDivFetch() {
     });
 
     const resultMsg = `${refreshedSeibro && skipped === 0 ? '✅' : '⚠️'} 일반 종목 ${updated}개 갱신 · ${skipped}개 미확인${sourceConflicts ? ` (주식 종류별 금액 충돌 ${sourceConflicts}건, 원본 유지)` : ''} · ETF ${refreshedSeibro ? '완료' : '일부 미확인'}`;
+    if (sourceConflicts && updated === 0) {
+      if (status) { status.style.color = 'var(--amber)'; status.textContent = resultMsg; }
+      const stoppedButton = $el('divFetchBtn');
+      if (stoppedButton) { stoppedButton.disabled = false; stoppedButton.textContent = '📥 배당 데이터 갱신'; }
+      _setDividendLinkState('fail', '주식 종류별 배당 금액 충돌 · 기존 원본 유지 · 자동 저장하지 않았습니다.');
+      return false;
+    }
     const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
     if (!savedToGas) throw new Error('배당 조회 결과를 GAS에 저장하지 못했습니다. 구글시트 연동 상태를 확인해주세요.');
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
