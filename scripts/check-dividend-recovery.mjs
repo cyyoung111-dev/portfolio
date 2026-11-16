@@ -56,7 +56,12 @@ for(const opts of [{etf:false},{etf:false,stocks:true},{stocks:true,save:false},
 {const u=ui();const old={source:'GOOGLEFINANCE',perShare:10,events:[],updatedAt:'old'};const v=u.ctx._normalizeDividendResponse({source:'PUBLIC_DATA',perShare:0},old);assert.equal(v.source,'GOOGLEFINANCE');assert.equal(v.updatedAt,'old');assert.equal(v.perShare,10);assert.equal(v.refreshState,'UNVERIFIED');}
 console.log('PASS: actual mixed ETF refresh, verified zero-window skip, manual/history protection, backup/readback, no false success/GF fallback');
 
-const {runDividendRefresh}=await import('./run-dividend-source-refresh.mjs');
+const {runDividendRefresh,hasConflictingPublicDividendAmounts}=await import('./run-dividend-source-refresh.mjs');
+const skCommon={date:'2026-04-01',payDate:'2026-04-24',amount:6500};
+const skPreferred={date:'2026-04-01',payDate:'2026-04-24',amount:6550};
+assert.equal(hasConflictingPublicDividendAmounts([skCommon,skPreferred]),true);
+assert.equal(hasConflictingPublicDividendAmounts([skCommon,{...skCommon}]),false);
+assert.equal(hasConflictingPublicDividendAmounts([skCommon,{...skCommon,payDate:'2026-04-25',amount:6550}]),false);
 async function collectorFixture(mode='ok') {
  const calls=[],cache={'111111':{source:'SEIBRO',updatedAt:'2026-10-25'},'333333':{source:'GOOGLEFINANCE',perShare:7},'444444':{source:'MANUAL',perShare:99}};
  let saved=false;
@@ -64,12 +69,18 @@ async function collectorFixture(mode='ok') {
   const p=new URLSearchParams(options.body),action=p.get('action');calls.push(action);
   if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')return{ok:true,json:async()=>({status:mode==='auth-bad'?'ok':'error'})};
   let out={status:'ok'};
-  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':mode==='future'?'9.294':mode==='current'?'9.292':'9.282';
+  if(action==='getAutomationStatus')out.gasVersion=mode==='version'?'9.265':mode==='future'?'9.297':mode==='current'?'9.296':'9.282';
   if(action==='refreshEtfDividends')Object.assign(out,mode==='no-targets'?{skipped:true,reason:'NO_TARGETS',targetCount:0,targetCodes:[]}:{saved:true,refreshed:true,targetCount:1,targetCodes:['111111'],noEventCount:0,historyRows:1});
   if(action==='getDividendSettings')out.divData=mode==='readback-bad'&&saved?{}:structuredClone(cache);
-  if(action==='getCodeListReadOnly'){out.status=mode.startsWith('catalog-')?'error':'ok';out.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');out.readOnly=true;out.gasVersion=mode==='current'?'9.292':mode==='catalogFutureVersion'?'9.294':'9.282';out.publicDataApiKeyConfigured=true;out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];}
+  if(action==='getCodeListReadOnly'){out.status=mode.startsWith('catalog-')?'error':'ok';out.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');out.readOnly=true;out.gasVersion=mode==='current'?'9.296':mode==='catalogFutureVersion'?'9.297':'9.282';out.publicDataApiKeyConfigured=true;out.codes=[{code:'111111',type:'ETF',name:'A'},{code:'999999',type:'ETF',name:'inactive'},{code:'333333',type:'주식',name:'B'},{code:'444444',type:'주식',name:'C'}];}
   assert.ok(!['getCodeList','getSettings'].includes(action),'source refresh must not enter unrelated settlement writers');
   if(action==='dividendPublic') {assert.equal(p.get('names'),'B|C');out.dividends={'333333':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}};out.diagnostics={dividend:{'333333':{status:mode==='partial-page'?'PARTIAL_PAGE':mode==='no-events'?'NO_ROWS':'OK'}},retry:{}};}
+  if(action==='dividendPublic'&&mode==='collision'){
+    out.dividends={'333333':{source:'PUBLIC_DATA',perShare:6525,events:[
+      {date:'2026-04-01',payDate:'2026-04-24',amount:6500},
+      {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
+    ]}};
+  }
   if(action==='dividendPublic'&&mode==='no-events'){out.dividends={};out.diagnostics.dividend['333333'].returnedRows=0;out.diagnostics.normalized={'333333':{inputRows:0,acceptedEvents:0,rejected:{identity:0,date:0}}};}
   if(action==='saveDividendSettings'){const patch=JSON.parse(p.get('data'));assert.deepEqual(Object.keys(patch),['333333']);Object.assign(cache,patch);saved=true;out.saved=true;}
   return{ok:true,json:async()=>out};
@@ -78,7 +89,13 @@ async function collectorFixture(mode='ok') {
  return{run,calls,cache};
 }
 {const f=await collectorFixture(),r=await f.run();assert.equal(r.etfChecked,1);assert.equal(r.stockUpdated,1);assert.equal(r.stockUnverified,0);assert.equal(f.cache['444444'].perShare,99);}
-{const f=await collectorFixture('current'),r=await f.run();assert.equal(r.etfChecked,1,'reviewed deployed GAS 9.292 must be accepted');assert.equal(r.stockUpdated,1);}
+{const f=await collectorFixture('current'),r=await f.run();assert.equal(r.etfChecked,1,'reviewed deployed GAS 9.296 must be accepted');assert.equal(r.stockUpdated,1);}
+{const f=await collectorFixture('collision'),r=await f.run();
+ assert.equal(r.stockUpdated,0,'mixed common and preferred stock records are never saved');
+ assert.equal(r.stockUnverified,1,'ambiguity is visible as unverified');
+ assert.equal(f.cache['333333'].perShare,7,'original source data must be preserved');
+ assert.ok(!f.calls.includes('saveDividendSettings'),'no ambiguous stock writer call');
+}
 {const f=await collectorFixture('future');await assert.rejects(f.run(),/DIVIDEND_VERSION/);assert.ok(!f.calls.includes('refreshEtfDividends'));}
 {const f=await collectorFixture('catalogFutureVersion');await assert.rejects(f.run(),/DIVIDEND_MASTER_READ_FAILED/);assert.ok(!f.calls.includes('saveDividendSettings'));}
 {const f=await collectorFixture('partial-page'),r=await f.run();assert.equal(r.stockUpdated,0);assert.ok(!f.calls.includes('saveDividendSettings'));assert.equal(f.cache['333333'].perShare,7);}
