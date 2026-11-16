@@ -2368,9 +2368,9 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
       assert.equal(action,'getPortfolioSyncReceipt',
         'receipt diagnostic may NEVER submit a financial save action');
       assert.equal(opts.retry,0);
-      assert.equal(params.kind,'syncHoldings');
+      assert.equal(params.kind,record.action);
       assert.equal(params.operationId,'pr_mock_receipt');
-      return serverState==='BUSY' ? {status:'ok',receiptState:'BUSY'} : {status:'ok',kind:'syncHoldings',operationId:'pr_mock_receipt',receiptState:serverState};
+      return serverState==='BUSY' ? {status:'ok',receiptState:'BUSY'} : {status:'ok',kind:record.action,operationId:'pr_mock_receipt',receiptState:serverState};
     }
   });
   vm.runInContext(local+'\n'+remote,ctx);
@@ -2384,25 +2384,39 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   assert.doesNotMatch(JSON.stringify(summary),/SENSITIVE_LEDGER|fixture\.invalid|pr_mock_receipt/);
   await ctx.diagnosePortfolioReceiptsReadOnly();
   assert.equal(calls,1);
-  assert.match(status.textContent,/syncHoldings: FAILED/);
+  assert.match(status.textContent,/보유자료 저장: 실패 기록\(자료 대조 필요\)/);
   assert.match(status.textContent,/원본 변경 없음/);
   assert.doesNotMatch(status.textContent,/SENSITIVE_LEDGER|fixture\.invalid|pr_mock_receipt/);
-  for (const state of ['BUSY','UNKNOWN','CONFLICT','COMPLETE']) {
+  for (const [state,label] of [['BUSY','처리 중'],['UNKNOWN','상태 확인 불가'],
+    ['CONFLICT','저장 기록 충돌'],['COMPLETE','완료 확인']]) {
     serverState=state;
     await ctx.diagnosePortfolioReceiptsReadOnly();
-    assert.match(status.textContent,new RegExp('syncHoldings: '+state),
+    assert.match(status.textContent,new RegExp('보유자료 저장: '+label),
       'server receipt state must not be hidden by UNAVAILABLE');
   }
+  // A terminal v2 failure is a recorded status, not proof that 338
+  // financial trades were deleted. Show a clear label without raw action codes.
+  record.action='syncTradesV2';
+  serverState='FAILED';
+  await ctx.diagnosePortfolioReceiptsReadOnly();
+  assert.match(status.textContent,/거래원장 저장: 실패 기록\(자료 대조 필요\)/);
+  assert.doesNotMatch(status.textContent,/syncTradesV2: FAILED|영수증|SENSITIVE_LEDGER/);
+  assert.match(history,/서버 저장 결과 확인 · 읽기 전용/);
+  assert.ok(history.includes('저장 시도 <b>${d.attempted}</b>건'));
   ctx._readPortfolioRecoveryReceipts=()=>({[url]:{}});
   await ctx.diagnosePortfolioReceiptsReadOnly();
-  assert.equal(calls,5,'no receipt must not probe or write');
-  assert.match(status.textContent,/조회 가능한 영수증 기록이 없습니다/);
+  assert.equal(calls,6,'no pending record must not probe or write');
+  assert.match(status.textContent,/PC에 미동기화 자료가 있으나 서버 저장 기록을 확인할 수 없습니다/);
+  ctx._getPortfolioRemoteDirty=()=>null;
+  await ctx.diagnosePortfolioReceiptsReadOnly();
+  assert.equal(calls,6,'no dirty data and no pending records must not trigger an API call');
+  assert.match(status.textContent,/확인이 필요한 저장 기록이 없습니다/);
   const eventCode=fs.readFileSync('src/web/app/event_delegation.js','utf8');
   assert.match(eventCode,/portfolio-receipt-readonly.*diagnosePortfolioReceiptsReadOnly/);
   assert.match(history,/PC 거래·보유 복원 진단 · 읽기 전용/);
   console.log(JSON.stringify({kind:'ISSUE734_PC_RECEIPT_DIAGNOSTIC_PASS',
     reportedLocalCounts:true,serverReceiptReadOnly:true,sensitiveFieldsOmitted:true,
-    remoteReads:5,financeWrites:0}));
+    remoteReads:6,financeWrites:0}));
 }
 
 
@@ -2690,7 +2704,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   const eventSource=fs.readFileSync('src/web/app/event_delegation.js','utf8');
   const viewSource=fs.readFileSync('src/web/views/views_history.js','utf8');
   assert.match(eventSource,/portfolio-receipt-reconcile.*reconcileFailedTradeReceiptFromUI/);
-  assert.match(viewSource,/PC 거래원장 대사 후 안전 복구/);
+  assert.match(viewSource,/PC·서버 자료 대조 후 안전 복원/);
   console.log(JSON.stringify({kind:'ISSUE734_PC_FAILED_V2_LOCAL_RECONCILIATION_PASS',
     successAfterTwoReadbacks:true,mismatchBlocked:true,dirtyBlocked:true,
     fullDirtyVerifiedAndArchived:true,interruptedCleanupResumed:true,

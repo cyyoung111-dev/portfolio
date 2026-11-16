@@ -694,11 +694,11 @@ async function diagnosePortfolioReceiptsReadOnly() {
   );
   if (!target || !pending.length) {
     status.textContent = dirty
-      ? 'PC에 미동기화 자료가 있으나 조회 가능한 영수증 기록이 없습니다. 자동 삭제·재전송하지 않습니다.'
-      : '조회할 미완료 영수증이 없습니다.';
+      ? 'PC에 미동기화 자료가 있으나 서버 저장 기록을 확인할 수 없습니다. 자동 삭제·재전송하지 않습니다.'
+      : '확인이 필요한 저장 기록이 없습니다.';
     return;
   }
-  status.textContent = '서버 영수증을 읽기 전용으로 조회 중...';
+  status.textContent = '서버 저장 결과를 읽기 전용으로 확인 중...';
   const result = [];
   for (const record of pending.slice(0, 5)) {
     if (typeof isGsheetConnectionCurrent === 'function'
@@ -718,11 +718,24 @@ async function diagnosePortfolioReceiptsReadOnly() {
         && response?.kind === record.action;
       const state = response?.status === 'ok' && (identityOk || response.receiptState === 'BUSY')
         ? String(response.receiptState || 'UNAVAILABLE') : 'UNAVAILABLE';
-      result.push(record.action + ': ' +
-        (['COMPLETE','NOT_FOUND','FAILED','PARTIAL','BUSY','CHANGED','UNKNOWN','CONFLICT','UNAVAILABLE']
-          .includes(state) ? state : 'UNAVAILABLE'));
+      // Keep internal action/status codes for the GAS protocol, but show
+      // plain Korean on the PC screen. FAILED is only a recorded failure:
+      // the server ledger may still match and requires separate verification.
+      const actionLabel = {
+        syncHoldings:'보유자료 저장',
+        syncTrades:'거래원장 저장',
+        syncTradesV2:'거래원장 저장'
+      }[record.action] || '저장 요청';
+      const statusLabel = {
+        COMPLETE:'완료 확인', NOT_FOUND:'서버 기록 없음',
+        FAILED:'실패 기록(자료 대조 필요)', PARTIAL:'일부 완료',
+        BUSY:'처리 중', CHANGED:'서버 자료 변경 감지',
+        UNKNOWN:'상태 확인 불가', CONFLICT:'저장 기록 충돌',
+        UNAVAILABLE:'조회 결과 확인 불가'
+      }[state] || '조회 결과 확인 불가';
+      result.push(actionLabel + ': ' + statusLabel);
     } catch (_) {
-      result.push(record.action + ': NETWORK_ERROR');
+      result.push((record.action === 'syncHoldings' ? '보유자료 저장' : '거래원장 저장') + ': 서버 조회 오류');
     }
   }
   // A status-only report: never display receipt IDs, payloads, target URL or tokens.
@@ -730,7 +743,7 @@ async function diagnosePortfolioReceiptsReadOnly() {
 }
 
 let _pcFailedTradeReceiptRepairBusy=false;
-let _pcFailedTradeReceiptRepairStatus='서버·PC 원장이 완전히 일치할 때만 PC의 실패 영수증을 정리할 수 있습니다.';
+let _pcFailedTradeReceiptRepairStatus='PC·서버 거래원장과 보유자료가 일치할 때만 PC의 실패 기록을 안전하게 정리합니다.';
 async function reconcileFailedTradeReceiptFromUI() {
   if(_pcFailedTradeReceiptRepairBusy)return;
   const target=String(GSHEET_API_URL||'').trim();
@@ -744,7 +757,7 @@ async function reconcileFailedTradeReceiptFromUI() {
   _pcFailedTradeReceiptRepairBusy=true;
   const button=document.getElementById('btn-reconcile-failed-v2-receipt');
   if(button)button.disabled=true;
-  statusText('서버 영수증과 PC·서버 전체 거래원장을 읽기 전용으로 두 번 대조 중...');
+  statusText('서버 저장 기록과 PC·서버 전체 거래원장을 두 번 비교 중 · 원본 변경 없음...');
   try{
     const result=await _reconcileFailedTradeV2ReceiptWithoutRemoteWrite({
       targetUrl:target
@@ -773,7 +786,7 @@ async function reconcileFailedTradeReceiptFromUI() {
         LOCAL_SYNC_BUSY:'다른 저장 작업이 진행 중이므로 안전 복구를 중단했습니다.',
         SERVER_AND_PC_LEDGER_DIFFER:'PC 저장요청과 서버 거래원장 내용이 다릅니다. 원본을 보존하고 복구를 중단했습니다.',
         LOCAL_UNSENT_CHANGE_DIFFERS_FROM_FAILED_RECEIPT:'PC 거래 내용이 이전 실패 요청과 다릅니다. 원본을 보존했습니다.',
-        SERVER_RECEIPT_NOT_STABLE_FAILED:'서버 영수증이 더 이상 동일한 FAILED 상태가 아닙니다.'
+        SERVER_RECEIPT_NOT_STABLE_FAILED:'서버의 저장 실패 기록이 조회 중 변경됐습니다.'
       };
       const code=String(result.code||'UNKNOWN').replace(/[^A-Z0-9_]/g,'');
       statusText((reasons[code]||'안전 복구 전 검증이 완료되지 않았습니다.')
@@ -781,23 +794,23 @@ async function reconcileFailedTradeReceiptFromUI() {
       return;
     }
     statusText('서버·PC 거래 '+result.serverCount+
-      '건 일치 · 실패 영수증 원본 백업 및 PC 완료표시 저장됨 · 가격/원장 복원 확인 중...');
+      '건 일치 · 기존 실패 기록 백업 및 PC 완료표시 저장됨 · 가격/원장 복원 확인 중...');
     // The full PC ledger was proven equal to the remote ledger twice.
     // Authoritative reload is safe and must not upload a stale local ledger.
     const restored=typeof loadSettings==='function'
       ?await loadSettings(undefined,{forcePortfolioRestore:true}):false;
     if(!restored){
-      statusText('서버·PC 전체 거래 일치, PC 실패 영수증 안전 정리 완료. '
+      statusText('서버·PC 전체 거래 일치, PC의 실패 기록 안전 정리 완료. '
         +'다른 설정 복원 문제가 남았습니다. 삭제·강제 재전송하지 마세요.');
       return;
     }
     if(typeof recomputeRows==='function')recomputeRows();
     if(typeof renderSummary==='function')renderSummary();
     if(typeof renderView==='function')renderView(true);
-    statusText('PC 실패 영수증 정리 및 GAS 거래·보유·가격 복원 완료. '
+    statusText('PC의 실패 기록 정리 및 GAS 거래·보유·가격 복원 완료. '
       +'서버 거래원장 변경 없음 · 실제 시세 표시를 확인하세요.');
     if(typeof showToast==='function')
-      showToast('PC 거래원장 일치 검증 · 영수증 복구 완료','ok',5000);
+      showToast('PC 거래원장 일치 검증 · 저장 기록 정리 완료','ok',5000);
   }catch(ignore){
     statusText('검증 또는 복원 과정 중 오류 발생 · 서버 데이터는 변경하지 않았습니다. '
       +'PC 로컬 기록을 삭제하지 마세요.');
@@ -859,14 +872,14 @@ function renderGsheetView(area) {
         return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
           <div style="font-size:.72rem;font-weight:700;margin-bottom:6px">PC 거래·보유 복원 진단 · 읽기 전용</div>
           <div style="font-size:.66rem;color:var(--muted);margin-bottom:7px">위 자동화 정상 여부와 별도입니다. 이 기기의 미전송 기록만 상태·건수로 표시하며 거래 데이터·토큰은 보여주지 않습니다.</div>
-          <div style="font-size:.69rem;line-height:1.9">복원 상태: <b>${restored ? '완료' : '미완료'}</b> · 오류: <b>${d.reason}</b></div>
-          <div style="font-size:.69rem;line-height:1.9">복구사본 보존: <b>${d.pending ? '있음' : '없음'}</b> · 거래원장 전체 <b>${d.trades}</b>건 · 보유자료 <b>${d.holdings}</b>건 · 시도 영수증 <b>${d.attempted}</b>건 · 미확인 <b>${d.unconfirmed}</b>건</div>
-          <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px">${d.needsLegacyReview ? '구버전 기록: 별도 대조 필요 · ' : ''}${d.receiptProtocol ? '영수증 프로토콜 있음 · ' : ''}자료 삭제·자동 승인·강제 동기화는 수행하지 않습니다.</div>
-          <button data-status-action="portfolio-receipt-readonly" class="btn-purple-sm">서버 영수증 상태 조회 · 읽기 전용</button>
+          <div style="font-size:.69rem;line-height:1.9">복원 상태: <b>${restored ? '완료' : '미완료'}</b> · ${restored ? '진단' : '저장 확인 오류'}: <b>${d.reason}</b></div>
+          <div style="font-size:.69rem;line-height:1.9">복구사본 보존: <b>${d.pending ? '있음' : '없음'}</b> · 거래원장 전체 <b>${d.trades}</b>건 · 보유자료 <b>${d.holdings}</b>건 · 저장 시도 <b>${d.attempted}</b>건 · 완료 미확인 <b>${d.unconfirmed}</b>건</div>
+          <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px">${d.needsLegacyReview ? '구버전 기록: 별도 대조 필요 · ' : ''}${d.receiptProtocol ? '서버 저장 결과 확인 기능 사용 중 · ' : ''}자료 삭제·자동 승인·강제 동기화는 수행하지 않습니다.</div>
+          <button data-status-action="portfolio-receipt-readonly" class="btn-purple-sm">서버 저장 결과 확인 · 읽기 전용</button>
           <div id="portfolioReceiptDiagnosis" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">조회 전입니다.</div>
           <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
-            <div style="font-size:.67rem;color:var(--muted);margin-bottom:7px">실패한 거래 V2 영수증과 PC 복구사본을 보존하며, PC·서버 전체 거래와 보유현황·펀드 설정이 일치할 때만 이 기기의 완료표시를 복구합니다. 서버 금융 원장에는 쓰지 않습니다. 일치하지 않으면 아무것도 삭제하지 않습니다.</div>
-            <button id="btn-reconcile-failed-v2-receipt" data-status-action="portfolio-receipt-reconcile" class="btn-purple-sm">PC 거래원장 대사 후 안전 복구</button>
+            <div style="font-size:.67rem;color:var(--muted);margin-bottom:7px">거래원장 저장 실패 기록과 PC 복구사본을 보존하며, PC·서버 거래원장·보유현황·펀드 설정이 모두 일치할 때만 PC의 완료 상태를 복구합니다. 서버 금융 원장에는 쓰지 않습니다. 일치하지 않으면 아무것도 삭제하지 않습니다.</div>
+            <button id="btn-reconcile-failed-v2-receipt" data-status-action="portfolio-receipt-reconcile" class="btn-purple-sm">PC·서버 자료 대조 후 안전 복원</button>
             <div id="portfolioFailedReceiptRepairStatus" role="status" style="font-size:.68rem;color:var(--muted);margin-top:8px;overflow-wrap:anywhere">${typeof _escapeHtml==='function'?_escapeHtml(_pcFailedTradeReceiptRepairStatus):'준비됨'}</div>
           </div>
         </div>`;
