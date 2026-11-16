@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {inspectPhysicalTradeParity} from './issue734-trade-source-parity-readonly.mjs';
+import {inspectPhysicalTradeParity,fetchParityOAuth} from './issue734-trade-source-parity-readonly.mjs';
 import {composeGas9295CodeMasterReusePreview} from './compose-gas9295-code-master-reuse-preview.mjs';
 import {inspectTradeV2RevisionResponse,probeTradeHash,reconstructedRawSourceDigest}
  from './issue734-trade-v2-hash-readonly.mjs';
@@ -139,3 +139,13 @@ for(const output of [parity,changed,otherSource,digestDrift]){
  assert.ok(!JSON.stringify(output).includes(revision));
 }
 console.log('PASS issue734 read-only GAS v2 hash comparator and exact source parity');
+const mockCredentials=JSON.stringify({client_id:'MOCK_CLIENT',client_secret:'MOCK_SECRET',
+ refresh_token:'MOCK_REFRESH'});
+await assert.rejects(fetchParityOAuth('',async()=>{throw Error('must not call')}),
+ /TRADE_SOURCE_PARITY_OAUTH_CONFIG_INVALID/);
+for(const error of ['invalid_grant','invalid_client','unauthorized_client','access_denied']){
+ await assert.rejects(fetchParityOAuth(mockCredentials,async()=>
+  new Response(JSON.stringify({error,error_description:'PRIVATE_RESPONSE'}),{status:400})),
+  e=>e.message==='TRADE_SOURCE_PARITY_OAUTH_'+error.toUpperCase());
+}
+console.log('PASS safe OAuth failure classification without credential disclosure');
