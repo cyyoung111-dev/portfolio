@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash,generateKeyPairSync,privateDecrypt,createDecipheriv,constants} from 'node:crypto';
+import {sealTradeEvidence,captureTradeEvidence} from './issue734-trade-readback-capture-readonly.mjs';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {inspectPhysicalTradeParity,fetchParityOAuth} from './issue734-trade-source-parity-readonly.mjs';
@@ -149,3 +150,22 @@ for(const error of ['invalid_grant','invalid_client','unauthorized_client','acce
   e=>e.message==='TRADE_SOURCE_PARITY_OAUTH_'+error.toUpperCase());
 }
 console.log('PASS safe OAuth failure classification without credential disclosure');
+const keys=generateKeyPairSync('rsa',{modulusLength:2048});
+const sealed=sealTradeEvidence({api:response,preview},keys.publicKey);
+assert.ok(!JSON.stringify(sealed).includes(rows[0].name));
+assert.ok(!JSON.stringify(sealed).includes(rows[0].id));
+const aes=privateDecrypt({key:keys.privateKey,oaepHash:'sha256',
+ padding:constants.RSA_PKCS1_OAEP_PADDING},Buffer.from(sealed.key,'base64'));
+const decipher=createDecipheriv('aes-256-gcm',aes,Buffer.from(sealed.iv,'base64'));
+decipher.setAAD(Buffer.from('ISSUE734_READBACK_V1'));
+decipher.setAuthTag(Buffer.from(sealed.tag,'base64'));
+assert.deepEqual(JSON.parse(Buffer.concat([decipher.update(Buffer.from(sealed.ciphertext,'base64')),
+ decipher.final()]).toString('utf8')),{api:response,preview});
+let captureCalls=[];
+const captured=await captureTradeEvidence({url,token:secret,fetchImpl:async(dest,opt)=>{
+ const action=opt.body.get('action');captureCalls.push(action);
+ return {ok:true,json:async()=>action==='getTrades'?response:preview};
+}});
+assert.equal(captured.api.trades.length,2);
+assert.deepEqual(captureCalls,['previewTradeLedgerV2Migration','getTrades','previewTradeLedgerV2Migration']);
+console.log('PASS sealed financial evidence roundtrip and read-only capture');

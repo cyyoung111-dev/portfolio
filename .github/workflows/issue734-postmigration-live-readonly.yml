@@ -7,6 +7,8 @@ on:
       - 'scripts/check-issue734-postmigration-live-readonly.mjs'
       - 'scripts/issue734-trade-v2-hash-readonly.mjs'
       - 'scripts/issue734-trade-source-parity-readonly.mjs'
+      - 'scripts/issue734-trade-readback-capture-readonly.mjs'
+      - 'scripts/issue734-trade-readback-recipient.pem'
       - 'scripts/check-issue734-trade-v2-hash-readonly.mjs'
       - '.github/workflows/issue734-postmigration-live-readonly.yml'
   push:
@@ -16,6 +18,8 @@ on:
       - 'scripts/check-issue734-postmigration-live-readonly.mjs'
       - 'scripts/issue734-trade-v2-hash-readonly.mjs'
       - 'scripts/issue734-trade-source-parity-readonly.mjs'
+      - 'scripts/issue734-trade-readback-capture-readonly.mjs'
+      - 'scripts/issue734-trade-readback-recipient.pem'
       - 'scripts/check-issue734-trade-v2-hash-readonly.mjs'
       - '.github/workflows/issue734-postmigration-live-readonly.yml'
   workflow_dispatch:
@@ -60,10 +64,15 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue734-trade-v2-hash-readonly.mjs
-      - name: Compare published source and exact physical trade fields (NO WRITES)
+      - name: Seal exact runtime response for local native-sheet reconciliation (NO WRITES)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-          GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
-          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
-        run: node scripts/issue734-trade-source-parity-readonly.mjs
+        run: node scripts/issue734-trade-readback-capture-readonly.mjs
+      - name: Upload sealed readback (private key stays on the operator PC)
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue734-sealed-readback
+          path: artifacts/issue734-sealed-readback.json
+          retention-days: 1
+          if-no-files-found: error
