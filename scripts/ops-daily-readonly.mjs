@@ -64,8 +64,23 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
  const closePersisted=navReport?.closeDate===date
   &&navReport?.closeComplete===true
   &&navReport?.priceOk===true&&navReport?.fundOk===true;
+ // An unpublished official NAV is not a failed price close. Distinguish
+ // only the exact current KRX session's persisted FUND_PENDING checkpoint,
+ // never a stale date, unrelated close error, or a published-but-missing NAV.
+ // This is a pending label, NOT success or authorization to write data.
+ const fundPublicationPending=nav.state==='PUBLICATION_PENDING'
+  &&navReport?.closeDate===date
+  &&navReport?.officialReferenceDate===date
+  &&navReport?.officiallyPublished===false
+  &&navReport?.closeState==='INCOMPLETE'
+  &&navReport?.closeDateVerified===true
+  &&navReport?.runStale===false&&navReport?.snapshotStale===false
+  &&navReport?.fundCloseCheckpointEvidence?.closeStage==='FUND_PENDING'
+  &&navReport?.priceOk===true&&navReport?.fundOk===false
+  &&navReport?.closeComplete===false;
  const savedClose={state:closePersisted?'PASS':
-   isDue(now,date,21*60)?'EVIDENCE_MISSING':'WAITING',
+   !isDue(now,date,21*60)?'WAITING':
+   fundPublicationPending?'FUND_PUBLICATION_PENDING':'EVIDENCE_MISSING',
   scope:'GAS_PERSISTED_CLOSE_FLAGS_NOT_ALL_SNAPSHOT_ROWS',
   verified:closePersisted};
  const snapOk=snapshotEvidence?.date===date&&snapshotEvidence?.state==='VERIFIED'
