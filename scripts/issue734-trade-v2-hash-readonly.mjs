@@ -30,6 +30,24 @@ const canonical=(t,{zeroBlank=true,normalizeCode=true}={})=>[
 ];
 const byDateTradeRevision=rows=>sha(rows.slice().sort((a,b)=>
  String(a.date||'').localeCompare(String(b.date||''))).map(t=>canonical(t)));
+// Raw-string oracle from the existing GAS migration PREVIEW sourceDigest.
+// This is a candidate projection of getTrades, NOT proof that the physical
+// sheet has identical blank/zero cell types. Only aggregate equality is logged.
+export function reconstructedRawSourceDigest(trades,{
+ zeroOptional=false,emptyStockType=false
+}={}){
+ return sha(trades.map(t=>[
+  String(t?.date||'').slice(0,10),
+  String(t?.tradeType||''),String(t?.acct||''),String(t?.name||''),
+  String(t?.code||''),String(t?.qty??0),String(t?.price??0),
+  emptyStockType&&t?.assetType==='주식'?'':String(t?.assetType||'주식'),
+  String(t?.memo||''),
+  zeroOptional?'0':'',zeroOptional?'0':'',
+  t?.priceRaw==null?'':String(t.priceRaw),
+  t?.fxRateAtBuy==null?'':String(t.fxRateAtBuy),
+  String(t?.id||'')
+ ]));
+}
 export function inspectTradeV2RevisionResponse(result){
  if(result?.status!=='ok'||result.tradeLedgerProtocolVersion!==2
     ||!/^[0-9a-f]{64}$/.test(String(result.ledgerRevision||''))
@@ -122,7 +140,13 @@ export async function probeTradeHash({url,token,fetchImpl=fetch,includeMigration
   existingIdsPreserved:preview.existingIdsPreserved,
   physicalRevisionMatchesGasGetTrades:preview.proposedRevision===data.ledgerRevision,
   physicalRevisionMatchesPcCanonical:preview.proposedRevision===calc,
-  rowCountMatchesApi:preview.sourceRows===data.trades.length
+  rowCountMatchesApi:preview.sourceRows===data.trades.length,
+  rawStringSourceDigestMatches: /^[0-9a-f]{64}$/.test(String(preview.sourceDigest||''))
+   &&preview.sourceDigest===reconstructedRawSourceDigest(data.trades),
+  rawStringOptionalZeroMatches:/^[0-9a-f]{64}$/.test(String(preview.sourceDigest||''))
+   &&preview.sourceDigest===reconstructedRawSourceDigest(data.trades,{zeroOptional:true}),
+  rawStringStockDefaultMatches:/^[0-9a-f]{64}$/.test(String(preview.sourceDigest||''))
+   &&preview.sourceDigest===reconstructedRawSourceDigest(data.trades,{emptyStockType:true})
  }};
 
 }
