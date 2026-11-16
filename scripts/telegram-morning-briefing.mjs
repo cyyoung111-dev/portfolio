@@ -106,11 +106,10 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
   }
   const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
   if(!list.length)return null;
-  // Yahoo KRW=X can include an extra Sunday FX candle before Monday's
-  // 07:40 briefing. The latest chart bar then masks the already-completed
-  // Friday candle. Select the EXACT expected session where provided; never
-  // relabel the extra FX bar or accept an arbitrarily stale close.
-  const selectedIndex=symbol==='KRW=X'&&expectedSessionDate
+  // Daily feeds (not only KRW=X) can publish an extra Sunday FX/index
+  // candle before Monday's 07:40 KST briefing. Select the exact completed
+  // session whenever requested; a missing exact-date bar stays unavailable.
+  const selectedIndex=expectedSessionDate
     ?list.findIndex(row=>row[0]===expectedSessionDate):list.length-1;
   if(selectedIndex<0)return null;
   const [date,value]=list[selectedIndex],prior=selectedIndex>0?list[selectedIndex-1][1]:null;
