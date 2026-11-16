@@ -19,6 +19,27 @@ export function hasConflictingPublicDividendAmounts(events) {
  return false;
 }
 
+// A company-wide feed might return only the preferred-share amount on a
+// later run. Never overwrite a previously verified PUBLIC_DATA payment with
+// a different amount for the SAME record/pay date without independent proof.
+export function hasChangedVerifiedPublicDividendAmounts(previousEvents, nextEvents) {
+ const known=new Map();
+ for(const e of (Array.isArray(previousEvents)?previousEvents:[])){
+  const d=String(e?.date||'').slice(0,10),p=String(e?.payDate||'').slice(0,10),v=Number(e?.amount);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d)||!(v>0))continue;
+  const key=d+'|'+p;
+  if(!known.has(key))known.set(key,new Set());
+  known.get(key).add(v);
+ }
+ for(const e of (Array.isArray(nextEvents)?nextEvents:[])){
+  const d=String(e?.date||'').slice(0,10),p=String(e?.payDate||'').slice(0,10),v=Number(e?.amount);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d)||!(v>0))continue;
+  const old=known.get(d+'|'+p);
+  if(old&&!old.has(v))return true;
+ }
+ return false;
+}
+
 export async function runDividendRefresh({url:rawUrl,token,fetchImpl=fetch,asOf=new Date()}) {
 const url=validateWebAppUrl(rawUrl);
 const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(asOf);
@@ -56,7 +77,7 @@ async function call(action,args={},access=token) {
    if(String(old?.source).toUpperCase()==='MANUAL'){stockManual++;continue;}
    const retry=pub.diagnostics?.retry?.[c.code];
    const source=retry?.returnedRows>0?retry:pub.diagnostics?.dividend?.[c.code];
-   if(source?.status==='OK'&&x?.source==='PUBLIC_DATA'&&Number(x.perShare)>0&&Array.isArray(x.events)&&x.events.length&&!hasConflictingPublicDividendAmounts(x.events)&&x.events.every(e=>Number(e.amount)>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(e.date))))patch[c.code]={...old,...x,updatedAt:new Date().toISOString(),refreshState:'VERIFIED'};
+   if(source?.status==='OK'&&x?.source==='PUBLIC_DATA'&&Number(x.perShare)>0&&Array.isArray(x.events)&&x.events.length&&!hasConflictingPublicDividendAmounts(x.events)&&!(String(old?.source).toUpperCase()==='PUBLIC_DATA'&&hasChangedVerifiedPublicDividendAmounts(old?.events,x.events))&&x.events.every(e=>Number(e.amount)>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(e.date))))patch[c.code]={...old,...x,updatedAt:new Date().toISOString(),refreshState:'VERIFIED'};
   }
   for(const c of stocks){
    if(patch[c.code]||String(cached.divData[c.code]?.source).toUpperCase()==='MANUAL')continue;
