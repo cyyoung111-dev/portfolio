@@ -78,6 +78,14 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
      return payload;
    }catch(e){
      const kind=['TimeoutError','AbortError'].includes(e?.name)?'TIMEOUT':'JSON';
+     if(phase==='PREVIEW'&&kind==='JSON'){
+       // Metadata only: no response body, credentials, or fund NAV in logs.
+       const type=typeof response.headers?.get==='function'
+         ?String(response.headers.get('content-type')||'').toLowerCase():'';
+       const mime=type.includes('json')?'JSON':
+         type.startsWith('text/html')?'HTML':'UNKNOWN';
+       console.error('FUND_NAV_PREVIEW_MIME code=F00001 class='+mime);
+     }
      stageAudit(kind);
      throw Error('HANWHA_'+phase+'_'+kind+'_UNVERIFIED');
    }
@@ -122,7 +130,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
      preview=await request('previewFundNavImport',{data:JSON.stringify(data)},token,90000);
      break;
    }catch(error){
-     if(!/^HANWHA_PREVIEW_(?:TIMEOUT|NETWORK|HTTP_TRANSIENT)_UNVERIFIED$/.test(String(error?.message||''))
+     if(!/^HANWHA_PREVIEW_(?:TIMEOUT|NETWORK|HTTP_TRANSIENT|JSON)_UNVERIFIED$/.test(String(error?.message||''))
        ||attempt===1)throw error;
      await retryDelay(1500);
    }
