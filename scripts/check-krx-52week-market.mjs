@@ -619,4 +619,26 @@ assert.ok(!JSON.stringify(executed).includes('TEST_GITHUB_TOKEN'));
  console.log('KRX52_OFFICIAL_LISTING_DATE_SOURCE_CONTRACT_PASS source approval, real dates, unknown-halt, zero writes');
 }
 
+// The source-only KRX workflows previously failed before any market API call:
+// setup-node alone does not install this checker's declared yaml dependency.
+// Both live runners must install dependencies before executing this script.
+for (const [workflow, jobName] of [
+ ['.github/workflows/krx-52week-history.yml','source-only'],
+ ['.github/workflows/krx-52week-listing-audit-readonly.yml','listing-date-audit']
+]) {
+ const text=(await import('node:fs')).readFileSync(workflow,'utf8');
+ const doc=YAML.parseDocument(text,{version:'1.2',uniqueKeys:true});
+ assert.equal(doc.errors.length,0,workflow+' invalid YAML');
+ const job=doc.toJS({maxAliasCount:0}).jobs[jobName];
+ assert.ok(job,workflow+' missing job');
+ const steps=job.steps;
+ const setup=steps.findIndex(s=>s.uses==='actions/setup-node@v7');
+ const install=steps.findIndex(s=>s.name==='Install offline-check dependencies'
+  &&/npm install --no-package-lock --no-audit --no-fund --ignore-scripts/.test(s.run||''));
+ const check=steps.findIndex(s=>(s.run||'').trim()==='node scripts/check-krx-52week-market.mjs');
+ assert.ok(setup>=0 && install>setup && check>install,
+  workflow+' must install yaml before running the check');
+ assert.equal(steps.filter(s=>s.name==='Install offline-check dependencies').length,1);
+}
+console.log('KRX52_WORKFLOW_DEPENDENCIES_PASS source-only and listing audit runners');
 console.log('KRX_52W_252_SESSION_MARKET_HISTORY_PASS exact OHLC, count, holidays, incomplete, reentry, source-only');
