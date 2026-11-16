@@ -1,5 +1,6 @@
 import {pathToFileURL} from 'node:url';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
+import {verifyLateScheduledMorningSent} from './telegram-morning-late-sent-readonly.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const WORKFLOW='nh-night-capture.yml';
@@ -13,7 +14,8 @@ function kstNow(instant){
   return {date:p.year+'-'+p.month+'-'+p.day,minute:Number(p.hour)*60+Number(p.minute)};
 }
 export async function auditNhNightSchedule({
-  now=()=>new Date(),fetchImpl=fetch,token,repository=REPO
+  now=()=>new Date(),fetchImpl=fetch,token,repository=REPO,
+  verifySent=verifyLateScheduledMorningSent
 }={}){
   if(repository!==REPO||typeof token!=='string'||!token)throw Error('NH_AUDIT_CONFIG');
   const clock=kstNow(now());
@@ -69,8 +71,20 @@ export async function auditNhNightSchedule({
     :timelyRuns.some(r=>r.status==='in_progress'||r.status==='queued')?'CAPTURE_RUN_INCOMPLETE'
     :timelySuccess.length>0?'CAPTURE_RUN_NO_REFERENCE'
     :'CAPTURE_RUN_FAILED';
-  return {date,status,ok:status==='CAPTURE_CONFIRMED',
+  const result={date,status,ok:status==='CAPTURE_CONFIRMED',
     runs:timelyRuns.length,lateRuns:lateRuns.length,artifacts:artifacts.length};
+  // The independent capture is still missing. A verified, API-accepted morning
+  // delivery only downgrades the repeated GitHub scheduler delay to a warning;
+  // it must never claim that the NH capture artifact or 06:00 tick exists.
+  if((status==='SCHEDULE_LATE_NO_REFERENCE'||status==='SCHEDULE_NOT_TRIGGERED')
+    &&artifacts.length===0){
+    try{
+      const sent=await verifySent({date,repository,token,fetchImpl});
+      if(sent?.verifiedSent===true&&sent.date===date)
+        return {...result,status:'CAPTURE_MISSED_MORNING_SENT',morningDeliveryVerified:true};
+    }catch{/* No trustworthy SENT proof: preserve the capture failure. */}
+  }
+  return result;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
@@ -80,7 +94,11 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     const r=await auditNhNightSchedule({repository:process.env.GITHUB_REPOSITORY,
       token:process.env.GH_TOKEN});
     console.log(JSON.stringify(r));
-    if(!r.ok)process.exitCode=2; // Red Actions check, no NH query or Telegram send.
+    if(!r.ok){
+      if(r.status==='CAPTURE_MISSED_MORNING_SENT')
+        console.log('::warning title=NH capture scheduled late::NH_CAPTURE_MISSED_MORNING_SENT');
+      else process.exitCode=2;
+    } // A verified SENT mitigates delivery, not independent NH capture.
   }catch(e){
     const safe=String(e?.message||'');
     console.error(/^NH_AUDIT_[A-Z_]+$/.test(safe)?safe:'NH_AUDIT_UNVERIFIED');
