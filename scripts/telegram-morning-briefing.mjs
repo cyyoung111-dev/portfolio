@@ -189,7 +189,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
       ?formatMorningTurnover(supplementRows.turnoverDate||expectedMorningDate('KOSPI',first.date),
        supplementRows.turnover):'',
     breadth:supplementRows.breadth?.length
-      ?formatMorningBreadth(first.date,supplementRows.breadth):'',
+      ?formatMorningBreadth(first.date,supplementRows.breadth,now()):'',
     liquidity:formatKofiaLiquidity(supplementRows.liquidity),
     investors:formatInvestorTrends(supplementRows.investors)
   };
