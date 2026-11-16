@@ -34,9 +34,10 @@ function mock({runs=[run],artifacts=[artifact],fail=false,badSchema=false}={}){
  };
  return {fetchImpl,paths};
 }
-async function audit(input){
- const f=mock(input);
- const result=await auditNhNightSchedule({now:when,repository:repo,token:'GH_READ_TOKEN',fetchImpl:f.fetchImpl});
+async function audit(input={}){
+ const {verifySent=async()=>null,...mockInput}=input;
+ const f=mock(mockInput);
+ const result=await auditNhNightSchedule({now:when,repository:repo,token:'GH_READ_TOKEN',fetchImpl:f.fetchImpl,verifySent});
  assert.equal(f.paths.length,2,'one read for runs and one for artifacts, zero NH API calls');
  return result;
 }
@@ -49,6 +50,26 @@ assert.equal((await audit({artifacts:[{...artifact,workflow_run:{id:999}}]})).st
 assert.equal((await audit({runs:[{...run,event:'workflow_dispatch'}],artifacts:[]})).status,'SCHEDULE_NOT_TRIGGERED');
 const lateRun={...run,created_at:'2026-11-01T23:05:00Z'}; // 08:05 KST
 assert.equal((await audit({runs:[lateRun],artifacts:[]})).status,'SCHEDULE_LATE_NO_REFERENCE');
+// Independent capture is still absent: verified, timely Telegram SENT is
+// a warning-only operational mitigation, never a fabricated NH reference.
+const deliveryArgs=[];
+const verifiedSent=async args=>{deliveryArgs.push(args);return {date,verifiedSent:true};};
+assert.deepEqual(await audit({runs:[lateRun],artifacts:[],verifySent:verifiedSent}),
+ {date,status:'CAPTURE_MISSED_MORNING_SENT',ok:false,runs:0,lateRuns:1,
+  artifacts:0,morningDeliveryVerified:true});
+assert.equal(deliveryArgs.length,1);
+assert.equal(deliveryArgs[0].date,date);
+assert.equal(deliveryArgs[0].repository,repo);
+assert.equal(deliveryArgs[0].token,'GH_READ_TOKEN');
+assert.equal((await audit({runs:[],artifacts:[],verifySent:verifiedSent})).status,
+ 'CAPTURE_MISSED_MORNING_SENT');
+assert.equal((await audit({runs:[lateRun],artifacts:[],verifySent:async()=>({date,verifiedSent:false})})).status,
+ 'SCHEDULE_LATE_NO_REFERENCE');
+assert.equal((await audit({runs:[lateRun],artifacts:[],verifySent:async()=>({date:'2026-11-03',verifiedSent:true})})).status,
+ 'SCHEDULE_LATE_NO_REFERENCE');
+assert.equal((await audit({runs:[],artifacts:[],verifySent:async()=>{throw Error('NO_PROOF');}})).status,
+ 'SCHEDULE_NOT_TRIGGERED');
+assert.equal(deliveryArgs.length,2);
 assert.deepEqual(await audit({runs:[lateRun],artifacts:[artifact]}),
  {date,status:'CAPTURE_LATE_CONFIRMED',ok:false,runs:0,lateRuns:1,artifacts:1});
 await assert.rejects(audit({fail:true}),/NH_AUDIT_API_UNAVAILABLE/);
