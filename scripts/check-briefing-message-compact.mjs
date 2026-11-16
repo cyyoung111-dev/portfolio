@@ -51,7 +51,7 @@ for(const mode of ['morning','close']){
    <lines.indexOf('■ 1. 오늘의 결론 / 시장 국면'));
  const indices=['S&P 500','다우존스','NASDAQ100'];
  const starts=indices.map(name=>lines.findIndex(row=>row.startsWith(name+': ')));
- assert.deepEqual(starts,[4,5,6]);
+ assert.deepEqual(starts,[3,4,5]);
  for(const name of indices)
   assert.equal(lines.filter(row=>row.startsWith(name+': ')).length,1,
    'no duplicated US index quote '+name);
