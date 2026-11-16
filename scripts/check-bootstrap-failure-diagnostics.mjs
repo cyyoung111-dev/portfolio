@@ -2370,7 +2370,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
       assert.equal(opts.retry,0);
       assert.equal(params.kind,record.action);
       assert.equal(params.operationId,'pr_mock_receipt');
-      return serverState==='BUSY' ? {status:'ok',receiptState:'BUSY'} : {status:'ok',kind:'syncHoldings',operationId:'pr_mock_receipt',receiptState:serverState};
+      return serverState==='BUSY' ? {status:'ok',receiptState:'BUSY'} : {status:'ok',kind:record.action,operationId:'pr_mock_receipt',receiptState:serverState};
     }
   });
   vm.runInContext(local+'\n'+remote,ctx);
@@ -2399,7 +2399,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   record.action='syncTradesV2';
   serverState='FAILED';
   await ctx.diagnosePortfolioReceiptsReadOnly();
-  assert.match(status.textContent,/거래원장 저장: 실패 기록\\(자료 대조 필요\\)/);
+  assert.match(status.textContent,/거래원장 저장: 실패 기록\(자료 대조 필요\)/);
   assert.doesNotMatch(status.textContent,/syncTradesV2: FAILED|영수증|SENSITIVE_LEDGER/);
   assert.match(history,/서버 저장 결과 확인 · 읽기 전용/);
   assert.ok(history.includes('저장 시도 <b>${d.attempted}</b>건'));
@@ -2412,7 +2412,7 @@ console.log('PASS: stock/asset resync blocks provisional codes and local writes 
   assert.match(history,/PC 거래·보유 복원 진단 · 읽기 전용/);
   console.log(JSON.stringify({kind:'ISSUE734_PC_RECEIPT_DIAGNOSTIC_PASS',
     reportedLocalCounts:true,serverReceiptReadOnly:true,sensitiveFieldsOmitted:true,
-    remoteReads:5,financeWrites:0}));
+    remoteReads:6,financeWrites:0}));
 }
 
 
