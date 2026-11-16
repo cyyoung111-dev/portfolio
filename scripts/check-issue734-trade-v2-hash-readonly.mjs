@@ -74,4 +74,36 @@ const read=await probeTradeHash({url,token:secret,fetchImpl:async(dest,opt)=>{
 assert.equal(calls,1);
 assert.equal(read.status,'CONSISTENT');
 assert.doesNotMatch(JSON.stringify(read),/MOCK_PRIVATE_ACCESS_TOKEN/);
+let previewCalls=0;
+const withPreview=await probeTradeHash({
+ url,token:secret,includeMigrationPreview:true,
+ fetchImpl:async(dest,opt)=>{
+  previewCalls++;
+  assert.equal(dest,url);
+  const action=opt.body.get('action');
+  assert.ok(['getTrades','previewTradeLedgerV2Migration'].includes(action));
+  if(action==='getTrades')return {ok:true,json:async()=>response};
+  return {ok:true,json:async()=>({
+   status:'ok',migrationStatus:'READY',tradeLedgerProtocolVersion:2,
+   sourceRows:rows.length,assignedIdsNeeded:0,existingIdsPreserved:rows.length,
+   proposedRevision:revision,migrationApplied:false,financeWrites:0
+  })};
+ }
+});
+assert.equal(previewCalls,2);
+assert.deepEqual(withPreview.migrationPreview,{
+ status:'VERIFIED',sourceRows:2,assignedIdsNeeded:0,existingIdsPreserved:2,
+ physicalRevisionMatchesGasGetTrades:true,
+ physicalRevisionMatchesPcCanonical:true,rowCountMatchesApi:true
+});
+assert.ok(!JSON.stringify(withPreview).includes(secret));
+assert.ok(!JSON.stringify(withPreview).includes(revision));
+const badPreview=await probeTradeHash({
+ url,token:secret,includeMigrationPreview:true,
+ fetchImpl:async(dest,opt)=>({ok:true,json:async()=>opt.body.get('action')==='getTrades'
+  ?response:{status:'error',errorCode:'TRADE_MIGRATION_SHEET_WIDTH_INVALID'}})
+});
+assert.deepEqual(badPreview.migrationPreview,{
+ status:'NOT_VERIFIED',errorClass:'TRADE_MIGRATION_SHEET_WIDTH_INVALID'
+});
 console.log('PASS issue734 read-only GAS v2 hash comparator');
