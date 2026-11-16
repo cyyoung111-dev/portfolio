@@ -51,7 +51,7 @@ for(const mode of ['morning','close']){
    <lines.indexOf('■ 1. 오늘의 결론 / 시장 국면'));
  const indices=['S&P 500','다우존스','NASDAQ100'];
  const starts=indices.map(name=>lines.findIndex(row=>row.startsWith(name+': ')));
- assert.deepEqual(starts,[3,4,5]);
+ assert.deepEqual(starts,[4,5,6]);
  for(const name of indices)
   assert.equal(lines.filter(row=>row.startsWith(name+': ')).length,1,
    'no duplicated US index quote '+name);
@@ -70,7 +70,8 @@ assert.match(oneMissing,/다우존스: 미확보/,
  'keep the fixed three-index slot without manufacturing a close');
 assert.doesNotMatch(oneMissing,/주요 변동:.*다우존스/);
 const noDate=compactBriefingForDelivery(
- headlineMessage.replace('[2026-11-13 · NH PLUG]','[날짜 미확인]'),{mode:'morning'});
+ headlineMessage.replace('S&P 500: 6,800 (+2.50%) [2026-11-13 · NH PLUG]',
+ 'S&P 500: 6,800 (+2.50%) [날짜 미확인]'),{mode:'morning'});
 assert.doesNotMatch(noDate,/주요 변동: S&P 500 /,
  'do not highlight a percentage without a dated source label');
 
