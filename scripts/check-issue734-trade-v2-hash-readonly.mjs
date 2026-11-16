@@ -21,7 +21,7 @@ const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex
 const rows=[
  {id:'srv_'+'a'.repeat(32),date:'2026-11-12',tradeType:'buy',
   acct:'ISA',name:'테스트 ETF',code:'005930',qty:5,price:1000,
-  assetType:'ETF',memo:'',ratio:0,fractionalCash:0},
+  assetType:'주식',memo:'',ratio:0,fractionalCash:0},
  {id:'srv_'+'b'.repeat(32),date:'2026-11-13',tradeType:'buy',
   acct:'PENSION',name:'테스트 펀드',code:'F00001',qty:3.5,price:2000,
   assetType:'펀드',memo:''}
