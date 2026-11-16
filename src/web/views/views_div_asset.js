@@ -134,8 +134,23 @@ function calcDividends() {
       if (!publicAmountsByEvent.has(key)) publicAmountsByEvent.set(key, new Set());
       publicAmountsByEvent.get(key).add(amount);
     });
+    const confirmedAmountsByEvent = new Map();
+    events.forEach(ev => {
+      if (ev?.receivedConfirmed !== true) return;
+      const ref = String(ev?.date || '').slice(0, 10);
+      const pay = String(ev?.payDate || '').slice(0, 10);
+      const amount = Number(ev?.amount);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ref) || !(amount > 0)
+          || !/^\d{4}-\d{2}-\d{2}$/.test(pay) || pay > _kstTodayStr()) return;
+      const key = ref + '|' + pay;
+      if (!confirmedAmountsByEvent.has(key)) confirmedAmountsByEvent.set(key, new Set());
+      confirmedAmountsByEvent.get(key).add(amount);
+    });
     const ambiguousPublicKeys = new Set(
-      [...publicAmountsByEvent].filter(([, amounts]) => amounts.size > 1).map(([key]) => key)
+      [...publicAmountsByEvent]
+        .filter(([key, amounts]) => amounts.size > 1
+          && confirmedAmountsByEvent.get(key)?.size !== 1)
+        .map(([key]) => key)
     );
     for (const key of ambiguousPublicKeys) {
       const [ref, pay] = key.split('|');
