@@ -76,6 +76,26 @@ const retry=await verifyGas9296WithRetry({verify:async()=>{
  return {status:'VERIFIED',version:'9.296',financeWrites:0,pcAndPhysicalRevisionMatch:true};
 },delay:async()=>{}});
 assert.equal(retry.readbackAttempts,2);
+let networkCalls=0,networkDelays=0;
+const afterNetwork=await verifyGas9296WithRetry({verify:async()=>{
+ if(++networkCalls===1)throw Error('AUTOMATION_DIAG_NETWORK_FAILED');
+ return {status:'VERIFIED',version:'9.296',financeWrites:0,pcAndPhysicalRevisionMatch:true};
+},delay:async()=>{networkDelays++;}});
+assert.equal(afterNetwork.readbackAttempts,2,'network failure permits only a fresh full read-only proof');
+assert.equal(networkCalls,2);
+assert.equal(networkDelays,1);
+let exhausted=0;
+await assert.rejects(verifyGas9296WithRetry({verify:async()=>{
+ exhausted++;throw Error('AUTOMATION_DIAG_NETWORK_FAILED');
+},delay:async()=>{}}),/AUTOMATION_DIAG_NETWORK_FAILED/);
+assert.equal(exhausted,3,'persistent network failure remains blocked');
+for(const unapproved of ['GAS9295_READONLY_AUTH_MISSING','GAS9295_READONLY_LEDGER_UNVERIFIED']){
+ let count=0;
+ await assert.rejects(verifyGas9296WithRetry({verify:async()=>{
+  count++;throw Error(unapproved);
+ },delay:async()=>{}}),new RegExp(unapproved));
+ assert.equal(count,1,'authentication and integrity errors must not retry');
+}
 await assert.rejects(verifyGas9296WithRetry({verify:async()=>({status:'VERIFIED',version:'9.296'})}),/GAS9296_POSTDEPLOY_PROOF_INVALID/);
 console.log('PASS GAS 9.296 UTF-8 revision/CAS, Unicode collision regression and unchanged legacy signatures');
 

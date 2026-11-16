@@ -20,8 +20,16 @@ export async function verifyGas9296WithRetry({verify,
    if(result?.status!=='VERIFIED'||result.version!=='9.296'||result.financeWrites!==0
     ||result.pcAndPhysicalRevisionMatch!==true)throw Error('GAS9296_POSTDEPLOY_PROOF_INVALID');
    return {...result,readbackAttempts:attempt};}
-  catch(e){if(!['GAS9295_READONLY_VERSION_MISMATCH','GAS9296_READONLY_HASH_MISMATCH']
-   .includes(e?.message)||attempt===3)throw e;
+  catch(e){
+   // Retry ONLY read-only proof after a bounded transient transport failure.
+   // Never repeat GAS publishing, finance writes or a failed source mutation.
+   // Every retry must satisfy the full independent ledger/gate/hash proof.
+   const retryable=['GAS9295_READONLY_VERSION_MISMATCH',
+    'GAS9296_READONLY_HASH_MISMATCH',
+    'AUTOMATION_DIAG_NETWORK_FAILED','GAS9295_READONLY_NETWORK_UNVERIFIED'];
+   if(!retryable.includes(e?.message)||attempt===3)throw e;
+   console.log(JSON.stringify({kind:'GAS9296_READONLY_VERIFY_RETRY',
+    reason:e.message,attempt,financeWrites:0}));
    await delay(3000*attempt);
   }
  }
