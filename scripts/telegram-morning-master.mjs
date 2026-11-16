@@ -1,4 +1,4 @@
-import {MORNING_SERIES} from './telegram-morning-report.mjs';
+import {MORNING_SERIES,expectedMorningDate} from './telegram-morning-report.mjs';
 
 const DOMESTIC_OFFICIAL=new Set(['KOSPI','KOSDAQ','SAMSUNG','SKHYNIX']);
 // NH-confirmed US indices cannot be silently replaced by Yahoo or an unverified master.
@@ -7,6 +7,7 @@ const NH_ONLY_INDEX_SET=new Set(NH_ONLY_INDEX_SYMBOLS);
 export function verifiedMorningMaster(date,observations=[],{cutoff=date+'T07:30:00+09:00'}={}) {
   const limit=Date.parse(cutoff),earliest=Date.parse(date+'T00:00:00Z')-8*86400000;
   if(!Number.isFinite(limit)||!Array.isArray(observations))return [];
+  const cutoffInstant=new Date(limit);
   const selected=new Map();
   for(const row of observations){
     const config=MORNING_SERIES.find(s=>s.id===row?.seriesId);
@@ -17,6 +18,11 @@ export function verifiedMorningMaster(date,observations=[],{cutoff=date+'T07:30:
     if(!/^\d{4}-\d{2}-\d{2}$/.test(asOf)||asOf>=date||Date.parse(asOf+'T00:00:00Z')<earliest
       ||!Number.isFinite(value)||value<=0||!Number.isFinite(received)||received>limit
       ||(row.observedAt&&(!Number.isFinite(observed)||observed>limit)))continue;
+    // A prior calendar date is not necessarily a completed market session.
+    // At 07:40 KST the previous UTC BTC day is still in progress until 09:00.
+    // Reject stale/unclosed master rows before they can displace a verified
+    // exact-session Yahoo daily close during source merging.
+    if(asOf!==expectedMorningDate(config.id,date,cutoffInstant))continue;
     if(DOMESTIC_OFFICIAL.has(config.id)
       &&(source!=='KRX_OFFICIAL'||row.finality!=='REGULAR_CLOSE'||row.session!=='REGULAR'))continue;
     const candidate={label:config.label,symbol:config.symbol,date:asOf,value,changePercent:null,
