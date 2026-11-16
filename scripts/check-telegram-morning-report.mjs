@@ -59,6 +59,42 @@ const btcClosedQuote=await fetchDatedDaily('BTC','BTC-USD','2026-11-02',
 assert.equal(btcClosedQuote?.date,'2026-11-01');
 assert.equal(btcClosedQuote?.value,71000);
 assert.equal(btcCalls,2);
+
+/* Yahoo DX-Y.NYB can publish an additional Sunday FX/index daily bar
+ * before Monday 07:40 KST. The completed Friday session still exists, but
+ * selecting the last bar made DXY BOTH_UNVERIFIED and the message 20/21.
+ * Fix must select the exact expected Friday session without an extra call. */
+const dxyMorning=new Date('2026-11-16T07:40:00+09:00');
+const dxyExpected='2026-11-13',dxyItem=MORNING_SERIES.find(x=>x.id==='DXY');
+assert.equal(expectedMorningDate('DXY','2026-11-16',dxyMorning),dxyExpected);
+const dxyTimes=['2026-11-12T16:00:00-05:00',
+ '2026-11-13T16:00:00-05:00','2026-11-15T16:00:00-05:00']
+ .map(x=>Date.parse(x)/1000);
+const dxyChart={chart:{result:[{meta:{symbol:dxyItem.symbol,
+ exchangeTimezoneName:'America/New_York'},timestamp:dxyTimes,
+ indicators:{quote:[{close:[103.17,103.41,103.43]}]}}]}};
+let dxyCalls=0;
+const dxyRead=await fetchDatedDaily(dxyItem.label,dxyItem.symbol,'2026-11-16',{
+ now:dxyMorning,expectedSessionDate:dxyExpected,
+ fetchImpl:async target=>{dxyCalls++;
+  assert.equal(new URL(target).host,'query1.finance.yahoo.com');
+  return {ok:true,json:async()=>dxyChart};}
+});
+assert.equal(dxyCalls,1);
+assert.equal(dxyRead?.date,'2026-11-13');
+assert.equal(dxyRead?.value,103.41);
+assert.ok(dxyRead.changePercent>0);
+const futureOnlyChart=structuredClone(dxyChart);
+futureOnlyChart.chart.result[0].timestamp=[dxyTimes[2]];
+futureOnlyChart.chart.result[0].indicators.quote[0].close=[103.43];
+assert.equal(await fetchDatedDaily(dxyItem.label,dxyItem.symbol,'2026-11-16',{
+ now:dxyMorning,expectedSessionDate:dxyExpected,
+ fetchImpl:async()=>({ok:true,json:async()=>futureOnlyChart})
+}),null,'never backfill an unavailable exact Friday DXY close with Sunday');
+const dxyMessage=formatMorningBriefing('2026-11-16',null,[dxyRead],
+ {now:dxyMorning});
+assert.match(dxyMessage,/DXY: 103.41.*2026-11-13/);
+
 const sundayCloseClock=new Date('2026-11-01T16:45:00+09:00');
 assert.equal(expectedMorningDate('BTC','2026-11-01',sundayCloseClock),'2026-10-31',
   'the Sunday close test retains the completed Saturday UTC candle');

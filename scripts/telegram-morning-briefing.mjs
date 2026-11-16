@@ -106,11 +106,13 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
   }
   const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
   if(!list.length)return null;
-  // Yahoo KRW=X can include an extra Sunday FX candle before Monday's
-  // 07:40 briefing. The latest chart bar then masks the already-completed
-  // Friday candle. Select the EXACT expected session where provided; never
-  // relabel the extra FX bar or accept an arbitrarily stale close.
-  const selectedIndex=symbol==='KRW=X'&&expectedSessionDate
+  // Yahoo KRW=X and ICE DXY (DX-Y.NYB) can carry a Sunday FX/index
+  // candle before Monday 07:40 KST. Both must select the exact completed
+  // Friday session. Preserve the original last-bar policy for unrelated
+  // stocks, rates and commodities; their existing session gates still apply.
+  const exactSessionIndex=(symbol==='KRW=X'||symbol==='DX-Y.NYB')
+    &&expectedSessionDate;
+  const selectedIndex=exactSessionIndex
     ?list.findIndex(row=>row[0]===expectedSessionDate):list.length-1;
   if(selectedIndex<0)return null;
   const [date,value]=list[selectedIndex],prior=selectedIndex>0?list[selectedIndex-1][1]:null;
