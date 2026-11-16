@@ -1433,6 +1433,42 @@ async function _retryPortfolioRemoteDirtySync(options) {
         options?.onFailure?.('MASTER_VALIDATION_FAILED');
         return false;
       }
+      // A terminal V2 FAILED receipt cannot be replayed. Inspect the
+      // authenticated server state BEFORE even attempting syncHoldings:
+      // otherwise each PC reload reissues a holdings save, then fails on
+      // the same trade receipt without making any recovery progress.
+      // No financial write or local marker change is allowed here.
+      if (tradesRequired && dirty.tradeV2Baseline
+          && typeof _readPortfolioRecoveryReceipts === 'function') {
+        const failedRecord=_readPortfolioRecoveryReceipts()?.[targetUrl]?.syncTradesV2;
+        if (failedRecord?.attempted===true
+            && !failedRecord.readbackConfirmedRevision
+            && failedRecord.action==='syncTradesV2' && failedRecord.id
+            && failedRecord.params?.tradeLedgerProtocolVersion==='2') {
+          let receipt;
+          try {
+            receipt=await requestGsheetFormJson('getPortfolioSyncReceipt',{
+              ...failedRecord.params,kind:'syncTradesV2',
+              operationId:failedRecord.id
+            },{targetUrl,generation,timeoutMs:15000,retry:0,
+              preserveError:true});
+          }catch(ignore){receipt=null;}
+          const identified=receipt?.status==='ok'
+            && receipt.kind==='syncTradesV2'
+            && receipt.operationId===failedRecord.id;
+          if (!identified || !['COMPLETE','FAILED','PARTIAL','CHANGED',
+              'NOT_FOUND','BUSY','UNKNOWN','CONFLICT'].includes(receipt.receiptState)) {
+            options?.onFailure?.('SYNC_RECEIPT_UNVERIFIED');
+            return false;
+          }
+          if (receipt.receiptState==='FAILED') {
+            options?.onFailure?.('SYNC_RECEIPT_FAILED');
+            return false;
+          }
+          // All other states retain the original v2 preflight CAS,
+          // replay and protected readback gates unchanged.
+        }
+      }
       // 두 저장은 서버에서 같은 ScriptLock을 사용한다. 복구 시 동시에 보내면
       // 보유 저장이 잠금을 기다리다가 브라우저 시간 제한에 걸릴 수 있다.
       const holdingsResult = typeof syncHoldingsToGsheet === 'function'
