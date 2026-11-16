@@ -120,6 +120,14 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
     }catch(error){
       const kind=['TimeoutError','AbortError'].includes(error?.name)?'TIMEOUT'
         :error?.name==='TypeError'?'NETWORK':'JSON';
+      if(phase==='PREVIEW'&&kind==='JSON'){
+        // Metadata only: never log GAS response bodies, tokens, or fund NAV.
+        const type=typeof r.headers?.get==='function'
+          ?String(r.headers.get('content-type')||'').toLowerCase():'';
+        const mime=type.includes('json')?'JSON':
+          type.startsWith('text/html')?'HTML':'UNKNOWN';
+        console.error('FUND_NAV_PREVIEW_MIME code=F00002 class='+mime);
+      }
       stageAudit(kind);
       throw Error('NAV_'+phase+'_'+kind+'_UNVERIFIED');
     }
@@ -153,7 +161,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
         {data:JSON.stringify(input)},token,90000);
       break;
     }catch(error){
-      if(!/^NAV_PREVIEW_(?:TIMEOUT|NETWORK|HTTP_TRANSIENT)_UNVERIFIED$/.test(String(error?.message||''))
+      if(!/^NAV_PREVIEW_(?:TIMEOUT|NETWORK|HTTP_TRANSIENT|JSON)_UNVERIFIED$/.test(String(error?.message||''))
         ||attempt===1)throw error;
       await retryDelay(1500);
     }
