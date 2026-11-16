@@ -1,7 +1,24 @@
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {pathToFileURL} from 'node:url';
 // Explicitly reviewed deployed sources. Do not accept unknown future GAS builds.
-const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292','9.293']);
+const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292','9.293','9.294','9.295','9.296']);
+// An issuer-level public response may contain different share classes for
+// one payment. Reject conflicting company-level events without a verified
+// share identifier. Existing persisted settings are left unchanged.
+export function hasConflictingPublicDividendAmounts(events) {
+ const byPayment=new Map();
+ for(const e of (Array.isArray(events)?events:[])){
+  const d=String(e?.date||'').slice(0,10),p=String(e?.payDate||'').slice(0,10);
+  const amount=Number(e?.amount);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d)||!(amount>0))continue;
+  const key=d+'|'+p;
+  if(!byPayment.has(key))byPayment.set(key,new Set());
+  byPayment.get(key).add(amount);
+  if(byPayment.get(key).size>1)return true;
+ }
+ return false;
+}
+
 export async function runDividendRefresh({url:rawUrl,token,fetchImpl=fetch,asOf=new Date()}) {
 const url=validateWebAppUrl(rawUrl);
 const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(asOf);
@@ -39,7 +56,7 @@ async function call(action,args={},access=token) {
    if(String(old?.source).toUpperCase()==='MANUAL'){stockManual++;continue;}
    const retry=pub.diagnostics?.retry?.[c.code];
    const source=retry?.returnedRows>0?retry:pub.diagnostics?.dividend?.[c.code];
-   if(source?.status==='OK'&&x?.source==='PUBLIC_DATA'&&Number(x.perShare)>0&&Array.isArray(x.events)&&x.events.length&&x.events.every(e=>Number(e.amount)>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(e.date))))patch[c.code]={...old,...x,updatedAt:new Date().toISOString(),refreshState:'VERIFIED'};
+   if(source?.status==='OK'&&x?.source==='PUBLIC_DATA'&&Number(x.perShare)>0&&Array.isArray(x.events)&&x.events.length&&!hasConflictingPublicDividendAmounts(x.events)&&x.events.every(e=>Number(e.amount)>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(e.date))))patch[c.code]={...old,...x,updatedAt:new Date().toISOString(),refreshState:'VERIFIED'};
   }
   for(const c of stocks){
    if(patch[c.code]||String(cached.divData[c.code]?.source).toUpperCase()==='MANUAL')continue;

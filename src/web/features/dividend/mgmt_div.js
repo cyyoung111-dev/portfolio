@@ -271,9 +271,32 @@ function _buildDivCodeToNameMap() {
   return map;
 }
 
+// A company-level public-data response may combine common/preferred
+// shares under one registration number. Without a share-class identifier,
+// two amounts for the same economic payment are not safe to auto-import.
+function _publicDividendHasShareClassCollision(obj) {
+  if (String(obj?.source || '').toUpperCase() !== 'PUBLIC_DATA') return false;
+  const amounts = new Map();
+  for (const ev of (Array.isArray(obj?.events) ? obj.events : [])) {
+    const date = String(ev?.date || '').slice(0, 10);
+    const pay = String(ev?.payDate || '').slice(0, 10);
+    const value = Number(ev?.amount);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !(value > 0)) continue;
+    const key = date + '|' + pay;
+    if (!amounts.has(key)) amounts.set(key, new Set());
+    amounts.get(key).add(value);
+    if (amounts.get(key).size > 1) return true;
+  }
+  return false;
+}
+
 function _normalizeDividendResponse(obj, prev) {
   // 수동 입력은 사용자가 명시적으로 관리하는 값이므로 자동 조회 결과로 덮어쓰지 않습니다.
   if (prev?.source === 'MANUAL') return { ...prev };
+  if (_publicDividendHasShareClassCollision(obj)) return {
+    ...prev, refreshState: 'UNVERIFIED',
+    lastAttemptAt: new Date().toISOString()
+  };
   const next = { ...prev };
   const perShare = Number(obj?.perShare || 0);
   if (perShare > 0) {
@@ -525,6 +548,7 @@ async function _autoFetchDiv(area) {
     if (!connectionCurrent()) throw new Error('연결 변경으로 오래된 배당 응답을 적용하지 않았습니다.');
     const divPatch = {};
     const dividends = _mergeDividendResults(targetCodes, publicDividends, null);
+    const sourceConflicts = [];
 
     const codeToName = _buildDivCodeToNameMap();
 
@@ -537,6 +561,10 @@ async function _autoFetchDiv(area) {
       const storeKey = normCode || divKey;
       const prev = DIVDATA[storeKey] || DIVDATA[divKey] || {};
       if (String(prev.source || '').toUpperCase() === 'MANUAL') return;
+      if (_publicDividendHasShareClassCollision(obj)) {
+        sourceConflicts.push(name);
+        return;
+      }
       DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
       if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') divPatch[storeKey] = DIVDATA[storeKey];
       changed = true;
@@ -551,9 +579,12 @@ async function _autoFetchDiv(area) {
         if (_liveArea) renderDivView(_liveArea, true);
       }
     }
-    const complete = refreshedSeibro && targetCodes.every(code => Number(dividends[code]?.perShare || 0) > 0);
-    _setDividendLinkState(complete ? 'ok' : 'fail', complete
-      ? '✅ ETF·주식 배당 조회 및 저장 완료'
+    const complete = refreshedSeibro && sourceConflicts.length === 0
+      && targetCodes.every(code => Number(dividends[code]?.perShare || 0) > 0);
+    _setDividendLinkState(complete ? 'ok' : 'fail', sourceConflicts.length
+      ? '공공데이터 주식 종류별 배당 금액 충돌: '
+        + sourceConflicts.join(', ') + ' · 기존 원본 유지'
+      : complete ? 'ETF·주식 배당 조회 및 저장 완료'
       : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends));
   } catch(e) {
     // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
@@ -629,7 +660,7 @@ async function startDivFetch() {
     // 코드 → 이름 역매핑
     const codeToName = _buildDivCodeToNameMap();
 
-    let updated = 0, skipped = 0;
+    let updated = 0, skipped = 0, sourceConflicts = 0;
     Object.entries(dividends).forEach(([code, obj]) => {
       const name = codeToName[String(code || '').trim()] || codeToName[_normDivCode(code)];
       if (!name) return;
@@ -637,6 +668,10 @@ async function startDivFetch() {
       const storeKey = normCode || ((typeof getDivKey === 'function') ? getDivKey(name) : name);
       const prev = DIVDATA[storeKey] || {};
       if (String(prev.source || '').toUpperCase() === 'MANUAL') return;
+      if (_publicDividendHasShareClassCollision(obj)) {
+        skipped++; sourceConflicts++;
+        return;
+      }
       DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
       if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') divPatch[storeKey] = DIVDATA[storeKey];
       if (Number(obj?.perShare || 0) > 0) {
@@ -651,7 +686,14 @@ async function startDivFetch() {
       }
     });
 
-    const resultMsg = `${refreshedSeibro && skipped === 0 ? '✅' : '⚠️'} 일반 종목 ${updated}개 갱신 · ${skipped}개 미확인 · ETF ${refreshedSeibro ? '완료' : '일부 미확인'}`;
+    const resultMsg = `${refreshedSeibro && skipped === 0 ? '✅' : '⚠️'} 일반 종목 ${updated}개 갱신 · ${skipped}개 미확인${sourceConflicts ? ` (주식 종류별 금액 충돌 ${sourceConflicts}건, 원본 유지)` : ''} · ETF ${refreshedSeibro ? '완료' : '일부 미확인'}`;
+    if (sourceConflicts && updated === 0) {
+      if (status) { status.style.color = 'var(--amber)'; status.textContent = resultMsg; }
+      const stoppedButton = $el('divFetchBtn');
+      if (stoppedButton) { stoppedButton.disabled = false; stoppedButton.textContent = '📥 배당 데이터 갱신'; }
+      _setDividendLinkState('fail', '주식 종류별 배당 금액 충돌 · 기존 원본 유지 · 자동 저장하지 않았습니다.');
+      return false;
+    }
     const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
     if (!savedToGas) throw new Error('배당 조회 결과를 GAS에 저장하지 못했습니다. 구글시트 연동 상태를 확인해주세요.');
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
