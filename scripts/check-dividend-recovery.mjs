@@ -80,7 +80,7 @@ for(const isManual of [false,true]){
  if(isManual)assert.equal(result,false);
  assert.equal(u.ctx.DIVDATA['111111'].perShare,15);
  assert.equal(u.ctx.DIVDATA['111111'].events.length,1);
- assert.equal(writes,isManual?1:0,'ambiguous public dividends must not enter a finance patch');
+ assert.equal(writes,0,'ambiguous public dividends must not call the settings writer');
  assert.equal(u.labels.at(-1).state,'fail');
 }
 console.log('PASS: actual mixed ETF refresh, verified zero-window skip, manual/history protection, backup/readback, no false success/GF fallback');
