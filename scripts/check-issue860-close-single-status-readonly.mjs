@@ -192,9 +192,9 @@ await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
   automation:{...data.automation,gasVersion:'9.290'}})
 })}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.290 must not pass');
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
- ok:true,json:async()=>({...data,gasVersion:'9.296',
-  automation:{...data.automation,gasVersion:'9.296'}})
-})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.296 must not pass');
+ ok:true,json:async()=>({...data,gasVersion:'9.297',
+  automation:{...data.automation,gasVersion:'9.297'}})
+})}),/ISSUE860_STATUS_VERSION_OR_SCHEMA/,'Unreviewed 9.297 must not pass');
 await assert.rejects(()=>readIssue860Once({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>({...data,gasVersion:'9.288',
   automation:{...data.automation,gasVersion:'9.287'}})
