@@ -4,13 +4,30 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {fetchGoogleAuditToken} from './audit-published-gas-gate-readonly.mjs';
-import {gasSourceBlobSha,deploymentIdFromWebAppUrl} from './deploy-gas.mjs';
+import {gasSourceBlobSha,deploymentIdFromWebAppUrl,parseClaspCredentials} from './deploy-gas.mjs';
 import {composeGas9295CodeMasterReusePreview} from './compose-gas9295-code-master-reuse-preview.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
 const SHEET='1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
 const hash=s=>createHash('sha256').update(s,'utf8').digest('hex');
 const fail=code=>{throw Error('TRADE_SOURCE_PARITY_'+code);};
+export async function fetchParityOAuth(clasprc,fetchImpl=fetch){
+ try{parseClaspCredentials(clasprc);}catch{fail('OAUTH_CONFIG_INVALID');}
+ let reason='OAUTH_NETWORK_UNVERIFIED';
+ try{return await fetchGoogleAuditToken({clasprc,fetchImpl:async(...args)=>{
+  const r=await fetchImpl(...args);
+  reason='OAUTH_RESPONSE_UNVERIFIED';
+  if(!r.ok){
+   reason='OAUTH_HTTP_'+r.status;
+   try{const body=await r.clone().json();
+    const known={invalid_grant:'OAUTH_INVALID_GRANT',invalid_client:'OAUTH_INVALID_CLIENT',
+     unauthorized_client:'OAUTH_UNAUTHORIZED_CLIENT',access_denied:'OAUTH_ACCESS_DENIED'};
+    if(Object.hasOwn(known,body?.error))reason=known[body.error];
+   }catch{}
+  }
+  return r;
+ }});}catch{fail(reason);}
+}
 const extract=(source,name)=>{
  const start=source.indexOf('function '+name+'('),end=source.indexOf('\n}',start);
  if(start<0||end<=start)fail('FUNCTION_MISSING');
@@ -67,7 +84,7 @@ export async function runSourceParity({url,token,clasprc,scriptId,fetchImpl=fetc
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12||!/^[-\w]{8,160}$/.test(scriptId||''))
   fail('AUTH_CONFIG_MISSING');
- const oauth=await fetchGoogleAuditToken({clasprc,fetchImpl});
+ const oauth=await fetchParityOAuth(clasprc,fetchImpl);
  const get=async address=>{
   const r=await fetchImpl(address,{method:'GET',redirect:'error',
    headers:{Authorization:'Bearer '+oauth},signal:AbortSignal.timeout(20000)});
