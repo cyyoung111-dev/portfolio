@@ -9,6 +9,8 @@ import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.
 import {composeIssue860Gas9292CloseStatePreview} from './compose-issue860-gas9292-close-state-preview.mjs';
 import {composeIssue734Gas9293OrphanedClosePreview} from './compose-issue734-gas9293-orphaned-close-preview.mjs';
 import {composeIssue734Gas9294OwnerNavPreview} from './compose-issue734-gas9294-owner-nav-preview.mjs';
+import {composeGas9295CodeMasterReusePreview} from './compose-gas9295-code-master-reuse-preview.mjs';
+import {composeGas9296TradeUtf8Preview} from './compose-gas9296-trade-utf8-preview.mjs';
 
 const scriptId='TEST_SCRIPT_IDENTIFIER_12345';
 const expectedDeploymentId='TEST_EXPECTED_DEPLOYMENT_123';
@@ -333,12 +335,14 @@ assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGAC
  assert.equal(reviewed.externalSheetsWritersExcludedVerified,false);
  // Regression: all recent full-source releases must be recognized ONLY by
  // immutable source pins, including the currently published 9.293 and
- // reviewed (not automatically deployed) 9.294.
+ // reviewed 9.294 plus exact-pinned 9.295 and 9.296.
  const sourceCases=[
   {name:'9.291',source:composeIssue860Gas9291Preview().source},
   {name:'9.292',source:composeIssue860Gas9292CloseStatePreview().source},
   {name:'9.293',source:composeIssue734Gas9293OrphanedClosePreview().source},
-  {name:'9.294',source:composeIssue734Gas9294OwnerNavPreview().source}
+  {name:'9.294',source:composeIssue734Gas9294OwnerNavPreview().source},
+  {name:'9.295',source:composeGas9295CodeMasterReusePreview().candidate},
+  {name:'9.296',source:composeGas9296TradeUtf8Preview().candidate}
  ];
  for(const candidate of sourceCases){
   const files={scriptId,files:[
