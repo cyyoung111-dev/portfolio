@@ -118,6 +118,32 @@ function calcDividends() {
       });
     };
     const actualMonths = new Set();
+    // Public provider results are company-level: common and preferred shares
+    // may have the same record/payment date but different per-share amounts.
+    // Without a matching share-class identifier, choosing the latest row
+    // silently assigns a preferred dividend to common shares. Suppress only
+    // those unresolved public events; never guess the lower amount.
+    const publicAmountsByEvent = new Map();
+    events.forEach(ev => {
+      if (String(ev?.source || dd?.source || '') !== 'PUBLIC_DATA') return;
+      const ref = String(ev?.date || '').slice(0, 10);
+      const pay = String(ev?.payDate || '').slice(0, 10);
+      const amount = Number(ev?.amount);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ref) || !(amount > 0)) return;
+      const key = ref + '|' + pay;
+      if (!publicAmountsByEvent.has(key)) publicAmountsByEvent.set(key, new Set());
+      publicAmountsByEvent.get(key).add(amount);
+    });
+    const ambiguousPublicKeys = new Set(
+      [...publicAmountsByEvent].filter(([, amounts]) => amounts.size > 1).map(([key]) => key)
+    );
+    for (const key of ambiguousPublicKeys) {
+      const [ref, pay] = key.split('|');
+      const cashDay = /^\d{4}-\d{2}-\d{2}$/.test(pay) ? pay : ref;
+      if (Number(cashDay.slice(0, 4)) === thisYear)
+        actualMonths.add(Number(cashDay.slice(5, 7)));
+    }
+    const ambiguousPublicEvents = ambiguousPublicKeys.size;
     // A corrected source amount for the same date/payment is a REPLACEMENT,
     // never an additional payment. Explicit user-confirmed records win.
     const uniqueEvents = new Map();
@@ -127,6 +153,7 @@ function calcDividends() {
       const amount = Number(ev?.amount);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ref) || !(amount > 0)) return;
       const eventKey = ref + '|' + pay;
+      if (ambiguousPublicKeys.has(eventKey)) return;
       const old = uniqueEvents.get(eventKey);
       // A duplicate provider update may omit verified bank evidence. Never
       // replace a richer manual receipt with a poorer confirmed flag alone.
@@ -199,7 +226,7 @@ function calcDividends() {
         netReceivedCount, withheldTaxCount, monthlyDeclaredGross,
         monthlyReceivedGross, monthlyNetReceived, monthlyWithheldTax,
         monthlyNetCount, monthlyTaxCount, accountAnnualDiv,
-        unallocatedAnnualDiv });
+        unallocatedAnnualDiv, ambiguousPublicEvents });
     }
   });
 
@@ -224,6 +251,7 @@ function renderDivView(area, skipFetch) {
   // 수량 0 숨김 적용
   const allDivRows = calcDividends();
   const divRows = _divHideZeroQty ? allDivRows.filter(r => r.totalQty > 0) : allDivRows;
+  const ambiguousDividendNames = allDivRows.filter(r => r.ambiguousPublicEvents > 0).map(r => r.name);
   const totalAnnual   = divRows.reduce((s,r)=>s+r.annualDiv,0);
   const totalActual   = divRows.reduce((s,r)=>s+(r.actualDiv||0),0);
   const totalAfterTax = Math.round(totalAnnual * 0.846);
@@ -278,6 +306,7 @@ function renderDivView(area, skipFetch) {
 
   let html = `
 
+  ${ambiguousDividendNames.length ? `<div role="alert" style="border:1px solid var(--amber);border-radius:9px;padding:9px 12px;margin-bottom:12px;font-size:.72rem;color:var(--amber)">배당 기준일의 보통주·우선주 금액이 충돌합니다: ${ambiguousDividendNames.map(name => _escapeHtml(name)).join(', ')} · 해당 배당은 합계에서 제외하고 원본 검증이 필요합니다. 자동으로 금액을 선택하거나 원본을 변경하지 않습니다.</div>` : ''}
   <!-- ── 배당 자동 연동 + 수동 갱신 ── -->
   <div style="margin-bottom:14px">
     <div class="div-link-panel" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
