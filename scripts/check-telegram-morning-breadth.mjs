@@ -1,14 +1,29 @@
 import assert from 'node:assert/strict';
 import {parseKrxBreadth,verifyKrxBreadth,readMorningBreadth,formatMorningBreadth,
- calculateAdr20} from './telegram-morning-breadth.mjs';
+ calculateAdr20,morningBreadthPublishedDate} from './telegram-morning-breadth.mjs';
 import {nightAuthStatus,captureMorning} from './nh-morning-capture.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 const day='2026-11-05',prior='2026-11-04',now=()=>new Date(day+'T07:40:00+09:00');
+const afterPublication=()=>new Date(day+'T08:15:00+09:00');
+const lagDate='2026-11-03';
+assert.equal(morningBreadthPublishedDate(day,now()),lagDate);
+assert.equal(morningBreadthPublishedDate(day,new Date(day+'T08:14:59+09:00')),lagDate);
+assert.equal(morningBreadthPublishedDate(day,afterPublication()),prior);
+assert.equal(morningBreadthPublishedDate('2026-11-17',
+ new Date('2026-11-17T07:40:00+09:00')),'2026-11-13');
+assert.equal(morningBreadthPublishedDate('2026-11-17',
+ new Date('2026-11-17T08:15:00+09:00')),'2026-11-16');
+assert.equal(morningBreadthPublishedDate(day,new Date('2026-11-04T07:40:00+09:00')),null);
+assert.equal(morningBreadthPublishedDate('2026-11-14',now()),null);
 const makeRows=(market,count)=>Array.from({length:count},(_,i)=>({
  BAS_DD:'20261104',ISU_CD:(market==='KOSPI'?'KR':'KQ')+String(i).padStart(8,'0'),
  TDD_CLSPRC:'1,230',CMPPREVDD_PRC:i%4===0?'-10':i%4===1?'0':'+12'
 }));
 const kospi={OutBlock_1:makeRows('KOSPI',440)},kosdaq={OutBlock_1:makeRows('KOSDAQ',660)};
+const releaseRows=data=>({OutBlock_1:data.OutBlock_1.map(row=>({...row,BAS_DD:'20261103'}))});
+const lagKospi=releaseRows(kospi),lagKosdaq=releaseRows(kosdaq);
+const lagA=parseKrxBreadth(lagDate,'KOSPI',lagKospi);
+const lagB=parseKrxBreadth(lagDate,'KOSDAQ',lagKosdaq);
 const a=parseKrxBreadth(prior,'KOSPI',kospi),b=parseKrxBreadth(prior,'KOSDAQ',kosdaq);
 assert.equal(a.issues,440);
 assert.equal(a.advances,220);
@@ -20,8 +35,12 @@ assert.equal(parseKrxBreadth(prior,'KOSPI',{OutBlock_1:kospi.OutBlock_1.slice(0,
 assert.equal(parseKrxBreadth(prior,'KOSPI',{OutBlock_1:[...kospi.OutBlock_1.slice(0,-1),kospi.OutBlock_1[0]]}),null);
 assert.equal(parseKrxBreadth(prior,'KOSPI',{OutBlock_1:[{...kospi.OutBlock_1[0],BAS_DD:'20261103'},...kospi.OutBlock_1.slice(1)]}),null);
 assert.equal(verifyKrxBreadth(prior,[a,a]).length,0);
-assert.match(formatMorningBreadth(day,[a,b]),/KOSPI 220↑\/110↓\/110→/);
-assert.match(formatMorningBreadth(day,[a,b]),/KOSDAQ 330↑\/165↓\/165→/);
+assert.match(formatMorningBreadth(day,[a,b],afterPublication()),/KOSPI 220↑\/110↓\/110→/);
+assert.match(formatMorningBreadth(day,[a,b],afterPublication()),/KOSDAQ 330↑\/165↓\/165→/);
+assert.match(formatMorningBreadth(day,[lagA,lagB],now()),/KOSPI 220↑\/110↓\/110→/);
+assert.match(formatMorningBreadth(day,[lagA,lagB],now()),/2026-11-03 · KRX 참고 · 최신 공표가능 거래일/);
+assert.doesNotMatch(formatMorningBreadth(day,[a,b],now()),/KOSPI 220↑/,
+ '07:40 must not present a prior-session row before release');
 assert.match(formatMorningBreadth(day,[]),/공식 일봉 미검증/);
 assert.doesNotMatch(formatMorningBreadth(day,[]),/ADR20: 20거래일 시계열 미연결/);
 assert.equal(calculateAdr20([a,b],'KOSPI'),null);
@@ -36,8 +55,9 @@ const fetchImpl=async(url,{headers})=>{
  called++;
  assert.match(url,/data-dbg\.krx\.co\.kr/);
  assert.equal(headers.AUTH_KEY,'TEST_KRX_KEY_123456789');
+ assert.match(url,/basDd=20261103/, '07:40 must request only release-eligible dated rows');
  return {ok:true,headers:{get:()=>null},json:async()=>
-  url.includes('/stk_bydd_trd')?kospi:kosdaq};
+  url.includes('/stk_bydd_trd')?lagKospi:lagKosdaq};
 };
 assert.equal((await readMorningBreadth(day,{
  authKey:'TEST_KRX_KEY_123456789',fetchImpl,now})).length,2);
@@ -52,7 +72,7 @@ const after503=await readMorningBreadth(day,{
   transientCount++;
   if(url.includes('stk_bydd_trd')&&transientCount===1)return {ok:false,status:503};
   return {ok:true,headers:{get:()=>null},
-   json:async()=>url.includes('stk_bydd_trd')?kospi:kosdaq};
+   json:async()=>url.includes('stk_bydd_trd')?lagKospi:lagKosdaq};
  }
 });
 assert.equal(after503.length,2,'transient 503 may retry and recover');
@@ -63,7 +83,7 @@ const denied=await readMorningBreadth(day,{
  onDiagnostic:entry=>deniedReasons.push(entry),
  authKey:'TEST_KRX_KEY_123456789',now,fetchImpl:async url=>{
   deniedCount++;return url.includes('stk_bydd_trd')?{ok:false,status:401}
-   :{ok:true,headers:{get:()=>null},json:async()=>kosdaq};
+   :{ok:true,headers:{get:()=>null},json:async()=>lagKosdaq};
  }
 });
 assert.equal(denied.length,1);
@@ -77,10 +97,25 @@ assert.deepEqual(await readMorningBreadth(day,{authKey:'',
  onDiagnostic:entry=>keylessReasons.push(entry),fetchImpl,now}),[]);
 assert.deepEqual(keylessReasons,[{source:'BREADTH',status:'KEY_UNAVAILABLE'}]);
 assert.equal(deniedCount,2,'no additional read on keyless source check');
+// After 08:15 KST the previous trading day's exact official rows may be
+// queried. The clock gate does not assert publication: schema is still checked.
+let postReleaseCalls=0;
+const postReleaseRows=await readMorningBreadth(day,{
+ authKey:'TEST_KRX_KEY_123456789',now:afterPublication,
+ fetchImpl:async url=>{
+  postReleaseCalls++;
+  assert.match(url,/basDd=20261104/);
+  return {ok:true,headers:{get:()=>null},
+   json:async()=>url.includes('stk_bydd_trd')?kospi:kosdaq};
+ }
+});
+assert.equal(postReleaseCalls,2);
+assert.equal(postReleaseRows.length,2);
+assert.deepEqual(postReleaseRows.map(x=>x.date),[prior,prior]);
 
 assert.equal(called,2);
 const message=formatFullMorningBriefing(day,null,[],{
- now:now(),supplements:{breadth:formatMorningBreadth(day,[a,b])}});
+ now:now(),supplements:{breadth:formatMorningBreadth(day,[lagA,lagB],now())}});
 assert.match(message,/시장폭 A\/D: KOSPI 220↑/);
 assert.doesNotMatch(message,/외국인\/기관 수급: 미확보|FedWatch|Finviz/);
 assert.match(message,/■ QC: 기준 거래일과 일치한 일봉 0\/21/);

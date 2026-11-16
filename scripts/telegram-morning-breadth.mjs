@@ -11,6 +11,24 @@ const MARKETS=Object.freeze([
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const strictDate=s=>typeof s==='string'&&DAY.test(s)
  &&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
+// KRX stock daily OHLC is conservatively release-eligible on the NEXT
+// KRX open day at 08:15 KST. The 07:40 morning briefing must not ask for
+// yesterday's not-yet-release-eligible date and mislabel it "missing".
+// This only chooses a date: source rows still require exact official proof.
+export function morningBreadthPublishedDate(date,instant=new Date()){
+ if(!strictDate(date)||krxSessionStatus(date)!=='OPEN'
+  ||!(instant instanceof Date)||!Number.isFinite(instant.getTime()))return null;
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+  timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
+  hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+ }).formatToParts(instant).map(p=>[p.type,p.value]));
+ if(parts.year+'-'+parts.month+'-'+parts.day!==date)return null;
+ const prior=expectedMorningDate('KOSPI',date);
+ if(!strictDate(prior)||krxSessionStatus(prior)!=='OPEN')return null;
+ const mins=Number(parts.hour)*60+Number(parts.minute);
+ const eligible=mins>=8*60+15?prior:expectedMorningDate('KOSPI',prior);
+ return strictDate(eligible)&&krxSessionStatus(eligible)==='OPEN'?eligible:null;
+}
 const signed=raw=>typeof raw==='string'
  &&/^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(raw.replaceAll(',',''))
  &&Number.isFinite(Number(raw.replaceAll(',','')))
@@ -56,9 +74,8 @@ export async function readMorningBreadth(date,{authKey=process.env.KRX_AUTH_KEY,
  fetchImpl=fetch,now=()=>new Date(),onDiagnostic=()=>{}}={}){
  const emit=(status,market=null)=>{try{onDiagnostic({source:'BREADTH',status,
   ...(market?{market}:{})});}catch{}};
- const expected=expectedMorningDate('KOSPI',date);
- if(!expected||!strictDate(expected)||!strictDate(date)
-  ||now().getTime()<Date.parse(date+'T06:30:00+09:00')){
+ const instant=now(),expected=morningBreadthPublishedDate(date,instant);
+ if(!expected||instant.getTime()<Date.parse(date+'T06:30:00+09:00')){
   emit('SESSION_UNVERIFIED');return [];
  }
  if(typeof authKey!=='string'||!/^[A-Za-z0-9_-]{16,128}$/.test(authKey)){
@@ -93,15 +110,19 @@ export async function readMorningBreadth(date,{authKey=process.env.KRX_AUTH_KEY,
  }));
  return verifyKrxBreadth(expected,result.filter(Boolean));
 }
-export function formatMorningBreadth(date,rows=[]){
- const expected=expectedMorningDate('KOSPI',date),valid=verifyKrxBreadth(expected,rows);
+export function formatMorningBreadth(date,rows=[],
+ now=new Date(date+'T07:40:00+09:00')){
+ const expected=morningBreadthPublishedDate(date,now);
+ const valid=expected?verifyKrxBreadth(expected,rows):[];
  const text=MARKETS.map(m=>{
   const x=valid.find(v=>v.id===m.id);
   return m.id+' '+(x?x.advances+'↑/'+x.declines+'↓/'+x.unchanged+'→':'미확보');
  }).join(' · ');
  // ADR20 needs a separate 20-session validated history. Never append a
  // static 'unconnected' warning to a valid current-session A/D report.
- return '시장폭 A/D: '+text+(valid.length?' ['+expected+' · KRX 참고]':' (공식 일봉 미검증)');
+ const prior=expectedMorningDate('KOSPI',date);
+ const releaseLag=valid.length&&expected!==prior?' · 최신 공표가능 거래일':'';
+ return '시장폭 A/D: '+text+(valid.length?' ['+expected+' · KRX 참고'+releaseLag+']':' (공식 일봉 미검증)');
 }
 // ADR20 must be calculated only from 20 DISTINCT, verified completed sessions,
 // never from a single day's A/D or a stale value carried forward.
