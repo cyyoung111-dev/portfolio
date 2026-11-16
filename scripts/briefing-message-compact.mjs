@@ -19,13 +19,14 @@ function missingMarketRow(line) {
  const colon=line.indexOf(': ');
  if(colon<1||colon>65||line.startsWith('■')||line.startsWith('•'))return false;
  const value=line.slice(colon+2);
- return /^(?:미확보(?:$|\s|\()|종가 미확보|완료 종가 미확보|검증값 미확보|검증된 .*미확보|당일 확정치 미확보|당일 참고값 미확보|최근 허용 관측일 자료 미확보|동일 기준일 자료 미확보)/.test(value);
+ return /^(?:미확보(?:$|\s|\()|종가 미확보|완료 종가 미확보|검증값 미확보|검증된 .*미확보|당일 확정치 미확보|당일 참고값 미확보|최근 검증된 시세 미확보|확정 기준일 자료 미확보|공식 기준일 자료 미확보|최근 허용 관측일 자료 미확보|동일 기준일 자료 미확보)/.test(value);
 }
 function cleanRow(line,mode) {
  if(missingMarketRow(line))return null;
  if(/^미확보: /u.test(line)||/^미연결 참고지표: /u.test(line))return null;
  if(/^유효한 최근 거래값 미확보/u.test(line)
   ||/^확보 0\/4 · 실시간 확정값/u.test(line))return null;
+ if(/^시장폭 A\/D: KOSPI 미확보 · KOSDAQ 미확보 \(공식 일봉 미검증\)$/u.test(line))return null;
  if(/^• 실수요: .*미연결/u.test(line))return null;
  if(mode==='morning'&&line.startsWith('■ QC: 기준 거래일과 일치한 일봉 ')){
    // Do not repeat optional night-future nonpublication as a daily warning.
