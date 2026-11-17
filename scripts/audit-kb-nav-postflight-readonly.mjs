@@ -291,7 +291,16 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
          +(result.verdict||result.reason||'UNVERIFIED')+'**'
          +' · NAV 기준일='+(result.officialReferenceDate||'-')
          +' · NAV-only='+(result.navWorkflowStatus||'UNVERIFIED')
-         +' · close='+(result.closeState||'-')+'\n');
+         +' · 마감 기준일='+(result.closeDate||'-')
+         +' · published='+String(result.officiallyPublished??'-')
+         +' · NAV='+String(result.storedNavConfirmed??'-')
+         +' · exactOfficialNAV='+String(result.officialNavMatched??'-')
+         +' · derived='+String(result.derivedConfirmed??'-')
+         +' · close='+(result.closeState||'-')
+         +' · stage='+(result.fundCloseCheckpointEvidence?.closeStage||'-')
+         +' · fundAttempt='+(result.fundCloseCheckpointEvidence?.fundAttemptState||'-')
+         +' · fundFailure='+(result.fundCloseCheckpointEvidence?.fundFailureClass||'-')
+         +' · lastFundWork='+(result.fundCloseCheckpointEvidence?.fundWorkStage||'-')+'\n');
      // CLOSE finality is reported separately from the NAV-only verdict.
      if(!result.navWorkflowPass)process.exitCode=1;
    };
