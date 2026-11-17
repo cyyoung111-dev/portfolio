@@ -56,6 +56,13 @@ const recovered=await readMissingCloseReferences(date,{priorVkospi},{
 });
 assert.deepEqual(recovered,{priorVkospi,priorTurnover,skhy});
 assert.deepEqual(priorCalls.sort(),[us,date].sort());
+const fastFallback=await readMissingCloseReferences(date,{skhy},{
+ now,gasUrl:'https://script.google.com/macros/s/test/exec',gasToken:'synthetic-test-token',
+ krxKey:'synthetic-krx-key-0001',
+ fetchPriorVkospi:async(day,config)=>{assert.equal(day,us);assert.equal(config.gasBudgetMs,1500);return priorVkospi;},
+ fetchPriorTurnover:async(day,config)=>{assert.equal(day,us);assert.equal(config.gasBudgetMs,1500);return priorTurnover;}
+});
+assert.deepEqual(fastFallback,{priorVkospi,priorTurnover,skhy});
 const timeout=await readMissingCloseReferences(date,{priorVkospi,priorTurnover},{
  now,fetchSkhy:()=>new Promise(()=>{}),maxMs:10
 });
@@ -210,6 +217,7 @@ const w=YAML.parse(fs.readFileSync('.github/workflows/telegram-close-precompute.
 assert.deepEqual(w.on.schedule.map(x=>x.cron),['50 7 * * 1-5']);
 assert.equal(w.jobs.precompute.environment,'portfolio-production-gas');
 assert.equal(w.jobs.precompute['timeout-minutes'],6);
+assert.equal(w.jobs.precompute.steps.find(s=>s.id==='prepare').env.KRX_AUTH_KEY,'${{ secrets.KRX_AUTH_KEY }}');
 assert.equal(w.jobs.precompute.steps.some(s=>s.env?.TELEGRAM_BOT_TOKEN),false);
 assert.equal(w.jobs.precompute.steps.some(s=>/Send claimed/.test(s.name||'')),false);
 assert.deepEqual(Object.keys(w.on),['schedule']);
