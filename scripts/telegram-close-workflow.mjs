@@ -278,9 +278,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  const skhyLine=Array.isArray(skhyRows)&&skhyRows.length===1
    ?formatSkhyQuote(skhyRows[0],expectedMorningDate('NVDA',date)):'';
  if(skhyLine&&lines.join('\n').length+skhyLine.length+1<=3900){
-   const pos=lines.findIndex(x=>x.startsWith('■ 환율·금리'));
-   if(pos>=0)lines.splice(pos,0,skhyLine,'');
-   else lines.splice(lines.findIndex(x=>x.startsWith('■ 데이터 확인:')),0,skhyLine,'');
+   const pos=lines.findIndex(x=>x.startsWith('■ 주요 종목 ('));
+   if(pos>=0)lines[pos]=lines[pos].replace('\n\n■ 환율·금리','\n'+skhyLine+'\n\n■ 환율·금리');
  }
  // Put verified market values before optional financial research.
  if(verifiedTurnover.length){
