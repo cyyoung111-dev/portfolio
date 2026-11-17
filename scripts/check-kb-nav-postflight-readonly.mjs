@@ -458,6 +458,41 @@ for(const [label,jobName,writerName] of [
 // Execute the real admission CLI with no GAS credentials. A retired cron
 // must fail and export false; manual collection exports true. Downstream
 // reconciliation uses either admitted job, not its final success/failure.
+// Same-run continuation requires an actual earlier on-time start in the
+// SAME slot/day. The recovery-period deadline and elapsed time are bounded.
+const continuationCases=[
+ ['30 0 * * 1-5','2026-11-16T00:59:00Z','2026-11-16T01:15:00Z',true],
+ ['30 0 * * 1-5','2026-11-16T01:09:00Z','2026-11-16T02:59:00Z',true],
+ ['30 0 * * 1-5','2026-11-16T01:09:59Z','2026-11-16T03:10:00Z',false],
+ ['30 0 * * 1-5','2026-11-16T00:30:00Z','2026-11-16T02:30:00Z',true],
+ ['30 0 * * 1-5','2026-11-16T00:30:00Z','2026-11-16T02:30:01Z',false],
+ ['30 0 * * 1-5','2026-11-16T01:10:00Z','2026-11-16T01:15:00Z',false],
+ ['30 0 * * 1-5','2026-11-15T00:59:00Z','2026-11-16T01:15:00Z',false],
+ ['30 0 * * 1-5','2026-11-14T00:59:00Z','2026-11-14T01:15:00Z',false],
+ ['30 0 * * 1-5','2026-11-16T01:09:00Z','2026-11-16T00:20:00Z',false],
+ ['10 9 * * 1-5','2026-11-16T09:45:00Z','2026-11-16T10:20:00Z',true],
+ ['10 9 * * 1-5','2026-11-16T10:16:00Z','2026-11-16T12:10:00Z',true],
+ ['10 9 * * 1-5','2026-11-16T10:16:00Z','2026-11-16T12:11:00Z',false],
+ ['17 10 * * 1-5','2026-11-16T10:59:00Z','2026-11-16T11:35:00Z',true],
+ ['17 10 * * 1-5','2026-11-16T11:19:00Z','2026-11-16T12:10:00Z',true],
+ ['17 10 * * 1-5','2026-11-16T11:19:00Z','2026-11-16T12:11:00Z',false]
+];
+for(const [cron,prior,instant,expected] of continuationCases){
+ const o=assessNavScheduledAdmission({eventName:'schedule',cron,
+  priorAdmittedAt:new Date(prior).toISOString(),now:new Date(instant)});
+ assert.equal(o.admit,expected,cron+' '+prior+' -> '+instant);
+ if(expected)assert.equal(o.status,'ADMITTED_SAME_RUN_CONTINUATION');
+}
+for(const priorAdmittedAt of ['',undefined,'invalid','2026-11-16T00:59:00Z']){
+ assert.equal(assessNavScheduledAdmission({eventName:'schedule',
+  cron:'30 0 * * 1-5',priorAdmittedAt,now:new Date('2026-11-16T01:15:00Z')}).admit,false);
+}
+const kbAdmission=workflow.jobs.collect.steps.find(x=>x.id==='nav_admission');
+const hAdmission=workflow.jobs['hanwha-collect'].steps.find(x=>x.id==='nav_admission');
+assert.equal(kbAdmission.env.NAV_PRIOR_ADMITTED_AT,undefined,
+ 'initial KB may never receive continuation evidence');
+assert.equal(workflow.jobs.collect.outputs.admitted_at,'$'+'{{ steps.nav_admission.outputs.admitted_at }}');
+assert.equal(hAdmission.env.NAV_PRIOR_ADMITTED_AT,'$'+'{{ needs.collect.outputs.admitted_at }}');
 const admissionTmp=fs.mkdtempSync(join(tmpdir(),'nav-admission-'));
 try{
  for(const [event,cron,expected,exit] of [
@@ -469,14 +504,17 @@ try{
   fs.writeFileSync(output,'');
   const r=spawnSync(process.execPath,['scripts/nav-schedule-admission.mjs'],{
    encoding:'utf8',env:{...process.env,GITHUB_EVENT_NAME:event,
-   NAV_SCHEDULE_CRON:cron,GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''}
+   NAV_SCHEDULE_CRON:cron,NAV_PRIOR_ADMITTED_AT:'',GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''}
   });
   assert.equal(r.status,exit,r.stderr);
-  assert.equal(fs.readFileSync(output,'utf8'),'admitted='+expected+'\n');
+  const proof=fs.readFileSync(output,'utf8').trimEnd().split('\n');
+  assert.equal(proof[0],'admitted='+expected);
+  if(expected)assert.match(proof[1],/^admitted_at=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  else assert.equal(proof[1],'admitted_at=');
   assert.match(r.stdout,/"gasCalls":0,"financialWrites":0/);
  }
 }finally{fs.rmSync(admissionTmp,{recursive:true,force:true});}
 console.log('NAV_SCHEDULE_DELAYED_ADMISSION_PASS '+JSON.stringify({
  simulatedSaturday0910Started1505:true,slots:navSlots.length,
- staleScheduleCannotReachGas:true,postflightRequiresAdmittedCollector:true,financialWrites:0
+ staleScheduleCannotReachGas:true,postflightRequiresAdmittedCollector:true,sameRunContinuationCases:continuationCases.length,financialWrites:0
 }));

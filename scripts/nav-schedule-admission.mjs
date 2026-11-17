@@ -7,16 +7,11 @@ import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
 const SLOTS=Object.freeze({
- '30 0 * * 1-5':Object.freeze({name:'WEEKDAY_0930',from:570,through:609,days:[1,2,3,4,5]}),
- '10 9 * * 1-5':Object.freeze({name:'EVENING_1810',from:1090,through:1156,days:[1,2,3,4,5]}),
- '17 10 * * 1-5':Object.freeze({name:'EVENING_1917',from:1157,through:1219,days:[1,2,3,4,5]})
+ '30 0 * * 1-5':Object.freeze({name:'WEEKDAY_0930',from:570,through:609,continuationThrough:730,days:[1,2,3,4,5]}),
+ '10 9 * * 1-5':Object.freeze({name:'EVENING_1810',from:1090,through:1156,continuationThrough:1270,days:[1,2,3,4,5]}),
+ '17 10 * * 1-5':Object.freeze({name:'EVENING_1917',from:1157,through:1219,continuationThrough:1270,days:[1,2,3,4,5]})
 });
-export function assessNavScheduledAdmission({eventName,cron,now=new Date()}={}){
- if(!(now instanceof Date)||!Number.isFinite(now.getTime()))
-  throw Error('NAV_ADMISSION_CLOCK_INVALID');
- if(eventName!=='schedule')return {status:'NON_SCHEDULE_EVENT',admit:true,slot:'NONE'};
- const slot=SLOTS[String(cron||'')];
- if(!slot)return {status:'SCHEDULE_UNRECOGNIZED',admit:false,slot:'UNKNOWN'};
+function kstClock(now){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
   timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
   hour:'2-digit',minute:'2-digit',hourCycle:'h23'
@@ -24,14 +19,42 @@ export function assessNavScheduledAdmission({eventName,cron,now=new Date()}={}){
  const date=parts.year+'-'+parts.month+'-'+parts.day;
  const weekday=new Date(date+'T00:00:00Z').getUTCDay();
  const minute=Number(parts.hour)*60+Number(parts.minute);
+ return {date,weekday,minute};
+}
+// The second private collector belongs to the same serial workflow. An
+// admitted KB job can run beyond its original START slot. Only its actual
+// same-run start timestamp may authorize a bounded continuation, never a
+// new stale scheduled start. Existing independent morning/evening recovery
+// cutoffs (12:10 / 21:10 KST) and all GAS writer/lease checks remain binding.
+export function assessNavScheduledAdmission({eventName,cron,now=new Date(),priorAdmittedAt}={}){
+ if(!(now instanceof Date)||!Number.isFinite(now.getTime()))
+  throw Error('NAV_ADMISSION_CLOCK_INVALID');
+ if(eventName!=='schedule')return {status:'NON_SCHEDULE_EVENT',admit:true,slot:'NONE'};
+ const slot=SLOTS[String(cron||'')];
+ if(!slot)return {status:'SCHEDULE_UNRECOGNIZED',admit:false,slot:'UNKNOWN'};
+ const {date,weekday,minute}=kstClock(now);
  const admit=slot.days.includes(weekday)&&minute>=slot.from&&minute<=slot.through;
+ if(!admit&&typeof priorAdmittedAt==='string'&&priorAdmittedAt){
+  const previous=new Date(priorAdmittedAt);
+  const elapsed=now.getTime()-previous.getTime();
+  if(Number.isFinite(previous.getTime())&&previous.toISOString()===priorAdmittedAt
+    &&elapsed>=0&&elapsed<=120*60000){
+   const first=kstClock(previous);
+   if(first.date===date&&slot.days.includes(weekday)
+     &&first.minute>=slot.from&&first.minute<=slot.through
+     &&minute>=slot.from&&minute<=slot.continuationThrough)
+    return {status:'ADMITTED_SAME_RUN_CONTINUATION',admit:true,slot:slot.name};
+  }
+ }
  return {status:admit?'SCHEDULE_ON_TIME':'STALE_OR_WRONG_DAY_SCHEDULE',
   admit,slot:slot.name};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  try{
+  const now=new Date();
   const result=assessNavScheduledAdmission({
-   eventName:process.env.GITHUB_EVENT_NAME,cron:process.env.NAV_SCHEDULE_CRON
+   eventName:process.env.GITHUB_EVENT_NAME,cron:process.env.NAV_SCHEDULE_CRON,
+   now,priorAdmittedAt:process.env.NAV_PRIOR_ADMITTED_AT
   });
   console.log(JSON.stringify({kind:'NAV_SCHEDULE_ADMISSION',...result,
    gasCalls:0,financialWrites:0}));
@@ -44,7 +67,9 @@ if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
   // writer/ACK may later fail) from a runner that never entered private GAS.
   // Postflight must not independently enter GAS after both admissions deny.
   if(process.env.GITHUB_OUTPUT)
-   fs.appendFileSync(process.env.GITHUB_OUTPUT,'admitted='+String(result.admit)+'\n');
+   fs.appendFileSync(process.env.GITHUB_OUTPUT,
+    'admitted='+String(result.admit)+'\n'+
+    'admitted_at='+(result.admit?now.toISOString():'')+'\n');
   // GitHub scheduled-run success is used by the independent fallback as
   // evidence that normal NAV collection ran. Never mark a skipped private
   // collector as a successful scheduled run.
