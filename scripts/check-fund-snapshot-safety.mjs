@@ -1191,6 +1191,40 @@ const mergedLegacy=clone(context._mergeSnapshotRowsSafely([legacy],[canonical],t
 assert.equal(mergedLegacy.length,1);
 assert.equal(mergedLegacy[0][7],777);
 
+// 보호된 자동 수집은 원본 NAV 저장과 파생 평가를 분리합니다. 수동 입력은 아래
+// 기존 회귀대로 가격이력/스냅샷까지 처리하며 실패 상태를 보존합니다.
+assert.match(source,/return mode === 'import' \\? handleImportFundNav\\(dataJson, true\\)/,
+  'only protected KB/Hanwha collector may request NAV-first import');
+const collectorOnlyNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+const collectorOnlyPrice=new Sheet([['date','code','name','price','at','source']]);
+collectorOnlyPrice.failWrite=true;
+const collectorOnlySheets={'펀드좌수':importUnits,'펀드기준가격':collectorOnlyNav,
+  '가격이력':collectorOnlyPrice,'거래이력':importWriteTrades};
+context.getss=()=>ssFor(collectorOnlySheets);
+const originalDerivedScan=context._fundDerivedState;
+context._fundDerivedState=()=>{throw Error('COLLECTOR_IMPORT_MUST_NOT_SCAN_ALL_DERIVED');};
+const collectorPayload=importPayload('F00002','KB_VALUE_ST','AQ018',
+  [{date:'2025-01-02',nav:975}]);
+const collectorOnlySaved=context.handleImportFundNav(collectorPayload,true);
+assert.equal(collectorOnlySaved.status,'ok','automatic import saves verified source even when derived writer is unavailable');
+assert.equal(collectorOnlySaved.saveState,'success');
+assert.equal(collectorOnlySaved.evaluation.derivedDeferred,true);
+assert.equal(collectorOnlySaved.persisted.navWrite.appendedRows,1);
+assert.equal(collectorOnlySaved.persisted.priceHistoryWrite.appendedRows,0);
+assert.equal(collectorOnlyPrice.writes,0,'no priceHistory writer in collector import');
+assert.equal(collectorOnlyNav.rows.filter(row=>row[1]==='F00002').length,1);
+const collectorAgain=context.handleImportFundNav(collectorPayload,true);
+assert.equal(collectorAgain.status,'ok','same NAV readback has no second writer');
+assert.equal(collectorOnlyNav.rows.filter(row=>row[1]==='F00002').length,1,'no duplicate NAV');
+context._fundDerivedState=originalDerivedScan;
+const pendingDerived=context.handleGetFundValuationStatus('2025-01-02','2025-01-02','F00002');
+assert.equal(pendingDerived.status,'ok');
+assert.equal(pendingDerived.fundResults.F00002.dates[0].navState,'EXISTING_CONFIRMED');
+assert.equal(pendingDerived.fundResults.F00002.dates[0].evaluationState,'WRITE_REQUIRED',
+  'collector must detect derived work rather than silently mark complete');
+assert.equal(pendingDerived.fundResults.F00002.dates[0].snapshotState,'WRITE_REQUIRED');
+context.getss=()=>importWriteSs;
+
 // NAV 저장 뒤 가격이력 쓰기가 실패해도 동일 NAV 재입력으로 파생 데이터만 복구합니다.
 const partialCommitNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
 partialCommitNav.failCopy=true;
