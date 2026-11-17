@@ -21,6 +21,22 @@ function chart(symbol,at=stamp,value=7000){
 const good=validateMorningFuturesQuote(date,'ES',chart('ES=F'),now);
 assert.equal(good?.source,'YAHOO_DELAYED_FUTURES_REFERENCE');
 assert.equal(good?.value,7000);
+assert.equal(good.changePercent,undefined,'no inferred return without reference');
+const withReference=chart('ES=F');
+withReference.chart.result[0].meta.chartPreviousClose=6930;
+const moved=validateMorningFuturesQuote(date,'ES',withReference,now);
+assert.ok(Math.abs(moved.changePercent-70/6930*100)<1e-9);
+assert.match(formatMorningFutures(date,[moved],now),/ES 7,000 \(\+1\.01%\) \(06:58\)/);
+assert.match(formatMorningFutures(date,[moved],now),/등락률 Yahoo 비교 기준/);
+assert.doesNotMatch(formatMorningFutures(date,[{...moved,changePercent:50}],now),/50\.00%/);
+assert.doesNotMatch(formatMorningFutures(date,[{...moved,changeBasis:'OTHER'}],now),/1\.01%/);
+assert.doesNotMatch(formatMorningFutures(date,[{...moved,asOf:'2026-11-04T22:00:00+09:00'}],now),/7,000/);
+withReference.chart.result[0].meta.previousClose=6800;
+const conflict=validateMorningFuturesQuote(date,'ES',withReference,now);
+assert.equal(conflict.value,7000);
+assert.equal(conflict.changePercent,undefined);
+withReference.chart.result[0].meta.chartPreviousClose=0;
+assert.equal(validateMorningFuturesQuote(date,'ES',withReference,now).changePercent,undefined);
 // At 07:40 KST a CME maintenance bar may have a timestamp but no trades.
 // The LAST actual positive trade remains valid only within its real 90m age.
 const maintenance=chart('ES=F');
@@ -29,6 +45,10 @@ maintenance.chart.result[0].indicators.quote[0].close=[7000,null,null];
 const lastTrade=validateMorningFuturesQuote(date,'ES',maintenance,now);
 assert.equal(lastTrade?.value,7000);
 assert.equal(lastTrade?.asOf,new Date(stamp*1000).toISOString());
+maintenance.chart.result[0].meta.chartPreviousClose=7070;
+const maintenanceMoved=validateMorningFuturesQuote(date,'ES',maintenance,now);
+assert.match(formatMorningFutures(date,[maintenanceMoved],now),/ES 7,000 \(-0\.99%\) \(06:58\)/);
+assert.match(formatMorningFutures(date,[maintenanceMoved],now),/CME 점검시간에는 최종 체결값/);
 const invalidTrailing=structuredClone(maintenance);
 invalidTrailing.chart.result[0].indicators.quote[0].close=[7000,'INVALID',null];
 assert.equal(validateMorningFuturesQuote(date,'ES',invalidTrailing,now),null);
