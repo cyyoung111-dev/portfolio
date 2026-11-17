@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
-import {precloseWindow,precomputeClose,sanitizePreclose} from './telegram-close-precompute.mjs';
+import {precloseWindow,precomputeClose,sanitizePreclose,readMissingCloseReferences} from './telegram-close-precompute.mjs';
 import {verifyPreparedClose,loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {prepareClose,deliverClose} from './telegram-close-workflow.mjs';
 const date='2026-10-30',us='2026-10-29',
@@ -39,12 +39,47 @@ const markets=[
  {id:'COPPER',label:'구리',symbol:'HG=F',date:us,source:'YAHOO_DAILY_REFERENCE',value:4.9,changePercent:0.2},
  {id:'BTC',label:'BTC',symbol:'BTC-USD',date:us,source:'YAHOO_DAILY_REFERENCE',value:115000,changePercent:0.5}
 ];
+const priorVkospi=[{id:'VKOSPI',label:'VKOSPI',date:us,value:24.2,
+ source:'KRX_OFFICIAL',role:'NON_NH_REFERENCE_ONLY'}];
+const priorTurnover=[
+ {id:'KRX_TURNOVER_KOSPI',market:'KOSPI',date:us,valueKrw:20250000000000,
+  source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'},
+ {id:'KRX_TURNOVER_KOSDAQ',market:'KOSDAQ',date:us,valueKrw:6300000000000,
+  source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'}];
+const skhy=[{symbol:'SKHY',label:'SK하이닉스 ADR',date:us,value:142.25,source:'NASDAQ_DAILY_REFERENCE'}];
 const all={nh,domestic,secondary,stocks,macros,markets};
+const priorCalls=[];
+const recovered=await readMissingCloseReferences(date,{priorVkospi},{
+ now,fetchPriorVkospi:async()=>assert.fail('complete cache must not fetch again'),
+ fetchPriorTurnover:async day=>{priorCalls.push(day);return priorTurnover;},
+ fetchSkhy:async day=>{priorCalls.push(day);return skhy;}
+});
+assert.deepEqual(recovered,{priorVkospi,priorTurnover,skhy});
+assert.deepEqual(priorCalls.sort(),[us,date].sort());
+const timeout=await readMissingCloseReferences(date,{priorVkospi,priorTurnover},{
+ now,fetchSkhy:()=>new Promise(()=>{}),maxMs:10
+});
+assert.deepEqual(timeout,{priorVkospi,priorTurnover,skhy:[]});
+const invalid=await readMissingCloseReferences(date,{priorVkospi,priorTurnover},{
+ now,fetchSkhy:async()=>[{...skhy[0],date}],maxMs:100
+});
+assert.deepEqual(invalid.skhy,[]);
 const r=await precomputeClose({now:pre,fetchNh:async()=>nh,fetchDomestic:async()=>domestic,
  fetchSecondary:async()=>secondary,fetchStocks:async()=>stocks,fetchMacros:async()=>macros,
- fetchMarkets:async()=>markets});
+ fetchMarkets:async()=>markets,fetchPriorVkospi:async day=>{assert.equal(day,us);return priorVkospi;},
+ fetchPriorTurnover:async day=>{assert.equal(day,us);return priorTurnover;},
+ fetchSkhy:async day=>{assert.equal(day,date);return skhy;}});
 assert.equal(r.status,'PRECOMPUTED');
-assert.deepEqual(r.counts,{nh:3,domestic:3,secondary:3,stocks:4,macros:3,markets:5});
+assert.deepEqual(r.counts,{nh:3,domestic:3,secondary:3,stocks:4,macros:3,markets:5,priorVkospi:1,priorTurnover:2,skhy:1});
+assert.deepEqual(verifyPreparedClose(date,r.data,now())?.priorVkospi,priorVkospi);
+assert.deepEqual(verifyPreparedClose(date,r.data,now())?.priorTurnover,priorTurnover);
+assert.deepEqual(verifyPreparedClose(date,r.data,now())?.skhy,skhy);
+assert.equal(verifyPreparedClose(date,{...r.data,skhy:[{...skhy[0],date}]},now()),null);
+const {priorVkospi:unusedVk,priorTurnover:unusedTurnover,skhy:unusedSkhy,...legacy}=r.data;
+assert.deepEqual(verifyPreparedClose(date,legacy,now())?.priorVkospi,[]);
+assert.equal(verifyPreparedClose(date,{...r.data,priorVkospi:[{...priorVkospi[0],date}]},now()),null);
+assert.equal(verifyPreparedClose(date,{...r.data,priorTurnover:[...priorTurnover,priorTurnover[0]]},now()),null);
+assert.equal(verifyPreparedClose(date,{...r.data,priorTurnover:[{...priorTurnover[0],date:'2026-10-28'}]},now()),null);
 assert.equal(verifyPreparedClose(date,r.data,now())?.nh.length,3);
 assert.equal(verifyPreparedClose(date,{...r.data,date:us},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,capturedAt:date+'T17:00:00+09:00'},now()),null);
@@ -110,8 +145,30 @@ assert.equal(prepared.coverage.stocks.verified,4);
 assert.equal(prepared.coverage.macros.verified,3);
 assert.equal(prepared.coverage.markets.verified,5);
 assert.ok(prepared.message.length<4000);
+assert.ok(prepared.message.includes('SK하이닉스 ADR (SKHY): $142.25 [2026-10-29 · Nasdaq 참고]'));
+assert.match(prepared.message,/VKOSPI 직전 공표: 24\.20 \[2026-10-29 · KRX\]/);
+assert.match(prepared.message,/KOSPI 지수 구성종목 거래대금 직전 공표: 20\.25조원 \[2026-10-29 · KRX\]/);
+assert.match(prepared.message,/KOSDAQ 지수 구성종목 거래대금 직전 공표: 6\.30조원/);
+assert.match(prepared.message,/VKOSPI 0\/1 · KRX 지수 구성 거래대금 0\/2/);
+assert.equal(prepared.coverage.volatility.verified,0);
+assert.equal(prepared.coverage.turnover.verified,0);
+assert.equal(prepared.message.split('\n').filter(x=>x.startsWith('VKOSPI:')).length,1);
+const {formatClose}=await import('./telegram-close-workflow.mjs');
+const withToday=formatClose(date,nh,secondary,domestic,stocks,macros,markets,[],now(),[],
+ [{...priorVkospi[0],date}],null,null,[{...priorTurnover[0],date}],null,null,{priorVkospi,priorTurnover});
+assert.match(withToday,/VKOSPI: 24\.20 \[2026-10-30 · KRX\]/);
+assert.doesNotMatch(withToday,/VKOSPI 직전 공표:|KOSPI 지수 구성종목 거래대금 직전 공표:/);
+assert.match(withToday,/KOSDAQ 지수 구성종목 거래대금 직전 공표: 6\.30조원/);
 let sends=0;
-assert.equal((await deliverClose(prepared,{now,send:async()=>{sends++;}})).status,'SENT');
+assert.equal((await deliverClose(prepared,{now,send:async(_token,_chat,message)=>{
+ sends++;
+ assert.ok(message.includes('SK하이닉스 ADR (SKHY): $142.25'));
+ assert.match(message,/VKOSPI 직전 공표: 24\.20/);
+ assert.match(message,/거래대금 직전 공표: 20\.25조원/);
+}})).status,'SENT');
+await assert.rejects(deliverClose({...prepared,reportInputs:{...prepared.reportInputs,
+ priorVkospi:[{...priorVkospi[0],date}]}},{now,send:async()=>assert.fail('wrong prior date sent')}),
+ /PAYLOAD_INVALID/);
 await assert.rejects(deliverClose(prepared,{
  now:()=>new Date(date+'T18:00:00+09:00'),send:async()=>{sends++;}}),
  /PAYLOAD_INVALID/);
@@ -132,6 +189,19 @@ assert.equal(partial.coverage.core.verified,6);
 assert.equal(partial.coverage.stocks.verified,4);
 assert.equal(partial.coverage.macros.verified,3);
 assert.equal(partial.coverage.markets.verified,5);
+const recoveredWithoutCache=await prepareClose({...opts,
+ loadPrepared:async()=>({...r.data,priorVkospi:[],priorTurnover:[],skhy:[]}),
+ fetchPriorReferences:async(day,current,config)=>{
+  assert.equal(day,date);assert.equal(current.priorVkospi.length,0);
+  assert.equal(config.maxMs,6000);
+  return {priorVkospi,priorTurnover,skhy};
+ },
+ fetchNh:noFetch,fetchDomestic:noFetch,fetchSecondary:noFetch,
+ fetchStocks:noFetch,fetchMacros:noFetch,fetchMarkets:noFetch});
+assert.equal(recoveredWithoutCache.ready,true);
+assert.deepEqual(recoveredWithoutCache.reportInputs.priorVkospi,priorVkospi);
+assert.ok(recoveredWithoutCache.message.includes('SK하이닉스 ADR (SKHY): $142.25'));
+assert.equal(recoveredWithoutCache.coverage.volatility.verified,0);
 const missing=await prepareClose({...opts,loadPrepared:async()=>null,
  fetchNh:async()=>[],fetchDomestic:async()=>[],fetchSecondary:async()=>[],
  fetchStocks:async()=>[],fetchMacros:async()=>[],fetchMarkets:async()=>[]});

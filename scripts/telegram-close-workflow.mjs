@@ -16,7 +16,7 @@ import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} 
 import {readClosingStockSources,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {verifyLateCloseSent} from './telegram-close-late-verdict.mjs';
-import {sanitizePreclose} from './telegram-close-precompute.mjs';
+import {sanitizePreclose,readMissingCloseReferences} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures,selectCurrentFuturesRows} from './closing-current-futures.mjs';
 import {formatCompactCloseLens} from './briefing-ai-industry-lens.mjs';
@@ -29,6 +29,7 @@ import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
+import {formatSkhyQuote} from './briefing-skhy-adr-parity.mjs';
 import {readClosingKrxTurnoverFromGas,verifyOfficialKrxTurnover,formatKrxTurnover}
  from './closing-krx-turnover.mjs';
 import {readFearGreed,verifyFearGreed,formatFearGreed,fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
@@ -177,7 +178,7 @@ export function verifiedDomesticCloseRows(date,rows){
  }
  return valid;
 }
-export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null,financialEvidence=null,turnover=[],liquidity=null,investors=null){
+export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=[],markets=[],futures=[],now=new Date(date+'T17:00:00+09:00'),rates=[],vkospi=[],fearGreed=null,financialEvidence=null,turnover=[],liquidity=null,investors=null,priorKrx=null){
  const valid=verifiedNhCloseRows(date,rows);
  const validDomestic=verifiedDomesticCloseRows(date,domestic);
  const verifiedRates=verifyTreasuryCurve(date,rates);
@@ -209,7 +210,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
     +change+' ['+row.date+']');
  }
  lines.push('','■ 글로벌 참고 지표');
- for(const label of NH_UNVERIFIED.slice(3)){
+ for(const label of NH_UNVERIFIED.slice(3,6)){
   const candidates=secondary.filter(row=>row?.label===label&&row.role==='NON_NH_REFERENCE_ONLY'
     &&row.date===expectedMorningDate('SPX',date)
     &&Number.isFinite(row.value)&&row.value>0
@@ -238,7 +239,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
   '※ 기본 가격·미국 지수: NH PLUG · 그 외 참고값 출처 별도 표기');
  // Published FreeSIS settlement-date totals, never presented as a same-day
  // trading close. A missing source must not add another repetitive warning.
- const investorLine=formatInvestorTrends(investors);
+ const investorLine=investors?.date===date&&investors?.mode==='close'&&investors?.provisional===true
+   ?formatInvestorTrends(investors):'';
  if(investorLine&&lines.join('\n').length+investorLine.length+2<=3900){
    const position=lines.indexOf('■ 글로벌 참고 지표');
    if(position>=0)lines.splice(position,0,investorLine,'');
@@ -254,6 +256,31 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  // A supplementary feed must not exceed Telegram's payload budget or block 17:00.
  if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
    lines.splice(insertAt+1,0,sentiment);
+ // Prior published KRX observations remain separate from today's coverage.
+ // Only use exact previous Korean trading day, not arbitrary stale rows.
+ const priorDate=expectedMorningDate('KOSPI',date);
+ if(priorDate&&krxSessionStatus(priorDate)==='OPEN'){
+   const oldVk=verifyClosingVkospi(priorDate,priorKrx?.priorVkospi||[])[0];
+   const oldTurnover=verifyOfficialKrxTurnover(priorDate,priorKrx?.priorTurnover||[]);
+   const priorLines=[];
+   if(!vk&&oldVk)priorLines.push('VKOSPI 직전 공표: '+oldVk.value.toFixed(2)+' ['+priorDate+' · KRX]');
+   for(const v of oldTurnover){
+     if(!verifiedTurnover.some(row=>row.market===v.market))
+       priorLines.push(v.market+' 지수 구성종목 거래대금 직전 공표: '
+        +(v.valueKrw/1e12).toFixed(2)+'조원 ['+priorDate+' · KRX]');
+   }
+   if(priorLines.length&&lines.join('\n').length+priorLines.join('\n').length+1<=3900){
+     const pos=lines.findIndex(x=>x.startsWith('VKOSPI:'));
+     if(pos>=0)lines.splice(pos+1,0,...priorLines);
+   }
+ }
+ const skhyRows=priorKrx?.skhy;
+ const skhyLine=Array.isArray(skhyRows)&&skhyRows.length===1
+   ?formatSkhyQuote(skhyRows[0],expectedMorningDate('NVDA',date)):'';
+ if(skhyLine&&lines.join('\n').length+skhyLine.length+1<=3900){
+   const pos=lines.findIndex(x=>x.startsWith('■ 주요 종목 ('));
+   if(pos>=0)lines[pos]=lines[pos].replace('\n\n■ 환율·금리','\n'+skhyLine+'\n\n■ 환율·금리');
+ }
  // Put verified market values before optional financial research.
  if(verifiedTurnover.length){
    const detail=formatKrxTurnover(date,verifiedTurnover);
@@ -306,7 +333,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
  fetchRates=readTreasuryCurve,fetchVkospi=readClosingVkospi,
  fetchTurnover=readClosingKrxTurnoverFromGas,fetchLiquidity=readKofiaLiquidity,
- fetchInvestorFlows=readInvestorTrends,
+ fetchInvestorFlows=readInvestorTrends,fetchPriorReferences=readMissingCloseReferences,
  loadPrepared=async()=>null,loadFinancialEvidence=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
@@ -334,7 +361,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   try{rawPrepared=await loadPrepared(window.date,
     {token:githubToken,repository,fetchImpl,now});}catch{}
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
-  let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[]}=cached||{};
+  let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[],priorVkospi=[],priorTurnover=[],skhy=[]}=cached||{};
   // Latest 17:00 overseas quotes must never come from the 16:50 EOD artifact.
   let futures=[],rates=[],vkospi=[],turnover=[],liquidity=null,investors=null,fearGreed=null;
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
@@ -399,13 +426,25 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     (async()=>{try{liquidity=await fetchLiquidity(window.date,{fetchImpl});}
        catch{liquidity=null;}})(),
     (async()=>{try{investors=await fetchInvestorFlows(window.date,{mode:'close',fetchImpl,now});}
-       catch{investors=null;}})()
+       catch{investors=null;}})(),
+    (async()=>{try{
+      if(priorVkospi.length===1&&priorTurnover.length===2&&skhy.length===1)return;
+      const maxMs=Math.min(6000,Math.max(0,Date.parse(window.date+'T17:28:30+09:00')-now().getTime()));
+      if(!maxMs)return;
+      const found=await fetchPriorReferences(window.date,{priorVkospi,priorTurnover,skhy},
+        {now,fetchImpl,gasUrl,gasToken,maxMs});
+      const safe=sanitizePreclose(window.date,found);
+      if(!safe)return;
+      if(safe.priorVkospi.length>priorVkospi.length)priorVkospi=safe.priorVkospi;
+      if(safe.priorTurnover.length>priorTurnover.length)priorTurnover=safe.priorTurnover;
+      if(safe.skhy.length>skhy.length)skhy=safe.skhy;
+    }catch{/* optional provider failure must not affect current index delivery */}})()
   ]);
   // Real provider reasons remain in Actions logs only; never in Telegram.
   // A zero count is a genuine missing reading, not proof of a broken provider.
   console.log(JSON.stringify({kind:'CLOSE_OPTIONAL_SOURCE_READ',date:window.date,
     futures:futures.length,treasury:rates.length,vkospi:vkospi.length,
-    turnover:turnover.length,investorMarkets:investors?.markets?.length||0,
+    turnover:turnover.length,priorVkospi:priorVkospi.length,priorTurnover:priorTurnover.length,skhy:skhy.length,investorMarkets:investors?.markets?.length||0,
     kofiaDeposits:Boolean(liquidity?.deposits),kofiaMargin:Boolean(liquidity?.margin),
     sourceReasons}));
   const verified=verifiedNhCloseRows(window.date,rows);
@@ -436,8 +475,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     investorMarkets:investors?.markets?.length||0,
     // Market-only public rows; no tokens, accounts or GAS ledger data. The
     // send step re-renders AI/US futures at the actual transmission time.
-    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,turnover,liquidity,investors,fearGreed,...(financialEvidence?{financialEvidence}:{})},
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence,turnover,liquidity,investors)};
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,turnover,priorVkospi,priorTurnover,skhy,liquidity,investors,fearGreed,...(financialEvidence?{financialEvidence}:{})},
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence,turnover,liquidity,investors,{priorVkospi,priorTurnover,skhy})};
 }
 // Only the already-armed 16:35 runner uses this bounded wait when today's
 // core index closes are not yet published. Existing claim and SEND guards
@@ -483,6 +522,10 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       ||r.futures.length!==payload.futuresCount)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     const fresh=sanitizePreclose(window.date,r);
     if(!fresh)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+    for(const key of ['priorVkospi','priorTurnover','skhy']){
+      if(Object.hasOwn(r,key)&&(!Array.isArray(r[key])||fresh[key].length!==r[key].length))
+        throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
+    }
     const rates=Array.isArray(r.rates)?verifyTreasuryCurve(window.date,r.rates):[];
     if((r.rates!==undefined&&!Array.isArray(r.rates))||
       (Array.isArray(r.rates)&&r.rates.length!==rates.length))
@@ -505,7 +548,7 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       &&r.financialEvidence.usSessionDate===expectedMorningDate('SPX',window.date)
        ?r.financialEvidence:null;
     outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
-      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover,r.liquidity||null,r.investors||null);
+      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover,r.liquidity||null,r.investors||null,{priorVkospi:fresh.priorVkospi,priorTurnover:fresh.priorTurnover,skhy:fresh.skhy});
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     optionalDisplay=summarizeOptionalDelivery('close',{
       futures:selectCurrentFuturesRows(window.date,r.futures,now()).length,
@@ -527,6 +570,10 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
   if(optionalDisplay)console.log(JSON.stringify({
     kind:'CLOSE_OPTIONAL_SENT_AUDIT',date:window.date,groups:optionalDisplay.groups
   }));
+  console.log(JSON.stringify({kind:'CLOSE_PRIOR_REFERENCE_SENT_AUDIT',date:window.date,
+    vkospi:/^VKOSPI 직전 공표: [0-9]/m.test(deliveredText),
+    turnover:['KOSPI','KOSDAQ'].filter(m=>deliveredText.includes(m+' 지수 구성종목 거래대금 직전 공표: ')),
+    skhy:/^SK하이닉스 ADR \(SKHY\):/m.test(deliveredText)}));
   // The latest report is re-rendered at SEND time. Log only the included
   // optional-indicator status, never the public score, token or full payload.
   const sentimentStatus=Object.hasOwn(payload,'futuresCount')

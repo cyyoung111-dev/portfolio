@@ -24,6 +24,15 @@ export function verifiedSkhyQuote(rows=[],expectedUsDate){
  return Object.freeze({symbol:'SKHY',label:'SK하이닉스 ADR',date:expectedUsDate,
   value:found[0].value,source:found[0].source});
 }
+// Preserve an independently valid ADR close even if KRW FX or ordinary
+// share comparison is missing; do not invent a parity or KRX forecast.
+export function formatSkhyQuote(row,expectedUsDate){
+ const q=verifiedSkhyQuote([row],expectedUsDate);
+ if(!q)return '';
+ const source=q.source==='NASDAQ_DAILY_REFERENCE'?'Nasdaq':'Yahoo';
+ return 'SK하이닉스 ADR (SKHY): $'+q.value.toLocaleString('en-US',
+  {minimumFractionDigits:2,maximumFractionDigits:2})+' ['+q.date+' · '+source+' 참고]';
+}
 export function calculateSkhyParity({skhyQuote,ordinaryClose,fxClose,
  usDate,ordinaryDate,fxDate}={}){
  if(!validRow(skhyQuote,{date:usDate,symbol:'SKHY',

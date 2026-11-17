@@ -8,6 +8,12 @@ import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import {readClosingStockSources,readClosingMacros,validateClosingMacro,closingStockSessions,validClosingStockReference} from './closing-extra-daily-sources.mjs';
 import {expectedMorningDate,MORNING_SERIES} from './telegram-morning-report.mjs';
 import {readClosingMarketReferences,validateClosingMarketReference} from './closing-market-references.mjs';
+import {readMorningVkospi,readMorningTurnover} from './telegram-morning-supplements.mjs';
+import {verifyClosingVkospi} from './closing-vkospi-reference.mjs';
+import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
+import {verifiedSkhyQuote} from './briefing-skhy-adr-parity.mjs';
+import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
+import {fetchDatedDaily} from './telegram-morning-briefing.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const STOCK_IDS=new Set(['SAMSUNG','SKHYNIX','NVDA','MU']);
@@ -50,20 +56,87 @@ export function sanitizePreclose(date,source){
  });
  const unique=(rows,key,limit)=>rows.length<=limit
   &&new Set(rows.map(key)).size===rows.length?rows:[];
+ const prior=expectedMorningDate('KOSPI',date);
+ const priorVkospi=prior&&krxSessionStatus(prior)==='OPEN'
+  ?verifyClosingVkospi(prior,source.priorVkospi||[]):[];
+ const priorTurnover=prior&&krxSessionStatus(prior)==='OPEN'
+  ?verifyOfficialKrxTurnover(prior,source.priorTurnover||[]):[];
  return {nh:unique(nh,x=>x.symbol,3),domestic:unique(domestic,x=>x.label,3),
   secondary:unique(secondary,x=>x.label,3),stocks:unique(stocks,x=>x.id,4),
-  macros:unique(macros,x=>x.id,3),markets:unique(markets,x=>x.id,5)};
+  macros:unique(macros,x=>x.id,3),markets:unique(markets,x=>x.id,5),priorVkospi,priorTurnover,
+  skhy:[verifiedSkhyQuote(source.skhy||[],us)].filter(Boolean)};
+}
+// Read the same completed US session using existing Yahoo/Nasdaq readers.
+async function readPriorSkhy(date,{now,fetchImpl}){
+ const us=expectedMorningDate('NVDA',date);
+ if(!us)return [];
+ const label='SK하이닉스 ADR',symbol='SKHY';
+ const row=await fetchDatedDaily(label,symbol,date,{now:now(),fetchImpl,expectedSessionDate:us});
+ const yahoo=row?.source==='Yahoo Finance 일봉'
+   ?verifiedSkhyQuote([{...row,source:'YAHOO_DAILY_REFERENCE'}],us):null;
+ if(yahoo)return [yahoo];
+ const nasdaq=await readNasdaqDailyHistorical(symbol,us,{now:now(),fetchImpl});
+ return [verifiedSkhyQuote([{...nasdaq,label}],us)].filter(Boolean);
+}
+// A delayed/missing precompute must not permanently hide optional observations.
+// Reuse complete cached groups; otherwise try the same readers in parallel,
+// with a single overall deadline, independent of all delivery/claim gates.
+export async function readMissingCloseReferences(date,cached={},{
+ now=()=>new Date(),fetchImpl=fetch,gasUrl,gasToken,krxKey=process.env.KRX_AUTH_KEY,
+ fetchPriorVkospi=readMorningVkospi,fetchPriorTurnover=readMorningTurnover,
+ fetchSkhy=readPriorSkhy,maxMs=6000
+}={}){
+ const checked=sanitizePreclose(date,cached)||{};
+ const result={priorVkospi:checked.priorVkospi||[],
+  priorTurnover:checked.priorTurnover||[],skhy:checked.skhy||[]};
+ if(!Number.isInteger(maxMs)||maxMs<=0||maxMs>6000)return result;
+ const prior=expectedMorningDate('KOSPI',date);
+ const controller=new AbortController();
+ const boundedFetch=(target,options={})=>fetchImpl(target,{...options,
+  signal:options.signal?AbortSignal.any([options.signal,controller.signal]):controller.signal});
+ const tasks=[];
+ const schedule=(key,read)=>{
+  tasks.push(Promise.resolve().then(read).then(rows=>{
+   if(controller.signal.aborted)return;
+   const safe=sanitizePreclose(date,{[key]:rows})?.[key]||[];
+   if(safe.length>result[key].length)result[key]=safe;
+  }).catch(()=>{}));
+ };
+ const opts={url:gasUrl,token:gasToken,authKey:krxKey,fetchImpl:boundedFetch,now};
+ const configured=Boolean((gasUrl&&gasToken)||krxKey);
+ if(prior&&krxSessionStatus(prior)==='OPEN'){
+  if(!result.priorVkospi.length&&(configured||fetchPriorVkospi!==readMorningVkospi))
+   schedule('priorVkospi',()=>fetchPriorVkospi(prior,opts));
+  if(result.priorTurnover.length<2&&(configured||fetchPriorTurnover!==readMorningTurnover))
+   schedule('priorTurnover',()=>fetchPriorTurnover(prior,opts));
+ }
+ if(!result.skhy.length)schedule('skhy',()=>fetchSkhy(date,{now,fetchImpl:boundedFetch}));
+ if(!tasks.length)return result;
+ let timer;
+ try{
+  await Promise.race([Promise.all(tasks),new Promise(resolve=>{
+   timer=setTimeout(()=>{controller.abort();resolve();},maxMs);
+  })]);
+ }finally{clearTimeout(timer);controller.abort();}
+ return result;
 }
 export async function precomputeClose({now=()=>new Date(),
  fetchNh=readNhMorningIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchSecondary=fetchSecondaryIndexes,fetchStocks=readClosingStockSources,
  fetchMacros=readClosingMacros,fetchMarkets=readClosingMarketReferences,fetchImpl=fetch,
+ fetchPriorVkospi=readMorningVkospi,fetchPriorTurnover=readMorningTurnover,fetchSkhy=readPriorSkhy,
+ krxKey=process.env.KRX_AUTH_KEY,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
  const first=precloseWindow(now());
  if(!first.allowed)return {ready:false,status:'OUTSIDE_PREPARE_WINDOW',date:first.date};
  if(krxSessionStatus(first.date)!=='OPEN')
   return {ready:false,status:'MARKET_NOT_OPEN',date:first.date};
- let nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[];
+ let nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],priorVkospi=[],priorTurnover=[],skhy=[];
+ const prior=expectedMorningDate('KOSPI',first.date);
+ // Only query the already published prior session, in the existing read-only
+ // precompute window. Never add calls to the 17:00 delivery critical path.
+ const priorOpts={url:gasUrl,token:gasToken,authKey:krxKey,fetchImpl,now};
+ const configured=Boolean((gasUrl&&gasToken)||krxKey);
  await Promise.all([
   (async()=>{try{nh=await fetchNh(first.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{}})(),
   (async()=>{try{domestic=await fetchDomestic(first.date,{fetchImpl,now,gasUrl,gasToken});}catch{}})(),
@@ -71,11 +144,18 @@ export async function precomputeClose({now=()=>new Date(),
   (async()=>{try{stocks=await fetchStocks(first.date,{url:gasUrl,token:gasToken,fetchImpl,
     onDiagnostic:details=>console.log(JSON.stringify({kind:'NH_PRECLOSE_STOCK_READ',...details}))});}catch{}})(),
   (async()=>{try{macros=await fetchMacros(first.date,{fetchImpl,now});}catch{}})(),
-  (async()=>{try{markets=await fetchMarkets(first.date,{fetchImpl,now});}catch{}})()
+  (async()=>{try{markets=await fetchMarkets(first.date,{fetchImpl,now});}catch{}})(),
+  (async()=>{try{if(prior&&krxSessionStatus(prior)==='OPEN'
+    &&(configured||fetchPriorVkospi!==readMorningVkospi))
+    priorVkospi=await fetchPriorVkospi(prior,priorOpts);}catch{}})(),
+  (async()=>{try{if(prior&&krxSessionStatus(prior)==='OPEN'
+    &&(configured||fetchPriorTurnover!==readMorningTurnover))
+    priorTurnover=await fetchPriorTurnover(prior,priorOpts);}catch{}})(),
+  (async()=>{try{skhy=await fetchSkhy(first.date,{now,fetchImpl});}catch{}})()
  ]);
  const last=precloseWindow(now());
  if(!last.allowed||last.date!==first.date)return {ready:false,status:'PREPARE_TOO_LATE',date:first.date};
- const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros,markets});
+ const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros,markets,priorVkospi,priorTurnover,skhy});
  if(!rows)return {ready:false,status:'PREPARE_INVALID',date:first.date};
  const capturedAt=now().toISOString();
  return {ready:true,status:'PRECOMPUTED',artifactName:'telegram-close-prepared-'+first.date,
