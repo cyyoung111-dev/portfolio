@@ -5,7 +5,8 @@ import {pathToFileURL} from 'node:url';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {parseKrxBreadth} from './telegram-morning-breadth.mjs';
 import {readClosingVkospi} from './closing-vkospi-reference.mjs';
-import {readClosingKrxTurnoverFromGas} from './closing-krx-turnover.mjs';
+import {readClosingKrxTurnoverFromGas,selectOfficialKrxTurnover} from './closing-krx-turnover.mjs';
+import {selectOfficialKrxVkospiDaily} from './krx-vkospi-daily.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const SOURCES=[
@@ -52,16 +53,13 @@ export function auditDirectVkospiRows(date,rows){
   /^(?:VKOSPI|코스피\s*200\s*변동성지수(?:\s*\(VKOSPI\))?)$/i
    .test(String(x?.IDX_NM||'').trim()));
  const dated=primary.filter(x=>String(x?.BAS_DD||'')===expected);
- const valid=dated.filter(x=>{
-  const raw=String(x?.CLSPRC_IDX??'').trim().replaceAll(',','');
-  return raw!==''&&Number.isFinite(Number(raw))&&Number(raw)>0&&Number(raw)<200;
- });
+
  // Names are public KRX index identifiers only; never print quotes or keys.
  const candidateNames=[...new Set(matched.map(x=>String(x?.IDX_NM||'')
   .replace(/[^\p{L}\p{N}\s()_-]/gu,'').trim().slice(0,70)))].slice(0,8);
  return {candidateCount:matched.length,candidateNames,
   primaryCount:primary.length,exactDateCount:dated.length,
-  verified:primary.length===1&&dated.length===1&&valid.length===1};
+  verified:selectOfficialKrxVkospiDaily(date,{OutBlock_1:rows}).length===1};
 }
 
 const allowedReason=/^[A-Z][A-Z0-9_]{2,75}$/;
@@ -127,7 +125,8 @@ export async function probeOptionalKrxMetrics({
       &&rows.every(x=>String(x?.BAS_DD||'')===targetDate.replaceAll('-',''));
      // Do not emit any index prices/turnover values, only fixed schema names.
      status.schemaFields=Array.isArray(rows)&&rows.length>0
-      ?['BAS_DD','IDX_NM','CLSPRC_IDX','ACC_TRDVAL','TDD_HGPRC','TDD_LWPRC']
+      ?['BAS_DD','IDX_NM','CLSPRC_IDX','ACC_TRDVAL','TDD_HGPRC','TDD_LWPRC',
+        'ISU_CD','TDD_CLSPRC','CMPPREVDD_PRC']
        .filter(k=>Object.hasOwn(rows[0]||{},k)):[];
      if(market){
       const parsed=parseKrxBreadth(targetDate,market,raw);
@@ -139,6 +138,10 @@ export async function probeOptionalKrxMetrics({
      }else{
       status.turnoverColumnAvailable=Array.isArray(rows)&&rows.length>0
        &&rows.some(x=>Object.hasOwn(x||{},'ACC_TRDVAL'));
+      if(id==='INDEX_KOSPI'||id==='INDEX_KOSDAQ'){
+       const marketId=id==='INDEX_KOSPI'?'KOSPI':'KOSDAQ';
+       status.turnoverVerified=Boolean(selectOfficialKrxTurnover(targetDate,marketId,raw));
+      }
       if(id==='INDEX_DERIVATIVE'){
        const audit=auditDirectVkospiRows(targetDate,rows);
        status.vkospiCandidateCount=audit.candidateCount;
