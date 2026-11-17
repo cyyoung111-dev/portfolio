@@ -11,6 +11,9 @@ import {readClosingMarketReferences,validateClosingMarketReference} from './clos
 import {readMorningVkospi,readMorningTurnover} from './telegram-morning-supplements.mjs';
 import {verifyClosingVkospi} from './closing-vkospi-reference.mjs';
 import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
+import {verifiedSkhyQuote} from './briefing-skhy-adr-parity.mjs';
+import {readNasdaqDailyHistorical} from './briefing-nasdaq-daily-reference.mjs';
+import {fetchDatedDaily} from './telegram-morning-briefing.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const STOCK_IDS=new Set(['SAMSUNG','SKHYNIX','NVDA','MU']);
@@ -60,20 +63,33 @@ export function sanitizePreclose(date,source){
   ?verifyOfficialKrxTurnover(prior,source.priorTurnover||[]):[];
  return {nh:unique(nh,x=>x.symbol,3),domestic:unique(domestic,x=>x.label,3),
   secondary:unique(secondary,x=>x.label,3),stocks:unique(stocks,x=>x.id,4),
-  macros:unique(macros,x=>x.id,3),markets:unique(markets,x=>x.id,5),priorVkospi,priorTurnover};
+  macros:unique(macros,x=>x.id,3),markets:unique(markets,x=>x.id,5),priorVkospi,priorTurnover,
+  skhy:[verifiedSkhyQuote(source.skhy||[],us)].filter(Boolean)};
+}
+// Read the same completed US session using existing Yahoo/Nasdaq readers.
+async function readPriorSkhy(date,{now,fetchImpl}){
+ const us=expectedMorningDate('NVDA',date);
+ if(!us)return [];
+ const label='SK하이닉스 ADR',symbol='SKHY';
+ const row=await fetchDatedDaily(label,symbol,date,{now:now(),fetchImpl,expectedSessionDate:us});
+ const yahoo=row?.source==='Yahoo Finance 일봉'
+   ?verifiedSkhyQuote([{...row,source:'YAHOO_DAILY_REFERENCE'}],us):null;
+ if(yahoo)return [yahoo];
+ const nasdaq=await readNasdaqDailyHistorical(symbol,us,{now:now(),fetchImpl});
+ return [verifiedSkhyQuote([{...nasdaq,label}],us)].filter(Boolean);
 }
 export async function precomputeClose({now=()=>new Date(),
  fetchNh=readNhMorningIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchSecondary=fetchSecondaryIndexes,fetchStocks=readClosingStockSources,
  fetchMacros=readClosingMacros,fetchMarkets=readClosingMarketReferences,fetchImpl=fetch,
- fetchPriorVkospi=readMorningVkospi,fetchPriorTurnover=readMorningTurnover,
+ fetchPriorVkospi=readMorningVkospi,fetchPriorTurnover=readMorningTurnover,fetchSkhy=readPriorSkhy,
  krxKey=process.env.KRX_AUTH_KEY,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
  const first=precloseWindow(now());
  if(!first.allowed)return {ready:false,status:'OUTSIDE_PREPARE_WINDOW',date:first.date};
  if(krxSessionStatus(first.date)!=='OPEN')
   return {ready:false,status:'MARKET_NOT_OPEN',date:first.date};
- let nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],priorVkospi=[],priorTurnover=[];
+ let nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],priorVkospi=[],priorTurnover=[],skhy=[];
  const prior=expectedMorningDate('KOSPI',first.date);
  // Only query the already published prior session, in the existing read-only
  // precompute window. Never add calls to the 17:00 delivery critical path.
@@ -92,11 +108,12 @@ export async function precomputeClose({now=()=>new Date(),
     priorVkospi=await fetchPriorVkospi(prior,priorOpts);}catch{}})(),
   (async()=>{try{if(prior&&krxSessionStatus(prior)==='OPEN'
     &&(configured||fetchPriorTurnover!==readMorningTurnover))
-    priorTurnover=await fetchPriorTurnover(prior,priorOpts);}catch{}})()
+    priorTurnover=await fetchPriorTurnover(prior,priorOpts);}catch{}})(),
+  (async()=>{try{skhy=await fetchSkhy(first.date,{now,fetchImpl});}catch{}})()
  ]);
  const last=precloseWindow(now());
  if(!last.allowed||last.date!==first.date)return {ready:false,status:'PREPARE_TOO_LATE',date:first.date};
- const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros,markets,priorVkospi,priorTurnover});
+ const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros,markets,priorVkospi,priorTurnover,skhy});
  if(!rows)return {ready:false,status:'PREPARE_INVALID',date:first.date};
  const capturedAt=now().toISOString();
  return {ready:true,status:'PRECOMPUTED',artifactName:'telegram-close-prepared-'+first.date,
