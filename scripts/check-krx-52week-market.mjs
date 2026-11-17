@@ -304,13 +304,34 @@ const workflowSource=readFileSync('.github/workflows/krx-52week-history.yml','ut
 assert.match(workflowSource,/sort_by\(\.created_at, \.id\) \| last \| \.workflow_run\.id \/\/ empty/);
 assert.doesNotMatch(workflowSource,/\| first \/\/ empty/);
 assert.match(workflowSource,/KRX52_PRIOR_ARCHIVE_RESTORED run=\$previous/);
-// The KRX official daily OHLC source is T+1. An 18:40 collection
-// would redundantly fetch the same completed 252-session window near
-// 19:00 portfolio CLOSE. Keep one 23:30 weekday slot, independent of NAV.
-assert.match(workflowSource,/^\s+- cron: '30 14 \* \* 1-5'/m);
-assert.equal((workflowSource.match(/^\s+- cron:/gm)||[]).length,1,
- 'one nightly KRX scheduled probe, no 18:40 duplicate');
-assert.doesNotMatch(workflowSource,/^\s+- cron: '40 9 /m);
+// #734: optional all-stock 52-week OHLC archive is retired from every
+// automatic trigger. Retain only an explicit, main-only manual audit.
+// Historical archives expire under the unchanged 60-day retention policy.
+function assertManualOnlyKrx52Archive(source){
+ const doc=YAML.parseDocument(source,{version:'1.2',uniqueKeys:true});
+ assert.equal(doc.errors.length,0,'52-week archive YAML invalid');
+ const cfg=doc.toJS({maxAliasCount:0});
+ assert.deepEqual(Object.keys(cfg.on),['workflow_dispatch'],
+  '52-week archive must have no schedule/push/workflow_run auto trigger');
+ const job=cfg.jobs['source-only'];
+ assert.equal(job.if,
+  "github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event_name == 'workflow_dispatch'");
+ assert.deepEqual(cfg.permissions,{contents:'read',actions:'read'});
+ assert.equal(job.environment,'portfolio-production-gas');
+}
+assertManualOnlyKrx52Archive(workflowSource);
+assert.throws(()=>assertManualOnlyKrx52Archive(workflowSource.replace(
+ '  workflow_dispatch:',
+ '  schedule:\\n    - cron: \'30 14 * * 1-5\'\\n  workflow_dispatch:'.replaceAll('\\n','\n'))),
+ 'reintroduced scheduled full-market collection must fail CI');
+assert.throws(()=>assertManualOnlyKrx52Archive(workflowSource.replace(
+ '  workflow_dispatch:',
+ '  push:\\n    branches: [main]\\n  workflow_dispatch:'.replaceAll('\\n','\n'))),
+ 'reintroduced on-push all-stock collection must fail CI');
+assert.throws(()=>assertManualOnlyKrx52Archive(workflowSource.replace(
+ "github.event_name == 'workflow_dispatch'",
+ "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')")),
+ 'auto-enabled source job must fail CI');
 const navSource=readFileSync('.github/workflows/kb-fund-nav-collect.yml','utf8');
 assert.doesNotMatch(navSource,/^\s+workflow_run:/m,
  'a KRX 52-week OHLC completion must not fan out to private NAV');

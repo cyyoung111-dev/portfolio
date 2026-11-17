@@ -1,5 +1,14 @@
 # KRX 52-week market breadth — 252 trading-session data contract
 
+## 2026-11-17 #734: 전 종목 52주 자동 운영 종료
+
+- 사용자의 보유자산 중심 운영 범위에 맞춰 **전 종목 252거래일 OHLC 수집과 52주 신고가·신저가 개발을 선택 기능으로 내렸습니다.**
+- `.github/workflows/krx-52week-history.yml`에서 **평일 23:30 KST cron과 소스 변경 push 자동 기동을 모두 제거**했습니다. 기존 KRX 52주 아카이브는 새 수집·재보관 없이 **기존 60일 보관기한 만료**에 맡깁니다. 운영자 명시적 `workflow_dispatch`와 소스 회귀 테스트만 남깁니다.
+- `krx-52week-listing-audit-readonly.yml`도 기존대로 수동 실행만 가능하며, 서비스 승인 전 별도의 자동 조회는 없습니다.
+- 전종목 공식 지표 발행은 계속 금지(`marketWideCertified=false`, `publicationAllowed=false`). 사용자 보유 종목 가격·금융 원본·KOSPI/KOSDAQ 지수·시장폭 A/D·NAV/배당·텔레그램은 이 종료와 별개입니다.
+- 아래 절은 **운영 종료 전의 설계·연구 기록**으로 보존합니다. 그 안의 자동 수집·후속 검증 계획은 더 이상 현재 실행 계획이 아닙니다.
+
+
 ## 2026-11-15 #734: 외부 승인 전 자동 실조회 중지
 
 - KRX 기본정보 2종의 서비스별 이용 승인이 미확인이다. 소스 변경 시 HTTP 401을 다시 조회·실패하는 push 경로를 제거한다. 정규 KRX 원시 OHLC 수집과 252일 암호화 아카이브, `publicationAllowed=false` 판정은 변경하지 않는다.
