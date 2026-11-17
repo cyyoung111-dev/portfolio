@@ -3,14 +3,14 @@
 // ════════════════════════════════════════════════════════════════
 function renderHistoryView(area) {
   area.innerHTML = `
-    <div style="padding:12px 0 8px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-        <div style="font-size:.80rem;font-weight:700;color:var(--text)">📈 손익 그래프</div>
+    <div class="hist-view">
+      <div class="hist-view-header">
+        <div class="hist-view-title"><svg class="ui-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19V5M3 19h18"/><path d="m6 15 5-5 4 3 5-7"/></svg>손익 그래프</div>
         <div class="hist-controls">
           <div class="hist-mode-controls">
-            <button id="histModeDay" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">일별</button>
-            <button id="histModeWeek" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">주간</button>
-            <button id="histModeMonth" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
+            <button id="histModeDay" type="button" aria-pressed="false">일별</button>
+            <button id="histModeWeek" type="button" aria-pressed="false">주간</button>
+            <button id="histModeMonth" type="button" aria-pressed="false">월간</button>
           </div>
           <input id="histStartMonth" type="month" title="직접 지정할 시작 연월 (선택)"
             class="hist-month-input" aria-label="시작 연월" />
@@ -25,8 +25,7 @@ function renderHistoryView(area) {
           </select>
           <details class="hist-filter-details">
             <summary>비교지수 선택 · <span id="histBenchmarkCount">${_getHistBenchmarks().length}개</span></summary>
-          <div id="histBenchmarkMulti" title="비교지수(복수선택) · 선택 기간 수익률과 MDD 표시"
-            style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--s2)">
+          <div id="histBenchmarkMulti" class="hist-benchmark-options" title="비교지수(복수선택) · 선택 기간 수익률과 MDD 표시">
             ${HIST_BENCHMARK_TYPES.map(code => `<button type="button" class="hist-bench-btn" data-history-action="benchmark" data-bench="${code}">${_escapeHtml(formatBenchmarkLabel(code))}</button>`).join('')}
             <button type="button" id="histBenchClear" class="hist-bench-btn hist-bench-btn-clear" data-history-action="benchmark" data-bench="CLEAR">해제</button>
           </div>
@@ -40,15 +39,15 @@ function renderHistoryView(area) {
           </details>
         </div>
       </div>
-      <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>
-      <div id="histStatusMsg" class="hist-status" aria-live="polite" style="font-size:.72rem;color:var(--muted);margin-bottom:8px"></div>
+      <p class="hist-context-note">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</p>
+      <div id="histStatusMsg" class="hist-status" aria-live="polite"></div>
       <div id="histFullRepairStatus" aria-live="polite"></div>
       <div id="histCoveragePanel"></div>
       <details class="hist-detail-panel"><summary>특정일 손익 조회</summary><div class="hist-detail-panel-body">
-        <label for="histDetailDate" style="font-size:.70rem;font-weight:700;color:var(--text)">📅 특정일 손익</label>
+        <label for="histDetailDate" class="hist-detail-label">특정일 손익</label>
         <input id="histDetailDate" type="date" title="조회할 원자료 평가 날짜"
           class="hist-detail-date-input" aria-label="특정일 평가 날짜" />
-        <span style="font-size:.63rem;color:var(--muted)">상단 기준일과 무관하게 거래·가격·NAV·환율 원자료로 평가합니다.</span>
+        <span class="hist-detail-help">상단 기준일과 무관하게 거래·가격·NAV·환율 원자료로 평가합니다.</span>
       </div></details>
       <div id="histDateDetail"></div>
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
