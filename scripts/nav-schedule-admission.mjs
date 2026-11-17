@@ -40,6 +40,11 @@ if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
     'NAV scheduled admission: '+result.status+' / '+result.slot+
     ' (protected GAS calls 0 during this check)\n');
   }
+  // A same-run success output distinguishes an admitted collector (whose
+  // writer/ACK may later fail) from a runner that never entered private GAS.
+  // Postflight must not independently enter GAS after both admissions deny.
+  if(process.env.GITHUB_OUTPUT)
+   fs.appendFileSync(process.env.GITHUB_OUTPUT,'admitted='+String(result.admit)+'\n');
   // GitHub scheduled-run success is used by the independent fallback as
   // evidence that normal NAV collection ran. Never mark a skipped private
   // collector as a successful scheduled run.

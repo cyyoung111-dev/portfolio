@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import YAML from 'yaml';
 import {assessNavScheduledAdmission} from './nav-schedule-admission.mjs';
 import {assessKbNavPostflight,auditKbNavPostflight,
@@ -298,6 +301,13 @@ assert.ok(post,'protected postflight must exist');
 assert.deepEqual(post.needs,['collect','hanwha-collect']);
 assert.equal(post.environment,'portfolio-production-gas');
 assert.match(post.if,/always\(\)/);
+assert.match(post.if,/&& \(needs\.collect\.outputs\.admitted == 'true' \|\| needs\['hanwha-collect'\]\.outputs\.admitted == 'true'\)$/);
+for(const name of ['collect','hanwha-collect']){
+ const job=workflow.jobs[name];
+ assert.equal(job.outputs.admitted,'$'+'{{ steps.nav_admission.outputs.admitted }}');
+ assert.equal(job.steps.find(step=>step.id==='nav_admission').run,
+   'node scripts/nav-schedule-admission.mjs');
+}
 assert.match(post.steps.at(-1).run,/audit-kb-nav-postflight-readonly[.]mjs/);
 const publicStatus=workflow.jobs['source-public'].steps.find(s=>
  s.name==='Record public source coverage without blocking private writer');
@@ -445,7 +455,28 @@ for(const [label,jobName,writerName] of [
  assert.equal(steps[admission].run,'node scripts/nav-schedule-admission.mjs');
  assert.match(String(steps[admission].env.NAV_SCHEDULE_CRON),/github\.event\.schedule/);
 }
+// Execute the real admission CLI with no GAS credentials. A retired cron
+// must fail and export false; manual collection exports true. Downstream
+// reconciliation uses either admitted job, not its final success/failure.
+const admissionTmp=fs.mkdtempSync(join(tmpdir(),'nav-admission-'));
+try{
+ for(const [event,cron,expected,exit] of [
+  ['schedule','10 0 * * 0,6',false,1],
+  ['schedule','invalid',false,1],
+  ['workflow_dispatch','',true,0]
+ ]){
+  const output=join(admissionTmp,'out');
+  fs.writeFileSync(output,'');
+  const r=spawnSync(process.execPath,['scripts/nav-schedule-admission.mjs'],{
+   encoding:'utf8',env:{...process.env,GITHUB_EVENT_NAME:event,
+   NAV_SCHEDULE_CRON:cron,GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''}
+  });
+  assert.equal(r.status,exit,r.stderr);
+  assert.equal(fs.readFileSync(output,'utf8'),'admitted='+expected+'\n');
+  assert.match(r.stdout,/"gasCalls":0,"financialWrites":0/);
+ }
+}finally{fs.rmSync(admissionTmp,{recursive:true,force:true});}
 console.log('NAV_SCHEDULE_DELAYED_ADMISSION_PASS '+JSON.stringify({
  simulatedSaturday0910Started1505:true,slots:navSlots.length,
- staleScheduleCannotReachGas:true,financialWrites:0
+ staleScheduleCannotReachGas:true,postflightRequiresAdmittedCollector:true,financialWrites:0
 }));
