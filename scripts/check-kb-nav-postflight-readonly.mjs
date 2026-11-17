@@ -143,6 +143,66 @@ const mocks={
 const result=await auditKbNavPostflight(mocks);
 assert.equal(result.verdict,'NAV_VERIFIED_CLOSE_INCOMPLETE');
 assert.deepEqual([statusCalls,publicCalls,gasCalls,previewCalls],[1,1,1,1]);
+// A 19:17 collector runs after today's CLOSE starts/finishes, but must
+// independently verify the exact prior-day NAV, not infer today's missing
+// publication equals successful collection. Normal daily-ops retains scope.
+const currentClose={...close,runDate:today,expectedRunDate:today,
+ expectedSnapshotDate:today,state:'COMPLETE',fundOk:true};
+const evening={...mocks,now:new Date('2026-11-07T10:17:00Z'),
+ statusReader:async()=>({close:currentClose}),
+ valuationReader:async({from,to})=>{
+  assert.equal(from,'2026-11-01');assert.equal(to,date);
+  return proof;
+ },
+ previewReader:async({date:asked,nav})=>{
+  assert.equal(asked,date);assert.equal(nav,2100.55);return exactPreview();
+ }};
+const priorAudit=await auditKbNavPostflight({...evening,completedDaysOnly:true});
+assert.equal(priorAudit.closeDate,today);
+assert.equal(priorAudit.navTargetDate,date);
+assert.equal(priorAudit.officialReferenceDate,date);
+assert.equal(priorAudit.navScope,'COMPLETED_DAYS_ONLY');
+assert.equal(priorAudit.navWorkflowStatus,'NAV_DATA_VERIFIED');
+assert.equal(priorAudit.navWorkflowPass,true);
+assert.equal(priorAudit.verdict,'PRIOR_NAV_VERIFIED_CURRENT_CLOSE_COMPLETE');
+assert.equal(priorAudit.pass,false,'prior NAV cannot prove current-day combined CLOSE');
+const badPrior=await auditKbNavPostflight({...evening,completedDaysOnly:true,
+ previewReader:async()=>exactPreview(2100.56)});
+assert.equal(badPrior.navWorkflowPass,false,'wrong prior NAV cannot be hidden by today close');
+const omittedPrior=await auditKbNavPostflight({...evening,completedDaysOnly:true,
+ valuationReader:async()=>({status:'ok',fundResults:{F00002:{code:'F00002',dates:[]}}})});
+assert.equal(omittedPrior.navWorkflowPass,false,'missing prior valuation cannot be hidden by today close');
+for(const field of ['evaluationState','snapshotState']){
+ const bad=assess({fundRow:{...verified,[field]:'NOT_REQUIRED'}});
+ assert.equal(bad.navWorkflowPass,false,'required derived row cannot be NOT_REQUIRED');
+}
+const weekdayToday='2026-11-10',weekdayPrior='2026-11-09';
+const weekdayOfficial={date:weekdayPrior,nav:2100.55};
+const weekdayClose={...currentClose,runDate:weekdayToday,
+ expectedRunDate:weekdayToday,expectedSnapshotDate:weekdayToday};
+const weekdayMock={...evening,now:new Date(weekdayToday+'T19:17:00+09:00'),
+ statusReader:async()=>({close:weekdayClose}),
+ sourceReader:async()=>({writerInvoked:false,rows:[weekdayOfficial]}),
+ valuationReader:async({to})=>{
+  assert.equal(to,weekdayPrior);
+  return {status:'ok',fundResults:{F00002:{code:'F00002',dates:[{...verified,date:weekdayPrior}]}}};
+ },
+ previewReader:async({date:asked,nav})=>{
+  assert.equal(asked,weekdayPrior);assert.equal(nav,weekdayOfficial.nav);
+  return {...exactPreview(),identical:[{date:weekdayPrior,existingNav:nav,uploadedNav:nav}]};
+ }};
+const weekdayAudit=await auditKbNavPostflight({...weekdayMock,completedDaysOnly:true});
+assert.equal(weekdayAudit.navWorkflowStatus,'NAV_DATA_VERIFIED');
+const dailyAudit=await auditKbNavPostflight({...weekdayMock,
+ valuationReader:async({to})=>{
+  assert.equal(to,weekdayToday);
+  return {status:'ok',fundResults:{F00002:{code:'F00002',dates:[{...verified,date:weekdayPrior}]}}};
+ },
+ previewReader:async()=>assert.fail('unpublished today must not preview')});
+assert.equal(dailyAudit.navScope,'CLOSE_SESSION');
+assert.equal(dailyAudit.officialReferenceDate,weekdayToday);
+assert.equal(dailyAudit.navWorkflowStatus,'OFFICIAL_NAV_AWAITING_PUBLICATION');
+console.log('NAV_POSTFLIGHT_COMPLETED_DAY_SCOPE_PASS prior exact proof, missing/wrong prior rejected, current close independent, daily scope retained');
 // Reproduce live run #42387302439: Sunday 2026-11-08 00:50 KST,
 // GAS calendar close = Saturday 11/07, and official KB latest is Fri 11/06.
 // The old postflight falsely reported 'NOT_YET_PUBLISHED' despite the
