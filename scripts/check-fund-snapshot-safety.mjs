@@ -1193,7 +1193,7 @@ assert.equal(mergedLegacy[0][7],777);
 
 // 보호된 자동 수집은 원본 NAV 저장과 파생 평가를 분리합니다. 수동 입력은 아래
 // 기존 회귀대로 가격이력/스냅샷까지 처리하며 실패 상태를 보존합니다.
-assert.match(source,/return mode === 'import' \\? handleImportFundNav\\(dataJson, true\\)/,
+assert.ok(source.includes("return mode === 'import' ? handleImportFundNav(dataJson, true)"),
   'only protected KB/Hanwha collector may request NAV-first import');
 const collectorOnlyNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
 const collectorOnlyPrice=new Sheet([['date','code','name','price','at','source']]);
