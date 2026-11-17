@@ -31,7 +31,14 @@ const kstToday=now=>new Intl.DateTimeFormat('en-CA',{
  timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
 }).format(now);
 
-export function assessKbNavPostflight({close,officialRows,fundRow,today,officialNavMatched}) {
+// The automated collector only admits completed calendar days. Its postflight
+// must check the same horizon even if the separate GAS CLOSE advances today.
+// The general daily-ops reader retains its current-close reference semantics.
+function navAuditTarget(closeDate,today,completedDaysOnly){
+ return completedDaysOnly&&closeDate===today?shift(today,-1):closeDate;
+}
+export function assessKbNavPostflight({close,officialRows,fundRow,today,officialNavMatched,
+ completedDaysOnly=false}) {
  if(!isDay(today)||!close||!isDay(close.runDate)||close.runDate>today
    ||!['COMPLETE','INCOMPLETE','ERROR','NEVER_RUN'].includes(close.state)
    ||typeof close.priceOk!=='boolean'||typeof close.fundOk!=='boolean'
@@ -40,7 +47,8 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
      ||!Number.isFinite(x.nav)||x.nav<=0)
    ||new Set(officialRows.map(x=>x.date)).size!==officialRows.length)
    throw Error('KB_POSTFLIGHT_SCHEMA_UNVERIFIED');
- const date=close.runDate,referenceDate=expectedKbOfficialReferenceDate(date,officialRows);
+ const date=close.runDate,navTargetDate=navAuditTarget(date,today,completedDaysOnly);
+ const referenceDate=expectedKbOfficialReferenceDate(navTargetDate,officialRows);
  const latestPublishedDate=officialRows.map(x=>x.date).sort().at(-1)||'-';
  const officiallyPublished=officialRows.some(x=>x.date===referenceDate);
  // Do not substitute a Saturday carried valuation for Friday's confirmed NAV.
@@ -48,8 +56,8 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
  const derivedConfirmed=fundRow?.date===referenceDate
    &&fundRow?.valuationRequired===true&&fundRow?.unitsApplied===true
    &&fundRow?.reconciled===true
-   &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.evaluationState)
-   &&['EXISTING_VALID','NOT_REQUIRED'].includes(fundRow?.snapshotState);
+   &&fundRow?.evaluationState==='EXISTING_VALID'
+   &&fundRow?.snapshotState==='EXISTING_VALID';
  // GAS's expectedRunDate is a MINIMUM acceptable session, not exact:
  // before 21:00 KST it can still point to yesterday even after today's
  // 19:00 close has legitimately completed. Reject an older stored run while
@@ -78,6 +86,10 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
    verdict='PUBLISHED_NAV_DERIVED_UNVERIFIED';pass=false;
  } else if(!closeComplete) {
    verdict='NAV_VERIFIED_CLOSE_INCOMPLETE';pass=false;
+ } else if(date!==navTargetDate) {
+   // Two different dates can have good evidence without proving the
+   // current close day's final official NAV. Keep combined proof false.
+   verdict='PRIOR_NAV_VERIFIED_CURRENT_CLOSE_COMPLETE';pass=false;
  } else {
    verdict='NAV_AND_CLOSE_VERIFIED';pass=true;
  }
@@ -105,7 +117,9 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
    :'NAV_INTEGRITY_UNVERIFIED';
  const navWorkflowPass=referenceRecent&&(navVerified||navAwaitingPublication);
  return {kind:'KB_NAV_CLOSE_POSTFLIGHT_READ_ONLY',asOfKst:today,
-   closeDate:date,officialReferenceDate:referenceDate,latestPublishedDate,officiallyPublished,
+   closeDate:date,navTargetDate,
+   navScope:completedDaysOnly?'COMPLETED_DAYS_ONLY':'CLOSE_SESSION',
+   officialReferenceDate:referenceDate,latestPublishedDate,officiallyPublished,
    storedNavConfirmed,derivedConfirmed,officialNavMatched:officialNavMatched===true,
    closeState:close.state,
    expectedRunDate:close.expectedRunDate||'-',
@@ -189,7 +203,7 @@ export async function readKbExactNavPreview({url,token,date,nav,fetchImpl=fetch,
 export async function auditKbNavPostflight({url,token,now=new Date(),
  statusReader=runBackfillStatus,sourceReader=runPublicSourceOnly,
  valuationReader=readKbValuation,previewReader=readKbExactNavPreview,
- fetchImpl=fetch}={}) {
+ fetchImpl=fetch,completedDaysOnly=false}={}) {
  if(!(now instanceof Date)||!Number.isFinite(now.getTime()))
    throw Error('KB_POSTFLIGHT_CLOCK');
  const today=kstToday(now),from=shift(today,-6);
@@ -200,10 +214,12 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
  const source=await sourceReader({now,fetchImpl});
  if(source?.writerInvoked!==false||!Array.isArray(source.rows))
    throw Error('KB_POSTFLIGHT_SOURCE_UNVERIFIED');
- const proof=await valuationReader({url,token,from,to:today,fetchImpl});
+ const target=navAuditTarget(close.runDate,today,completedDaysOnly);
+ const valuationTo=completedDaysOnly?target:today;
+ const proof=await valuationReader({url,token,from,to:valuationTo,fetchImpl});
  // Reuse the existing date-scoped, read-only GAS response validator.
- summarizeFundRows(proof,'F00002',from,today);
- const referenceDate=expectedKbOfficialReferenceDate(close.runDate,source.rows);
+ summarizeFundRows(proof,'F00002',from,valuationTo);
+ const referenceDate=expectedKbOfficialReferenceDate(target,source.rows);
  if(!isDay(referenceDate))throw Error('KB_POSTFLIGHT_REFERENCE_DATE_UNVERIFIED');
  const matching=proof.fundResults.F00002.dates.filter(x=>x.date===referenceDate);
  if(matching.length>1)throw Error('KB_POSTFLIGHT_DUPLICATE_DATE');
@@ -214,19 +230,22 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
  // Expose only allow-listed GAS checkpoint enums. This is persisted runtime
  // evidence, not independent Apps Script Executions / successful close proof.
  return {...assessKbNavPostflight({close,officialRows:source.rows,
-   fundRow:matching[0]||null,today,officialNavMatched}),
+   fundRow:matching[0]||null,today,officialNavMatched,completedDaysOnly}),
    fundCloseCheckpointEvidence:describeFundCloseCheckpoint(status)};
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
  try{
    const result=await auditKbNavPostflight({
-     url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN});
+     url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+     completedDaysOnly:true});
    console.log(JSON.stringify(result));
    if(process.env.GITHUB_STEP_SUMMARY) {
      const {appendFileSync}=await import('node:fs');
      appendFileSync(process.env.GITHUB_STEP_SUMMARY,
        'KB NAV postflight: **'+result.verdict+'**'
+       +' · NAV 기준일='+result.officialReferenceDate
+       +' · 마감 기준일='+result.closeDate
        +' · published='+result.officiallyPublished
        +' · NAV='+result.storedNavConfirmed
        +' · exactOfficialNAV='+result.officialNavMatched
