@@ -5,7 +5,7 @@ function renderHistoryView(area) {
   area.innerHTML = `
     <div class="hist-view">
       <div class="hist-view-header">
-        <div class="hist-view-title"><svg class="ui-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19V5M3 19h18"/><path d="m6 15 5-5 4 3 5-7"/></svg>손익 그래프</div>
+        <div class="hist-view-title"><svg class="ui-label-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19V5M3 19h18"/><path d="m6 15 5-5 4 3 5-7"/></svg>손익 그래프</div>
         <div class="hist-controls">
           <div class="hist-mode-controls">
             <button id="histModeDay" type="button" aria-pressed="false">일별</button>
@@ -31,7 +31,7 @@ function renderHistoryView(area) {
           </div>
           </details>
           <button type="button" id="btn-history-query" class="btn-ghost-sm hist-query-btn" data-history-action="query" aria-label="손익 그래프 조회">
-            <svg class="hist-query-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 10-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
+            <svg class="hist-query-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 10-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
             <span>조회</span>
           </button>
           <details class="hist-filter-details hist-admin-details"><summary>고급 관리</summary>
