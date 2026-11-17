@@ -60,11 +60,13 @@ const without=formatFullMorningBriefing(date,null,rows,{now});
 assert.doesNotMatch(without,/SK하이닉스 ADR 환산 비교/);
 const stale=formatFullMorningBriefing(date,null,rows,{now,
  watchEvidence:{...watchEvidence,skhyQuote:{...quote,date:'2026-11-10'}}});
-assert.doesNotMatch(stale,/SK하이닉스 ADR 환산 비교/);
+assert.doesNotMatch(stale,/SK하이닉스 ADR 환산 비교|SK하이닉스 ADR \(SKHY\)/);
 const fxMissing=formatFullMorningBriefing(date,null,rows.filter(x=>x.symbol!=='KRW=X'),
  {now,watchEvidence});
 assert.doesNotMatch(fxMissing,/SK하이닉스 ADR 환산 비교/);
+assert.ok(fxMissing.includes('SK하이닉스 ADR (SKHY): $142.25 [2026-11-11 · Yahoo 참고]'));
 const unverifiedKr=formatFullMorningBriefing(date,null,
  rows.map(x=>x.symbol==='000660.KS'?{...x,source:'UNKNOWN'}:x),{now,watchEvidence});
 assert.doesNotMatch(unverifiedKr,/SK하이닉스 ADR 환산 비교/);
+assert.ok(unverifiedKr.includes('SK하이닉스 ADR (SKHY): $142.25'));
 console.log('SKHY ADR official ratio, FX/KRX dates, premium, and optional message: PASS');
