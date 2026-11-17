@@ -142,7 +142,10 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   if(status.status!=='ok'||!supportsPublishedFundNavGasVersion('KB',status.gasVersion))throw Error('NAV_VERSION');
   const a=status.automation;
   if(!a||a.closeRun?.state==='RUNNING'||a.tradeSnapshotWorkerLastResult?.status==='RUNNING'||a.tradeLedgerWriteUnverified||a.pendingTradeSnapshotRebuildFrom||a.tradeSnapshotDeferredCount>0)throw Error('NAV_WRITER_BUSY');
-  if(['RUNNING','IN_PROGRESS'].includes(a.fundAttempt?.state))return {mode:'DEFERRED',complete:false,reason:'NAV_WRITER_BUSY',imported:0,derivedRepaired:0};
+  // Match Hanwha's busy admission. A blocked writer is not publication lag,
+  // and must not make the protected workflow green or suppress the existing
+  // independently guarded fallback. Never invoke/retry a writer here.
+  if(['RUNNING','IN_PROGRESS'].includes(a.fundAttempt?.state))throw Error('NAV_WRITER_BUSY');
   const closeDate=a.closeRun?.runDate;
   if(typeof closeDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(closeDate)
     ||!Number.isFinite(Date.parse(closeDate+'T00:00:00Z'))
