@@ -174,7 +174,29 @@ assert.equal(formatClose(...closeArgs,{...verified,asOfKst:'2026-11-05'}),
  closeNoEvidence);
 assert.equal(formatClose(...closeArgs,{...verified,usSessionDate:'2026-11-04'}),
  closeNoEvidence);
-assert.match(closeWithEvidence,/삼성전자·SK하이닉스 정량 지표/);
+// A close report must not send an empty valuation panel when no independently
+// validated stock quotes are supplied. The SEC/DART panel remains available.
+assert.doesNotMatch(closeWithEvidence,/삼성전자·SK하이닉스 정량 지표|확정 종가·BPS·PBR 미확보/);
+assert.match(closeWithEvidence,/삼성전자 보통·우선 합산 참고 BPS 55,000원/);
+assert.match(closeWithEvidence,/SK하이닉스 단일종류 확인 BPS 90,000원/);
+const closeQuotedArgs=[...closeArgs];
+closeQuotedArgs[4]=[
+ {id:'SAMSUNG',symbol:'005930.KS',label:'삼성전자',source:'NH_REGULAR_CLOSE',
+  date:asOfKst,value:110000,changePercent:1},
+ {id:'SKHYNIX',symbol:'000660.KS',label:'SK하이닉스',source:'NH_REGULAR_CLOSE',
+  date:asOfKst,value:225000,changePercent:2}
+];
+const closeQuoted=formatClose(...closeQuotedArgs,verified);
+assert.match(closeQuoted,/삼성전자·SK하이닉스 정량 지표/);
+assert.match(closeQuoted,/삼성전자: 보통·우선 합산 참고 BPS 55,000원 \/ 참고 PBR 2\.00배/);
+assert.match(closeQuoted,/SK하이닉스: 검증 BPS 90,000원 \/ PBR 2\.50배/);
+assert.doesNotMatch(closeQuoted,/확정 종가·BPS·PBR 미확보/);
+assert.ok(closeQuoted.length<=3900);
+const closePartialArgs=[...closeQuotedArgs];
+closePartialArgs[4]=closeQuotedArgs[4].slice(0,1);
+const closePartial=formatClose(...closePartialArgs,verified);
+assert.match(closePartial,/삼성전자: 보통·우선 합산 참고 BPS 55,000원/);
+assert.doesNotMatch(closePartial,/• SK하이닉스: 확정 종가·BPS·PBR 미확보/);
 assert.doesNotMatch(closeWithEvidence,/5인 정량 관점|• 하워드 막스:|• 버핏:/);
 if(closeWithEvidence.includes('■ 공시 재무 근거'))
  assert.match(closeWithEvidence,/미국 TTM 2\/9/);

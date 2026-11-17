@@ -19,7 +19,9 @@ import {verifyLateCloseSent} from './telegram-close-late-verdict.mjs';
 import {sanitizePreclose} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures,selectCurrentFuturesRows} from './closing-current-futures.mjs';
-import {formatAiIndustryCloseLens} from './briefing-ai-industry-lens.mjs';
+import {formatCompactCloseLens} from './briefing-ai-industry-lens.mjs';
+import {formatSemiconductorCompanyMetrics} from './briefing-semiconductor-company-views.mjs';
+import {compactBriefingForDelivery} from './briefing-message-compact.mjs';
 import {fitAiFinancialEvidenceForBudget,auditSentFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {readKofiaLiquidity,formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {readInvestorTrends,formatInvestorTrends} from './briefing-krx-investor-trends.mjs';
@@ -183,8 +185,6 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  const verifiedTurnover=verifyOfficialKrxTurnover(date,turnover);
  const lines=['['+date+' 장후 시장 브리핑]',
   '기준: 국내 당일 마감 · 17시 해외 선물 · 미국 현물 직전 완료장','',
-  ...formatAiIndustryCloseLens({date,usDate:expectedMorningDate('SPX',date),
-    nh:valid,domestic:validDomestic,secondary,stocks,futures,financialEvidence,now}),'',
   '■ 국내 시장 (당일 종가)'];
  for(const label of NH_UNVERIFIED.slice(0,3)){
   const matches=validDomestic.filter(x=>x.label===label);
@@ -220,6 +220,7 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
   const item=candidates[0];
   const provenance=item.source==='CBOE_VIX_DAILY'?'CBOE 참고':item.source==='YAHOO_SOX_DAILY_REFERENCE'?'Yahoo 참고':'FRED 참고';
   lines.push(label+': '+item.value.toLocaleString('en-US',{maximumFractionDigits:2})
+    +(Number.isFinite(item.changePercent)?' ('+(item.changePercent>=0?'+':'')+item.changePercent.toFixed(2)+'%)':'')
     +' ['+item.date+' · '+provenance+']');
  }
  const coverage=summarizeCloseCoverage(date,{nh:valid,domestic:validDomestic,
@@ -230,6 +231,8 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
     x.date===expectedMorningDate('SPX',date))}),'',
   formatTreasuryCurve(date,verifiedRates),'',
   formatClosingMarketReferences(date,markets),'',
+  ...formatCompactCloseLens({date,usDate:expectedMorningDate('SPX',date),
+    nh:valid,domestic:validDomestic,secondary,stocks,futures,now}),'',
   formatCloseCoverageSummary(coverage).split('\n')
     .filter(line=>!line.startsWith('미연결 참고지표:')).join('\n'),
   '※ 기본 가격·미국 지수: NH PLUG · 그 외 참고값 출처 별도 표기');
@@ -251,36 +254,28 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
  // A supplementary feed must not exceed Telegram's payload budget or block 17:00.
  if(insertAt>=0&&baseline.length+sentiment.length+1<=3900)
    lines.splice(insertAt+1,0,sentiment);
- // Precomputed SEC/DART evidence only. Never fetch in the 17:00 critical path.
- const financialLines=financialEvidence?.asOfKst===date
-  &&financialEvidence.usSessionDate===expectedMorningDate('SPX',date)
-   ?fitAiFinancialEvidenceForBudget(financialEvidence,
-       3900-lines.join('\n').length-2):[];
- const index=lines.indexOf('■ 국내 시장 (당일 종가)');
- if(financialLines.length&&index>=0
-  &&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
-   lines.splice(index,0,...financialLines,'');
- // Give the 06:20 SEC/DART financial evidence its existing payload priority.
- // Optional KRX cash turnover must never push an otherwise valid SEND over
- // the 4,000-character Telegram guard; confirmed official dated rows only.
+ // Put verified market values before optional financial research.
  if(verifiedTurnover.length){
    const detail=formatKrxTurnover(date,verifiedTurnover);
    const pos=lines.findIndex(x=>x.startsWith('VKOSPI:'));
    if(pos>=0&&lines.join('\n').length+detail.length+2<=3900)
      lines.splice(pos+1,0,detail);
  }
- // Verified market and finance values outrank generic closing commentary.
- const genericNotes=[
-  /^• AI 수요 검증:/,/^• 실행 기준:/,/^• 긍정:/,/^• 경계:/,
-  /^■ 조건부 시나리오 · 다음 확인/,/^※ 기본 가격·미국 지수:/
- ];
- let rendered=lines.join('\n');
- for(const pattern of genericNotes){
-  if(rendered.length<=3900)break;
-  const idx=lines.findIndex(x=>pattern.test(x));
-  if(idx>=0)lines.splice(idx,1);
-  rendered=lines.join('\n');
+ const summaryIndex=()=>lines.findIndex(x=>x.startsWith('■ 데이터 확인:'));
+ const financialOk=financialEvidence?.asOfKst===date
+   &&financialEvidence.usSessionDate===expectedMorningDate('SPX',date);
+ if(financialOk){
+   const metrics=formatSemiconductorCompanyMetrics({date,period:'close',stocks,financialEvidence});
+   const numericMetrics=metrics.slice(1).filter(x=>!x.includes('미확보'));
+   const panel=numericMetrics.length?[metrics[0],...numericMetrics]:[];
+   if(panel.length&&lines.join('\n').length+panel.join('\n').length+2<=3900)
+     lines.splice(summaryIndex(),0,...panel,'');
+   const financialLines=fitAiFinancialEvidenceForBudget(financialEvidence,
+     Math.min(3900,3900-lines.join('\n').length-2));
+   if(financialLines.length&&lines.join('\n').length+financialLines.join('\n').length+2<=3900)
+     lines.splice(summaryIndex(),0,...financialLines,'');
  }
+ const rendered=lines.join('\n');
  return rendered;
 }
 // Wait only briefly for the already-running 06:20 SEC/DART artifact read.
@@ -519,11 +514,13 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       liquidity:Number(Boolean(r.liquidity?.deposits))
         +Number(Boolean(r.liquidity?.margin)),
       investors:r.investors?.markets?.length||0
-    },outgoing);
+    },compactBriefingForDelivery(outgoing,{mode:'close'}));
   }
+  const deliveredText=compactBriefingForDelivery(outgoing,{mode:'close'});
+  if(!deliveredText||deliveredText.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
   await send(token,chatId,outgoing);
   console.log(JSON.stringify({kind:'CLOSE_FINANCIAL_SENT_AUDIT',
-    date:window.date,...auditSentFinancialEvidence(outgoing,
+    date:window.date,...auditSentFinancialEvidence(deliveredText,
      expectedMorningDate('SPX',window.date))}));
   // Only successful sends are logged, and only verified source counts/status.
   // Never include quote values, dates of private records or message content.
@@ -533,7 +530,7 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
   // The latest report is re-rendered at SEND time. Log only the included
   // optional-indicator status, never the public score, token or full payload.
   const sentimentStatus=Object.hasOwn(payload,'futuresCount')
-    ? fearGreedDisplayStatus(outgoing) : 'LEGACY_UNVERIFIED';
+    ? fearGreedDisplayStatus(deliveredText) : 'LEGACY_UNVERIFIED';
   console.log(JSON.stringify({kind:'CNN_FEAR_GREED_DELIVERY',briefing:'close',
     date:window.date,status:sentimentStatus}));
   return {status:'SENT',date:window.date};

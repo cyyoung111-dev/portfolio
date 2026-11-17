@@ -104,7 +104,13 @@ assert.match(yahooSoxAnalysis,/SOX -7\.20% \/ NASDAQ100 대비 -3\.74%p/,
 
 const msg=formatClose(date,nh,secondary,domestic,stocks,macros,[]);
 assert.ok(msg.startsWith('['+date+' 장후 시장 브리핑]'));
-assert.ok(msg.indexOf('■ 먼저 보는 시장 해석')<msg.indexOf('■ 국내 시장'));
+assert.ok(msg.indexOf('■ 국내 시장')<msg.indexOf('■ 시장 해석'));
+assert.match(msg,/다우존스: 51,770.31 \(-1\.00%\)/);
+assert.match(msg,/SOX: 8,000 \(-7\.20%\)/);
+assert.match(msg,/VIX: 19.42 \(\+5\.00%\)/);
+assert.match(msg,/기술주 상대약세 \(-1\.64%p\)/);
+assert.match(msg,/반도체 상대약세 \(-3\.74%p\)/);
+assert.doesNotMatch(msg,/조건부 시나리오|AI 수요 검증|기업별 실적·수주 확인|실행 기준|삼성전자·SK하이닉스 정량 지표/);
 assert.match(msg,/■ 데이터 확인/);
 assert.ok(msg.length<4000, 'AI commentary must not exceed Telegram 4000-char payload gate');
 

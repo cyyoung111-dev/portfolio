@@ -1,7 +1,7 @@
 // 17:00 KST market context: last VALID trading-session quotes from US index
 // futures, never US spot-index closes, settlement prices or NH equity closes.
 // Yahoo intraday quotes can be delayed. Require <= 25 minutes age; no stale
-// fallback, inferred percentage move, financial writes or new NH credentials.
+// fallback, spot-index comparisons, financial writes or new NH credentials.
 export const FUTURES=Object.freeze([
  Object.freeze({id:'ES',label:'S&P500 선물',symbol:'ES=F'}),
  Object.freeze({id:'NQ',label:'NASDAQ100 선물',symbol:'NQ=F'}),
@@ -33,8 +33,18 @@ export function validateCurrentFuturesQuote(date,id,data,now){
  if(!Number.isSafeInteger(stamp)||!Number.isFinite(value)||value<=0)return null;
  const age=now.getTime()-stamp*1000;
  if(age<0||age>25*60*1000||closeWindow(new Date(stamp*1000)).date!==date)return null;
+ const reference=chart.meta.chartPreviousClose;
+ // The same symbol's provider-reported previous close, never a spot index
+ // or CME official settlement claim. Conflicting reference fields are
+ // withheld; the valid price remains visible.
+ const alternate=chart.meta.previousClose;
+ const comparable=Number.isFinite(reference)&&reference>0
+   &&(alternate===undefined||alternate===null
+      ||(Number.isFinite(alternate)&&Math.abs(alternate-reference)<=0.000001));
+ const movement=comparable?{previousClose:reference,
+   changePercent:(value/reference-1)*100,changeBasis:'YAHOO_CHART_PREVIOUS_CLOSE'}:{};
  return {id,label:item.label,symbol:item.symbol,value,asOf:new Date(stamp*1000).toISOString(),
-   source:'YAHOO_DELAYED_FUTURES_REFERENCE'};
+   source:'YAHOO_DELAYED_FUTURES_REFERENCE',...movement};
 }
 export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date()}={}){
  const at=now();
@@ -72,7 +82,11 @@ export function selectCurrentFuturesRows(date,rows=[],now=new Date(date+'T17:00:
   if(!Number.isFinite(at.getTime())||!Number.isFinite(x.value)||x.value<=0)return [];
   const age=now.getTime()-at.getTime();
   if(age<0||age>25*60*1000||closeWindow(at).date!==date)return [];
-  return [x];
+  const {previousClose,changePercent,changeBasis,...quote}=x;
+  const validChange=changeBasis==='YAHOO_CHART_PREVIOUS_CLOSE'
+    &&Number.isFinite(previousClose)&&previousClose>0&&Number.isFinite(changePercent)
+    &&Math.abs(changePercent-(x.value/previousClose-1)*100)<0.000001;
+  return [{...quote,...(validChange?{previousClose,changePercent,changeBasis}:{})}];
  });
 }
 export function formatCurrentFutures(date,rows=[],now=new Date(date+'T17:00:00+09:00')){
@@ -81,9 +95,10 @@ export function formatCurrentFutures(date,rows=[],now=new Date(date+'T17:00:00+0
   const time=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',
    hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(x.asOf));
   return x.label+': '+x.value.toLocaleString('en-US',{maximumFractionDigits:2})
-   +'pt ['+time+' KST · Yahoo 지연 참고]';
+   +'pt'+(Number.isFinite(x.changePercent)?' ('+(x.changePercent>=0?'+':'')+x.changePercent.toFixed(2)+'%)':'')
+   +' ['+time+' KST · Yahoo 지연 참고]';
  });
  lines.push(...(good.length?good:['유효한 최근 거래값 미확보 — 직전 미국 현물 종가를 현재값으로 대체하지 않음']));
- lines.push('확보 '+good.length+'/4 · 실시간 확정값이 아니며, 지수선물과 현물지수는 서로 다릅니다.');
+ lines.push('확보 '+good.length+'/4'+(good.some(x=>/\([+-][0-9.]+%\)/.test(x))?' · 등락률은 Yahoo 전거래일 기준':'')+' · 지연 참고');
  return lines.join('\n');
 }
