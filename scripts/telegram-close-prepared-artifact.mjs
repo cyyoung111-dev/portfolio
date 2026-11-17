@@ -22,7 +22,7 @@ export function verifyPreparedClose(date,payload,now=new Date()){
  if(!rows||!PARTS.every(key=>rows[key].length===payload[key].length))return null;
  // New optional prior-session rows are strictly verified when present;
  // existing schema-v1 artifacts without these fields remain readable.
- for(const key of ['priorVkospi','priorTurnover']){
+ for(const key of ['priorVkospi','priorTurnover','skhy']){
   if(Object.hasOwn(payload,key)&&(!Array.isArray(payload[key])
     ||rows[key].length!==payload[key].length))return null;
  }
