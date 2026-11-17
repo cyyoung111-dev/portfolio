@@ -8,6 +8,9 @@ import {fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
 import {readClosingStockSources,readClosingMacros,validateClosingMacro,closingStockSessions,validClosingStockReference} from './closing-extra-daily-sources.mjs';
 import {expectedMorningDate,MORNING_SERIES} from './telegram-morning-report.mjs';
 import {readClosingMarketReferences,validateClosingMarketReference} from './closing-market-references.mjs';
+import {readMorningVkospi,readMorningTurnover} from './telegram-morning-supplements.mjs';
+import {verifyClosingVkospi} from './closing-vkospi-reference.mjs';
+import {verifyOfficialKrxTurnover} from './closing-krx-turnover.mjs';
 
 const REPO='cyyoung111-dev/portfolio';
 const STOCK_IDS=new Set(['SAMSUNG','SKHYNIX','NVDA','MU']);
@@ -50,20 +53,32 @@ export function sanitizePreclose(date,source){
  });
  const unique=(rows,key,limit)=>rows.length<=limit
   &&new Set(rows.map(key)).size===rows.length?rows:[];
+ const prior=expectedMorningDate('KOSPI',date);
+ const priorVkospi=prior&&krxSessionStatus(prior)==='OPEN'
+  ?verifyClosingVkospi(prior,source.priorVkospi||[]):[];
+ const priorTurnover=prior&&krxSessionStatus(prior)==='OPEN'
+  ?verifyOfficialKrxTurnover(prior,source.priorTurnover||[]):[];
  return {nh:unique(nh,x=>x.symbol,3),domestic:unique(domestic,x=>x.label,3),
   secondary:unique(secondary,x=>x.label,3),stocks:unique(stocks,x=>x.id,4),
-  macros:unique(macros,x=>x.id,3),markets:unique(markets,x=>x.id,5)};
+  macros:unique(macros,x=>x.id,3),markets:unique(markets,x=>x.id,5),priorVkospi,priorTurnover};
 }
 export async function precomputeClose({now=()=>new Date(),
  fetchNh=readNhMorningIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchSecondary=fetchSecondaryIndexes,fetchStocks=readClosingStockSources,
  fetchMacros=readClosingMacros,fetchMarkets=readClosingMarketReferences,fetchImpl=fetch,
+ fetchPriorVkospi=readMorningVkospi,fetchPriorTurnover=readMorningTurnover,
+ krxKey=process.env.KRX_AUTH_KEY,
  gasUrl=process.env.GAS_WEB_APP_URL,gasToken=process.env.GAS_ACCESS_TOKEN}={}){
  const first=precloseWindow(now());
  if(!first.allowed)return {ready:false,status:'OUTSIDE_PREPARE_WINDOW',date:first.date};
  if(krxSessionStatus(first.date)!=='OPEN')
   return {ready:false,status:'MARKET_NOT_OPEN',date:first.date};
- let nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[];
+ let nh=[],domestic=[],secondary=[],stocks=[],macros=[],markets=[],priorVkospi=[],priorTurnover=[];
+ const prior=expectedMorningDate('KOSPI',first.date);
+ // Only query the already published prior session, in the existing read-only
+ // precompute window. Never add calls to the 17:00 delivery critical path.
+ const priorOpts={url:gasUrl,token:gasToken,authKey:krxKey,fetchImpl,now};
+ const configured=Boolean((gasUrl&&gasToken)||krxKey);
  await Promise.all([
   (async()=>{try{nh=await fetchNh(first.date,{url:gasUrl,token:gasToken,fetchImpl});}catch{}})(),
   (async()=>{try{domestic=await fetchDomestic(first.date,{fetchImpl,now,gasUrl,gasToken});}catch{}})(),
@@ -71,11 +86,17 @@ export async function precomputeClose({now=()=>new Date(),
   (async()=>{try{stocks=await fetchStocks(first.date,{url:gasUrl,token:gasToken,fetchImpl,
     onDiagnostic:details=>console.log(JSON.stringify({kind:'NH_PRECLOSE_STOCK_READ',...details}))});}catch{}})(),
   (async()=>{try{macros=await fetchMacros(first.date,{fetchImpl,now});}catch{}})(),
-  (async()=>{try{markets=await fetchMarkets(first.date,{fetchImpl,now});}catch{}})()
+  (async()=>{try{markets=await fetchMarkets(first.date,{fetchImpl,now});}catch{}})(),
+  (async()=>{try{if(prior&&krxSessionStatus(prior)==='OPEN'
+    &&(configured||fetchPriorVkospi!==readMorningVkospi))
+    priorVkospi=await fetchPriorVkospi(prior,priorOpts);}catch{}})(),
+  (async()=>{try{if(prior&&krxSessionStatus(prior)==='OPEN'
+    &&(configured||fetchPriorTurnover!==readMorningTurnover))
+    priorTurnover=await fetchPriorTurnover(prior,priorOpts);}catch{}})()
  ]);
  const last=precloseWindow(now());
  if(!last.allowed||last.date!==first.date)return {ready:false,status:'PREPARE_TOO_LATE',date:first.date};
- const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros,markets});
+ const rows=sanitizePreclose(first.date,{nh,domestic,secondary,stocks,macros,markets,priorVkospi,priorTurnover});
  if(!rows)return {ready:false,status:'PREPARE_INVALID',date:first.date};
  const capturedAt=now().toISOString();
  return {ready:true,status:'PRECOMPUTED',artifactName:'telegram-close-prepared-'+first.date,
