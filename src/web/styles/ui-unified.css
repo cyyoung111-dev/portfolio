@@ -783,3 +783,186 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
     word-break:keep-all;
   }
 }
+
+
+/* 2026-11-17 visual unification: one icon language and a predictable hierarchy.
+   Scope all changes to presentation; never modify computed money or controls. */
+.wrap > .hdr h1 {display:inline-flex;align-items:center;gap:8px}
+.wrap .ui-brand-icon {
+  flex:0 0 18px;width:18px;height:18px;
+  color:var(--green);-webkit-text-fill-color:initial;
+}
+.wrap .ui-label-icon {
+  flex:0 0 15px;width:15px;height:15px;
+  color:var(--muted);vertical-align:middle;
+}
+.wrap .sum-row .sc {
+  box-sizing:border-box;min-width:0;min-height:84px;
+  display:flex;flex-direction:column;justify-content:center;
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-card);
+  background:var(--s1);box-shadow:none;
+}
+.wrap .sum-row .sc::before {
+  height:1px;background:var(--ui-edge);
+}
+.wrap .sum-row .sc .lbl {
+  display:flex;align-items:center;gap:6px;min-width:0;
+  color:var(--muted);font-size:var(--type-caption);
+  font-weight:600;letter-spacing:0;text-transform:none;
+}
+.wrap .sum-row .sc .sub {overflow-wrap:anywhere;word-break:keep-all}
+.wrap .sum-row-2 .sc .val {color:inherit}
+.wrap .sum-row-2 .sc .val.c-red {color:var(--red)}
+.wrap .sum-row-2 .sc .val.c-muted {color:var(--muted)}
+/* Only update is a highlighted command; file import is a secondary utility. */
+.toolbar-btn-group .toolbar-section-primary {
+  border-color:var(--ui-edge);
+  background:var(--s1);
+}
+.toolbar-btn-group .toolbar-section-danger {
+  background:var(--s1);
+  border-color:var(--ui-edge);
+}
+.toolbar-btn-group .toolbar-section-danger .toolbar-btn-danger {
+  border-color:var(--c-red-35);color:var(--red-lt);
+}
+.action-bar .action-update-card,
+.toolbar-btn-group .toolbar-section {
+  box-shadow:none;
+}
+#viewSwitcher .vs-btn-icon svg {stroke-width:1.8}
+
+/* The profit chart is a single tool panel rather than competing button styles. */
+#view-area[data-active-view] .hist-view {padding:var(--space-md) 0 var(--space-sm)}
+#view-area[data-active-view] .hist-view-header {
+  display:flex;flex-direction:column;align-items:stretch;
+  gap:10px;min-width:0;margin-bottom:10px;
+}
+#view-area[data-active-view] .hist-view-title {
+  display:inline-flex;align-items:center;gap:7px;
+  align-self:flex-start;font-size:var(--type-title);
+  line-height:var(--line-compact);font-weight:700;color:var(--text);
+}
+#view-area[data-active-view] .hist-view-title .ui-label-icon {
+  width:17px;height:17px;flex-basis:17px;color:var(--muted);
+}
+#view-area[data-active-view] .hist-controls {
+  width:100%;min-width:0;gap:var(--space-sm);
+}
+#view-area[data-active-view] .hist-mode-controls {
+  box-sizing:border-box;height:42px;min-height:42px;
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-control);box-shadow:none;
+  background:var(--s1);
+}
+#view-area[data-active-view] .hist-mode-controls button {
+  box-sizing:border-box;min-height:40px;height:40px;
+  border:0;border-radius:6px;
+  font-size:var(--type-caption)!important;
+  font-weight:600;line-height:var(--line-compact);
+}
+#view-area[data-active-view] .hist-mode-controls button[aria-pressed="true"] {
+  color:var(--gold);
+}
+#view-area[data-active-view] :is(
+  .hist-month-input,.hist-range-select,.hist-query-btn
+) {
+  box-sizing:border-box;height:42px;min-height:42px;
+  border-radius:var(--radius-control);
+  border-color:var(--ui-edge);
+  font-size:var(--type-caption);line-height:var(--line-compact);
+}
+#view-area[data-active-view] .hist-month-input {width:168px;min-width:0}
+#view-area[data-active-view] .hist-range-select {width:128px;min-width:0}
+#view-area[data-active-view] .hist-controls>.hist-filter-details {
+  box-sizing:border-box;min-height:42px;
+  border-radius:var(--radius-control);
+  border-color:var(--ui-edge);background:var(--s1);
+}
+#view-area[data-active-view] .hist-controls>.hist-filter-details>summary {
+  box-sizing:border-box;display:flex;align-items:center;
+  min-height:40px;padding:7px 11px;
+  font-size:var(--type-caption);font-weight:600;
+  line-height:var(--line-compact);
+}
+#view-area[data-active-view] .hist-query-btn {
+  min-width:80px;background:var(--ui-selected-bg);
+  border:1px solid var(--ui-selected-edge);
+  font-weight:700;
+}
+#view-area[data-active-view] .hist-benchmark-options {
+  display:flex;align-items:center;flex-wrap:wrap;gap:5px;
+  min-width:0;margin:0 8px 8px;padding:8px;
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-control);background:var(--s2);
+}
+#view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {
+  min-height:32px;border-radius:var(--radius-control);
+}
+#view-area[data-active-view] .hist-context-note {
+  margin:0 0 10px;color:var(--muted);
+  font-size:var(--type-caption);line-height:var(--line-body);
+}
+#view-area[data-active-view] #histStatusMsg {
+  min-height:0;margin-bottom:10px;
+  color:var(--muted);font-size:var(--type-caption);
+  line-height:var(--line-body);
+}
+#view-area[data-active-view] :is(
+  .hist-detail-panel,.hist-benchmark-details,.hist-source-coverage
+) {
+  border:1px solid var(--ui-edge);
+  border-radius:var(--radius-card);
+  background:var(--s1);box-shadow:none;overflow:hidden;
+}
+#view-area[data-active-view] :is(
+  .hist-detail-panel,.hist-benchmark-details,.hist-source-coverage
+)>summary {
+  box-sizing:border-box;min-height:40px;
+  display:flex;align-items:center;gap:8px;
+  padding:9px 12px;
+  font-size:var(--type-caption);line-height:var(--line-compact);
+  font-weight:650;
+}
+#view-area[data-active-view] .hist-detail-label {
+  font-size:var(--type-caption);font-weight:650;color:var(--text);
+}
+#view-area[data-active-view] .hist-detail-help {
+  font-size:var(--type-caption);line-height:var(--line-body);
+  color:var(--muted);overflow-wrap:anywhere;
+}
+#view-area[data-active-view] .hist-detail-panel-body {
+  min-width:0;gap:var(--space-sm);
+}
+#view-area[data-active-view] .hist-kpi-grid>.hist-kpi-card,
+#view-area[data-active-view] .hist-extreme-card,
+#view-area[data-active-view] .hist-mdd-key-card {
+  border-color:var(--ui-edge);background:var(--s1);box-shadow:none;
+  border-radius:var(--radius-card);
+}
+@media(max-width:720px){
+  #view-area[data-active-view] .hist-controls {
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+    align-items:stretch;gap:8px;
+  }
+  #view-area[data-active-view] .hist-mode-controls {
+    grid-column:1/-1;width:100%;
+  }
+  #view-area[data-active-view] :is(.hist-month-input,.hist-range-select) {
+    width:100%;min-width:0;min-height:42px;
+  }
+  #view-area[data-active-view] .hist-controls>.hist-filter-details,
+  #view-area[data-active-view] .hist-query-btn {
+    width:100%;min-width:0;grid-column:1/-1;
+  }
+  #view-area[data-active-view] .hist-detail-panel-body {
+    grid-template-columns:minmax(0,1fr);
+  }
+  .wrap .sum-row .sc {min-height:78px}
+}
+@media(max-width:360px){
+  #view-area[data-active-view] .hist-controls {
+    grid-template-columns:minmax(0,1fr);
+  }
+}
