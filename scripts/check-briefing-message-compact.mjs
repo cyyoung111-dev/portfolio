@@ -100,6 +100,8 @@ const close=[
  'KOSPI: 5,030.50 [2026-11-10 · KRX]',
  'KOSDAQ: 검증된 당일 종가 미확보',
  'VKOSPI: 당일 확정치 미확보',
+ 'KOSPI 지수 구성종목 거래대금: 공식 당일 자료 미확보',
+ 'VKOSPI 직전 공표: 24.20 [2026-11-09 · KRX]',
  '■ 장후 글로벌 반응 — 미국 지수선물 (지연 시세)',
  '유효한 최근 거래값 미확보 — 직전 미국 현물 종가를 현재값으로 대체하지 않음',
  '확보 0/4 · 실시간 확정값이 아니며, 지수선물과 현물지수는 서로 다릅니다.',
@@ -115,6 +117,8 @@ const close=[
  '미연결 참고지표: 3개'
 ].join('\n');
 const cc=compactBriefingForDelivery(close,{mode:'close'});
+assert.ok(cc.includes('VKOSPI 직전 공표: 24.20 [2026-11-09 · KRX]'));
+assert.doesNotMatch(cc,/공식 당일 자료 미확보/);
 assert.match(cc,/KOSPI: 5,030\.50/);
 assert.match(cc,/BTC: 70,000\.00/);
 assert.match(cc,/핵심지수 3\/6/);
