@@ -242,7 +242,13 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
     &&d.unitsApplied===true&&d.reconciled===true
     &&['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(d.navState)
     &&d.evaluationState==='EXISTING_VALID'&&d.snapshotState==='EXISTING_VALID');
-  const pending=(await valuation()).filter(needsWrite);
+  const beforeDerived=await valuation();
+  const candidateDates=new Set(candidates.map(d=>d.date));
+  const confirmedCandidate=d=>d?.navState==='EXISTING_CONFIRMED'
+    &&d.valuationRequired===true&&d.unitsApplied===true&&d.reconciled===true;
+  if(candidates.some(c=>!confirmedCandidate(beforeDerived.find(d=>d.date===c.date))))
+    throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
+  const pending=beforeDerived.filter(needsWrite);
   const isWaiting=d=>isRecentUnpublishedKbCloseDay(d,{
     closeDate:valuationTo,today,latestPublishedDate:rows.at(-1).date
   });
@@ -276,9 +282,12 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   const final=await valuation();
   // Missing rows cannot silently pass an Array.some() over the remaining rows.
   for(const date of new Set([...candidates,...eligible].map(d=>d.date))){
-    if(!hasDerivedProof(final.find(d=>d.date===date)))
+    const proof=final.find(d=>d.date===date);
+    if(!hasDerivedProof(proof)||(candidateDates.has(date)&&!confirmedCandidate(proof)))
       throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
   }
+  if(beforeDerived.some(d=>!final.some(f=>f.date===d.date)))
+    throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
   if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||
     (d.valuationRequired===false
       ?d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED'
