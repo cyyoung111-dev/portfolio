@@ -16,7 +16,7 @@ import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} 
 import {readClosingStockSources,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
 import {verifyLateCloseSent} from './telegram-close-late-verdict.mjs';
-import {sanitizePreclose} from './telegram-close-precompute.mjs';
+import {sanitizePreclose,readMissingCloseReferences} from './telegram-close-precompute.mjs';
 import {readClosingMarketReferences,formatClosingMarketReferences} from './closing-market-references.mjs';
 import {readCurrentFutures,formatCurrentFutures,selectCurrentFuturesRows} from './closing-current-futures.mjs';
 import {formatCompactCloseLens} from './briefing-ai-industry-lens.mjs';
@@ -333,7 +333,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
  fetchMarkets=readClosingMarketReferences,fetchFutures=readCurrentFutures,
  fetchRates=readTreasuryCurve,fetchVkospi=readClosingVkospi,
  fetchTurnover=readClosingKrxTurnoverFromGas,fetchLiquidity=readKofiaLiquidity,
- fetchInvestorFlows=readInvestorTrends,
+ fetchInvestorFlows=readInvestorTrends,fetchPriorReferences=readMissingCloseReferences,
  loadPrepared=async()=>null,loadFinancialEvidence=async()=>null}={}){
   if(repository!==REPO||!githubToken||Number(attempt)!==1)throw Error('TELEGRAM_CLOSE_CONFIG');
   const window=closeWindow(now());if(!window.allowed)throw Error('TELEGRAM_CLOSE_LATE');
@@ -426,7 +426,19 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     (async()=>{try{liquidity=await fetchLiquidity(window.date,{fetchImpl});}
        catch{liquidity=null;}})(),
     (async()=>{try{investors=await fetchInvestorFlows(window.date,{mode:'close',fetchImpl,now});}
-       catch{investors=null;}})()
+       catch{investors=null;}})(),
+    (async()=>{try{
+      if(priorVkospi.length===1&&priorTurnover.length===2&&skhy.length===1)return;
+      const maxMs=Math.min(6000,Math.max(0,Date.parse(window.date+'T17:28:30+09:00')-now().getTime()));
+      if(!maxMs)return;
+      const found=await fetchPriorReferences(window.date,{priorVkospi,priorTurnover,skhy},
+        {now,fetchImpl,gasUrl,gasToken,maxMs});
+      const safe=sanitizePreclose(window.date,found);
+      if(!safe)return;
+      if(safe.priorVkospi.length>priorVkospi.length)priorVkospi=safe.priorVkospi;
+      if(safe.priorTurnover.length>priorTurnover.length)priorTurnover=safe.priorTurnover;
+      if(safe.skhy.length>skhy.length)skhy=safe.skhy;
+    }catch{/* optional provider failure must not affect current index delivery */}})()
   ]);
   // Real provider reasons remain in Actions logs only; never in Telegram.
   // A zero count is a genuine missing reading, not proof of a broken provider.
@@ -558,6 +570,10 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
   if(optionalDisplay)console.log(JSON.stringify({
     kind:'CLOSE_OPTIONAL_SENT_AUDIT',date:window.date,groups:optionalDisplay.groups
   }));
+  console.log(JSON.stringify({kind:'CLOSE_PRIOR_REFERENCE_SENT_AUDIT',date:window.date,
+    vkospi:/^VKOSPI 직전 공표: [0-9]/m.test(deliveredText),
+    turnover:['KOSPI','KOSDAQ'].filter(m=>deliveredText.includes(m+' 지수 구성종목 거래대금 직전 공표: ')),
+    skhy:/^SK하이닉스 ADR \(SKHY\):/m.test(deliveredText)}));
   // The latest report is re-rendered at SEND time. Log only the included
   // optional-indicator status, never the public score, token or full payload.
   const sentimentStatus=Object.hasOwn(payload,'futuresCount')
