@@ -125,14 +125,14 @@ export function formatMorningTurnover(date,rows=[]){
  return '지수 구성종목 거래대금: '+valid.map(x=>x.market+' '
   +(x.valueKrw/1e12).toFixed(2)+'조원').join(' · ')+' ['+date+' · KRX]';
 }
-async function readGas(date,action,params,{url,token,fetchImpl}){
+async function readGas(date,action,params,{url,token,fetchImpl,gasBudgetMs=16000}){
  if(!url||typeof token!=='string'||token.length<12)return null;
  try{
   const endpoint=validateGasEndpoint(url);
   const response=await fetchImpl(endpoint,{method:'POST',
    headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
    body:new URLSearchParams({action,accessToken:token,...params}),
-   redirect:'follow',signal:AbortSignal.timeout(16000)});
+   redirect:'follow',signal:AbortSignal.timeout(gasBudgetMs)});
   return response?.ok?await response.json():null;
  }catch{return null;}
 }
@@ -142,12 +142,12 @@ async function readGas(date,action,params,{url,token,fetchImpl}){
 // The synthetic prior close timestamp only opens the provider's historical
 // read gate; it does not assert when the response was actually published.
 export async function readMorningTurnover(expectedKr,{url,token,authKey,fetchImpl=fetch,
- fetchDirect=fetchOfficialKrxTurnover,onDiagnostic=()=>{}}={}){
+ fetchDirect=fetchOfficialKrxTurnover,onDiagnostic=()=>{},gasBudgetMs=16000}={}){
  const emit=(status,market=null)=>{try{onDiagnostic({source:'TURNOVER',status,
   ...(market?{market}:{})});}catch{}};
  if(!validDay(expectedKr)){emit('DATE_UNVERIFIED');return [];}
  const data=await readGas(expectedKr,'getKrxMarketTurnover',{date:expectedKr},
-  {url,token,fetchImpl});
+  {url,token,fetchImpl,gasBudgetMs});
  const primary=data?.status==='ok'&&data.date===expectedKr&&data.readOnly===true
   &&data.source==='KRX_OFFICIAL_INDEX_DAILY'&&Array.isArray(data.rows)
   ?verifyOfficialKrxTurnover(expectedKr,data.rows):[];
@@ -180,12 +180,12 @@ export async function readMorningTurnover(expectedKr,{url,token,authKey,fetchImp
 export async function readMorningVkospi(date,{
  url,token,authKey=process.env.KRX_AUTH_KEY,fetchImpl=fetch,
  now=()=>new Date(),fetchDirect=readOfficialKrxVkospiDaily,
- onDiagnostic=()=>{}
+ onDiagnostic=()=>{},gasBudgetMs=16000
 }={}){
  const emit=status=>{try{onDiagnostic({source:'VKOSPI',status});}catch{}};
  if(!validDay(date)){emit('DATE_UNVERIFIED');return [];}
  const gas=await readGas(date,'getBenchmark',{benchmark:'VKOSPI',from:date,to:date},
-  {url,token,fetchImpl});
+  {url,token,fetchImpl,gasBudgetMs});
  const primary=selectClosingVkospi(date,gas);
  if(primary.length===1){emit('GAS_VERIFIED');return primary;}
  emit(!gas?'GAS_UNAVAILABLE':gas.status==='error'
