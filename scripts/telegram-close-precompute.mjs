@@ -78,6 +78,48 @@ async function readPriorSkhy(date,{now,fetchImpl}){
  const nasdaq=await readNasdaqDailyHistorical(symbol,us,{now:now(),fetchImpl});
  return [verifiedSkhyQuote([{...nasdaq,label}],us)].filter(Boolean);
 }
+// A delayed/missing precompute must not permanently hide optional observations.
+// Reuse complete cached groups; otherwise try the same readers in parallel,
+// with a single overall deadline, independent of all delivery/claim gates.
+export async function readMissingCloseReferences(date,cached={},{
+ now=()=>new Date(),fetchImpl=fetch,gasUrl,gasToken,krxKey=process.env.KRX_AUTH_KEY,
+ fetchPriorVkospi=readMorningVkospi,fetchPriorTurnover=readMorningTurnover,
+ fetchSkhy=readPriorSkhy,maxMs=6000
+}={}){
+ const checked=sanitizePreclose(date,cached)||{};
+ const result={priorVkospi:checked.priorVkospi||[],
+  priorTurnover:checked.priorTurnover||[],skhy:checked.skhy||[]};
+ if(!Number.isInteger(maxMs)||maxMs<=0||maxMs>6000)return result;
+ const prior=expectedMorningDate('KOSPI',date);
+ const controller=new AbortController();
+ const boundedFetch=(target,options={})=>fetchImpl(target,{...options,
+  signal:options.signal?AbortSignal.any([options.signal,controller.signal]):controller.signal});
+ const tasks=[];
+ const schedule=(key,read)=>{
+  tasks.push(Promise.resolve().then(read).then(rows=>{
+   if(controller.signal.aborted)return;
+   const safe=sanitizePreclose(date,{[key]:rows})?.[key]||[];
+   if(safe.length>result[key].length)result[key]=safe;
+  }).catch(()=>{}));
+ };
+ const opts={url:gasUrl,token:gasToken,authKey:krxKey,fetchImpl:boundedFetch,now};
+ const configured=Boolean((gasUrl&&gasToken)||krxKey);
+ if(prior&&krxSessionStatus(prior)==='OPEN'){
+  if(!result.priorVkospi.length&&(configured||fetchPriorVkospi!==readMorningVkospi))
+   schedule('priorVkospi',()=>fetchPriorVkospi(prior,opts));
+  if(result.priorTurnover.length<2&&(configured||fetchPriorTurnover!==readMorningTurnover))
+   schedule('priorTurnover',()=>fetchPriorTurnover(prior,opts));
+ }
+ if(!result.skhy.length)schedule('skhy',()=>fetchSkhy(date,{now,fetchImpl:boundedFetch}));
+ if(!tasks.length)return result;
+ let timer;
+ try{
+  await Promise.race([Promise.all(tasks),new Promise(resolve=>{
+   timer=setTimeout(()=>{controller.abort();resolve();},maxMs);
+  })]);
+ }finally{clearTimeout(timer);controller.abort();}
+ return result;
+}
 export async function precomputeClose({now=()=>new Date(),
  fetchNh=readNhMorningIndexes,fetchDomestic=fetchDomesticCloseIndexes,
  fetchSecondary=fetchSecondaryIndexes,fetchStocks=readClosingStockSources,
