@@ -977,7 +977,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
 // preview, then still repair/check derived prices and Snapshot.
 {
  const {run}=await import('./collect-kb-fund-nav.mjs');
- const makeFixture=({committed=true,badProof=false,bodyFailure=false}={})=>{
+ const makeFixture=({committed=true,badProof=false,bodyFailure=false,partialAck=false}={})=>{
   let stored=false,writes=0,refreshes=0,readback=0,repaired=false;
   const calls=[];
   const fetchImpl=async(u,o)=>{
@@ -993,6 +993,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    } else if(p.action==='collectKbFundNav'&&p.mode==='import'){
      writes++;if(committed)stored=true;
      if(bodyFailure)return {ok:true,json:async()=>{throw Object.assign(Error('PRIVATE'),{name:'SyntaxError'});}};
+     if(partialAck)return {ok:true,json:async()=>({status:'error',saveState:'partial'})};
      return {ok:false,status:503};
    } else if(p.action==='getFundValuationStatus')
      response={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',
@@ -1006,7 +1007,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   return {fetchImpl,calls,get writes(){return writes},get readback(){return readback},get refreshes(){return refreshes}};
  };
  const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),apply:true};
- for(const mode of [{bodyFailure:false},{bodyFailure:true}]){
+ for(const mode of [{bodyFailure:false},{bodyFailure:true},{partialAck:true}]){
    const f=makeFixture(mode);
    const result=await run({...args,fetchImpl:f.fetchImpl});
    assert.equal(result.mode,'APPLY');
@@ -1022,8 +1023,8 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    assert.equal(f.writes,1,'unverified write must never be sent again');
    assert.equal(f.refreshes,0,'unproved NAV cannot advance derived Snapshot');
  }
- // A structured partial write response is NOT a lost transport ACK:
- // preserve the original fail-closed behavior without speculative readback.
+ // Structured partial ACK is never a success by itself; only a fully
+ // committed, exact NAV readback may clear it, not an uncommitted partial.
  let imports=0,readbacks=0;
  await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>{
    if(!o.body)return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98}]};
@@ -1033,9 +1034,9 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    if(p.action==='previewFundNavImport'){readbacks++;return {ok:true,json:async()=>({status:'ok',candidates:[{date:'2026-10-23',nav:2116.98}],identical:[],updates:[],errors:[],warnings:[]})};}
    if(p.action==='collectKbFundNav'&&p.mode==='import'){imports++;return {ok:true,json:async()=>({status:'error',saveState:'partial'})};}
    throw Error('unexpected partial handler');
- }}),/NAV_IMPORT_UNVERIFIED/);
+ }}),/NAV_READBACK_FAILED/);
  assert.equal(imports,1);
- assert.equal(readbacks,1,'partial response cannot be certified by a second preview');
+ assert.equal(readbacks,2,'uncommitted partial must be denied by exact follow-up read-only preview');
 }
 // An identical NAV after a partial import must still repair/recheck derived data.
 {
