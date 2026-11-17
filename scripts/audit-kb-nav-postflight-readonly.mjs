@@ -147,7 +147,8 @@ export function verifyKbOfficialNavPreview(date,nav,payload) {
    &&Number(payload.identical[0].existingNav)===nav
    &&Number(payload.identical[0].uploadedNav)===nav;
 }
-export async function readKbExactNavPreview({url,token,date,nav,fetchImpl=fetch}) {
+export async function readKbExactNavPreview({url,token,date,nav,fetchImpl=fetch,
+ retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim()||!isDay(date)
    ||!Number.isFinite(nav)||nav<=0)throw Error('KB_POSTFLIGHT_PREVIEW_CONFIG');
@@ -155,17 +156,34 @@ export async function readKbExactNavPreview({url,token,date,nav,fetchImpl=fetch}
    appendOnly:true,ackWarnings:true,
    sourceText:'KR5223AQ0185 AQ018 S-T OFFICIAL_READ_ONLY',
    rows:[{date,nav}]};
- let response;
- try{
-   response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
-     headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
-     body:new URLSearchParams({action:'previewFundNavImport',
-       data:JSON.stringify(input),accessToken:token}),
-     signal:AbortSignal.timeout(90000)});
- }catch{throw Error('KB_POSTFLIGHT_PREVIEW_NETWORK_UNVERIFIED');}
- if(!response?.ok)throw Error('KB_POSTFLIGHT_PREVIEW_HTTP_UNVERIFIED');
- try{return await response.json();}
- catch{throw Error('KB_POSTFLIGHT_PREVIEW_JSON_UNVERIFIED');}
+ // Retrying an exact, READ-ONLY preview once is safe after a transient
+ // transport, rate-limit, or 200/HTML response. Never retry an unauthorized
+ // request or a valid but mismatched NAV payload; never invoke a writer.
+ for(let attempt=0;attempt<2;attempt++){
+   let response;
+   try{
+     response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
+       headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+       body:new URLSearchParams({action:'previewFundNavImport',
+         data:JSON.stringify(input),accessToken:token}),
+       signal:AbortSignal.timeout(90000)});
+   }catch{
+     if(attempt===0){await retryDelay(1500);continue;}
+     throw Error('KB_POSTFLIGHT_PREVIEW_NETWORK_UNVERIFIED');
+   }
+   if(!response?.ok){
+     if(attempt===0&&[429,502,503,504].includes(Number(response?.status))){
+       await retryDelay(1500);continue;
+     }
+     throw Error('KB_POSTFLIGHT_PREVIEW_HTTP_UNVERIFIED');
+   }
+   try{return await response.json();}
+   catch{
+     if(attempt===0){await retryDelay(1500);continue;}
+     throw Error('KB_POSTFLIGHT_PREVIEW_JSON_UNVERIFIED');
+   }
+ }
+ throw Error('KB_POSTFLIGHT_PREVIEW_UNVERIFIED');
 }
 
 export async function auditKbNavPostflight({url,token,now=new Date(),
