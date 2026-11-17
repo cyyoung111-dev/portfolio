@@ -921,7 +921,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
 // authenticated GAS state calls this NAV_MISSING (not UNPUBLISHED) after
 // midnight. Defer ONLY that exact close date, never synthesize NAV or write.
 {
- const {run,isRecentUnpublishedKbCloseDay}=await import('./collect-kb-fund-nav.mjs');
+ const {run,isRecentUnpublishedKbCloseDay,kbNavCollectorExitCode}=await import('./collect-kb-fund-nav.mjs');
  const day={date:'2026-11-12',code:'F00002',navState:'NAV_MISSING',
   publicationExpected:true,valuationRequired:true,unitsApplied:true,
   reconciled:true,evaluationState:'NOT_CREATED',snapshotState:'WRITE_REQUIRED'};
@@ -962,11 +962,11 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
      throw Error('MUST_NOT_CALL_FINANCE_WRITE');
    }
  });
- // A busy GAS fund writer is not expected publication lag. It must fail the
- // collector before querying sources, so the protected fallback is eligible.
+ // Preserve the library deferral contract, but make the actual --apply
+ // run fail so a busy writer never suppresses the independent fallback.
  for(const busy of ['RUNNING','IN_PROGRESS']){
   let calls=0;
-  await assert.rejects(()=>run({...latest(),fetchImpl:async(_url,opts)=>{
+  const blocked=await run({...latest(),fetchImpl:async(_url,opts)=>{
    calls++;
    assert.equal(opts.body?.get('action'),'getAutomationStatus');
    if(opts.body.get('accessToken')==='NAV_AUTH_PROBE')
@@ -974,13 +974,19 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    return {ok:true,json:async()=>({status:'ok',gasVersion:'9.297',
     automation:{closeRun:{state:'COMPLETE',runDate:'2026-11-12'},
      fundAttempt:{state:busy}}})};
-  }}),/NAV_WRITER_BUSY/);
+  }});
+  assert.equal(blocked.reason,'NAV_WRITER_BUSY');
+  assert.equal(kbNavCollectorExitCode(blocked,{apply:true}),1);
   assert.equal(calls,2,'busy gate does not call a source or writer');
  }
+ assert.equal(kbNavCollectorExitCode({mode:'DEFERRED',complete:false,reason:'UNKNOWN'},{apply:true}),1);
+ assert.equal(kbNavCollectorExitCode({mode:'APPLY',complete:true},{apply:true}),0);
+ assert.equal(kbNavCollectorExitCode({mode:'SOURCE_ONLY'},{apply:false}),0);
  const deferred=await run(latest());
  assert.equal(deferred.mode,'DEFERRED');
  assert.equal(deferred.complete,false);
  assert.equal(deferred.reason,'OFFICIAL_NAV_AWAITING_PUBLICATION');
+ assert.equal(kbNavCollectorExitCode(deferred,{apply:true}),0,'actual publication wait is not a writer failure');
  assert.deepEqual(deferred.waitingDates,['2026-11-12']);
  assert.equal(deferred.financialWritesNotAuthorized,true);
  assert(!observed.includes('collectKbFundNav'),'no NAV writes before publication');
