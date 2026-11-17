@@ -267,3 +267,39 @@ assert.doesNotMatch(acctView, /saveAcctOrder\(/,
 const events = fs.readFileSync('src/web/app/event_delegation.js','utf8');
 for (const cmd of ['acct-order-toggle','acct-order-up','acct-order-down','acct-order-reset'])
   assert.ok(events.includes("action === '" + cmd + "'"), '계좌 순서 버튼 이벤트 누락: '+cmd);
+
+
+// 2026-11-17 visible icon system contract: styling only, not financial state.
+const historyRender = fs.readFileSync('src/web/views/views_history_render.js','utf8');
+const historyState = fs.readFileSync('src/web/views/views_history_state.js','utf8');
+for (const id of ['s-total','s-cost','s-pnl','s-net','loan-summary-bal','s-realestate']) {
+  const position=html.indexOf('id="'+id+'"');
+  assert(position>0,'KPI numeric element remains: '+id);
+}
+const summaryArea=html.slice(html.indexOf('<!-- SUMMARY -->'),html.indexOf('<!-- ACTION BAR -->'));
+assert.equal((summaryArea.match(/class="ui-label-icon"/g)||[]).length,6,
+  'six summary cards must use the same line SVG icon system');
+assert.doesNotMatch(summaryArea,/💰|📥|📈|💎|🏦|🏠/,
+  'mixed emoji/icon glyphs must not return in the KPI labels');
+assert.match(html, /class="ui-brand-icon"/,'brand should use the common vector language');
+assert.match(unifiedCss, /\.wrap \.ui-label-icon\s*\{[^}]*width:15px;height:15px;/,
+  'summary SVGs should use one size and stroke');
+assert.match(unifiedCss, /\.wrap \.sum-row \.sc::before\s*\{[^}]*height:1px;background:var\(--ui-edge\)/,
+  'summary top borders should be visually neutral; money colors remain on values');
+assert.match(historyRender,/class="hist-view-header"/);
+assert.match(historyRender,/class="hist-view-title"/);
+assert.match(historyRender,/class="hist-benchmark-options"/);
+assert.match(historyRender,/id="btn-history-query"/);
+assert.match(historyRender,/id="btn-history-full-repair"/);
+assert.doesNotMatch(historyRender,/📈 손익 그래프|📅 특정일 손익/,
+  'history headings must not mix emoji with SVG icons');
+assert.match(historyState,/setAttribute\?\.\('aria-pressed', String\(selected\)\)/,
+  'day/week/month mode must expose a selected state for keyboard users');
+assert.doesNotMatch(historyState, /active\.style\.background = 'var\(--c-purple-45/,
+  'profit chart mode must not use a distinct purple active system');
+assert.match(unifiedCss, /\.hist-benchmark-options\s*\{[^}]*display:flex;/,
+  'benchmark chips should be sized by shared CSS, not inline HTML');
+assert.match(unifiedCss, /@media\(max-width:720px\)[\s\S]*?\.hist-controls\s*\{[\s\S]*?display:grid;/,
+  'narrow history toolbar should use the shared responsive grid');
+assert.ok(!historyRender.includes('id="histBenchmarkMulti" title='),
+  'benchmark options must use the shared style class');
