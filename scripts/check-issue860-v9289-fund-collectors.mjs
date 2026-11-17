@@ -215,7 +215,7 @@ for(const [kind,runner,code] of [['KB',collectKb,'F00002'],
 // Regression for 2026-11-11: the GAS import may commit before HTTP ACK times out.
 // Only transient read-only preview errors may be retried. Never import twice.
 const exactDate='2026-11-10',exactNav=1234.56;
-function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackRejected=false}={}){
+function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackRejected=false,partialWithoutCommit=false,partialMissingHoldings=false}={}){
  const calls={source:0,preview:0,import:0,valuation:0,delay:0};
  const fetchImpl=async(destination,options={})=>{
   const host=new URL(destination).hostname;
@@ -242,6 +242,8 @@ function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackReject
    if(readbackRejected)return {ok:false,status:401};
    if(calls.preview<=1+readbackFailures)
     throw Object.assign(Error('PRIVATE_TIMEOUT'),{name:'TimeoutError'});
+   if(partialWithoutCommit)return {ok:true,json:async()=>({status:'ok',code:'F00002',
+     candidates:[{date:exactDate,nav:exactNav}],updates:[],errors:[],warnings:[],identical:[]})};
    return {ok:true,json:async()=>({status:'ok',code:'F00002',
      candidates:[],updates:[],errors:[],warnings:[],
      identical:[{date:exactDate,existingNav:exactNav,uploadedNav:exactNav}]})};
@@ -250,7 +252,8 @@ function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackReject
    assert.equal(options.body.get('mode'),'import','no refresh/write on this fixture');
    calls.import++;
    if(explicitPartial)
-    return {ok:true,json:async()=>({status:'error',saveState:'partial'})};
+    return {ok:true,json:async()=>({status:'error',saveState:'partial',
+      ...(partialMissingHoldings?{evaluation:{missingHoldings:['F00002']}}:{})})};
    throw Object.assign(Error('PRIVATE_ACK_LOST'),{name:'TimeoutError'});
   }
   if(action==='getFundValuationStatus'){
@@ -277,11 +280,25 @@ assert.deepEqual([stillUnverified.calls.import,stillUnverified.calls.preview,
  stillUnverified.calls.delay],[1,4,2],
  'bounded read-only retries must never duplicate the financial import');
 const partial=lostAckFixture({explicitPartial:true});
-await assert.rejects(()=>collectKb({url,token,now,
- fetchImpl:partial.fetchImpl,retryDelay:partial.retryDelay,apply:true}),
- /NAV_IMPORT_UNVERIFIED/);
+const partialResult=await collectKb({url,token,now,
+ fetchImpl:partial.fetchImpl,retryDelay:partial.retryDelay,apply:true});
+assert.equal(partialResult.importAckRecovered,true,
+ 'structured partial requires exact NAV date and price proof');
+assert.equal(partialResult.imported,1);
 assert.deepEqual([partial.calls.import,partial.calls.preview,partial.calls.delay],
- [1,1,0],'explicit partial save must not be certified through retries');
+ [1,2,0],'structured partial cannot trigger another import');
+const notCommitted=lostAckFixture({explicitPartial:true,partialWithoutCommit:true});
+await assert.rejects(()=>collectKb({url,token,now,
+ fetchImpl:notCommitted.fetchImpl,retryDelay:notCommitted.retryDelay,apply:true}),
+ /NAV_READBACK_FAILED/);
+assert.deepEqual([notCommitted.calls.import,notCommitted.calls.preview,notCommitted.calls.delay],
+ [1,2,0],'uncommitted partial must fail after one exact readback');
+const missingUnits=lostAckFixture({explicitPartial:true,partialMissingHoldings:true});
+await assert.rejects(()=>collectKb({url,token,now,
+ fetchImpl:missingUnits.fetchImpl,retryDelay:missingUnits.retryDelay,apply:true}),
+ /NAV_IMPORT_UNVERIFIED/);
+assert.deepEqual([missingUnits.calls.import,missingUnits.calls.preview,missingUnits.calls.delay],
+ [1,1,0],'missing holding data cannot be certified by partial NAV readback');
 const denied=lostAckFixture({readbackRejected:true});
 await assert.rejects(()=>collectKb({url,token,now,
  fetchImpl:denied.fetchImpl,retryDelay:denied.retryDelay,apply:true}),
@@ -289,4 +306,4 @@ await assert.rejects(()=>collectKb({url,token,now,
 assert.deepEqual([denied.calls.import,denied.calls.preview,denied.calls.delay],
  [1,2,0],'HTTP/auth rejection must not be retried after lost import ACK');
 
-console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, lost-ACK exact readback 4 cases, no duplicate import');
+console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, lost-ACK/partial exact readback 7 cases, no duplicate import');
