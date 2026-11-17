@@ -13,7 +13,7 @@ import {assertPublishedReleaseFundNavSupport}
  from './issue860-fund-nav-release-compat.mjs';
 import {assertGas9297ReadOnlyProof,verifyGas9297WithRetry}
  from './issue734-gas9297-release-readonly.mjs';
-const PIN='__GAS9297_CANDIDATE_PIN__';
+const PIN='7d303bedb019150798ffdd21bab43849d28d63a8';
 const {parent,candidate,manifest}=composeGas9297NavCollectorTwoStagePreview();
 assert.equal(manifest.parentGitBlob,'e7dfcc8a1ad194e4a0ef586b83b7df66a83dd2c6');
 assert.equal(manifest.candidateGitBlob,PIN,'reviewed 9.297 candidate must have an immutable blob pin');
