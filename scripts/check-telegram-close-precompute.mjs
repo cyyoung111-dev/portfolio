@@ -46,16 +46,20 @@ const priorTurnover=[
   source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'},
  {id:'KRX_TURNOVER_KOSDAQ',market:'KOSDAQ',date:us,valueKrw:6300000000000,
   source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'}];
+const skhy=[{symbol:'SKHY',label:'SK하이닉스 ADR',date:us,value:142.25,source:'NASDAQ_DAILY_REFERENCE'}];
 const all={nh,domestic,secondary,stocks,macros,markets};
 const r=await precomputeClose({now:pre,fetchNh:async()=>nh,fetchDomestic:async()=>domestic,
  fetchSecondary:async()=>secondary,fetchStocks:async()=>stocks,fetchMacros:async()=>macros,
  fetchMarkets:async()=>markets,fetchPriorVkospi:async day=>{assert.equal(day,us);return priorVkospi;},
- fetchPriorTurnover:async day=>{assert.equal(day,us);return priorTurnover;}});
+ fetchPriorTurnover:async day=>{assert.equal(day,us);return priorTurnover;},
+ fetchSkhy:async day=>{assert.equal(day,date);return skhy;}});
 assert.equal(r.status,'PRECOMPUTED');
-assert.deepEqual(r.counts,{nh:3,domestic:3,secondary:3,stocks:4,macros:3,markets:5,priorVkospi:1,priorTurnover:2});
+assert.deepEqual(r.counts,{nh:3,domestic:3,secondary:3,stocks:4,macros:3,markets:5,priorVkospi:1,priorTurnover:2,skhy:1});
 assert.deepEqual(verifyPreparedClose(date,r.data,now())?.priorVkospi,priorVkospi);
 assert.deepEqual(verifyPreparedClose(date,r.data,now())?.priorTurnover,priorTurnover);
-const {priorVkospi:unusedVk,priorTurnover:unusedTurnover,...legacy}=r.data;
+assert.deepEqual(verifyPreparedClose(date,r.data,now())?.skhy,skhy);
+assert.equal(verifyPreparedClose(date,{...r.data,skhy:[{...skhy[0],date}]},now()),null);
+const {priorVkospi:unusedVk,priorTurnover:unusedTurnover,skhy:unusedSkhy,...legacy}=r.data;
 assert.deepEqual(verifyPreparedClose(date,legacy,now())?.priorVkospi,[]);
 assert.equal(verifyPreparedClose(date,{...r.data,priorVkospi:[{...priorVkospi[0],date}]},now()),null);
 assert.equal(verifyPreparedClose(date,{...r.data,priorTurnover:[...priorTurnover,priorTurnover[0]]},now()),null);
@@ -125,6 +129,7 @@ assert.equal(prepared.coverage.stocks.verified,4);
 assert.equal(prepared.coverage.macros.verified,3);
 assert.equal(prepared.coverage.markets.verified,5);
 assert.ok(prepared.message.length<4000);
+assert.ok(prepared.message.includes('SK하이닉스 ADR (SKHY): $142.25 [2026-10-29 · Nasdaq 참고]'));
 assert.match(prepared.message,/VKOSPI 직전 공표: 24\.20 \[2026-10-29 · KRX\]/);
 assert.match(prepared.message,/KOSPI 지수 구성종목 거래대금 직전 공표: 20\.25조원 \[2026-10-29 · KRX\]/);
 assert.match(prepared.message,/KOSDAQ 지수 구성종목 거래대금 직전 공표: 6\.30조원/);
@@ -141,6 +146,7 @@ assert.match(withToday,/KOSDAQ 지수 구성종목 거래대금 직전 공표: 6
 let sends=0;
 assert.equal((await deliverClose(prepared,{now,send:async(_token,_chat,message)=>{
  sends++;
+ assert.ok(message.includes('SK하이닉스 ADR (SKHY): $142.25'));
  assert.match(message,/VKOSPI 직전 공표: 24\.20/);
  assert.match(message,/거래대금 직전 공표: 20\.25조원/);
 }})).status,'SENT');
