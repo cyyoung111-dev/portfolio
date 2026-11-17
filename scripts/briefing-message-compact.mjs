@@ -25,7 +25,7 @@ function cleanRow(line,mode) {
  if(missingMarketRow(line))return null;
  if(/^미확보: /u.test(line)||/^미연결 참고지표: /u.test(line))return null;
  if(/^유효한 최근 거래값 미확보/u.test(line)
-  ||/^확보 0\/4 · 실시간 확정값/u.test(line))return null;
+  ||/^확보 0\/4(?:$| ·)/u.test(line))return null;
  if(/^시장폭 A\/D: KOSPI 미확보 · KOSDAQ 미확보 \(공식 일봉 미검증\)$/u.test(line))return null;
  if(/^• 실수요: .*미연결/u.test(line))return null;
  if(mode==='morning'&&line.startsWith('■ QC: 기준 거래일과 일치한 일봉 ')){
