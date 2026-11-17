@@ -241,7 +241,16 @@ assert.match(formatSemiconductorCompanyMetrics({
 assert.ok(marketMorning.length<=3900);
 const marketClose=formatClose(date,[],[],[],closingPrices,[],[],[],
  new Date('2026-11-06T17:00:00+09:00'));
-assert.match(marketClose,/삼성전자·SK하이닉스 정량 지표/);
+// Closing output suppresses a valuation-only panel when book evidence
+// is absent. The independently tested morning and offline views are unchanged.
+assert.doesNotMatch(marketClose,/삼성전자·SK하이닉스 정량 지표|BPS·PBR 미확보/);
+const marketClosePriced=formatClose(date,[],[],[],closingPrices,[],[],[],
+ new Date('2026-11-06T17:00:00+09:00'),[],[],null,pricedClosing);
+assert.match(marketClosePriced,/삼성전자·SK하이닉스 정량 지표/);
+assert.match(marketClosePriced,/참고 PBR 1\.50배/);
+assert.match(marketClosePriced,/검증 BPS 100,000원 \/ PBR 2\.00배/);
+assert.doesNotMatch(marketClosePriced,/BPS·PBR 미확보|6인 정량 관점/);
+assert.ok(marketClosePriced.length<=3900);
 assert.doesNotMatch(marketClose,/6인 정량 관점|• 버핏:|• 하워드 막스:|• 켄 피셔:/);
 assert.ok(marketClose.length<=4000);
 console.log('SEMICONDUCTOR_METRICS_PASS compact_telegram=true detailed_helper_preserved=true book_price_date=exact');
