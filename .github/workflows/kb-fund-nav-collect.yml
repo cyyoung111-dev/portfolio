@@ -122,6 +122,7 @@ jobs:
   collect:
     outputs:
       admitted: ${{ steps.nav_admission.outputs.admitted }}
+      admitted_at: ${{ steps.nav_admission.outputs.admitted_at }}
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
@@ -169,6 +170,7 @@ jobs:
         id: nav_admission
         env:
           NAV_SCHEDULE_CRON: ${{ github.event.schedule }}
+          NAV_PRIOR_ADMITTED_AT: ${{ needs.collect.outputs.admitted_at }}
         run: node scripts/nav-schedule-admission.mjs
       - name: Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease
         env:
