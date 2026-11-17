@@ -11,7 +11,7 @@ import {gasSourceBlobSha,assertGasReleaseReady,
  from './deploy-gas.mjs';
 import {assertPublishedReleaseFundNavSupport}
  from './issue860-fund-nav-release-compat.mjs';
-import {assertGas9297ReadOnlyProof,verifyGas9297WithRetry}
+import {assertGas9297ReadOnlyProof,verifyGas9297WithRetry,verifyGas9297PreflightWithRetry}
  from './issue734-gas9297-release-readonly.mjs';
 const PIN='7d303bedb019150798ffdd21bab43849d28d63a8';
 const {parent,candidate,manifest}=composeGas9297NavCollectorTwoStagePreview();
@@ -80,6 +80,46 @@ await assert.rejects(verifyGas9297WithRetry({verify:async()=>{
  neverRetry++;throw Error('GAS9297_READONLY_FINANCIAL_INTEGRITY_UNVERIFIED');
 },delay:async()=>{}}),/GAS9297_READONLY_FINANCIAL_INTEGRITY_UNVERIFIED/);
 assert.equal(neverRetry,1);
+// Production dry-run #44011635687 failed on a single 60s network read.
+// Recover only transient transport errors, and always prove the whole
+// unchanged 9.296 ledger and idle writer state again on each attempt.
+const preProof={...proof,version:'9.296',pcAndPhysicalRevisionMatch:true};
+for(const transient of ['GAS9295_READONLY_NETWORK_UNVERIFIED',
+ 'AUTOMATION_DIAG_NETWORK_FAILED','READBACK_NETWORK_UNVERIFIED']){
+ let count=0;const delays=[];
+ const restored=await verifyGas9297PreflightWithRetry({verify:async()=>{
+  if(++count<3)throw Error(transient);
+  return preProof;
+ },delay:async ms=>{delays.push(ms);}});
+ assert.equal(restored.readbackAttempts,3);
+ assert.equal(count,3);assert.deepEqual(delays,[3000,6000]);
+ assert.equal(restored.financeWrites,0);
+}
+let preAttempts=0;const preDelays=[];
+await assert.rejects(verifyGas9297PreflightWithRetry({verify:async()=>{
+ preAttempts++;throw Error('GAS9295_READONLY_NETWORK_UNVERIFIED');
+},delay:async ms=>{preDelays.push(ms);}}),/GAS9295_READONLY_NETWORK_UNVERIFIED/);
+assert.equal(preAttempts,3);assert.deepEqual(preDelays,[3000,6000]);
+for(const code of ['GAS9295_READONLY_VERSION_MISMATCH','GAS9295_READONLY_AUTH_MISSING',
+ 'GAS9295_READONLY_LEDGER_UNVERIFIED','GAS9296_READONLY_HASH_MISMATCH',
+ 'GAS9295_READONLY_WRITER_ACTIVE','GAS9295_READONLY_PENDING_FINANCIAL_RECOVERY',
+ 'GAS9295_READONLY_HTTP_UNVERIFIED','GAS9295_READONLY_JSON_UNVERIFIED']){
+ let count=0;
+ await assert.rejects(verifyGas9297PreflightWithRetry({verify:async()=>{
+  count++;throw Error(code);
+ },delay:async()=>assert.fail('non-transient failures must not retry')}),new RegExp(code));
+ assert.equal(count,1);
+}
+for(const invalid of [{version:'9.297'},{financeWrites:1},{activeCount:1},
+ {pendingCount:1},{tradeSnapshotDeferredCount:1},{writerGateMode:'CLOSED'},
+ {tradeRows:-1},{pcAndPhysicalRevisionMatch:false}]){
+ let count=0;
+ await assert.rejects(verifyGas9297PreflightWithRetry({verify:async()=>{
+  count++;return {...preProof,...invalid};
+ },delay:async()=>assert.fail('invalid proof must not retry')}),
+ /GAS9297_PREDEPLOY_INTEGRITY_UNVERIFIED/);
+ assert.equal(count,1);
+}
 const wf=YAML.parse(readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const input=(wf.on??wf.true).workflow_dispatch.inputs;
 assert.equal(input.dry_run.default,true);
@@ -106,11 +146,11 @@ assert(steps.indexOf(pre)<steps.indexOf(deploy));
 assert(steps.some(x=>/issue734-gas9297-release-readonly.mjs post/.test(x.run||'')));
 const runner=readFileSync('scripts/issue734-gas9297-release-readonly.mjs','utf8');
 assert.doesNotMatch(runner,/setValues|appendRow|refreshFundValuations|collectKbFundNav|collectHanwhaFundNav|syncTrades\(/);
-assert.match(runner,/verifyGas9296PostDeploy/);
+assert.match(runner,/\?await verifyGas9297PreflightWithRetry\(\{verify:\(\)=>verifyGas9296PostDeploy\(config\)\}\)/);
 assert.match(runner,/verifyGas9295ReleaseReadOnly/);
 assert.match(runner,/probeTradeHash/);
 console.log('GAS9297_MANUAL_RELEASE_READY '+JSON.stringify({
  pin:PIN,changedFunctions:changed,preflightReadOnly:true,manualApproval:true,
- exactNavCollectorVersion:true,negativeCases:7,postdeployReconcilesTradeV2:true,
+ exactNavCollectorVersion:true,negativeCases:7,preflightNetworkRetryMax:3,preflightStrictIntegrity:true,postdeployReconcilesTradeV2:true,
  liveGasTouched:false,financeWrites:0,deployments:0
 }));
