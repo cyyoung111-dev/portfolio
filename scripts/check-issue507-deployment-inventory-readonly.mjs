@@ -355,7 +355,7 @@ assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGAC
      item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
    reviewedDetails,{'336':files}).run({verifyDetails:true,verifySource:true});
   assert.equal(match.status,'INVENTORY_ONLY',
-    candidate.name+' exact approved blob must pass inventory classification');
+    candidate.name+' exact approved blob must pass inventory classification; reviewed 9.297 candidateGitBlob='+composeGas9297NavCollectorTwoStagePreview().manifest.candidateGitBlob);
   assert.equal(match.expectedDeploymentSourceClassification,'REVIEWED_FULL_RELEASE_SOURCE');
   assert.equal(match.sourceKnownReviewedFullReleaseCount,1);
   assert.equal(match.sourceUnreviewedCount,0);
