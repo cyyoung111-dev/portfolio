@@ -4,7 +4,7 @@ import {scheduledWindow,lateTestWindow,runTelegramMorning,sendTelegram,fetchNigh
 import {loadCapturedNight} from './nh-capture-artifact.mjs';
 import {loadPrefetchedNight} from './telegram-morning-prefetch.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
-import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
+import {deliverAndRecordWeekday,confirmClaimedWeekdayDelivery} from './telegram-weekday-sent-proof.mjs';
 import {inspectMorningMessage} from './telegram-morning-source-coverage.mjs';
 import {MORNING_SERIES,expectedMorningDate} from './telegram-morning-report.mjs';
 import {fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
@@ -243,9 +243,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    process.exit(0);
   }
   if(process.argv[2]==='prepare'){
-   const result=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,mode:process.env.TELEGRAM_DISPATCH_MODE||'rescue',
+   const prepared=await prepareMorning({githubToken:process.env.GITHUB_TOKEN,repository:process.env.GITHUB_REPOSITORY,attempt:process.env.GITHUB_RUN_ATTEMPT,mode:process.env.TELEGRAM_DISPATCH_MODE||'rescue',
       loadFinancialEvidence:loadAiFinancialEvidenceArtifact,
       onRecoveryDiagnostic:details=>console.log(JSON.stringify({kind:'NH_MORNING_REFERENCE_RECOVERY',...details}))});
+   const result=await confirmClaimedWeekdayDelivery(prepared,{
+    kind:'morning',mode:process.env.TELEGRAM_DISPATCH_MODE||'rescue',
+    verify:date=>verifyLateScheduledMorningSent({date,
+     repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN})
+   });
    if(result.ready){
     fs.mkdirSync('.telegram-runtime',{recursive:true});
     fs.writeFileSync('.telegram-runtime/payload.json',JSON.stringify(result));
