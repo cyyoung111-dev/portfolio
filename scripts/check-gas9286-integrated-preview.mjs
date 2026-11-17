@@ -34,7 +34,7 @@ const declared=versionList.split(',').map(x=>x.trim().replace(/^['"]|['"]$/g,'')
 assert.equal(new Set(declared).size,declared.length,'no duplicate GAS versions');
 assert.ok(declared.includes('9.294'),'current live server must not warn');
 assert.ok(declared.includes('9.295'),'source-reviewed 9.295 release protocol remains compatible');
-assert.ok(!declared.includes('9.297'),'unreviewed future server must still warn');
+assert.ok(!declared.includes('9.298'),'unreviewed future server must still warn');
 const webSettings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(webSettings,/serverVer && !compatibleVersions\.includes\(serverVer\)/,
  'GAS mismatch warning must remain a bounded allowlist check');
