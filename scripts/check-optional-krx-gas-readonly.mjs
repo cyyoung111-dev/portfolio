@@ -17,6 +17,9 @@ assert.equal(auditDirectVkospiRows('2026-11-12',[...sample,...sample]).verified,
 assert.equal(auditDirectVkospiRows('2026-11-12',[{...sample[0],CLSPRC_IDX:'NaN'}]).verified,false);
 assert.equal(auditDirectVkospiRows('2026-11-12',[{...sample[0],IDX_NM:'KOSPI 200'}]).verified,false);
 assert.equal(auditDirectVkospiRows('2026-11-12',[]).verified,false);
+assert.equal(auditDirectVkospiRows('2026-11-12',[
+ ...sample,{IDX_NM:'OTHER',BAS_DD:'20261111',CLSPRC_IDX:'20.1'}]).verified,false,
+ 'mixed date payload cannot be certified by diagnostic when production rejects it');
 const when=s=>new Date(s);
 assert.equal(completedKrxSession(when('2026-11-13T13:52:00+09:00')),'2026-11-12');
 assert.equal(completedKrxSession(when('2026-11-13T16:00:00+09:00')),'2026-11-13');
@@ -75,6 +78,9 @@ assert.ok(directRecords.filter(x=>x.date==='2026-11-13')
 assert.ok(directRecords.filter(x=>x.date==='2026-11-12')
  .every(x=>x.payloadShape==='OUTBLOCK_PRESENT'&&x.rowCount===1&&x.exactDate===true));
 assert.equal(directRecords.find(x=>x.date==='2026-11-12'&&x.id==='INDEX_DERIVATIVE').vkospiVerified,true);
+assert.equal(directRecords.find(x=>x.date==='2026-11-12'&&x.id==='INDEX_KOSPI').turnoverVerified,true);
+assert.equal(directRecords.find(x=>x.date==='2026-11-12'&&x.id==='INDEX_KOSDAQ').turnoverVerified,false,
+ 'column presence is not exact market turnover proof');
 assert.ok(directRecords.every(x=>x.provenance==='HISTORIC_READ_ACTUAL_REQUEST_TIME'));
 assert.ok(!JSON.stringify(directLogs).includes('TEST_KRX_AUTH_APPROVED'));
 assert.ok(!JSON.stringify(directLogs).includes('21.55'));
