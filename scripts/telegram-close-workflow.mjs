@@ -11,7 +11,7 @@ import {fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
 import {fetchShinhanIndexEod} from './shinhan-korean-index-eod.mjs';
 import {verifyCrosscheckedYahooIndexes} from './yahoo-shinhan-crosschecked-close.mjs';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
-import {deliverAndRecordWeekday} from './telegram-weekday-sent-proof.mjs';
+import {deliverAndRecordWeekday,confirmClaimedWeekdayDelivery} from './telegram-weekday-sent-proof.mjs';
 import {summarizeCloseCoverage,formatCloseCoverageSummary,closeQualityDecision} from './briefing-source-coverage.mjs';
 import {readClosingStockSources,readClosingMacros,formatClosingExtra} from './closing-extra-daily-sources.mjs';
 import {loadPreparedClose} from './telegram-close-prepared-artifact.mjs';
@@ -581,9 +581,14 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       const armed=process.argv[3]==='armed';
       if(armed&&process.env.GITHUB_WORKFLOW!=='Telegram close early-armed fallback')
         throw Error('TELEGRAM_CLOSE_RETRY_CONFIG');
-      const result=armed
+      const prepared=armed
         ?await prepareArmedCloseWithRetry(()=>prepareClose(args))
         :await prepareClose(args);
+      const result=await confirmClaimedWeekdayDelivery(prepared,{
+        kind:'close',verify:()=>verifyLateCloseSent({
+          now:invokedAt,repository:process.env.GITHUB_REPOSITORY,
+          token:process.env.GITHUB_TOKEN})
+      });
       if(result.ready){fs.mkdirSync('.telegram-close-runtime',{recursive:true});fs.writeFileSync('.telegram-close-runtime/payload.json',JSON.stringify(result));fs.writeFileSync('.telegram-close-runtime/claim.json',JSON.stringify({date:result.date,runId:process.env.GITHUB_RUN_ID}));}
       fs.appendFileSync(process.env.GITHUB_OUTPUT,`ready=${result.ready}\nartifact_name=${result.artifactName||''}\n`);
       console.log(JSON.stringify({status:result.status,date:result.date,
