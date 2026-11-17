@@ -822,22 +822,28 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.throws(()=>parseNav([{gijunYmd:'20261022',gijunGa:2100}],
   '2026-10-23','2026-10-25'),/NAV_SOURCE_NO_RANGE_ROWS/);
  for(const payload of [[],[{gijunYmd:'20261023',gijunGa:0}],[{gijunYmd:'20261023',gijunGa:'2116.98'}],[{gijunYmd:'20261032',gijunGa:2116.98}],[{gijunYmd:'20261023',gijunGa:1},{gijunYmd:'20261023',gijunGa:2}]])assert.throws(()=>parseNav(payload,'2026-10-01','2026-10-25'));
- let writes=0;const calls=[];
+ let writes=0,closeDateToday=false;const calls=[];
  const fixture=async(u,o)=>{
   if(!o.body){assert.equal(new URL(u).searchParams.get('fundCd'),'KR5223AQ0185');return {ok:true,json:async()=>[{gijunYmd:'20261023',gijunGa:2116.98},{gijunYmd:'20261025',gijunGa:2222.22}]};}
   const params=Object.fromEntries(o.body);calls.push(params.action);
   if(params.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
   let result={status:'ok'};
-  if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.282',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
-  if(params.action==='previewFundNavImport')result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{}]:[]};
+  if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.297',automation:{closeRun:{state:'COMPLETE',runDate:closeDateToday?'2026-10-25':'2026-10-24'}}};
+  if(params.action==='previewFundNavImport'){
+   assert.ok(JSON.parse(params.data).rows.every(d=>d.date<='2026-10-24'));
+   result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{date:'2026-10-23',existingNav:2116.98,uploadedNav:2116.98}]:[]};
+  }
   if(params.action==='getFundValuationStatus'){assert.equal(params.to,'2026-10-24','do not repair unclosed current day');}
-  if(params.action==='getFundValuationStatus')result={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}};
+  if(params.action==='getFundValuationStatus')result={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',code:'F00002',navState:'EXISTING_CONFIRMED',valuationRequired:true,unitsApplied:true,reconciled:true,evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}};
   if(params.action==='collectKbFundNav'&&params.mode==='import'){assert.equal(JSON.parse(params.data).appendOnly,true);writes++;assert.deepEqual(JSON.parse(params.data).rows.map(x=>x.date),['2026-10-23']);result={...result,saveState:'success',evaluation:{missingHoldings:[]}};}
   return {ok:true,json:async()=>result};
  };
  const args={url:'https://script.google.com/macros/s/Test/exec',token:'SECRET',now:new Date('2026-10-25T00:00:00Z'),fetchImpl:fixture,apply:true};
  assert.equal((await run(args)).imported,1);assert.equal(writes,1);
  assert.equal((await run(args)).imported,0);assert.equal(writes,1);
+ writes=0;closeDateToday=true;
+ assert.equal((await run(args)).imported,1);assert.equal(writes,1,'same-day close state must still stop yesterday');
+ closeDateToday=false;
  writes=0;assert.equal((await run({...args,apply:false})).imported,0);assert.equal(writes,0);
  for(const kind of ['updates','errors','warnings']) {
   await assert.rejects(()=>run({...args,fetchImpl:async(u,o)=>{
@@ -977,7 +983,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
 // preview, then still repair/check derived prices and Snapshot.
 {
  const {run}=await import('./collect-kb-fund-nav.mjs');
- const makeFixture=({committed=true,badProof=false,bodyFailure=false,partialAck=false}={})=>{
+ const makeFixture=({committed=true,badProof=false,bodyFailure=false,partialAck=false,normalAck=false,lostRefreshAck=false,uncommittedRefresh=false,missingDerived=false,missingFinal=false,transientReadback=false}={})=>{
   let stored=false,writes=0,refreshes=0,readback=0,repaired=false;
   const calls=[];
   const fetchImpl=async(u,o)=>{
@@ -987,20 +993,26 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    if(p.accessToken==='NAV_AUTH_PROBE')response={status:'error',message:'인증 실패'};
    else if(p.action==='getAutomationStatus')response={status:'ok',gasVersion:'9.281',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
    else if(p.action==='previewFundNavImport'){
-     if(stored){readback++;response={status:'ok',candidates:[],updates:[],errors:[],
+     if(stored){readback++;
+       if(transientReadback&&readback===1)return {ok:false,status:503};
+       response={status:'ok',candidates:[],updates:[],errors:[],
        identical:[{date:'2026-10-23',uploadedNav:2116.98,existingNav:badProof?2116.97:2116.98}]};}
      else response={status:'ok',candidates:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:[]};
    } else if(p.action==='collectKbFundNav'&&p.mode==='import'){
      writes++;if(committed)stored=true;
      if(bodyFailure)return {ok:true,json:async()=>{throw Object.assign(Error('PRIVATE'),{name:'SyntaxError'});}};
      if(partialAck)return {ok:true,json:async()=>({status:'error',saveState:'partial'})};
+     if(normalAck)return {ok:true,json:async()=>({status:'ok',saveState:'success'})};
      return {ok:false,status:503};
    } else if(p.action==='getFundValuationStatus')
-     response={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',
+     response={status:'ok',fundResults:{F00002:{dates:missingDerived||(missingFinal&&refreshes)?[]:[{date:'2026-10-23',
        navState:'EXISTING_CONFIRMED',unitsApplied:true,reconciled:true,valuationRequired:true,
        evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',
        snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
-   else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){refreshes++;repaired=true;}
+   else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){
+     refreshes++;if(!uncommittedRefresh)repaired=true;
+     if(lostRefreshAck)throw Object.assign(Error('transient'),{name:'TimeoutError'});
+   }
    else throw Error('unexpected request in ACK-loss fixture: '+p.action);
    return {ok:true,json:async()=>response};
   };
@@ -1017,11 +1029,30 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    assert.equal(f.readback,1,'exact NAV must be proven via a separate read-only preview');
    assert.equal(f.refreshes,1,'source-only commit needs derived reconciliation');
  }
- for(const problem of [{committed:false},{committed:true,badProof:true}]){
+ for(const problem of [{committed:false},{committed:true,badProof:true},{normalAck:true,badProof:true}]){
    const f=makeFixture(problem);
    await assert.rejects(()=>run({...args,fetchImpl:f.fetchImpl}),/NAV_READBACK_FAILED/);
    assert.equal(f.writes,1,'unverified write must never be sent again');
    assert.equal(f.refreshes,0,'unproved NAV cannot advance derived Snapshot');
+ }
+ // Ordinary success also needs exact readback. A transient read is retried,
+ // never the import. A lost refresh ACK must prove the same date.
+ for(const options of [{normalAck:true},{normalAck:true,transientReadback:true},
+  {normalAck:true,lostRefreshAck:true}]){
+  const f=makeFixture(options);
+  const result=await run({...args,fetchImpl:f.fetchImpl,retryDelay:async()=>{}});
+  assert.equal(result.complete,true);
+  assert.equal(result.importAckRecovered,false);
+  assert.equal(f.writes,1);assert.equal(f.refreshes,1);
+  assert.equal(f.readback,options.transientReadback?2:1);
+ }
+ for(const options of [{normalAck:true,missingDerived:true},
+  {normalAck:true,missingFinal:true},
+  {normalAck:true,lostRefreshAck:true,uncommittedRefresh:true}]){
+  const f=makeFixture(options);
+  await assert.rejects(()=>run({...args,fetchImpl:f.fetchImpl}),/NAV_DERIVED_READBACK_UNVERIFIED/);
+  assert.equal(f.writes,1);
+  assert.equal(f.refreshes,options.missingDerived?0:1);
  }
  // Structured partial ACK is never a success by itself; only a fully
  // committed, exact NAV readback may clear it, not an uncommitted partial.
