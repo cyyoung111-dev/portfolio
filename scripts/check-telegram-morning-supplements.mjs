@@ -4,9 +4,14 @@ import {validateMorningFuturesQuote,readMorningSupplements,formatMorningFutures,
  from './telegram-morning-supplements.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import {MORNING_SERIES} from './telegram-morning-report.mjs';
+import {morningBreadthPublishedDate} from './telegram-morning-breadth.mjs';
 
 const date='2026-11-05',expected='2026-11-04';
+const krxEligible='2026-11-03'; // 07:40: 11/04 KRX OpenAPI daily not release-eligible until 08:15
 const now=new Date('2026-11-05T07:40:00+09:00');
+assert.equal(morningBreadthPublishedDate(date,now),krxEligible);
+assert.equal(morningBreadthPublishedDate(date,new Date('2026-11-05T08:14:59+09:00')),krxEligible);
+assert.equal(morningBreadthPublishedDate(date,new Date('2026-11-05T08:15:00+09:00')),expected);
 const quoteAt='2026-11-05T06:58:00+09:00';
 const stamp=Math.floor(Date.parse(quoteAt)/1000);
 function chart(symbol,at=stamp,value=7000){
@@ -55,16 +60,23 @@ const fetchImpl=async(target,opts={})=>{
   assert.equal(opts.method,'POST');
   assert.equal(opts.body.get('accessToken'),'TEST_ACCESS_123456');
   const action=opts.body.get('action');
-  if(action==='getBenchmark')return {ok:true,json:async()=>({
-   status:'ok',symbol:'KRX_OPEN_API:VKOSPI',
-   points:[{date:expected,sourceDate:expected,source:'KRX_OFFICIAL',value:24.2}]
-  })};
-  if(action==='getKrxMarketTurnover')return {ok:true,json:async()=>({
-   status:'ok',date:expected,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',
-   rows:[{id:'KRX_TURNOVER_KOSPI',market:'KOSPI',date:expected,
+  if(action==='getBenchmark'){
+   assert.equal(opts.body.get('from'),krxEligible);
+   assert.equal(opts.body.get('to'),krxEligible);
+   return {ok:true,json:async()=>({
+    status:'ok',symbol:'KRX_OPEN_API:VKOSPI',
+    points:[{date:krxEligible,sourceDate:krxEligible,source:'KRX_OFFICIAL',value:24.2}]
+   })};
+  }
+  if(action==='getKrxMarketTurnover'){
+   assert.equal(opts.body.get('date'),krxEligible);
+   return {ok:true,json:async()=>({
+    status:'ok',date:krxEligible,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',
+    rows:[{id:'KRX_TURNOVER_KOSPI',market:'KOSPI',date:krxEligible,
     valueKrw:35000000000000,source:'KRX_OFFICIAL_INDEX_DAILY',
     role:'NON_NH_REFERENCE_ONLY'}]
-  })};
+   })};
+  }
  }
  throw Error('unexpected test URL');
 };
@@ -84,7 +96,12 @@ assert.deepEqual(seen,['^GSPC','^IXIC','^NDX']);
 assert.equal(extras.futures.length,4);
 assert.equal(extras.treasury.length,3);
 assert.equal(extras.vkospi.length,1);
+assert.equal(extras.vkospi[0].date,krxEligible);
 assert.equal(extras.turnover.length,1);
+assert.equal(extras.turnoverDate,krxEligible);
+assert.equal(extras.turnover[0].date,krxEligible);
+assert.match(formatMorningVkospi(extras.vkospi),/2026-11-03 · KRX 참고/);
+assert.match(formatMorningTurnover(extras.turnoverDate,extras.turnover),/2026-11-03 · KRX/);
 assert.ok(Array.isArray(extras.krxReasons));
 assert.ok(extras.krxReasons.some(x=>x.source==='VKOSPI'&&x.status==='GAS_VERIFIED'));
 assert.ok(extras.krxReasons.some(x=>x.source==='TURNOVER'
@@ -134,6 +151,15 @@ const official=[
  {id:'KRX_TURNOVER_KOSDAQ',market:'KOSDAQ',date:expected,valueKrw:5000000000000,
   source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'}
 ];
+// Keep isolated direct-fallback tests anchored to their explicit date,
+// while the 07:40 integration fixture above tests the older eligible date.
+const partialGasForExpected=async (_url,opts)=>{
+ assert.equal(opts.body.get('date'),expected);
+ return {ok:true,json:async()=>({
+  status:'ok',date:expected,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',
+  rows:[official[0]]
+ })};
+};
 let fallbackCount=0;
 const fallback=async(day,args)=>{
  fallbackCount++;
@@ -143,13 +169,14 @@ const fallback=async(day,args)=>{
 };
 const turnoverReasons=[];
 const repaired=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
- authKey:'TEST_KRX_KEY_123456789',fetchImpl,fetchDirect:fallback,
+ authKey:'TEST_KRX_KEY_123456789',fetchImpl:partialGasForExpected,fetchDirect:fallback,
  onDiagnostic:entry=>turnoverReasons.push(entry)});
 assert.ok(turnoverReasons.some(x=>x.status==='DIRECT_BOTH_VERIFIED'));
 assert.deepEqual(repaired,official);
 assert.equal(fallbackCount,1);
 const noKey=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
- authKey:'',fetchImpl,fetchDirect:async()=>assert.fail('must not request direct keyless')});
+ authKey:'',fetchImpl:partialGasForExpected,
+ fetchDirect:async()=>assert.fail('must not request direct keyless')});
 assert.equal(noKey.length,1);
 const stale=await readMorningTurnover(expected,{url:'',token:'',authKey:'TEST_KRX_KEY_123456789',
  fetchImpl,fetchDirect:async()=>official.map(x=>({...x,date:'2026-11-03'}))});
