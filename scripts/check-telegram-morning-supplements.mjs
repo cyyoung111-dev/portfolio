@@ -151,6 +151,15 @@ const official=[
  {id:'KRX_TURNOVER_KOSDAQ',market:'KOSDAQ',date:expected,valueKrw:5000000000000,
   source:'KRX_OFFICIAL_INDEX_DAILY',role:'NON_NH_REFERENCE_ONLY'}
 ];
+// Keep isolated direct-fallback tests anchored to their explicit date,
+// while the 07:40 integration fixture above tests the older eligible date.
+const partialGasForExpected=async (_url,opts)=>{
+ assert.equal(opts.body.get('date'),expected);
+ return {ok:true,json:async()=>({
+  status:'ok',date:expected,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',
+  rows:[official[0]]
+ })};
+};
 let fallbackCount=0;
 const fallback=async(day,args)=>{
  fallbackCount++;
@@ -160,13 +169,14 @@ const fallback=async(day,args)=>{
 };
 const turnoverReasons=[];
 const repaired=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
- authKey:'TEST_KRX_KEY_123456789',fetchImpl,fetchDirect:fallback,
+ authKey:'TEST_KRX_KEY_123456789',fetchImpl:partialGasForExpected,fetchDirect:fallback,
  onDiagnostic:entry=>turnoverReasons.push(entry)});
 assert.ok(turnoverReasons.some(x=>x.status==='DIRECT_BOTH_VERIFIED'));
 assert.deepEqual(repaired,official);
 assert.equal(fallbackCount,1);
 const noKey=await readMorningTurnover(expected,{url:gasUrl,token:'TEST_ACCESS_123456',
- authKey:'',fetchImpl,fetchDirect:async()=>assert.fail('must not request direct keyless')});
+ authKey:'',fetchImpl:partialGasForExpected,
+ fetchDirect:async()=>assert.fail('must not request direct keyless')});
 assert.equal(noKey.length,1);
 const stale=await readMorningTurnover(expected,{url:'',token:'',authKey:'TEST_KRX_KEY_123456789',
  fetchImpl,fetchDirect:async()=>official.map(x=>({...x,date:'2026-11-03'}))});
