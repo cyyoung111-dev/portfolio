@@ -333,7 +333,73 @@ const preview=await readKbExactNavPreview({
  }});
 assert.equal(requestAction,'previewFundNavImport');
 assert.equal(verifyKbOfficialNavPreview(date,2100.55,preview),true);
-console.log('KB NAV postflight: published-vs-persisted, close marker, safety and workflow PASS');
+// #734: the initial private collector has a bounded read-only preview retry;
+// postflight must not emit a false failure for one transient 200/HTML response.
+const readonlyOptions={url:'https://script.google.com/macros/s/EXAMPLE123/exec',
+ token:'MOCK_TOKEN_1234',date,nav:2100.55};
+let jsonCalls=0,delays=[];
+const afterHtml=await readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async delay=>{delays.push(delay);},
+ fetchImpl:async (_url,opts)=>{
+   assert.equal(opts.body.get('action'),'previewFundNavImport');
+   assert.equal(opts.body.get('accessToken'),'MOCK_TOKEN_1234');
+   jsonCalls++;
+   return jsonCalls===1
+     ?{ok:true,headers:{get:()=> 'text/html'},json:async()=>{throw Error('HTML');}}
+     :{ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(jsonCalls,2,'one invalid JSON read-only preview may retry once');
+assert.deepEqual(delays,[1500]);
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,afterHtml),true);
+let transientCalls=0;
+await readKbExactNavPreview({...readonlyOptions,retryDelay:async()=>{},
+ fetchImpl:async()=>{
+   transientCalls++;
+   return transientCalls===1?{ok:false,status:503}
+     :{ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(transientCalls,2,'a single 503 is retryable on a read-only preview');
+let networkCalls=0;
+await readKbExactNavPreview({...readonlyOptions,retryDelay:async()=>{},
+ fetchImpl:async()=>{
+   networkCalls++;
+   if(networkCalls===1)throw Error('transient network');
+   return {ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(networkCalls,2,'a single network failure can retry only the preview');
+let deniedCalls=0;
+await assert.rejects(()=>readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async()=>assert.fail('401/403 must not be retried'),
+ fetchImpl:async()=>{
+   deniedCalls++;
+   return {ok:false,status:403};
+ }}),/KB_POSTFLIGHT_PREVIEW_HTTP_UNVERIFIED/);
+assert.equal(deniedCalls,1);
+let malformedCalls=0;
+const malformed=await readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async()=>assert.fail('valid JSON schema mismatch must not retry'),
+ fetchImpl:async()=>{
+   malformedCalls++;
+   return {ok:true,json:async()=>exactPreview(2100.56)};
+ }});
+assert.equal(malformedCalls,1);
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,malformed),false,
+ 'source vs persisted amount mismatch must fail closed');
+let persistentBadCalls=0;
+await assert.rejects(()=>readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async()=>{},
+ fetchImpl:async()=>{
+   persistentBadCalls++;
+   return {ok:true,json:async()=>{throw Error('HTML');}};
+ }}),/KB_POSTFLIGHT_PREVIEW_JSON_UNVERIFIED/);
+assert.equal(persistentBadCalls,2,'transient retry is strictly bounded to one');
+const readonlyPreviewCode=fs.readFileSync(
+ 'scripts/audit-kb-nav-postflight-readonly.mjs','utf8').split(
+ 'export async function readKbExactNavPreview(')[1].split(
+ 'export async function auditKbNavPostflight(')[0];
+assert.doesNotMatch(readonlyPreviewCode,/collectKbFundNav|collectHanwhaFundNav|mode:'import'|mode:'refresh'/,
+ 'postflight must never call a financial writer');
+console.log('KB NAV postflight: published-vs-persisted, close marker, transient read-only preview and workflow PASS');
 
  // 2026-11-14: weekend 09:10 scheduled GitHub action actually started
  // 15:05 KST, timed out on two GAS STATUS reads, while postflight proved
