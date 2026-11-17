@@ -102,7 +102,11 @@ export async function readMissingCloseReferences(date,cached={},{
    if(safe.length>result[key].length)result[key]=safe;
   }).catch(()=>{}));
  };
- const opts={url:gasUrl,token:gasToken,authKey:krxKey,fetchImpl:boundedFetch,now};
+ // Reserve most of the live deadline for the independent official source.
+ // With no valid direct key, leave the full shared deadline to GAS.
+ const directKey=typeof krxKey==='string'&&/^[A-Za-z0-9_-]{16,128}$/.test(krxKey);
+ const gasBudgetMs=directKey?Math.min(1500,Math.max(1,Math.floor(maxMs/4))):maxMs;
+ const opts={url:gasUrl,token:gasToken,authKey:krxKey,fetchImpl:boundedFetch,now,gasBudgetMs};
  const configured=Boolean((gasUrl&&gasToken)||krxKey);
  if(prior&&krxSessionStatus(prior)==='OPEN'){
   if(!result.priorVkospi.length&&(configured||fetchPriorVkospi!==readMorningVkospi))
