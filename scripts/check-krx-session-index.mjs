@@ -91,9 +91,12 @@ assert.match(display._historySnapshotGapHtml(display._getHistorySnapshotGap('202
 display._kstNow=()=>new Date('2026-10-12T19:30:00Z');
 assert.equal(display._getHistorySnapshotGap('2026-10-09').days,1,'today after actual integrated close counts');
 for(const name of ['views_history_state.js','views_history_benchmark.js','views_history_pipeline.js']){
-  const version=name==='views_history_benchmark.js'?'20261030-1':'20261012-1';
-  assert.match(html,new RegExp(name.replace('.','\\.')+'\\?v='+version));
-  assert.match(sw,new RegExp(name.replace('.','\\.')+'\\?v='+version));
+  // A visual-only history UI update may bump one script version without
+  // changing KRX session logic. Enforce exact HTML/PWA parity, not a stale pin.
+  const pattern=name.replace('.','\\.')+'\\?v=(\\d{8}-\\d+)';
+  const loaded=html.match(new RegExp(pattern));
+  assert.ok(loaded,'versioned history script missing: '+name);
+  assert.match(sw,new RegExp(name.replace('.','\\.')+'\\?v='+loaded[1]));
 }
 assert.match(gas,/function handleGetBenchmark[\s\S]*handleGetBenchmarks\(key, fromDate, toDate, true\)/);
 
