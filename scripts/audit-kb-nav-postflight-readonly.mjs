@@ -216,9 +216,10 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
    throw Error('KB_POSTFLIGHT_SOURCE_UNVERIFIED');
  const target=navAuditTarget(close.runDate,today,completedDaysOnly);
  const valuationTo=completedDaysOnly?target:today;
- const proof=await valuationReader({url,token,from,to:valuationTo,fetchImpl});
+ const valuationFrom=shift(valuationTo,-6);
+ const proof=await valuationReader({url,token,from:valuationFrom,to:valuationTo,fetchImpl});
  // Reuse the existing date-scoped, read-only GAS response validator.
- summarizeFundRows(proof,'F00002',from,valuationTo);
+ summarizeFundRows(proof,'F00002',valuationFrom,valuationTo);
  const referenceDate=expectedKbOfficialReferenceDate(target,source.rows);
  if(!isDay(referenceDate))throw Error('KB_POSTFLIGHT_REFERENCE_DATE_UNVERIFIED');
  const matching=proof.fundResults.F00002.dates.filter(x=>x.date===referenceDate);
