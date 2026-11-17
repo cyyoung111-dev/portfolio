@@ -28,6 +28,33 @@ export async function verifyGas9297PostDeploy({url,token,fetchImpl=fetch}={}){
  const hash=await probeTradeHash({url,token,fetchImpl,includeMigrationPreview:true});
  return assertGas9297ReadOnlyProof(state,hash);
 }
+// Unlike post-deployment visibility checks, the 9.296 preflight must never
+// retry a version, ledger/hash, authorization or writer mismatch. Only a
+// transient transport failure may restart the complete read-only proof.
+export async function verifyGas9297PreflightWithRetry({verify,delay=ms=>new Promise(r=>setTimeout(r,ms))}={}){
+ if(typeof verify!=='function'||typeof delay!=='function')
+  throw Error('GAS9297_VERIFY_CONTRACT_INVALID');
+ const transient=new Set(['GAS9295_READONLY_NETWORK_UNVERIFIED',
+  'AUTOMATION_DIAG_NETWORK_FAILED','READBACK_NETWORK_UNVERIFIED']);
+ for(let attempt=1;attempt<=3;attempt++){
+  try{
+   const proof=await verify();
+   if(proof?.status!=='VERIFIED'||proof.version!=='9.296'
+      ||proof.financeWrites!==0||proof.pcAndPhysicalRevisionMatch!==true
+      ||proof.writerGateMode!=='OPEN'||proof.activeCount!==0
+      ||proof.pendingCount!==0||proof.tradeSnapshotDeferredCount!==0
+      ||!Number.isSafeInteger(proof.tradeRows)||proof.tradeRows<0)
+    throw Error('GAS9297_PREDEPLOY_INTEGRITY_UNVERIFIED');
+   return {...proof,readbackAttempts:attempt};
+  }catch(error){
+   const reason=String(error?.message||'');
+   if(!transient.has(reason)||attempt===3)throw error;
+   console.log(JSON.stringify({kind:'GAS9297_PREFLIGHT_READONLY_RETRY',
+    reason,attempt,financeWrites:0}));
+   await delay(attempt*3000);
+  }
+ }
+}
 export async function verifyGas9297WithRetry({verify,delay=ms=>new Promise(r=>setTimeout(r,ms))}={}){
  if(typeof verify!=='function'||typeof delay!=='function')
   throw Error('GAS9297_VERIFY_CONTRACT_INVALID');
@@ -55,7 +82,7 @@ if(invoked){
   if(!['pre','post'].includes(mode))throw Error('GAS9297_RELEASE_MODE_INVALID');
   const config={url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN};
   const result=mode==='pre'
-   ?await verifyGas9296PostDeploy(config)
+   ?await verifyGas9297PreflightWithRetry({verify:()=>verifyGas9296PostDeploy(config)})
    :await verifyGas9297WithRetry({verify:()=>verifyGas9297PostDeploy(config)});
   if(result.status!=='VERIFIED'||result.financeWrites!==0)
    throw Error('GAS9297_PREDEPLOY_INTEGRITY_UNVERIFIED');
@@ -66,7 +93,7 @@ if(invoked){
    appendFileSync(process.env.GITHUB_OUTPUT,'verified=true\n');
  }catch(error){
   const s=String(error?.message||'');
-  console.error(/^GAS(?:9295|9296|9297)_[A-Z_]+$/.test(s)?s:'GAS9297_RELEASE_READONLY_UNVERIFIED');
+  console.error(/^(?:GAS(?:9295|9296|9297)_[A-Z_]+|AUTOMATION_DIAG_NETWORK_FAILED|READBACK_NETWORK_UNVERIFIED)$/.test(s)?s:'GAS9297_RELEASE_READONLY_UNVERIFIED');
   process.exitCode=2;
  }
 }
