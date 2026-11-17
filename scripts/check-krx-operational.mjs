@@ -962,6 +962,21 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
      throw Error('MUST_NOT_CALL_FINANCE_WRITE');
    }
  });
+ // A busy GAS fund writer is not expected publication lag. It must fail the
+ // collector before querying sources, so the protected fallback is eligible.
+ for(const busy of ['RUNNING','IN_PROGRESS']){
+  let calls=0;
+  await assert.rejects(()=>run({...latest(),fetchImpl:async(_url,opts)=>{
+   calls++;
+   assert.equal(opts.body?.get('action'),'getAutomationStatus');
+   if(opts.body.get('accessToken')==='NAV_AUTH_PROBE')
+     return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+   return {ok:true,json:async()=>({status:'ok',gasVersion:'9.297',
+    automation:{closeRun:{state:'COMPLETE',runDate:'2026-11-12'},
+     fundAttempt:{state:busy}}})};
+  }}),/NAV_WRITER_BUSY/);
+  assert.equal(calls,2,'busy gate does not call a source or writer');
+ }
  const deferred=await run(latest());
  assert.equal(deferred.mode,'DEFERRED');
  assert.equal(deferred.complete,false);
