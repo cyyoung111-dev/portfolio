@@ -4,9 +4,14 @@ import {validateMorningFuturesQuote,readMorningSupplements,formatMorningFutures,
  from './telegram-morning-supplements.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import {MORNING_SERIES} from './telegram-morning-report.mjs';
+import {morningBreadthPublishedDate} from './telegram-morning-breadth.mjs';
 
 const date='2026-11-05',expected='2026-11-04';
+const krxEligible='2026-11-03'; // 07:40: 11/04 KRX OpenAPI daily not release-eligible until 08:15
 const now=new Date('2026-11-05T07:40:00+09:00');
+assert.equal(morningBreadthPublishedDate(date,now),krxEligible);
+assert.equal(morningBreadthPublishedDate(date,new Date('2026-11-05T08:14:59+09:00')),krxEligible);
+assert.equal(morningBreadthPublishedDate(date,new Date('2026-11-05T08:15:00+09:00')),expected);
 const quoteAt='2026-11-05T06:58:00+09:00';
 const stamp=Math.floor(Date.parse(quoteAt)/1000);
 function chart(symbol,at=stamp,value=7000){
@@ -55,16 +60,23 @@ const fetchImpl=async(target,opts={})=>{
   assert.equal(opts.method,'POST');
   assert.equal(opts.body.get('accessToken'),'TEST_ACCESS_123456');
   const action=opts.body.get('action');
-  if(action==='getBenchmark')return {ok:true,json:async()=>({
-   status:'ok',symbol:'KRX_OPEN_API:VKOSPI',
-   points:[{date:expected,sourceDate:expected,source:'KRX_OFFICIAL',value:24.2}]
-  })};
-  if(action==='getKrxMarketTurnover')return {ok:true,json:async()=>({
-   status:'ok',date:expected,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',
-   rows:[{id:'KRX_TURNOVER_KOSPI',market:'KOSPI',date:expected,
+  if(action==='getBenchmark'){
+   assert.equal(opts.body.get('from'),krxEligible);
+   assert.equal(opts.body.get('to'),krxEligible);
+   return {ok:true,json:async()=>({
+    status:'ok',symbol:'KRX_OPEN_API:VKOSPI',
+    points:[{date:krxEligible,sourceDate:krxEligible,source:'KRX_OFFICIAL',value:24.2}]
+   })};
+  }
+  if(action==='getKrxMarketTurnover'){
+   assert.equal(opts.body.get('date'),krxEligible);
+   return {ok:true,json:async()=>({
+    status:'ok',date:krxEligible,readOnly:true,source:'KRX_OFFICIAL_INDEX_DAILY',
+    rows:[{id:'KRX_TURNOVER_KOSPI',market:'KOSPI',date:krxEligible,
     valueKrw:35000000000000,source:'KRX_OFFICIAL_INDEX_DAILY',
     role:'NON_NH_REFERENCE_ONLY'}]
-  })};
+   })};
+  }
  }
  throw Error('unexpected test URL');
 };
@@ -84,7 +96,12 @@ assert.deepEqual(seen,['^GSPC','^IXIC','^NDX']);
 assert.equal(extras.futures.length,4);
 assert.equal(extras.treasury.length,3);
 assert.equal(extras.vkospi.length,1);
+assert.equal(extras.vkospi[0].date,krxEligible);
 assert.equal(extras.turnover.length,1);
+assert.equal(extras.turnoverDate,krxEligible);
+assert.equal(extras.turnover[0].date,krxEligible);
+assert.match(formatMorningVkospi(extras.vkospi),/2026-11-03 · KRX 참고/);
+assert.match(formatMorningTurnover(extras.turnoverDate,extras.turnover),/2026-11-03 · KRX/);
 assert.ok(Array.isArray(extras.krxReasons));
 assert.ok(extras.krxReasons.some(x=>x.source==='VKOSPI'&&x.status==='GAS_VERIFIED'));
 assert.ok(extras.krxReasons.some(x=>x.source==='TURNOVER'
