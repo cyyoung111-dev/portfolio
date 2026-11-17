@@ -48,8 +48,18 @@ export function validateMorningFuturesQuote(date,id,payload,now){
  if(!num(value)||timestamps.at(-1)*1000>now.getTime()+30000)return null;
  const age=now.getTime()-stamp*1000;
  if(age<0||age>SESSION_MS||kst(new Date(stamp*1000)).date!==date)return null;
+ // Compare the same futures symbol to Yahoo's chart reference only.
+ // Maintenance bars are not settlement prices; conflicting metadata leaves
+ // the last valid traded price visible without a return.
+ const reference=chart.meta.chartPreviousClose,alternate=chart.meta.previousClose;
+ const comparable=Number.isFinite(reference)&&reference>0
+  &&(alternate===undefined||alternate===null
+    ||(Number.isFinite(alternate)&&Math.abs(alternate-reference)<=0.000001));
+ const changePercent=comparable?(value/reference-1)*100:NaN;
+ const movement=Number.isFinite(changePercent)?{previousClose:reference,
+  changePercent,changeBasis:'YAHOO_CHART_PREVIOUS_CLOSE'}:{};
  return {id,symbol:info.symbol,value,asOf:new Date(stamp*1000).toISOString(),
-  source:'YAHOO_DELAYED_FUTURES_REFERENCE'};
+  source:'YAHOO_DELAYED_FUTURES_REFERENCE',...movement};
 }
 export async function readMorningFutures(date,{now=()=>new Date(),fetchImpl=fetch}={}){
  if(!validDay(date)||kst(now()).date!==date)return [];
@@ -74,13 +84,21 @@ export function formatMorningFutures(date,rows=[],now=new Date(date+'T07:40:00+0
     &&r?.source==='YAHOO_DELAYED_FUTURES_REFERENCE');
   if(match.length!==1)return [];
   const v=match[0],time=Date.parse(v.asOf);
-  return num(v.value)&&Number.isFinite(time)&&time<=now.getTime()
-   &&now.getTime()-time<=SESSION_MS&&kst(new Date(time)).date===date?[v]:[];
+  if(!num(v.value)||!Number.isFinite(time)||time>now.getTime()
+   ||now.getTime()-time>SESSION_MS||kst(new Date(time)).date!==date)return [];
+  const {previousClose,changePercent,changeBasis,...quote}=v;
+  const comparable=changeBasis==='YAHOO_CHART_PREVIOUS_CLOSE'
+   &&Number.isFinite(previousClose)&&previousClose>0&&Number.isFinite(changePercent)
+   &&Math.abs(changePercent-(v.value/previousClose-1)*100)<0.000001;
+  return [{...quote,...(comparable?{changePercent}:{})}];
  });
  if(!safe.length)return '미국 선물 ES/NQ/YM/RTY: 최근 검증된 시세 미확보';
  return '미국 선물 참고: '+safe.map(r=>r.id+' '+r.value.toLocaleString('en-US',
-  {maximumFractionDigits:2})+' ('+kst(new Date(r.asOf)).hhmm+')').join(' · ')
-  +' [KST · Yahoo 지연 시세, CME 점검시간에는 최종 체결값 · '+safe.length+'/4]';
+  {maximumFractionDigits:2})+(Number.isFinite(r.changePercent)
+    ?' ('+(r.changePercent>=0?'+':'')+r.changePercent.toFixed(2)+'%)':'')
+  +' ('+kst(new Date(r.asOf)).hhmm+')').join(' · ')
+  +' [KST · Yahoo 지연 시세, CME 점검시간에는 최종 체결값 · '+safe.length+'/4'
+  +(safe.some(r=>Number.isFinite(r.changePercent))?' · 등락률 Yahoo 비교 기준':'')+']';
 }
 export function formatMorningTreasury(date,rows=[]){
  const safe=verifyTreasuryCurve(date,rows);
