@@ -789,12 +789,13 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
    Scope all changes to presentation; never modify computed money or controls. */
 .wrap > .hdr h1 {display:inline-flex;align-items:center;gap:8px}
 .wrap .ui-brand-icon {
-  flex:0 0 18px;width:18px;height:18px;
+  flex:0 0 18px;width:18px;height:18px;max-width:18px;max-height:18px;
+  display:inline-block;vertical-align:middle;
   color:var(--green);-webkit-text-fill-color:initial;
 }
 .wrap .ui-label-icon {
-  flex:0 0 15px;width:15px;height:15px;
-  color:var(--muted);vertical-align:middle;
+  flex:0 0 15px;width:15px;height:15px;max-width:15px;max-height:15px;
+  display:inline-block;color:var(--muted);vertical-align:middle;
 }
 .wrap .sum-row .sc {
   box-sizing:border-box;min-width:0;min-height:84px;
@@ -812,7 +813,6 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   font-weight:600;letter-spacing:0;text-transform:none;
 }
 .wrap .sum-row .sc .sub {overflow-wrap:anywhere;word-break:keep-all}
-.wrap .sum-row-2 .sc .val {color:inherit}
 .wrap .sum-row-2 .sc .val.c-red {color:var(--red)}
 .wrap .sum-row-2 .sc .val.c-muted {color:var(--muted)}
 /* Only update is a highlighted command; file import is a secondary utility. */
@@ -845,7 +845,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   line-height:var(--line-compact);font-weight:700;color:var(--text);
 }
 #view-area[data-active-view] .hist-view-title .ui-label-icon {
-  width:17px;height:17px;flex-basis:17px;color:var(--muted);
+  width:17px;height:17px;max-width:17px;max-height:17px;flex-basis:17px;color:var(--muted);
 }
 #view-area[data-active-view] .hist-controls {
   width:100%;min-width:0;gap:var(--space-sm);

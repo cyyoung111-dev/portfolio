@@ -303,3 +303,15 @@ assert.match(unifiedCss, /@media\(max-width:720px\)[\s\S]*?\.hist-controls\s*\{[
   'narrow history toolbar should use the shared responsive grid');
 assert.ok(!historyRender.includes('id="histBenchmarkMulti" title='),
   'benchmark options must use the shared style class');
+
+// Intrinsic SVG dimensions are mandatory even if the PWA serves old CSS.
+const iconTags = [...(html + historyRender).matchAll(/<svg class="(?:ui-brand-icon|ui-label-icon|hist-query-icon)"[^>]*>/g)].map(m=>m[0]);
+assert.equal(iconTags.length,9,'all relevant icon instances must be covered');
+for (const tag of iconTags) {
+  const w = Number(tag.match(/\bwidth="(\d+)"/)?.[1]);
+  const h = Number(tag.match(/\bheight="(\d+)"/)?.[1]);
+  assert.ok(w>=14 && w<=18 && w===h,'icon must not default to the containing card width: '+tag);
+}
+assert.match(unifiedCss,/width:15px;height:15px;max-width:15px;max-height:15px/);
+assert.match(unifiedCss,/width:18px;height:18px;max-width:18px;max-height:18px/);
+assert.match(unifiedCss,/width:17px;height:17px;max-width:17px;max-height:17px/);
