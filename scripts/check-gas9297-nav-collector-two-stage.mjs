@@ -82,4 +82,4 @@ assert.equal(saved.processing.snapshots.pending,1);
 assert.throws(()=>ctx._applyFundNavImport(doc,{...inspected,candidates:[],identical:[
  {date:'2026-11-16',existingNav:2025.10,uploadedNav:2025.10}]},{},false),
  /EXPENSIVE_DERIVED_READ_MUST_NOT_RUN/);
-console.log('GAS9297_NAV_TWO_STAGE_SOURCE_ONLY_PASS exact NAV once, deferred repair, manual untouched; no GAS deployment or financial writes');
+console.log('GAS9297_NAV_TWO_STAGE_SOURCE_ONLY_PASS exact NAV once, deferred repair, manual untouched; no GAS deployment or financial writes; candidateGitBlob='+manifest.candidateGitBlob);

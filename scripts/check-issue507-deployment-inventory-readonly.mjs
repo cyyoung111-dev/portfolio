@@ -11,6 +11,7 @@ import {composeIssue734Gas9293OrphanedClosePreview} from './compose-issue734-gas
 import {composeIssue734Gas9294OwnerNavPreview} from './compose-issue734-gas9294-owner-nav-preview.mjs';
 import {composeGas9295CodeMasterReusePreview} from './compose-gas9295-code-master-reuse-preview.mjs';
 import {composeGas9296TradeUtf8Preview} from './compose-gas9296-trade-utf8-preview.mjs';
+import {composeGas9297NavCollectorTwoStagePreview} from './compose-gas9297-nav-collector-two-stage-preview.mjs';
 
 const scriptId='TEST_SCRIPT_IDENTIFIER_12345';
 const expectedDeploymentId='TEST_EXPECTED_DEPLOYMENT_123';
@@ -342,7 +343,8 @@ assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGAC
   {name:'9.293',source:composeIssue734Gas9293OrphanedClosePreview().source},
   {name:'9.294',source:composeIssue734Gas9294OwnerNavPreview().source},
   {name:'9.295',source:composeGas9295CodeMasterReusePreview().candidate},
-  {name:'9.296',source:composeGas9296TradeUtf8Preview().candidate}
+  {name:'9.296',source:composeGas9296TradeUtf8Preview().candidate},
+  {name:'9.297',source:composeGas9297NavCollectorTwoStagePreview().candidate}
  ];
  for(const candidate of sourceCases){
   const files={scriptId,files:[
@@ -353,7 +355,7 @@ assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGAC
      item(expectedDeploymentId),{deploymentId:'HEAD'}]}},
    reviewedDetails,{'336':files}).run({verifyDetails:true,verifySource:true});
   assert.equal(match.status,'INVENTORY_ONLY',
-    candidate.name+' exact approved blob must pass inventory classification');
+    candidate.name+' exact approved blob must pass inventory classification; reviewed 9.297 candidateGitBlob='+composeGas9297NavCollectorTwoStagePreview().manifest.candidateGitBlob);
   assert.equal(match.expectedDeploymentSourceClassification,'REVIEWED_FULL_RELEASE_SOURCE');
   assert.equal(match.sourceKnownReviewedFullReleaseCount,1);
   assert.equal(match.sourceUnreviewedCount,0);

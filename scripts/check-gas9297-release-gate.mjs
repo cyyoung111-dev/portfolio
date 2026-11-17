@@ -1,0 +1,116 @@
+#!/usr/bin/env node
+// #734: exact 9.297 source, manual-only release, idle Gate, source/derived split.
+// Zero network or production data writes; the pin must be reviewed and immutable.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import YAML from 'yaml';
+import {composeGas9297NavCollectorTwoStagePreview}
+ from './compose-gas9297-nav-collector-two-stage-preview.mjs';
+import {gasSourceBlobSha,assertGasReleaseReady,
+ assertIssue507ManualReleasePermission,assertIssue7349297Prerequisites}
+ from './deploy-gas.mjs';
+import {assertPublishedReleaseFundNavSupport}
+ from './issue860-fund-nav-release-compat.mjs';
+import {assertGas9297ReadOnlyProof,verifyGas9297WithRetry}
+ from './issue734-gas9297-release-readonly.mjs';
+const PIN='7d303bedb019150798ffdd21bab43849d28d63a8';
+const {parent,candidate,manifest}=composeGas9297NavCollectorTwoStagePreview();
+assert.equal(manifest.parentGitBlob,'e7dfcc8a1ad194e4a0ef586b83b7df66a83dd2c6');
+assert.equal(manifest.candidateGitBlob,PIN,'reviewed 9.297 candidate must have an immutable blob pin');
+assert.equal(gasSourceBlobSha(candidate),PIN);
+assert.equal(assertGasReleaseReady(candidate),'9.297');
+assert.throws(()=>assertGasReleaseReady(candidate+'\n// drift'),
+ /GAS_RELEASE_SOURCE_NOT_APPROVED/);
+assert.deepEqual(assertPublishedReleaseFundNavSupport('9.297'),
+ {version:'9.297',kb:true,hanwha:true,financialWrites:0});
+function functions(source){
+ const hits=[...source.matchAll(/^function ([\w$]+)\s*\(/gm)];
+ return new Map(hits.map((match,i)=>[match[1],source.slice(match.index,
+  hits[i+1]?.index??source.length).replaceAll('9.297','9.296')]));
+}
+const old=functions(parent),now=functions(candidate);
+const changed=[...old].filter(([name,code])=>now.get(name)!==code).map(([name])=>name);
+assert.deepEqual(changed.sort(),['_applyFundNavImport','handleCollectKbFundNav',
+ 'handleImportFundNav'].sort(),'only three intended guarded NAV functions may change');
+assert.deepEqual([...now.keys()].filter(k=>!old.has(k)),[]);
+assert.equal(manifest.productionDeploymentApproved,false);
+assert.equal(manifest.gasProjectWrites,0);
+assert.equal(manifest.financialWrites,0);
+for(const args of [
+ {version:'9.297',eventName:'push',approved9297:true},
+ {version:'9.297',eventName:'workflow_run',approved9297:true},
+ {version:'9.297',eventName:'workflow_dispatch',approved9297:false}
+])assert.throws(()=>assertIssue507ManualReleasePermission(args),
+ /GAS_9297_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
+ version:'9.297',eventName:'workflow_dispatch',approved9297:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({
+ version:'9.297',eventName:'workflow_dispatch',dryRun:true}));
+for(const args of [
+ {version:'9.297',publishedVersion:'9.295',liveIdleVerified:true},
+ {version:'9.297',publishedVersion:'9.296',liveIdleVerified:false},
+ {version:'9.297',publishedVersion:'9.297',liveIdleVerified:true}
+])assert.throws(()=>assertIssue7349297Prerequisites(args),/GAS_9297_/);
+assert.doesNotThrow(()=>assertIssue7349297Prerequisites({
+ version:'9.297',publishedVersion:'9.296',liveIdleVerified:true}));
+const proof={status:'VERIFIED',version:'9.297',tradeRows:338,writerGateMode:'OPEN',
+ activeCount:0,tradeSnapshotDeferredCount:0,pendingCount:0,financeWrites:0};
+const hash={status:'CONSISTENT',rows:338,uniqueIds:338,migrationPreview:{
+ status:'VERIFIED',physicalRevisionMatchesGasGetTrades:true,
+ physicalRevisionMatchesPcCanonical:true}};
+assert.equal(assertGas9297ReadOnlyProof(proof,hash).status,'VERIFIED');
+for(const invalid of [
+ {state:{...proof,version:'9.296'}},{state:{...proof,activeCount:1}},
+ {state:{...proof,tradeSnapshotDeferredCount:1}},
+ {state:{...proof,pendingCount:1}},
+ {state:{...proof,financeWrites:1}},
+ {hash:{...hash,rows:337}},
+ {hash:{...hash,migrationPreview:{...hash.migrationPreview,
+  physicalRevisionMatchesPcCanonical:false}}}
+])assert.throws(()=>assertGas9297ReadOnlyProof(invalid.state||proof,invalid.hash||hash),
+ /GAS9297_READONLY_FINANCIAL_INTEGRITY_UNVERIFIED/);
+let tries=0;
+const retry=await verifyGas9297WithRetry({verify:async()=>{
+ if(++tries===1)throw Error('GAS9295_READONLY_VERSION_MISMATCH');
+ return {...assertGas9297ReadOnlyProof(proof,hash),tradeV2HashVerified:true};
+},delay:async()=>{}});
+assert.equal(tries,2);assert.equal(retry.readbackAttempts,2);
+let neverRetry=0;
+await assert.rejects(verifyGas9297WithRetry({verify:async()=>{
+ neverRetry++;throw Error('GAS9297_READONLY_FINANCIAL_INTEGRITY_UNVERIFIED');
+},delay:async()=>{}}),/GAS9297_READONLY_FINANCIAL_INTEGRITY_UNVERIFIED/);
+assert.equal(neverRetry,1);
+const wf=YAML.parse(readFileSync('.github/workflows/gas-deploy.yml','utf8'));
+const input=(wf.on??wf.true).workflow_dispatch.inputs;
+assert.equal(input.dry_run.default,true);
+assert.deepEqual(input.candidate_version.options,['9.294','9.295','9.296','9.297']);
+assert.equal(input.approve_9297.default,false);
+assert.equal(wf.jobs.deploy.environment,'portfolio-production-gas');
+assert.equal(wf.jobs.deploy.concurrency['cancel-in-progress'],false);
+const env=wf.jobs.deploy.env;
+assert.match(env.GAS_9297_NAV_TWO_STAGE,/candidate_version == '9.297'/);
+assert.match(env.GAS_9297_RELEASE_APPROVAL,/approve_9297/);
+const steps=wf.jobs.deploy.steps,pre=steps.find(x=>x.id==='gas9297_gate');
+assert(pre);
+assert.match(pre.if,/GAS_DEPLOY_DRY_RUN == 'true'/);
+assert.match(pre.if,/GAS_9297_RELEASE_APPROVAL == 'true'/);
+assert.equal(pre['continue-on-error'],undefined);
+assert.match(pre.run,/issue734-gas9297-release-readonly.mjs pre/);
+const deploy=steps.find(x=>x.name==='Deploy GAS');
+assert.match(deploy.env.GAS_9297_LIVE_PREFLIGHT_VERIFIED,/gas9297_gate/);
+const inv=steps.find(x=>x.name==='Require clean full GAS deployment inventory on 9.297 dry-run');
+assert(inv);assert.equal(inv['continue-on-error'],undefined);
+assert.equal(inv.run,steps.find(x=>x.name==='Require clean full GAS deployment inventory before real deploy').run);
+assert(steps.indexOf(inv)<steps.indexOf(pre));
+assert(steps.indexOf(pre)<steps.indexOf(deploy));
+assert(steps.some(x=>/issue734-gas9297-release-readonly.mjs post/.test(x.run||'')));
+const runner=readFileSync('scripts/issue734-gas9297-release-readonly.mjs','utf8');
+assert.doesNotMatch(runner,/setValues|appendRow|refreshFundValuations|collectKbFundNav|collectHanwhaFundNav|syncTrades\(/);
+assert.match(runner,/verifyGas9296PostDeploy/);
+assert.match(runner,/verifyGas9295ReleaseReadOnly/);
+assert.match(runner,/probeTradeHash/);
+console.log('GAS9297_MANUAL_RELEASE_READY '+JSON.stringify({
+ pin:PIN,changedFunctions:changed,preflightReadOnly:true,manualApproval:true,
+ exactNavCollectorVersion:true,negativeCases:7,postdeployReconcilesTradeV2:true,
+ liveGasTouched:false,financeWrites:0,deployments:0
+}));
