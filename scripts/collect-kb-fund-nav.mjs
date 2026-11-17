@@ -173,18 +173,27 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   let importAckRecovered=false;
   if(candidates.length){
     // One bounded import uses the existing production backup/manual-value guards.
-    // A failed transport response can happen AFTER the GAS write. Never retry
-    // the import; verify the exact persisted NAV with the existing read-only
-    // preview instead. All ambiguous/partial outcomes remain hard failures.
+    // A write may commit NAV before GAS returns a partial response, just as
+    // it may commit before an HTTP ACK is lost. NEVER reissue the import.
+    // Only an exact read-only date+NAV proof for *every* candidate may
+    // recover the ambiguous ACK; missing holdings are always a hard stop.
     try {
       const result=await request('collectKbFundNav',{mode:'import',data:JSON.stringify({...input,rows:candidates})});
-      if(result.status!=='ok'||result.saveState!=='success'||result.evaluation?.missingHoldings?.length)throw Error('NAV_IMPORT_UNVERIFIED');
+      if(result?.evaluation?.missingHoldings?.length)throw Error('NAV_IMPORT_UNVERIFIED');
+      if(result?.saveState==='partial'){
+        // Structured partial is NOT a success ACK. Require exact persisted
+        // readback and separately verified derived valuation below.
+        importAckRecovered=true;
+      }else if(result?.status!=='ok'||result.saveState!=='success'){
+        throw Error('NAV_IMPORT_UNVERIFIED');
+      }
     } catch(error) {
       if(!/^NAV_IMPORT_(?:HTTP|TIMEOUT|NETWORK|JSON)_UNVERIFIED$/.test(String(error?.message||'')))throw error;
       importAckRecovered=true;
     }
-    // After a lost import ACK, only repeat the READ-ONLY exact NAV preview.
-    // GAS may still be finishing an already-committed write. Each proof is
+    // After a lost or structured partial import ACK, only repeat the
+    // READ-ONLY exact NAV preview. GAS may still be finishing the write.
+    // Each proof is
     // bounded to 90s; HTTP rejects (including auth) are not retried. Never send
     // collectKbFundNav(import) twice, even if all readbacks are unavailable.
     let check;
