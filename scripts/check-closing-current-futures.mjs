@@ -26,6 +26,16 @@ assert.equal(validateCurrentFuturesQuote(date,'NQ',
 assert.equal(validateCurrentFuturesQuote(date,'NQ',
  {chart:{error:null,result:[chart('NQ=F').chart.result[0],chart('NQ=F').chart.result[0]]}},instant),null);
 
+const withReference=chart('NQ=F');
+withReference.chart.result[0].meta.chartPreviousClose=27750;
+const moved=validateCurrentFuturesQuote(date,'NQ',withReference,instant);
+assert.ok(Math.abs(moved.changePercent-(28000/27750-1)*100)<1e-9);
+assert.match(formatCurrentFutures(date,[moved],instant),/28,000pt \(\+0\.90%\)/);
+assert.doesNotMatch(formatCurrentFutures(date,[{...moved,changePercent:99}],instant),/99\.00%/);
+withReference.chart.result[0].meta.previousClose=27000;
+assert.equal(validateCurrentFuturesQuote(date,'NQ',withReference,instant).changePercent,undefined);
+withReference.chart.result[0].meta.chartPreviousClose=0;
+assert.equal(validateCurrentFuturesQuote(date,'NQ',withReference,instant).changePercent,undefined);
 const olderTs=Math.floor(new Date('2026-11-02T16:41:00+09:00').getTime()/1000);
 const newerTs=Math.floor(new Date('2026-11-02T16:56:00+09:00').getTime()/1000);
 let comparedHosts=[];
@@ -122,8 +132,8 @@ assert.match(lateMessage,/유효한 최근 거래값 미확보/,
  'a 16:52 quote must be removed from a 17:29 send');
 assert.doesNotMatch(lateMessage,/NASDAQ100 선물: 25,001pt/,
  'do not send stale futures levels');
-assert.match(lateMessage,/17시 시장: 미국 지수선물 최신값 일부 미확보/,
- 'AI commentary is also refreshed at actual send time');
+assert.doesNotMatch(lateMessage,/• 17시 선물:/,
+ 'stale futures must not produce a directional market comment');
 assert.notEqual(immediateMessage,lateMessage);
 await assert.rejects(deliverClose({...prepared,reportInputs:null},{
  now:()=>instant,send:async()=>assert.fail('invalid futures payload sent')
