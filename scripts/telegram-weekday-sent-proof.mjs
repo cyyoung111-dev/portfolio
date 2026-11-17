@@ -35,6 +35,30 @@ export function persistWeekdaySentProof(sent,payload,{
   writeFile(path,JSON.stringify(receipt),{flag:'wx'});
   return receipt;
 }
+// A claim blocks any second send, but an incomplete prior delivery must
+// never turn a scheduled fallback into a successful delivery verdict.
+// Only recheck GitHub SENT provenance when a claim already exists.
+export async function confirmClaimedWeekdayDelivery(result,{
+ kind,mode='rescue',verify
+}={}){
+ if(result?.status!=='ALREADY_CLAIMED')return result;
+ const errorCode=kind==='close'?'TELEGRAM_CLOSE_CLAIM_SENT_UNVERIFIED':
+  'TELEGRAM_MORNING_CLAIM_SENT_UNVERIFIED';
+ if(!CLAIM_PREFIX[kind]||result.ready!==false||!dateIsValid(result.date))
+  throw Error(errorCode);
+ // A manually requested late test shares the production claim: it stays
+ // blocked, and is explicitly not an official regular-window delivery.
+ if(kind==='morning'&&mode==='late_test')
+  return {...result,status:'LATE_TEST_ALREADY_CLAIMED'};
+ if(typeof verify!=='function')throw Error(errorCode);
+ let proof;
+ try{proof=await verify(result.date);}catch{throw Error(errorCode);}
+ if(proof?.date!==result.date||
+    (kind==='close'?proof.verified!==true:proof.verifiedSent!==true))
+  throw Error(errorCode);
+ return {...result,status:'ALREADY_SENT_VERIFIED'};
+}
+
 export async function deliverAndRecordWeekday(payload,{
   kind,deliver,now=()=>new Date(),token,chatId,attempt=1,
   send,path,runId=''
