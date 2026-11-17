@@ -20,6 +20,12 @@ export function verifyPreparedClose(date,payload,now=new Date()){
  if(!(created>=lower&&created<upper&&created<=now.getTime()))return null;
  const rows=sanitizePreclose(date,payload);
  if(!rows||!PARTS.every(key=>rows[key].length===payload[key].length))return null;
+ // New optional prior-session rows are strictly verified when present;
+ // existing schema-v1 artifacts without these fields remain readable.
+ for(const key of ['priorVkospi','priorTurnover']){
+  if(Object.hasOwn(payload,key)&&(!Array.isArray(payload[key])
+    ||rows[key].length!==payload[key].length))return null;
+ }
  return rows;
 }
 // Untrusted GitHub Artifact must match a completed first-attempt main/schedule
