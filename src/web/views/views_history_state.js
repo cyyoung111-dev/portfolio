@@ -257,14 +257,13 @@ function _applyHistModeUI(mode) {
   const wBtn = $el('histModeWeek');
   const mBtn = $el('histModeMonth');
   if (!dBtn || !wBtn || !mBtn) return;
-  [dBtn, wBtn, mBtn].forEach(b => {
-    b.style.background = 'transparent';
-    b.style.color = 'var(--muted)';
-    b.style.fontWeight = '400';
-  });
   const active = mode === 'day' ? dBtn : (mode === 'week' ? wBtn : mBtn);
-  active.style.background = 'var(--c-purple-45,#7c3aed)';
-  // 활성 배경은 모든 프리셋에서 진한 보라색이므로 흰색 텍스트로 대비를 유지합니다.
-  active.style.color = '#fff';
-  active.style.fontWeight = '600';
+  [dBtn, wBtn, mBtn].forEach(b => {
+    const selected = b === active;
+    b.style.background = selected ? 'var(--ui-selected-bg)' : 'transparent';
+    b.style.color = selected ? 'var(--gold)' : 'var(--muted)';
+    b.style.fontWeight = selected ? '700' : '500';
+    // Preserve the existing event ids while exposing the selected preset.
+    b.setAttribute?.('aria-pressed', String(selected));
+  });
 }
