@@ -215,7 +215,7 @@ for(const [kind,runner,code] of [['KB',collectKb,'F00002'],
 // Regression for 2026-11-11: the GAS import may commit before HTTP ACK times out.
 // Only transient read-only preview errors may be retried. Never import twice.
 const exactDate='2026-11-10',exactNav=1234.56;
-function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackRejected=false,partialWithoutCommit=false,partialMissingHoldings=false}={}){
+function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackRejected=false,partialWithoutCommit=false,partialMissingHoldings=false,missingDerived=false}={}){
  const calls={source:0,preview:0,import:0,valuation:0,delay:0};
  const fetchImpl=async(destination,options={})=>{
   const host=new URL(destination).hostname;
@@ -258,7 +258,7 @@ function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackReject
   }
   if(action==='getFundValuationStatus'){
    calls.valuation++;
-   return {ok:true,json:async()=>({status:'ok',fundResults:{F00002:{dates:[]}}})};
+   return {ok:true,json:async()=>({status:'ok',fundResults:{F00002:{dates:missingDerived?[]:[{code:'F00002',date:exactDate,navState:'EXISTING_CONFIRMED',valuationRequired:true,unitsApplied:true,reconciled:true,evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}})};
   }
   throw Error('UNEXPECTED_GAS_ACTION');
  };
@@ -299,6 +299,12 @@ await assert.rejects(()=>collectKb({url,token,now,
  /NAV_IMPORT_UNVERIFIED/);
 assert.deepEqual([missingUnits.calls.import,missingUnits.calls.preview,missingUnits.calls.delay],
  [1,1,0],'missing holding data cannot be certified by partial NAV readback');
+const omitted=lostAckFixture({missingDerived:true});
+await assert.rejects(()=>collectKb({url,token,now,
+ fetchImpl:omitted.fetchImpl,retryDelay:omitted.retryDelay,apply:true}),
+ /NAV_DERIVED_READBACK_UNVERIFIED/);
+assert.deepEqual([omitted.calls.import,omitted.calls.valuation],[1,1],
+ 'missing candidate-date valuation must never turn an exact NAV readback into false success');
 const denied=lostAckFixture({readbackRejected:true});
 await assert.rejects(()=>collectKb({url,token,now,
  fetchImpl:denied.fetchImpl,retryDelay:denied.retryDelay,apply:true}),

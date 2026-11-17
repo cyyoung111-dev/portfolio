@@ -11,8 +11,9 @@ const sourceRows=[
 ];
 function fixture({busy=false,invalidAuth=false,conflict=false,
  lostImportAck=false,lostRefreshAck=false,uncommittedImportTimeout=false,
- closeDateToday=false}={}){
- let calls=0,mutations=0;
+ closeDateToday=false,partialAck=false,partialUncommitted=false,missingHoldings=false,
+ badProof=false,missingDerived=false,missingFinal=false,transientReadback=false}={}){
+ let calls=0,mutations=0,readbacks=0;
  const navStored=new Map(),refreshed=new Set(),actions=[];
  const fetchImpl=async (_url,opts)=>{
    calls++;
@@ -39,10 +40,11 @@ function fixture({busy=false,invalidAuth=false,conflict=false,
      assert.equal(input.ackWarnings,false);
      assert.equal(input.appendOnly,true);
      assert.ok(input.rows.every(row=>row.date<'2026-11-06'));
+     if(mutations>0&&transientReadback&&++readbacks===1)return {ok:false,status:503};
      const candidates=[],identical=[];
      for(const row of input.rows){
        if(navStored.get(row.date)===row.nav)identical.push({
-         date:row.date,existingNav:row.nav,uploadedNav:row.nav});
+         date:row.date,existingNav:badProof?row.nav+0.01:row.nav,uploadedNav:row.nav});
        else candidates.push(row);
      }
      return {ok:true,json:async()=>({
@@ -53,7 +55,7 @@ function fixture({busy=false,invalidAuth=false,conflict=false,
    if(p.action==='getFundValuationStatus'){
      assert.equal(p.code,'F00001');
      assert.equal(p.to,'2026-11-05');
-     const dates=sourceRows.map(row=>({
+     const dates=(missingDerived&&mutations>0||missingFinal&&refreshed.size===3?sourceRows.slice(1):sourceRows).map(row=>({
        code:'F00001',date:row.date,
        navState:navStored.has(row.date)?'EXISTING_CONFIRMED':'NAV_MISSING',
        unitsApplied:true,reconciled:true,valuationRequired:true,
@@ -72,8 +74,9 @@ function fixture({busy=false,invalidAuth=false,conflict=false,
      assert.ok(data.rows.length>0&&data.rows.length<=8);
      assert.ok(data.rows.every(x=>sourceRows.some(y=>y.date===x.date&&y.nav===x.nav)));
      mutations++;
-     if(!uncommittedImportTimeout)for(const x of data.rows)navStored.set(x.date,x.nav);
+     if(!uncommittedImportTimeout&&!partialUncommitted)for(const x of data.rows)navStored.set(x.date,x.nav);
      if(lostImportAck||uncommittedImportTimeout)throw Object.assign(Error('transient'),{name:'TimeoutError'});
+     if(partialAck||partialUncommitted||missingHoldings)return {ok:true,json:async()=>({status:'error',saveState:'partial',evaluation:{missingHoldings:missingHoldings?[{}]:[]}})};
      return {ok:true,json:async()=>({status:'ok',saveState:'success'})};
    }
    if(p.mode==='refresh'){
@@ -104,8 +107,8 @@ const args=f=>({url:'https://script.google.com/macros/s/TEST/exec',
 // Same-day close may be ERROR but the F00001 endpoint cannot refresh
 // provisional KST today. Its read-only proof and writer must stop yesterday.
 for(const options of [{},{lostImportAck:true},{lostRefreshAck:true},
- {closeDateToday:true}]){
- const f=fixture(options),r=await run({...args(f),apply:true});
+ {closeDateToday:true},{partialAck:true},{transientReadback:true}]){
+ const f=fixture(options),r=await run({...args(f),apply:true,retryDelay:async()=>{}});
  assert.equal(r.mode,'APPLY');
  assert.equal(r.code,'F00001');
  assert.equal(r.candidates,3);
@@ -113,7 +116,7 @@ for(const options of [{},{lostImportAck:true},{lostRefreshAck:true},
  assert.equal(r.derivedRepaired,3);
  assert.equal(r.finalPending,0);
  assert.equal(r.writerInvoked,true);
- assert.equal(r.importAckRecovered,options.lostImportAck===true);
+ assert.equal(r.importAckRecovered,options.lostImportAck===true||options.partialAck===true);
  assert.equal(f.navStored.size,3);
  assert.equal(f.refreshed.size,3);
  assert.equal(f.mutations,4);
@@ -125,6 +128,17 @@ for(const options of [{},{lostImportAck:true},{lostRefreshAck:true},
  assert.equal(f.mutations,1);
  assert.equal(f.navStored.size,0);
  assert.equal(f.refreshed.size,0);
+}
+for(const [options,reason,expectedWrites] of [
+ [{partialUncommitted:true},/HANWHA_IMPORT_READBACK_UNVERIFIED/,1],
+ [{missingHoldings:true},/HANWHA_IMPORT_UNVERIFIED/,1],
+ [{badProof:true},/HANWHA_IMPORT_READBACK_UNVERIFIED/,1],
+ [{missingDerived:true},/HANWHA_DERIVED_READBACK_UNVERIFIED/,1],
+ [{missingFinal:true},/HANWHA_DERIVED_READBACK_UNVERIFIED/,4]
+]){
+ const f=fixture(options);
+ await assert.rejects(()=>run({...args(f),apply:true}),reason);
+ assert.equal(f.mutations,expectedWrites,'no retry of import or refresh writer');
 }
 for(const options of [{busy:true},{invalidAuth:true},{conflict:true}]){
  const f=fixture(options);

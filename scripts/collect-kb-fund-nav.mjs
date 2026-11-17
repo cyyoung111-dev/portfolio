@@ -143,12 +143,17 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   const a=status.automation;
   if(!a||a.closeRun?.state==='RUNNING'||a.tradeSnapshotWorkerLastResult?.status==='RUNNING'||a.tradeLedgerWriteUnverified||a.pendingTradeSnapshotRebuildFrom||a.tradeSnapshotDeferredCount>0)throw Error('NAV_WRITER_BUSY');
   if(['RUNNING','IN_PROGRESS'].includes(a.fundAttempt?.state))return {mode:'DEFERRED',complete:false,reason:'NAV_WRITER_BUSY',imported:0,derivedRepaired:0};
-  const valuationTo=a.closeRun?.runDate;
-  if(typeof valuationTo!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(valuationTo)||valuationTo<from||valuationTo>to)throw Error('NAV_CLOSE_DATE');
+  const closeDate=a.closeRun?.runDate;
+  if(typeof closeDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(closeDate)
+    ||!Number.isFinite(Date.parse(closeDate+'T00:00:00Z'))
+    ||new Date(closeDate+'T00:00:00Z').toISOString().slice(0,10)!==closeDate
+    ||closeDate<from||closeDate>to)throw Error('NAV_CLOSE_DATE');
+  // Apply the same completed-day boundary as Hanwha, including when the
+  // current calendar day's closeRun has already started or failed.
+  const valuationTo=closeDate<today?closeDate:offset(-1);
+  if(valuationTo<from)throw Error('NAV_CLOSE_DATE');
   const {rows:received,sourceHref}=await readPublishedKbNav({from,to,fetchImpl});
-  // Private import must apply the same conservative day boundary as the
-  // public archive; today's quote may change before official publication.
-  const rows=received.filter(row=>row.date<today);
+  const rows=received.filter(row=>row.date<=valuationTo);
   if(!rows.length)throw Error('NAV_SOURCE_NO_PRIOR_DAY_ROWS');
   const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',ackWarnings:true,appendOnly:true,sourceText:'KR5223AQ0185 AQ018 S-T '+sourceHref,rows};
   // A preview is READ-ONLY. Transport or 429/502/503/504 is not an import failure.
@@ -168,7 +173,9 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   }
   if(preview.status!=='ok'||preview.errors?.length||preview.updates?.length||preview.warnings?.some(w=>w.reason!=='오늘 NAV는 공식 확정값인지 확인 필요'||w.date!==today)||!Array.isArray(preview.candidates))throw Error('NAV_PREVIEW_BLOCKED');
   const candidates=preview.candidates.map(({date,nav})=>({date,nav}));
-  if(candidates.some(c=>!rows.some(row=>row.date===c.date&&row.nav===c.nav)))throw Error('NAV_PREVIEW_MISMATCH');
+  if(new Set(candidates.map(c=>c.date)).size!==candidates.length
+    ||candidates.some(c=>!rows.some(row=>row.date===c.date&&row.nav===c.nav)))
+    throw Error('NAV_PREVIEW_MISMATCH');
   if(!apply)return {mode:'DRY_RUN',sourceRows:rows.length,candidates:candidates.length,imported:0};
   let importAckRecovered=false;
   if(candidates.length){
@@ -191,36 +198,29 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
       if(!/^NAV_IMPORT_(?:HTTP|TIMEOUT|NETWORK|JSON)_UNVERIFIED$/.test(String(error?.message||'')))throw error;
       importAckRecovered=true;
     }
-    // After a lost or structured partial import ACK, only repeat the
-    // READ-ONLY exact NAV preview. GAS may still be finishing the write.
-    // Each proof is
-    // bounded to 90s; HTTP rejects (including auth) are not retried. Never send
-    // collectKbFundNav(import) twice, even if all readbacks are unavailable.
+    // Both ordinary success and uncertain ACKs must prove every exact
+    // persisted date/value. The same bounded READ-ONLY retry is permitted
+    // for transport errors, never for rejected/mismatched payloads.
     let check;
-    for(let attempt=0;attempt<(importAckRecovered?3:1);attempt++){
+    for(let attempt=0;attempt<3;attempt++){
       try{
         check=await request('previewFundNavImport',{
-          data:JSON.stringify({...input,rows:candidates})},token,
-          importAckRecovered?90000:300000);
+          data:JSON.stringify({...input,rows:candidates})},token,90000);
         break;
       }catch(error){
-        if(!importAckRecovered)throw error;
-        const transient=/^NAV_PREVIEW_(?:TIMEOUT|NETWORK|JSON)_UNVERIFIED$/
+        const transient=/^NAV_PREVIEW_(?:TIMEOUT|NETWORK|JSON|HTTP_TRANSIENT)_UNVERIFIED$/
           .test(String(error?.message||''));
         if(!transient||attempt===2)throw Error('NAV_IMPORT_UNVERIFIED');
         await retryDelay(2000*(attempt+1));
       }
     }
-    if(check.status!=='ok'||check.candidates?.length||check.updates?.length||check.errors?.length||check.identical?.length!==candidates.length)throw Error('NAV_READBACK_FAILED');
-    if(importAckRecovered){
-      // A mere row count is insufficient to certify a lost ACK. Verify every
-      // requested date and NAV appears as EXACTLY the same stored value.
-      const verified=Array.isArray(check.identical)&&candidates.every(row=>
-        check.identical.some(item=>item.date===row.date
-          && Number(item.existingNav)===row.nav
-          && Number(item.uploadedNav)===row.nav));
-      if(!verified)throw Error('NAV_READBACK_FAILED');
-    }
+    if(check?.status!=='ok'||check.candidates?.length||check.updates?.length
+      ||check.errors?.length||check.warnings?.length||check.duplicates?.length
+      ||check.zeroUnits?.length||!Array.isArray(check.identical)
+      ||check.identical.length!==candidates.length
+      ||!candidates.every(row=>check.identical.some(item=>item.date===row.date
+        &&Number(item.existingNav)===row.nav&&Number(item.uploadedNav)===row.nav)))
+      throw Error('NAV_READBACK_FAILED');
   }
   const valuation=async()=>{
     const r=await request('getFundValuationStatus',{from,to:valuationTo,code:'F00002'});
@@ -238,7 +238,17 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   const needsWrite=d=>d.valuationRequired!==false&&(
     ['WRITE_REQUIRED','NOT_CREATED'].includes(d.evaluationState)
     ||['WRITE_REQUIRED','NOT_CREATED'].includes(d.snapshotState));
-  const pending=(await valuation()).filter(needsWrite);
+  const hasDerivedProof=d=>Boolean(d&&d.valuationRequired===true
+    &&d.unitsApplied===true&&d.reconciled===true
+    &&['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(d.navState)
+    &&d.evaluationState==='EXISTING_VALID'&&d.snapshotState==='EXISTING_VALID');
+  const beforeDerived=await valuation();
+  const candidateDates=new Set(candidates.map(d=>d.date));
+  const confirmedCandidate=d=>d?.navState==='EXISTING_CONFIRMED'
+    &&d.valuationRequired===true&&d.unitsApplied===true&&d.reconciled===true;
+  if(candidates.some(c=>!confirmedCandidate(beforeDerived.find(d=>d.date===c.date))))
+    throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
+  const pending=beforeDerived.filter(needsWrite);
   const isWaiting=d=>isRecentUnpublishedKbCloseDay(d,{
     closeDate:valuationTo,today,latestPublishedDate:rows.at(-1).date
   });
@@ -253,10 +263,31 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
       throw Error('NAV_DERIVED_UNITS_UNVERIFIED');
     if(day.reconciled!==true)
       throw Error('NAV_DERIVED_RECONCILIATION_UNVERIFIED');
-    const r=await request('collectKbFundNav',{mode:'refresh',date:day.date});
-    if(r.status!=='ok')throw Error('NAV_DERIVED_'+classifyFundError(r.message));
+    let ackUncertain=false;
+    try{
+      const r=await request('collectKbFundNav',{mode:'refresh',date:day.date});
+      if(r.status!=='ok')throw Error('NAV_DERIVED_'+classifyFundError(r.message));
+    }catch(error){
+      if(!/^NAV_REFRESH_(?:TIMEOUT|NETWORK|HTTP|JSON)_UNVERIFIED$/.test(String(error?.message||'')))
+        throw error;
+      ackUncertain=true;
+    }
+    // A lost refresh ACK is not permission to send another refresh.
+    // Require the exact date's complete derived readback before continuing.
+    if(ackUncertain){
+      const checked=(await valuation()).find(d=>d.date===day.date);
+      if(!hasDerivedProof(checked))throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
+    }
   }
   const final=await valuation();
+  // Missing rows cannot silently pass an Array.some() over the remaining rows.
+  for(const date of new Set([...candidates,...eligible].map(d=>d.date))){
+    const proof=final.find(d=>d.date===date);
+    if(!hasDerivedProof(proof)||(candidateDates.has(date)&&!confirmedCandidate(proof)))
+      throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
+  }
+  if(beforeDerived.some(d=>!final.some(f=>f.date===d.date)))
+    throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
   if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||
     (d.valuationRequired===false
       ?d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED'

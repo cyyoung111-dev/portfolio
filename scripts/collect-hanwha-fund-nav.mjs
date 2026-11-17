@@ -180,8 +180,10 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
    try{
      const result=await request('collectHanwhaFundNav',{
        mode:'import',data:JSON.stringify({...data,rows:candidates})});
-     if(result?.status!=='ok'||(result.saveState!==undefined
-       &&result.saveState!=='success')||result.evaluation?.missingHoldings?.length)
+     if(result?.evaluation?.missingHoldings?.length)
+       throw Error('HANWHA_IMPORT_UNVERIFIED');
+     if(result?.saveState==='partial')importAckRecovered=true;
+     else if(result?.status!=='ok'||result.saveState!=='success')
        throw Error('HANWHA_IMPORT_UNVERIFIED');
    }catch(error){
      if(!/^HANWHA_IMPORT_(?:TIMEOUT|NETWORK|HTTP|JSON)_UNVERIFIED$/
@@ -189,11 +191,20 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
      importAckRecovered=true;
    }
    let check;
-   try{check=await request('previewFundNavImport',{
-      data:JSON.stringify({...data,rows:candidates})});
-   }catch{throw Error('HANWHA_IMPORT_READBACK_UNVERIFIED');}
+   for(let attempt=0;attempt<3;attempt++){
+     try{
+       check=await request('previewFundNavImport',{
+         data:JSON.stringify({...data,rows:candidates})},token,90000);
+       break;
+     }catch(error){
+       if(!/^HANWHA_PREVIEW_(?:TIMEOUT|NETWORK|HTTP_TRANSIENT|JSON)_UNVERIFIED$/.test(String(error?.message||''))
+         ||attempt===2)throw Error('HANWHA_IMPORT_READBACK_UNVERIFIED');
+       await retryDelay(2000*(attempt+1));
+     }
+   }
    if(check?.status!=='ok'||check.candidates?.length
      ||check.updates?.length||check.errors?.length||check.warnings?.length
+     ||check.duplicates?.length||check.zeroUnits?.length
      ||!Array.isArray(check.identical)||check.identical.length!==candidates.length
      ||!candidates.every(row=>check.identical.some(item=>
        item.date===row.date&&Number(item.existingNav)===row.nav
@@ -222,7 +233,17 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
    }
    return items;
  };
- const pendingNow=(await valuation()).filter(needsWrite);
+ const beforeDerived=await valuation();
+ const candidateDates=new Set(candidates.map(d=>d.date));
+ const confirmedCandidate=d=>d?.navState==='EXISTING_CONFIRMED'
+   &&d.valuationRequired===true&&d.unitsApplied===true&&d.reconciled===true;
+ const hasDerivedProof=d=>Boolean(d&&d.valuationRequired===true
+   &&d.unitsApplied===true&&d.reconciled===true
+   &&['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(d.navState)
+   &&d.evaluationState==='EXISTING_VALID'&&d.snapshotState==='EXISTING_VALID');
+ if(candidates.some(c=>!confirmedCandidate(beforeDerived.find(d=>d.date===c.date))))
+   throw Error('HANWHA_DERIVED_READBACK_UNVERIFIED');
+ const pendingNow=beforeDerived.filter(needsWrite);
  const isWaiting=row=>isRecentUnpublishedHanwhaCloseDay(row,{
    closeDate:valuationTo,today,latestPublishedDate:rows.at(-1).date
  });
@@ -245,13 +266,18 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
    }
    if(ackUncertain){
      const checked=(await valuation()).find(x=>x.date===row.date);
-     if(!checked||needsWrite(checked)
-        ||!['EXISTING_VALID','NOT_REQUIRED'].includes(checked.evaluationState)
-        ||!['EXISTING_VALID','NOT_REQUIRED'].includes(checked.snapshotState))
+     if(!hasDerivedProof(checked))
        throw Error('HANWHA_DERIVED_READBACK_UNVERIFIED');
    }
  }
  const final=await valuation();
+ for(const date of new Set([...candidates,...eligible].map(d=>d.date))){
+   const proof=final.find(d=>d.date===date);
+   if(!hasDerivedProof(proof)||(candidateDates.has(date)&&!confirmedCandidate(proof)))
+     throw Error('HANWHA_DERIVED_READBACK_UNVERIFIED');
+ }
+ if(beforeDerived.some(d=>!final.some(f=>f.date===d.date)))
+   throw Error('HANWHA_DERIVED_READBACK_UNVERIFIED');
  if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||(
    d.valuationRequired===true &&
    (!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
