@@ -10,7 +10,7 @@ import {yahoo52WeekRequested,formatMorningYahoo52WeekRanges}
 import {formatFearGreed} from './briefing-fear-greed.mjs';
 import {formatAiEventHighlights} from './briefing-ai-event-watch.mjs';
 import {verifiedK200NightChange,formatK200NightChange} from './briefing-k200-night-change.mjs';
-import {calculateSkhyParity,formatSkhyParity} from './briefing-skhy-adr-parity.mjs';
+import {calculateSkhyParity,formatSkhyParity,formatSkhyQuote} from './briefing-skhy-adr-parity.mjs';
 
 export const MORNING_SERIES = Object.freeze([
   {id:'KOSPI',label:'KOSPI',symbol:'^KS11'},
@@ -332,11 +332,14 @@ export function formatFullMorningBriefing(date,reference,rows=[],options={}) {
     ordinaryDate:expectedMorningDate('SKHYNIX',date,options?.now||null),
     fxDate:expectedMorningDate('USDKRW',date,options?.now||null)
   }));
-  if(parity.length){
+  const skhyQuote=formatSkhyQuote(options?.watchEvidence?.skhyQuote,
+    expectedMorningDate('NVDA',date,options?.now||null));
+  const skhyLines=parity.length?parity:skhyQuote?[skhyQuote]:[];
+  if(skhyLines.length){
     const candidate=lines.slice();
     const insertAt=candidate.indexOf('■ 4. 코스피200 야간선물 (06:00)');
     if(insertAt>=0){
-      candidate.splice(insertAt,0,...parity,'');
+      candidate.splice(insertAt,0,...skhyLines,'');
       if(candidate.join('\n').length>3900){
         const note=candidate.findIndex(line=>line.startsWith('• 실수요: 빅테크 CAPEX'));
         if(note>=0)candidate.splice(note,1);
