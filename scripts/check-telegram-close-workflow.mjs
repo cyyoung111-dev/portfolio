@@ -111,6 +111,42 @@ assert.deepEqual(sanitizeCloseOptionalSourceReason({
  console.log('TELEGRAM_CLOSE_LATE_SENT_OR_FAILURE_CONTRACT_PASS target date, archive provenance, GET only, no replay');
 }
 
+// A duplicate claim may not be sent again, and only verified same-day
+// provider-confirmed SENT provenance can mark the skipped run successful.
+{
+ const {confirmClaimedWeekdayDelivery}=await import('./telegram-weekday-sent-proof.mjs');
+ const claimed={ready:false,status:'ALREADY_CLAIMED',date:day};
+ for(const kind of ['morning','close']){
+  const valid=kind==='close'?{date:day,verified:true}:{date:day,verifiedSent:true};
+  let reads=0;
+  const verify=async date=>{reads++;assert.equal(date,day);return valid;};
+  const confirmed=await confirmClaimedWeekdayDelivery(claimed,{kind,verify});
+  assert.deepEqual(confirmed,{...claimed,status:'ALREADY_SENT_VERIFIED'});
+  assert.equal(reads,1);
+  for(const bad of [null,{}, {...valid,date:'2026-10-29'},
+    {date:day,verified:false,verifiedSent:false},
+    kind==='close'?{date:day,verifiedSent:true}:{date:day,verified:true}]){
+   await assert.rejects(()=>confirmClaimedWeekdayDelivery(claimed,{kind,verify:async()=>bad}),
+    /TELEGRAM_(CLOSE|MORNING)_CLAIM_SENT_UNVERIFIED/);
+  }
+  await assert.rejects(()=>confirmClaimedWeekdayDelivery(claimed,{kind,verify:async()=>{throw Error('network');}}),
+   /CLAIM_SENT_UNVERIFIED/);
+  const pending={ready:false,status:'NO_VERIFIED_INDEX_CLOSE',date:day};
+  assert.equal(await confirmClaimedWeekdayDelivery(pending,{kind,verify:async()=>assert.fail('no claim: no SENT lookup')}),pending);
+  const newlyPrepared={ready:true,status:'PREPARED',date:day};
+  assert.equal(await confirmClaimedWeekdayDelivery(newlyPrepared,{kind,verify:async()=>assert.fail('new claim: no SENT lookup')}),newlyPrepared);
+ }
+ assert.deepEqual(await confirmClaimedWeekdayDelivery(claimed,{
+  kind:'morning',mode:'late_test',verify:async()=>assert.fail('late test cannot become regular SENT')
+ }),{...claimed,status:'LATE_TEST_ALREADY_CLAIMED'});
+ for(const kind of ['morning','close']){
+  const source=fs.readFileSync('scripts/telegram-'+kind+'-workflow.mjs','utf8');
+  assert.match(source,/await confirmClaimedWeekdayDelivery\(prepared,\{/);
+  assert.match(source,kind==='morning'?/verify:date=>verifyLateScheduledMorningSent/:/verify:\(\)=>verifyLateCloseSent/);
+ }
+ console.log('WEEKDAY_CLAIM_SENT_PROOF_PASS verified prior send, ambiguous claim fails, no resend, no reads on new claim');
+}
+
 assert.equal(closeWindow(new Date(day+'T16:59:59+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T16:45:00+09:00')).allowed,false,'preparation can run early but delivery may not');
 assert.equal(closeWindow(now()).allowed,true);
