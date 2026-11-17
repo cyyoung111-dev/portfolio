@@ -11,7 +11,7 @@ const pct=x=>(x>=0?'+':'')+x.toFixed(2)+'%';
 const point=x=>(x>=0?'+':'')+x.toFixed(2)+'%p';
 // Compact daily commentary: facts and relative moves, not repeated investment
 // principles. The detailed evaluator remains available to offline research.
-export function formatCompactCloseLens({date,usDate,nh=[],domestic=[],secondary=[],stocks=[],macros=[],futures=[],investorSummary='',now=new Date(date+'T17:00:00+09:00')}={}){
+export function formatCompactCloseLens({date,usDate,nh=[],domestic=[],secondary=[],stocks=[],futures=[],now=new Date(date+'T17:00:00+09:00')}={}){
  const single=(rows,predicate)=>{const a=rows.filter(predicate);return a.length===1?a[0]:null;};
  const kr=label=>single(domestic,x=>x?.label===label&&x.date===date
    &&['KRX_OFFICIAL','FDR_KRX_CACHE','YAHOO_SHINHAN_CROSSCHECKED_EOD'].includes(x.source)
@@ -26,10 +26,10 @@ export function formatCompactCloseLens({date,usDate,nh=[],domestic=[],secondary=
  const out=[];
  if(k&&q){const same=k.changePercent<0&&q.changePercent<0?'동반 하락':k.changePercent>0&&q.changePercent>0?'동반 상승':'혼조';
   const lead=k.changePercent-q.changePercent;
-  out.push('• 국내: 양 시장 '+same+(Math.abs(lead)>=0.5?' · '+(lead>0?'코스피':'코스닥')+' 상대강세 '+Math.abs(lead).toFixed(2)+'%p':'')+'.');}
+  out.push('• 국내 증시: 양 시장 '+same+(Math.abs(lead)>=0.5?' · '+(lead>0?'코스피':'코스닥')+' 상대강세 '+Math.abs(lead).toFixed(2)+'%p':'')+'.');}
  if(sp&&nd&&sox){const d=sox.changePercent-nd.changePercent;
   const tech=nd.changePercent-sp.changePercent;
-  out.push('• 미국: 기술주 '+(tech<-0.15?'상대약세':tech>0.15?'상대강세':'시장과 유사')+' ('+point(tech)+') · 반도체 '+(d<0?'낙폭 확대/상대약세':'상대강세')+' ('+point(d)+').');}
+  out.push('• 미국: 기술주 '+(tech<-0.15?'상대약세':tech>0.15?'상대강세':'시장과 유사')+' ('+point(tech)+') · 반도체 '+(d<-0.15?'상대약세':d>0.15?'상대강세':'시장과 유사')+' ('+point(d)+').');}
  else if(sp&&nd){out.push('• 미국: NASDAQ100의 S&P500 대비 '+point(nd.changePercent-sp.changePercent)+'.');}
  const s=stock('SAMSUNG'),h=stock('SKHYNIX'),n=stock('NVDA'),m=stock('MU');
  const pairs=[];
@@ -39,7 +39,7 @@ export function formatCompactCloseLens({date,usDate,nh=[],domestic=[],secondary=
  const fresh=selectCurrentFuturesRows(date,futures,now);
  const nq=fresh.find(x=>x.id==='NQ'),es=fresh.find(x=>x.id==='ES');
  if(nq&&es&&Number.isFinite(nq.changePercent)&&Number.isFinite(es.changePercent))
-   out.push('• 17시 선물: S&P500 '+pct(es.changePercent)+' / NASDAQ100 '+pct(nq.changePercent)+' (제공사 전거래일 기준).');
+   out.push('• 17시 선물: S&P500 '+pct(es.changePercent)+' / NASDAQ100 '+pct(nq.changePercent)+' (Yahoo 비교 기준).');
  if(vix&&Math.abs(vix.changePercent)>=5)out.push('• 위험선호: VIX '+pct(vix.changePercent)+' · '+(vix.changePercent>0?'변동성 확대':'변동성 완화')+'.');
  return out.length?['■ 시장 해석',...out.slice(0,5)]:[];
 }
