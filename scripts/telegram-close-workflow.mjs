@@ -29,6 +29,7 @@ import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {loadAiFinancialEvidenceArtifact} from './load-ai-financial-evidence-artifact.mjs';
 import {readTreasuryCurve,verifyTreasuryCurve,formatTreasuryCurve} from './closing-us-treasury-curve.mjs';
 import {readClosingVkospi,verifyClosingVkospi} from './closing-vkospi-reference.mjs';
+import {formatSkhyQuote} from './briefing-skhy-adr-parity.mjs';
 import {readClosingKrxTurnoverFromGas,verifyOfficialKrxTurnover,formatKrxTurnover}
  from './closing-krx-turnover.mjs';
 import {readFearGreed,verifyFearGreed,formatFearGreed,fearGreedDisplayStatus} from './briefing-fear-greed.mjs';
@@ -273,6 +274,14 @@ export function formatClose(date,rows,secondary=[],domestic=[],stocks=[],macros=
      if(pos>=0)lines.splice(pos+1,0,...priorLines);
    }
  }
+ const skhyRows=priorKrx?.skhy;
+ const skhyLine=Array.isArray(skhyRows)&&skhyRows.length===1
+   ?formatSkhyQuote(skhyRows[0],expectedMorningDate('NVDA',date)):'';
+ if(skhyLine&&lines.join('\n').length+skhyLine.length+1<=3900){
+   const pos=lines.findIndex(x=>x.startsWith('■ 환율·금리'));
+   if(pos>=0)lines.splice(pos,0,skhyLine,'');
+   else lines.splice(lines.findIndex(x=>x.startsWith('■ 데이터 확인:')),0,skhyLine,'');
+ }
  // Put verified market values before optional financial research.
  if(verifiedTurnover.length){
    const detail=formatKrxTurnover(date,verifiedTurnover);
@@ -353,7 +362,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   try{rawPrepared=await loadPrepared(window.date,
     {token:githubToken,repository,fetchImpl,now});}catch{}
   const cached=rawPrepared?sanitizePreclose(window.date,rawPrepared):null;
-  let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[],priorVkospi=[],priorTurnover=[]}=cached||{};
+  let {nh:rows=[],secondary=[],domestic=[],stocks=[],macros=[],markets=[],priorVkospi=[],priorTurnover=[],skhy=[]}=cached||{};
   // Latest 17:00 overseas quotes must never come from the 16:50 EOD artifact.
   let futures=[],rates=[],vkospi=[],turnover=[],liquidity=null,investors=null,fearGreed=null;
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
@@ -424,7 +433,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   // A zero count is a genuine missing reading, not proof of a broken provider.
   console.log(JSON.stringify({kind:'CLOSE_OPTIONAL_SOURCE_READ',date:window.date,
     futures:futures.length,treasury:rates.length,vkospi:vkospi.length,
-    turnover:turnover.length,priorVkospi:priorVkospi.length,priorTurnover:priorTurnover.length,investorMarkets:investors?.markets?.length||0,
+    turnover:turnover.length,priorVkospi:priorVkospi.length,priorTurnover:priorTurnover.length,skhy:skhy.length,investorMarkets:investors?.markets?.length||0,
     kofiaDeposits:Boolean(liquidity?.deposits),kofiaMargin:Boolean(liquidity?.margin),
     sourceReasons}));
   const verified=verifiedNhCloseRows(window.date,rows);
@@ -455,8 +464,8 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     investorMarkets:investors?.markets?.length||0,
     // Market-only public rows; no tokens, accounts or GAS ledger data. The
     // send step re-renders AI/US futures at the actual transmission time.
-    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,turnover,priorVkospi,priorTurnover,liquidity,investors,fearGreed,...(financialEvidence?{financialEvidence}:{})},
-    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence,turnover,liquidity,investors,{priorVkospi,priorTurnover})};
+    reportInputs:{nh:verified,secondary,domestic:domesticVerified,stocks,macros,markets,futures,rates,vkospi,turnover,priorVkospi,priorTurnover,skhy,liquidity,investors,fearGreed,...(financialEvidence?{financialEvidence}:{})},
+    message:formatClose(window.date,verified,secondary,domesticVerified,stocks,macros,markets,futures,now(),rates,vkospi,fearGreed,financialEvidence,turnover,liquidity,investors,{priorVkospi,priorTurnover,skhy})};
 }
 // Only the already-armed 16:35 runner uses this bounded wait when today's
 // core index closes are not yet published. Existing claim and SEND guards
@@ -502,7 +511,7 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       ||r.futures.length!==payload.futuresCount)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     const fresh=sanitizePreclose(window.date,r);
     if(!fresh)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
-    for(const key of ['priorVkospi','priorTurnover']){
+    for(const key of ['priorVkospi','priorTurnover','skhy']){
       if(Object.hasOwn(r,key)&&(!Array.isArray(r[key])||fresh[key].length!==r[key].length))
         throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     }
@@ -528,7 +537,7 @@ export async function deliverClose(payload,{now=()=>new Date(),token,chatId,atte
       &&r.financialEvidence.usSessionDate===expectedMorningDate('SPX',window.date)
        ?r.financialEvidence:null;
     outgoing=formatClose(window.date,fresh.nh,fresh.secondary,fresh.domestic,
-      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover,r.liquidity||null,r.investors||null,{priorVkospi:fresh.priorVkospi,priorTurnover:fresh.priorTurnover});
+      fresh.stocks,fresh.macros,fresh.markets,r.futures,now(),rates,vkospi,fearGreed,evidence,turnover,r.liquidity||null,r.investors||null,{priorVkospi:fresh.priorVkospi,priorTurnover:fresh.priorTurnover,skhy:fresh.skhy});
     if(!outgoing||outgoing.length>4000)throw Error('TELEGRAM_CLOSE_PAYLOAD_INVALID');
     optionalDisplay=summarizeOptionalDelivery('close',{
       futures:selectCurrentFuturesRows(window.date,r.futures,now()).length,
