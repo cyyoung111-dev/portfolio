@@ -63,7 +63,7 @@ const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   // #734 9.294 T-1 CLOSE owner/NAV handoff; explicit manual release only.
   // Full-source successor to verified 9.294; only a separately approved
   // manual dispatch with a same-run independent read-only idle gate may publish.
-  '9.297': '__GAS9297_CANDIDATE_PIN__',
+  '9.297': '7d303bedb019150798ffdd21bab43849d28d63a8',
   '9.296': 'e7dfcc8a1ad194e4a0ef586b83b7df66a83dd2c6',
   '9.295': 'a360a32a2d459d1f28dee94365a28d8c3ca24367',
   '9.294': 'f5e31eeb2255539a021546d8b90a71d5cc7ca33d',
