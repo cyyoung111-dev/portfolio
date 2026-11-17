@@ -859,7 +859,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 #view-area[data-active-view] .hist-mode-controls button {
   box-sizing:border-box;min-height:40px;height:40px;
   border:0;border-radius:6px;
-  font-size:var(--type-caption)!important;
+  font-size:var(--type-caption);
   font-weight:600;line-height:var(--line-compact);
 }
 #view-area[data-active-view] .hist-mode-controls button[aria-pressed="true"] {
@@ -952,6 +952,8 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   #view-area[data-active-view] :is(.hist-month-input,.hist-range-select) {
     width:100%;min-width:0;min-height:42px;
   }
+  /* Native month pickers remain at least 16px to avoid mobile focus zoom. */
+  #view-area[data-active-view] .hist-month-input {font-size:max(16px,var(--type-caption))}
   #view-area[data-active-view] .hist-controls>.hist-filter-details,
   #view-area[data-active-view] .hist-query-btn {
     width:100%;min-width:0;grid-column:1/-1;
