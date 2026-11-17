@@ -9,7 +9,7 @@ import {verifyOfficialKrxTurnover,fetchOfficialKrxTurnover} from './closing-krx-
 import {validateGasEndpoint} from './nh-gas-proxy.mjs';
 import {readKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {readInvestorTrends} from './briefing-krx-investor-trends.mjs';
-import {readMorningBreadth,formatMorningBreadth} from './telegram-morning-breadth.mjs';
+import {readMorningBreadth,formatMorningBreadth,morningBreadthPublishedDate} from './telegram-morning-breadth.mjs';
 export {formatMorningBreadth};
 
 const US=Object.freeze(['SPX','NASDAQ','NDX']);
@@ -195,7 +195,11 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
  const krxReasons=[];
  const onKrx=entry=>{if(krxReasons.length<16)krxReasons.push(entry);};
  const expectedUs=expectedMorningDate('SPX',date);
- const expectedKr=expectedMorningDate('KOSPI',date);
+ // KRX daily Open API can still lack yesterday's rows at 07:40 KST.
+ // Reuse the conservative 08:15 release-eligibility date for official daily
+ // index references (VKOSPI / index-constituent turnover), as for A/D.
+ // This selects only a request date: exact official rows are still mandatory.
+ const officialKrxDate=morningBreadthPublishedDate(date,now());
  const missing=US.filter(id=>!nhRows.some(r=>r?.symbol===MORNING_SERIES.find(x=>x.id===id)?.symbol
   &&r.date===expectedUs&&r.source==='NH_INDEX_DAILY'));
  const [usReferences,treasury,futures,vk,turnover,breadth,liquidity,investors]=await Promise.all([
@@ -210,9 +214,9 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
   })).then(x=>x.filter(Boolean)),
   readTreasuryCurve(date,{fetchImpl}).catch(()=>[]),
   readMorningFutures(date,{now,fetchImpl}).catch(()=>[]),
-  readMorningVkospi(expectedKr,{url,token,authKey:breadthKey,fetchImpl,now,
+  readMorningVkospi(officialKrxDate,{url,token,authKey:breadthKey,fetchImpl,now,
    onDiagnostic:onKrx}).catch(()=>[]),
-  readMorningTurnover(expectedKr,{url,token,authKey:breadthKey,fetchImpl,
+  readMorningTurnover(officialKrxDate,{url,token,authKey:breadthKey,fetchImpl,
    onDiagnostic:onKrx}).catch(()=>[]),
   readMorningBreadth(date,{authKey:breadthKey,now,fetchImpl,
    onDiagnostic:onKrx}).catch(()=>[]),
@@ -220,5 +224,5 @@ export async function readMorningSupplements(date,{now=()=>new Date(),fetchImpl=
   readInvestorTrends(date,{mode:'morning',now,fetchImpl}).catch(()=>null)
  ]);
  return {usReferences,treasury,futures,vkospi:vk,turnover,breadth,liquidity,investors,
-  turnoverDate:expectedKr,krxReasons};
+  turnoverDate:officialKrxDate,krxReasons};
 }
