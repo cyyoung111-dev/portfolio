@@ -192,14 +192,14 @@ jobs:
       (needs.collect.outputs.admitted == 'true' || needs['hanwha-collect'].outputs.admitted == 'true')
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Verify published KB NAV, saved derived values, and GAS close (read only)
+      - name: Verify published KB and Hanwha NAV, saved derived values, and GAS close (read only)
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/audit-kb-nav-postflight-readonly.mjs
+        run: node scripts/audit-kb-nav-postflight-readonly.mjs --both

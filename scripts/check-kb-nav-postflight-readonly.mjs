@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import YAML from 'yaml';
 import {assessNavScheduledAdmission} from './nav-schedule-admission.mjs';
-import {assessKbNavPostflight,auditKbNavPostflight,
+import {assessKbNavPostflight,auditKbNavPostflight,auditHanwhaNavPostflight,auditBothNavPostflight,
  expectedKbOfficialReferenceDate,verifyKbOfficialNavPreview,readKbExactNavPreview}
  from './audit-kb-nav-postflight-readonly.mjs';
 
@@ -368,7 +368,7 @@ for(const name of ['collect','hanwha-collect']){
  assert.equal(job.steps.find(step=>step.id==='nav_admission').run,
    'node scripts/nav-schedule-admission.mjs');
 }
-assert.match(post.steps.at(-1).run,/audit-kb-nav-postflight-readonly[.]mjs/);
+assert.equal(post.steps.at(-1).run,'node scripts/audit-kb-nav-postflight-readonly.mjs --both');
 const publicStatus=workflow.jobs['source-public'].steps.find(s=>
  s.name==='Record public source coverage without blocking private writer');
 assert.ok(publicStatus,'mandatory public NAV status audit must remain');
@@ -469,6 +469,75 @@ const readonlyPreviewCode=fs.readFileSync(
  'export async function auditKbNavPostflight(')[0];
 assert.doesNotMatch(readonlyPreviewCode,/collectKbFundNav|collectHanwhaFundNav|mode:'import'|mode:'refresh'/,
  'postflight must never call a financial writer');
+// Both funds get independent exact-date source and derived checks. Share
+// only the immutable close read, never a source or another fund's proof.
+const hanwhaSource={writerInvoked:false,code:'F00001',
+ provider:'HANWHA_2045_CRPE',classCode:'C-RPe',
+ sourceUsed:'HANWHA_PRIMARY',lookupCode:'008942',rows:source};
+const hProof={status:'ok',fundResults:{F00001:{code:'F00001',
+ dates:[{...verified,code:'F00001'}]}}};
+const hPreview={...exactPreview(),code:'F00001'};
+const hOptions={...mocks,completedDaysOnly:true,
+ sourceReader:async()=>hanwhaSource,
+ valuationReader:async({code,to})=>{
+  assert.equal(code,'F00001');assert.equal(to,date);return hProof;
+ },
+ previewReader:async({code,sourceUsed,nav,date:asked})=>{
+  assert.equal(code,'F00001');assert.equal(sourceUsed,'HANWHA_PRIMARY');
+  assert.equal(asked,date);assert.equal(nav,2100.55);return hPreview;
+ }};
+const hResult=await auditHanwhaNavPostflight(hOptions);
+assert.equal(hResult.kind,'HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY');
+assert.equal(hResult.navWorkflowStatus,'NAV_DATA_VERIFIED');
+assert.equal(hResult.navWorkflowPass,true);
+assert.equal(hResult.financialWrites,0);
+for(const change of [
+ {previewReader:async()=>exactPreview()},
+ {previewReader:async()=>({...exactPreview(2100.56),code:'F00001'})},
+ {valuationReader:async()=>({status:'ok',fundResults:{F00001:{code:'F00001',dates:[]}}})},
+ {valuationReader:async()=>({status:'ok',fundResults:{F00001:{code:'F00001',dates:[
+   {...verified,code:'F00001',snapshotState:'WRITE_REQUIRED'}]}}})}
+]){
+ const result=await auditHanwhaNavPostflight({...hOptions,...change});
+ assert.equal(result.navWorkflowPass,false);
+}
+for(const change of [{code:'F00002'},{classCode:'C-Pe'},
+ {lookupCode:'008943'},{provider:'KB_VALUE_ST'},{sourceUsed:'UNKNOWN'}]){
+ await assert.rejects(()=>auditHanwhaNavPostflight({...hOptions,
+  sourceReader:async()=>({...hanwhaSource,...change}),
+  valuationReader:async()=>assert.fail('unverified class must not reach GAS valuation')
+ }),/HANWHA_POSTFLIGHT_SOURCE_UNVERIFIED/);
+}
+for(const sourceUsed of ['HANWHA_PRIMARY','FUNETF_CRPE_SECONDARY']){
+ await readKbExactNavPreview({...readonlyOptions,code:'F00001',sourceUsed,
+  fetchImpl:async(_url,opts)=>{
+   const body=Object.fromEntries(opts.body);
+   assert.equal(body.action,'previewFundNavImport');
+   const input=JSON.parse(body.data);
+   assert.equal(input.code,'F00001');
+   assert.equal(input.provider,'HANWHA_2045_CRPE');
+   assert.equal(input.classCode,'C-RPe');
+   assert.equal(input.ackWarnings,false);
+   assert.match(input.sourceText,sourceUsed==='HANWHA_PRIMARY'?/^008942 /:/^K55213C50702 /);
+   assert.deepEqual(input.rows,[{date,nav:2100.55}]);
+   return {ok:true,json:async()=>hPreview};
+  }});
+}
+let sharedReads=0;const results=[];
+const bothOptions={now:mocks.now,statusReader:async()=>{sharedReads++;return {close};},
+ kbReader:args=>auditKbNavPostflight({...mocks,...args,
+  valuationReader:async()=>proof}),
+ hanwhaReader:args=>auditHanwhaNavPostflight({...hOptions,...args}),
+ emit:(code,result)=>results.push([code,result.navWorkflowPass])};
+assert.equal(await auditBothNavPostflight(bothOptions),true);
+assert.deepEqual(results,[['F00002',true],['F00001',true]]);
+assert.equal(sharedReads,1);
+results.length=0;sharedReads=0;
+assert.equal(await auditBothNavPostflight({...bothOptions,
+ kbReader:async()=>{throw Error('SENSITIVE');}}),false);
+assert.deepEqual(results,[['F00002',false],['F00001',true]]);
+assert.equal(sharedReads,1);
+console.log('BOTH_NAV_POSTFLIGHT_EXACT_PASS same close read, exact fund/date/value proof, independent errors, no finance writer');
 console.log('KB NAV postflight: published-vs-persisted, close marker, transient read-only preview and workflow PASS');
 
  // 2026-11-14: weekend 09:10 scheduled GitHub action actually started

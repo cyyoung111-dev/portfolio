@@ -304,8 +304,23 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
     candidates:candidates.length,imported:candidates.length,
     derivedRepaired:eligible.length,importAckRecovered};
 }
+// Preserve the imported run() deferral result for existing consumers.
+// A busy/unknown deferral in the real protected workflow is not the same
+// as a healthy, explicitly unpublished official source.
+export function kbNavCollectorExitCode(result,{apply=false}={}){
+  if(!apply)return 0;
+  return (result?.mode==='APPLY'&&result.complete===true)
+    ||(result?.mode==='DEFERRED'&&result.complete===false
+      &&result.reason==='OFFICIAL_NAV_AWAITING_PUBLICATION')?0:1;
+}
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
-  try{console.log(JSON.stringify(process.argv.includes('--source-only')
-    ?await runPublicSourceOnly():await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply:process.argv.includes('--apply')})));}
+  try{
+    const sourceOnly=process.argv.includes('--source-only');
+    const apply=!sourceOnly&&process.argv.includes('--apply');
+    const result=sourceOnly?await runPublicSourceOnly()
+      :await run({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,apply});
+    console.log(JSON.stringify(result));
+    process.exitCode=kbNavCollectorExitCode(result,{apply});
+  }
   catch(error){console.error(/^NAV_[A-Z_0-9]+$/.test(error?.message||'')?error.message:'KB_NAV_COLLECTION_FAILED');process.exitCode=1;}
 }

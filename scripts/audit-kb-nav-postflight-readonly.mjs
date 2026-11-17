@@ -5,6 +5,7 @@
 import {pathToFileURL} from 'node:url';
 import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {runPublicSourceOnly} from './collect-kb-fund-nav.mjs';
+import {runPublicHanwhaSource} from './collect-hanwha-public-nav.mjs';
 import {summarizeFundRows} from './diagnose-fund-valuation-readonly.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {describeFundCloseCheckpoint} from './assess-krx-overnight-health.mjs';
@@ -130,7 +131,8 @@ export function assessKbNavPostflight({close,officialRows,fundRow,today,official
    financialWrites:0,gasDeployments:0,telegramSends:0};
 }
 
-export async function readKbValuation({url,token,from,to,fetchImpl=fetch}) {
+export async function readKbValuation({url,token,from,to,fetchImpl=fetch,code='F00002'}) {
+ if(!['F00001','F00002'].includes(code))throw Error('KB_POSTFLIGHT_CONFIG');
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim()||!isDay(from)||!isDay(to)||from>to)
    throw Error('KB_POSTFLIGHT_CONFIG');
@@ -139,7 +141,7 @@ export async function readKbValuation({url,token,from,to,fetchImpl=fetch}) {
    response=await fetchImpl(endpoint,{method:'POST',redirect:'follow',
      headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
      body:new URLSearchParams({action:'getFundValuationStatus',from,to,
-       code:'F00002',accessToken:token}),signal:AbortSignal.timeout(90000)});
+       code,accessToken:token}),signal:AbortSignal.timeout(90000)});
  }catch{throw Error('KB_POSTFLIGHT_GAS_NETWORK_UNVERIFIED');}
  if(!response?.ok)throw Error('KB_POSTFLIGHT_GAS_HTTP_UNVERIFIED');
  try{return await response.json();}
@@ -151,9 +153,9 @@ export async function readKbValuation({url,token,from,to,fetchImpl=fetch}) {
 // A stored NAV + matching derived amount is only internally consistent; this
 // exact-value GAS preview independently compares it with the public class NAV.
 // Preview is read-only. No NAV values/response bodies are written to logs.
-export function verifyKbOfficialNavPreview(date,nav,payload) {
- return isDay(date)&&Number.isFinite(nav)&&nav>0
-   &&payload?.status==='ok'&&payload.code==='F00002'
+export function verifyKbOfficialNavPreview(date,nav,payload,code='F00002') {
+ return ['F00001','F00002'].includes(code)&&isDay(date)&&Number.isFinite(nav)&&nav>0
+   &&payload?.status==='ok'&&payload.code===code
    &&['candidates','updates','warnings','errors','duplicates','zeroUnits']
      .every(key=>Array.isArray(payload[key])&&payload[key].length===0)
    &&Array.isArray(payload.identical)&&payload.identical.length===1
@@ -162,14 +164,23 @@ export function verifyKbOfficialNavPreview(date,nav,payload) {
    &&Number(payload.identical[0].uploadedNav)===nav;
 }
 export async function readKbExactNavPreview({url,token,date,nav,fetchImpl=fetch,
- retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
+ retryDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),code='F00002',sourceUsed}={}) {
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||!token.trim()||!isDay(date)
    ||!Number.isFinite(nav)||nav<=0)throw Error('KB_POSTFLIGHT_PREVIEW_CONFIG');
- const input={code:'F00002',provider:'KB_VALUE_ST',classCode:'AQ018',
-   appendOnly:true,ackWarnings:true,
-   sourceText:'KR5223AQ0185 AQ018 S-T OFFICIAL_READ_ONLY',
-   rows:[{date,nav}]};
+ if(!['F00001','F00002'].includes(code))throw Error('KB_POSTFLIGHT_PREVIEW_CONFIG');
+ if(code==='F00001'&&!['HANWHA_PRIMARY','FUNETF_CRPE_SECONDARY'].includes(sourceUsed))
+   throw Error('HANWHA_POSTFLIGHT_SOURCE_UNVERIFIED');
+ const input=code==='F00002'
+   ?{code,provider:'KB_VALUE_ST',classCode:'AQ018',
+     appendOnly:true,ackWarnings:true,
+     sourceText:'KR5223AQ0185 AQ018 S-T OFFICIAL_READ_ONLY',rows:[{date,nav}]}
+   :{code,provider:'HANWHA_2045_CRPE',classCode:'C-RPe',
+     appendOnly:true,ackWarnings:false,
+     sourceText:sourceUsed==='HANWHA_PRIMARY'
+       ?'008942 HANWHA C-RPe OFFICIAL_READ_ONLY'
+       :'K55213C50702 FunETF HANWHA C-RPe OFFICIAL_READ_ONLY',
+     rows:[{date,nav}]};
  // Retrying an exact, READ-ONLY preview once is safe after a transient
  // transport, rate-limit, or 200/HTML response. Never retry an unauthorized
  // request or a valid but mismatched NAV payload; never invoke a writer.
@@ -203,7 +214,8 @@ export async function readKbExactNavPreview({url,token,date,nav,fetchImpl=fetch,
 export async function auditKbNavPostflight({url,token,now=new Date(),
  statusReader=runBackfillStatus,sourceReader=runPublicSourceOnly,
  valuationReader=readKbValuation,previewReader=readKbExactNavPreview,
- fetchImpl=fetch,completedDaysOnly=false}={}) {
+ fetchImpl=fetch,completedDaysOnly=false,fundCode='F00002'}={}) {
+ if(!['F00001','F00002'].includes(fundCode))throw Error('KB_POSTFLIGHT_CONFIG');
  if(!(now instanceof Date)||!Number.isFinite(now.getTime()))
    throw Error('KB_POSTFLIGHT_CLOCK');
  const today=kstToday(now),from=shift(today,-6);
@@ -214,54 +226,89 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
  const source=await sourceReader({now,fetchImpl});
  if(source?.writerInvoked!==false||!Array.isArray(source.rows))
    throw Error('KB_POSTFLIGHT_SOURCE_UNVERIFIED');
+ if(fundCode==='F00001'&&(source.code!=='F00001'
+   ||source.provider!=='HANWHA_2045_CRPE'||source.classCode!=='C-RPe'
+   ||!((source.sourceUsed==='HANWHA_PRIMARY'&&source.lookupCode==='008942')
+     ||(source.sourceUsed==='FUNETF_CRPE_SECONDARY'&&source.lookupCode==='K55213C50702'))))
+   throw Error('HANWHA_POSTFLIGHT_SOURCE_UNVERIFIED');
  const target=navAuditTarget(close.runDate,today,completedDaysOnly);
  const valuationTo=completedDaysOnly?target:today;
  const valuationFrom=shift(valuationTo,-6);
- const proof=await valuationReader({url,token,from:valuationFrom,to:valuationTo,fetchImpl});
+ const proof=await valuationReader({url,token,from:valuationFrom,to:valuationTo,fetchImpl,code:fundCode});
  // Reuse the existing date-scoped, read-only GAS response validator.
- summarizeFundRows(proof,'F00002',valuationFrom,valuationTo);
+ summarizeFundRows(proof,fundCode,valuationFrom,valuationTo);
  const referenceDate=expectedKbOfficialReferenceDate(target,source.rows);
  if(!isDay(referenceDate))throw Error('KB_POSTFLIGHT_REFERENCE_DATE_UNVERIFIED');
- const matching=proof.fundResults.F00002.dates.filter(x=>x.date===referenceDate);
+ const matching=proof.fundResults[fundCode].dates.filter(x=>x.date===referenceDate);
  if(matching.length>1)throw Error('KB_POSTFLIGHT_DUPLICATE_DATE');
  const official=source.rows.find(x=>x.date===referenceDate);
  const officialNavMatched=official?verifyKbOfficialNavPreview(referenceDate,
    official.nav,await previewReader({url,token,date:referenceDate,
-     nav:official.nav,fetchImpl})):false;
+     nav:official.nav,fetchImpl,code:fundCode,sourceUsed:source.sourceUsed}),fundCode):false;
  // Expose only allow-listed GAS checkpoint enums. This is persisted runtime
  // evidence, not independent Apps Script Executions / successful close proof.
  return {...assessKbNavPostflight({close,officialRows:source.rows,
    fundRow:matching[0]||null,today,officialNavMatched,completedDaysOnly}),
+   ...(fundCode==='F00001'?{kind:'HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY',code:fundCode,sourceUsed:source.sourceUsed}:{}),
    fundCloseCheckpointEvidence:describeFundCloseCheckpoint(status)};
+}
+
+// Both funds share the same close status read. Each source and amount is
+// independently checked; a failure in one fund does not mask the other.
+export async function auditHanwhaNavPostflight({sourceReader=runPublicHanwhaSource,...options}={}) {
+ return auditKbNavPostflight({...options,sourceReader,fundCode:'F00001'});
+}
+export async function auditBothNavPostflight({statusReader=runBackfillStatus,
+ kbReader=auditKbNavPostflight,hanwhaReader=auditHanwhaNavPostflight,emit=()=>{},
+ ...options}={}) {
+ let sharedStatus;
+ const readStatus=args=>sharedStatus??=(Promise.resolve().then(()=>statusReader(args)));
+ let complete=true;
+ for(const [code,reader] of [['F00002',kbReader],['F00001',hanwhaReader]]){
+   try{
+     const result=await reader({...options,completedDaysOnly:true,statusReader:readStatus});
+     emit(code,result);
+     if(!result.navWorkflowPass)complete=false;
+   }catch(error){
+     const reason=String(error?.message||'');
+     emit(code,{kind:'FUND_NAV_POSTFLIGHT_UNVERIFIED',code,navWorkflowPass:false,
+       reason:/^(?:KB_POSTFLIGHT|HANWHA_POSTFLIGHT|FUND_AUDIT)_[A-Z_]+$/.test(reason)
+         ?reason:'FUND_NAV_POSTFLIGHT_UNVERIFIED',financialWrites:0});
+     complete=false;
+   }
+ }
+ return complete;
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
  try{
-   const result=await auditKbNavPostflight({
-     url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
-     completedDaysOnly:true});
-   console.log(JSON.stringify(result));
-   if(process.env.GITHUB_STEP_SUMMARY) {
-     const {appendFileSync}=await import('node:fs');
-     appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-       'KB NAV postflight: **'+result.verdict+'**'
-       +' · NAV 기준일='+result.officialReferenceDate
-       +' · 마감 기준일='+result.closeDate
-       +' · published='+result.officiallyPublished
-       +' · NAV='+result.storedNavConfirmed
-       +' · exactOfficialNAV='+result.officialNavMatched
-       +' · derived='+result.derivedConfirmed
-       +' · NAV-only='+result.navWorkflowStatus
-       +' · close='+result.closeState
-       +' · stage='+result.fundCloseCheckpointEvidence.closeStage
-       +' · fundAttempt='+result.fundCloseCheckpointEvidence.fundAttemptState
-       +' · fundFailure='+result.fundCloseCheckpointEvidence.fundFailureClass
-       +' · lastFundWork='+result.fundCloseCheckpointEvidence.fundWorkStage+'\n');
-   }
-   // Close finality remains separately INCOMPLETE and visible in the
-   // postflight verdict. Only NAV integrity/unpublished status determines
-   // whether this optional audit fails the NAV collector workflow.
-   if(!result.navWorkflowPass)process.exitCode=1;
+   const {appendFileSync}=await import('node:fs');
+   const emit=(code,result)=>{
+     console.log(JSON.stringify(result));
+     if(process.env.GITHUB_STEP_SUMMARY)
+       appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+         (code==='F00001'?'Hanwha':'KB')+' NAV postflight: **'
+         +(result.verdict||result.reason||'UNVERIFIED')+'**'
+         +' · NAV 기준일='+(result.officialReferenceDate||'-')
+         +' · NAV-only='+(result.navWorkflowStatus||'UNVERIFIED')
+         +' · 마감 기준일='+(result.closeDate||'-')
+         +' · published='+String(result.officiallyPublished??'-')
+         +' · NAV='+String(result.storedNavConfirmed??'-')
+         +' · exactOfficialNAV='+String(result.officialNavMatched??'-')
+         +' · derived='+String(result.derivedConfirmed??'-')
+         +' · close='+(result.closeState||'-')
+         +' · stage='+(result.fundCloseCheckpointEvidence?.closeStage||'-')
+         +' · fundAttempt='+(result.fundCloseCheckpointEvidence?.fundAttemptState||'-')
+         +' · fundFailure='+(result.fundCloseCheckpointEvidence?.fundFailureClass||'-')
+         +' · lastFundWork='+(result.fundCloseCheckpointEvidence?.fundWorkStage||'-')+'\n');
+     // CLOSE finality is reported separately from the NAV-only verdict.
+     if(!result.navWorkflowPass)process.exitCode=1;
+   };
+   const options={url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+     now:new Date(),completedDaysOnly:true};
+   if(process.argv.includes('--both')){
+     if(!await auditBothNavPostflight({...options,emit}))process.exitCode=1;
+   }else emit('F00002',await auditKbNavPostflight(options));
  }catch(error){
    const code=String(error?.message||'');
    console.error(/^KB_POSTFLIGHT_[A-Z_]+$/.test(code)
