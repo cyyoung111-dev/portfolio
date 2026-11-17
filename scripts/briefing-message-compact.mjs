@@ -19,7 +19,7 @@ function missingMarketRow(line) {
  const colon=line.indexOf(': ');
  if(colon<1||colon>65||line.startsWith('■')||line.startsWith('•'))return false;
  const value=line.slice(colon+2);
- return /^(?:미확보(?:$|\s|\()|종가 미확보|완료 종가 미확보|검증값 미확보|검증된 .*미확보|당일 확정치 미확보|당일 참고값 미확보|최근 검증된 시세 미확보|확정 기준일 자료 미확보|공식 기준일 자료 미확보|최근 허용 관측일 자료 미확보|동일 기준일 자료 미확보)/.test(value);
+ return /^(?:미확보(?:$|\s|\()|종가 미확보|완료 종가 미확보|검증값 미확보|검증된 .*미확보|당일 확정치 미확보|당일 참고값 미확보|최근 검증된 시세 미확보|확정 기준일 자료 미확보|공식 기준일 자료 미확보|공식 당일 자료 미확보|최근 허용 관측일 자료 미확보|동일 기준일 자료 미확보)/.test(value);
 }
 function cleanRow(line,mode) {
  if(missingMarketRow(line))return null;
