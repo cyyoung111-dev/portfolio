@@ -8071,7 +8071,7 @@ function _runFundImportStage(diagnostic, code, stage, functionName, callback) {
   }
 }
 
-function _applyFundNavImport(ss, inspected, diagnostic) {
+function _applyFundNavImport(ss, inspected, diagnostic, collectorNavOnly) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('_applyFundNavImport', _applyFundNavImport, this, arguments);
   diagnostic.persisted = { navWrite: { updatedRows: 0, appendedRows: 0 }, priceHistoryWrite: { updatedRows: 0, appendedRows: 0 }, snapshotWrite: { updatedRows: 0, appendedRows: 0 } };
   var capacityBefore = _fundSheetCapacity(ss);
@@ -8093,7 +8093,10 @@ function _applyFundNavImport(ss, inspected, diagnostic) {
   var navRows = Object.keys(published).sort().map(function(date) { return { date: date, nav: published[date] }; });
   var affectedDates = {}, navWriteDates = {};
   var publishedDates = Object.keys(published).sort();
-  var derived = _fundDerivedState(ss, configs);
+  // Only protected automatic collectors defer derived work to their separately
+  // guarded per-date refresh/readback. Manual NAV imports remain atomic in this
+  // handler. Do not scan all history/Snapshot during the private NAV write.
+  var derived = collectorNavOnly === true ? {priceKeys: {}, snapshotKeys: {}} : _fundDerivedState(ss, configs);
   function impactEnd(date) {
     var nextDate = publishedDates.filter(function(item) { return item > date; })[0] || '';
     return nextDate ? _fundDateOffset(nextDate, -1) : today();
@@ -8171,6 +8174,26 @@ function _applyFundNavImport(ss, inspected, diagnostic) {
     diagnostic.persisted.navWrite = _runFundImportStage(diagnostic, inspected.code, 'navWrite', '_writeFundImportRows', function() {
       return _writeFundImportRows(ss, navSheet, navUpdates, navAppends, 9);
     });
+  }
+
+  if (collectorNavOnly === true) {
+    // NAV is one durable source step; the collector will independently verify
+    // exact saved prices and repair price history/Snapshot through the existing
+    // dated refresh path. No second import is authorized after an unclear ACK.
+    return {
+      from: affected[0] || '', to: affected[affected.length-1] || '',
+      processed: daily.length, total: Object.keys(imported).length,
+      navCount: Object.keys(imported).length,
+      valuations: 0, prices: 0, snapshots: 0,
+      processing: {
+        nav: {processed: daily.length, pending: 0},
+        priceHistory: {processed: 0, pending: daily.length},
+        snapshots: {processed: 0, pending: daily.length, reasons: []}
+      },
+      missingHoldings: [], ranges: ranges, persisted: diagnostic.persisted,
+      capacity: {before: capacityBefore, after: _fundSheetCapacity(ss)},
+      derivedDeferred: true
+    };
   }
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -8318,7 +8341,7 @@ function handleCollectKbFundNav(mode, dataJson, date, fundCode) {
       if (!current || current.token !== token) throw new Error('lease');
       owned = true;
     });
-    return mode === 'import' ? handleImportFundNav(dataJson)
+    return mode === 'import' ? handleImportFundNav(dataJson, true)
       : handleRefreshFundValuations(date,date,code,'',true);
   } catch(error) { return jsonError(error && error.message === 'busy' ? 'FUND_BUSY' : 'FUND_COLLECTOR_BLOCKED_OR_UNVERIFIED'); }
   finally {
@@ -8329,7 +8352,7 @@ function handleCollectKbFundNav(mode, dataJson, date, fundCode) {
   }
 }
 
-function handleImportFundNav(dataJson) {
+function handleImportFundNav(dataJson, collectorNavOnly) {
   if (typeof _issue507GateInside_ !== 'undefined' && !_issue507GateInside_) return _issue507GateInvoke_('handleImportFundNav', handleImportFundNav, this, arguments);
   var lock = LockService.getScriptLock();
   var diagnostic = null, inspected = null;
@@ -8344,7 +8367,7 @@ function handleImportFundNav(dataJson) {
     if (inspected.errors.length) throw new Error('오류 행 ' + inspected.errors.length + '건을 먼저 수정하세요.');
     if (inspected.warnings.length && !JSON.parse(dataJson).ackWarnings) throw new Error('WARNING ' + inspected.warnings.length + '건을 확인한 후 반영하세요.');
     if (!inspected.candidates.length && !inspected.updates.length && !inspected.identical.length) return jsonOk({ importResult: inspected, evaluation: { from: '', to: '', prices: 0, snapshots: 0, missingHoldings: [], ranges: [] } });
-    var evaluation = _applyFundNavImport(ss, inspected, diagnostic);
+    var evaluation = _applyFundNavImport(ss, inspected, diagnostic, collectorNavOnly === true);
     inspected.saved = inspected.candidates.length;
     inspected.updated = inspected.updates.length;
     return jsonOk({ saveState: 'success', importResult: inspected, evaluation: evaluation, persisted: evaluation.persisted, diagnostic: diagnostic });
