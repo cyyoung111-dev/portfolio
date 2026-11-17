@@ -151,7 +151,7 @@ const currentClose={...close,runDate:today,expectedRunDate:today,
 const evening={...mocks,now:new Date('2026-11-07T10:17:00Z'),
  statusReader:async()=>({close:currentClose}),
  valuationReader:async({from,to})=>{
-  assert.equal(from,'2026-11-01');assert.equal(to,date);
+  assert.equal(from,'2026-10-31');assert.equal(to,date);
   return proof;
  },
  previewReader:async({date:asked,nav})=>{
