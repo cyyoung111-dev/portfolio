@@ -315,3 +315,9 @@ for (const tag of iconTags) {
 assert.match(unifiedCss,/width:15px;height:15px;max-width:15px;max-height:15px/);
 assert.match(unifiedCss,/width:18px;height:18px;max-width:18px;max-height:18px/);
 assert.match(unifiedCss,/width:17px;height:17px;max-width:17px;max-height:17px/);
+
+// Stable update toolbar geometry and fallback trigger contract.
+assert.match(html,/id="btn-price-lookup-toggle"[^>]*data-price-detail="toggle-summary"/);
+assert.match(unifiedCss,/\.action-bar\.toolbar-stable \.action-update-card\s*\{[^}]*grid-template-columns:126px repeat\(3,58px\)/);
+assert.match(unifiedCss,/\.action-bar\.toolbar-stable\s*\{[^}]*align-items:flex-start/);
+assert.match(settingsFetch,/kind === 'toggle-summary'/);
