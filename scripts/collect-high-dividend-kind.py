@@ -35,22 +35,10 @@ def collect(year, out):
             select, value = candidates[0]
             select.select_option(value=value)
             # Use the actual publicly served UI; no guessed download endpoint.
-            def control(label):
-                matches = page.get_by_text(label, exact=True).or_(
-                    page.get_by_role("button", name=label, exact=True)
-                ).or_(page.get_by_role("link", name=label, exact=True)).or_(
-                    page.locator(f'input[value="{label}"], a[title="{label}"], button[title="{label}"], img[alt="{label}"]')
-                )
-                # Accessibility name may come from a nested icon. Prefer clickable ancestors.
-                clickable = matches.locator("xpath=ancestor-or-self::*[self::a or self::button or self::input][1]")
-                try:
-                    return unique_visible(clickable, label)
-                except RuntimeError:
-                    print("Public controls:", page.locator("a:visible,button:visible,input:visible").evaluate_all(
-                        "(els)=>els.map(e=>({text:(e.innerText||'').trim().slice(0,80),title:e.title,alt:e.getAttribute('alt'),value:e.value,images:[...e.querySelectorAll('img')].map(i=>i.alt)})).filter(e=>e.text||e.title||e.alt||e.value||e.images.length).slice(-100)"), flush=True)
-                    raise
-            search = control("검색")
-            excel = control("EXCEL")
+            # The live page exposes the query controls by title, not button text.
+            # The global header search uses an input alt and is not our query.
+            search = unique_visible(page.locator('a[title="검색"], button[title="검색"]'), "KIND list Search")
+            excel = unique_visible(page.locator('a[title="EXCEL"], button[title="EXCEL"]'), "KIND list Excel")
             search.click()
             try:
                 page.wait_for_load_state("networkidle", timeout=20000)
