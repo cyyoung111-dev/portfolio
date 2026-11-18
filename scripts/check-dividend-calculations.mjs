@@ -299,3 +299,36 @@ assert.equal(unresolved.normal.annual,0);
 assert.equal(unresolved.isa.annual,0);
 assert.equal(unresolved.all.annual,1500);
 console.log('PASS: entitlement-date tax group, monthly filter, plan reconciliation and unknown allocation');
+
+
+// Exercise the actual dividend view and its local-only filter, not just math.
+accountCtx.getQtyAtDate=(_n,day,acct)=>day==='2026-01-02'?(acct==='일반'?4:acct==='ISA'?6:10):(acct==='일반'?0:acct==='ISA'?10:10);
+accountCtx.GSHEET_API_URL='';
+accountCtx._kstNow=()=>new Date('2026-11-18T15:00:00Z');
+accountCtx._dividendLinkState={state:'idle',message:'테스트'};
+accountCtx.rows=[{name:'테스트 종목',acct:'ISA',costAmt:2000}];
+accountCtx.window={innerWidth:1440};
+accountCtx.ACCT_COLORS={'일반':'#123456','ISA':'#234567'};
+accountCtx.fmtW=String;
+accountCtx._escapeHtml=String;
+accountCtx.buildDivMgmt=()=>{};
+const divArea={innerHTML:'',querySelector:()=>null};
+accountCtx.$el=()=>divArea;
+accountCtx.renderDivView(divArea,true);
+assert.match(divArea.innerHTML,/세제 유형별 연간 배당/);
+assert.match(divArea.innerHTML,/일반계좌 연간 세후 참고/);
+assert.match(divArea.innerHTML,/<td>일반계좌<\/td><td>400<\/td><td>400<\/td><td>0<\/td><td>400<\/td>/);
+assert.match(divArea.innerHTML,/<td>ISA<\/td><td>1,100<\/td><td>600<\/td><td>500<\/td><td>600<\/td>/);
+accountCtx._setDivTaxFilter('normal');
+assert.match(divArea.innerHTML,/data-div-tax="normal" aria-pressed="true"/);
+assert.match(divArea.innerHTML,/2026년 월별 배당 · 일반계좌/);
+assert.match(divArea.innerHTML,/1월 배당 400원/);
+assert.match(divArea.innerHTML,/2월 배당 0원/);
+assert.match(divArea.innerHTML,/<td>합계<\/td><td>1,500<\/td>/,'aggregate never changes with detail filter');
+accountCtx._setDivMonthFilter(1);
+assert.match(divArea.innerHTML,/종목별 배당 상세 · 일반계좌 · 1월/);
+accountCtx._setDivTaxFilter('isa');
+assert.match(divArea.innerHTML,/1월 배당 600원/);
+assert.match(divArea.innerHTML,/2월 배당 500원/);
+assert.match(divArea.innerHTML,/은행 실입금 <b>846<\/b>/,'net receipt stays unallocated and full-scope');
+console.log('PASS: actual rendering of dividend totals and tax/month filter');
