@@ -6,7 +6,7 @@ import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.
 import {composeIssue860Gas9292CloseStatePreview} from './compose-issue860-gas9292-close-state-preview.mjs';
 import {assertGasReleaseReady} from './deploy-gas.mjs';
 for(const kind of ['KB','HANWHA']){
- for(const v of ['9.285','9.289','9.291','9.292'])
+ for(const v of ['9.285','9.289','9.291','9.292','9.298'])
   assert.equal(supportsPublishedFundNavGasVersion(kind,v),true,
    kind+' reviewed release '+v);
  for(const v of ['9.290','9.300','9.999',null,''])

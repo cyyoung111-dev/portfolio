@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import YAML from 'yaml';
+import {assertGasReleaseReady,assertIssue507ManualReleasePermission,assertGas9298Prerequisites} from './deploy-gas.mjs';
+import {readGas9298ReleaseProof} from './gas9298-release-readonly.mjs';
+import {assertPublishedReleaseFundNavSupport} from './issue860-fund-nav-release-compat.mjs';
 import {assessNhFinancialIncomeReadback,probeNhFinancialIncome} from './nh-financial-income-readback.mjs';
 import {composeGas9298NhFinancialIncomePreview} from './compose-gas9298-nh-financial-income-preview.mjs';
 const {parent,candidate,manifest}=composeGas9298NhFinancialIncomePreview();
@@ -83,3 +87,47 @@ const simulated=await probeNhFinancialIncome({url:'https://script.google.com/mac
 assert.deepEqual(simulated,assessNhFinancialIncomeReadback(sampleProof));
 console.log('GAS9298_REVIEWED_CANDIDATE '+JSON.stringify({version:manifest.version,parentGitBlob:manifest.parentGitBlob,
  candidateGitBlob:manifest.candidateGitBlob,productionDeploymentApproved:false,financeWrites:0}));
+
+assert.equal(manifest.candidateGitBlob,'0674f15661314131e4bd16ea4c161d03227839bf');
+assert.equal(assertGasReleaseReady(candidate),'9.298');
+assert.throws(()=>assertGasReleaseReady(candidate+'\n// drift'),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+assert.deepEqual(assertPublishedReleaseFundNavSupport('9.298'),{version:'9.298',kb:true,hanwha:true,financialWrites:0});
+for(const eventName of ['push','workflow_run','workflow_dispatch'])assert.throws(()=>assertIssue507ManualReleasePermission({
+ version:'9.298',eventName,approved9298:eventName!=='workflow_dispatch'}),/GAS_9298_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.298',eventName:'workflow_dispatch',approved9298:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.298',eventName:'workflow_dispatch',dryRun:true}));
+for(const [publishedVersion,liveIdleVerified] of [['9.296',true],['9.297',false],['9.298',true]])
+ assert.throws(()=>assertGas9298Prerequisites({version:'9.298',publishedVersion,liveIdleVerified}),/GAS_9298_/);
+assert.doesNotThrow(()=>assertGas9298Prerequisites({version:'9.298',publishedVersion:'9.297',liveIdleVerified:true}));
+const state=version=>({status:'VERIFIED',version,tradeRows:338,writerGateMode:'OPEN',activeCount:0,
+ tradeSnapshotDeferredCount:0,pendingCount:0,financeWrites:0});
+const hashes=version=>({status:'CONSISTENT',gasVersion:version,rows:338,uniqueIds:338,migrationPreview:{
+ status:'VERIFIED',physicalRevisionMatchesGasGetTrades:true,physicalRevisionMatchesPcCanonical:true,
+ rowCountMatchesApi:true,assignedIdsNeeded:0,existingIdsPreserved:338}});
+for(const mode of ['pre','post']){
+ const version=mode==='pre'?'9.297':'9.298';
+ const result=await readGas9298ReleaseProof({mode,readState:async v=>state(v),readHash:async()=>hashes(version)});
+ assert.equal(result.version,version);assert.equal(result.tradeV2HashVerified,true);
+ await assert.rejects(()=>readGas9298ReleaseProof({mode,readState:async v=>({...state(v),activeCount:1}),readHash:async()=>hashes(version)}),/FINANCIAL_INTEGRITY_UNVERIFIED/);
+ await assert.rejects(()=>readGas9298ReleaseProof({mode,readState:async v=>state(v),readHash:async()=>hashes('9.296')}),/GAS9298_LEDGER_INTEGRITY_UNVERIFIED/);
+}
+let proofAttempts=0;
+const retried=await readGas9298ReleaseProof({readState:async v=>{
+ if(++proofAttempts===1)throw Error('GAS9295_READONLY_NETWORK_UNVERIFIED');
+ return state(v)},readHash:async()=>hashes('9.297'),delay:async()=>{}});
+assert.equal(retried.readbackAttempts,2);
+await assert.rejects(()=>readGas9298ReleaseProof({readState:async()=>{throw Error('GAS9295_READONLY_VERSION_MISMATCH')},readHash:async()=>hashes('9.297'),delay:async()=>assert.fail('preflight version mismatch cannot retry')}),/VERSION_MISMATCH/);
+const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
+const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
+assert.equal(inputs.approve_9298.default,false);
+assert(inputs.candidate_version.options.includes('9.298'));
+const deploySteps=wf.jobs.deploy.steps;
+const pre=deploySteps.find(s=>s.id==='gas9298_gate'),dep=deploySteps.find(s=>s.name==='Deploy GAS');
+const probe=deploySteps.find(s=>s.name==='Verify NH financial income live sample (no token issuance)');
+assert(pre&&dep&&probe);
+assert.equal(pre['continue-on-error'],undefined);
+assert.match(dep.env.GAS_9298_LIVE_PREFLIGHT_VERIFIED,/gas9298_gate/);
+assert(deploySteps.indexOf(pre)<deploySteps.indexOf(dep)&&deploySteps.indexOf(dep)<deploySteps.indexOf(probe));
+assert.match(probe.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
+assert.match(deploySteps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9298_NH_FINANCIAL_INCOME != 'true'/);
+console.log('PASS: 9.298 immutable manual release, exact ledger and NAV compatibility, no OAuth financial probe');

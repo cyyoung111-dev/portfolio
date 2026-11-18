@@ -11,6 +11,7 @@ import {composeIssue734Gas9293OrphanedClosePreview} from './compose-issue734-gas
 import {composeIssue734Gas9294OwnerNavPreview} from './compose-issue734-gas9294-owner-nav-preview.mjs';
 import {composeGas9295CodeMasterReusePreview} from './compose-gas9295-code-master-reuse-preview.mjs';
 import {composeGas9296TradeUtf8Preview} from './compose-gas9296-trade-utf8-preview.mjs';
+import {composeGas9298NhFinancialIncomePreview} from './compose-gas9298-nh-financial-income-preview.mjs';
 import {composeGas9297NavCollectorTwoStagePreview} from './compose-gas9297-nav-collector-two-stage-preview.mjs';
 
 const scriptId='TEST_SCRIPT_IDENTIFIER_12345';
@@ -344,7 +345,8 @@ assert.equal(sourceReport.expectedDeploymentSourceClassification,'APPROVED_LEGAC
   {name:'9.294',source:composeIssue734Gas9294OwnerNavPreview().source},
   {name:'9.295',source:composeGas9295CodeMasterReusePreview().candidate},
   {name:'9.296',source:composeGas9296TradeUtf8Preview().candidate},
-  {name:'9.297',source:composeGas9297NavCollectorTwoStagePreview().candidate}
+  {name:'9.297',source:composeGas9297NavCollectorTwoStagePreview().candidate},
+  {name:'9.298',source:composeGas9298NhFinancialIncomePreview().candidate}
  ];
  for(const candidate of sourceCases){
   const files={scriptId,files:[
