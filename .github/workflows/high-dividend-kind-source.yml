@@ -1,0 +1,151 @@
+name: high-dividend-kind-source
+on:
+  pull_request:
+    paths:
+      - 'scripts/collect-high-dividend-kind.py'
+      - 'scripts/test_high_dividend_kind.py'
+      - 'scripts/audit-high-dividend-universe.mjs'
+      - 'scripts/test-high-dividend-universe.mjs'
+      - 'scripts/publish-high-dividend-catalog.mjs'
+      - 'scripts/test-high-dividend-catalog.mjs'
+      - '.github/workflows/high-dividend-kind-source.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/collect-high-dividend-kind.py'
+      - 'scripts/audit-high-dividend-universe.mjs'
+      - '.github/workflows/high-dividend-kind-source.yml'
+  schedule:
+    - cron: '9 0 * * 1' # Monday 09:09 KST, year round
+    - cron: '9 0 * 3,4 2-5' # Additional Tue-Fri checks in March-April
+  workflow_dispatch:
+    inputs:
+      business_year:
+        description: KIND 사업연도 (과세 귀속연도와 별개)
+        required: true
+        default: '2025'
+        type: choice
+        options:
+          - '2025'
+          - '2026'
+          - '2027'
+          - '2028'
+permissions:
+  contents: read
+concurrency:
+  group: high-dividend-source-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+jobs:
+  public-source:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install browser client
+        run: python -m pip install playwright==1.58.0 openpyxl==3.1.5 xlrd==2.0.2
+      - name: Test source validation and change detection
+        run: python -m unittest discover -s scripts -p 'test_high_dividend_kind.py'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify read-only portfolio match procedure
+        run: |
+          node scripts/test-high-dividend-universe.mjs
+          node scripts/test-high-dividend-catalog.mjs
+      - name: Collect official candidate list (read only)
+        env:
+          BUSINESS_YEAR: ${{ inputs.business_year || '2025' }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = push ]; then
+            year=$(TZ=Asia/Seoul date +%Y)
+            if [ "$year" -lt 2026 ] || [ "$year" -gt 2029 ]; then
+              echo 'Outside the current special-tax monitoring period'
+              exit 0
+            fi
+            BUSINESS_YEAR=$((year - 1))
+          fi
+          python scripts/collect-high-dividend-kind.py --year "$BUSINESS_YEAR" --out kind-source
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kind-public-source
+          path: kind-source/
+          if-no-files-found: warn
+          retention-days: 90
+
+  publish-catalog:
+    needs: public-source
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: kind-public-source
+          path: ${{ runner.temp }}/kind-source
+      - name: Publish validated public issuer data only
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/kind-source/company-catalog.json"
+          if [ ! -f "$source" ]; then
+            echo 'No catalog publication in this period'
+            exit 0
+          fi
+          cp scripts/publish-high-dividend-catalog.mjs "$RUNNER_TEMP/"
+          branch=high-dividend-companies
+          if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null; then
+            git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            git switch -c "$branch" --track "origin/$branch"
+          else
+            git switch --orphan "$branch"
+          fi
+          node "$RUNNER_TEMP/publish-high-dividend-catalog.mjs" "$source" .
+          git add companies/
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m '공식 고배당기업 공개 데이터 갱신'
+          git push origin "HEAD:refs/heads/$branch"
+
+  portfolio-audit:
+    needs: public-source
+    if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: kind-public-source
+          path: kind-source
+      - name: Compare official codes to historical portfolio symbols (read only)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-high-dividend-universe.mjs kind-source/candidate-index.json

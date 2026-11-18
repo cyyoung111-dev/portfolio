@@ -11,6 +11,9 @@ function _getPlanDividendEntries(dividendRows) {
           name: dividend.name, acct,
           taxType: Object.prototype.hasOwnProperty.call(ACCT_TAX_TYPES || {}, acct) ? ACCT_TAX_TYPES[acct] : '',
           amount,
+          specialReviewed: Number(dividend.accountDividendBreakdown?.[acct]?.specialReviewed||0),
+          specialPending: Number(dividend.accountDividendBreakdown?.[acct]?.specialPending||0),
+          specialCandidate: Number(dividend.accountDividendBreakdown?.[acct]?.specialCandidate||0),
         });
       });
       const unknown = Number(dividend.unallocatedAnnualDiv || 0);
@@ -34,7 +37,7 @@ function _getPlanDividendEntries(dividendRows) {
 
 function _buildPlanCashflowOverview() {
   const dividendRows = typeof calcDividends === 'function' ? calcDividends() : [];
-  const dividendFlow = PlanCalculations.calculateDividendCashflow({ dividends: _getPlanDividendEntries(dividendRows), year: _planSettings.taxYear || new Date().getFullYear() });
+  const dividendFlow = PlanCalculations.calculateDividendCashflow({ dividends: _getPlanDividendEntries(dividendRows), year: typeof _kstYear==='function'?_kstYear():new Date().getFullYear(), otherFinancialIncome:typeof _getDivOtherIncome==='function'?_getDivOtherIncome(_kstYear()):null });
   const liquidity = PlanCalculations.calculateAccountLiquidity({
     accounts: rows.map(row => ({ acct: row.acct, taxType: Object.prototype.hasOwnProperty.call(ACCT_TAX_TYPES || {}, row.acct) ? ACCT_TAX_TYPES[row.acct] : '', evalAmt: row.evalAmt })),
     realEstateValue: REAL_ESTATE?.currentValue,
@@ -65,6 +68,9 @@ function _buildPlanCashflowOverview() {
     <div class="retire-metric-grid">
       ${item('연간 예상 배당 (세전)', fmt(annual), `${dividendRows.length}개 종목`, 'var(--green)')}
       ${item('일반계좌 세후 참고', fmt(dividendFlow.normalAfterTax), `세전 ${fmt(dividendFlow.normalGross)} · 단순 원천징수 기준`, 'var(--cyan)')}
+      ${item('고배당 특례 검토 (공시 일치)', fmt(dividendFlow.specialTaxScenario.reviewedGross), '신청 가정 · 미확인 '+fmt(dividendFlow.specialTaxScenario.pendingGross), 'var(--cyan)')}
+      ${item('KIND 일치분 포함 특례 가정', fmt(dividendFlow.specialTaxScenario.ordinaryIfCandidatesQualify), '추가 후보 '+fmt(dividendFlow.specialTaxScenario.candidateGross)+' · 확정 아님', 'var(--muted)')}
+      ${item('종합과세 합산 참고', fmt(dividendFlow.specialTaxScenario.ordinaryWithApplication), '신청 가정 · '+(dividendFlow.specialTaxScenario.interestKnown?'비배당 금융소득 가정 포함':'이자 미포함')+' · 최종세액 아님', 'var(--amber)')}
       ${item('올해 배당 공시 (세전)', fmt(Math.round(actual)), '지급 이벤트 합계 · 실제 입금확인과 구분', 'var(--gold)')}
       ${item('올해 은행 실입금', bankNetCount ? fmt(Math.round(bankNet)) : '미등록', bankNetCount ? `직접 확인된 ${bankNetCount}건의 순입금액` : '실입금 증빙 입력 필요 · 0원 아님', 'var(--green)')}
       ${item('올해 실제 원천세', actualTaxCount ? fmt(Math.round(actualTax)) : '미등록', actualTaxCount ? `직접 확인된 ${actualTaxCount}건` : '계좌별 실제 세금 미등록', 'var(--amber)')}

@@ -143,6 +143,7 @@ function registerGlobalEventDelegation() {
       if (action === 'fetch' && typeof startDivFetch === 'function') startDivFetch();
       else if (action === 'save-public-key' && typeof savePublicDataApiKeyFromUI === 'function') savePublicDataApiKeyFromUI();
       else if (action === 'toggle-zero' && typeof _toggleDivHideZero === 'function') _toggleDivHideZero();
+      else if (action === 'apply-other-income' && typeof _applyDivOtherIncome === 'function') _applyDivOtherIncome();
       else if (action === 'filter-tax' && typeof _setDivTaxFilter === 'function') _setDivTaxFilter(divAction.dataset.divTax);
       else if (action === 'filter-month' && typeof _setDivMonthFilter === 'function') _setDivMonthFilter(divAction.dataset.divMonth);
       else if (action === 'manual-open' && typeof openDivManualEditor === 'function') openDivManualEditor(divAction.dataset.divName || '');

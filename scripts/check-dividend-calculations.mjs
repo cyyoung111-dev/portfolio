@@ -332,3 +332,82 @@ assert.match(divArea.innerHTML,/1월 배당 600원/);
 assert.match(divArea.innerHTML,/2월 배당 500원/);
 assert.match(divArea.innerHTML,/은행 실입금 <b>846<\/b>/,'net receipt stays unallocated and full-scope');
 console.log('PASS: actual rendering of dividend totals and tax/month filter');
+
+// Real calculation, legal brackets, year boundaries, exact security classes and
+// entitlement-day account attribution; never auto-exclude future forecasts.
+const P=accountCtx.PlanCalculations;
+for(const [gross,expected] of [[0,0],[20000000,3080000],[21000000,3300000],[300000000,64680000],[301000000,64955000],[5000000000,1357180000],[5001000000,1357510000]])assert.equal(P.calculateSpecialDividendTax(gross,2026),expected);
+assert.equal(P.calculateSpecialDividendTax(30000000,2030),null);
+const exact={code:'005930',assetType:'주식',recordDate:'2025-12-31',payDate:'2026-04-17',amount:566,year:2026,declared:true};
+assert.equal(P.specialDividendEvidence(exact).status,'reviewed');
+for(const patch of [{code:'005935'},{amount:567},{recordDate:'2026-03-31'},{payDate:''},{declared:false},{year:2027},{code:'034730'}])assert.notEqual(P.specialDividendEvidence({...exact,...patch}).status,'reviewed');
+assert.equal(P.specialDividendEvidence({...exact,assetType:'ETF'}).status,'ordinary');
+const sc=P.calculateDividendTaxScenario({normalGross:28000000,reviewedGross:12000000,pendingGross:5000000,interest:2000000,year:2026});
+assert.equal(sc.ordinaryWithoutApplication,30000000);assert.equal(sc.ordinaryWithApplication,18000000);assert.equal(sc.headroom,2000000);assert.equal(sc.specialTax,1848000);
+assert.equal(P.calculateDividendTaxScenario({normalGross:28000000,reviewedGross:12000000,year:2030}).ordinaryWithApplication,28000000);
+assert.equal(P.calculateDividendTaxScenario({normalGross:100}).interestKnown,false);
+accountCtx.EDITABLE_PRICES=[{code:'005930',name:'삼성전자',assetType:'주식'}];
+accountCtx.getEP=()=>accountCtx.EDITABLE_PRICES[0];
+accountCtx.rawHoldings=[{name:'삼성전자',acct:'ISA',qty:10}];
+accountCtx.rawTrades=[{name:'삼성전자',acct:'일반'},{name:'삼성전자',acct:'ISA'}];
+accountCtx.DIVDATA={'005930':{perShare:100,months:[12],events:[{date:'2025-12-31',payDate:'2026-04-17',amount:566}]}};
+accountCtx.getQtyAtDate=(_n,day,acct)=>day==='2025-12-31'?(acct==='일반'?4:acct==='ISA'?6:10):(acct==='일반'?0:acct==='ISA'?10:10);
+const hiRows=accountCtx.calcDividends(),hi=accountCtx._divTaxSummary(hiRows);
+assert.equal(hi.normal.specialReviewed,2264);assert.equal(hi.isa.specialReviewed,3396);assert.equal(hi.isa.specialPending,1000);
+const hiPlan=P.calculateDividendCashflow({dividends:planCtx._getPlanDividendEntries(hiRows),year:2026});
+assert.equal(hiPlan.specialTaxScenario.reviewedGross,2264);assert.equal(hiPlan.specialTaxScenario.ordinaryWithApplication,0);
+assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/2,264원/);
+assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/이자·기타 금융소득 미포함/);
+console.log('PASS: progressive dividend special tax, date/security checks, account attribution and plan reconciliation');
+
+// Unknown identity is never treated as a confirmed exclusion. Session-local
+// interest assumption is shared with the plan and does not mutate records.
+assert.equal(P.specialDividendEvidence({...exact,assetType:'',code:''}).status,'pending');
+assert.equal(P.specialDividendEvidence({...exact,code:'0347K0'}).status,'pending');
+let otherValue='2,000,000';
+accountCtx.$el=id=>id==='div-other-income-scenario'?{value:otherValue}:divArea;
+accountCtx._applyDivOtherIncome();
+assert.equal(accountCtx._getDivOtherIncome(2026),2000000);
+assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/입력 가정 포함/);
+const withInterest=P.calculateDividendCashflow({dividends:planCtx._getPlanDividendEntries(hiRows),year:2026,otherFinancialIncome:accountCtx._getDivOtherIncome(2026)});
+assert.equal(withInterest.specialTaxScenario.ordinaryWithApplication,2000000);
+otherValue='';accountCtx._applyDivOtherIncome();assert.equal(accountCtx._getDivOtherIncome(2026),null);
+console.log('PASS: shared session-only non-dividend income scenario and missing identity protection');
+
+// Quarterly/interim eligibility must not be limited to final dividends.
+// Official dates and class-specific amounts are required for exact matches.
+for(const code of ['005930','005935']){
+ for(const [recordDate,payDate,amount] of [['2026-03-31','2026-05-29',372],['2026-06-30','2026-08-28',374],['2026-09-30','2026-11-27',4601]]){
+  const event={...exact,code,recordDate,payDate,amount};
+  assert.equal(P.specialDividendEvidence(event).status,'reviewed');
+  assert.equal(P.specialDividendEvidence({...event,payDate:'2026-12-31'}).status,'pending');
+  assert.equal(P.specialDividendEvidence({...event,amount:amount+1}).status,'pending');
+ }
+}
+assert.equal(P.specialDividendEvidence({...exact,payDate:'2026-12-31'}).status,'pending');
+const conflict=P.calculateDividendCashflow({dividends:[{taxType:'NORMAL',amount:100,specialReviewed:100,specialPending:100},{taxType:'NORMAL',amount:100}],year:2026});
+assert.equal(conflict.specialTaxScenario.reviewedGross,100);
+assert.equal(conflict.specialTaxScenario.pendingGross,0);
+console.log('PASS: quarterly cash dividends, date bounds, no overlapping reviewed and pending tax amounts');
+
+// Negative/review-required reference overrides earlier positive evidence.
+for(const status of ['revoked','reviewRequired','ineligible'])assert.equal(P.specialDividendEvidence(exact,[...P.DIVIDEND_SPECIAL_REFERENCE,{code:'005930',year:2026,status}]).status,'pending');
+assert.match(accountCtx._divSpecialEvidenceTable(hiRows,2026),/2026-09-30 배당/);
+console.log('PASS: disclosure correction precedence and payment-specific source links');
+
+// Current company index changes independently of the application release.
+{
+ const row={listedCode:'005930',issuerName:'삼성전자',market:'KOSPI',businessYear:2025,identityState:'EXACT_LISTED_ISSUER',taxEligibility:'UNVERIFIED'};
+ const base={schemaVersion:1,classification:'CANDIDATE_ONLY',source:'https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain',businessYear:2025,retrievedAt:new Date().toISOString(),total:1,rows:[row],unresolved:[],recheckCodes:[],reviewChanges:[]};
+ assert.equal(P.setDividendCompanyCatalog({...base,businessYear:2024},2026),false);
+ assert.equal(P.setDividendCompanyCatalog(base,2026),true);
+ assert.equal(P.dividendCompanyCandidate('005930',2026).state,'candidate');
+ assert.equal(P.specialDividendEvidence({...exact,declared:false}).status,'candidate');
+ const s=P.calculateDividendTaxScenario({normalGross:300,reviewedGross:100,pendingGross:100,candidateGross:100,year:2026});
+ assert.equal(s.ordinaryWithApplication,200);assert.equal(s.ordinaryIfCandidatesQualify,100);
+ assert.equal(P.setDividendCompanyCatalog({...base,recheckCodes:['005930']},2026),true);
+ assert.equal(P.specialDividendEvidence(exact).status,'pending');
+ assert.equal(P.specialDividendEvidence({...exact,code:'005935',amount:567}).status,'pending');
+ assert.equal(P.dividendCompanyCandidate('005930',2026).state,'reviewRequired');
+}
+console.log('PASS: public company list, candidate-only scenario and persistent correction hold');

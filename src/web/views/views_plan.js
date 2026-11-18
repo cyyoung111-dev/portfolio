@@ -68,6 +68,7 @@ function _savePlanSettings() {
 
 // ── 메인 렌더
 function renderPlanView(area) {
+  if(typeof _refreshDividendCompanyCatalog==='function')_refreshDividendCompanyCatalog();
   const totalEval = rows.reduce((sum, row) => sum + (row.evalAmt || 0), 0);
   const totalCost = rows.reduce((sum, row) => sum + (row.costAmt || 0), 0);
   const tabs = [
