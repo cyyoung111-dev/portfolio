@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 export const SPEC_URL='https://www.nhplug.com/openapi-docs/common/openapi.json';
 const checks=[
- ['/common/inquiry/v1/totalTransaction',['iqr_tp_cd','iqr_rge_cd','act_no','iqr_sta_dt','iqr_end_dt','iem_llf_cd','act_trd_dtl_cd'],['cur_cd','trd_dt','iem_cd','trd_amt','sps_cd_krl_anm']],
+ ['/common/inquiry/v1/totalTransaction',['iqr_tp_cd','iqr_rge_cd','act_no','iqr_sta_dt','iqr_end_dt','iem_llf_cd','act_trd_dtl_cd'],['cur_cd','trd_dt','iem_cd','trd_amt','int_amt','tax_sum','sps_cd_krl_anm']],
  ['/common/inquiry/v1/depositWithdrawal',['iqr_tp_cd','act_no','iqr_sta_dt','iqr_end_dt','act_trd_dtl_cd'],['trd_dt','trd_amt','sps_cd_krl_anm','act_trd_tp_nm']]
 ];
 export function inspectFinancialIncomeContract(spec){
+ const acct=spec?.paths?.['/n2/acctinfo']?.post?.responses?.['200']?.content?.['application/json']?.schema?.properties?.Output_0;
+ assert.equal(acct?.type,'array');assert.ok(acct?.items?.properties?.acct_no&&acct?.items?.properties?.acct_type);
  const out=[];
  for(const [endpoint,inputs,outputs] of checks){
    const p=spec?.paths?.[endpoint]?.post;
