@@ -258,3 +258,77 @@ assert.equal(shareClassRow.monthlyDiv[8],3000);
 assert.match(source,/배당 기준일의 보통주·우선주 금액이 충돌/);
 
 console.log('PASS: declared distribution vs manually verified deposit and actual editor save');
+
+const planCalc=fs.readFileSync('src/web/domain/plan/plan_calculations.js','utf8');
+vm.runInContext(planCalc,accountCtx);
+accountCtx.ACCT_TAX_TYPES={'일반':'일반','ISA':'ISA','연금':'연금저축','IRP':'IRP'};
+accountCtx.DIVDATA['테스트 종목']={perShare:50,months:[2],events:[
+ {date:'2026-01-02',payDate:'2026-01-15',amount:100,receivedConfirmed:true,netReceived:846,withheldTax:154}
+]};
+accountCtx.rawHoldings=[{name:'테스트 종목',acct:'ISA',qty:10}];
+accountCtx.rawTrades=[{name:'테스트 종목',acct:'일반'},{name:'테스트 종목',acct:'ISA'}];
+accountCtx.getQtyAtDate=(_n,day,acct)=>day==='2026-01-02'?(acct==='일반'?4:acct==='ISA'?6:10):(acct==='일반'?0:acct==='ISA'?10:10);
+const splitRows=accountCtx.calcDividends();
+const split=accountCtx._divTaxSummary(splitRows);
+assert.equal(split.all.annual,1500);
+assert.equal(split.normal.annual,400);
+assert.equal(split.isa.annual,1100);
+assert.equal(split.normal.actual,400);
+assert.equal(split.isa.actual,600);
+assert.equal(split.normal.received,400);
+assert.equal(split.isa.received,600);
+assert.equal(split.normal.monthly[1],400);
+assert.equal(split.normal.monthly[2],undefined);
+assert.equal(split.isa.monthly[2],500);
+const general=accountCtx._divTaxFilteredRows(splitRows,'normal')[0];
+assert.equal(general.annualDiv,400);
+assert.equal(general.totalQty,0,'historical general dividends survive a transfer to ISA');
+assert.equal(general.monthlyDiv[1],400);
+assert.equal(splitRows[0].netReceivedDiv,846,'bank net stays full-scope; never allocate without evidence');
+const entries2=planCtx._getPlanDividendEntries(splitRows);
+const planFlow=accountCtx.PlanCalculations.calculateDividendCashflow({dividends:entries2});
+assert.equal(planFlow.normalGross,split.normal.annual);
+assert.equal(planFlow.isaInternal,split.isa.annual);
+assert.equal(planFlow.totalGross,split.all.annual);
+assert.match(accountCtx._divTaxPanel(split,'normal'),/data-div-tax="normal" aria-pressed="true"/);
+assert.match(accountCtx._divTaxPanel(split,'normal'),/고배당기업 분리과세/);
+accountCtx.getQtyAtDate=(_n,_day,acct)=>acct?3:10;
+const unresolved=accountCtx._divTaxSummary(accountCtx.calcDividends());
+assert.equal(unresolved.unclassified.annual,1500,'quantity mismatch remains unallocated');
+assert.equal(unresolved.normal.annual,0);
+assert.equal(unresolved.isa.annual,0);
+assert.equal(unresolved.all.annual,1500);
+console.log('PASS: entitlement-date tax group, monthly filter, plan reconciliation and unknown allocation');
+
+
+// Exercise the actual dividend view and its local-only filter, not just math.
+accountCtx.getQtyAtDate=(_n,day,acct)=>day==='2026-01-02'?(acct==='일반'?4:acct==='ISA'?6:10):(acct==='일반'?0:acct==='ISA'?10:10);
+accountCtx.GSHEET_API_URL='';
+accountCtx._kstNow=()=>new Date('2026-11-18T15:00:00Z');
+accountCtx._dividendLinkState={state:'idle',message:'테스트'};
+accountCtx.rows=[{name:'테스트 종목',acct:'ISA',costAmt:2000}];
+accountCtx.window={innerWidth:1440};
+accountCtx.ACCT_COLORS={'일반':'#123456','ISA':'#234567'};
+accountCtx.fmtW=String;
+accountCtx._escapeHtml=String;
+accountCtx.buildDivMgmt=()=>{};
+const divArea={innerHTML:'',querySelector:()=>null};
+accountCtx.$el=()=>divArea;
+accountCtx.renderDivView(divArea,true);
+assert.match(divArea.innerHTML,/세제 유형별 연간 배당/);
+assert.match(divArea.innerHTML,/일반계좌 연간 세후 참고/);
+assert.match(divArea.innerHTML,/<td>일반계좌<\/td><td>400<\/td><td>400<\/td><td>0<\/td><td>400<\/td>/);
+assert.match(divArea.innerHTML,/<td>ISA<\/td><td>1,100<\/td><td>600<\/td><td>500<\/td><td>600<\/td>/);
+accountCtx._setDivTaxFilter('normal');
+assert.match(divArea.innerHTML,/data-div-tax="normal" aria-pressed="true"/);
+assert.match(divArea.innerHTML,/2026년 월별 배당 · 일반계좌/);
+assert.match(divArea.innerHTML,/1월 배당 400원/);
+assert.match(divArea.innerHTML,/2월 배당 0원/);
+assert.match(divArea.innerHTML,/<td>합계<\/td><td>1,500<\/td>/,'aggregate never changes with detail filter');
+accountCtx._setDivMonthFilter(1);
+assert.match(divArea.innerHTML,/종목별 배당 상세 · 일반계좌 · 1월/);
+accountCtx._setDivTaxFilter('isa');
+assert.match(divArea.innerHTML,/1월 배당 600원/);
+assert.match(divArea.innerHTML,/2월 배당 500원/);
+assert.match(divArea.innerHTML,/은행 실입금 <b>846<\/b>/,'net receipt stays unallocated and full-scope');
+console.log('PASS: actual rendering of dividend totals and tax/month filter');
