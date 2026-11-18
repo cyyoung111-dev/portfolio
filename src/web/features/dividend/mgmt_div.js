@@ -436,10 +436,14 @@ async function _fetchDividendSource(action, codeItems, extraParams, requestOptio
   const data = await requestGsheetActionJson(
     action,
     params,
-    { timeoutMs: action === 'dividendPublic' ? 150000 : 65000, retry: 0, ...(requestOptions || {}) }
+    { timeoutMs: action === 'dividendPublic' ? 150000 : 65000, retry: 0, preserveError: true, ...(requestOptions || {}) }
   );
   if (!data) throw new Error(action + ' 네트워크 응답 없음');
-  if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || action + ' 응답 오류');
+  if (data.status !== 'ok' || !data.dividends) {
+    const error = new Error(action + ' 응답 오류');
+    error.errorCode = data.message === '인증 실패' ? 'GAS_AUTH_REJECTED' : data.errorCode;
+    throw error;
+  }
   return data.dividends;
 }
 
@@ -534,7 +538,49 @@ async function _refreshSeibroEtfDividends(force) {
   return _seibroRefreshPromise;
 }
 
-async function _autoFetchDiv(area) {
+// Tab renders are not a refresh trigger after the first attempt of this
+// KST day/connection. An explicit user refresh remains available.
+let _dividendRefreshFlight = null;
+let _dividendAutoAttemptKey = '';
+function _dividendRefreshKey() {
+  const day = new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
+  const generation = typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : '';
+  return String(GSHEET_API_URL || '').trim() + '|' + generation + '|' + day;
+}
+function _dividendFailureMessage(stage, error) {
+  const reason = {
+    key: window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured === false
+      ? '공공데이터 API 키 미설정' : '공공데이터 API 키 상태 미확인',
+    public: '일반 주식 배당 조회 실패',
+    save: '일반 주식 배당 GAS 저장 미확인',
+    restore: 'GAS 배당자료 복원 미확인',
+    unknown: '배당 갱신 결과 미확인'
+  }[stage] || '배당 갱신 결과 미확인';
+  const detail = stage === 'public' ? ({
+    CLIENT_TIMEOUT:'응답 시간 초과', INVALID_RESPONSE:'응답 형식 오류',
+    HTTP_401:'인증 실패', HTTP_403:'접근 거부', HTTP_429:'호출 한도',
+    GAS_AUTH_REJECTED:'GAS 인증 실패', SERVER_ERROR:'네트워크 또는 서버 오류'
+  }[error?.errorCode] || '') : '';
+  return reason + (detail ? ' · ' + detail : '') + ' · 기존 확인 자료 유지';
+}
+function _runDividendRefreshOnce(manual, area) {
+  if (_dividendRefreshFlight) return _dividendRefreshFlight;
+  if (!GSHEET_API_URL) return Promise.resolve(false);
+  const key = _dividendRefreshKey();
+  if (!manual && _dividendAutoAttemptKey === key) return Promise.resolve(false);
+  if (typeof isGsheetPortfolioWriteReady === 'function' && !isGsheetPortfolioWriteReady()) {
+    _setDividendLinkState('idle','GAS 전체 자료 복원 후 배당 갱신 가능 · 기존 자료 유지');
+    return Promise.resolve(false);
+  }
+  _dividendAutoAttemptKey = key;
+  const flight = Promise.resolve().then(() => manual ? _startDivFetchInner() : _autoFetchDivInner(area));
+  _dividendRefreshFlight = flight;
+  return flight.finally(() => { if (_dividendRefreshFlight === flight) _dividendRefreshFlight = null; });
+}
+function _autoFetchDiv(area) { return _runDividendRefreshOnce(false, area); }
+function startDivFetch() { return _runDividendRefreshOnce(true); }
+
+async function _autoFetchDivInner(area) {
   const divTarget = String(GSHEET_API_URL || '').trim();
   const divGeneration = typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : null;
   const connectionCurrent = () => typeof isGsheetConnectionCurrent !== 'function' || isGsheetConnectionCurrent(divTarget, divGeneration);
@@ -546,6 +592,7 @@ async function _autoFetchDiv(area) {
   const loadedFromGas = refreshedSeibro || ((typeof loadDividendSettings === 'function')
     ? await loadDividendSettings()
     : false);
+  if (!connectionCurrent()) return false;
   const codeItems = _getLegacyDividendFetchItems();
   if (!codeItems.length) {
     if (loadedFromGas && currentView === 'div') {
@@ -564,9 +611,11 @@ async function _autoFetchDiv(area) {
     _setDividendLinkState('fail', '⚠️ 자동 연동 실패 · 유효한 종목코드를 확인해주세요.');
     return;
   }
+  let stage = 'key';
   try {
     if (!window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured)
-      throw new Error('공공데이터 키 미설정 · 기존 배당자료를 유지합니다.');
+      throw new Error('공공데이터 키 상태 미확인');
+    stage = 'public';
     const targetCodes = codes.split(',').filter(Boolean);
     const sourceStats = { public: 0, gf: 0 };
     const publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
@@ -577,7 +626,6 @@ async function _autoFetchDiv(area) {
 
     const codeToName = _buildDivCodeToNameMap();
 
-    let changed = false;
     Object.entries(dividends).forEach(([code, obj]) => {
       const name = codeToName[String(code || '').trim()] || codeToName[_normDivCode(code)];
       if (!name) return;
@@ -590,14 +638,17 @@ async function _autoFetchDiv(area) {
         sourceConflicts.push(name);
         return;
       }
-      DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
-      if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') divPatch[storeKey] = DIVDATA[storeKey];
-      changed = true;
+      if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') {
+        divPatch[storeKey] = _normalizeDividendResponse(obj, prev);
+      }
     });
 
-    if (changed) {
+    if (Object.keys(divPatch).length) {
+      stage = 'save';
       const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
-      if (!savedToGas) throw new Error('배당 조회 결과 GAS 저장 실패');
+      if (!connectionCurrent()) return false;
+      if (!savedToGas) throw new Error('배당 조회 결과 GAS 저장 미확인');
+      Object.assign(DIVDATA, divPatch);
       // 항상 현재 DOM의 view-area 참조 (area 클로저 stale 방지)
       if (currentView === 'div') {
         const _liveArea = $el('view-area');
@@ -605,7 +656,7 @@ async function _autoFetchDiv(area) {
       }
     }
     const complete = refreshedSeibro && sourceConflicts.length === 0
-      && targetCodes.every(code => Number(dividends[code]?.perShare || 0) > 0);
+      && targetCodes.every(code => Object.prototype.hasOwnProperty.call(divPatch, code));
     _setDividendLinkState(complete ? 'ok' : 'fail', sourceConflicts.length
       ? '공공데이터 주식 종류·기존 확인금액 충돌: '
         + sourceConflicts.join(', ') + ' · 기존 원본 유지'
@@ -613,13 +664,14 @@ async function _autoFetchDiv(area) {
       : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends));
   } catch(e) {
     // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
-    console.warn('_autoFetchDiv 실패:', e.message);
-    _setDividendLinkState('fail', `⚠️ 자동 연동 실패 · ${window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured === false ? '공공데이터 키 미설정' : '공공데이터 조회 또는 GAS 저장 결과 미확인'} · 마지막 정상 데이터를 표시합니다.`);
+    if (!connectionCurrent()) return false;
+    console.warn('_autoFetchDiv 실패:', stage, e?.errorCode || '');
+    _setDividendLinkState('fail', '⚠️ ' + _dividendFailureMessage(stage,e));
   }
 }
 
 // ── 배당금 Claude API 자동 조회
-async function startDivFetch() {
+async function _startDivFetchInner() {
   const divTarget = String(GSHEET_API_URL || '').trim();
   const divGeneration = typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : null;
   const connectionCurrent = () => typeof isGsheetConnectionCurrent !== 'function' || isGsheetConnectionCurrent(divTarget, divGeneration);
@@ -630,7 +682,7 @@ async function startDivFetch() {
   if (!GSHEET_API_URL) {
     if (status) {
       status.style.color = 'var(--amber)';
-      status.textContent = '⚠️ 구글시트 미연동 — 배당금을 수동으로 입력해주세요. (✏️ 현재가 편집 → 📡 종가 자동 조회 탭에서 연동)';
+      status.textContent = '⚠️ 구글시트 미연동 — 배당금을 수동으로 입력해주세요. (외부연동에서 설정)';
     }
     return false;
   }
@@ -646,6 +698,7 @@ async function startDivFetch() {
   const refreshedSeibro = await _refreshSeibroEtfDividends(true);
   if (!connectionCurrent()) return false;
   if (!refreshedSeibro && typeof loadDividendSettings === 'function') await loadDividendSettings();
+  if (!connectionCurrent()) return false;
   const codeItems = _getLegacyDividendFetchItems();
 
   if (codeItems.length === 0) {
@@ -672,9 +725,11 @@ async function startDivFetch() {
     return false;
   }
 
+  let stage = 'key';
   try {
     if (!window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured)
-      throw new Error('공공데이터 키 미설정 · 기존 배당자료를 유지합니다.');
+      throw new Error('공공데이터 키 상태 미확인');
+    stage = 'public';
     const targetCodes = codes.split(',').filter(Boolean);
     const sourceStats = { public: 0, gf: 0 };
     const publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
@@ -691,20 +746,15 @@ async function startDivFetch() {
       if (!name) return;
       const normCode = _normDivCode(String(code || '').trim());
       const storeKey = normCode || ((typeof getDivKey === 'function') ? getDivKey(name) : name);
-      const prev = DIVDATA[storeKey] || {};
+      const prev = DIVDATA[storeKey] || DIVDATA[getDivKey(name)] || {};
       if (String(prev.source || '').toUpperCase() === 'MANUAL') return;
       if (_publicDividendHasShareClassCollision(obj) || _publicDividendChangesVerifiedAmount(obj, prev)) {
         skipped++; sourceConflicts++;
         return;
       }
-      DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
-      if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') divPatch[storeKey] = DIVDATA[storeKey];
-      if (Number(obj?.perShare || 0) > 0) {
-        DIVDATA[storeKey].source = obj?.source || 'GOOGLEFINANCE';
-        const noteLabel = DIVDATA[storeKey].source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL;
-        DIVDATA[storeKey].note = `${noteLabel} 최근 배당정보 기준`;
-        if (DIVDATA[storeKey].source === 'PUBLIC_DATA') sourceStats.public++;
-        else sourceStats.gf++;
+      if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') {
+        divPatch[storeKey] = _normalizeDividendResponse(obj, prev);
+        sourceStats.public++;
         updated++;
       } else {
         skipped++;
@@ -719,11 +769,16 @@ async function startDivFetch() {
       _setDividendLinkState('fail', '주식 종류·기존 확인금액 충돌 · 기존 원본 유지 · 자동 저장하지 않았습니다.');
       return false;
     }
-    const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
-    if (!savedToGas) throw new Error('배당 조회 결과를 GAS에 저장하지 못했습니다. 구글시트 연동 상태를 확인해주세요.');
-    // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
+    if (Object.keys(divPatch).length) {
+      stage = 'save';
+      const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
+      if (!connectionCurrent()) return false;
+      if (!savedToGas) throw new Error('배당 조회 결과 GAS 저장 미확인');
+      Object.assign(DIVDATA, divPatch);
+    }
+    // Only re-render the live dividend view; don't replace a different tab.
     const _area = $el('view-area');
-    renderDivView(_area, true);
+    if (currentView === 'div' && _area) renderDivView(_area, true);
     // renderDivView 후 DOM이 새로 그려지므로 메시지·버튼 재설정
     const _st2 = $el('divFetchStatus');
     if (_st2) { _st2.style.color = 'var(--green-lt)'; _st2.textContent = resultMsg; }
@@ -734,10 +789,12 @@ async function startDivFetch() {
     if (!refreshedSeibro || skipped > 0) return false;
 
   } catch(e) {
-    showToast('❌ 배당 조회 실패: ' + e.message, 'error', 5000);
+    if (!connectionCurrent()) return false;
+    const failure = _dividendFailureMessage(stage,e);
+    showToast('❌ ' + failure, 'error', 5000);
     const _btnE = $el('divFetchBtn');
     if (_btnE) { _btnE.disabled = false; _btnE.textContent = '📥 배당 데이터 갱신'; }
-    _setDividendLinkState('fail', '❌ 배당 데이터 갱신 실패 · 마지막 정상 데이터를 유지합니다.');
+    _setDividendLinkState('fail', '❌ ' + failure);
     return false;
   }
 

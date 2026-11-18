@@ -129,8 +129,8 @@ assert(tabDefs.includes("label:'계좌별'")&&tabBuilder.includes('vs.appendChil
 const navFixture=tabDefs+";let TAB_ORDER=TAB_DEFAULTS.map(t=>({...t}));let currentView='acct';const switchView=v=>{currentView=v;buildTabBar()};const saveTabOrder=()=>{};"+tabBuilder+";buildTabBar();";
 const toolbarFixtureScript='<script>const $el=id=>document.getElementById(id);const _escapeHtml=s=>String(s);'+statusSlice+setterSlice+navFixture+feedbackFunctions+'</'+'script>';
 const cases=[];
-for(const width of [1440,1100,1024,768,390,320]){
- for(const unified of (width===1100||width===1024?[true]:[true,false])){
+for(const width of [1440,1366,1100,1024,768,390,320]){
+ for(const unified of (width===1366||width===1100||width===1024?[true]:[true,false])){
   cases.push({width,unified,html:documentWithStyles(unified).replace('</body>',toolbarFixtureScript+'</body>')});
  }
 }
@@ -221,9 +221,16 @@ function auditStableToolbar(d,c) {
   if(!same(loading,closed,limit))failures.push({size,role:'loading to complete geometry',loading,closed});
   w._priceLookupDetail('toggle-summary');
   const opened=geometry();
+  const openDetail=detail.getBoundingClientRect(), openCard=d.querySelector('.action-update-card').getBoundingClientRect(), openMenu=d.querySelector('.action-menu-stack').getBoundingClientRect();
+  const command=button.getBoundingClientRect(), primary=label.querySelector('.price-status-primary').getBoundingClientRect();
+  const side=c.width>=1360;
+  const positionOk=side?(openDetail.left>=command.right-1&&Math.abs(openDetail.top-command.top)<=2&&openDetail.right<=openMenu.left+1&&openCard.right<=openMenu.left+1&&openDetail.width>=180):(openDetail.top>=primary.bottom-1&&openDetail.left>=openCard.left-1&&openDetail.right<=openCard.right+1);
+  if(!positionOk)failures.push({size,role:'lookup responsive placement',viewport:c.width,detail:[openDetail.left,openDetail.top,openDetail.right,openDetail.bottom],command:[command.left,command.top,command.right],menu:[openMenu.left,openMenu.right]});
   if(!detail.open||button.getAttribute('aria-expanded')!=='true'||!same(closed,opened,limit))failures.push({size,role:'open geometry',closed,opened});
   w._priceLookupDetail('timings');
   const nested=geometry();
+  const nestedBox=sel('price-lookup-detail').getBoundingClientRect(), headerBottom=d.querySelector('.action-bar').getBoundingClientRect().bottom;
+  if(nestedBox.bottom>headerBottom+1)failures.push({size,role:'details stay in header flow',viewport:c.width,detailBottom:nestedBox.bottom,headerBottom});
   if(sel('price-lookup-detail').hidden||!same(closed,nested,limit))failures.push({size,role:'nested detail geometry'});
   w._priceLookupDetail('toggle-summary');
   const reclosed=geometry();

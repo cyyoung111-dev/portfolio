@@ -231,3 +231,37 @@ assert.ok(dividendJob.steps.some(s=>s.uses==='actions/checkout@v7'
  && s.with?.['persist-credentials']===false));
 assert.equal(dividendJob.steps.filter(s=>s.run==='node scripts/run-dividend-source-refresh.mjs').length,1);
 console.log('PASS: monthly official ETF dividend refresh requires protected environment; manual REFRESH approval; source readback');
+
+// Re-render, polling and manual button must not start a second source writer.
+{
+ const u=ui({stocks:true});let calls=0,writes=0,release;
+ u.ctx._fetchDividendSource=async()=>{calls++;await new Promise(r=>release=r);return {'111111':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}};};
+ u.ctx.persistDividendSettings=async()=>{writes++;return true;};
+ const a=u.ctx._autoFetchDiv({}),b=u.ctx._autoFetchDiv({}),c=u.ctx.startDivFetch();
+ while(!release)await Promise.resolve();
+ release();await Promise.all([a,b,c]);
+ assert.equal(calls,1);assert.equal(writes,1);
+ await u.ctx._autoFetchDiv({});assert.equal(calls,1,'same-day rerender must not refresh again');
+}
+for(const manual of [false,true]){
+ const u=ui({stocks:true,publicOk:false});let writes=0;
+ const old={source:'PUBLIC_DATA',perShare:15,events:[],updatedAt:'old'};
+ u.ctx.DIVDATA['111111']=structuredClone(old);
+ u.ctx.persistDividendSettings=async()=>{writes++;return true;};
+ await (manual?u.ctx.startDivFetch():u.ctx._autoFetchDiv({}));
+ assert.equal(writes,0,'no verified patch must not write');
+ assert.deepEqual(u.ctx.DIVDATA['111111'],old);
+}
+for(const manual of [false,true]){
+ const u=ui({stocks:true,save:false});const old={source:'PUBLIC_DATA',perShare:15,events:[],updatedAt:'old'};
+ u.ctx.DIVDATA['111111']=structuredClone(old);
+ await (manual?u.ctx.startDivFetch():u.ctx._autoFetchDiv({}));
+ assert.match(u.labels.at(-1).message,/GAS 저장 미확인/);
+ assert.deepEqual(u.ctx.DIVDATA['111111'],old,'failed write must not apply unconfirmed data locally');
+}
+{
+ const u=ui({stocks:true});u.ctx._fetchDividendSource=async()=>{const e=new Error('PRIVATE_DETAIL');e.errorCode='CLIENT_TIMEOUT';throw e;};
+ await u.ctx._autoFetchDiv({});assert.match(u.labels.at(-1).message,/일반 주식 배당 조회 실패 · 응답 시간 초과/);
+ assert.doesNotMatch(u.labels.at(-1).message,/PRIVATE_DETAIL/);
+}
+console.log('PASS: dividend single-flight, same-day auto suppression, no empty write, stage-specific error and local data preservation');
