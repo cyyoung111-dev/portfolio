@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {assessNhFinancialIncomeReadback,probeNhFinancialIncome} from './nh-financial-income-readback.mjs';
 import {composeGas9298NhFinancialIncomePreview} from './compose-gas9298-nh-financial-income-preview.mjs';
 const {parent,candidate,manifest}=composeGas9298NhFinancialIncomePreview();
 assert.equal(manifest.parentGitBlob,'7d303bedb019150798ffdd21bab43849d28d63a8');
@@ -56,3 +57,29 @@ v=fixture({pages:[{rows:[sample],message:'오류'}]});
 assert.equal(v.out.accountsRejected,1);assert.equal(v.out.rows,0);
 v=fixture({accounts:[]});assert.equal(v.out.ownLiveAccounts,0);assert.equal(v.out.fullYearCoverage,false);
 console.log('PASS: 9.298 anchored read-only NH account/interest contract; no OAuth, no private amounts, no annual zero inference');
+
+
+const sampleProof=fixture().out;
+const readback=assessNhFinancialIncomeReadback({...sampleProof,unexpectedPrivateField:privateMarker});
+assert.equal(readback.contractStatus,'FIELDS_OBSERVED');
+assert.equal(readback.annualIncomeVerified,false);
+assert.equal(readback.sampleHasContinuation,true);
+assert.equal(readback.financeWrites,0);
+assert.doesNotMatch(JSON.stringify(readback),/PRIVATE_ORIGINAL_VALUE|12345|1901|NEXT_PRIVATE/);
+assert.equal(assessNhFinancialIncomeReadback(fixture({accounts:[]}).out).contractStatus,'NO_SELF_OWNED_ACCOUNTS');
+assert.equal(assessNhFinancialIncomeReadback(fixture({pages:[{rows:[]}]}).out).contractStatus,'NO_SAMPLE_ROWS');
+assert.equal(assessNhFinancialIncomeReadback(fixture({pages:[{http:429}]}).out).contractStatus,'PARTIAL_ACCOUNT_SAMPLE');
+for(const invalid of [{gasVersion:'9.297'},{tokenIssued:true},{annualIncomeVerified:true,fullYearCoverage:true},
+ {accountsSucceeded:2},{interestFieldRows:3},{krwRows:3},{stopped:'RAW_PRIVATE'}]){
+ assert.throws(()=>assessNhFinancialIncomeReadback({...sampleProof,...invalid}),/NH_FINANCE_READBACK_/);
+}
+const simulated=await probeNhFinancialIncome({url:'https://script.google.com/macros/s/TEST_READ_ONLY/exec',
+ token:'FAKE_GAS_ACCESS_TOKEN',fetchImpl:async(_url,options)=>{
+  assert.equal(options.method,'POST');
+  assert.equal(options.body.get('action'),'diagnoseNhFinancialIncome');
+  assert.equal(options.body.get('mode'),'contract');
+  return {ok:true,json:async()=>sampleProof};
+ }});
+assert.deepEqual(simulated,assessNhFinancialIncomeReadback(sampleProof));
+console.log('GAS9298_REVIEWED_CANDIDATE '+JSON.stringify({version:manifest.version,parentGitBlob:manifest.parentGitBlob,
+ candidateGitBlob:manifest.candidateGitBlob,productionDeploymentApproved:false,financeWrites:0}));
