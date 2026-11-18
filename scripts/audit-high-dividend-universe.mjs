@@ -116,5 +116,5 @@ if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  try{
   const candidateIndex=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
   console.log(JSON.stringify(await auditFromGas({candidateIndex,url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,report:row=>console.log(JSON.stringify(row))})));
- }catch(e){console.error(/^HIGH_DIVIDEND_AUDIT_[A-Z_]+$/.test(e?.message||'')?e.message:'HIGH_DIVIDEND_AUDIT_FAILED');process.exitCode=1;}
+ }catch(e){console.error(/^HIGH_DIVIDEND_AUDIT_(?:[A-Z_]+|(?:AUTH_PROBE|MASTER|LEDGER)_HTTP_(?:401|403|429|502|503|504))$/.test(e?.message||'')?e.message:'HIGH_DIVIDEND_AUDIT_FAILED');process.exitCode=1;}
 }

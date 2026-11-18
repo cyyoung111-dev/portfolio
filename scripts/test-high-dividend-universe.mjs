@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {auditHistoricalUniverse,auditFromGas} from './audit-high-dividend-universe.mjs';
 const candidates={classification:'CANDIDATE_ONLY',matched:[
  {listedCode:'005930',issuerName:'삼성전자',market:'KOSPI',identityState:'EXACT_LISTED_ISSUER',taxEligibility:'UNVERIFIED',businessYear:2025},
@@ -75,3 +80,24 @@ await assert.rejects(()=>auditFromGas({...base,fetchImpl:async(...args)=>{
 }}),/HIGH_DIVIDEND_AUDIT_LEDGER_JSON_UNVERIFIED/);
 assert.equal(jsonCalls,3);
 console.log('PASS: bounded read-only transport recovery and safe stage-level diagnostics');
+
+ // Exercise the real command-line entrypoint, not just the exported promise.
+ // Every child uses synthetic fetch; no real credentials or network calls.
+const dir=mkdtempSync(join(tmpdir(),'high-dividend-cli-'));
+try{
+ const file=join(dir,'candidate.json');writeFileSync(file,JSON.stringify(candidates));
+ const entry=fileURLToPath(new URL('./audit-high-dividend-universe.mjs',import.meta.url));
+ for(const [stage,status] of [['AUTH_PROBE',401],['AUTH_PROBE',403],['MASTER',429],
+  ['AUTH_PROBE',502],['MASTER',503],['LEDGER',504]]){
+  const mock='const token='+JSON.stringify(token)+'; const status='+status+'; const stage='+JSON.stringify(stage)+'; let called=0;\n'+
+   'globalThis.fetch=async(_url,opt)=>{const p=opt.body; const action=p.get("action"); const isBad=p.get("accessToken")!==token; called++; const s=isBad?"AUTH_PROBE":action==="getCodeListReadOnly"?"MASTER":"LEDGER"; if(s===stage)return {ok:false,status,statusText:"PRIVATE_HTTP_BODY"}; return {ok:true,json:async()=>isBad?{status:"error",message:"인증 실패"}:s==="MASTER"?{status:"ok",readOnly:true,gasVersion:"9.297",codes:[]}:{status:"ok",trades:[]}}};\n'+
+   'const timer=globalThis.setTimeout; globalThis.setTimeout=(fn,ms,...args)=>timer(fn,ms===3000?0:ms,...args);';
+  const run=spawnSync(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(mock),entry,file],{
+   encoding:'utf8',timeout:10000,env:{GAS_WEB_APP_URL:base.url,GAS_ACCESS_TOKEN:token}});
+  assert.ifError(run.error);
+  assert.equal(run.status,1,run.stderr);
+  assert.equal(run.stderr.trim(),'HIGH_DIVIDEND_AUDIT_'+stage+'_HTTP_'+status);
+  assert.doesNotMatch(run.stdout+run.stderr,/PRIVATE_HTTP_BODY|PRIVATE_AUTH_EXAMPLE/);
+ }
+}finally{rmSync(dir,{recursive:true,force:true});}
+console.log('PASS: CLI preserves all six safe HTTP stage diagnostics; provider text remains private');
