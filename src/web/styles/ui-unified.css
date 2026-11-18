@@ -816,16 +816,12 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 .wrap .sum-row .sc .sub {overflow-wrap:anywhere;word-break:keep-all}
 .wrap .sum-row-2 .sc .val.c-red {color:var(--red)}
 .wrap .sum-row-2 .sc .val.c-muted {color:var(--muted)}
-/* Only update is a highlighted command; file import is a secondary utility. */
-.toolbar-btn-group .toolbar-section-primary {
-  border-color:var(--ui-edge);
-  background:var(--s1);
-}
-.toolbar-btn-group .toolbar-section-danger {
+/* Data utilities share one group; reset keeps its own danger treatment. */
+.toolbar-btn-group .toolbar-section-data {
   background:var(--s1);
   border-color:var(--ui-edge);
 }
-.toolbar-btn-group .toolbar-section-danger .toolbar-btn-danger {
+.toolbar-btn-group .toolbar-section-data .toolbar-btn-danger {
   border-color:var(--c-red-35);color:var(--red-lt);
 }
 .action-bar .action-update-card,
@@ -1318,11 +1314,14 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
     max-width:100%;
     padding-inline:0;
   }
-  .action-bar.toolbar-stable .action-menu-stack > .toolbar-btn-group .toolbar-section-danger {
-    margin-left:0;
-  }
 }
 
+/* Keep six commands reachable at phone widths without changing the
+   established font or touch height. Narrow/large-font layouts may scroll. */
+@media(max-width:768px) {
+  .action-bar.toolbar-stable .action-menu-stack > .toolbar-btn-group {justify-content:safe flex-end}
+  .action-bar.toolbar-stable .toolbar-btn-group .toolbar-section {flex:0 0 auto;flex-wrap:nowrap}
+}
 /* Detail pages: summary amounts are compact body-size, while labels and
    explanations are captions. Global header/holdings KPI tiers stay intact. */
 #view-area:is([data-active-view="asset"],[data-active-view="plan"],[data-active-view="div"])

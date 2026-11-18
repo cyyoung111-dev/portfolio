@@ -8,8 +8,6 @@ function registerGlobalEventDelegation() {
     // action bar / fixed tab
     quickFetchBtn:          () => typeof quickFetchByDate === 'function' && quickFetchByDate(),
     quickPriceBtn:          () => typeof refreshCurrentPricesOnly === 'function' && refreshCurrentPricesOnly(),
-    'btn-open-fund-units':  () => typeof openFundUnitsEditor === 'function' && openFundUnitsEditor(),
-    'btn-open-editor':      () => typeof openEditor === 'function' && openEditor(),
     'btn-export-data':      () => typeof exportData === 'function' && exportData(),
     'btn-trigger-import':   () => { const input = $el('importFileInput'); if (input) input.click(); },
     'btn-open-reset-dialog':() => typeof openResetDialog === 'function' && openResetDialog(),
@@ -32,12 +30,12 @@ function registerGlobalEventDelegation() {
     'btn-apply-realestate':               () => typeof applyRealEstate === 'function' && applyRealEstate(),
     'btn-close-price-editor-top':         () => typeof closeEditor === 'function' && closeEditor(),
     'btn-close-price-editor-footer':      () => typeof closeEditor === 'function' && closeEditor(),
-    'pe-panel-price-footer':              () => typeof applyPrices === 'function' && applyPrices(),
     'btn-close-loan-editor-top':          () => typeof closeLoanEditor === 'function' && closeLoanEditor(),
     'btn-close-loan-editor-footer':       () => typeof closeLoanEditor === 'function' && closeLoanEditor(),
     'btn-apply-loan':                     () => typeof applyLoan === 'function' && applyLoan(),
 
     // history / gsheet
+    'btn-open-fund-nav-recovery': () => typeof openFundUnitsEditor === 'function' && openFundUnitsEditor(),
     histModeDay:           () => typeof _setHistMode === 'function' && _setHistMode('day'),
     histModeWeek:          () => typeof _setHistMode === 'function' && _setHistMode('week'),
     histModeMonth:         () => typeof _setHistMode === 'function' && _setHistMode('month'),
@@ -280,19 +278,6 @@ function registerGlobalEventDelegation() {
       return;
     }
 
-    // ── data-editor-page-section (mgmt_editor.js, 현재가 편집 페이지네이션)
-    const pageSectionBtn = e.target.closest('[data-editor-page-section]');
-    if (pageSectionBtn) {
-      if (typeof _setEditorSectionPage === 'function') {
-        _setEditorSectionPage(
-          pageSectionBtn.dataset.editorPageSection,
-          parseInt(pageSectionBtn.dataset.page || '1', 10),
-          parseInt(pageSectionBtn.dataset.totalPages || '1', 10)
-        );
-      }
-      return;
-    }
-
     if (!btn) return;
 
     // 재동기화 버튼 (data-sync-tab 속성)
@@ -333,21 +318,12 @@ function registerGlobalEventDelegation() {
       const pos = e.target.selectionStart;
       const lenBefore = e.target.value.length;
       const raw = e.target.value.replace(/[^0-9]/g, '');
-      // ★ 현재가 편집(ep_ 입력)은 콤마 제거한 순수 숫자를 markChanged로 먼저 전달 — 한 번에 처리
-      if (e.target.dataset.editorPriceName && typeof markChanged === 'function') {
-        markChanged(e.target.dataset.editorPriceName, raw);
-      }
       e.target.value = raw ? Number(raw).toLocaleString() : '';
       const lenAfter = e.target.value.length;
       try {
         const newPos = Math.max(0, (pos || 0) + (lenAfter - lenBefore));
         e.target.setSelectionRange(newPos, newPos);
       } catch(err) {}
-      return;
-    }
-    // ★ [통일] data-editor-price-name만 있고 number-comma가 없는 경우 대비 (하위 호환)
-    if (e.target && e.target.dataset && e.target.dataset.editorPriceName && typeof markChanged === 'function') {
-      markChanged(e.target.dataset.editorPriceName, e.target.value);
       return;
     }
     const id = e.target && e.target.id;
