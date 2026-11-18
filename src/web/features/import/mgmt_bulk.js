@@ -110,7 +110,7 @@ function closeBulkImport() {
 function buildBulkOverlayHTML() {
   const tabBtn = (mode, label, color) =>
     `<button id="bulkTab_${mode}" data-bulk-action="tab" data-mode="${mode}"
-      style="padding:7px 20px;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid ${color};transition:all .15s"
+      style="padding:4px 12px;border-radius:8px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:2px solid ${color};transition:all .15s"
       >${label}</button>`;
   return `<div id="bulkImportOverlay"
     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9100;justify-content:center;align-items:flex-start;padding:8px;overflow-y:auto">
@@ -212,7 +212,7 @@ function renderBulkGrid() {
   const bodyRows = ROWS.map((row, ri) => {
     const cells = COLS.map(col => {
       const val      = row[col.key] || '';
-      const selStyle = `width:${col.w}px;background:var(--s2);border:1px solid var(--border);border-radius:4px;padding:5px 6px;color:var(--text);font-size:.75rem`;
+      const selStyle = `width:${col.w}px;background:var(--s2);border:1px solid var(--border);border-radius:4px;padding:5px 6px;color:var(--text);font-size:var(--ui-field-font)`;
 
       if (col.type === 'acct_select') {
         const accts = getAcctList();
@@ -233,7 +233,7 @@ function renderBulkGrid() {
       return `<td class="p-2"><input type="${col.type==='number'?'number':'text'}" value="${_escapeHtml(val)}"
         data-bulk-row="${ri}" data-bulk-col="${_escapeHtml(col.key)}"
         ${col.type==='date'?'placeholder="YYYY.MM.DD"':''}
-        style="width:${col.w}px;background:${val?'var(--s2)':'var(--c-white-03)'};border:1px solid ${val?'var(--border)':'transparent'};border-radius:4px;padding:5px 6px;color:var(--text);font-size:.75rem"/></td>`;
+        style="width:${col.w}px;background:${val?'var(--s2)':'var(--c-white-03)'};border:1px solid ${val?'var(--border)':'transparent'};border-radius:4px;padding:5px 6px;color:var(--text);font-size:var(--ui-field-font)"/></td>`;
     }).join('');
 
     let rowBg = '';

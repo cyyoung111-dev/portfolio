@@ -192,16 +192,16 @@ function renderSectorView(area) {
     html += `<div class="overflow-x-auto">
       <table style="width:100%;border-collapse:collapse;margin-top:6px">
         <thead><tr style="background:var(--s2);border-bottom:1px solid var(--border)">
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">종목명</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">구분</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">보유 계좌</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">주식수</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">매입단가</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">매입금액</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">현재단가</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">평가금액</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">손익</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">수익률</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:left">종목명</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:left">구분</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:left">보유 계좌</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">주식수</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">매입단가</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">매입금액</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">현재단가</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">평가금액</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">손익</th>
+          <th style="padding:8px 10px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">수익률</th>
         </tr></thead><tbody>`;
 
     const secMerged = {};
@@ -229,24 +229,24 @@ function renderSectorView(area) {
       const avgCost = m.totalQty > 0 ? Math.round(m.totalCostAmt / m.totalQty) : null;
       const curPrice = m.curPrice;
       html += `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:7px 8px;font-size:.78rem;font-weight:600;text-align:left">
+        <td style="padding:7px 8px;font-size:var(--type-body);font-weight:600;text-align:left">
           ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${m.code}</span>`:''}
         </td>
-        <td style="padding:7px 8px;font-size:.72rem;text-align:center">
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:center">
           <span class="tag tg-${m.epType}">${m.epType}</span>
         </td>
-        <td style="padding:7px 8px;font-size:.72rem;text-align:center">
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:center">
           <div class="flex-wrap-gap6">
             ${accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span style="font-size:.62rem;color:var(--muted)">${a}</span></div>`).join('')}
           </div>
         </td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${avgCost != null ? avgCost.toLocaleString() : '-'}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right">${fmtW(m.costAmt)}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${curPrice != null ? curPrice.toLocaleString() : '-'}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right">${fmtW(m.evalAmt)}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC}">${rS}${fmt(m.pnl)}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:right;font-variant-numeric:tabular-nums">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:right;font-variant-numeric:tabular-nums">${avgCost != null ? avgCost.toLocaleString() : '-'}</td>
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:right">${fmtW(m.costAmt)}</td>
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:right;font-variant-numeric:tabular-nums">${curPrice != null ? curPrice.toLocaleString() : '-'}</td>
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:right">${fmtW(m.evalAmt)}</td>
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:right;color:${rC}">${rS}${fmt(m.pnl)}</td>
+        <td style="padding:7px 8px;font-size:var(--type-body);text-align:right;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
       </tr>`;
     });
     html += `</tbody></table></div></div>`;
@@ -472,7 +472,7 @@ function renderMergeView(area) {
       <td class="num" style="color:${pC}">${pS}${m.pct.toFixed(1)}%</td>
       <td>
         <div class="flex-center-gap8">
-          <span class="mono" style="font-size:.85rem;font-weight:600;color:var(--pink);min-width:42px">${weight}%</span>
+          <span class="mono" style="font-size:var(--type-body);font-weight:600;color:var(--pink);min-width:42px">${weight}%</span>
           <div style="width:50px;height:4px;background:var(--s2);border-radius:3px;flex-shrink:0">
             <div style="width:${Math.min(parseFloat(weight),100)}%;height:100%;background:var(--pink);border-radius:3px"></div>
           </div>

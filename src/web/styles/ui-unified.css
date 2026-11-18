@@ -979,11 +979,11 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   --ui-command-radius:8px;
   --ui-surface-radius:12px;
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown)
   :is(.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.hist-bench-btn,
     .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm,
     .settings-tab,.cfd-btn,.editor-page-btn,
-    .btn-sm,.btn-sm-purple,.btn-amber-sm,.btn-purple-sm,.btn-purple-sm-700,
+    .btn-sm,.btn-gold,.btn-sell,.btn-sm-purple,.btn-amber-sm,.btn-purple-sm,.btn-purple-sm-700,
     .btn-outline-sm,.btn-edit-sm,.btn-del-sm,.btn-danger,.btn-danger-lg,.btn-danger-ghost,
     .btn-ghost-sm,.btn-cancel-sm,.btn-buy-sm,.btn-sell-sm,.btn-buy-lg,.btn-sell-lg,
     .btn-amber-outline,.btn-purple,.btn-purple-700,.btn-amber,.btn-apply,.btn-cancel,
@@ -1000,7 +1000,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   line-height:var(--line-compact);
   white-space:nowrap;
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown)
   :is(.plan-subtab,.div-month-filter button,.settings-tab,.cfd-btn,
     .editor-page-btn,.btn-outline-sm,.btn-edit-sm,.btn-amber-outline,
     .btn-ghost-sm,.btn-cancel-sm,.btn-ghost-muted,.btn-cancel) {
@@ -1015,7 +1015,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   color:var(--gold);
   font-weight:700;
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog)
   :is(.btn-purple-sm,.btn-purple-sm-700,.btn-purple-700,.btn-amber-sm,.btn-amber,.btn-apply,.btn-gold,.btn-add-green,.btn-add-purple,.btn-add-cyan) {
   background:var(--ui-selected-bg);
   border:1px solid var(--ui-selected-edge);
@@ -1027,20 +1027,20 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   background:var(--c-green-08);
   color:var(--green-lt);
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog)
   :is(.btn-danger,.btn-danger-lg,.btn-danger-ghost,.btn-del-sm,.btn-sell-sm,.btn-sell-lg,.btn-sell) {
   border:1px solid var(--c-red-35);
   background:var(--c-red-08);
   color:var(--red-lt);
 }
 /* Match the same role on desktop and mobile; preserve compact labels. */
-:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown)
   :is(.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.hist-bench-btn,
     .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm,.settings-tab) {
   height:var(--ui-filter-height);min-height:var(--ui-filter-height);
   padding:4px 9px;
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown)
   :is(button.btn-amber,button.btn-amber-sm,button.btn-apply,button.btn-purple-sm,button.btn-purple-sm-700,button.btn-purple-700,button.btn-gold,button.btn-add-green,button.btn-add-purple,button.btn-add-cyan) {
   height:var(--ui-primary-height);min-height:var(--ui-primary-height);
 }
@@ -1067,20 +1067,20 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 #view-area[data-active-view] :is(.hist-detail-panel,.hist-benchmark-details,.hist-source-coverage)>summary {min-height:32px;padding:6px 10px}
 .wrap :is(.sc,.sector-card,.chart-card,.trade-stat-card,.div-stat-card,.stat-card,
   .card-12,.card-12-mb16,.card-12-p20,.hist-kpi-card,.hist-extreme-card,.hist-benchmark-card),
-:is(.editor-box,.settings-dialog,.col-filter-dropdown) {border-radius:var(--ui-surface-radius)}
+:is(.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown) {border-radius:var(--ui-surface-radius)}
 #view-area[data-active-view] :is(.plan-subtabs,.div-month-filter) {
   gap:6px;scroll-padding-inline:6px;max-width:100%;min-width:0;
 }
 #view-area[data-active-view] .plan-subtabs {border-radius:var(--ui-surface-radius);border-color:var(--ui-edge)}
 /* Popovers and editors live outside the active-view element. Font inheritance
    must work there as well. Explicit roles override obsolete inline field sizes. */
-:is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown) {
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.action-bar,.col-filter-dropdown) {
   font-family:var(--font-ui);
 }
-:is(.editor-box,.settings-dialog,.col-filter-dropdown) {
+:is(.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown) {
   font-size:var(--type-body);line-height:var(--line-body);
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.action-bar,.col-filter-dropdown)
   :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select,textarea) {
   font-family:var(--font-ui);
   font-size:var(--ui-field-font);
@@ -1094,19 +1094,19 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 #view-area[data-active-view] .hist-controls :is(input.hist-month-input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select.hist-range-select,button.hist-query-btn) {
   height:var(--ui-primary-height);min-height:var(--ui-primary-height);
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown) select option {
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.action-bar,.col-filter-dropdown) select option {
   font:inherit;
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog)
+:is(#view-area[data-active-view],.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog)
   :is(.editor-header h3,.settings-dialog__header h3,.settings-dialog__header h2,
     .h3-section,.h3-card,.section-title,.card-title,.fund-units-panel h4) {
   font-size:var(--type-title);font-weight:700;line-height:1.35;
 }
-:is(.editor-box,.settings-dialog,.col-filter-dropdown)
+:is(.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown)
   :is(.editor-row label,.editor-price-name,.form-label,.editor-group-title,.editor-price-section-title) {
   font-size:var(--type-label);line-height:var(--line-compact);font-weight:600;
 }
-:is(.editor-box,.settings-dialog,.col-filter-dropdown)
+:is(.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown)
   :is(.editor-header p,.editor-row label span,.editor-price-summary,.editor-price-code,
     .editor-price-type,.editor-price-meta,.editor-price-pagination,.settings-panel__help,.helper-text) {
   font-size:var(--type-caption);line-height:var(--line-reading);
@@ -1355,3 +1355,79 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
 #view-area[data-active-view="plan"] .s2-rounded {
   padding:var(--space-sm) var(--space-md);
 }
+
+/* Cross-tab audit: secondary cards use the same scale as the detail pages.
+   Portfolio totals and primary history KPIs retain their stronger hierarchy. */
+#view-area[data-active-view] :is(.sector-hdr h4,.tg-name,.trade-stat-value,
+  .sector-hdr .sval,.hist-kpi-value,.hist-benchmark-change,.hist-mdd-loss strong,
+  .hist-extreme-cost strong,.hist-extreme-metric b,.hist-mdd-trough-eval strong) {
+  font-size:var(--type-body);
+  line-height:1.35;
+  font-weight:650;
+  font-variant-numeric:tabular-nums;
+}
+#view-area[data-active-view] :is(.hist-benchmark-name,.hist-benchmark-risk b) {
+  font-size:var(--type-body);
+  font-weight:600;
+  line-height:var(--line-compact);
+}
+#view-area[data-active-view] :is(.hist-benchmark-risk,.hist-benchmark-period,
+  .hist-benchmark-source>summary,.hist-benchmark-source-body,.hist-legend-chip,
+  .hist-legend-chip strong,.hist-benchmark-count,.hist-mdd-detail,.hist-mdd-loss,
+  .hist-extreme-cost,.hist-extreme-metric span,.trade-stat-label) {
+  font-size:var(--type-caption);
+  line-height:var(--line-reading);
+}
+#view-area[data-active-view] :is(.hist-benchmark-card,.tg-group,.s2-rounded) {
+  border-radius:var(--ui-surface-radius);
+}
+#view-area[data-active-view] .hist-benchmark-card {padding:var(--space-sm) var(--space-md);gap:var(--space-xs)}
+#view-area[data-active-view] :is(.div-monthly-matrix,.retirement-cashflow-table) td {
+  font-size:var(--type-body);
+}
+#view-area[data-active-view] :is(.div-monthly-matrix,.retirement-cashflow-table) th {
+  font-size:var(--type-caption);
+}
+#view-area[data-active-view] :is(.fund-units-group h5,.editor-section-title) {
+  font-size:var(--type-body);
+  font-weight:650;
+  line-height:var(--line-compact);
+}
+/* A dialog close/reorder icon is deliberately smaller than a text action.
+   Dynamic edit/import dialogs keep existing semantic buy/sell colors. */
+:is(#tradeEditOverlay,#bulkImportOverlay) .h3-95 {
+  font-size:var(--type-body);
+  font-weight:650;
+  line-height:1.35;
+}
+:is(#tradeEditOverlay,#bulkImportOverlay) > div {
+  box-sizing:border-box;
+  font-size:var(--type-body);
+  line-height:var(--line-body);
+}
+#tradeEditOverlay .te-type-btn,
+#bulkImportOverlay [data-bulk-action="tab"] {
+  box-sizing:border-box;
+  min-height:var(--ui-filter-height);
+  font:600 var(--type-caption)/var(--line-compact) var(--font-ui);
+}
+#bulkImportOverlay :is(label:has(input[type="file"]),a[data-bulk-action="download-template"]),
+#view-area[data-active-view] label.btn-amber-outline {
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;
+  min-height:var(--ui-command-height);
+  border-radius:var(--ui-command-radius);
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+}
+:is(#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.editor-box) .btn-close-icon,
+.settings-dialog .btn-move-icon {
+  box-sizing:border-box;
+  width:28px;height:28px;min-height:28px;
+  padding:0;
+  border-radius:var(--ui-command-radius);
+  line-height:1;
+}
+#bulkImportOverlay table th {font-size:var(--type-caption);line-height:var(--line-compact)}
+#bulkImportOverlay table td {font-size:var(--type-body);line-height:var(--line-compact)}
