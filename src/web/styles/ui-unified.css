@@ -972,6 +972,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
    Keep table scroll, account grid, chart bars and financial colors intact. */
 :root {
   --ui-command-height:36px;
+  --ui-field-font:var(--type-body);
   --ui-command-radius:8px;
   --ui-surface-radius:12px;
 }
@@ -1061,7 +1062,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 :is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown)
   :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select,textarea) {
   font-family:var(--font-ui);
-  font-size:var(--type-body)!important;
+  font-size:var(--ui-field-font);
   line-height:var(--line-compact);
   border-radius:var(--ui-command-radius);
   min-height:var(--ui-command-height);
@@ -1109,9 +1110,6 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
    editable fields on that platform rather than one anomalous month input. */
 @supports (-webkit-touch-callout:none) {
   @media(max-width:768px) {
-    :is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown)
-      :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select,textarea) {
-      font-size:max(16px,var(--type-body))!important;
-    }
+    :root {--ui-field-font:max(16px,var(--type-body))}
   }
 }
