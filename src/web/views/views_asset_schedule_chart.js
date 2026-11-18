@@ -138,17 +138,17 @@ function renderScheduleChart() {
     <div class="flex-gap6-ai">
       <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="var(--blue-lt)" stroke-width="2.5" stroke-linecap="round"/></svg>
       <span class="txt-75-slate">대출 잔액</span>
-      <span style="font-size:.78rem;font-weight:700;color:var(--blue-lt);margin-left:4px">${yLbl(latestBal)}</span>
+      <span style="font-size:var(--type-body);font-weight:650;color:var(--blue-lt);margin-left:4px">${yLbl(latestBal)}</span>
     </div>
     ${eqPath ? `
     <div class="flex-gap6-ai" style="flex-wrap:wrap">
       <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="var(--amber)" stroke-width="2.5" stroke-dasharray="5,3" stroke-linecap="round"/></svg>
       <span class="txt-75-slate">순자산 (시가−잔액)</span>
-      ${latestEq != null ? `<span style="font-size:.78rem;font-weight:700;color:var(--amber);margin-left:4px">${yLbl(latestEq)}</span>` : ''}
+      ${latestEq != null ? `<span style="font-size:var(--type-body);font-weight:650;color:var(--amber);margin-left:4px">${yLbl(latestEq)}</span>` : ''}
     </div>` : ''}
     <div style="margin-left:0;display:flex;align-items:center;gap:8px;background:color-mix(in srgb, var(--s2) 82%, var(--bg) 18%);padding:6px 12px;border-radius:8px;flex-shrink:0">
       <span style="font-size:.70rem;color:var(--muted)">이자포함 순손익</span>
-      <span style="font-size:.90rem;font-weight:800;color:${pnlColor}">${latestPnl !== null ? (latestPnl >= 0 ? '+' : '') + yLbl(latestPnl) : '시가 미입력'}</span>
+      <span style="font-size:var(--type-body);font-weight:650;color:${pnlColor}">${latestPnl !== null ? (latestPnl >= 0 ? '+' : '') + yLbl(latestPnl) : '시가 미입력'}</span>
     </div>
   </div>
 

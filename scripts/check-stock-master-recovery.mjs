@@ -134,9 +134,9 @@ assert.match(phoneUi,/\.action-bar \.action-update-card>\.action-refresh-btn spa
 assert.match(viewerUnified,/@media\(max-width:300px\)[\s\S]*grid-template-columns:minmax\(0,1fr\)/,
   'accessibility zoom must stack primary controls');
 
-assert.match(html,/views_history\.js\?v=20261118-1/);
+assert.match(html,/views_history\.js\?v=20261118-7/);
 assert.match(sw,/settings_sync\.js\?v=20261103-1/);
-assert.match(sw,/views_history\.js\?v=20261118-1/);
+assert.match(sw,/views_history\.js\?v=20261118-7/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,

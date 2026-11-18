@@ -66,7 +66,7 @@ function renderTabSettingsBody() {
     html += `<div class="tab-setting-row" draggable="true" data-idx="${i}" data-tab-id="${tab.id}"
       style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;background:var(--s2);cursor:grab;transition:background .12s;opacity:${tab.hidden?'.45':'1'}">
       <span style="font-size:.75rem;color:var(--muted);cursor:grab;user-select:none">⠿</span>
-      <span style="display:flex;align-items:center;gap:8px;flex:1;font-size:.80rem"><span style="width:16px;height:16px;display:inline-flex;align-items:center">${tab.icon||''}</span>${tab.label}${tab.hidden?'<span style="font-size:.60rem;color:var(--muted);margin-left:4px">(숨김)</span>':''}</span>
+      <span style="display:flex;align-items:center;gap:8px;flex:1;font-size:var(--type-body)"><span style="width:16px;height:16px;display:inline-flex;align-items:center">${tab.icon||''}</span>${tab.label}${tab.hidden?'<span style="font-size:.60rem;color:var(--muted);margin-left:4px">(숨김)</span>':''}</span>
       <button data-tab-action="move" data-idx="${i}" data-delta="-1" ${isFirst?'disabled':''} class="btn-move-icon">↑</button>
       <button data-tab-action="move" data-idx="${i}" data-delta="1" ${isLast?'disabled':''} class="btn-move-icon">↓</button>
       <button data-tab-action="toggle-hidden" data-idx="${i}" class="btn-move-icon" title="${tab.hidden?'표시':'숨김'}"
