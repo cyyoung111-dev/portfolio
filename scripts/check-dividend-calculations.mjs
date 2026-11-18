@@ -258,3 +258,44 @@ assert.equal(shareClassRow.monthlyDiv[8],3000);
 assert.match(source,/배당 기준일의 보통주·우선주 금액이 충돌/);
 
 console.log('PASS: declared distribution vs manually verified deposit and actual editor save');
+
+const planCalc=fs.readFileSync('src/web/domain/plan/plan_calculations.js','utf8');
+vm.runInContext(planCalc,accountCtx);
+accountCtx.ACCT_TAX_TYPES={'일반':'일반','ISA':'ISA','연금':'연금저축','IRP':'IRP'};
+accountCtx.DIVDATA['테스트 종목']={perShare:50,months:[2],events:[
+ {date:'2026-01-02',payDate:'2026-01-15',amount:100,receivedConfirmed:true,netReceived:846,withheldTax:154}
+]};
+accountCtx.rawHoldings=[{name:'테스트 종목',acct:'ISA',qty:10}];
+accountCtx.rawTrades=[{name:'테스트 종목',acct:'일반'},{name:'테스트 종목',acct:'ISA'}];
+accountCtx.getQtyAtDate=(_n,day,acct)=>day==='2026-01-02'?(acct==='일반'?4:acct==='ISA'?6:10):(acct==='일반'?0:acct==='ISA'?10:10);
+const splitRows=accountCtx.calcDividends();
+const split=accountCtx._divTaxSummary(splitRows);
+assert.equal(split.all.annual,1500);
+assert.equal(split.normal.annual,400);
+assert.equal(split.isa.annual,1100);
+assert.equal(split.normal.actual,400);
+assert.equal(split.isa.actual,600);
+assert.equal(split.normal.received,400);
+assert.equal(split.isa.received,600);
+assert.equal(split.normal.monthly[1],400);
+assert.equal(split.normal.monthly[2],undefined);
+assert.equal(split.isa.monthly[2],500);
+const general=accountCtx._divTaxFilteredRows(splitRows,'normal')[0];
+assert.equal(general.annualDiv,400);
+assert.equal(general.totalQty,0,'historical general dividends survive a transfer to ISA');
+assert.equal(general.monthlyDiv[1],400);
+assert.equal(splitRows[0].netReceivedDiv,846,'bank net stays full-scope; never allocate without evidence');
+const entries2=planCtx._getPlanDividendEntries(splitRows);
+const planFlow=accountCtx.PlanCalculations.calculateDividendCashflow({dividends:entries2});
+assert.equal(planFlow.normalGross,split.normal.annual);
+assert.equal(planFlow.isaInternal,split.isa.annual);
+assert.equal(planFlow.totalGross,split.all.annual);
+assert.match(accountCtx._divTaxPanel(split,'normal'),/data-div-tax="normal" aria-pressed="true"/);
+assert.match(accountCtx._divTaxPanel(split,'normal'),/고배당기업 분리과세/);
+accountCtx.getQtyAtDate=(_n,_day,acct)=>acct?3:10;
+const unresolved=accountCtx._divTaxSummary(accountCtx.calcDividends());
+assert.equal(unresolved.unclassified.annual,1500,'quantity mismatch remains unallocated');
+assert.equal(unresolved.normal.annual,0);
+assert.equal(unresolved.isa.annual,0);
+assert.equal(unresolved.all.annual,1500);
+console.log('PASS: entitlement-date tax group, monthly filter, plan reconciliation and unknown allocation');

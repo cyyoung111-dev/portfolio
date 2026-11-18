@@ -1482,3 +1482,12 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
   line-height:var(--line-compact);
 }
 #histStatusMsg .hist-progress-copy b {font-size:var(--type-caption);font-weight:600}
+
+.div-tax-panel{background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-surface-radius);padding:10px 12px;margin-bottom:14px;min-width:0}
+.div-tax-table-scroll{overflow-x:auto;margin:8px 0}
+.div-tax-table{width:100%;min-width:460px;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.div-tax-table th,.div-tax-table td{text-align:right;white-space:nowrap}
+.div-tax-table th:first-child,.div-tax-table td:first-child{text-align:left}
+.div-tax-table .div-tax-total{border-top:1px solid var(--border);font-weight:650;color:var(--cyan)}
+.div-tax-panel .ui-status-meta{color:var(--muted)}
+.div-tax-filter{margin:8px 0 4px}

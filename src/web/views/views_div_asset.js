@@ -13,6 +13,77 @@ function _getNowMonth() { return _kstNow().getUTCMonth() + 1; }
 // 수량 0 종목 숨김 상태
 let _divHideZeroQty = typeof lsGet === 'function' ? lsGet(DIV_HIDE_ZERO_KEY, false) : false;
 let _divSelectedMonth = 0; // 0=연간 전체, 1~12=선택 월
+const DIV_TAX_LABELS=Object.freeze({all:'전체',normal:'일반계좌',isa:'ISA',pension:'연금저축',irp:'IRP',unclassified:'미분류'});
+let _divTaxFilter='all';
+
+function _setDivTaxFilter(type) {
+  _divTaxFilter=Object.prototype.hasOwnProperty.call(DIV_TAX_LABELS,type)?type:'all';
+  const area=$el('view-area');
+  if(area)renderDivView(area,true);
+}
+
+function _divAccountTaxType(acct) {
+  const types=typeof ACCT_TAX_TYPES==='undefined'?{}:ACCT_TAX_TYPES||{};
+  return PlanCalculations.classifyTaxType(Object.prototype.hasOwnProperty.call(types,acct)?types[acct]:'');
+}
+
+function _newDividendBucket() {return {annual:0,actual:0,received:0,monthly:{}}}
+function _addDividendBucket(target,month,gross,declared,received) {
+  target.annual+=gross;
+  if(declared)target.actual+=gross;
+  if(received)target.received+=gross;
+  target.monthly[month]=(target.monthly[month]||0)+gross;
+}
+function _mergeDividendBucket(target,source) {
+  if(!source)return target;
+  for(const key of ['annual','actual','received'])target[key]+=Number(source[key]||0);
+  for(const [m,v] of Object.entries(source.monthly||{}))target.monthly[m]=(target.monthly[m]||0)+Number(v||0);
+  return target;
+}
+
+function _divTaxSummary(dividendRows) {
+  const result=Object.fromEntries(Object.keys(DIV_TAX_LABELS).map(k=>[k,_newDividendBucket()]));
+  for(const row of dividendRows){
+    for(const [acct,bucket] of Object.entries(row.accountDividendBreakdown||{}))
+      _mergeDividendBucket(result[_divAccountTaxType(acct)],bucket);
+    _mergeDividendBucket(result.unclassified,row.unallocatedDividendBreakdown);
+    // Full total remains independent of hide-zero and view filters.
+    _mergeDividendBucket(result.all,{annual:row.annualDiv,actual:row.actualDiv,received:row.receivedDiv,monthly:row.monthlyDiv});
+  }
+  return result;
+}
+
+function _divTaxFilteredRows(dividendRows,type) {
+  if(type==='all')return dividendRows;
+  return dividendRows.map(row=>{
+    const selected=Object.entries(row.accountDividendBreakdown||{}).filter(([acct])=>_divAccountTaxType(acct)===type);
+    const amount=_newDividendBucket();
+    for(const [,b] of selected)_mergeDividendBucket(amount,b);
+    if(type==='unclassified')_mergeDividendBucket(amount,row.unallocatedDividendBreakdown);
+    const holdings=Object.entries(row.currentAccountQty||{}).filter(([acct])=>_divAccountTaxType(acct)===type);
+    const accts=[...new Set([...selected.map(([acct])=>acct),...holdings.map(([acct])=>acct)])];
+    return {...row,accts,totalQty:holdings.reduce((sum,[,qty])=>sum+Number(qty||0),0),
+      annualDiv:amount.annual,actualDiv:amount.actual,receivedDiv:amount.received,monthlyDiv:amount.monthly};
+  }).filter(row=>row.annualDiv>0||row.totalQty>0);
+}
+
+function _divTaxPanel(summary,selected) {
+  const types=['normal','isa','pension','irp','unclassified'];
+  const money=v=>Math.round(v).toLocaleString('ko-KR');
+  const normal=summary.normal.annual,threshold=20000000;
+  const delta=normal-threshold;
+  return `<section class="div-tax-panel" aria-label="세제 유형별 연간 배당">
+    <h3 class="h3-card">세제 유형별 연간 배당</h3>
+    <div class="ui-status-meta">전체 보유·매도 종목의 지급연도 기준 · 세전 · 공시·등록 + 예상</div>
+    <div class="div-tax-table-scroll"><table class="div-tax-table"><thead><tr><th>계좌 유형</th><th>연간 합계</th><th>공시·등록</th><th>예상분</th><th>입금확인(세전)</th></tr></thead><tbody>
+    ${[...types,'all'].map(k=>`<tr class="${k==='all'?'div-tax-total':''}"><td>${k==='all'?'합계':DIV_TAX_LABELS[k]}</td><td>${money(summary[k].annual)}</td><td>${money(summary[k].actual)}</td><td>${money(summary[k].annual-summary[k].actual)}</td><td>${money(summary[k].received)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="ui-status-text" style="color:${delta>0?'var(--amber)':'var(--muted)'}">금융소득종합과세 참고 · 일반계좌 연간 예상 세전 ${money(normal)}원 · 2,000만원 기준 ${delta>0?'초과 예상 '+money(delta)+'원':delta===0?'동일 (초과 아님)':'여유 '+money(-delta)+'원'}</div>
+    <div class="ui-status-meta">이자소득 미포함 · 고배당기업 분리과세 등 제외 대상 미판정 · 실제 과세자료로 확인 필요. ISA·연금저축·IRP 내부 배당은 이 비교에서 제외하며 미분류는 별도 표시합니다. 입금확인은 수동 확인한 세전액으로 은행 실입금이 아닙니다.</div>
+    <div class="div-month-filter div-tax-filter" role="group" aria-label="배당 계좌 유형 필터">${Object.keys(DIV_TAX_LABELS).map(k=>`<button type="button" data-div-action="filter-tax" data-div-tax="${k}" aria-pressed="${selected===k}" class="${selected===k?'active':''}">${DIV_TAX_LABELS[k]}</button>`).join('')}</div>
+    <div class="ui-status-meta">아래 월별 예상 배당·종목별 상세에 선택 유형을 적용합니다. 상단 연간 합계 및 은행 실입금 검증은 전체 기준입니다.</div>
+  </section>`;
+}
 
 function _setDivMonthFilter(month) {
   const next = Number(month);
@@ -88,7 +159,9 @@ function calcDividends() {
     const monthlyDeclaredGross = {}, monthlyReceivedGross = {};
     const monthlyNetReceived = {}, monthlyWithheldTax = {};
     const monthlyNetCount = {}, monthlyTaxCount = {};
-    const accountAnnualDiv = {}; // gross by entitlement-date account, never bank deposits
+    const accountAnnualDiv = Object.create(null); // gross by entitlement-date account
+    const accountDividendBreakdown = Object.create(null);
+    const unallocatedDividendBreakdown = _newDividendBucket();
     let unallocatedAnnualDiv = 0;
     const accountNames = new Set(accts);
     const ledgerAvailable = typeof rawTrades !== 'undefined' && Array.isArray(rawTrades);
@@ -97,13 +170,13 @@ function calcDividends() {
     });
     // Historical dividends belong to the account that owned the units on
     // entitlement date; current holdings must never reassign past income.
-    const attributeGross = (date, gross, qty) => {
+    const attributeGross = (date, month, gross, qty, declared, received) => {
       if (!(qty > 0) || !(gross > 0)) return;
       const splits = [];
       for (const acct of accountNames) {
         const units = ledgerAvailable && typeof getQtyAtDate === 'function'
           ? Number(getQtyAtDate(name, date, acct)) || 0
-          : Number(currentAccountQty[name]?.[acct]) || 0;
+          : 0; // no historical ledger: do not guess account entitlement
         if (units > 0) splits.push({acct,units});
       }
       const sum = splits.reduce((total, part) => total + part.units, 0);
@@ -111,10 +184,14 @@ function calcDividends() {
       // historical account allocation disagrees with the total entitlement.
       if (!sum || Math.abs(sum - qty) > Math.max(0.000001, qty * 1e-8)) {
         unallocatedAnnualDiv += gross;
+        _addDividendBucket(unallocatedDividendBreakdown,month,gross,declared,received);
         return;
       }
       splits.forEach(({acct,units}) => {
-        accountAnnualDiv[acct] = (accountAnnualDiv[acct] || 0) + gross * units / sum;
+        const amount=gross*units/sum;
+        accountAnnualDiv[acct]=(accountAnnualDiv[acct]||0)+amount;
+        accountDividendBreakdown[acct] ||= _newDividendBucket();
+        _addDividendBucket(accountDividendBreakdown[acct],month,amount,declared,received);
       });
     };
     const actualMonths = new Set();
@@ -194,9 +271,9 @@ function calcDividends() {
       actualMonths.add(month);
       actualDiv += div;
       monthlyDeclaredGross[month] = (monthlyDeclaredGross[month] || 0) + div;
-      attributeGross(evDate, div, qty);
-      if (ev?.receivedConfirmed === true && /^\d{4}-\d{2}-\d{2}$/.test(payDate)
-          && payDate <= _kstTodayStr()) {
+      const receiptConfirmed=ev?.receivedConfirmed===true && /^\d{4}-\d{2}-\d{2}$/.test(payDate) && payDate<=_kstTodayStr();
+      attributeGross(evDate,month,div,qty,true,receiptConfirmed);
+      if (receiptConfirmed) {
         receivedDiv += div;
         monthlyReceivedGross[month] = (monthlyReceivedGross[month] || 0) + div;
         // Manual gross receipt confirmation is not bank net deposit proof.
@@ -228,7 +305,7 @@ function calcDividends() {
         const div = dd.perShare * qty;
         annualDiv += div;
         monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
-        attributeGross(refDate, div, qty);
+        attributeGross(refDate,Number(month),div,qty,false,false);
       }
     });
 
@@ -241,7 +318,8 @@ function calcDividends() {
         netReceivedCount, withheldTaxCount, monthlyDeclaredGross,
         monthlyReceivedGross, monthlyNetReceived, monthlyWithheldTax,
         monthlyNetCount, monthlyTaxCount, accountAnnualDiv,
-        unallocatedAnnualDiv, ambiguousPublicEvents });
+        unallocatedAnnualDiv, ambiguousPublicEvents, accountDividendBreakdown, unallocatedDividendBreakdown,
+        currentAccountQty:currentAccountQty[name]||{} });
     }
   });
 
@@ -265,18 +343,22 @@ function renderDivView(area, skipFetch) {
 
   // 수량 0 숨김 적용
   const allDivRows = calcDividends();
-  const divRows = _divHideZeroQty ? allDivRows.filter(r => r.totalQty > 0) : allDivRows;
+  const taxSummary=_divTaxSummary(allDivRows);
+  const taxRows=_divTaxFilteredRows(allDivRows,_divTaxFilter);
+  const divRows = _divHideZeroQty ? taxRows.filter(r => r.totalQty > 0) : taxRows;
   const ambiguousDividendNames = allDivRows.filter(r => r.ambiguousPublicEvents > 0).map(r => r.name);
   const totalAnnual   = divRows.reduce((s,r)=>s+r.annualDiv,0);
-  const totalActual   = divRows.reduce((s,r)=>s+(r.actualDiv||0),0);
-  const totalAfterTax = Math.round(totalAnnual * 0.846);
-  const monthlyAvg    = Math.round(totalAnnual / 12);
-  const monthlyAfter  = Math.round(totalAfterTax / 12);
+  const grandAnnual=taxSummary.all.annual;
+  const totalActual=taxSummary.all.actual;
+  const normalFlow=PlanCalculations.calculateDividendCashflow({dividends:[{taxType:'NORMAL',amount:taxSummary.normal.annual}],year:nowYear});
+  const totalAfterTax=normalFlow.normalAfterTax;
+  const monthlyAvg=Math.round(grandAnnual/12);
+  const monthlyAfter=normalFlow.availableMonthly;
 
   // 투자원금 합산 (rows 기준, 배당 종목만)
-  const divNames = new Set(divRows.map(r=>r.name));
+  const divNames = new Set(allDivRows.map(r=>r.name));
   const totalCostForDiv = rows.filter(r=>divNames.has(r.name)).reduce((s,r)=>s+(r.costAmt||0),0);
-  const yieldPct = totalCostForDiv > 0 ? (totalAnnual / totalCostForDiv * 100) : 0;
+  const yieldPct = totalCostForDiv > 0 ? (grandAnnual / totalCostForDiv * 100) : 0;
 
   // 월별 배당 집계
   const monthly = Array(12).fill(0);
@@ -291,12 +373,12 @@ function renderDivView(area, skipFetch) {
 
   // 올해 지난달까지 누적 수령액
   // Forecast months are NOT evidence of a cash deposit, even after month-end.
-  const receivedSoFar = divRows.reduce((sum,r)=>sum+(r.receivedDiv||0),0);
-  const netReceivedSoFar = divRows.reduce((sum,r)=>sum+(r.netReceivedDiv||0),0);
-  const netReceivedEntries = divRows.reduce((sum,r)=>sum+(r.netReceivedCount||0),0);
-  const withheldTaxSoFar = divRows.reduce((sum,r)=>sum+(r.withheldTaxDiv||0),0);
-  const taxRecordedEntries = divRows.reduce((sum,r)=>sum+(r.withheldTaxCount||0),0);
-  const remainingYear = Math.max(0,totalAnnual-receivedSoFar);
+  const receivedSoFar = allDivRows.reduce((sum,r)=>sum+(r.receivedDiv||0),0);
+  const netReceivedSoFar = allDivRows.reduce((sum,r)=>sum+(r.netReceivedDiv||0),0);
+  const netReceivedEntries = allDivRows.reduce((sum,r)=>sum+(r.netReceivedCount||0),0);
+  const withheldTaxSoFar = allDivRows.reduce((sum,r)=>sum+(r.withheldTaxDiv||0),0);
+  const taxRecordedEntries = allDivRows.reduce((sum,r)=>sum+(r.withheldTaxCount||0),0);
+  const remainingYear = Math.max(0,grandAnnual-receivedSoFar);
   // Real cashflow covers historical payments even when zero-current-qty is hidden.
   const cashMonths = Array.from({length:12},()=>({declared:0,confirmedGross:0,net:0,tax:0,netCount:0,taxCount:0}));
   allDivRows.forEach(r => cashMonths.forEach((m,i) => {
@@ -362,18 +444,18 @@ function renderDivView(area, skipFetch) {
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px" class="div-summary-grid">
     <div class="div-stat-card">
       <div class="div-stat-label">💸 연간 예상 (세전)</div>
-      <div class="div-stat-value" style="color:var(--cyan)">${fmtW(Math.round(totalAnnual))}</div>
-      <div class="div-stat-sub">확정 ${fmtW(Math.round(totalActual))} · ${divRows.length}개</div>
+      <div class="div-stat-value" style="color:var(--cyan)">${fmtW(Math.round(grandAnnual))}</div>
+      <div class="div-stat-sub">공시·등록 ${fmtW(Math.round(totalActual))} · ${allDivRows.length}개</div>
     </div>
     <div class="div-stat-card">
       <div class="div-stat-label">📅 월 평균 (세전)</div>
       <div class="div-stat-value c-green">${fmtW(monthlyAvg)}</div>
-      <div class="div-stat-sub">세후(15.4% 가정) ${fmtW(monthlyAfter)}/월</div>
+      <div class="div-stat-sub">전체 계좌 · 세전</div>
     </div>
     <div class="div-stat-card">
-      <div class="div-stat-label">🏦 세후 연간 (15.4%)</div>
+      <div class="div-stat-label">일반계좌 연간 세후 참고</div>
       <div class="div-stat-value c-amber">${fmtW(totalAfterTax)}</div>
-      <div class="div-stat-sub">일반계좌 가정치 · 실제 계좌별 세금과 다름</div>
+      <div class="div-stat-sub">15.4% 단순 가정 · 월 ${fmtW(monthlyAfter)} · 최종 세액 아님</div>
     </div>
     <div class="div-stat-card">
       <div class="div-stat-label">📊 배당수익률</div>
@@ -387,10 +469,12 @@ function renderDivView(area, skipFetch) {
     </div>
   </div>
 
+  ${_divTaxPanel(taxSummary,_divTaxFilter)}
+
   <!-- ── Verified bank cashflow versus published gross dividend ── -->
   <section aria-label="배당 현금흐름 검증" style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:14px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:7px">
-      <strong style="font-size:var(--type-body)">월별 배당 현금흐름 · 실입금 확인</strong>
+      <strong style="font-size:var(--type-body)">월별 배당 현금흐름 · 실입금 확인 (전체)</strong>
       <span style="font-size:.66rem;color:var(--muted)">${cashTotal.netCount ? `은행 실입금 직접기록 ${cashTotal.netCount}건` : '은행 실입금 내역 미등록'}</span>
     </div>
     <div style="font-size:.64rem;color:var(--muted);margin-bottom:9px">공시 세전금액은 입금 증명이 아닙니다. 실제 세후 입금액·원천세는 사용자가 확인한 금액만 집계하며, 미등록은 0원으로 간주하지 않습니다. 아래 수치는 지급일 기준이며 지급일 미등록 건은 기준일을 사용한 참고값입니다.</div>
@@ -412,7 +496,7 @@ function renderDivView(area, skipFetch) {
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
       <div>
-        <div style="font-size:var(--type-body);font-weight:650">📅 ${nowYear}년 월별 배당</div>
+        <div style="font-size:var(--type-body);font-weight:650">📅 ${nowYear}년 월별 배당 · ${DIV_TAX_LABELS[_divTaxFilter]}</div>
         <div style="font-size:.65rem;color:var(--muted);margin-top:2px">확정+예상 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
       </div>
       <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
@@ -462,7 +546,7 @@ function renderDivView(area, skipFetch) {
   <!-- ── 종목별 월별 배당 매트릭스 ── -->
   <div class="div-monthly-matrix">
     <div class="div-monthly-matrix-head">
-      <div><strong>📊 종목별 월별 배당</strong><span>각 종목의 월별 확정+예상 금액</span></div>
+      <div><strong>📊 종목별 월별 배당</strong><span>선택 유형: ${DIV_TAX_LABELS[_divTaxFilter]} · 월별 확정+예상 금액</span></div>
       <small>단위: 원 · 주식/ETF 구분 · 연간금액 내림차순</small>
     </div>
     <div class="div-monthly-matrix-scroll">
@@ -490,7 +574,7 @@ function renderDivView(area, skipFetch) {
   html += `
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden" class="div-tbl-wrap">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)">
-      <h3 style="margin:0;font-size:var(--type-body);font-weight:650">💸 종목별 배당 상세${selectedMonth ? ` · ${selectedMonth}월` : ''}</h3>
+      <h3 style="margin:0;font-size:var(--type-body);font-weight:650">💸 종목별 배당 상세 · ${DIV_TAX_LABELS[_divTaxFilter]}${selectedMonth ? ` · ${selectedMonth}월` : ''}</h3>
       <div style="font-size:.70rem;color:var(--cyan)">${selectedMonth ? `${selectedMonth}월` : '연간'} 합계 <b>${fmtW(Math.round(selectedMonthTotal))}</b></div>
     </div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -500,7 +584,7 @@ function renderDivView(area, skipFetch) {
           <th style="padding:7px 14px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600">종목명</th>
           <th style="padding:7px 8px;text-align:center;font-size:.68rem;color:var(--muted);font-weight:600">구분</th>
           <th style="padding:7px 8px;text-align:center;font-size:.68rem;color:var(--muted);font-weight:600">주기</th>
-          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">수량</th>
+          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">현재 수량</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">주당</th>
           <th style="padding:7px 8px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600">지급월</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">연간(세전)</th>
@@ -515,8 +599,8 @@ function renderDivView(area, skipFetch) {
     const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.65rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
     const freqColors = { '월배당':'var(--green)', '분기':'var(--blue)', '반기':'var(--purple)', '연간':'var(--amber)' };
     const fCol = freqColors[r.dd.freq] || 'var(--muted)';
-    const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
-    const yld = costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
+    const costAmt = rows.filter(rr=>rr.name===r.name&&(_divTaxFilter==='all'||_divAccountTaxType(rr.acct)===_divTaxFilter)).reduce((s,rr)=>s+(rr.costAmt||0),0);
+    const yld = _divTaxFilter!=='unclassified' && costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
     const monthlyDiv = Math.round(selectedMonth ? Number(r.monthlyDiv?.[selectedMonth] || 0) : r.annualDiv / 12);
 
     html += `<tr style="border-top:1px solid var(--border)">
@@ -544,8 +628,8 @@ function renderDivView(area, skipFetch) {
   sorted.forEach(r => {
     const freqColors = { '월배당':'var(--green)', '분기':'var(--blue)', '반기':'var(--purple)', '연간':'var(--amber)' };
     const fCol = freqColors[r.dd.freq] || 'var(--muted)';
-    const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
-    const yld = costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
+    const costAmt = rows.filter(rr=>rr.name===r.name&&(_divTaxFilter==='all'||_divAccountTaxType(rr.acct)===_divTaxFilter)).reduce((s,rr)=>s+(rr.costAmt||0),0);
+    const yld = _divTaxFilter!=='unclassified' && costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
     const monthlyDiv = Math.round(selectedMonth ? Number(r.monthlyDiv?.[selectedMonth] || 0) : r.annualDiv / 12);
     const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.65rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
     const acctDots = r.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}"></span>`).join('');
