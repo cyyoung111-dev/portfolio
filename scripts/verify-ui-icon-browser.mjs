@@ -101,6 +101,23 @@ const dialogFixtures={
 };
 assert.equal(Object.keys(wholeViewFixtures).length,11);
 
+
+const divStatusSource=readView('views/views_div_asset.js');
+const divStart=divStatusSource.indexOf('  <!-- ── 배당 자동 연동 + 수동 갱신 ── -->');
+const divEnd=divStatusSource.indexOf('  <!-- ── 수량 0 숨김',divStart);
+assert(divStart>=0&&divEnd>divStart,'dividend panel not found');
+const divStatusMarkup=vm.runInNewContext('\x60'+divStatusSource.slice(divStart,divEnd)+'\x60',{
+ _dividendLinkState:{state:'idle',message:'자동 연동 대기 중'},GSHEET_API_URL:'fixture',
+ _escapeHtml:String,_tabSyncText:()=>({text:'GAS 데이터 다시 받기: 최근 성공'}),
+ dividendUpdatedLabel:'2026.11.18 09:30',publicKeySaved:true,publicKeyLabel:'공공데이터 키 저장됨'
+});
+const syncSource=readView('features/settings/settings_tabsync.js');
+const syncMarkup=vm.runInNewContext(renderer(syncSource,'renderTabSyncPanel')+'\nrenderTabSyncPanel("asset");',{
+ GSHEET_API_URL:'fixture',_tabSyncText:()=>({text:'재동기화: 최근 실패 · 테스트',color:'var(--red-lt)'})
+});
+const feedbackFunctions='let _dividendLinkState={};const GSHEET_API_URL="fixture";'+renderer(readView('features/dividend/mgmt_div.js'),'_setDividendLinkState')+
+ renderer(readView('views/views_history_state.js'),'_setHistoryStatus')+';function _historySnapshotGapHtml(){return ""}';
+
 const statusSource=fs.readFileSync(path.join(root,'features/settings/settings_fetch.js'),'utf8');
 const statusSlice=statusSource.slice(statusSource.indexOf('function _priceLookupDuration('),statusSource.indexOf('function _pricePortfolioSummary('));
 const setterSlice=statusSource.slice(statusSource.indexOf('function setStatusLabel('),statusSource.indexOf('function _resolvePriceDateLabel('));
@@ -110,7 +127,7 @@ const tabDefs=tabSource.slice(tabSource.indexOf('const TAB_DEFAULTS = ['),tabSou
 const tabBuilder=tabSource.slice(tabSource.indexOf('function buildTabBar()'),tabSource.indexOf('// ── 탭 순서 설정 패널'));
 assert(tabDefs.includes("label:'계좌별'")&&tabBuilder.includes('vs.appendChild(btn)'));
 const navFixture=tabDefs+";let TAB_ORDER=TAB_DEFAULTS.map(t=>({...t}));let currentView='acct';const switchView=v=>{currentView=v;buildTabBar()};const saveTabOrder=()=>{};"+tabBuilder+";buildTabBar();";
-const toolbarFixtureScript='<script>const $el=id=>document.getElementById(id);const _escapeHtml=s=>String(s);'+statusSlice+setterSlice+navFixture+'</'+'script>';
+const toolbarFixtureScript='<script>const $el=id=>document.getElementById(id);const _escapeHtml=s=>String(s);'+statusSlice+setterSlice+navFixture+feedbackFunctions+'</'+'script>';
 const cases=[];
 for(const width of [1440,1100,1024,768,390,320]){
  for(const unified of (width===1100||width===1024?[true]:[true,false])){
@@ -349,6 +366,65 @@ function auditViewMatrix(d,c,fixtures,dialogs) {
  return {ok:errors.length===0,views,dialogs:dialogResults,errors:errors.slice(0,30),errorCount:errors.length};
 }
 
+
+function auditStatusTypography(d,c,divMarkup,syncMarkup,fixtures,dialogs) {
+ if(!c.unified)return {ok:true,checks:0,errors:[]};
+ const w=d.defaultView,host=d.querySelector('#view-area'),prior=host.dataset.activeView,oldSize=d.documentElement.dataset.uiFontSize;
+ const f=d.createElement('section');f.style.minWidth='0';host.appendChild(f);
+ const errors=[];let checks=0;
+ const verify=(el,size,weight,role)=>{
+  checks++;if(!el){errors.push({role,missing:true});return}
+  const s=w.getComputedStyle(el);
+  if(Math.abs(parseFloat(s.fontSize)-size)>.1||Number(s.fontWeight)!==weight)
+   errors.push({role,size,weight,actual:[s.fontSize,s.fontWeight]});
+ };
+ for(const size of [8,9,10,11,12]){
+  d.documentElement.dataset.uiFontSize=String(size);
+  host.dataset.activeView='div';f.innerHTML=divMarkup;
+  const status=f.querySelector('#dividendLinkStatus'),colors=[];
+  for(const state of ['idle','syncing','ok','fail']){
+   w._setDividendLinkState(state,'자동 연동 실패 · 공공데이터 조회 또는 GAS 저장 결과 미확인 · 마지막 정상 데이터를 표시합니다.');
+   verify(status,size,500,'dividend '+state);
+   colors.push(w.getComputedStyle(status).color);
+   checks++;
+   if(status.dataset.state!==state||status.textContent.length<35||f.querySelector('#divFetchBtn').disabled!==(state==='syncing'))
+     errors.push({role:'dividend state',state});
+  }
+  if(new Set(colors).size!==4)errors.push({role:'state colors',colors});
+  verify(f.querySelector('.ui-status-heading'),size,600,'dividend title');
+  verify(f.querySelector('#sync-badge-div'),size,400,'dividend sync log');
+  verify(f.querySelector('span[title^="현재 화면"]'),size,400,'dividend date log');
+  verify(f.querySelector('.div-gas-link-badge'),size,500,'dividend badge');
+  // All 11 view scopes share the same explicit status role. Actual sync markup
+  // is used even when a particular tab has no sync panel in its normal layout.
+  for(const view of Object.keys(fixtures)){
+   host.dataset.activeView=view;f.innerHTML=syncMarkup;
+   verify(f.querySelector('[id^="sync-badge-"]'),size,500,'sync '+view);
+  }
+  host.dataset.activeView='history';f.innerHTML='<div class="hist-status" id="fixture-history-status"></div>';
+  const hist=f.firstElementChild;hist.id='histStatusMsg';
+  for(const type of ['query_ready','loading','summary','error','no_api']){
+   w._setHistoryStatus(hist,type,{message:'테스트 오류',step:1,total:2});
+   verify(hist,size,500,'history '+type);
+   const child=hist.querySelector('.hist-progress-copy span')||hist.querySelector('span');
+   verify(child,size,500,'history message '+type);
+  }
+  host.dataset.activeView='gsheet';f.innerHTML=fixtures.gsheet;
+  for(const id of ['automationStatusBody','gsheetTestResult','gsheetAccessTokenStatus','publicDataKeyStatus','krxAuthKeyStatus','krxSourceStatus','nhConfigStatus'])
+   verify(f.querySelector('#'+id),size,500,id);
+  host.dataset.activeView='stocks';f.innerHTML=fixtures.stocks;
+  for(const id of ['acctMgmtMsg','smMgmtMsg','secMgmtMsg'])verify(f.querySelector('#'+id),size,500,id);
+  for(const [kind,markup] of Object.entries(dialogs)){
+   f.innerHTML=markup;
+   verify(f.querySelector(kind==='trade'?'#te-error':'#bulkError'),size,500,kind+' error');
+  }
+  verify(d.querySelector('#price-updated-label'),size,500,'price status');
+ }
+ f.remove();host.dataset.activeView=prior;
+ if(oldSize===undefined)delete d.documentElement.dataset.uiFontSize;else d.documentElement.dataset.uiFontSize=oldSize;
+ return {ok:errors.length===0,checks,errors:errors.slice(0,24)};
+}
+
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'portfolio-ui-browser-'));
 try{
  const htmlPath=path.join(dir,'check.html');
@@ -358,6 +434,8 @@ try{
  'const auditStableToolbar='+auditStableToolbar.toString()+';'+
  'const auditCompactDetails='+auditCompactDetails.toString()+';'+
  'const auditViewMatrix='+auditViewMatrix.toString()+';'+
+ 'const auditStatusTypography='+auditStatusTypography.toString()+';'+
+ 'const divStatusMarkup='+JSON.stringify(divStatusMarkup).replace(/</g,'\\u003c')+';const syncMarkup='+JSON.stringify(syncMarkup).replace(/</g,'\\u003c')+';'+
  'const wholeViewFixtures='+JSON.stringify(wholeViewFixtures).replace(/</g,'\\u003c')+';const dialogFixtures='+JSON.stringify(dialogFixtures).replace(/</g,'\\u003c')+';'+
  'const acctMarkup='+JSON.stringify(acctArea.innerHTML).replace(/</g,'\\u003c')+';const planMarkup='+JSON.stringify(planMarkup).replace(/</g,'\\u003c')+';'+
  'const results=[]; let done=0;'+
@@ -370,8 +448,9 @@ try{
  'const toolbar=auditStableToolbar(d,c);'+
  'const detail=auditCompactDetails(d,c,acctMarkup,planMarkup);'+
  'const matrix=auditViewMatrix(d,c,wholeViewFixtures,dialogFixtures);'+
- 'const ok=matrix.ok&&detail.ok&&toolbar.ok&&controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
- 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls,toolbar,detail,matrix});'+
+ 'const feedback=auditStatusTypography(d,c,divStatusMarkup,syncMarkup,wholeViewFixtures,dialogFixtures);'+
+ 'const ok=feedback.ok&&matrix.ok&&detail.ok&&toolbar.ok&&controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
+ 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls,toolbar,detail,matrix,feedback});'+
  '}catch(e){results.push({width:c.width,unified:c.unified,ok:false,error:String(e)});}'+
  'if(++done===cases.length)document.getElementById("result").textContent=JSON.stringify(results);};'+
  'f.srcdoc=c.html;document.body.appendChild(f);}</script>';
@@ -391,6 +470,6 @@ try{
  assert(report.every(r=>r.ok),JSON.stringify(report.filter(r=>!r.ok)));
  console.log('UI_REAL_BROWSER_LAYOUT_PASS '+JSON.stringify(report.map(r=>({
    viewport:r.width,unifiedCss:r.unified,maxIcon:Math.max(...r.boxes.map(b=>Math.max(b.w,b.h))),
-   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples,toolbar:r.toolbar.cases,detail:r.detail.cases,viewMatrix:r.matrix.views,dialogMatrix:r.matrix.dialogs
+   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples,toolbar:r.toolbar.cases,detail:r.detail.cases,viewMatrix:r.matrix.views,dialogMatrix:r.matrix.dialogs,statusChecks:r.feedback.checks
  }))));
 }finally{fs.rmSync(dir,{recursive:true,force:true});}

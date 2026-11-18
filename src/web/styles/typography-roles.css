@@ -27,12 +27,6 @@
   font-size:var(--type-caption);
   line-height:var(--line-reading);
 }
-/* 긴 경고는 일반 설명보다 읽기 쉬운 본문 크기로 보여줍니다. */
-#view-area[data-active-view] #dividendLinkStatus {
-  font-size:var(--type-body)!important;
-  line-height:var(--line-reading);
-  overflow-wrap:anywhere;
-}
 @media(max-width:480px){
   .toolbar-btn { width:auto; min-width:48px; padding-inline:4px; }
 }

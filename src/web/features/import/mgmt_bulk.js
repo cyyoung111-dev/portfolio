@@ -145,7 +145,7 @@ function buildBulkOverlayHTML() {
       </div>
       <!-- 그리드 -->
       <div id="bulkGridWrap" style="flex:1;min-height:0;overflow:auto;padding:0 12px 12px;-webkit-overflow-scrolling:touch"></div>
-      <div id="bulkError" style="display:none;padding:8px 22px;background:var(--c-red-10);color:var(--red-lt);font-size:.75rem;flex-shrink:0"></div>
+      <div id="bulkError" style="display:none;padding:8px 22px;background:var(--c-red-10);color:var(--red-lt);font-size:var(--type-caption);flex-shrink:0"></div>
       <!-- 푸터 -->
       <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
         <button data-bulk-action="close" class="btn-ghost-muted">취소</button>
