@@ -359,3 +359,17 @@ assert.equal(hiPlan.specialTaxScenario.reviewedGross,2264);assert.equal(hiPlan.s
 assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/2,264원/);
 assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/이자·기타 금융소득 미포함/);
 console.log('PASS: progressive dividend special tax, date/security checks, account attribution and plan reconciliation');
+
+// Unknown identity is never treated as a confirmed exclusion. Session-local
+// interest assumption is shared with the plan and does not mutate records.
+assert.equal(P.specialDividendEvidence({...exact,assetType:'',code:''}).status,'pending');
+assert.equal(P.specialDividendEvidence({...exact,code:'03473K'}).status,'pending');
+let otherValue='2,000,000';
+accountCtx.$el=id=>id==='div-other-income-scenario'?{value:otherValue}:divArea;
+accountCtx._applyDivOtherIncome();
+assert.equal(accountCtx._getDivOtherIncome(2026),2000000);
+assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/입력 가정 포함/);
+const withInterest=P.calculateDividendCashflow({dividends:planCtx._getPlanDividendEntries(hiRows),year:2026,otherFinancialIncome:accountCtx._getDivOtherIncome(2026)});
+assert.equal(withInterest.specialTaxScenario.ordinaryWithApplication,2000000);
+otherValue='';accountCtx._applyDivOtherIncome();assert.equal(accountCtx._getDivOtherIncome(2026),null);
+console.log('PASS: shared session-only non-dividend income scenario and missing identity protection');

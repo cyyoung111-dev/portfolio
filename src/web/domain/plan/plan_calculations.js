@@ -71,7 +71,9 @@
   function specialDividendEvidence({code,assetType,recordDate,payDate,amount,year,declared}={}, reference=DIVIDEND_SPECIAL_REFERENCE) {
     const y=Number(year),symbol=String(code||'').trim().toUpperCase();
     if(y<2026||y>2029||!Number.isInteger(y)) return {status:'outside'};
-    if(String(assetType||'').toUpperCase()!=='주식'||!/^\d{6}$/.test(symbol))return {status:'ordinary'};
+    const type=String(assetType||'').toUpperCase();
+    if(['ETF','TDF','펀드','FUND','REIT','리츠','ETN','해외주식','FOREIGN_STOCK'].includes(type))return {status:'ordinary'};
+    if(type!=='주식'||!/^\d{5}[0-9A-Z]$/.test(symbol))return {status:'pending'};
     const matches=reference.filter(x=>x.code===symbol&&x.year===y);
     if(declared===true && /^\d{4}-\d{2}-\d{2}$/.test(String(payDate||'')) && Number(payDate.slice(0,4))===y && payDate>=recordDate){
       const exact=matches.filter(x=>x.status==='reviewed'&&x.kind==='cashFinal'&&x.recordDate===recordDate&&Number(x.amount)===Number(amount));
@@ -105,7 +107,7 @@
       finalTaxKnown:false,appliedRule:eligible?'2026-2029':'outside'};
   }
 
-  function calculateDividendCashflow({ dividends = [], year = 2026 } = {}) {
+  function calculateDividendCashflow({ dividends = [], year = 2026, otherFinancialIncome = null } = {}) {
     const rules = rulesFor(year);
     const out = { totalGross: 0, normalGross: 0, normalAfterTax: 0, availableAnnual: 0, availableMonthly: 0, isaInternal: 0, pensionInternal: 0, pensionSavingsInternal: 0, irpInternal: 0, unclassified: 0, warnings: [], appliedRuleYear: rules.year };
     let reviewedGross=0,pendingGross=0;
@@ -119,7 +121,7 @@
       else if (type === 'irp') { out.irpInternal += amount; out.pensionInternal += amount; }
       else { out.unclassified += amount; out.warnings.push(`미분류 배당: ${String(item?.acct || item?.name || '이름 없음')}`); }
     });
-    out.specialTaxScenario=calculateDividendTaxScenario({normalGross:out.normalGross,reviewedGross,pendingGross,year});
+    out.specialTaxScenario=calculateDividendTaxScenario({normalGross:out.normalGross,reviewedGross,pendingGross,year,interest:otherFinancialIncome});
     out.normalAfterTax = Math.round(out.normalGross * (1 - rules.normalDividendWithholdingRate));
     out.availableAnnual = out.normalAfterTax;
     out.availableMonthly = Math.round(out.availableAnnual / 12);

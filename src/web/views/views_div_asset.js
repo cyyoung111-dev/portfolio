@@ -15,6 +15,25 @@ let _divHideZeroQty = typeof lsGet === 'function' ? lsGet(DIV_HIDE_ZERO_KEY, fal
 let _divSelectedMonth = 0; // 0=연간 전체, 1~12=선택 월
 const DIV_TAX_LABELS=Object.freeze({all:'전체',normal:'일반계좌',isa:'ISA',pension:'연금저축',irp:'IRP',unclassified:'미분류'});
 let _divTaxFilter='all';
+// A scenario assumption only: separate from actual transactions and bank evidence.
+// Intentionally session-local; never writes to GAS or localStorage.
+const _divOtherIncomeScenario = Object.create(null);
+function _getDivOtherIncome(year) {
+  return Object.prototype.hasOwnProperty.call(_divOtherIncomeScenario,year)?_divOtherIncomeScenario[year]:null;
+}
+function _applyDivOtherIncome() {
+  const field=$el('div-other-income-scenario');
+  if(!field)return;
+  const raw=String(field.value||'').trim().replace(/,/g,'');
+  if(raw!==''&&(!/^\d+$/.test(raw)||!Number.isSafeInteger(Number(raw)))){
+    if(typeof showToast==='function')showToast('이자·기타 금융소득은 0 이상의 원 단위 정수로 입력해 주세요.','error');
+    return;
+  }
+  const year=_kstYear();
+  if(raw==='')delete _divOtherIncomeScenario[year];
+  else _divOtherIncomeScenario[year]=Number(raw);
+  const area=$el('view-area');if(area)renderDivView(area,true);
+}
 
 function _setDivTaxFilter(type) {
   _divTaxFilter=Object.prototype.hasOwnProperty.call(DIV_TAX_LABELS,type)?type:'all';
@@ -72,7 +91,7 @@ function _divTaxPanel(summary,selected,dividendRows=[]) {
   const money=v=>Math.round(v).toLocaleString('ko-KR');
   const year=_kstYear();
   const scenario=PlanCalculations.calculateDividendTaxScenario({normalGross:summary.normal.annual,
-    reviewedGross:summary.normal.specialReviewed,pendingGross:summary.normal.specialPending,year});
+    reviewedGross:summary.normal.specialReviewed,pendingGross:summary.normal.specialPending,year,interest:_getDivOtherIncome(year)});
   const delta=scenario.ordinaryWithApplication-scenario.threshold;
   const outside=scenario.appliedRule==='outside';
   return `<section class="div-tax-panel" aria-label="세제 유형별 연간 배당">
@@ -81,15 +100,21 @@ function _divTaxPanel(summary,selected,dividendRows=[]) {
     <div class="div-tax-table-scroll"><table class="div-tax-table"><thead><tr><th>계좌 유형</th><th>연간 합계</th><th>공시·등록</th><th>예상분</th><th>입금확인(세전)</th></tr></thead><tbody>
     ${[...types,'all'].map(k=>`<tr class="${k==='all'?'div-tax-total':''}"><td>${k==='all'?'합계':DIV_TAX_LABELS[k]}</td><td>${money(summary[k].annual)}</td><td>${money(summary[k].actual)}</td><td>${money(summary[k].annual-summary[k].actual)}</td><td>${money(summary[k].received)}</td></tr>`).join('')}
     </tbody></table></div>
-    <div class="ui-status-heading">고배당기업 분리과세 · 신청 가정 (배당 기준)</div>
+    <div class="ui-status-heading">고배당기업 분리과세 · 신청 가정</div>
+    <div class="ui-status-meta" style="margin-top:6px">이자·기타 종합과세 대상 금융소득 시나리오 (배당 탭 집계 외 · 원)</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <input id="div-other-income-scenario" type="text" inputmode="numeric" value="${scenario.interestKnown?_getDivOtherIncome(year):''}" placeholder="미입력 (미확인)" aria-label="올해 이자 및 기타 금융소득 참고액" style="width:160px;max-width:100%">
+      <button type="button" class="btn-ghost-sm" data-div-action="apply-other-income">가정 반영</button>
+      <span class="ui-status-meta">현재 세션에서만 적용 · 새로고침 시 초기화 · 실제 원본 미변경</span>
+    </div>
     <div class="div-tax-table-scroll"><table class="div-tax-table"><tbody>
-    <tr><td>미신청 시 일반계좌 배당 합산</td><td>${money(scenario.ordinaryWithoutApplication)}원</td></tr>
+    <tr><td>미신청 시 금융소득 합산 참고</td><td>${money(scenario.ordinaryWithoutApplication)}원</td></tr>
     <tr><td>공시 근거 일치 특례배당 (참고)</td><td>${money(scenario.reviewedGross)}원</td></tr>
     <tr><td>특례 여부 미확인 (합산 유지)</td><td>${money(scenario.pendingGross)}원</td></tr>
-    <tr><td>신청 가정 합산 대상 (배당만)</td><td>${money(scenario.ordinaryWithApplication)}원</td></tr>
+    <tr><td>신청 가정 합산 대상</td><td>${money(scenario.ordinaryWithApplication)}원</td></tr>
     <tr><td>특례배당 예상세액 (지방세 포함)</td><td>${money(scenario.specialTax)}원</td></tr>
     </tbody></table></div>
-    <div class="ui-status-text" style="color:${delta>0?'var(--amber)':'var(--muted)'}">금융소득종합과세 2,000만원 대비 · 배당만 ${delta>0?'초과 '+money(delta)+'원':delta===0?'동일 (초과 아님)':'차이 '+money(-delta)+'원'} · 이자·기타 금융소득 미포함</div>
+    <div class="ui-status-text" style="color:${delta>0?'var(--amber)':'var(--muted)'}">금융소득종합과세 2,000만원 대비 · ${scenario.interestKnown?'입력 가정 포함':'배당만'} ${delta>0?'초과 '+money(delta)+'원':delta===0?'동일 (초과 아님)':'차이 '+money(-delta)+'원'} · ${scenario.interestKnown?'실제 금융소득은 별도 확인':'이자·기타 금융소득 미포함'}</div>
     <div class="ui-status-meta">${outside?'이 지급연도는 현재 특례 적용기간 밖입니다.':'일부 공시 근거만 등록됨 ('+PlanCalculations.DIVIDEND_DISCLOSURE_AS_OF+' 점검) · 미확인 및 추정분은 제외하지 않습니다.'} 실제 신청·정정공시·세무자료 확인 필요. 일반계좌 ETF는 세전 분배금으로 보수적 참고 (실제 과세표준은 증권사 확인). ISA·연금저축·IRP 내부 배당 제외. <a href="https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain" target="_blank" rel="noopener noreferrer">KIND 고배당기업</a> · <a href="https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?mi=2201&amp;nttSn=1349597" target="_blank" rel="noopener noreferrer">국세청 안내</a></div>
     ${_divSpecialEvidenceTable(dividendRows,year)}
     <div class="div-month-filter div-tax-filter" role="group" aria-label="배당 계좌 유형 필터">${Object.keys(DIV_TAX_LABELS).map(k=>`<button type="button" data-div-action="filter-tax" data-div-tax="${k}" aria-pressed="${selected===k}" class="${selected===k?'active':''}">${DIV_TAX_LABELS[k]}</button>`).join('')}</div>
@@ -171,7 +196,7 @@ function calcDividends() {
     const ep = typeof getEP === 'function' ? getEP(name) : null;
     const masterType = String(ep?.assetType || ep?.type || '').trim().toUpperCase();
     const assetType = masterType === 'ETF' ? 'ETF' : '주식';
-    const taxSecurity=(ep&&['주식','STOCK'].includes(masterType))?'주식':masterType;
+    const taxSecurity=(ep&&['주식','STOCK'].includes(masterType))?(String(ep.currency||ep.cur||'').toUpperCase()==='USD'?'해외주식':'주식'):masterType;
     const taxCode=String(ep?.code||'').trim().toUpperCase();
 
     // ★ 실제 배당 이벤트가 있으면 해당 배당 기준일 보유수량 × 실제 주당배당금으로 우선 계산
