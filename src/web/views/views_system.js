@@ -444,7 +444,7 @@ function openResetDialog() {
             ⚠️ 선택한 데이터가 영구 삭제됩니다. 계속하려면 아래에 <b>초기화</b> 를 입력하세요.
           </div>
           <input id="rst-confirm-input" type="text" placeholder="초기화"
-            style="width:100%;background:var(--s2);border:1px solid var(--c-red-40);border-radius:6px;padding:8px 12px;color:var(--text);font-size:.85rem"/>
+            style="width:100%;background:var(--s2);border:1px solid var(--c-red-40);border-radius:var(--ui-command-radius,var(--radius-control));padding:8px 12px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))"/>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 22px 16px;border-top:1px solid var(--border);gap:8px">

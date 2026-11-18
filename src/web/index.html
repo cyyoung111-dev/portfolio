@@ -199,8 +199,8 @@
 <script defer src="shared/table/views_table_filters.js?v=20260903-1"></script>
 <script defer src="shared/table/views_table.js?v=20260903-1"></script>
 <script defer src="views/views_portfolio.js?v=20261115-3"></script>
-<script defer src="views/views_trades.js?v=20261007-2"></script>
-<script defer src="views/views_tradegroup.js?v=20260903-1"></script>
+<script defer src="views/views_trades.js?v=20261118-1"></script>
+<script defer src="views/views_tradegroup.js?v=20261118-1"></script>
 <script defer src="views/views_div_asset.js?v=20261028-3"></script>
 <script defer src="views/views_asset_loan.js?v=20260903-1"></script>
 
@@ -208,12 +208,12 @@
 <script defer src="views/views_plan.js?v=20260903-1"></script>
 <script defer src="views/views_plan_overview.js?v=20260903-1"></script>
 <script defer src="views/views_plan_export.js?v=20260903-1"></script>
-<script defer src="views/views_plan_weights.js?v=20260903-1"></script>
-<script defer src="views/views_plan_tax.js?v=20260903-1"></script>
-<script defer src="views/views_plan_retirement.js?v=20260903-1"></script>
-<script defer src="views/views_plan_simulation.js?v=20260903-1"></script>
+<script defer src="views/views_plan_weights.js?v=20261118-1"></script>
+<script defer src="views/views_plan_tax.js?v=20261118-1"></script>
+<script defer src="views/views_plan_retirement.js?v=20261118-1"></script>
+<script defer src="views/views_plan_simulation.js?v=20261118-1"></script>
 <script defer src="views/views_asset_schedule.js?v=20260903-1"></script>
-<script defer src="views/views_asset_schedule_data.js?v=20260903-1"></script>
+<script defer src="views/views_asset_schedule_data.js?v=20261118-1"></script>
 <script defer src="views/views_asset_schedule_chart.js?v=20260903-1"></script>
 <script defer src="views/views_history_legacy_guard.js?v=20260903-1"></script>
 <script defer src="views/views_history_utils.js?v=20261012-1"></script>
@@ -222,9 +222,9 @@
 <script defer src="views/views_history_state.js?v=20261117-1"></script>
 <script defer src="views/views_history_pipeline.js?v=20261012-1"></script>
 <script defer src="views/views_history_render.js?v=20261117-3"></script>
-<script defer src="views/views_history.js?v=20261103-1"></script>
+<script defer src="views/views_history.js?v=20261118-1"></script>
 
-<script defer src="views/views_system.js?v=20261028-3"></script>
+<script defer src="views/views_system.js?v=20261118-1"></script>
 <script defer src="views/views_system_tabsettings.js?v=20260903-1"></script>
 <script defer src="features/settings/settings_net.js?v=20261115-1"></script>
 <script defer src="features/settings/settings_perf_monitor.js?v=20261115-5"></script>
@@ -329,7 +329,7 @@
       <!-- 날짜 선택 -->
       <div id="editorDateRow" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
         <label style="font-size:.72rem;color:var(--muted);flex-shrink:0">기준일</label>
-        <input type="date" id="editorDate" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem">
+        <input type="date" id="editorDate" style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
         <span style="font-size:.65rem;color:var(--muted)">미입력 시 오늘 기준</span>
       </div>
       <div id="editorBody"></div>

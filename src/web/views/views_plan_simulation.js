@@ -14,17 +14,17 @@ function _buildSimSection(totalEval) {
       <div>
         <div class="lbl-62-muted-3">월 추가 투자 (원)</div>
         <input type="text" id="sim-monthly" value="${monthly.toLocaleString()}" data-format="number-comma"
-          style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem"/>
+          style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))"/>
       </div>
       <div>
         <div class="lbl-62-muted-3">기간 (년)</div>
         <input type="number" id="sim-years" value="${years}" min="1" max="40"
-          style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem"/>
+          style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))"/>
       </div>
       <div>
         <div class="lbl-62-muted-3">연 수익률 (%)</div>
         <input type="number" id="sim-rate" value="${rate}" min="0" max="50" step="0.5"
-          style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem"/>
+          style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))"/>
       </div>
     </div>
     <button data-plan-action="run-sim" class="btn-purple-sm" style="margin-bottom:16px">🔄 시뮬레이션</button>

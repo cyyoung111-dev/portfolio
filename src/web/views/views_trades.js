@@ -111,7 +111,7 @@ function _buildTradeDateRepairHTML() {
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input type="date" id="tradeMissingDateInput" value="${_escapeHtml(defaultDate)}"
-            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem">
+            style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
           <button data-trade-action="select-missing-dates" class="btn-outline-sm">날짜 누락·오류 선택</button>
           <button data-trade-action="fill-missing-dates" class="btn-danger">날짜 일괄 지정</button>
         </div>
@@ -316,9 +316,9 @@ function renderTradesView(area) {
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
       <input id="tradeNameFilter" type="text" placeholder="종목 검색..." value="${_escapeHtml(_tradeFilter.name||'')}"
         data-trade-filter="name"
-        style="flex:1;min-width:80px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.72rem">
+        style="flex:1;min-width:80px;background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 9px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
       <select data-trade-filter="acct"
-        style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem">
+        style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
         <option value="">전체 계좌</option>
         ${acctList.filter(a=>a!=='합계').map(a=>`<option value="${_escapeHtml(a)}"${_tradeFilter.acct===a?' selected':''}>${_escapeHtml(a)}</option>`).join('')}
       </select>
@@ -337,7 +337,7 @@ function renderTradesView(area) {
         <button data-trade-action="select-all" class="btn-outline-sm">전체선택</button>
         <button data-trade-action="select-none" class="btn-outline-sm">선택해제</button>
         <!-- ★ [계좌별 taxType] 일괄 계좌 변경 -->
-        <select id="tradeBulkAcctSelect" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem">
+        <select id="tradeBulkAcctSelect" style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:4px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
           <option value="">계좌 변경...</option>
           ${getAcctList().filter(a=>a!=='전체').map(a=>`<option value="${_escapeHtml(a)}">${_escapeHtml(a)}</option>`).join('')}
         </select>
