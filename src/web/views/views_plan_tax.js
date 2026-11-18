@@ -31,9 +31,6 @@ function _buildTaxSection(totalCost) {
   const _todayStr = typeof _kstTodayStr==='function'?_kstTodayStr():new Date().toISOString().slice(0,10);
   if(typeof _refreshDividendCompanyCatalog==='function')_refreshDividendCompanyCatalog(taxYear);
   const taxRows=calcDividends(taxYear),sharedSummary=_divTaxSummary(taxRows),sharedScenario=_divScenarioForSummary(sharedSummary,taxYear);
-  const divByAcct=Object.create(null);
-  for(const item of taxRows)for(const [acct,amount] of Object.entries(item.accountAnnualDiv||{}))divByAcct[acct]=(divByAcct[acct]||0)+Number(amount||0);
-  function _divSum(accts){return accts.reduce((s,a)=>s+(divByAcct[a]||0),0);}
   // ── ① 일반계좌
   const normalSum = _sumByAccts(acctGroups['일반']);
   const normalDiv = sharedSummary.normal.annual;
@@ -71,8 +68,8 @@ function _buildTaxSection(totalCost) {
   // ── ③ IRP/연금 (과세이연)
   const irpSum = _sumByAccts(acctGroups['IRP']);
   const pensionSum = _sumByAccts(acctGroups['연금']);
-  const irpDiv = _divSum(acctGroups['IRP']);
-  const pensionDiv = _divSum(acctGroups['연금']);
+  const irpDiv = sharedSummary.irp.annual;
+  const pensionDiv = sharedSummary.pension.annual;
 
   const FIN_INCOME_THRESHOLD = 20000000;
   const isOverThreshold = sharedScenario.ordinaryWithApplication > FIN_INCOME_THRESHOLD;

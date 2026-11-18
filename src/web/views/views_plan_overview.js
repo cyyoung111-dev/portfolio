@@ -70,7 +70,7 @@ function _buildPlanCashflowOverview() {
       ${item('일반계좌 세후 참고', fmt(dividendFlow.normalAfterTax), `세전 ${fmt(dividendFlow.normalGross)} · 단순 원천징수 기준`, 'var(--cyan)')}
       ${item('과세대상 일반계좌 배당', fmt(dividendFlow.specialTaxScenario.taxableGross), '감액배당·ETF 과표차액 입력 가정', 'var(--cyan)')}
       ${item('고배당 특례 검토 (공시 일치)', fmt(dividendFlow.specialTaxScenario.reviewedGross), '신청 가정 · 미확인 '+fmt(dividendFlow.specialTaxScenario.pendingGross), 'var(--cyan)')}
-      ${item('KIND 일치분 포함 특례 가정', fmt(dividendFlow.specialTaxScenario.ordinaryIfCandidatesQualify), '추가 후보 '+fmt(dividendFlow.specialTaxScenario.candidateGross)+' · 확정 아님', 'var(--muted)')}
+      ${item('KIND 일치분 포함 특례 가정', fmt(dividendFlow.specialTaxScenario.ordinaryIfCandidatesQualify), dividendFlow.specialTaxScenario.certificateSpecialUsed?'입력 특례 총액 적용 · 후보 추가 차감 없음':'추가 후보 '+fmt(dividendFlow.specialTaxScenario.candidateGross)+' · 확정 아님', 'var(--muted)')}
       ${dividendFlow.specialTaxScenario.comparison?item('분리과세 세액 차이',fmt(Math.abs(dividendFlow.specialTaxScenario.comparison.savings)),(dividendFlow.specialTaxScenario.comparison.savings>=0?'신청 가정 절감':'신청 가정 추가 부담')+' · 실제 신고세액 아님','var(--amber)'):''}
       ${item('종합과세 합산 참고', fmt(dividendFlow.specialTaxScenario.ordinaryWithApplication), '신청 가정 · '+(dividendFlow.specialTaxScenario.interestKnown?'비배당 금융소득 가정 포함':'이자 미포함')+' · 최종세액 아님', 'var(--amber)')}
       ${item('올해 배당 공시 (세전)', fmt(Math.round(actual)), '지급 이벤트 합계 · 실제 입금확인과 구분', 'var(--gold)')}

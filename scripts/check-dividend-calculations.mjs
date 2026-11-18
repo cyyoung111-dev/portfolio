@@ -432,3 +432,9 @@ console.log('PASS: public company list, candidate-only scenario and persistent c
  assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/다른 종합소득 과세표준/);
 }
 console.log('PASS: tax comparison, credit floor, non-tax cash adjustments and historical year');
+
+const sharedTaxSource=fs.readFileSync('src/web/views/views_plan_tax.js','utf8');
+assert.match(sharedTaxSource,/const taxRows=calcDividends\(taxYear\)/);
+for(const [name,group] of [['normalDiv','normal'],['isaDiv','isa'],['irpDiv','irp'],['pensionDiv','pension']])assert.ok(sharedTaxSource.includes('const '+name+' = sharedSummary.'+group+'.annual;'));
+assert.doesNotMatch(sharedTaxSource,/_qtyAtDateFast|_divSum\(/,'no second dividend entitlement engine');
+assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/계좌 귀속 미확인/);

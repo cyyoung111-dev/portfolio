@@ -75,7 +75,7 @@ function _divTaxComparisonPanel(summary,year,scenario=_divScenarioForSummary(sum
   const input=(id,label,value)=>'<label class="ui-status-meta" style="display:flex;flex-direction:column;gap:3px">'+label+'<input id="'+id+'" data-tax-year="'+year+'" type="text" inputmode="numeric" style="width:180px;max-width:100%" value="'+(value??'')+'" placeholder="미입력"></label>';
   const row=(label,v)=>'<tr><td>'+label+'</td><td>'+money(v)+'원</td></tr>';
   return '<section class="div-tax-panel" aria-label="금융소득 과세 비교"><h3 class="h3-card">금융소득 세액 비교 ('+year+'년)</h3>'+
-    '<div class="ui-status-meta">연간 배당 기준 · 일반계좌 · 원 단위 · 과세자료 또는 시나리오 입력. 금융 원본 미변경.</div>'+
+    '<div class="ui-status-meta">연간 배당 기준 · 일반계좌 · 원 단위 · 과세자료 또는 시나리오 입력. 금융 원본 미변경. 계좌 귀속 미확인 '+money(summary.unclassified.annual)+'원은 비교 제외.</div>'+
     '<details><summary>이자·비과세·과세표준 가정</summary><div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
     input('div-other-income-scenario','이자·기타 합산 금융소득 (배당 집계 외)',_getDivOtherIncome(year))+
     input('div-tax-capitalExempt','과세 제외 감액배당 금액',d.capitalExempt)+input('div-tax-etfTaxDifference','ETF 분배금 중 과표 제외 차액',d.etfTaxDifference)+
@@ -161,7 +161,7 @@ function _divTaxPanel(summary,selected,dividendRows=[]) {
     <tr><td>공시 근거 일치 특례배당 (참고)</td><td>${money(scenario.reviewedGross)}원</td></tr>
     <tr><td>특례 여부 미확인 (합산 유지)</td><td>${money(scenario.pendingGross)}원</td></tr>
     <tr><td>KIND 기업 일치 배당 (미확인에 포함)</td><td>${money(scenario.candidateGross)}원</td></tr>
-    <tr><td>기업 일치분까지 특례 가정 시 합산 참고</td><td>${money(scenario.ordinaryIfCandidatesQualify)}원</td></tr>
+    <tr><td>${scenario.certificateSpecialUsed?'과세자료 총액 적용 (후보 추가 차감 없음)':'기업 일치분까지 특례 가정 시 합산 참고'}</td><td>${money(scenario.ordinaryIfCandidatesQualify)}원</td></tr>
     <tr><td>신청 가정 적용 특례배당</td><td>${money(scenario.selectedSpecialGross)}원</td></tr>
     <tr><td>신청 가정 합산 대상</td><td>${money(scenario.ordinaryWithApplication)}원</td></tr>
     <tr><td>특례배당 예상세액 (지방세 포함)</td><td>${money(scenario.specialTax)}원</td></tr>
