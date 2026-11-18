@@ -547,6 +547,21 @@ function _dividendRefreshKey() {
   const generation = typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : '';
   return String(GSHEET_API_URL || '').trim() + '|' + generation + '|' + day;
 }
+// A successful auto-save must not replace a newer manual edit or server
+// restore that arrived while the request was in flight (including aliases).
+function _captureDividendPatchBaseline(baselines, code, alias) {
+  const keys = [...new Set([code, alias].filter(Boolean))];
+  baselines.set(code, keys.map(key => [key, Object.prototype.hasOwnProperty.call(DIVDATA,key), JSON.stringify(DIVDATA[key])]));
+}
+function _applyAcknowledgedDividendPatch(patch, baselines) {
+  for (const [code, next] of Object.entries(patch)) {
+    const before = baselines.get(code);
+    if (!before || !before.every(([key, present, value]) =>
+      Object.prototype.hasOwnProperty.call(DIVDATA,key) === present &&
+      JSON.stringify(DIVDATA[key]) === value)) continue;
+    DIVDATA[code] = next;
+  }
+}
 function _dividendFailureMessage(stage, error) {
   const reason = {
     key: window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured === false
@@ -621,6 +636,7 @@ async function _autoFetchDivInner(area) {
     const publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
     if (!connectionCurrent()) throw new Error('연결 변경으로 오래된 배당 응답을 적용하지 않았습니다.');
     const divPatch = {};
+    const patchBaselines = new Map();
     const dividends = _mergeDividendResults(targetCodes, publicDividends, null);
     const sourceConflicts = [];
 
@@ -639,6 +655,7 @@ async function _autoFetchDivInner(area) {
         return;
       }
       if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') {
+        _captureDividendPatchBaseline(patchBaselines, storeKey, getDivKey(name));
         divPatch[storeKey] = _normalizeDividendResponse(obj, prev);
       }
     });
@@ -648,7 +665,7 @@ async function _autoFetchDivInner(area) {
       const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
       if (!connectionCurrent()) return false;
       if (!savedToGas) throw new Error('배당 조회 결과 GAS 저장 미확인');
-      Object.assign(DIVDATA, divPatch);
+      _applyAcknowledgedDividendPatch(divPatch, patchBaselines);
       // 항상 현재 DOM의 view-area 참조 (area 클로저 stale 방지)
       if (currentView === 'div') {
         const _liveArea = $el('view-area');
@@ -735,6 +752,7 @@ async function _startDivFetchInner() {
     const publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
     if (!connectionCurrent()) throw new Error('연결 변경으로 오래된 배당 응답을 적용하지 않았습니다.');
     const divPatch = {};
+    const patchBaselines = new Map();
     const dividends = _mergeDividendResults(targetCodes, publicDividends, null);
 
     // 코드 → 이름 역매핑
@@ -753,6 +771,7 @@ async function _startDivFetchInner() {
         return;
       }
       if (Number(obj?.perShare || 0) > 0 && obj?.source === 'PUBLIC_DATA') {
+        _captureDividendPatchBaseline(patchBaselines, storeKey, getDivKey(name));
         divPatch[storeKey] = _normalizeDividendResponse(obj, prev);
         sourceStats.public++;
         updated++;
@@ -774,7 +793,7 @@ async function _startDivFetchInner() {
       const savedToGas = await persistDividendSettings(true, { targetUrl: divTarget, generation: divGeneration, divDataPatch: divPatch });
       if (!connectionCurrent()) return false;
       if (!savedToGas) throw new Error('배당 조회 결과 GAS 저장 미확인');
-      Object.assign(DIVDATA, divPatch);
+      _applyAcknowledgedDividendPatch(divPatch, patchBaselines);
     }
     // Only re-render the live dividend view; don't replace a different tab.
     const _area = $el('view-area');

@@ -265,3 +265,36 @@ for(const manual of [false,true]){
  assert.doesNotMatch(u.labels.at(-1).message,/PRIVATE_DETAIL/);
 }
 console.log('PASS: dividend single-flight, same-day auto suppression, no empty write, stage-specific error and local data preservation');
+
+// A concurrent user edit must remain authoritative after the auto writer ACK.
+for(const manualRefresh of [false,true]) {
+ for(const alias of [false,true]){
+  const u=ui({stocks:true});
+  if(alias)u.ctx.getDivKey=()=>'legacy-name';
+  const prior={source:'PUBLIC_DATA',perShare:15,events:[],updatedAt:'old'};
+  u.ctx.DIVDATA['111111']=structuredClone(prior);
+  let release,writerCalls=0;
+  u.ctx.persistDividendSettings=async()=>{writerCalls++;return new Promise(resolve=>release=resolve);};
+  const work=manualRefresh?u.ctx.startDivFetch():u.ctx._autoFetchDiv({});
+  while(!release)await Promise.resolve();
+  const edited={source:'MANUAL',perShare:99,events:[{date:'2026-09-30',amount:99,source:'MANUAL'}]};
+  u.ctx.DIVDATA[alias?'legacy-name':'111111']=edited;
+  release(true);await work;
+  assert.equal(writerCalls,1);
+  assert.deepEqual(u.ctx.DIVDATA[alias?'legacy-name':'111111'],edited);
+  if(alias)assert.deepEqual(u.ctx.DIVDATA['111111'],prior);
+ }
+}
+for(const phase of ['authProbe','refreshEtfDividends']){
+ const calls=[];
+ const fetchImpl=async(_url,options)=>{
+  const p=new URLSearchParams(options.body),a=p.get('action');
+  calls.push(a);
+  if((phase==='authProbe'&&a==='getDividendSettings')||a===phase)
+   return {ok:true,json:async()=>{throw Error('PRIVATE_HTML_RESPONSE')}};
+  return {ok:true,json:async()=>a==='getAutomationStatus'?{status:'ok',gasVersion:'9.297'}:{status:'error'}};
+ };
+ await assert.rejects(runDividendRefresh({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl}),e=>e.message==='DIVIDEND_JSON_UNCERTAIN_VERIFY_BEFORE_RETRY'&&e.dividendStage===phase);
+ assert.equal(calls.filter(a=>a===(phase==='authProbe'?'getDividendSettings':phase)).length,1);
+}
+console.log('PASS: preserve concurrent manual edits in both paths; sanitized exact batch failure stage; no retry');

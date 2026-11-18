@@ -43,14 +43,17 @@ export function hasChangedVerifiedPublicDividendAmounts(previousEvents, nextEven
 export async function runDividendRefresh({url:rawUrl,token,fetchImpl=fetch,asOf=new Date()}) {
 const url=validateWebAppUrl(rawUrl);
 const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(asOf);
-async function call(action,args={},access=token) {
+async function call(action,args={},access=token,stage=action) {
+ // Record the exact failed step, never the URL, body, token or provider response.
+ // A lost writer acknowledgement is still uncertain; never retry automatically.
+ const fail=reason=>{const e=new Error(reason);e.dividendStage=stage;throw e;};
  let r;
- try{r=await fetchImpl(url,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action,...args,accessToken:access||''}),signal:AbortSignal.timeout(300000)});}catch{throw Error('DIVIDEND_REQUEST_UNCERTAIN_VERIFY_BEFORE_RETRY');}
- if(!r.ok)throw Error('DIVIDEND_HTTP_UNCERTAIN_VERIFY_BEFORE_RETRY');
- try{return await r.json();}catch{throw Error('DIVIDEND_JSON_UNCERTAIN_VERIFY_BEFORE_RETRY');}
+ try{r=await fetchImpl(url,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action,...args,accessToken:access||''}),signal:AbortSignal.timeout(300000)});}catch{fail('DIVIDEND_REQUEST_UNCERTAIN_VERIFY_BEFORE_RETRY');}
+ if(!r.ok)fail('DIVIDEND_HTTP_UNCERTAIN_VERIFY_BEFORE_RETRY');
+ try{return await r.json();}catch{fail('DIVIDEND_JSON_UNCERTAIN_VERIFY_BEFORE_RETRY');}
 }
  if(!token)throw Error('DIVIDEND_AUTH_REQUIRED');
- const deny=await call('getDividendSettings',{},'DIVIDEND_BAD_AUTH_PROBE');
+ const deny=await call('getDividendSettings',{},'DIVIDEND_BAD_AUTH_PROBE','authProbe');
  if(deny.status==='ok')throw Error('DIVIDEND_AUTH_NOT_ENFORCED');
  const state=await call('getAutomationStatus');
  if(state.status!=='ok'||!APPROVED_DIVIDEND_GAS.has(state.gasVersion))throw Error('DIVIDEND_VERSION');
@@ -58,7 +61,7 @@ async function call(action,args={},access=token) {
  if(refreshed.status!=='ok'||(!(refreshed.saved===true&&refreshed.refreshed===true)&&!(refreshed.skipped===true&&refreshed.reason==='NO_TARGETS')))throw Error('DIVIDEND_ETF_REFRESH_FAILED');
  const etfCodes=refreshed.targetCodes;
  if(!Array.isArray(etfCodes)||etfCodes.length!==refreshed.targetCount||new Set(etfCodes).size!==etfCodes.length||etfCodes.some(code=>! /^[A-Z0-9]{6}$/.test(String(code))))throw Error('DIVIDEND_ETF_TARGETS_INVALID');
- let cached=await call('getDividendSettings');
+ let cached=await call('getDividendSettings',{},token,'etfReadback');
  if(cached.status!=='ok'||!cached.divData)throw Error('DIVIDEND_READBACK_FAILED');
  const catalog=await call('getCodeListReadOnly');
  if(catalog.status!=='ok'||catalog.readOnly!==true||!APPROVED_DIVIDEND_GAS.has(catalog.gasVersion)||!Array.isArray(catalog.codes)) {
@@ -93,10 +96,10 @@ async function call(action,args={},access=token) {
   if(stockUpdated){
    const saved=await call('saveDividendSettings',{data:JSON.stringify(patch)});
    if(saved.status!=='ok'||saved.saved!==true)throw Error('DIVIDEND_STOCK_SAVE_FAILED');
-   const verified=await call('getDividendSettings');
+   const verified=await call('getDividendSettings',{},token,'stockReadback');
    if(verified.status!=='ok'||Object.keys(patch).some(code=>verified.divData?.[code]?.source!=='PUBLIC_DATA'||JSON.stringify(verified.divData[code].events)!==JSON.stringify(patch[code].events)))throw Error('DIVIDEND_STOCK_READBACK_FAILED');
   }
  }
  return {mode:'VERIFIED_DIVIDEND_REFRESH',etfTargets:etfCodes.length,etfChecked:checked.length,etfNoEventWindows:Number(refreshed.noEventCount||0),historyRows:Number(refreshed.historyRows||0),stockKeyConfigured,stockUpdated,stockNoEvents,stockManual,stockUnverified};
 }
-if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{console.log(JSON.stringify(await runDividendRefresh({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));}catch(e){console.error(/^DIVIDEND_[A-Z_]+$/.test(e?.message||'')?e.message:'DIVIDEND_REFRESH_FAILED');process.exitCode=1;}}
+if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{console.log(JSON.stringify(await runDividendRefresh({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));}catch(e){console.error(/^DIVIDEND_[A-Z_]+$/.test(e?.message||'')?e.message:'DIVIDEND_REFRESH_FAILED');if(['authProbe','getAutomationStatus','refreshEtfDividends','etfReadback','getCodeListReadOnly','dividendPublic','saveDividendSettings','stockReadback'].includes(e?.dividendStage))console.error('DIVIDEND_FAILED_STAGE='+e.dividendStage);process.exitCode=1;}}
