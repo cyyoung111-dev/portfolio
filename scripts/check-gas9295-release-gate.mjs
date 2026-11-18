@@ -160,3 +160,30 @@ console.log('GAS9295_RELEASE_GATE_READY '+JSON.stringify({
  negativePreflightCases:17,postdeployRetries:2,
  liveDataFetched:false,financeWrites:0,gasDeployments:0
 }));
+
+{
+ const evidence=[];
+ const privateMarker='PRIVATE_ACCOUNT_AMOUNT_RAW_ERROR';
+ const rejected={...status,overallStatus:'ERROR',fundWarningClass:'NAV_PUBLICATION_OR_INPUT_PENDING',
+  snapshotLastDate:'2026-11-17',priceHistoryLastDate:'2026-11-18',
+  close:{...status.close,state:'ERROR',stage:'ERROR',runDate:'2026-11-18',
+    expectedRunDate:'2026-11-18',snapshotStale:true,fundState:'ERROR',
+    fundErrorPresent:true,fundErrorCode:'NAV_CONFLICT',privateMarker,
+    closeErrorCount:1,expectedSnapshotDate:'2026-11-18'},
+  latestBackfill:{runDate:'2026-11-18',targetDate:'2026-11-17',attempted:true,ok:false,
+    failureClass:'SAVED_SNAPSHOT_INTEGRITY_FAILED',rawError:privateMarker}};
+ assert.throws(()=>assessGas9295ReleaseState({ledger,gate,status:rejected,reportBlockedAutomation:r=>evidence.push(r)}),/AUTOMATION_NOT_STABLE/);
+ assert.equal(evidence.length,1);
+ const row=evidence[0];
+ assert.equal(row.overallStatus,'ERROR');assert.equal(row.fundErrorCode,'NAV_CONFLICT');
+ assert.equal(row.latestBackfill.failureClass,'SAVED_SNAPSHOT_INTEGRITY_FAILED');
+ assert.equal(row.snapshotStale,true);assert.equal(row.releaseAuthorized,false);
+ assert.equal(row.financeWrites,0);assert.equal(row.gasDeployments,0);
+ assert.doesNotMatch(JSON.stringify(row),/PRIVATE_ACCOUNT_AMOUNT_RAW_ERROR|tr_abc123|srv_000111|ledgerRevision/);
+ const unknown={...rejected,close:{...rejected.close,fundErrorCode:privateMarker,expectedRunDate:'2026-02-30'}};
+ assert.throws(()=>assessGas9295ReleaseState({ledger,gate,status:unknown,reportBlockedAutomation:r=>evidence.push(r)}),/AUTOMATION_NOT_STABLE/);
+ assert.equal(evidence[1].fundErrorCode,'UNKNOWN');assert.equal(evidence[1].expectedRunDate,'-');
+ assert.doesNotMatch(JSON.stringify(evidence),/PRIVATE_ACCOUNT_AMOUNT_RAW_ERROR/);
+ assert.equal(assessGas9295ReleaseState({ledger,gate,status,reportBlockedAutomation:()=>assert.fail('normal state must not emit blocker')}).status,'VERIFIED');
+}
+console.log('PASS: same-response automation blocker evidence, strict release gate unchanged, no raw finance data');
