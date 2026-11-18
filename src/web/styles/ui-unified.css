@@ -1141,6 +1141,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 
 /* Stable update command row: the status and its diagnostics never determine
    command widths or the desktop management toolbar's vertical position. */
+html:has(.toolbar-stable) {scrollbar-gutter:stable}
 .action-bar.toolbar-stable {
   align-items:flex-start;
   overflow:visible;
@@ -1261,7 +1262,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 }
 @media(max-width:350px) {
   .action-bar.toolbar-stable .action-update-card {
-    grid-template-columns:repeat(3,58px);
+    grid-template-columns:repeat(3,58px) minmax(0,1fr);
     width:min(100%,332px);
   }
   .action-bar.toolbar-stable .action-update-card>.action-date-input {grid-column:1/-1;grid-row:1}

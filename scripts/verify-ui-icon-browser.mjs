@@ -143,6 +143,8 @@ function auditStableToolbar(d,c) {
   w.setStatusLabel(w._priceStatusLayout('현재가 갱신 · 39개 · 화면만 반영','','저장 이력/Snapshot 미변경',lookup,'info'),'ok');
   if(!same(closed,geometry(),limit))failures.push({size,role:'price-only geometry'});
   const card=d.querySelector('.action-update-card').getBoundingClientRect();
+  const statusWidth=label.getBoundingClientRect().width;
+  if(statusWidth<card.width-20)failures.push({size,role:'status uses card width',statusWidth,cardWidth:card.width});
   if(closed[0][2]!==126||closed.slice(1,4).some(b=>b[2]!==58||b[3]!==44)||closed[0][3]!==44||card.right>c.width+1)failures.push({size,role:'command dimensions',closed,cardRight:card.right});
   cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:c.width>980,geometry:!failures.some(f=>f.size===size)});
  }
