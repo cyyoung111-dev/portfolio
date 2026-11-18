@@ -1,0 +1,45 @@
+name: high-dividend-kind-source
+on:
+  pull_request:
+    paths:
+      - 'scripts/collect-high-dividend-kind.py'
+      - '.github/workflows/high-dividend-kind-source.yml'
+  workflow_dispatch:
+    inputs:
+      business_year:
+        description: KIND 사업연도 (과세 귀속연도와 별개)
+        required: true
+        default: '2025'
+        type: choice
+        options:
+          - '2025'
+          - '2026'
+          - '2027'
+          - '2028'
+permissions:
+  contents: read
+jobs:
+  public-source:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install browser client
+        run: python -m pip install playwright==1.58.0
+      - name: Collect official candidate list (read only)
+        env:
+          BUSINESS_YEAR: ${{ inputs.business_year || '2025' }}
+        run: python scripts/collect-high-dividend-kind.py --year "$BUSINESS_YEAR" --out kind-source
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kind-public-source
+          path: kind-source/
+          if-no-files-found: warn
+          retention-days: 14
