@@ -164,3 +164,13 @@ assert.equal(preStep['continue-on-error'],undefined);
 assert(job.steps.findIndex(s=>s.run?.includes('issue507-deployment-inventory-readonly.mjs'))<job.steps.indexOf(preStep));
 assert(job.steps.indexOf(preStep)<job.steps.indexOf(dryStep));
 console.log('PASS: protected current-main 9.298 dry-run, bounded operator reruns, explicit production approval remains separate');
+
+{
+ const deploySource=fs.readFileSync('scripts/deploy-gas.mjs','utf8');
+ const preflightSource=fs.readFileSync('scripts/gas9298-release-readonly.mjs','utf8');
+ assert.match(preflightSource,/reportBlockedAutomation:row=>console\.log\(JSON\.stringify\(row\)\)/);
+ assert.match(preflightSource,/expectedVersion,reportBlockedAutomation/);
+ assert.match(deploySource,/if\(expectedVersion==='9\.298'\)\{\s*const integrityReadback=await verifyGas9298ReleaseReadOnly\(\{url,token:accessToken,mode:'post'\}\)/);
+ assert.equal((deploySource.match(/await verifyGas9298ReleaseReadOnly\(/g)||[]).length,1);
+}
+console.log('PASS: 9.298 blocker evidence wired and existing in-deploy post-readback preserved');

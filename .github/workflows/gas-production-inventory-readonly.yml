@@ -51,6 +51,7 @@ jobs:
       - name: Verify published 9.297 ledger and idle Writer Gate (read only)
         id: finance_preflight
         if: github.event_name == 'push' || inputs.verify_9298 == true
+        # Emit a fixed-field blocker receipt from the same read if automation is unstable.
         run: node scripts/gas9298-release-readonly.mjs pre
       - name: GAS 9.298 dry-run only (no production code write)
         if: github.event_name == 'push' || inputs.verify_9298 == true

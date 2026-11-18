@@ -27,9 +27,9 @@ export async function readGas9298ReleaseProof({readState,readHash,mode='pre',del
   }
  }
 }
-export async function verifyGas9298ReleaseReadOnly({url,token,mode='pre',fetchImpl=fetch}={}){
+export async function verifyGas9298ReleaseReadOnly({url,token,mode='pre',fetchImpl=fetch,reportBlockedAutomation=()=>{}}={}){
  return readGas9298ReleaseProof({mode,
-   readState:expectedVersion=>verifyGas9295ReleaseReadOnly({url,token,fetchImpl,expectedVersion}),
+   readState:expectedVersion=>verifyGas9295ReleaseReadOnly({url,token,fetchImpl,expectedVersion,reportBlockedAutomation}),
    readHash:()=>probeTradeHash({url,token,fetchImpl,includeMigrationPreview:true})});
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
@@ -38,7 +38,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    throw Error('GAS9298_MAIN_ONLY');
   const mode=process.argv[2];
   if(mode!=='pre')throw Error('GAS9298_PREFLIGHT_MODE_INVALID');
-  const proof=await verifyGas9298ReleaseReadOnly({mode,url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN});
+  const proof=await verifyGas9298ReleaseReadOnly({mode,url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,
+   reportBlockedAutomation:row=>console.log(JSON.stringify(row))});
   console.log(JSON.stringify(proof));
   if(process.env.GITHUB_OUTPUT)appendFileSync(process.env.GITHUB_OUTPUT,'verified=true\n');
  }catch(e){

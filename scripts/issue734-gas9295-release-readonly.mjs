@@ -11,8 +11,46 @@ const HASH=/^[0-9a-f]{64}$/;
 const fail=code=>{throw Error('GAS9295_READONLY_'+code)};
 const goodInt=(n,max)=>Number.isSafeInteger(n)&&n>=0&&n<=max;
 
+// Only explicit, sanitized fields from the already-fetched automation status.
+export function summarizeReleaseAutomationBlocker(status,expectedVersion) {
+ const c=status?.close||{};
+ const pick=(value,allowed)=>allowed.includes(value)?value:'UNKNOWN';
+ const bool=v=>typeof v==='boolean'?v:null;
+ const count=v=>goodInt(v,100000)?v:null;
+ const date=v=>{
+  if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v))return '-';
+  const d=new Date(v+'T00:00:00Z');
+  return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===v?v:'-';
+ };
+ const checkpoint=v=>v&&typeof v==='object'?{
+  runDate:date(v.runDate),targetDate:date(v.targetDate),attempted:bool(v.attempted),
+  ok:bool(v.ok),deferred:bool(v.deferred),remaining:count(v.remaining),
+  failureClass:pick(v.failureClass,['DETAIL_NOT_EXPOSED','SAVED_SNAPSHOT_DATE_INVALID','SAVED_SNAPSHOT_INTEGRITY_FAILED','SAVED_KRX_OR_SNAPSHOT_PROOF_FAILED','CLOSE_RECONCILIATION_FAILED','BACKUP_SAFETY_FAILED','PRICE_WRITE_NOT_CONFIRMED','KRX_PRICE_SOURCE_OR_COVERAGE','SNAPSHOT_SAVE_OR_PROOF','LEASE_OR_WRITER_CONFLICT','FUND_OR_NAV_PRECONDITION','OTHER_UNCLASSIFIED'])
+ }:null;
+ return {kind:'GAS_RELEASE_AUTOMATION_BLOCKER_READONLY',version:pick(expectedVersion,['9.294','9.295','9.296','9.297','9.298']),
+  overallStatus:pick(status?.overallStatus,['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN']),
+  closeState:pick(c.state,['COMPLETE','INCOMPLETE','ERROR','NEVER_RUN']),
+  closeStage:pick(c.stage,['PRICE','FUND','FUND_PENDING','COMPLETE','ERROR']),
+  closeRunDate:date(c.runDate),expectedRunDate:date(c.expectedRunDate),
+  summaryRunDate:date(c.summaryRunDate),expectedSnapshotDate:date(c.expectedSnapshotDate),
+  snapshotLastDate:date(status?.snapshotLastDate),priceHistoryLastDate:date(status?.priceHistoryLastDate),
+  officialKrxPriceHistoryLastDate:date(status?.officialKrxPriceHistoryLastDate),
+  priceOk:bool(c.priceOk),fundOk:bool(c.fundOk),closeErrorCount:count(c.closeErrorCount),
+  closeErrorPresent:bool(c.closeErrorPresent),runStale:bool(c.runStale),snapshotStale:bool(c.snapshotStale),
+  fundDate:date(c.fundDate),fundAttemptDate:date(c.fundAttemptDate),
+  fundState:pick(c.fundState,['DONE','ERROR','UNKNOWN_LEGACY','TIMEOUT_SUSPECTED','IN_PROGRESS']),
+  fundErrorPresent:bool(c.fundErrorPresent),
+  fundErrorCode:pick(c.fundErrorCode,['NONE','CONTINUATION','BUSY','PRICE_WRITE_VERIFICATION','NAV_CONFLICT','PROPERTY_LIMIT','SHEET_CAPACITY','TIMEOUT','BACKUP_FAILURE','SNAPSHOT_PROTECTED','WRITE_VERIFICATION','INTERNAL_RUNTIME','NAV_PROCESSING','UNCLASSIFIED']),
+  fundWarningPresent:bool(c.fundWarningPresent),
+  fundWarningClass:pick(status?.fundWarningClass,['NONE','SNAPSHOT_PROTECTED','NAV_PUBLICATION_OR_INPUT_PENDING','PARTIAL_FUND_VALUATION','UNCLASSIFIED']),
+  krxPublicationWaiting:bool(c.krxPublicationWaiting),krxPublicationTradeDate:date(c.krxPublicationTradeDate),
+  triggerReady:bool(status?.triggerReady),pendingCount:count(status?.pendingCount),
+  tradeSnapshotDeferredCount:count(status?.tradeSnapshotDeferredCount),
+  latestBackfill:checkpoint(status?.latestBackfill),latestHistoricalBackfill:checkpoint(status?.latestHistoricalBackfill),
+  financeWrites:0,gasDeployments:0,releaseAuthorized:false};
+}
 export function assessGas9295ReleaseState({ledger,gate,status,
- expectedVersion='9.294',requireIdle=true}={}){
+ expectedVersion='9.294',requireIdle=true,reportBlockedAutomation=()=>{}}={}){
  if(!['9.294','9.295','9.296','9.297','9.298'].includes(expectedVersion))fail('EXPECTED_VERSION_INVALID');
  if(gate?.status!=='ok'||gate.gasVersion!==expectedVersion
   ||status?.gasVersion!==expectedVersion)fail('VERSION_MISMATCH');
@@ -52,8 +90,10 @@ export function assessGas9295ReleaseState({ledger,gate,status,
     ||['RUNNING_RECENT_UNCONFIRMED','RUNNING_START_UNAVAILABLE',
         'FUTURE_START_UNVERIFIED'].includes(status.tradeSnapshotWorkerRuntimeAssessment)))
    fail('CLOSE_OR_WORKER_ACTIVE');
- if(!['NORMAL','WARNING'].includes(status.overallStatus))
+ if(!['NORMAL','WARNING'].includes(status.overallStatus)){
+   reportBlockedAutomation(summarizeReleaseAutomationBlocker(status,expectedVersion));
    fail('AUTOMATION_NOT_STABLE');
+ }
  return {
   kind:'GAS9295_READONLY_RELEASE_STATE',status:'VERIFIED',
   version:expectedVersion,tradeLedgerProtocolVersion:2,
@@ -86,7 +126,7 @@ async function request(url,token,action,fetchImpl) {
 }
 
 export async function verifyGas9295ReleaseReadOnly({url,token,
- expectedVersion='9.294',fetchImpl=fetch}={}) {
+ expectedVersion='9.294',fetchImpl=fetch,reportBlockedAutomation=()=>{}}={}) {
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)fail('AUTH_MISSING');
  // getSettings is deliberately excluded: it may settle a pending code
@@ -95,7 +135,7 @@ export async function verifyGas9295ReleaseReadOnly({url,token,
  const gate=await request(endpoint,token,'getWriterGateStatus',fetchImpl);
  const status=await runBackfillStatus({url:endpoint,token,fetchImpl});
  const summary=assessGas9295ReleaseState({
-  ledger,gate,status,expectedVersion
+  ledger,gate,status,expectedVersion,reportBlockedAutomation
  });
  // Recheck immediately before publication: an intervening trade or writer
  // must not be confused with the static same-moment proof.
