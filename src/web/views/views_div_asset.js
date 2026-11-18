@@ -15,12 +15,63 @@ let _divHideZeroQty = typeof lsGet === 'function' ? lsGet(DIV_HIDE_ZERO_KEY, fal
 let _divSelectedMonth = 0; // 0=연간 전체, 1~12=선택 월
 const DIV_TAX_LABELS=Object.freeze({all:'전체',normal:'일반계좌',isa:'ISA',pension:'연금저축',irp:'IRP',unclassified:'미분류'});
 let _divTaxFilter='all';
-// A scenario assumption only: separate from actual transactions and bank evidence.
-// Intentionally session-local; never writes to GAS or localStorage.
-const _divOtherIncomeScenario = Object.create(null);
-const _divTaxDetailsScenario = Object.create(null);
+// Annual tax assumptions are private browser settings, never a ledger write.
+// Deliberately separate from portfolio backups, public company catalogs and GAS.
+const DIV_TAX_SCENARIO_KEY='pf_financial_tax_scenarios_v1';
 const DIV_TAX_DETAILS_FIELDS=Object.freeze(['capitalExempt','etfTaxDifference','certificateSpecial','otherTaxBase','grossUpOrdinary','grossUpSpecial']);
-function _getDivTaxDetails(year){return _divTaxDetailsScenario[year]||null;}
+const _divTaxSession=Object.create(null);
+let _divTaxStorageState='unknown';
+function _validDivTaxYear(value){const y=Number(value);return Number.isInteger(y)&&y>=2000&&y<=2100;}
+function _cleanDivTaxAmount(value){return typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?value:null;}
+function _cleanDivTaxRecord(record){
+  if(!record||typeof record!=='object'||Array.isArray(record))return null;
+  const details=Object.fromEntries(DIV_TAX_DETAILS_FIELDS.map(k=>[k,_cleanDivTaxAmount(record.details?.[k])]));
+  const interest=_cleanDivTaxAmount(record.interest);
+  if(interest===null&&Object.values(details).every(v=>v===null))return null;
+  return {interest,details,updatedAt:typeof record.updatedAt==='string'&&Number.isFinite(Date.parse(record.updatedAt))?record.updatedAt:null};
+}
+function _readDivTaxStore(){
+  if(typeof localStorage==='undefined')return null;
+  try{
+    const raw=localStorage.getItem(DIV_TAX_SCENARIO_KEY);
+    const data=raw?JSON.parse(raw):{};
+    if(!data||typeof data!=='object'||Array.isArray(data))throw Error('invalid store');
+    _divTaxStorageState='available';
+    return data;
+  }catch{_divTaxStorageState='unavailable';return null;}
+}
+function _getDivTaxRecord(year){
+  if(!_validDivTaxYear(year))return null;
+  // Read the current device value on each render; other tabs may have updated it.
+  const stored=_readDivTaxStore();
+  if(Object.prototype.hasOwnProperty.call(_divTaxSession,year))return _divTaxSession[year];
+  return _cleanDivTaxRecord(stored?.[year]);
+}
+function _saveDivTaxRecord(year,interest,details){
+  if(!_validDivTaxYear(year))return false;
+  const record=_cleanDivTaxRecord({interest,details,updatedAt:new Date().toISOString()});
+  const stored=_readDivTaxStore();
+  if(stored){
+    const next=Object.create(null);
+    for(const [key,value] of Object.entries(stored)){
+      if(!_validDivTaxYear(key)||Number(key)===Number(year))continue;
+      const valid=_cleanDivTaxRecord(value);if(valid)next[key]=valid;
+    }
+    if(record)next[year]=record;
+    try{
+      localStorage.setItem(DIV_TAX_SCENARIO_KEY,JSON.stringify(next));
+      const verified=JSON.parse(localStorage.getItem(DIV_TAX_SCENARIO_KEY)||'{}');
+      if(JSON.stringify(_cleanDivTaxRecord(verified[year]))!==JSON.stringify(record))throw Error('save verification');
+      delete _divTaxSession[year];
+      _divTaxStorageState='available';
+      return true;
+    }catch{_divTaxStorageState='unavailable';}
+  }
+  // A failed browser save stays session-only and is explicitly reported.
+  _divTaxSession[year]=record;
+  return false;
+}
+function _getDivTaxDetails(year){return _getDivTaxRecord(year)?.details||null;}
 // One public GET per session/year, shared by both tabs. No portfolio data is sent.
 // Failed refreshes can be retried after ten minutes without blocking rendering.
 const _divCompanyLoad = new Map();
@@ -41,7 +92,7 @@ function _refreshDividendCompanyCatalog(year=_kstYear()) {
     }).catch(()=>{});
 }
 function _getDivOtherIncome(year) {
-  return Object.prototype.hasOwnProperty.call(_divOtherIncomeScenario,year)?_divOtherIncomeScenario[year]:null;
+  return _getDivTaxRecord(year)?.interest??null;
 }
 function _applyDivOtherIncome() {
   const field=$el('div-other-income-scenario');
@@ -51,6 +102,7 @@ function _applyDivOtherIncome() {
     return raw===''?null:/^\d+$/.test(raw)&&Number.isSafeInteger(Number(raw))?Number(raw):NaN;
   };
   const year=Number(field.dataset?.taxYear||_kstYear()),interest=read(field);
+  if(!_validDivTaxYear(year))return;
   const details=Object.fromEntries(DIV_TAX_DETAILS_FIELDS.map(key=>[key,read($el('div-tax-'+key))]));
   if(Object.values(details).some(Number.isNaN)||Number.isNaN(interest)){
     if(typeof showToast==='function')showToast('세금 가정은 0 이상의 원 단위 정수를 입력해 주세요.','error');
@@ -62,8 +114,8 @@ function _applyDivOtherIncome() {
     if(typeof showToast==='function')showToast('비과세·특례배당·배당가산 금액이 과세 대상 금액을 초과합니다. 중복 여부를 확인하세요.','error');
     return;
   }
-  if(interest===null)delete _divOtherIncomeScenario[year];else _divOtherIncomeScenario[year]=interest;
-  _divTaxDetailsScenario[year]=details;
+  const saved=_saveDivTaxRecord(year,interest,details);
+  if(typeof showToast==='function')showToast(saved?'귀속연도별 세제 가정 저장 완료 (현재 기기)':'기기 저장 실패 · 현재 세션에만 반영',saved?'success':'error');
   const area=$el('view-area');
   if(area){if(typeof currentView!=='undefined'&&currentView==='plan'&&typeof renderView==='function')renderView(true);else renderDivView(area,true);}
 }
@@ -72,21 +124,29 @@ function _divScenarioForSummary(summary,year){
 }
 function _divTaxComparisonPanel(summary,year,scenario=_divScenarioForSummary(summary,year)){
   const money=v=>Math.round(v).toLocaleString('ko-KR'),d=_getDivTaxDetails(year)||{},c=scenario.comparison;
+  const saved=_getDivTaxRecord(year),rules=PlanCalculations.financialIncomeRuleStatus(year);
+  const saveLabel=Object.prototype.hasOwnProperty.call(_divTaxSession,year)?'기기 저장 실패 · 현재 세션만':saved?'이 기기에 저장됨'+(saved.updatedAt?' · '+saved.updatedAt.slice(0,10):''):'저장된 입력 없음';
   const input=(id,label,value)=>'<label class="ui-status-meta" style="display:flex;flex-direction:column;gap:3px">'+label+'<input id="'+id+'" data-tax-year="'+year+'" type="text" inputmode="numeric" style="width:180px;max-width:100%" value="'+(value??'')+'" placeholder="미입력"></label>';
   const row=(label,v)=>'<tr><td>'+label+'</td><td>'+money(v)+'원</td></tr>';
   return '<section class="div-tax-panel" aria-label="금융소득 과세 비교"><h3 class="h3-card">금융소득 세액 비교 ('+year+'년)</h3>'+
     '<div class="ui-status-meta">연간 배당 기준 · 일반계좌 · 원 단위 · 과세자료 또는 시나리오 입력. 금융 원본 미변경. 계좌 귀속 미확인 '+money(summary.unclassified.annual)+'원은 비교 제외.</div>'+
-    '<details><summary>이자·비과세·과세표준 가정</summary><div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
+    '<div class="ui-status-meta">세법: '+rules.label+' · '+saveLabel+' · 다른 기기와 자동 동기화하지 않음.</div>'+
+    '<div class="ui-status-meta">기업 명단·배당·계좌 분류는 자동 계산. NH 거래내역의 실제 과세 구분과 타 금융기관 소득은 아직 미연동.</div>'+
+    '<details><summary>연간 세제 입력 (기본 2개 · 필요한 경우만)</summary>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
     input('div-other-income-scenario','이자·기타 합산 금융소득 (배당 집계 외)',_getDivOtherIncome(year))+
+    input('div-tax-otherTaxBase','다른 종합소득 과세표준 (총급여 아님)',d.otherTaxBase)+
+    '</div><details><summary>상세 조정 (증권사 과세자료가 있는 경우만)</summary><div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
     input('div-tax-capitalExempt','과세 제외 감액배당 금액',d.capitalExempt)+input('div-tax-etfTaxDifference','ETF 분배금 중 과표 제외 차액',d.etfTaxDifference)+
-    input('div-tax-certificateSpecial','과세자료상 특례배당 총액 (선택)',d.certificateSpecial)+input('div-tax-otherTaxBase','다른 종합소득 과세표준 (총급여 아님)',d.otherTaxBase)+
+    input('div-tax-certificateSpecial','과세자료상 특례배당 총액 (선택)',d.certificateSpecial)+
     input('div-tax-grossUpOrdinary','배당가산 대상 일반배당 (특례 제외)',d.grossUpOrdinary)+input('div-tax-grossUpSpecial','미신청 시 배당가산 대상 특례배당',d.grossUpSpecial)+
-    '</div><button type="button" class="btn-ghost-sm" data-div-action="apply-other-income">가정 반영</button>'+
-    '<div class="ui-status-meta">감액배당은 증권사 확인 과세제외액만 입력 (대주주 등 취득가액 제한 유의). 과표 차액과 중복 금지. 특례 총액 미입력 시 차감액은 공시 일치 특례배당 외 금액으로 가정. 특례 총액 입력 시 공시 추정 대신 과세자료 총액을 사용. 현재 세션에만 저장.</div></details>'+
+    '</div><div class="ui-status-meta">감액배당은 증권사 확인 과세제외액만 입력 (취득가액 제한 등 유의). 과표 차액과 중복 금지. 특례 총액 입력 시 공시 추정 대신 입력 총액 사용.</div></details>'+
+    '<button type="button" class="btn-ghost-sm" data-div-action="apply-other-income">귀속연도별 저장</button>'+
+    '<div class="ui-status-meta">빈칸은 미확인 (0과 구분). 기존 값을 지우고 저장하면 해당 금액 해제. 금융 원본 미변경.</div></details>'+
     (!scenario.adjustmentValid||!scenario.grossUpValid?'<div class="ui-status-text">입력 금액 재확인 필요 · 세액 비교 보류</div>':'')+
     '<div class="div-tax-table-scroll"><table class="div-tax-table"><tbody>'+row('현금 배당 총액',scenario.normalGross)+row('과세 제외 감액배당',scenario.capitalExempt)+row('ETF 과표 제외 차액',scenario.etfTaxDifference)+row('과세대상 배당 참고액',scenario.taxableGross)+row(scenario.certificateSpecialUsed?'입력 특례배당 총액':'공시 일치 특례배당',scenario.selectedSpecialGross)+row('특례 미신청 합산 금융소득',scenario.ordinaryWithoutApplication)+row('특례 신청 가정 합산 금융소득',scenario.ordinaryWithApplication)+
     (c?row('미신청 금융소득 추가 부담 (지방세 포함)',c.withoutApplication)+row('신청 금융소득 추가 부담 (지방세 포함)',c.withApplication)+row(c.savings>=0?'신청 가정 절감액':'신청 가정 추가 부담',Math.abs(c.savings)):'')+
-    '</tbody></table></div><div class="ui-status-meta">'+(year!==2026?'현재 세액 비교는 2026년 세법만 지원합니다.':!c?'이자·기타 금융소득과 다른 종합소득 과세표준 입력 시 세액 비교 표시.':(c.grossUpKnown?'입력 배당가산 반영. ':'배당가산 미입력 항목 0 가정. ')+'제62조 비교과세·배당가산 10%·배당세액공제 한도 반영. 일반 14% 적용 금융소득 가정.')+
+    '</tbody></table></div><div class="ui-status-meta">'+(!rules.comparisonReviewed?'해당 귀속연도의 비교과세 세법은 아직 검증되지 않았습니다.':!c?'이자·기타 금융소득과 다른 종합소득 과세표준 입력 시 세액 비교 표시.':(c.grossUpKnown?'입력 배당가산 반영. ':'배당가산 미입력 항목 0 가정. ')+'제62조 비교과세·배당가산 10%·배당세액공제 한도 반영. 일반 14% 적용 금융소득 가정.')+
     ' 외국납부세액공제·당연종합과세·특수세율·기납부세액·기타 공제 및 건강보험료 미포함. 실제 신고세액 아님.</div></section>';
 }
 

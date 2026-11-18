@@ -135,30 +135,45 @@
     }
     return {status:company.state==='candidate'?'candidate':'pending',evidence:matches[0]||null};
   }
+  // Verified comparison rules are explicitly tied to a year. Do not silently
+  // reuse the 2026 comparison in unreviewed years; future special window is
+  // a reference based on the enacted law, not a final issuer qualification.
+  const FINANCIAL_INCOME_RULES_BY_YEAR=Object.freeze({
+    2026:Object.freeze({threshold:20000000,ordinaryRate:.14,localMultiplier:1.1,grossUpRate:.10,
+      comparisonBands:Object.freeze([[14000000,.06],[50000000,.15],[88000000,.24],[150000000,.35],[300000000,.38],[500000000,.40],[1000000000,.42],[Infinity,.45]].map(Object.freeze)),
+      reviewedAt:'2026-11-18'})
+  });
+  const SPECIAL_DIVIDEND_PERIOD=Object.freeze({firstPaymentYear:2026,lastReferencePaymentYear:2029,
+    bands:Object.freeze([[20000000,.14],[300000000,.20],[5000000000,.25],[Infinity,.30]].map(Object.freeze)),
+    localMultiplier:1.1,law:'조세특례제한법 제104조의27 및 시행령 제104조의24'});
+  function financialIncomeRuleStatus(year){
+    const y=Number(year),rule=FINANCIAL_INCOME_RULES_BY_YEAR[y];
+    return {year:y,comparisonReviewed:!!rule,label:rule?y+'년 검증 기준 ('+rule.reviewedAt+')':y+'년 비교과세 미검증'};
+  }
   function calculateSpecialDividendTax(gross,year=2026) {
     const y=Number(year);
-    if(!Number.isInteger(y)||y<2026||y>2029)return null;
+    if(!Number.isInteger(y)||y<SPECIAL_DIVIDEND_PERIOD.firstPaymentYear||y>SPECIAL_DIVIDEND_PERIOD.lastReferencePaymentYear)return null;
     const value=number(gross);
     // Marginal national income tax; local income tax 10% of national.
-    const bands=[[20000000,.14],[300000000,.20],[5000000000,.25],[Infinity,.30]];
+    const bands=SPECIAL_DIVIDEND_PERIOD.bands;
     let lower=0,national=0;
     for(const [upper,rate] of bands){national+=Math.max(0,Math.min(value,upper)-lower)*rate;lower=upper;}
-    return Math.round(national*1.1);
+    return Math.round(national*SPECIAL_DIVIDEND_PERIOD.localMultiplier);
   }
   // 2026 reference, ordinary 14% financial income only. No final tax return.
   function progressiveIncomeTax(base) {
-    const bands=[[14000000,.06],[50000000,.15],[88000000,.24],[150000000,.35],[300000000,.38],[500000000,.40],[1000000000,.42],[Infinity,.45]];
+    const bands=FINANCIAL_INCOME_RULES_BY_YEAR[2026].comparisonBands;
     let tax=0,lower=0;
     for(const [upper,rate] of bands){tax+=Math.max(0,Math.min(number(base),upper)-lower)*rate;lower=upper;}
     return tax;
   }
   function estimateOrdinaryFinancialTax({financialGross,otherTaxBase,grossUpEligible=0}={}){
-    const f=number(financialGross),base=number(otherTaxBase),threshold=20000000,baseTax=progressiveIncomeTax(base);
-    const minimum=baseTax+f*.14;
-    const grossUp=f>threshold?Math.min(number(grossUpEligible),f-threshold)*.10:0;
-    const arithmetic=f>threshold?progressiveIncomeTax(base+f-threshold+grossUp)+threshold*.14:minimum;
+    const rule=FINANCIAL_INCOME_RULES_BY_YEAR[2026],f=number(financialGross),base=number(otherTaxBase),threshold=rule.threshold,baseTax=progressiveIncomeTax(base);
+    const minimum=baseTax+f*rule.ordinaryRate;
+    const grossUp=f>threshold?Math.min(number(grossUpEligible),f-threshold)*rule.grossUpRate:0;
+    const arithmetic=f>threshold?progressiveIncomeTax(base+f-threshold+grossUp)+threshold*rule.ordinaryRate:minimum;
     const calculated=Math.max(minimum,arithmetic),credit=Math.min(grossUp,Math.max(0,calculated-minimum));
-    return {grossUp,dividendCredit:credit,incrementalTax:Math.round(Math.max(0,calculated-credit-baseTax)*1.1)};
+    return {grossUp,dividendCredit:credit,incrementalTax:Math.round(Math.max(0,calculated-credit-baseTax)*rule.localMultiplier)};
   }
   const optionalMoney=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v))&&Number(v)>=0?Number(v):null;
   function calculateDividendTaxScenario({normalGross=0,reviewedGross=0,pendingGross=0,candidateGross=0,interest=null,year=2026,taxDetails=null}={}) {
@@ -177,7 +192,7 @@
     const base=optionalMoney(d.otherTaxBase),gOrd=optionalMoney(d.grossUpOrdinary),gSpecial=optionalMoney(d.grossUpSpecial);
     const grossUpValid=(gOrd===null||gOrd<=taxable-special)&&(gSpecial===null||gSpecial<=special);
     let comparison=null;
-    if(Number(year)===2026&&valid&&interestKnown&&base!==null&&grossUpValid){
+    if(financialIncomeRuleStatus(year).comparisonReviewed&&valid&&interestKnown&&base!==null&&grossUpValid){
       const unapplied=estimateOrdinaryFinancialTax({financialGross:taxable+includedInterest,otherTaxBase:base,grossUpEligible:(gOrd||0)+(gSpecial||0)});
       const applied=estimateOrdinaryFinancialTax({financialGross:ordinary,otherTaxBase:base,grossUpEligible:gOrd||0});
       const withoutApplication=unapplied.incrementalTax,withApplication=applied.incrementalTax+specialTax;
@@ -434,5 +449,5 @@
     return { code:'SUSTAINABLE', label:'은퇴 가능' };
   }
 
-  return { TAX_RULES_BY_YEAR, DIVIDEND_DISCLOSURE_AS_OF, DIVIDEND_SPECIAL_REFERENCE, setDividendCompanyCatalog, dividendCompanyCatalogStatus, dividendCompanyCandidate, specialDividendEvidence, calculateSpecialDividendTax, progressiveIncomeTax, estimateOrdinaryFinancialTax, calculateDividendTaxScenario, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
+  return { TAX_RULES_BY_YEAR, FINANCIAL_INCOME_RULES_BY_YEAR, SPECIAL_DIVIDEND_PERIOD, financialIncomeRuleStatus, DIVIDEND_DISCLOSURE_AS_OF, DIVIDEND_SPECIAL_REFERENCE, setDividendCompanyCatalog, dividendCompanyCatalogStatus, dividendCompanyCandidate, specialDividendEvidence, calculateSpecialDividendTax, progressiveIncomeTax, estimateOrdinaryFinancialTax, calculateDividendTaxScenario, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
 });
