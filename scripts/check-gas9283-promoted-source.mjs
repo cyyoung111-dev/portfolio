@@ -27,7 +27,7 @@ assert.match(actual,/kst\.minutes<405\|\|kst\.minutes>=480/);
 assert.doesNotMatch(actual,/var existingRows = _readSnapshotRowsByDate\(ss, snapshotDate\);/);
 const web=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
 assert.match(web,/const EXPECTED_GAS_VERSION = '9\.285';/);
-assert.match(web,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\['9\.281', '9\.282', '9\.283', '9\.284', EXPECTED_GAS_VERSION, '9\.286', '9\.287', '9\.294', '9\.295', '9\.296', '9\.297'\]\);/);
+assert.match(web,/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\['9\.281', '9\.282', '9\.283', '9\.284', EXPECTED_GAS_VERSION, '9\.286', '9\.287', '9\.294', '9\.295', '9\.296', '9\.297', '9\.298'\]\);/);
 // Observed 9.294 live compatibility must not relax staged source pinning.
 assert.match(web,/const EXPECTED_GAS_VERSION = '9\.285';/);
 const manifest=JSON.parse(fs.readFileSync('ops/issue860/release-gas9283.json','utf8'));

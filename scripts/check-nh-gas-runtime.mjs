@@ -502,7 +502,7 @@ await assert.rejects(runRegisteredNhReadOnly({
  fetchImpl:fetchVersion('9.286')}),/MASTER_UNVERIFIED/);
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'private-token',
- fetchImpl:fetchVersion('9.298')}),/MASTER_UNVERIFIED/);
+ fetchImpl:fetchVersion('9.299')}),/MASTER_UNVERIFIED/);
 
 await assert.rejects(runRegisteredNhReadOnly({
  url:'https://script.google.com/macros/s/TEST/exec',token:'',

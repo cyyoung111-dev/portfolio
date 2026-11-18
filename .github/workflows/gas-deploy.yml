@@ -30,7 +30,7 @@ on:
         required: true
         default: '9.295'
         type: choice
-        options: ['9.294', '9.295', '9.296', '9.297']
+        options: ['9.294', '9.295', '9.296', '9.297', '9.298']
       approve_9294:
         description: '9.294 운영 배포 승인 · dry_run을 끌 때만 켜기'
         required: true
@@ -49,6 +49,12 @@ on:
         type: boolean
       approve_9297:
         description: '9.297 KB·한화 NAV 원본 저장/평가 분리 운영 배포 승인'
+        required: true
+        default: false
+        type: boolean
+
+      approve_9298:
+        description: '9.298 NH 금융소득 읽기 전용 진단 운영 배포 승인'
         required: true
         default: false
         type: boolean
@@ -136,6 +142,8 @@ jobs:
       GAS_9296_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.296' && inputs.approve_9296 && 'true' || 'false' }}
       GAS_9297_NAV_TWO_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.297' && 'true' || 'false' }}
       GAS_9297_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.297' && inputs.approve_9297 && 'true' || 'false' }}
+      GAS_9298_NH_FINANCIAL_INCOME: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.298' && 'true' || 'false' }}
+      GAS_9298_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.298' && inputs.approve_9298 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -174,6 +182,13 @@ jobs:
       - name: Require clean full GAS deployment inventory on 9.297 dry-run
         if: env.GAS_9297_NAV_TWO_STAGE == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
+      - name: Require clean full GAS deployment inventory on 9.298 dry-run
+        if: env.GAS_9298_NH_FINANCIAL_INCOME == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
+      - name: Verify published 9.297 idle writer and exact ledger before NH finance diagnostic
+        id: gas9298_gate
+        if: env.GAS_9298_NH_FINANCIAL_INCOME == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9298_RELEASE_APPROVAL == 'true')
+        run: node scripts/gas9298-release-readonly.mjs pre
       - name: Verify published 9.295 idle writer before UTF-8 correction
         id: gas9296_gate
         if: env.GAS_9296_TRADE_UTF8 == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9296_RELEASE_APPROVAL == 'true')
@@ -212,6 +227,7 @@ jobs:
           GAS_9295_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9295_gate.outputs.verified || 'false' }}
           GAS_9296_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9296_gate.outputs.verified || 'false' }}
           GAS_9297_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9297_gate.outputs.verified || 'false' }}
+          GAS_9298_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9298_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
       - name: Verify real published 9.294 Gate and trade ledger (read-only)
         if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
@@ -231,8 +247,11 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/issue734-gas9297-release-readonly.mjs post
+      - name: Verify NH financial income live sample (no token issuance)
+        if: env.GAS_9298_NH_FINANCIAL_INCOME == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_9298_RELEASE_APPROVAL == 'true'
+        run: node scripts/nh-financial-income-readback.mjs
       - name: Activate NH current prices after real GAS deployment
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none' && env.GAS_9298_NH_FINANCIAL_INCOME != 'true'
         env:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}

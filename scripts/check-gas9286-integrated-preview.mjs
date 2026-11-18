@@ -25,7 +25,7 @@ assert.equal(manifest.gasProjectWrites,0);
 const webFetch=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
 assert.ok(webFetch.includes("const EXPECTED_GAS_VERSION = '9.285';"),
  'web must retain main staged GAS 9.285 compatibility');
-assert.ok(webFetch.includes("const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287', '9.294', '9.295', '9.296', '9.297']);"),
+assert.ok(webFetch.includes("const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287', '9.294', '9.295', '9.296', '9.297', '9.298']);"),
  'web must retain staged versions and recognize verified live GAS 9.294');
 const versionList=webFetch.match(/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\[([^\]]+)\]\);/)?.[1];
 assert.ok(versionList,'version allowlist missing');
@@ -34,7 +34,7 @@ const declared=versionList.split(',').map(x=>x.trim().replace(/^['"]|['"]$/g,'')
 assert.equal(new Set(declared).size,declared.length,'no duplicate GAS versions');
 assert.ok(declared.includes('9.294'),'current live server must not warn');
 assert.ok(declared.includes('9.295'),'source-reviewed 9.295 release protocol remains compatible');
-assert.ok(!declared.includes('9.298'),'unreviewed future server must still warn');
+assert.ok(!declared.includes('9.299'),'unreviewed future server must still warn');
 const webSettings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(webSettings,/serverVer && !compatibleVersions\.includes\(serverVer\)/,
  'GAS mismatch warning must remain a bounded allowlist check');
