@@ -58,12 +58,21 @@
   // A company disclosure alone is NOT evidence for every cash payment.
   const DIVIDEND_DISCLOSURE_AS_OF = '2026-11-18';
   const DIVIDEND_SPECIAL_REFERENCE = Object.freeze([
-    {code:'005930',name:'삼성전자',year:2026,recordDate:'2025-12-31',amount:566,kind:'cashFinal',status:'reviewed',
+    {code:'005930',name:'삼성전자',year:2026,recordDate:'2025-12-31',paymentWindowStart:'2026-03-18',paymentWindowEnd:'2026-04-18',amount:566,kind:'cashFinal',status:'reviewed',
      eligibilityUrl:'https://kind.krx.co.kr/external/2026/03/19/001333/20260313002174/68961.htm',
      paymentUrl:'https://www.samsung.com/sec/ir/reports-disclosures/public-disclosure/3759/'},
-    {code:'005935',name:'삼성전자우',year:2026,recordDate:'2025-12-31',amount:567,kind:'cashFinal',status:'reviewed',
+    {code:'005935',name:'삼성전자우',year:2026,recordDate:'2025-12-31',paymentWindowStart:'2026-03-18',paymentWindowEnd:'2026-04-18',amount:567,kind:'cashFinal',status:'reviewed',
      eligibilityUrl:'https://kind.krx.co.kr/external/2026/03/19/001333/20260313002174/68961.htm',
      paymentUrl:'https://www.samsung.com/sec/ir/reports-disclosures/public-disclosure/3759/'},
+    // Official board resolutions for the 2026 quarterly cash distributions.
+    // Q3 is a declared payment scheduled for November 27, not bank receipt.
+    ...['005930','005935'].flatMap(code=>[
+      ['2026-03-31','2026-05-29',372,'3959'],
+      ['2026-06-30','2026-08-28',374,'4017'],
+      ['2026-09-30','2026-11-27',4601,'4083']
+    ].map(([recordDate,payDate,amount,id])=>({code,name:code==='005930'?'삼성전자':'삼성전자우',year:2026,recordDate,payDate,amount,kind:'cashQuarterly',status:'reviewed',
+      eligibilityUrl:'https://kind.krx.co.kr/external/2026/03/19/001333/20260313002174/68961.htm',
+      paymentUrl:'https://www.samsung.com/sec/ir/reports-disclosures/public-disclosure/'+id+'/'}))),
     {code:'034730',name:'SK',year:2026,status:'candidate',
      eligibilityUrl:'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260327802307',
      paymentUrl:'https://www.sk-inc.com/kr/ir/faq.aspx'}
@@ -76,7 +85,7 @@
     if(type!=='주식'||!/^\d{5}[0-9A-Z]$/.test(symbol))return {status:'pending'};
     const matches=reference.filter(x=>x.code===symbol&&x.year===y);
     if(declared===true && /^\d{4}-\d{2}-\d{2}$/.test(String(payDate||'')) && Number(payDate.slice(0,4))===y && payDate>=recordDate){
-      const exact=matches.filter(x=>x.status==='reviewed'&&x.kind==='cashFinal'&&x.recordDate===recordDate&&Number(x.amount)===Number(amount));
+      const exact=matches.filter(x=>x.status==='reviewed'&&['cashFinal','cashQuarterly','cashInterim'].includes(x.kind)&&x.recordDate===recordDate&&Number(x.amount)===Number(amount)&&(x.payDate?x.payDate===payDate:(x.paymentWindowStart&&x.paymentWindowEnd&&payDate>=x.paymentWindowStart&&payDate<=x.paymentWindowEnd)));
       if(exact.length===1 && exact[0].eligibilityUrl && exact[0].paymentUrl) return {status:'reviewed',evidence:exact[0]};
     }
     return {status:'pending',evidence:matches[0]||null};
@@ -115,7 +124,7 @@
       const amount = number(item?.amount ?? item?.annualDiv);
       const type = classifyTaxType(item?.taxType);
       out.totalGross += amount;
-      if (type === 'normal') {out.normalGross += amount;reviewedGross+=Math.min(amount,number(item.specialReviewed));pendingGross+=Math.min(amount,number(item.specialPending));}
+      if (type === 'normal') {out.normalGross += amount;const reviewed=Math.min(amount,number(item.specialReviewed));reviewedGross+=reviewed;pendingGross+=Math.min(amount-reviewed,number(item.specialPending));}
       else if (type === 'isa') out.isaInternal += amount;
       else if (type === 'pension') { out.pensionSavingsInternal += amount; out.pensionInternal += amount; }
       else if (type === 'irp') { out.irpInternal += amount; out.pensionInternal += amount; }

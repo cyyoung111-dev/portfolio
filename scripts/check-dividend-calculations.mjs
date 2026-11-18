@@ -373,3 +373,19 @@ const withInterest=P.calculateDividendCashflow({dividends:planCtx._getPlanDivide
 assert.equal(withInterest.specialTaxScenario.ordinaryWithApplication,2000000);
 otherValue='';accountCtx._applyDivOtherIncome();assert.equal(accountCtx._getDivOtherIncome(2026),null);
 console.log('PASS: shared session-only non-dividend income scenario and missing identity protection');
+
+// Quarterly/interim eligibility must not be limited to final dividends.
+// Official dates and class-specific amounts are required for exact matches.
+for(const code of ['005930','005935']){
+ for(const [recordDate,payDate,amount] of [['2026-03-31','2026-05-29',372],['2026-06-30','2026-08-28',374],['2026-09-30','2026-11-27',4601]]){
+  const event={...exact,code,recordDate,payDate,amount};
+  assert.equal(P.specialDividendEvidence(event).status,'reviewed');
+  assert.equal(P.specialDividendEvidence({...event,payDate:'2026-12-31'}).status,'pending');
+  assert.equal(P.specialDividendEvidence({...event,amount:amount+1}).status,'pending');
+ }
+}
+assert.equal(P.specialDividendEvidence({...exact,payDate:'2026-12-31'}).status,'pending');
+const conflict=P.calculateDividendCashflow({dividends:[{taxType:'NORMAL',amount:100,specialReviewed:100,specialPending:100},{taxType:'NORMAL',amount:100}],year:2026});
+assert.equal(conflict.specialTaxScenario.reviewedGross,100);
+assert.equal(conflict.specialTaxScenario.pendingGross,0);
+console.log('PASS: quarterly cash dividends, date bounds, no overlapping reviewed and pending tax amounts');
