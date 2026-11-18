@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/collect-high-dividend-kind.py'
+      - 'scripts/test_high_dividend_kind.py'
       - '.github/workflows/high-dividend-kind-source.yml'
   schedule:
     - cron: '9 0 * * 1' # Monday 09:09 KST

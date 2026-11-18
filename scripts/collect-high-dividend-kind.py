@@ -118,6 +118,99 @@ def unique_visible(locator, description):
         raise RuntimeError(f"{description}: expected one visible control, found {len(visible)}")
     return visible[0]
 
+CORP_URL = "https://kind.krx.co.kr/corpgeneral/corpList.do?method=loadInitPage"
+
+def normalize_market(raw):
+    return {"유가":"KOSPI","유가증권":"KOSPI","유가증권시장":"KOSPI",
+            "코스닥":"KOSDAQ","코스닥시장":"KOSDAQ","코넥스":"KONEX","코넥스시장":"KONEX"}.get(re.sub(r"\s+","",str(raw)))
+
+def normalize_code(raw):
+    value=str(raw).strip()
+    if re.fullmatch(r"\d{1,6}(?:\.0)?",value):
+        return value.split(".")[0].zfill(6)
+    if re.fullmatch(r"\d{5}[A-Z]",value):
+        return value
+    return None
+
+def join_listed_issuers(entries, corp_rows):
+    # Exact issuer name and market only. Name similarity, preferred-share
+    # suffixes, and missing market information cannot establish identity.
+    aliases = {"name": {"회사명"}, "market": {"시장구분","시장"}, "code": {"종목코드"}}
+    headers = []
+    for i,row in enumerate(corp_rows[:20]):
+        compact=[re.sub(r"\s+","",c) for c in row]
+        indexes = {k:[j for j,c in enumerate(compact) if c in v] for k,v in aliases.items()}
+        if all(len(v)==1 for v in indexes.values()):
+            headers.append((i,{k:v[0] for k,v in indexes.items()}))
+    if len(headers)!=1:
+        print("Listed corporations header preview:",json.dumps(corp_rows[:4],ensure_ascii=False),flush=True)
+        raise RuntimeError("KIND listed corporation columns not identified")
+    index,cols=headers[0]
+    by_name, by_code = {}, {}
+    valid=0
+    for row in corp_rows[index+1:]:
+        if not any(row):
+            continue
+        if len(row)<=max(cols.values()):
+            raise RuntimeError("KIND listed corporation row truncated")
+        name=row[cols["name"]].strip()
+        market=normalize_market(row[cols["market"]])
+        code=normalize_code(row[cols["code"]])
+        if not name or not market or not code:
+            raise RuntimeError("KIND listed corporation identity format invalid")
+        valid+=1
+        key=(market,name)
+        by_name.setdefault(key,set()).add(code)
+        by_code.setdefault(code,set()).add(key)
+    if valid<1000:
+        raise RuntimeError("Listed corporation master appears incomplete")
+    matched,unresolved=[],[]
+    for row in entries:
+        name=row[2].strip()
+        market=normalize_market(row[1])
+        codes=by_name.get((market,name),set())
+        if len(codes)==1:
+            code=next(iter(codes))
+            if len(by_code[code])==1:
+                matched.append({"issuerName":name,"market":market,"listedCode":code,
+                                "businessYear":int(float(row[4].removesuffix("년"))),
+                                "disclosureTitle":row[3],"identityState":"EXACT_LISTED_ISSUER",
+                                "taxEligibility":"UNVERIFIED"})
+                continue
+        unresolved.append({"issuerName":name,"market":market,
+                           "reason":"AMBIGUOUS" if codes else "NOT_IN_CURRENT_MASTER"})
+    if len(matched)+len(unresolved)!=len(entries):
+        raise RuntimeError("Candidate coverage mismatch")
+    return {"classification":"CANDIDATE_ONLY","source":CORP_URL,
+            "listedMasterRows":valid,"matched":matched,"unresolved":unresolved}
+
+def collect_corp_index(browser, entries, out):
+    page=browser.new_page(locale="ko-KR",accept_downloads=True)
+    try:
+        response=page.goto(CORP_URL,wait_until="domcontentloaded",timeout=60000)
+        if response is None or not response.ok:
+            raise RuntimeError("KIND listed corporations unavailable")
+        page.get_by_text("상장법인목록",exact=True).last.wait_for(state="visible")
+        excel=unique_visible(page.locator('a[title="EXCEL"],button[title="EXCEL"]'),"Listed corporation Excel")
+        with page.expect_download(timeout=60000) as info:
+            excel.click()
+        dl=info.value
+        filename="listed-corporations-"+Path(dl.suggested_filename).name
+        raw=out/filename
+        dl.save_as(raw)
+        data=raw.read_bytes()
+        result=join_listed_issuers(entries,read_rows(data))
+        result["retrievedAt"]=datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+        result["masterSha256"]=hashlib.sha256(data).hexdigest()
+        (out/"candidate-index.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
+        print("KIND identity reconciliation:",json.dumps({"masterRows":result["listedMasterRows"],
+               "matched":len(result["matched"]),"unresolved":len(result["unresolved"]),
+               "classification":result["classification"]},ensure_ascii=False),flush=True)
+        return result
+    finally:
+        page.screenshot(path=str(out/"kind-listed-screen.png"),full_page=True)
+        page.close()
+
 def collect(year, out):
     out.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
@@ -232,6 +325,7 @@ def collect(year, out):
             print("KIND candidate review:",json.dumps(candidate_review,ensure_ascii=False),flush=True)
             if candidate_review["state"] == "REVIEW_REQUIRED":
                 raise RuntimeError("Official candidate row changed; reviewed payment evidence must be checked")
+            collect_corp_index(browser,entries,out)
         finally:
             page.screenshot(path=str(out / "kind-screen.png"), full_page=True)
             browser.close()
