@@ -54,19 +54,72 @@
     return result;
   }
 
+  // Partial, reviewed public disclosure reference. Not a complete KIND list.
+  // A company disclosure alone is NOT evidence for every cash payment.
+  const DIVIDEND_DISCLOSURE_AS_OF = '2026-11-18';
+  const DIVIDEND_SPECIAL_REFERENCE = Object.freeze([
+    {code:'005930',name:'삼성전자',year:2026,recordDate:'2025-12-31',amount:566,kind:'cashFinal',status:'reviewed',
+     eligibilityUrl:'https://kind.krx.co.kr/external/2026/03/19/001333/20260313002174/68961.htm',
+     paymentUrl:'https://www.samsung.com/sec/ir/reports-disclosures/public-disclosure/3759/'},
+    {code:'005935',name:'삼성전자우',year:2026,recordDate:'2025-12-31',amount:567,kind:'cashFinal',status:'reviewed',
+     eligibilityUrl:'https://kind.krx.co.kr/external/2026/03/19/001333/20260313002174/68961.htm',
+     paymentUrl:'https://www.samsung.com/sec/ir/reports-disclosures/public-disclosure/3759/'},
+    {code:'034730',name:'SK',year:2026,status:'candidate',
+     eligibilityUrl:'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260327802307',
+     paymentUrl:'https://www.sk-inc.com/kr/ir/faq.aspx'}
+  ].map(Object.freeze));
+  function specialDividendEvidence({code,assetType,recordDate,payDate,amount,year,declared}={}, reference=DIVIDEND_SPECIAL_REFERENCE) {
+    const y=Number(year),symbol=String(code||'').trim().toUpperCase();
+    if(y<2026||y>2029||!Number.isInteger(y)) return {status:'outside'};
+    if(String(assetType||'').toUpperCase()!=='주식'||!/^\d{6}$/.test(symbol))return {status:'ordinary'};
+    const matches=reference.filter(x=>x.code===symbol&&x.year===y);
+    if(declared===true && /^\d{4}-\d{2}-\d{2}$/.test(String(payDate||'')) && Number(payDate.slice(0,4))===y && payDate>=recordDate){
+      const exact=matches.filter(x=>x.status==='reviewed'&&x.kind==='cashFinal'&&x.recordDate===recordDate&&Number(x.amount)===Number(amount));
+      if(exact.length===1 && exact[0].eligibilityUrl && exact[0].paymentUrl) return {status:'reviewed',evidence:exact[0]};
+    }
+    return {status:'pending',evidence:matches[0]||null};
+  }
+  function calculateSpecialDividendTax(gross,year=2026) {
+    const y=Number(year);
+    if(!Number.isInteger(y)||y<2026||y>2029)return null;
+    const value=number(gross);
+    // Marginal national income tax; local income tax 10% of national.
+    const bands=[[20000000,.14],[300000000,.20],[5000000000,.25],[Infinity,.30]];
+    let lower=0,national=0;
+    for(const [upper,rate] of bands){national+=Math.max(0,Math.min(value,upper)-lower)*rate;lower=upper;}
+    return Math.round(national*1.1);
+  }
+  function calculateDividendTaxScenario({normalGross=0,reviewedGross=0,pendingGross=0,interest=null,year=2026}={}) {
+    const gross=number(normalGross),eligible=calculateSpecialDividendTax(0,year)!==null;
+    const reviewed=eligible?Math.min(gross,number(reviewedGross)):0;
+    const pending=eligible?Math.min(gross-reviewed,number(pendingGross)):0;
+    const knownInterest=interest!==null&&interest!==undefined&&interest!==''&&Number.isFinite(Number(interest))&&Number(interest)>=0;
+    const includedInterest=knownInterest?Number(interest):0;
+    const ordinary=gross-reviewed+includedInterest;
+    const specialTax=eligible?calculateSpecialDividendTax(reviewed,year):0;
+    return {normalGross:gross,reviewedGross:reviewed,pendingGross:pending,interestKnown:knownInterest,
+      ordinaryWithoutApplication:gross+includedInterest,ordinaryWithApplication:ordinary,
+      threshold:20000000,headroom:20000000-ordinary,specialTax,
+      withholdingReference:Math.round(gross*.154),
+      afterApplicationReference:Math.round(gross-(gross-reviewed)*.154-specialTax),
+      finalTaxKnown:false,appliedRule:eligible?'2026-2029':'outside'};
+  }
+
   function calculateDividendCashflow({ dividends = [], year = 2026 } = {}) {
     const rules = rulesFor(year);
     const out = { totalGross: 0, normalGross: 0, normalAfterTax: 0, availableAnnual: 0, availableMonthly: 0, isaInternal: 0, pensionInternal: 0, pensionSavingsInternal: 0, irpInternal: 0, unclassified: 0, warnings: [], appliedRuleYear: rules.year };
+    let reviewedGross=0,pendingGross=0;
     (Array.isArray(dividends) ? dividends : []).forEach(item => {
       const amount = number(item?.amount ?? item?.annualDiv);
       const type = classifyTaxType(item?.taxType);
       out.totalGross += amount;
-      if (type === 'normal') out.normalGross += amount;
+      if (type === 'normal') {out.normalGross += amount;reviewedGross+=Math.min(amount,number(item.specialReviewed));pendingGross+=Math.min(amount,number(item.specialPending));}
       else if (type === 'isa') out.isaInternal += amount;
       else if (type === 'pension') { out.pensionSavingsInternal += amount; out.pensionInternal += amount; }
       else if (type === 'irp') { out.irpInternal += amount; out.pensionInternal += amount; }
       else { out.unclassified += amount; out.warnings.push(`미분류 배당: ${String(item?.acct || item?.name || '이름 없음')}`); }
     });
+    out.specialTaxScenario=calculateDividendTaxScenario({normalGross:out.normalGross,reviewedGross,pendingGross,year});
     out.normalAfterTax = Math.round(out.normalGross * (1 - rules.normalDividendWithholdingRate));
     out.availableAnnual = out.normalAfterTax;
     out.availableMonthly = Math.round(out.availableAnnual / 12);
@@ -296,5 +349,5 @@
     return { code:'SUSTAINABLE', label:'은퇴 가능' };
   }
 
-  return { TAX_RULES_BY_YEAR, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
+  return { TAX_RULES_BY_YEAR, DIVIDEND_DISCLOSURE_AS_OF, DIVIDEND_SPECIAL_REFERENCE, specialDividendEvidence, calculateSpecialDividendTax, calculateDividendTaxScenario, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
 });

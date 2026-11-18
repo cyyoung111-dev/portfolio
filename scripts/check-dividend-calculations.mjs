@@ -332,3 +332,30 @@ assert.match(divArea.innerHTML,/1월 배당 600원/);
 assert.match(divArea.innerHTML,/2월 배당 500원/);
 assert.match(divArea.innerHTML,/은행 실입금 <b>846<\/b>/,'net receipt stays unallocated and full-scope');
 console.log('PASS: actual rendering of dividend totals and tax/month filter');
+
+// Real calculation, legal brackets, year boundaries, exact security classes and
+// entitlement-day account attribution; never auto-exclude future forecasts.
+const P=accountCtx.PlanCalculations;
+for(const [gross,expected] of [[0,0],[20000000,3080000],[21000000,3300000],[300000000,64680000],[301000000,64955000],[5000000000,1357180000],[5001000000,1357510000]])assert.equal(P.calculateSpecialDividendTax(gross,2026),expected);
+assert.equal(P.calculateSpecialDividendTax(30000000,2030),null);
+const exact={code:'005930',assetType:'주식',recordDate:'2025-12-31',payDate:'2026-04-17',amount:566,year:2026,declared:true};
+assert.equal(P.specialDividendEvidence(exact).status,'reviewed');
+for(const patch of [{code:'005935'},{amount:567},{recordDate:'2026-03-31'},{payDate:''},{declared:false},{year:2027},{code:'034730'}])assert.notEqual(P.specialDividendEvidence({...exact,...patch}).status,'reviewed');
+assert.equal(P.specialDividendEvidence({...exact,assetType:'ETF'}).status,'ordinary');
+const sc=P.calculateDividendTaxScenario({normalGross:28000000,reviewedGross:12000000,pendingGross:5000000,interest:2000000,year:2026});
+assert.equal(sc.ordinaryWithoutApplication,30000000);assert.equal(sc.ordinaryWithApplication,18000000);assert.equal(sc.headroom,2000000);assert.equal(sc.specialTax,1848000);
+assert.equal(P.calculateDividendTaxScenario({normalGross:28000000,reviewedGross:12000000,year:2030}).ordinaryWithApplication,28000000);
+assert.equal(P.calculateDividendTaxScenario({normalGross:100}).interestKnown,false);
+accountCtx.EDITABLE_PRICES=[{code:'005930',name:'삼성전자',assetType:'주식'}];
+accountCtx.getEP=()=>accountCtx.EDITABLE_PRICES[0];
+accountCtx.rawHoldings=[{name:'삼성전자',acct:'ISA',qty:10}];
+accountCtx.rawTrades=[{name:'삼성전자',acct:'일반'},{name:'삼성전자',acct:'ISA'}];
+accountCtx.DIVDATA={'005930':{perShare:100,months:[12],events:[{date:'2025-12-31',payDate:'2026-04-17',amount:566}]}};
+accountCtx.getQtyAtDate=(_n,day,acct)=>day==='2025-12-31'?(acct==='일반'?4:acct==='ISA'?6:10):(acct==='일반'?0:acct==='ISA'?10:10);
+const hiRows=accountCtx.calcDividends(),hi=accountCtx._divTaxSummary(hiRows);
+assert.equal(hi.normal.specialReviewed,2264);assert.equal(hi.isa.specialReviewed,3396);assert.equal(hi.isa.specialPending,1000);
+const hiPlan=P.calculateDividendCashflow({dividends:planCtx._getPlanDividendEntries(hiRows),year:2026});
+assert.equal(hiPlan.specialTaxScenario.reviewedGross,2264);assert.equal(hiPlan.specialTaxScenario.ordinaryWithApplication,0);
+assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/2,264원/);
+assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/이자·기타 금융소득 미포함/);
+console.log('PASS: progressive dividend special tax, date/security checks, account attribution and plan reconciliation');
