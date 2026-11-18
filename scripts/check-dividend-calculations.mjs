@@ -363,7 +363,7 @@ console.log('PASS: progressive dividend special tax, date/security checks, accou
 // Unknown identity is never treated as a confirmed exclusion. Session-local
 // interest assumption is shared with the plan and does not mutate records.
 assert.equal(P.specialDividendEvidence({...exact,assetType:'',code:''}).status,'pending');
-assert.equal(P.specialDividendEvidence({...exact,code:'03473K'}).status,'pending');
+assert.equal(P.specialDividendEvidence({...exact,code:'0347K0'}).status,'pending');
 let otherValue='2,000,000';
 accountCtx.$el=id=>id==='div-other-income-scenario'?{value:otherValue}:divArea;
 accountCtx._applyDivOtherIncome();

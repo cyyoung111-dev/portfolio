@@ -128,7 +128,7 @@ def normalize_code(raw):
     value=str(raw).strip()
     if re.fullmatch(r"\d{1,6}(?:\.0)?",value):
         return value.split(".")[0].zfill(6)
-    if re.fullmatch(r"\d{5}[A-Z]",value):
+    if re.fullmatch(r"\d{4}[A-Z]\d",value):
         return value
     return None
 

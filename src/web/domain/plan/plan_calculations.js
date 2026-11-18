@@ -82,7 +82,7 @@
     if(y<2026||y>2029||!Number.isInteger(y)) return {status:'outside'};
     const type=String(assetType||'').toUpperCase();
     if(['ETF','TDF','펀드','FUND','REIT','리츠','ETN','해외주식','FOREIGN_STOCK'].includes(type))return {status:'ordinary'};
-    if(type!=='주식'||!/^\d{5}[0-9A-Z]$/.test(symbol))return {status:'pending'};
+    if(type!=='주식'||!/^(?:\d{6}|\d{4}[A-Z]\d)$/.test(symbol))return {status:'pending'};
     const matches=reference.filter(x=>x.code===symbol&&x.year===y);
     // A separately recorded negative/corrected issuer or security status supersedes
     // positive references. Never fall back to an older reviewed payment.

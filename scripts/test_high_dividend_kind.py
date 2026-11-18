@@ -38,11 +38,11 @@ class IdentityTests(unittest.TestCase):
                     ["3","코스닥","동명","기업가치 제고 계획","2025","12","45","0"],
                     ["4","유가","충돌","기업가치 제고 계획","2025","12","45","0"]]
         master=[["회사명","시장구분","종목코드"],["삼성전자","유가증권","5930"],
-                ["동명","코스닥","12345A"],["동명","유가증권","555551"],
+                ["동명","코스닥","1234A0"],["동명","유가증권","555551"],
                 ["충돌","유가증권","555552"],["충돌","유가증권","555553"]]
         master += [[f"test{i}","코스닥",str(100000+i)] for i in range(1000)]
         result=mod.join_listed_issuers(candidates,master)
-        self.assertEqual([r["listedCode"] for r in result["matched"]],["005930","12345A"])
+        self.assertEqual([r["listedCode"] for r in result["matched"]],["005930","1234A0"])
         self.assertEqual([r["reason"] for r in result["unresolved"]],["NOT_IN_CURRENT_MASTER","AMBIGUOUS"])
         self.assertTrue(all(r["taxEligibility"]=="UNVERIFIED" for r in result["matched"]))
         self.assertNotIn("005935",[r["listedCode"] for r in result["matched"]])
