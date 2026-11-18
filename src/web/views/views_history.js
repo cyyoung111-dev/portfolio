@@ -895,7 +895,7 @@ function renderGsheetView(area) {
           <input id="gsheetUrlInput" type="text"
             value="${currentUrl.replace(/"/g,'&quot;')}"
             placeholder="https://script.google.com/macros/s/..."
-            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:0"
+            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:7px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));min-width:0"
           />
           <button id="btn-save-gsheet-url" class="btn-purple-sm">저장 · 연결 테스트</button>
         </div>
@@ -913,7 +913,7 @@ function renderGsheetView(area) {
         </div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
           <input id="gsheetAccessTokenInput" type="password" value="" autocomplete="off" placeholder="24자 이상의 GAS access_token"
-            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"/>
+            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:7px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));min-width:220px"/>
           <button id="btn-save-gsheet-access-token" class="btn-purple-sm">저장 · 검증</button>
           ${accessTokenConfigured ? '<button id="btn-clear-gsheet-access-token" class="btn-del-sm">브라우저 토큰 삭제</button>' : ''}
         </div>
@@ -942,7 +942,7 @@ function renderGsheetView(area) {
         </div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
           <input id="publicDataKeyInput" type="password" value="" placeholder="공공데이터포털 Encoding 인증키"
-            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
+            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:7px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));min-width:220px"
           />
           <button id="btn-save-public-data-key" class="btn-purple-sm">키 저장·교체</button>
            ${publicDataKey ? '<button id="btn-clear-public-data-key" class="btn-del-sm">GAS 키 삭제</button>' : ''}
@@ -961,7 +961,7 @@ function renderGsheetView(area) {
         </div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
           <input id="krxAuthKeyInput" type="password" value="" placeholder="KRX Open API AUTH_KEY"
-            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
+            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:7px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));min-width:220px"
           />
           <button id="btn-save-krx-auth-key" class="btn-purple-sm">키 저장·교체</button>
            ${krxAuthKey ? '<button id="btn-clear-krx-auth-key" class="btn-del-sm">GAS 키 삭제</button>' : ''}
@@ -969,7 +969,7 @@ function renderGsheetView(area) {
         <div id="krxAuthKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${krxAuthKey ? 'GAS 키 저장 확인 · 공식 조회 성공 여부는 별도 검증합니다.' : 'GAS 키 미설정 · 공식 KRX API 조회가 제한될 수 있습니다.'} 빈 입력으로는 삭제되지 않습니다.</div>
          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px">
            <input id="krxProbeDate" type="date" value="${krxProbeDate}" aria-label="KRX 공식 조회 검증 거래일"
-             style="background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:6px;color:var(--text);font-size:.70rem"/>
+             style="background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:6px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))"/>
            <button id="btn-diagnose-krx" class="btn-purple-sm">GAS KRX 실제 조회</button>
          </div>
          <div id="krxSourceStatus" role="status" style="margin-top:7px;font-size:.68rem;color:var(--muted);min-height:1.3em">${krxDiag ? (krxDiag.verified ? '실제 조회 성공' : '실제 조회 미확인') + ' · 마지막 확인 ' + krxDiag.checkedAt + ' KST · 거래일 ' + krxDiag.sourceDate : '실제 조회: 미확인 · 마지막 확인: 없음 · 원천: GAS → KRX 공식 API'}</div>
@@ -1025,7 +1025,7 @@ function renderStocksView(area) {
           <div style="font-size:.68rem;color:var(--amber);font-weight:700;margin-bottom:8px">➕ 새 계좌 추가</div>
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
             <input id="acctMgmtNewInput" type="text" placeholder="계좌명 입력"
-              style="flex:1;background:var(--s1);border:1px solid rgba(251,191,36,.4);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
+              style="flex:1;background:var(--s1);border:1px solid rgba(251,191,36,.4);border-radius:var(--ui-command-radius,var(--radius-control));padding:6px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))" />
           </div>
           <!-- ★ [계좌별 taxType] 신규 계좌 구분 선택 -->
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:5px">구분 (세금/계좌 유형)</div>
@@ -1073,9 +1073,9 @@ function renderStocksView(area) {
           <div style="font-size:.68rem;color:var(--c-purple-45);font-weight:700;margin-bottom:8px">➕ 새 종목 추가</div>
           <div style="display:grid;grid-template-columns:1fr 100px;gap:6px;margin-bottom:8px">
             <input id="smMgmtNewName" type="text" placeholder="종목명"
-              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
+              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:var(--ui-command-radius,var(--radius-control));padding:6px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))" />
             <input id="smMgmtNewCode" type="text" placeholder="종목코드" maxlength="6"
-              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;text-align:center" />
+              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:var(--ui-command-radius,var(--radius-control));padding:6px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));text-align:center" />
           </div>
           <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">유형 <span style="font-weight:400">(자산 종류)</span></div>
           <div id="smTypeGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
@@ -1117,7 +1117,7 @@ function renderStocksView(area) {
           <div style="font-size:.68rem;color:var(--c-purple-45);font-weight:700;margin-bottom:8px">➕ 새 섹터 추가</div>
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
             <input id="secMgmtNewName" type="text" placeholder="섹터명 입력"
-              style="flex:1;background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
+              style="flex:1;background:var(--s1);border:1px solid var(--c-purple-30);border-radius:var(--ui-command-radius,var(--radius-control));padding:6px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))" />
           </div>
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:6px">색상 선택</div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">

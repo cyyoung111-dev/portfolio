@@ -136,8 +136,8 @@ function renderTradeGroupView(area) {
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <input id="tgFilterName" placeholder="🔍 종목명·코드 검색" value="${_escapeHtml(_tgFilter.name)}"
           data-tg-filter="name"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
-        <select data-tg-filter="acct" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem">
+          style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 10px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));width:150px"/>
+        <select data-tg-filter="acct" style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
           <option value="">전체 계좌</option>
           ${getAcctList().filter(a => a !== '전체' && a !== '합계').map(a => `<option value="${_escapeHtml(a)}"${_tgFilter.acct===a?' selected':''}>${_escapeHtml(a)}</option>`).join('')}
         </select>

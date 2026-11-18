@@ -133,7 +133,7 @@ function _buildTaxSection(totalCost) {
       <h4 class="h3-card" style="margin-bottom:0">🧾 세금 시뮬레이터</h4>
       <div style="display:flex;align-items:center;gap:6px">
         <span class="caption-text">귀속연도</span>
-        <select id="plan-tax-year" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.75rem">
+        <select id="plan-tax-year" style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:4px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
           ${Array.from({length:5},(_,i)=>nowYear-i).map(y=>
             `<option value="${y}" ${y===taxYear?'selected':''}>${y}년</option>`).join('')}
         </select>

@@ -24,7 +24,7 @@ function _buildWeightSection(totalEval) {
           data-plan-weight="${_escapeHtml(item.name)}"
           value="${item.targetPct || ''}"
           placeholder="0"
-          style="width:52px;background:var(--s2);border:1px solid var(--border);border-radius:5px;padding:3px 5px;color:var(--text);font-size:.72rem;text-align:right"/>
+          style="width:52px;background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:3px 5px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));text-align:right"/>
       </div>
       <div style="font-size:.72rem;font-weight:600;color:${diffColor};text-align:right">${diffLabel}</div>
     </div>`;

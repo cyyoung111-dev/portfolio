@@ -545,11 +545,11 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   height:54px;
   min-height:54px;
   padding:2px 1px;
-  border-radius:7px;
+  border-radius:8px;
   text-align:center;
   white-space:normal;
   line-height:1.15;
-  font-size:clamp(9px,2.5vw,11px);
+  font-size:var(--type-caption);
   font-weight:500;
   letter-spacing:-.02em;
 }
@@ -952,8 +952,6 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   #view-area[data-active-view] :is(.hist-month-input,.hist-range-select) {
     width:100%;min-width:0;min-height:42px;
   }
-  /* Native month pickers remain at least 16px to avoid mobile focus zoom. */
-  #view-area[data-active-view] .hist-month-input {font-size:max(16px,var(--type-caption))}
   #view-area[data-active-view] .hist-controls>.hist-filter-details,
   #view-area[data-active-view] .hist-query-btn {
     width:100%;min-width:0;grid-column:1/-1;
@@ -966,5 +964,177 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 @media(max-width:360px){
   #view-area[data-active-view] .hist-controls {
     grid-template-columns:minmax(0,1fr);
+  }
+}
+
+/* Cross-view design contract: one action, one filter, one editable-field scale.
+   Fixed shape and minimum hit areas; text follows the chosen UI font/size.
+   Keep table scroll, account grid, chart bars and financial colors intact. */
+:root {
+  --ui-command-height:32px;
+  --ui-filter-height:30px;
+  --ui-primary-height:36px;
+  --ui-field-font:var(--type-body);
+  --ui-command-radius:8px;
+  --ui-surface-radius:12px;
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.hist-bench-btn,
+    .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm,
+    .settings-tab,.cfd-btn,.editor-page-btn,
+    .btn-sm,.btn-sm-purple,.btn-amber-sm,.btn-purple-sm,.btn-purple-sm-700,
+    .btn-outline-sm,.btn-edit-sm,.btn-del-sm,.btn-danger,.btn-danger-lg,.btn-danger-ghost,
+    .btn-ghost-sm,.btn-cancel-sm,.btn-buy-sm,.btn-sell-sm,.btn-buy-lg,.btn-sell-lg,
+    .btn-amber-outline,.btn-purple,.btn-purple-700,.btn-amber,.btn-apply,.btn-cancel,
+    .btn-ghost-muted,.btn-add-green,.btn-add-purple,.btn-add-cyan,.fund-action) {
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;justify-content:center;gap:6px;
+  height:var(--ui-command-height);min-height:var(--ui-command-height);
+  padding:4px 10px;
+  border-radius:var(--ui-command-radius);
+  font-family:var(--font-ui);
+  font-size:var(--type-caption);
+  font-weight:600;
+  line-height:var(--line-compact);
+  white-space:nowrap;
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(.plan-subtab,.div-month-filter button,.settings-tab,.cfd-btn,
+    .editor-page-btn,.btn-outline-sm,.btn-edit-sm,.btn-amber-outline,
+    .btn-ghost-sm,.btn-cancel-sm,.btn-ghost-muted,.btn-cancel) {
+  border:1px solid var(--ui-edge);
+  background:var(--s2);
+  color:var(--text);
+}
+:is(#view-area[data-active-view],.settings-dialog,.col-filter-dropdown)
+  :is(.plan-subtab,.div-month-filter button,.settings-tab,.cfd-btn):is(.active,.is-active,[aria-selected="true"],[aria-pressed="true"]) {
+  border-color:var(--ui-selected-edge);
+  background:var(--ui-selected-bg);
+  color:var(--gold);
+  font-weight:700;
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog)
+  :is(.btn-purple-sm,.btn-purple-sm-700,.btn-purple-700,.btn-amber-sm,.btn-amber,.btn-apply,.btn-gold,.btn-add-green,.btn-add-purple,.btn-add-cyan) {
+  background:var(--ui-selected-bg);
+  border:1px solid var(--ui-selected-edge);
+  color:var(--gold);
+}
+:is(#view-area[data-active-view],.editor-box)
+  :is(.btn-sm-purple,.btn-buy-sm,.btn-buy-lg) {
+  border:1px solid var(--c-green3-30);
+  background:var(--c-green-08);
+  color:var(--green-lt);
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog)
+  :is(.btn-danger,.btn-danger-lg,.btn-danger-ghost,.btn-del-sm,.btn-sell-sm,.btn-sell-lg,.btn-sell) {
+  border:1px solid var(--c-red-35);
+  background:var(--c-red-08);
+  color:var(--red-lt);
+}
+/* Match the same role on desktop and mobile; preserve compact labels. */
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.hist-bench-btn,
+    .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm,.settings-tab) {
+  height:var(--ui-filter-height);min-height:var(--ui-filter-height);
+  padding:4px 9px;
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(button.btn-amber,button.btn-amber-sm,button.btn-apply,button.btn-purple-sm,button.btn-purple-sm-700,button.btn-purple-700,button.btn-gold,button.btn-add-green,button.btn-add-purple,button.btn-add-cyan) {
+  height:var(--ui-primary-height);min-height:var(--ui-primary-height);
+}
+/* A compact row and a navigation tile are distinct control roles. */
+.action-bar .action-refresh-btn,.toolbar-section .toolbar-btn,#viewSwitcher .vs-btn {
+  border-radius:var(--ui-command-radius);
+}
+.action-bar .action-update-card>.action-refresh-btn,
+.toolbar-section .toolbar-btn,#viewSwitcher .vs-btn {
+  height:44px;min-height:44px;gap:2px;padding:3px 6px;
+}
+.action-bar .action-refresh-btn svg,.toolbar-section .toolbar-btn svg,
+#viewSwitcher .vs-btn-icon svg {width:16px;height:16px}
+@media(max-width:480px) {
+  .action-bar .action-update-card>.action-refresh-btn {height:var(--ui-primary-height);min-height:var(--ui-primary-height)}
+}
+#view-area[data-active-view] .hist-mode-controls {height:36px;min-height:36px}
+#view-area[data-active-view] .hist-mode-controls button {height:34px;min-height:34px;border-radius:var(--ui-command-radius);padding:3px 8px}
+#view-area[data-active-view] .hist-query-btn {border-radius:var(--ui-command-radius);font-size:var(--type-caption);font-weight:700}
+#view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {height:var(--ui-filter-height);min-height:var(--ui-filter-height);border-radius:var(--ui-command-radius)}
+
+#view-area[data-active-view] .hist-controls>.hist-filter-details {min-height:36px;border-radius:var(--ui-command-radius)}
+#view-area[data-active-view] .hist-controls>.hist-filter-details>summary {min-height:34px;padding:4px 9px}
+#view-area[data-active-view] :is(.hist-detail-panel,.hist-benchmark-details,.hist-source-coverage)>summary {min-height:32px;padding:6px 10px}
+.wrap :is(.sc,.sector-card,.chart-card,.trade-stat-card,.div-stat-card,.stat-card,
+  .card-12,.card-12-mb16,.card-12-p20,.hist-kpi-card,.hist-extreme-card,.hist-benchmark-card),
+:is(.editor-box,.settings-dialog,.col-filter-dropdown) {border-radius:var(--ui-surface-radius)}
+#view-area[data-active-view] :is(.plan-subtabs,.div-month-filter) {
+  gap:6px;scroll-padding-inline:6px;max-width:100%;min-width:0;
+}
+#view-area[data-active-view] .plan-subtabs {border-radius:var(--ui-surface-radius);border-color:var(--ui-edge)}
+/* Popovers and editors live outside the active-view element. Font inheritance
+   must work there as well. Explicit roles override obsolete inline field sizes. */
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown) {
+  font-family:var(--font-ui);
+}
+:is(.editor-box,.settings-dialog,.col-filter-dropdown) {
+  font-size:var(--type-body);line-height:var(--line-body);
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown)
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select,textarea) {
+  font-family:var(--font-ui);
+  font-size:var(--ui-field-font);
+  line-height:var(--line-compact);
+  border-radius:var(--ui-command-radius);
+  min-height:var(--ui-command-height);
+  min-width:0;max-width:100%;
+}
+/* The history row shares a taller field/query height than ordinary inputs.
+   Declare this after the generic field rule and retain exact role dimensions. */
+#view-area[data-active-view] .hist-controls :is(input.hist-month-input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select.hist-range-select,button.hist-query-btn) {
+  height:var(--ui-primary-height);min-height:var(--ui-primary-height);
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown) select option {
+  font:inherit;
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog)
+  :is(.editor-header h3,.settings-dialog__header h3,.settings-dialog__header h2,
+    .h3-section,.h3-card,.section-title,.card-title,.fund-units-panel h4) {
+  font-size:var(--type-title);font-weight:700;line-height:1.35;
+}
+:is(.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(.editor-row label,.editor-price-name,.form-label,.editor-group-title,.editor-price-section-title) {
+  font-size:var(--type-label);line-height:var(--line-compact);font-weight:600;
+}
+:is(.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(.editor-header p,.editor-row label span,.editor-price-summary,.editor-price-code,
+    .editor-price-type,.editor-price-meta,.editor-price-pagination,.settings-panel__help,.helper-text) {
+  font-size:var(--type-caption);line-height:var(--line-reading);
+}
+.col-filter-dropdown label {font-size:var(--type-body);line-height:var(--line-compact)}
+#view-area[data-active-view] :is(.fund-units-panel,.fund-units-panel input,.fund-units-panel select) {
+  font-size:var(--type-body);line-height:var(--line-body);
+}
+#view-area[data-active-view] :is(.fund-units-history,.fund-units-history>b) {
+  font-size:var(--type-caption);line-height:var(--line-reading);
+}
+#price-updated-label :is(.price-status-primary,.price-status-meta,.price-status-count,
+  .price-status-note,.price-status-chip,.price-lookup-summary-head,.price-lookup-summary-title,
+  .price-lookup-latency,.price-lookup-muted,.price-lookup-detail,.price-lookup-detail-close,
+  .price-lookup-detail-head,.price-lookup-foot) {
+  font-family:var(--font-ui);
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+}
+#price-updated-label :is(.price-lookup-detail,.price-lookup-summary .price-status-chip) {
+  border-radius:var(--ui-command-radius);
+}
+#price-updated-label .price-lookup-detail li {line-height:var(--line-reading);overflow-wrap:anywhere}
+#price-updated-label .price-lookup-detail-close {min-height:24px}
+#toast-container .toast {font-family:var(--font-ui);font-size:var(--type-body);border-radius:var(--ui-surface-radius)}
+/* iOS native form focus may zoom below 16px; use the same floor for all
+   editable fields on that platform rather than one anomalous month input. */
+@supports (-webkit-touch-callout:none) {
+  @media(max-width:768px) {
+    :root {--ui-field-font:max(16px,var(--type-body))}
   }
 }

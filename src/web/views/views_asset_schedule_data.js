@@ -52,12 +52,12 @@ function buildScheduleSection() {
       <div>
         <div class="txt-70-muted-mb4">날짜 (YYYY-MM)</div>
         <input type="month" id="re-val-date"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem">
+          style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
       </div>
       <div>
         <div class="txt-70-muted-mb4">시가 (원)</div>
         <input type="text" id="re-val-price" placeholder="480,000,000"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem;width:150px"
+          style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body));width:150px"
           data-format="number-comma">
       </div>
       <button data-schedule-action="add-re-value"
