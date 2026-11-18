@@ -29,6 +29,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      # The GET-only inventory now permits one bounded transient transport retry.
       - name: Inspect all GAS deployments (GET only, no deployment or finance writes)
         run: node scripts/issue507-deployment-inventory-readonly.mjs
 

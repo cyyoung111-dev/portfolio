@@ -8,3 +8,5 @@
 - 금융 원본/토큰/식별정보를 기록하거나 변경하지 않는다.
 
 - 수동 dispatch 연결 제한을 해소하기 위해 기존 inventory workflow의 자체 파일이 main에 변경된 최초 push에서만 동일한 읽기 전용 preflight와 9.298 dry-run을 실행. 실제 배포 승인값은 false 고정, 기존 수동 실배포 절차는 그대로 유지. 스케줄 추가 없음. 기존 inventory workflow 수동 실행은 inventory만 수행.
+
+- 11/18 23:41 KST, 읽기 전용 자동 실행 44326887105은 GAS REST 인벤토리 단계에서 NETWORK_UNVERIFIED로 중단. 배포 0, 금융 쓰기 0, dry-run 미실행. 모든 인벤토리 GET에서 공유하는 통신 오류 재시도 1회만 추가하며 HTTP·인증·JSON·스키마 실패는 기존처럼 차단. 이 변경 자체의 main 최초 push에서만 읽기 전용 재검증.

@@ -82,18 +82,32 @@ async function fetchPage(url,token,fetchImpl,maxChars=250000){
 export async function inspectGasDeploymentsReadOnly({
  scriptId,expectedDeploymentId,googleAccessToken,fetchImpl=fetch,
  verifyDetails=false,verifySource=false,referenceFiles=null,
+ delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),report=()=>{},
  verifiedHeadFingerprint=VERIFIED_TEST_HEAD_FINGERPRINT
 }={}){
  if(!validId(scriptId)||!validId(expectedDeploymentId)||
   typeof googleAccessToken!=='string'||googleAccessToken.length<20)
   fail('CONFIG_UNVERIFIED');
+ // One retry across the entire inventory, only for a transport failure.
+ // No authentication, permission, HTTP, JSON or metadata retry.
+ let retryUsed=false;
+ async function readPage(stage,url,maxChars){
+  try{return await fetchPage(url,googleAccessToken,fetchImpl,maxChars);}
+  catch(error){
+   if(retryUsed||error?.message!=='ISSUE507_DEPLOYMENT_INVENTORY_NETWORK_UNVERIFIED')throw error;
+   retryUsed=true;
+   report({kind:'GAS_INVENTORY_TRANSIENT_READ_RETRY',stage,gasWrites:0,financeWrites:0});
+   await delay(2000);
+   return fetchPage(url,googleAccessToken,fetchImpl,maxChars);
+  }
+ }
  const found=new Set(),tokens=new Set(),entries=[];
  let next='',complete=false,pages=0;
  while(pages<MAX_PAGES){
   const url=new URL(ROOT+encodeURIComponent(scriptId)+'/deployments');
   url.searchParams.set('pageSize',String(PAGE_SIZE));
   if(next)url.searchParams.set('pageToken',next);
-  const payload=await fetchPage(url.toString(),googleAccessToken,fetchImpl);
+  const payload=await readPage('LIST',url.toString());
   if(!payload||typeof payload!=='object'||Array.isArray(payload))
    fail('SCHEMA_RESPONSE_UNVERIFIED');
   // The REST API can omit a repeated field when it is empty. This must
@@ -157,9 +171,8 @@ export async function inspectGasDeploymentsReadOnly({
    detail.requested++;
    let record;
    try{
-    record=await fetchPage(
-     ROOT+encodeURIComponent(scriptId)+'/deployments/'+encodeURIComponent(entry.id),
-     googleAccessToken,fetchImpl);
+    record=await readPage('DETAIL',
+     ROOT+encodeURIComponent(scriptId)+'/deployments/'+encodeURIComponent(entry.id));
    }catch{
     detail.lookupUnverified++;continue;
    }
@@ -247,7 +260,7 @@ export async function inspectGasDeploymentsReadOnly({
    try{
     const u=new URL(ROOT+encodeURIComponent(scriptId)+'/content');
     u.searchParams.set('versionNumber',String(version));
-    const payload=await fetchPage(u.toString(),googleAccessToken,fetchImpl,1600000);
+    const payload=await readPage('SOURCE',u.toString(),1600000);
     if(payload?.scriptId!==scriptId||!Array.isArray(payload.files)||
       payload.files.filter(x=>x?.type==='JSON'&&x.name==='appsscript').length!==1)
      throw Error('schema');
@@ -420,7 +433,7 @@ export async function inspectGasDeploymentsReadOnly({
   additionalDeploymentSourceLimitUnverifiedCount:additionalRoleCounts.limitUnverified,
   additionalDeploymentSourceNotInspectedCount:additionalRoleCounts.notInspected,
   expectedDeploymentFound:expectedRows.length===1,
-  pagesRead:pages,inventoryComplete:true,
+  pagesRead:pages,inventoryComplete:true,transientReadRetries:retryUsed?1:0,
   allActorsAndVersionsTerminatedVerified:false,
   externalSheetsWritersExcludedVerified:false,
   editorSessionsExcludedVerified:false,
@@ -436,7 +449,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const result=await inspectGasDeploymentsReadOnly({
    scriptId:process.env.GAS_SCRIPT_ID,expectedDeploymentId:expected,
    googleAccessToken:token,verifyDetails:true,verifySource:true,
-   referenceFiles:loadTrackedRuntimeSources()
+   referenceFiles:loadTrackedRuntimeSources(),report:row=>console.log(JSON.stringify(row))
   });
   console.log(JSON.stringify(result));
   if(result.status==='BLOCKED')process.exitCode=2;
