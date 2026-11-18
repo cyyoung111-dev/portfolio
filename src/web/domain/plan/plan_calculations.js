@@ -77,6 +77,46 @@
      eligibilityUrl:'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260327802307',
      paymentUrl:'https://www.sk-inc.com/kr/ir/faq.aspx'}
   ].map(Object.freeze));
+  // Current official KIND issuer index is a candidate list, not a tax certificate.
+  // Loaded independently of application deployment; never contains portfolio data.
+  const companyCatalogs = new Map();
+  function setDividendCompanyCatalog(data, year) {
+    const y=Number(year)-1;
+    if(data?.schemaVersion!==1||data.classification!=='CANDIDATE_ONLY'||
+       data.source!=='https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain'||
+       data.businessYear!==y||!Number.isFinite(Date.parse(data.retrievedAt))||
+       !Array.isArray(data.rows)||!data.rows.length||!Array.isArray(data.unresolved)||
+       data.total!==data.rows.length+data.unresolved.length||!Array.isArray(data.recheckCodes)||
+       !Array.isArray(data.reviewChanges))return false;
+    const rows=new Map();
+    for(const r of data.rows){
+      if(!/^(?:\d{6}|\d{4}[A-Z]\d)$/.test(r.listedCode)||rows.has(r.listedCode)||
+         r.businessYear!==y||r.taxEligibility!=='UNVERIFIED'||r.identityState!=='EXACT_LISTED_ISSUER'||
+         !['KOSPI','KOSDAQ'].includes(r.market)||typeof r.issuerName!=='string')return false;
+      rows.set(r.listedCode,r.issuerName);
+    }
+    if(data.recheckCodes.some(c=>!/^(?:\d{6}|\d{4}[A-Z]\d)$/.test(c)))return false;
+    if(companyCatalogs.has(y)&&Date.parse(companyCatalogs.get(y).retrievedAt)>Date.parse(data.retrievedAt))return false;
+    companyCatalogs.set(y,{rows,review:new Set(data.recheckCodes),names:new Set(data.reviewChanges.map(x=>x.name)),retrievedAt:data.retrievedAt,total:data.total});
+    return true;
+  }
+  function dividendCompanyCatalogStatus(year,now=Date.now()){
+    const state=companyCatalogs.get(Number(year)-1);
+    if(!state)return {state:'unavailable',total:0};
+    const age=now-Date.parse(state.retrievedAt);
+    return {state:age>=0&&age<=10*86400000?'current':'stale',total:state.total,retrievedAt:state.retrievedAt};
+  }
+  function dividendCompanyCandidate(code,year,now=Date.now()){
+    const s=companyCatalogs.get(Number(year)-1);
+    const exact=String(code||'').trim().toUpperCase();
+    // Only an explicitly reviewed preferred-share relationship (not a suffix rule).
+    const issuer=exact==='005935'?'005930':exact;
+    if(!s)return {state:'unavailable'};
+    const name=s.rows.get(issuer);
+    if(s.review.has(issuer)||s.names.has(name)||(!name&&DIVIDEND_SPECIAL_REFERENCE.some(r=>r.code===exact&&r.year===Number(year)&&r.status==='reviewed')))return {state:'reviewRequired'};
+    if(dividendCompanyCatalogStatus(year,now).state!=='current')return {state:'stale'};
+    return {state:name?'candidate':'notListed',name};
+  }
   function specialDividendEvidence({code,assetType,recordDate,payDate,amount,year,declared}={}, reference=DIVIDEND_SPECIAL_REFERENCE) {
     const y=Number(year),symbol=String(code||'').trim().toUpperCase();
     if(y<2026||y>2029||!Number.isInteger(y)) return {status:'outside'};
@@ -84,6 +124,8 @@
     if(['ETF','TDF','펀드','FUND','REIT','리츠','ETN','해외주식','FOREIGN_STOCK'].includes(type))return {status:'ordinary'};
     if(type!=='주식'||!/^(?:\d{6}|\d{4}[A-Z]\d)$/.test(symbol))return {status:'pending'};
     const matches=reference.filter(x=>x.code===symbol&&x.year===y);
+    const company=dividendCompanyCandidate(symbol,y);
+    if(['reviewRequired','stale'].includes(company.state))return {status:'pending',evidence:null};
     // A separately recorded negative/corrected issuer or security status supersedes
     // positive references. Never fall back to an older reviewed payment.
     if(matches.some(x=>['revoked','reviewRequired','ineligible'].includes(x.status)))return {status:'pending',evidence:matches.find(x=>['revoked','reviewRequired','ineligible'].includes(x.status))};
@@ -91,7 +133,7 @@
       const exact=matches.filter(x=>x.status==='reviewed'&&['cashFinal','cashQuarterly','cashInterim'].includes(x.kind)&&x.recordDate===recordDate&&Number(x.amount)===Number(amount)&&(x.payDate?x.payDate===payDate:(x.paymentWindowStart&&x.paymentWindowEnd&&payDate>=x.paymentWindowStart&&payDate<=x.paymentWindowEnd)));
       if(exact.length===1 && exact[0].eligibilityUrl && exact[0].paymentUrl) return {status:'reviewed',evidence:exact[0]};
     }
-    return {status:'pending',evidence:matches[0]||null};
+    return {status:company.state==='candidate'?'candidate':'pending',evidence:matches[0]||null};
   }
   function calculateSpecialDividendTax(gross,year=2026) {
     const y=Number(year);
@@ -103,15 +145,16 @@
     for(const [upper,rate] of bands){national+=Math.max(0,Math.min(value,upper)-lower)*rate;lower=upper;}
     return Math.round(national*1.1);
   }
-  function calculateDividendTaxScenario({normalGross=0,reviewedGross=0,pendingGross=0,interest=null,year=2026}={}) {
+  function calculateDividendTaxScenario({normalGross=0,reviewedGross=0,pendingGross=0,candidateGross=0,interest=null,year=2026}={}) {
     const gross=number(normalGross),eligible=calculateSpecialDividendTax(0,year)!==null;
     const reviewed=eligible?Math.min(gross,number(reviewedGross)):0;
     const pending=eligible?Math.min(gross-reviewed,number(pendingGross)):0;
+    const candidate=eligible?Math.min(pending,number(candidateGross)):0;
     const knownInterest=interest!==null&&interest!==undefined&&interest!==''&&Number.isFinite(Number(interest))&&Number(interest)>=0;
     const includedInterest=knownInterest?Number(interest):0;
     const ordinary=gross-reviewed+includedInterest;
     const specialTax=eligible?calculateSpecialDividendTax(reviewed,year):0;
-    return {normalGross:gross,reviewedGross:reviewed,pendingGross:pending,interestKnown:knownInterest,
+    return {normalGross:gross,reviewedGross:reviewed,pendingGross:pending,candidateGross:candidate,ordinaryIfCandidatesQualify:ordinary-candidate,interestKnown:knownInterest,
       ordinaryWithoutApplication:gross+includedInterest,ordinaryWithApplication:ordinary,
       threshold:20000000,headroom:20000000-ordinary,specialTax,
       withholdingReference:Math.round(gross*.154),
@@ -122,18 +165,18 @@
   function calculateDividendCashflow({ dividends = [], year = 2026, otherFinancialIncome = null } = {}) {
     const rules = rulesFor(year);
     const out = { totalGross: 0, normalGross: 0, normalAfterTax: 0, availableAnnual: 0, availableMonthly: 0, isaInternal: 0, pensionInternal: 0, pensionSavingsInternal: 0, irpInternal: 0, unclassified: 0, warnings: [], appliedRuleYear: rules.year };
-    let reviewedGross=0,pendingGross=0;
+    let reviewedGross=0,pendingGross=0,candidateGross=0;
     (Array.isArray(dividends) ? dividends : []).forEach(item => {
       const amount = number(item?.amount ?? item?.annualDiv);
       const type = classifyTaxType(item?.taxType);
       out.totalGross += amount;
-      if (type === 'normal') {out.normalGross += amount;const reviewed=Math.min(amount,number(item.specialReviewed));reviewedGross+=reviewed;pendingGross+=Math.min(amount-reviewed,number(item.specialPending));}
+      if (type === 'normal') {out.normalGross += amount;const reviewed=Math.min(amount,number(item.specialReviewed));reviewedGross+=reviewed;const pending=Math.min(amount-reviewed,number(item.specialPending));pendingGross+=pending;candidateGross+=Math.min(pending,number(item.specialCandidate));}
       else if (type === 'isa') out.isaInternal += amount;
       else if (type === 'pension') { out.pensionSavingsInternal += amount; out.pensionInternal += amount; }
       else if (type === 'irp') { out.irpInternal += amount; out.pensionInternal += amount; }
       else { out.unclassified += amount; out.warnings.push(`미분류 배당: ${String(item?.acct || item?.name || '이름 없음')}`); }
     });
-    out.specialTaxScenario=calculateDividendTaxScenario({normalGross:out.normalGross,reviewedGross,pendingGross,year,interest:otherFinancialIncome});
+    out.specialTaxScenario=calculateDividendTaxScenario({normalGross:out.normalGross,reviewedGross,pendingGross,candidateGross,year,interest:otherFinancialIncome});
     out.normalAfterTax = Math.round(out.normalGross * (1 - rules.normalDividendWithholdingRate));
     out.availableAnnual = out.normalAfterTax;
     out.availableMonthly = Math.round(out.availableAnnual / 12);
@@ -363,5 +406,5 @@
     return { code:'SUSTAINABLE', label:'은퇴 가능' };
   }
 
-  return { TAX_RULES_BY_YEAR, DIVIDEND_DISCLOSURE_AS_OF, DIVIDEND_SPECIAL_REFERENCE, specialDividendEvidence, calculateSpecialDividendTax, calculateDividendTaxScenario, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
+  return { TAX_RULES_BY_YEAR, DIVIDEND_DISCLOSURE_AS_OF, DIVIDEND_SPECIAL_REFERENCE, setDividendCompanyCatalog, dividendCompanyCatalogStatus, dividendCompanyCandidate, specialDividendEvidence, calculateSpecialDividendTax, calculateDividendTaxScenario, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
 });

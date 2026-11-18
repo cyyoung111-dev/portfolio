@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {makePublicCatalog} from './publish-high-dividend-catalog.mjs';
+const row=(listedCode,issuerName)=>({listedCode,issuerName,market:'KOSPI',businessYear:2025,identityState:'EXACT_LISTED_ISSUER',taxEligibility:'UNVERIFIED',payoutRatio:'40'});
+const base={schemaVersion:1,classification:'CANDIDATE_ONLY',source:'https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain',businessYear:2025,retrievedAt:'2026-11-18T00:00:00Z',sourceSha256:'a'.repeat(64),masterSha256:'b'.repeat(64),total:2,rows:[row('005930','삼성전자'),row('034730','SK')],unresolved:[],reviewChanges:[]};
+const first=makePublicCatalog(base);
+assert.equal(first.changes.added.length,2);
+const second=makePublicCatalog({...base,retrievedAt:'2026-11-19T00:00:00Z',rows:[{...base.rows[0],payoutRatio:'50'},row('000660','SK하이닉스')]},first);
+assert.deepEqual(second.changes.removed,['034730']);
+assert.deepEqual(second.changes.added,['000660']);
+assert.deepEqual(second.recheckCodes,['005930','034730']);
+const third=makePublicCatalog({...second,retrievedAt:'2026-11-20T00:00:00Z'},second);
+assert.deepEqual(third.recheckCodes,second.recheckCodes);
+assert.equal(makePublicCatalog(base,third),null);
+assert.throws(()=>makePublicCatalog({...base,total:3}));
+assert.throws(()=>makePublicCatalog({...base,rows:[base.rows[0],base.rows[0]]}));
+console.log('PASS: data-only company catalog, same-year freshness, change detection, persistent recheck');

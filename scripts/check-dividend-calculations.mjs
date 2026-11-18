@@ -394,3 +394,20 @@ console.log('PASS: quarterly cash dividends, date bounds, no overlapping reviewe
 for(const status of ['revoked','reviewRequired','ineligible'])assert.equal(P.specialDividendEvidence(exact,[...P.DIVIDEND_SPECIAL_REFERENCE,{code:'005930',year:2026,status}]).status,'pending');
 assert.match(accountCtx._divSpecialEvidenceTable(hiRows,2026),/2026-09-30 배당/);
 console.log('PASS: disclosure correction precedence and payment-specific source links');
+
+// Current company index changes independently of the application release.
+{
+ const row={listedCode:'005930',issuerName:'삼성전자',market:'KOSPI',businessYear:2025,identityState:'EXACT_LISTED_ISSUER',taxEligibility:'UNVERIFIED'};
+ const base={schemaVersion:1,classification:'CANDIDATE_ONLY',source:'https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain',businessYear:2025,retrievedAt:new Date().toISOString(),total:1,rows:[row],unresolved:[],recheckCodes:[],reviewChanges:[]};
+ assert.equal(P.setDividendCompanyCatalog({...base,businessYear:2024},2026),false);
+ assert.equal(P.setDividendCompanyCatalog(base,2026),true);
+ assert.equal(P.dividendCompanyCandidate('005930',2026).state,'candidate');
+ assert.equal(P.specialDividendEvidence({...exact,declared:false}).status,'candidate');
+ const s=P.calculateDividendTaxScenario({normalGross:300,reviewedGross:100,pendingGross:100,candidateGross:100,year:2026});
+ assert.equal(s.ordinaryWithApplication,200);assert.equal(s.ordinaryIfCandidatesQualify,100);
+ assert.equal(P.setDividendCompanyCatalog({...base,recheckCodes:['005930']},2026),true);
+ assert.equal(P.specialDividendEvidence(exact).status,'pending');
+ assert.equal(P.specialDividendEvidence({...exact,code:'005935',amount:567}).status,'pending');
+ assert.equal(P.dividendCompanyCandidate('005930',2026).state,'reviewRequired');
+}
+console.log('PASS: public company list, candidate-only scenario and persistent correction hold');

@@ -18,6 +18,26 @@ let _divTaxFilter='all';
 // A scenario assumption only: separate from actual transactions and bank evidence.
 // Intentionally session-local; never writes to GAS or localStorage.
 const _divOtherIncomeScenario = Object.create(null);
+// One public GET per session/year, shared by both tabs. No portfolio data is sent.
+// Failed refreshes can be retried after ten minutes without blocking rendering.
+const _divCompanyLoad = new Map();
+function _refreshDividendCompanyCatalog() {
+  if(typeof window==='undefined'||!window.location||typeof fetch!=='function'||typeof AbortSignal==='undefined')return;
+  const year=_kstYear();
+  if(year<2026||year>2029)return;
+  const last=_divCompanyLoad.get(year);
+  if(last&&(last.ok||Date.now()-last.at<600000))return;
+  const attempt={at:Date.now(),ok:false};
+  _divCompanyLoad.set(year,attempt);
+  const url='https://raw.githubusercontent.com/cyyoung111-dev/portfolio/high-dividend-companies/companies/'+(year-1)+'.json';
+  fetch(url,{cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(10000)})
+    .then(r=>{if(!r.ok)throw Error('catalog unavailable');return r.json();})
+    .then(data=>{
+      if(!PlanCalculations.setDividendCompanyCatalog(data,year))throw Error('catalog invalid');
+      attempt.ok=true;
+      if(typeof currentView!=='undefined'&&['div','plan'].includes(currentView)&&typeof renderView==='function')renderView(true);
+    }).catch(()=>{});
+}
 function _getDivOtherIncome(year) {
   return Object.prototype.hasOwnProperty.call(_divOtherIncomeScenario,year)?_divOtherIncomeScenario[year]:null;
 }
@@ -46,7 +66,7 @@ function _divAccountTaxType(acct) {
   return PlanCalculations.classifyTaxType(Object.prototype.hasOwnProperty.call(types,acct)?types[acct]:'');
 }
 
-function _newDividendBucket() {return {annual:0,actual:0,received:0,monthly:{},specialReviewed:0,specialPending:0}}
+function _newDividendBucket() {return {annual:0,actual:0,received:0,monthly:{},specialReviewed:0,specialPending:0,specialCandidate:0}}
 function _addDividendBucket(target,month,gross,declared,received) {
   target.annual+=gross;
   if(declared)target.actual+=gross;
@@ -55,7 +75,7 @@ function _addDividendBucket(target,month,gross,declared,received) {
 }
 function _mergeDividendBucket(target,source) {
   if(!source)return target;
-  for(const key of ['annual','actual','received','specialReviewed','specialPending'])target[key]+=Number(source[key]||0);
+  for(const key of ['annual','actual','received','specialReviewed','specialPending','specialCandidate'])target[key]+=Number(source[key]||0);
   for(const [m,v] of Object.entries(source.monthly||{}))target.monthly[m]=(target.monthly[m]||0)+Number(v||0);
   return target;
 }
@@ -91,7 +111,8 @@ function _divTaxPanel(summary,selected,dividendRows=[]) {
   const money=v=>Math.round(v).toLocaleString('ko-KR');
   const year=_kstYear();
   const scenario=PlanCalculations.calculateDividendTaxScenario({normalGross:summary.normal.annual,
-    reviewedGross:summary.normal.specialReviewed,pendingGross:summary.normal.specialPending,year,interest:_getDivOtherIncome(year)});
+    reviewedGross:summary.normal.specialReviewed,pendingGross:summary.normal.specialPending,candidateGross:summary.normal.specialCandidate,year,interest:_getDivOtherIncome(year)});
+  const catalog=PlanCalculations.dividendCompanyCatalogStatus(year);
   const delta=scenario.ordinaryWithApplication-scenario.threshold;
   const outside=scenario.appliedRule==='outside';
   return `<section class="div-tax-panel" aria-label="세제 유형별 연간 배당">
@@ -111,12 +132,15 @@ function _divTaxPanel(summary,selected,dividendRows=[]) {
     <tr><td>미신청 시 금융소득 합산 참고</td><td>${money(scenario.ordinaryWithoutApplication)}원</td></tr>
     <tr><td>공시 근거 일치 특례배당 (참고)</td><td>${money(scenario.reviewedGross)}원</td></tr>
     <tr><td>특례 여부 미확인 (합산 유지)</td><td>${money(scenario.pendingGross)}원</td></tr>
+    <tr><td>KIND 기업 일치 배당 (미확인에 포함)</td><td>${money(scenario.candidateGross)}원</td></tr>
+    <tr><td>기업 일치분까지 특례 가정 시 합산 참고</td><td>${money(scenario.ordinaryIfCandidatesQualify)}원</td></tr>
     <tr><td>신청 가정 합산 대상</td><td>${money(scenario.ordinaryWithApplication)}원</td></tr>
     <tr><td>특례배당 예상세액 (지방세 포함)</td><td>${money(scenario.specialTax)}원</td></tr>
     </tbody></table></div>
     <div class="ui-status-text" style="color:${delta>0?'var(--amber)':'var(--muted)'}">금융소득종합과세 2,000만원 대비 · ${scenario.interestKnown?'입력 가정 포함':'배당만'} ${delta>0?'초과 '+money(delta)+'원':delta===0?'동일 (초과 아님)':'차이 '+money(-delta)+'원'} · ${scenario.interestKnown?'실제 금융소득은 별도 확인':'이자·기타 금융소득 미포함'}</div>
+    <div class="ui-status-meta">KIND 기업 명단: ${catalog.state==='unavailable'?'미수신':(catalog.state==='stale'?'갱신 필요 · ':'')+catalog.total+'개 · '+catalog.retrievedAt.slice(0,10)} · 사업연도와 적용연도는 별도 확인</div>
     <div class="ui-status-meta">귀속 미분류 ${money(summary.unclassified.annual)}원은 합산액에 포함하지 않았습니다. 일반계좌라면 신청 가정 합산액이 최대 ${money(scenario.ordinaryWithApplication+summary.unclassified.annual)}원이 될 수 있습니다.</div>
-    <div class="ui-status-meta">${outside?'이 지급연도는 현재 특례 적용기간 밖입니다.':'일부 지급건 공시 근거만 등록됨 ('+PlanCalculations.DIVIDEND_DISCLOSURE_AS_OF+' 점검) · 최신 KIND 명단 전체 자동 판정이 아닙니다. 미확인 및 추정분은 제외하지 않습니다.'} 실제 신청·정정공시·세무자료 확인 필요. 일반계좌 ETF는 세전 분배금으로 보수적 참고 (실제 과세표준은 증권사 확인). ISA·연금저축·IRP 내부 배당 제외. <a href="https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain" target="_blank" rel="noopener noreferrer">KIND 고배당기업</a> · <a href="https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?mi=2201&amp;nttSn=1349597" target="_blank" rel="noopener noreferrer">국세청 안내</a></div>
+    <div class="ui-status-meta">${outside?'이 지급연도는 현재 특례 적용기간 밖입니다.':'일부 지급건 공시 근거만 등록됨 ('+PlanCalculations.DIVIDEND_DISCLOSURE_AS_OF+' 점검) · KIND 기업 명단은 자동 갱신하며 일치분은 별도 시나리오로만 표시합니다. 미확인 및 추정분은 제외하지 않습니다.'} 실제 신청·정정공시·세무자료 확인 필요. 일반계좌 ETF는 세전 분배금으로 보수적 참고 (실제 과세표준은 증권사 확인). ISA·연금저축·IRP 내부 배당 제외. <a href="https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain" target="_blank" rel="noopener noreferrer">KIND 고배당기업</a> · <a href="https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?mi=2201&amp;nttSn=1349597" target="_blank" rel="noopener noreferrer">국세청 안내</a></div>
     ${_divSpecialEvidenceTable(dividendRows,year)}
     <div class="div-month-filter div-tax-filter" role="group" aria-label="배당 계좌 유형 필터">${Object.keys(DIV_TAX_LABELS).map(k=>`<button type="button" data-div-action="filter-tax" data-div-tax="${k}" aria-pressed="${selected===k}" class="${selected===k?'active':''}">${DIV_TAX_LABELS[k]}</button>`).join('')}</div>
     <div class="ui-status-meta">아래 월별 예상 배당·종목별 상세에 선택 유형을 적용합니다. 상단 연간 합계 및 은행 실입금 검증은 전체 기준입니다.</div>
@@ -130,12 +154,13 @@ function _divSpecialEvidenceTable(rows,year) {
     const bucket=_newDividendBucket();
     for(const [acct,b] of Object.entries(row.accountDividendBreakdown||{}))if(_divAccountTaxType(acct)==='normal')_mergeDividendBucket(bucket,b);
     if(!bucket.specialPending&&!bucket.specialReviewed)continue;
+    const company=PlanCalculations.dividendCompanyCandidate(row.taxCode,year);
     const evidenceRows=PlanCalculations.DIVIDEND_SPECIAL_REFERENCE.filter(e=>e.code===row.taxCode&&e.year===year);
     const eligibilityLinks=[...new Set(evidenceRows.map(e=>e.eligibilityUrl).filter(Boolean))];
     const paymentLinks=[...new Map(evidenceRows.filter(e=>e.paymentUrl).map(e=>[e.paymentUrl,e])).values()];
     const sourceLink=(url,label)=>'<a href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>';
     const evidenceLinks=[...eligibilityLinks.map(url=>sourceLink(url,'고배당 공시')), ...paymentLinks.map(e=>sourceLink(e.paymentUrl,e.recordDate?e.recordDate+' 배당':'배당 참고'))].join(' · ');
-    result.push('<tr><td>'+esc(row.name)+'</td><td>'+Math.round(bucket.specialReviewed).toLocaleString('ko-KR')+'</td><td>'+Math.round(bucket.specialPending).toLocaleString('ko-KR')+'</td><td>'+(evidenceLinks||'미확인')+'</td></tr>');
+    result.push('<tr><td>'+esc(row.name)+'</td><td>'+Math.round(bucket.specialReviewed).toLocaleString('ko-KR')+'</td><td>'+Math.round(bucket.specialPending).toLocaleString('ko-KR')+'</td><td>'+((company.state==='reviewRequired'?'정정·재검토 · ':company.state==='candidate'?'KIND 해당 · ':company.state==='stale'?'갱신 필요 · ':'')+(evidenceLinks||'미확인'))+'</td></tr>');
   }
   return result.length?'<details><summary>종목별 특례 검토 금액 (일반계좌)</summary><div class="div-tax-table-scroll"><table class="div-tax-table"><thead><tr><th>종목</th><th>공시 일치</th><th>미확인</th><th>근거</th></tr></thead><tbody>'+result.join('')+'</tbody></table></div></details>':'';
 }
@@ -251,7 +276,7 @@ function calcDividends() {
         const bucket=accountDividendBreakdown[acct];
         _addDividendBucket(bucket,month,amount,declared,received);
         if(specialStatus==='reviewed')bucket.specialReviewed+=amount;
-        else if(specialStatus==='pending')bucket.specialPending+=amount;
+        else if(specialStatus==='pending'||specialStatus==='candidate'){bucket.specialPending+=amount;if(specialStatus==='candidate')bucket.specialCandidate+=amount;}
       });
     };
     const actualMonths = new Set();
@@ -391,6 +416,7 @@ function calcDividends() {
 }
 
 function renderDivView(area, skipFetch) {
+  _refreshDividendCompanyCatalog();
   // GS 연동 시 탭 진입마다 자동 fetch → 완료 후 재렌더 (skipFetch=true 시 생략 — 재귀 방지)
   if (GSHEET_API_URL && !skipFetch) _autoFetchDiv(area);
 

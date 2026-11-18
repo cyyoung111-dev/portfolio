@@ -174,7 +174,7 @@ def join_listed_issuers(entries, corp_rows):
             if len(by_code[code])==1:
                 matched.append({"issuerName":name,"market":market,"listedCode":code,
                                 "businessYear":int(float(row[4].removesuffix("년"))),
-                                "disclosureTitle":row[3],"identityState":"EXACT_LISTED_ISSUER",
+                                "disclosureTitle":row[3],"fiscalMonth":row[5],"payoutRatio":row[6],"growthRatio":row[7],"identityState":"EXACT_LISTED_ISSUER",
                                 "taxEligibility":"UNVERIFIED"})
                 continue
         unresolved.append({"issuerName":name,"market":market,
@@ -323,9 +323,17 @@ def collect(year, out):
             (out / "source-metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps(metadata, ensure_ascii=False), flush=True)
             print("KIND candidate review:",json.dumps(candidate_review,ensure_ascii=False),flush=True)
+            index=collect_corp_index(browser,entries,out)
+            # Publish the official issuer list even if a reviewed row changed:
+            # the browser must be able to see the change and stop using old proof.
+            catalog={"schemaVersion":1,"classification":"CANDIDATE_ONLY","source":URL,
+                     "businessYear":year,"retrievedAt":metadata["retrievedAt"],
+                     "sourceSha256":metadata["sha256"],"masterSha256":index["masterSha256"],
+                     "total":len(entries),"rows":index["matched"],"unresolved":index["unresolved"],
+                     "reviewChanges":candidate_review["changes"]}
+            (out/"company-catalog.json").write_text(json.dumps(catalog,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
             if candidate_review["state"] == "REVIEW_REQUIRED":
-                raise RuntimeError("Official candidate row changed; reviewed payment evidence must be checked")
-            collect_corp_index(browser,entries,out)
+                print("::warning::Reviewed issuer changed; previous special-tax evidence requires re-evaluation")
         finally:
             page.screenshot(path=str(out / "kind-screen.png"), full_page=True)
             browser.close()
