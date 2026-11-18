@@ -1040,7 +1040,9 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   .action-bar .action-update-card>.action-refresh-btn {height:40px;min-height:40px}
 }
 #view-area[data-active-view] .hist-mode-controls button {border-radius:var(--ui-command-radius)}
-#view-area[data-active-view] .hist-query-btn {border-radius:var(--ui-command-radius);font-weight:700}
+#view-area[data-active-view] .hist-query-btn {border-radius:var(--ui-command-radius);font-size:var(--type-caption);font-weight:700}
+#view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {min-height:var(--ui-command-height);border-radius:var(--ui-command-radius)}
+#view-area[data-active-view] .hist-controls :is(.hist-month-input,.hist-range-select,.hist-query-btn) {min-height:42px}
 .wrap :is(.sc,.sector-card,.chart-card,.trade-stat-card,.div-stat-card,.stat-card,
   .card-12,.card-12-mb16,.card-12-p20,.hist-kpi-card,.hist-extreme-card,.hist-benchmark-card),
 :is(.editor-box,.settings-dialog,.col-filter-dropdown) {border-radius:var(--ui-surface-radius)}
