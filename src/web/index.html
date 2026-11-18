@@ -29,7 +29,7 @@
 <link rel="stylesheet" href="styles/pages/trade.css?v=20260903-1">
 <link rel="stylesheet" href="styles/typography-roles.css?v=20261028-1">
 <!-- Unified control + panel design; last stylesheet intentionally owns the visual layer -->
-<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-3">
+<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-4">
 
 </head>
 <body>
@@ -85,6 +85,7 @@
 <div id="price-updated-label" class="action-status-label sl-idle">⏳ 조회 중...</div>
 </div>
 <!-- 오른쪽: 보조 기능 버튼 통합 (좌수/현재가/내보내기/가져오기/초기화/기초정보/구글시트/탭설정) — 모두 동일한 스타일·크기 -->
+<div class="action-menu-stack">
 <div class="toolbar-btn-group">
 <div class="toolbar-section toolbar-section-secondary" aria-label="보조 작업">
 <button id="btn-open-fund-units" class="toolbar-btn" title="펀드 좌수 설정">
@@ -128,9 +129,10 @@
 </button>
 </div>
 </div>
+<!-- 주요 메뉴: PC에서는 오른쪽 관리 버튼 아래, 좁은 화면에서는 기존 순서 -->
+<div class="view-switcher" id="viewSwitcher">
 </div>
-<!-- VIEW SWITCHER (탭 메뉴는 독립된 줄로 분리 — 보조 버튼과 섞이지 않도록) -->
-<div class="view-switcher fade d3" id="viewSwitcher">
+</div>
 </div>
 <nav id="mobileNav" class="mobile-nav" aria-label="모바일 주요 탭">
   <div id="mobileNavInner" class="mobile-nav-inner"></div>
@@ -415,7 +417,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261118-3', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261118-4', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>

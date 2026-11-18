@@ -40,10 +40,15 @@ const statusSource=fs.readFileSync(path.join(root,'features/settings/settings_fe
 const statusSlice=statusSource.slice(statusSource.indexOf('function _priceLookupDuration('),statusSource.indexOf('function _pricePortfolioSummary('));
 const setterSlice=statusSource.slice(statusSource.indexOf('function setStatusLabel('),statusSource.indexOf('function _resolvePriceDateLabel('));
 assert(statusSlice.includes('function _priceLookupDetail(')&&setterSlice.includes('function setStatusLabel('));
-const toolbarFixtureScript='<script>const $el=id=>document.getElementById(id);const _escapeHtml=s=>String(s);'+statusSlice+setterSlice+'</'+'script>';
+const tabSource=fs.readFileSync(path.join(root,'views/views_system.js'),'utf8');
+const tabDefs=tabSource.slice(tabSource.indexOf('const TAB_DEFAULTS = ['),tabSource.indexOf('// TAB_ORDER:'));
+const tabBuilder=tabSource.slice(tabSource.indexOf('function buildTabBar()'),tabSource.indexOf('// ── 탭 순서 설정 패널'));
+assert(tabDefs.includes("label:'계좌별'")&&tabBuilder.includes('vs.appendChild(btn)'));
+const navFixture=tabDefs+";let TAB_ORDER=TAB_DEFAULTS.map(t=>({...t}));let currentView='acct';const switchView=v=>{currentView=v;buildTabBar()};const saveTabOrder=()=>{};"+tabBuilder+";buildTabBar();";
+const toolbarFixtureScript='<script>const $el=id=>document.getElementById(id);const _escapeHtml=s=>String(s);'+statusSlice+setterSlice+navFixture+'</'+'script>';
 const cases=[];
-for(const width of [1440,768,390,320]){
- for(const unified of [true,false]){
+for(const width of [1440,1100,1024,768,390,320]){
+ for(const unified of (width===1100||width===1024?[true]:[true,false])){
   cases.push({width,unified,html:documentWithStyles(unified).replace('</body>',toolbarFixtureScript+'</body>')});
  }
 }
@@ -111,7 +116,7 @@ function auditStableToolbar(d,c) {
  const w=d.defaultView,sel=id=>d.getElementById(id),button=sel('btn-price-lookup-toggle'),label=sel('price-updated-label');
  const overlay=sel('tabSettingsOverlay');overlay.style.display='none';
  const date=sel('quickDateInput');date.value='2026-11-18';
- const geometry=()=>[date,sel('quickFetchBtn'),sel('quickPriceBtn'),button,...d.querySelectorAll('.toolbar-btn-group .toolbar-btn')].map(e=>{
+ const geometry=()=>[date,sel('quickFetchBtn'),sel('quickPriceBtn'),button,...d.querySelectorAll('.toolbar-btn-group .toolbar-btn'),...d.querySelectorAll('#viewSwitcher .vs-btn')].map(e=>{
   const b=e.getBoundingClientRect();return [b.x,b.y,b.width,b.height];
  });
  const same=(a,b,limit)=>a.slice(0,limit).every((r,i)=>r.every((v,j)=>Math.abs(v-b[i][j])<=1));
@@ -129,7 +134,8 @@ function auditStableToolbar(d,c) {
   if(button.disabled||detail.open||button.getAttribute('aria-expanded')!=='false')failures.push({size,role:'closed state'});
   // Desktop right controls stay fixed too; on stacked mobile the second row
   // naturally moves downward so it never overlaps the expanded diagnostics.
-  const limit=c.width>980?closed.length:4;
+  const desktop=c.width>=1100;
+  const limit=desktop?closed.length:4;
   if(!same(loading,closed,limit))failures.push({size,role:'loading to complete geometry',loading,closed});
   w._priceLookupDetail('toggle-summary');
   const opened=geometry();
@@ -143,10 +149,21 @@ function auditStableToolbar(d,c) {
   w.setStatusLabel(w._priceStatusLayout('현재가 갱신 · 39개 · 화면만 반영','','저장 이력/Snapshot 미변경',lookup,'info'),'ok');
   if(!same(closed,geometry(),limit))failures.push({size,role:'price-only geometry'});
   const card=d.querySelector('.action-update-card').getBoundingClientRect();
+  const menu=d.querySelector('.toolbar-btn-group').getBoundingClientRect();
+  const nav=d.querySelector('#viewSwitcher').getBoundingClientRect();
+  const navButtons=[...d.querySelectorAll('#viewSwitcher .vs-btn')];
+  const first=navButtons[0]?.getBoundingClientRect();
+  const importBtn=sel('btn-trigger-import').getBoundingClientRect();
+  if(navButtons.length!==9||!first||!navButtons[0].classList.contains('active')||
+     nav.top<menu.bottom-1||Math.abs(nav.left-menu.left)>1||
+     (desktop&&(menu.left<card.right-1||Math.abs(menu.top-card.top)>1||Math.abs(first.left-importBtn.left)>8))||
+     (!desktop&&menu.top<card.bottom-1)||
+     nav.right>c.width+1||menu.right>c.width+1)
+    failures.push({size,role:'menu stack geometry',desktop,card:[card.left,card.top,card.right,card.bottom],menu:[menu.left,menu.top,menu.right,menu.bottom],nav:[nav.left,nav.top,nav.right,nav.bottom],tabCount:navButtons.length});
   const statusWidth=label.getBoundingClientRect().width;
   if(statusWidth<card.width-20)failures.push({size,role:'status uses card width',statusWidth,cardWidth:card.width});
   if(closed[0][2]!==126||closed.slice(1,4).some(b=>b[2]!==58||b[3]!==44)||closed[0][3]!==44||card.right>c.width+1)failures.push({size,role:'command dimensions',closed,cardRight:card.right});
-  cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:c.width>980,geometry:!failures.some(f=>f.size===size)});
+  cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:desktop,navBelowManagement:nav.top>=menu.bottom-1,tabCount:navButtons.length,geometry:!failures.some(f=>f.size===size)});
  }
  return {ok:failures.length===0,cases,failures};
 }
