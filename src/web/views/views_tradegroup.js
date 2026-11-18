@@ -172,7 +172,7 @@ function renderTradeGroupView(area) {
             <span style="font-size:.65rem;color:var(--muted);transform:rotate(0deg);transition:transform .2s;display:inline-block" class="tg-arrow">▶</span>
             <div style="flex:1;min-width:0">
               <div class="flex-ac-g8-wrap">
-                <span class="tg-name" style="font-weight:700;font-size:.85rem">${_escapeHtml(name)}</span>
+                <span class="tg-name" style="font-weight:650;font-size:var(--type-body)">${_escapeHtml(name)}</span>
                 ${g.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${_escapeHtml(g.code)}</span>` : ''}
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-purple2-10);color:var(--purple-lt)">${_escapeHtml(g.type)}</span>
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-muted-10);color:var(--muted)">${_escapeHtml(g.sector)}</span>
@@ -210,15 +210,15 @@ function renderTradeGroupView(area) {
             <table style="width:100%;border-collapse:collapse;font-size:.72rem;min-width:400px">
               <thead>
                 <tr style="background:var(--s2);border-bottom:1px solid var(--border)">
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">날짜</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:center">구분</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">계좌</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">수량</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">단가</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">금액</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">손익</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">메모</th>
-                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:center">수정</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:left">날짜</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:center">구분</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:left">계좌</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">수량</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">단가</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">금액</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:right">손익</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:left">메모</th>
+                  <th style="padding:8px 12px;font-size:var(--type-caption);font-weight:600;color:var(--muted);text-align:center">수정</th>
                 </tr>
               </thead>
               <tbody>
@@ -248,22 +248,22 @@ function renderTradeGroupView(area) {
                       run.qty  -= Math.min(qty, run.qty);
                     }
                     return `<tr style="border-bottom:1px solid var(--border);background:${isSell?'rgba(239,68,68,.03)':'transparent'}">
-                      <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:.72rem">${_escapeHtml(fmtDateDot(t.date)||'⚠️없음')}</td>
+                      <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:var(--type-body)">${_escapeHtml(fmtDateDot(t.date)||'⚠️없음')}</td>
                       <td style="padding:7px 12px;text-align:center">
                         ${isSell ? `<span class="trade-badge-sell">📉 매도</span>` : `<span class="trade-badge-hold">📈 매수</span>`}
                       </td>
-                      <td style="padding:7px 12px;text-align:center;white-space:nowrap;font-size:.72rem">
+                      <td style="padding:7px 12px;text-align:center;white-space:nowrap;font-size:var(--type-body)">
                         <span class="adot" style="background:${ACCT_COLORS[t.acct]||'var(--muted)'}"></span>${_escapeHtml(t.acct || '-')}
                       </td>
-                      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:.78rem">${qty.toLocaleString()}</td>
-                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem;color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
+                      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:var(--type-body)">${qty.toLocaleString()}</td>
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:var(--type-body);color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
                         ${price.toLocaleString()}
                       </td>
-                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem">${amount.toLocaleString()}</td>
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:var(--type-body)">${amount.toLocaleString()}</td>
                       <td style="padding:7px 12px;text-align:right">
                         ${pnlCell || '<span style="color:var(--muted)">-</span>'}
                       </td>
-                      <td style="padding:7px 12px;text-align:left;color:var(--muted);font-size:.70rem">${_escapeHtml(t.memo||'')}</td>
+                      <td style="padding:7px 12px;text-align:left;color:var(--muted);font-size:var(--type-body)">${_escapeHtml(t.memo||'')}</td>
                       <td style="padding:7px 12px;text-align:center">
                         <button data-tg-action="edit" data-trade-id="${_escapeHtml(String(t.id ?? ''))}" class="btn-edit-sm">✏️</button>
                       </td>

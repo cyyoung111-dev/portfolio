@@ -470,27 +470,27 @@ function buildTradeEditOverlayHTML() {
 
   return `<div id="tradeEditOverlay"
     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9000;justify-content:center;align-items:flex-start;padding:8px;overflow-y:auto">
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;margin:auto;min-height:min-content">
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-surface-radius);width:100%;max-width:480px;margin:auto;min-height:min-content">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px 12px;border-bottom:1px solid var(--border)">
         <h3 id="te-title" class="h3-95">거래 추가</h3>
         <button data-te-action="close" class="btn-close-icon">✕</button>
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px">
-        <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:.75rem;color:var(--red-lt)"></div>
+        <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:var(--type-body);color:var(--red-lt)"></div>
 
         <!-- 매수 / 매도 / 분할 / 병합 탭 -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <button id="te-tradetype-buy" data-te-action="trade-type" data-value="buy"
-            style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s"
+            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:background-color .15s,color .15s,border-color .15s"
             class="te-type-btn">📈 매수</button>
           <button id="te-tradetype-sell" data-te-action="trade-type" data-value="sell"
-            style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:all .15s"
+            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:background-color .15s,color .15s,border-color .15s"
             class="te-type-btn">📉 매도</button>
           <button id="te-tradetype-split" data-te-action="trade-type" data-value="split"
-            style="padding:9px 3px;font-size:.72rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border)"
+            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border)"
             class="te-type-btn">➗ 분할</button>
           <button id="te-tradetype-reverse_split" data-te-action="trade-type" data-value="reverse_split"
-            style="padding:9px 3px;font-size:.72rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border)"
+            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border)"
             class="te-type-btn">🔗 병합</button>
         </div>
 
@@ -513,7 +513,7 @@ function buildTradeEditOverlayHTML() {
           <div id="te-name-btns" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
           <div style="margin-top:2px">
             <div id="te-selected-name" style="display:none;padding:6px 10px;border-radius:6px;
-              background:var(--s2);border:1px solid var(--border);font-size:.82rem;color:var(--text)"></div>
+              background:var(--s2);border:1px solid var(--border);font-size:var(--type-body);color:var(--text)"></div>
             <div id="te-no-ep-hint" style="display:none;font-size:.72rem;color:var(--muted);margin-top:4px">
               ⚠️ 기초정보 탭에서 종목을 먼저 등록해주세요
             </div>

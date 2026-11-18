@@ -53,6 +53,54 @@ const planSource=fs.readFileSync(path.join(root,'views/views_plan_overview.js'),
 const itemSource=planSource.split('\n').find(l=>l.includes('const item = (label, value, sub'));
 assert(itemSource);
 const planMarkup=vm.runInNewContext(itemSource+";item('연간 예상 배당','2,810만','29개 종목');");
+
+function readView(rel){return fs.readFileSync(path.join(root,rel),'utf8')}
+function renderer(source,name){
+ const begin=source.indexOf('function '+name+'(');
+ const end=source.indexOf('\n}',begin);
+ assert(begin>=0&&end>begin,'renderer missing '+name);
+ return source.slice(begin,end+2);
+}
+function renderSample(source,name,globals={},extra=''){
+ const dest={innerHTML:''};
+ const context=vm.createContext({dest,_escapeHtml:v=>String(v??''),...globals});
+ vm.runInContext(extra+'\n'+renderer(source,name)+'\n'+name+'(dest);',context);
+ assert(dest.innerHTML.trim().length>0,name+' empty markup');
+ return dest.innerHTML;
+}
+const sampleHolding={name:'합성 종목',type:'주식',sector:'테스트 섹터',code:'000001',evalAmt:3000,costAmt:2000,pnl:1000,qty:2,price:1500,cost:1000,pct:50,acct:'테스트 계좌'};
+const sampleTrade={id:'test-1',name:sampleHolding.name,acct:sampleHolding.acct,code:sampleHolding.code,assetType:'주식',tradeType:'buy',date:'2026-11-17',qty:2,price:1000,memo:''};
+const renderCommon={rows:[sampleHolding],rawTrades:[sampleTrade],ACCT_COLORS:{'테스트 계좌':'#789abc'},SECTOR_COLORS:{'테스트 섹터':'#789abc'},
+ pColor:v=>v>=0?'var(--green)':'var(--red)',pSign:v=>v>=0?'+':'',fmt:String,fmtW:String,fmtDateDot:String,
+ getEP:()=>({code:'000001',sector:'테스트 섹터'}),getEPType:()=> '주식',getAcctList:()=>['전체','테스트 계좌'],
+ savedPrices:{'000001':1500},getCode:()=> '000001',renderTabSyncPanel:()=>'',_portfolioDataKey:()=> 'sample',
+ GSHEET_API_URL:'',EDITABLE_PRICES:[],window:{},localStorage:{getItem:()=>null},$el:()=>null};
+const tradeSource=readView('views/views_trades.js'),groupSource=readView('views/views_tradegroup.js'),managementSource=readView('views/views_history.js');
+const wholeViewFixtures={
+ acct:acctArea.innerHTML,
+ sector:renderSample(acctSource,'renderSectorView',renderCommon),
+ merge:renderSample(acctSource,'renderMergeView',{...renderCommon,_mergeListCache:{},mergeSortKey:'eval'}),
+ trades:renderSample(tradeSource,'renderTradesView',{...renderCommon,_getFilteredTrades:()=>[sampleTrade],_tradeFilter:{name:'',acct:'',type:'all'},_tradeSort:{key:'date',dir:1},
+  calcRealizedPnl:()=>({totalPnl:0,totalCost:0,pct:0}),_buildTradeDateRepairHTML:()=>'',_buildTradeRealizedContext:()=>({realizedByTrade:new Map(),currentAvgByKey:{}}),
+  _tradeRepairDateIsValid:()=>true,_bindTradesViewEvents:empty,_updateTradeSelBar:empty},
+  renderer(tradeSource,'_buildTradesSummaryHTML')+'\n'+renderer(tradeSource,'_buildTradesTableHTML')),
+ tradegroup:renderSample(groupSource,'renderTradeGroupView',{...renderCommon,_tgFilter:{name:'',acct:''},_tgSearchKey:()=>'',_tgMatchesFilter:()=>true,
+  _tgBuildGroup:()=>({qty:2,avgCost:1000,realizedPnl:0,buyCount:1,sellCount:0,accounts:[],trades:[sampleTrade]}),_bindTradeGroupViewEvents:empty}),
+ history:area.innerHTML,
+ // Asset/dividend/plan cards use their production role classes; the prior
+ // test continues to measure those roles and the actual plan item template.
+ asset:'<div class="asset-summary-grid"><div><div class="label-muted-68">시가</div><div class="asset-summary-value">12억</div></div></div><div class="asset-detail-grid"><div class="s2-rounded"><div class="lbl-62-muted-3">취득가</div><div class="fw-600">9억</div></div></div><button class="btn-amber-outline">수정</button>',
+ div:'<div class="div-stat-card"><div class="div-stat-label">연간 예상</div><div class="div-stat-value">123,456</div><div class="div-stat-sub">확정 지급액</div></div><div class="div-month-filter"><button class="active">전체</button></div><table class="div-monthly-matrix"><thead><tr><th>월</th></tr></thead><tbody><tr><td>123</td></tr></tbody></table>',
+ plan:'<div data-view-section="plan"><div class="plan-subtabs"><button class="plan-subtab is-active">현황</button></div><div class="retire-metric-grid">'+planMarkup+'</div><table class="retirement-cashflow-table"><thead><tr><th>연도</th></tr></thead><tbody><tr><td>123</td></tr></tbody></table></div>',
+ stocks:renderSample(managementSource,'renderStocksView',{...renderCommon,BROKER_CODES:['UNCLASSIFIED'],BROKER_LABELS:{UNCLASSIFIED:'미지정'},buildAcctMgmt:empty,buildStockMgmt:empty,buildSectorMgmt:empty}),
+ gsheet:renderSample(managementSource,'renderGsheetView',renderCommon)
+};
+const dialogFixtures={
+ trade:vm.runInNewContext(renderer(readView('features/trade/editor/mgmt_trade.js'),'buildTradeEditOverlayHTML')+'\nbuildTradeEditOverlayHTML();'),
+ bulk:vm.runInNewContext(renderer(readView('features/import/mgmt_bulk.js'),'buildBulkOverlayHTML')+'\nbuildBulkOverlayHTML();')
+};
+assert.equal(Object.keys(wholeViewFixtures).length,11);
+
 const statusSource=fs.readFileSync(path.join(root,'features/settings/settings_fetch.js'),'utf8');
 const statusSlice=statusSource.slice(statusSource.indexOf('function _priceLookupDuration('),statusSource.indexOf('function _pricePortfolioSummary('));
 const setterSlice=statusSource.slice(statusSource.indexOf('function setStatusLabel('),statusSource.indexOf('function _resolvePriceDateLabel('));
@@ -234,6 +282,73 @@ function auditCompactDetails(d,c,acctMarkup,planMarkup) {
  return {ok:failures.length===0,cases,failures};
 }
 
+
+/* UI matrix: actual renderers for main views with isolated dummy dependencies,
+   representative financial-detail cards and actual dynamic overlay builders. */
+function auditViewMatrix(d,c,fixtures,dialogs) {
+ if(!c.unified)return {ok:true,views:[],dialogs:[]};
+ const host=d.querySelector('#view-area'),prior=host.dataset.activeView,oldSize=d.documentElement.dataset.uiFontSize;
+ const f=d.createElement('section');f.style.minWidth='0';host.appendChild(f);
+ const w=d.defaultView,style=e=>w.getComputedStyle(e),visible=e=>e.getClientRects().length>0;
+ const errors=[],views=[],dialogResults=[];
+ const closeTo=(a,b)=>Math.abs(a-b)<=.5;
+ const assertFont=(e,size,role,view)=>{if(!e||!closeTo(parseFloat(style(e).fontSize),size))errors.push({view,role,expected:size,actual:e?style(e).fontSize:null})};
+ const assertButton=(e,size,h,role,view)=>{if(!e){errors.push({view,role,missing:true});return}const b=style(e);if(!closeTo(parseFloat(b.fontSize),size)||!closeTo(parseFloat(b.minHeight),h)||!closeTo(parseFloat(b.borderRadius),8))errors.push({view,role,size,height:h,actual:[b.fontSize,b.minHeight,b.borderRadius]});};
+ const sample={
+  sector:['.sector-hdr h4','.sector-hdr .sval'],trades:['.trade-stat-value'],tradegroup:['.tg-name'],
+  asset:['.asset-summary-value','.asset-detail-grid .fw-600'],div:['.div-stat-value'],
+  plan:['.s2-rounded>.lbl-62-muted-3+div']
+ };
+ for(const [view,markup] of Object.entries(fixtures)){
+  host.dataset.activeView=view;f.innerHTML=markup;
+  if(view==='tradegroup')f.querySelector('.tg-detail').style.display='block';
+  if(view==='stocks')f.querySelector('#acctMgmtNewWrap').style.display='block';
+  const viewErrors=errors.length;
+  for(const size of [8,9,10,11,12]){
+   d.documentElement.dataset.uiFontSize=String(size);
+   for(const sel of sample[view]||[])assertFont(f.querySelector(sel),size+2,sel,view);
+   // All visible financial table header/cells follow caption/body; a nested
+   // badge or secondary text may intentionally retain its own caption role.
+   for(const e of f.querySelectorAll('table th,table td'))if(visible(e))assertFont(e,e.tagName==='TH'?size:size+2,e.tagName,view);
+   for(const e of f.querySelectorAll('.h3-card,.h3-section,.section-title,.card-title,.tbl-head h3'))if(visible(e))assertFont(e,size+2,'section heading',view);
+   if(view==='trades'){
+    assertButton(f.querySelector('[data-trade-action="bulk"]'),size,36,'bulk entry',view);
+    assertButton(f.querySelector('[data-trade-action="add-sell"]'),size,32,'sell',view);
+    assertFont(f.querySelector('#tradeNameFilter'),size+2,'search input',view);
+   }
+   if(view==='tradegroup'){
+    assertButton(f.querySelector('.btn-buy-sm'),size,32,'buy',view);
+    assertButton(f.querySelector('.btn-sell-sm'),size,32,'sell',view);
+   }
+   if(view==='stocks')assertButton(f.querySelector('#btn-acct-add'),size,36,'account add',view);
+   if(view==='gsheet')assertButton(f.querySelector('[data-status-action="automation-refresh"]'),size,36,'automation refresh',view);
+  }
+  views.push({view,ok:errors.length===viewErrors});
+ }
+ f.remove();host.dataset.activeView=prior;
+ for(const [kind,markup] of Object.entries(dialogs)){
+  const shell=d.createElement('div');d.body.appendChild(shell);shell.innerHTML=markup;
+  const overlay=shell.firstElementChild;overlay.style.display='flex';
+  const initialErrors=errors.length;
+  for(const size of [8,9,10,11,12]){
+   d.documentElement.dataset.uiFontSize=String(size);
+   assertFont(overlay.querySelector('.h3-95'),size+2,'dialog title',kind);
+   assertButton(overlay.querySelector('.btn-amber'),size,36,'primary',kind);
+   assertButton(overlay.querySelector('.btn-ghost-muted'),size,32,'cancel',kind);
+   const panel=overlay.firstElementChild.getBoundingClientRect();
+   if(panel.left<-1||panel.right>c.width+1)errors.push({kind,role:'dialog viewport',size,panel:[panel.left,panel.right]});
+   if(kind==='trade'){
+    for(const el of overlay.querySelectorAll('.te-type-btn'))assertFont(el,size,'trade type',kind);
+    for(const el of overlay.querySelectorAll('input:not([type="hidden"])'))if(visible(el))assertFont(el,size+2,'trade input',kind);
+   }else for(const el of overlay.querySelectorAll('[data-bulk-action="tab"]'))assertFont(el,size,'bulk tab',kind);
+  }
+  dialogResults.push({kind,ok:errors.length===initialErrors});
+  shell.remove();
+ }
+ if(oldSize===undefined)delete d.documentElement.dataset.uiFontSize;else d.documentElement.dataset.uiFontSize=oldSize;
+ return {ok:errors.length===0,views,dialogs:dialogResults,errors:errors.slice(0,30),errorCount:errors.length};
+}
+
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'portfolio-ui-browser-'));
 try{
  const htmlPath=path.join(dir,'check.html');
@@ -242,6 +357,8 @@ try{
  'const auditControlRoles='+auditControlRoles.toString()+';'+
  'const auditStableToolbar='+auditStableToolbar.toString()+';'+
  'const auditCompactDetails='+auditCompactDetails.toString()+';'+
+ 'const auditViewMatrix='+auditViewMatrix.toString()+';'+
+ 'const wholeViewFixtures='+JSON.stringify(wholeViewFixtures).replace(/</g,'\\u003c')+';const dialogFixtures='+JSON.stringify(dialogFixtures).replace(/</g,'\\u003c')+';'+
  'const acctMarkup='+JSON.stringify(acctArea.innerHTML).replace(/</g,'\\u003c')+';const planMarkup='+JSON.stringify(planMarkup).replace(/</g,'\\u003c')+';'+
  'const results=[]; let done=0;'+
  'for(const c of cases){const f=document.createElement("iframe");f.style.cssText="width:"+c.width+"px;height:1100px;border:0";'+
@@ -252,8 +369,9 @@ try{
  'const controls=auditControlRoles(d,c);'+
  'const toolbar=auditStableToolbar(d,c);'+
  'const detail=auditCompactDetails(d,c,acctMarkup,planMarkup);'+
- 'const ok=detail.ok&&toolbar.ok&&controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
- 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls,toolbar,detail});'+
+ 'const matrix=auditViewMatrix(d,c,wholeViewFixtures,dialogFixtures);'+
+ 'const ok=matrix.ok&&detail.ok&&toolbar.ok&&controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
+ 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls,toolbar,detail,matrix});'+
  '}catch(e){results.push({width:c.width,unified:c.unified,ok:false,error:String(e)});}'+
  'if(++done===cases.length)document.getElementById("result").textContent=JSON.stringify(results);};'+
  'f.srcdoc=c.html;document.body.appendChild(f);}</script>';
@@ -273,6 +391,6 @@ try{
  assert(report.every(r=>r.ok),JSON.stringify(report.filter(r=>!r.ok)));
  console.log('UI_REAL_BROWSER_LAYOUT_PASS '+JSON.stringify(report.map(r=>({
    viewport:r.width,unifiedCss:r.unified,maxIcon:Math.max(...r.boxes.map(b=>Math.max(b.w,b.h))),
-   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples,toolbar:r.toolbar.cases,detail:r.detail.cases
+   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples,toolbar:r.toolbar.cases,detail:r.detail.cases,viewMatrix:r.matrix.views,dialogMatrix:r.matrix.dialogs
  }))));
 }finally{fs.rmSync(dir,{recursive:true,force:true});}

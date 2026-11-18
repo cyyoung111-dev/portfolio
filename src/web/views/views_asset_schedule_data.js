@@ -7,8 +7,8 @@ function buildScheduleSection() {
   // 시가 이력 테이블 행
   const valRows = RE_VALUE_HIST.slice().sort((a,b)=>b.date.localeCompare(a.date))
     .map((r,i) => `<tr>
-      <td style="padding:5px 8px;font-size:.75rem;color:var(--muted)">${fmtDateDot(r.date)}</td>
-      <td style="padding:5px 8px;font-size:.78rem;font-weight:600;color:var(--amber);text-align:right">${fmt(r.value)}</td>
+      <td style="padding:5px 8px;font-size:var(--type-body);color:var(--muted)">${fmtDateDot(r.date)}</td>
+      <td style="padding:5px 8px;font-size:var(--type-body);font-weight:600;color:var(--amber);text-align:right">${fmt(r.value)}</td>
       <td style="padding:5px 8px;text-align:right">
         <button data-schedule-action="remove-re-value" data-index="${i}"
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.72rem;padding:2px 6px;border-radius:4px">✕</button>
@@ -31,7 +31,7 @@ function buildScheduleSection() {
     </div>
 
     ${!hasSched ? `
-    <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:.78rem">
+    <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:var(--type-body)">
       <div style="font-size:1.6rem;margin-bottom:8px">📂</div>
       상환스케줄 CSV를 업로드하면 월별 손익 차트를 볼 수 있어요<br>
       <span style="font-size:.70rem;opacity:.7">날짜, 대출잔액, 납입원금, 납입이자 컬럼이 필요합니다</span>

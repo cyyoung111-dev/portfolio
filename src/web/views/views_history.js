@@ -837,7 +837,7 @@ function renderGsheetView(area) {
 
   area.innerHTML = `
     <div style="padding:12px 0 8px">
-      <div style="font-size:.80rem;font-weight:700;color:var(--text);margin-bottom:16px">🔗 외부연동</div>
+      <div style="font-size:var(--type-body);font-weight:650;color:var(--text);margin-bottom:16px">🔗 외부연동</div>
 
       <!-- 연동 상태 카드 -->
       <div style="background:${isLinked ? 'var(--c-green-08)' : 'var(--s2)'};
@@ -845,7 +845,7 @@ function renderGsheetView(area) {
                   border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
         <div style="font-size:1.3rem">${isLinked ? '✅' : '⭕'}</div>
         <div>
-          <div style="font-size:.78rem;font-weight:700;color:${isLinked ? 'var(--green)' : 'var(--muted)'}">${isLinked ? (restored ? '연동·복원 완료' : 'URL 저장됨 · 전체 복원 미완료') : '연동 안됨'}</div>
+          <div style="font-size:var(--type-body);font-weight:650;color:${isLinked ? 'var(--green)' : 'var(--muted)'}">${isLinked ? (restored ? '연동·복원 완료' : 'URL 저장됨 · 전체 복원 미완료') : '연동 안됨'}</div>
           <div style="font-size:.65rem;color:var(--muted);margin-top:2px;word-break:break-all">${isLinked ? currentUrl.slice(0, 60) + (currentUrl.length > 60 ? '…' : '') : '구글 Apps Script 웹앱 URL을 입력하세요'}</div>
         </div>
         ${isLinked ? `<button id="btn-clear-gsheet-url" class="btn-del-sm" style="margin-left:auto;flex-shrink:0">해제</button>` : ''}
@@ -855,7 +855,7 @@ function renderGsheetView(area) {
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px">
           <div>
-            <div style="font-size:.72rem;font-weight:700;color:var(--text)">⏱️ 자동화 상태</div>
+            <div style="font-size:var(--type-body);font-weight:650;color:var(--text)">⏱️ 자동화 상태</div>
             <div style="font-size:.62rem;color:var(--muted);margin-top:2px">19시 통합 마감과 최근 운영 결과를 읽기 전용으로 확인합니다.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -870,7 +870,7 @@ function renderGsheetView(area) {
       ${isLinked ? (() => {
         const d = _portfolioLocalReceiptSummary();
         return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
-          <div style="font-size:.72rem;font-weight:700;margin-bottom:6px">PC 거래·보유 복원 진단 · 읽기 전용</div>
+          <div style="font-size:var(--type-body);font-weight:650;margin-bottom:6px">PC 거래·보유 복원 진단 · 읽기 전용</div>
           <div style="font-size:.66rem;color:var(--muted);margin-bottom:7px">위 자동화 정상 여부와 별도입니다. 이 기기의 미전송 기록만 상태·건수로 표시하며 거래 데이터·토큰은 보여주지 않습니다.</div>
           <div style="font-size:.69rem;line-height:1.9">복원 상태: <b>${restored ? '완료' : '미완료'}</b> · ${restored ? '진단' : '저장 확인 오류'}: <b>${d.reason}</b></div>
           <div style="font-size:.69rem;line-height:1.9">복구사본 보존: <b>${d.pending ? '있음' : '없음'}</b> · 거래원장 전체 <b>${d.trades}</b>건 · 보유자료 <b>${d.holdings}</b>건 · 저장 시도 <b>${d.attempted}</b>건 · 완료 미확인 <b>${d.unconfirmed}</b>건</div>
@@ -890,7 +890,7 @@ function renderGsheetView(area) {
 
       <!-- URL 입력 -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
-        <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:8px">Apps Script 웹앱 URL</div>
+        <div style="font-size:var(--type-body);font-weight:650;color:var(--text);margin-bottom:8px">Apps Script 웹앱 URL</div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
           <input id="gsheetUrlInput" type="text"
             value="${currentUrl.replace(/"/g,'&quot;')}"
@@ -906,7 +906,7 @@ function renderGsheetView(area) {
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
           <div>
-            <div style="font-size:.72rem;font-weight:700;color:var(--text)">🛡️ GAS 요청 접근 토큰</div>
+            <div style="font-size:var(--type-body);font-weight:650;color:var(--text)">🛡️ GAS 요청 접근 토큰</div>
             <div style="font-size:.62rem;color:var(--muted);margin-top:2px">GAS의 Script Properties에 설정한 access_token과 같은 값을 이 브라우저에 저장합니다.</div>
           </div>
           <span style="font-size:.62rem;color:${accessTokenConfigured ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${serverAuthEnabled ? (accessTokenConfigured ? '서버 인증 켜짐 · 브라우저 토큰 있음' : '서버 인증 켜짐 · 토큰 필요') : (accessTokenConfigured ? '브라우저 토큰 있음' : '선택 설정')}</span>
@@ -922,7 +922,7 @@ function renderGsheetView(area) {
 
 
       ${legacyPending ? `<div style="background:var(--s2);border:1px solid var(--c-amber-30,var(--border));border-radius:10px;padding:14px 16px;margin-bottom:12px">
-        <div style="font-size:.75rem;font-weight:700;color:var(--amber)">미확인 모바일 거래·보유 기록</div>
+        <div style="font-size:var(--type-body);font-weight:650;color:var(--amber)">미확인 모바일 거래·보유 기록</div>
         <p style="font-size:.68rem;color:var(--muted);margin:8px 0">이전 버전에서 저장 완료가 확인되지 않은 로컬 자료입니다. 자동 재전송·삭제하지 않습니다. 반드시 백업 후 서버와 읽기 전용 대조하세요.</p>
         <div style="display:flex;flex-wrap:wrap;gap:7px">
           <button id="btn-export-legacy-journal" class="btn-purple-sm">원본 기록 백업</button>
@@ -935,7 +935,7 @@ function renderGsheetView(area) {
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
           <div>
-            <div style="font-size:.72rem;font-weight:700;color:var(--text)">🧾 공공데이터포털 API 인증키</div>
+            <div style="font-size:var(--type-body);font-weight:650;color:var(--text)">🧾 공공데이터포털 API 인증키</div>
             <div style="font-size:.62rem;color:var(--muted);margin-top:2px">KRX상장종목정보(종목코드)와 주식배당정보 조회에 사용됩니다.</div>
           </div>
           <span id="publicDataConfiguredBadge" style="font-size:.62rem;color:${publicDataKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicDataKey ? '키 저장됨 (GAS)' : '키 미설정 (GAS)'}</span>
@@ -954,7 +954,7 @@ function renderGsheetView(area) {
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
           <div>
-            <div style="font-size:.72rem;font-weight:700;color:var(--text)">🔑 KRX Open API AUTH_KEY</div>
+            <div style="font-size:var(--type-body);font-weight:650;color:var(--text)">🔑 KRX Open API AUTH_KEY</div>
             <div style="font-size:.62rem;color:var(--muted);margin-top:2px">GAS Script Properties에 저장되며 공식 종가·지수·시장 자료 조회에 사용됩니다. GitHub Actions 키와 별도입니다.</div>
           </div>
           <span id="krxConfiguredBadge" style="font-size:.62rem;color:${krxAuthKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${krxAuthKey ? '키 저장됨 (GAS)' : '키 미설정 (GAS)'}</span>
@@ -977,7 +977,7 @@ function renderGsheetView(area) {
       </div>
 
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
-        <div style="font-size:.72rem;font-weight:700">NH PLUG 국내·미국 현재가·종가</div>
+        <div style="font-size:var(--type-body);font-weight:650">NH PLUG 국내·미국 현재가·종가</div>
         <div id="nhConfigStatus" style="font-size:.68rem;margin:8px 0">${window.GAS_API_KEY_STATUS?.nh?.enabled ? 'NH GAS 설정됨 · 실제 현재가·종가 표본은 연결상태 확인 필요' : 'NH GAS 운영 설정 미확인 · 연결상태 확인 필요'}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <input id="nhAppKeyInput" type="password" autocomplete="new-password" placeholder="NH App Key" />
@@ -988,7 +988,7 @@ function renderGsheetView(area) {
       </div>
       <!-- 안내 -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
-        <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:10px">📋 연동 방법</div>
+        <div style="font-size:var(--type-body);font-weight:650;color:var(--text);margin-bottom:10px">📋 연동 방법</div>
         <div style="display:flex;flex-direction:column;gap:8px;font-size:.70rem;color:var(--muted);line-height:1.6">
           <div><span style="color:var(--c-purple-45);font-weight:700">①</span> Google Drive에서 새 스프레드시트 생성</div>
           <div><span style="color:var(--c-purple-45);font-weight:700">②</span> 확장 프로그램 → Apps Script 열기</div>
@@ -1014,7 +1014,7 @@ function renderStocksView(area) {
       <!-- ── 계좌 관리 ── -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-          <div style="font-size:.80rem;font-weight:700;color:var(--text)">🏦 계좌 관리</div>
+          <div style="font-size:var(--type-body);font-weight:650;color:var(--text)">🏦 계좌 관리</div>
           <div style="display:flex;gap:6px;align-items:center">
             <button id="btn-acct-add" class="btn-purple-sm">➕ 계좌 추가</button>
           </div>
@@ -1057,7 +1057,7 @@ function renderStocksView(area) {
       <!-- ── 종목 관리 ── -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-          <div style="font-size:.80rem;font-weight:700;color:var(--text)">📋 종목 관리</div>
+          <div style="font-size:var(--type-body);font-weight:650;color:var(--text)">📋 종목 관리</div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <button id="btn-sm-add" class="btn-purple-sm">➕ 종목 추가</button>
             <label class="btn-ghost-sm" style="cursor:pointer">
@@ -1101,7 +1101,7 @@ function renderStocksView(area) {
       <!-- ── 섹터 관리 ── -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-          <div style="font-size:.80rem;font-weight:700;color:var(--text)">📂 섹터 관리</div>
+          <div style="font-size:var(--type-body);font-weight:650;color:var(--text)">📂 섹터 관리</div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <button id="btn-sec-add" class="btn-purple-sm">➕ 섹터 추가</button>
             <label class="btn-ghost-sm" style="cursor:pointer">

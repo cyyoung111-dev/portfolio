@@ -106,7 +106,7 @@ function _buildTradeDateRepairHTML() {
     <div id="tradeDateRepair" style="background:var(--c-red-08);border:1px solid var(--c-red-30);border-radius:10px;padding:10px 12px;margin-bottom:10px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div>
-          <div style="font-size:.76rem;font-weight:700;color:var(--red-lt)">⚠️ 날짜 누락·오류 거래 ${missing.length}건</div>
+          <div style="font-size:var(--type-body);font-weight:650;color:var(--red-lt)">⚠️ 날짜 누락·오류 거래 ${missing.length}건</div>
           <div style="font-size:.66rem;color:var(--muted);margin-top:2px">실현손익·스냅샷 원가 계산이 날짜순 정렬에 의존하므로 날짜를 보정해주세요.</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -182,13 +182,13 @@ function _buildTradesTableHTML(list) {
   ];
   const headerHTML = headerCols.map(col => {
     const clsAttr = col.cls ? ` class="${col.cls}"` : '';
-    if (!col.k) return `<th style="padding:9px 10px;text-align:center;font-size:.68rem;font-weight:600;color:var(--muted)"${clsAttr} >${col.label}</th>`;
+    if (!col.k) return `<th style="padding:9px 10px;text-align:center;font-size:var(--type-caption);font-weight:600;color:var(--muted)"${clsAttr} >${col.label}</th>`;
     const active = _tradeSort.key === col.k;
     const arrow  = active ? (_tradeSort.dir === 1 ? ' ▲' : ' ▼') : ' ⇅';
     const color  = active ? 'color:var(--purple-lt)' : 'color:var(--muted)';
     return `<th${clsAttr}
       data-trade-sort="${col.k}"
-      style="padding:9px 10px;text-align:center;font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
+      style="padding:9px 10px;text-align:center;font-size:var(--type-caption);font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
   }).join('');
 
   const tradePnlContext = _buildTradeRealizedContext(rawTrades);
@@ -228,7 +228,7 @@ function _buildTradesTableHTML(list) {
           <span style="font-size:.72rem;color:var(--muted)">${_escapeHtml(acct || '-')}</span>
         </td>
         <td style="padding:8px 10px;text-align:left">
-          <div style="font-weight:600;font-size:.78rem">${_escapeHtml(name || '-')}</div>
+          <div style="font-weight:600;font-size:var(--type-body)">${_escapeHtml(name || '-')}</div>
           ${code ? `<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px;font-variant-numeric:tabular-nums">${_escapeHtml(code)}</span>` : ''}
           ${memo ? `<div style="font-size:.60rem;color:var(--muted);margin-top:1px">📝 ${_escapeHtml(memo)}</div>` : ''}
         </td>
@@ -239,16 +239,16 @@ function _buildTradesTableHTML(list) {
             ${isBuy?'매수':'매도'}
           </span>
         </td>
-        <td style="padding:8px 10px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums">${(t.qty||0).toLocaleString()}</td>
-        <td class="col-hide-mobile" style="padding:8px 10px;text-align:center;font-size:.70rem;color:var(--muted);white-space:nowrap">
+        <td style="padding:8px 10px;text-align:right;font-size:var(--type-body);font-variant-numeric:tabular-nums">${(t.qty||0).toLocaleString()}</td>
+        <td class="col-hide-mobile" style="padding:8px 10px;text-align:center;font-size:var(--type-body);color:var(--muted);white-space:nowrap">
           ${!noDate ? _escapeHtml(date) : '<span style="color:var(--red-lt);font-size:.60rem">' + (date ? '날짜오류: ' + _escapeHtml(date) : '날짜없음') + '</span>'}
         </td>
-        <td style="padding:8px 10px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums">
+        <td style="padding:8px 10px;text-align:right;font-size:var(--type-body);font-variant-numeric:tabular-nums">
           ${price.toLocaleString()}
         </td>
         <td style="padding:8px 10px;text-align:right">
           ${pnl !== null ? `
-            <div style="color:${pC};font-weight:600;font-size:.78rem;font-variant-numeric:tabular-nums">${pS}${Math.round(pnl).toLocaleString()}</div>
+            <div style="color:${pC};font-weight:600;font-size:var(--type-body);font-variant-numeric:tabular-nums">${pS}${Math.round(pnl).toLocaleString()}</div>
             <div style="font-size:.65rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
           ` : `<span style="color:var(--muted)">-</span>`}
         </td>
@@ -332,7 +332,7 @@ function renderTradesView(area) {
 
     <!-- 선택 액션바 -->
     <div id="tradeSelBar" style="display:none;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--c-amber-08);border:1px solid var(--c-amber-30);border-radius:8px;margin-bottom:8px">
-      <span id="tradeSelCount" style="font-size:.78rem;font-weight:600;color:var(--gold)">0건 선택됨</span>
+      <span id="tradeSelCount" style="font-size:var(--type-body);font-weight:600;color:var(--gold)">0건 선택됨</span>
       <div class="flex-gap6" style="flex-wrap:wrap">
         <button data-trade-action="select-all" class="btn-outline-sm">전체선택</button>
         <button data-trade-action="select-none" class="btn-outline-sm">선택해제</button>

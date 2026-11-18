@@ -92,10 +92,10 @@ function _buildBuyingPowerSection(totalEval) {
           return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--s2);border-radius:8px;margin-bottom:6px">
             <div style="display:flex;align-items:center;gap:8px">
               <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
-              <span style="font-size:.75rem;font-weight:600;color:var(--text)">${_escapeHtml(r.name)}</span>
+              <span style="font-size:var(--type-body);font-weight:600;color:var(--text)">${_escapeHtml(r.name)}</span>
             </div>
             <div style="text-align:right">
-              <div style="font-size:.80rem;font-weight:700;color:var(--green)">+${fmt(r.buyAmt)}</div>
+              <div style="font-size:var(--type-body);font-weight:650;color:var(--green)">+${fmt(r.buyAmt)}</div>
               <div class="caption-text">${r.currentPct.toFixed(1)}% → ${r.targetPct.toFixed(1)}%</div>
               <div style="font-size:.62rem;color:var(--muted)">${r.estimatedQuantity == null ? '현재가 없음 · 금액만 표시' : `현재가 기준 약 ${r.estimatedQuantity.toLocaleString()}주`}</div>
             </div>
@@ -115,7 +115,7 @@ function _buildBuyingPowerSection(totalEval) {
         <div class="lbl-62-muted-3">보유 현금 (원)</div>
         <input type="text" id="plan-cash-input" value="${cash > 0 ? cash.toLocaleString() : ''}" placeholder="10,000,000"
           data-format="number-comma"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.78rem;width:160px"/>
+          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:var(--ui-field-font);width:160px"/>
       </div>
       <button data-plan-action="calc-buying-power" class="btn-purple-sm">계산</button>
     </div>

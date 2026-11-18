@@ -2,7 +2,7 @@
 //  sw.js — 서비스워커 (PWA 오프라인 캐싱)
 //  정적 파일 배포 시 CACHE_NAME과 PRECACHE_URLS의 쿼리 버전을 함께 올립니다.
 // ════════════════════════════════════════════════════════════════
-const CACHE_NAME = 'portfolio-cache-20261118-6';
+const CACHE_NAME = 'portfolio-cache-20261118-7';
 
 // 오프라인에서도 최소한 앱 껍데기는 뜨도록 미리 저장해둘 파일들
 const PRECACHE_URLS = [
@@ -11,7 +11,7 @@ const PRECACHE_URLS = [
   './manifest.json',
   './styles/tokens.css?v=20260903-1',
   './styles/base.css?v=20261115-1',
-  './styles/components.css?v=20261115-4',
+  './styles/components.css?v=20261118-7',
   './styles/layout.css?v=20261101-1',
   './styles/responsive.css?v=20261115-2',
   './styles/pages/plan.css?v=20261118-6',
@@ -20,21 +20,21 @@ const PRECACHE_URLS = [
   './styles/pages/history.css?v=20260904-4',
   './styles/pages/trade.css?v=20260903-1',
   './styles/typography-roles.css?v=20261028-1',
-  './styles/ui-unified.css?v=20261118-6',
+  './styles/ui-unified.css?v=20261118-7',
   './shared/theme.js?v=20261115-1',
   './domain/portfolio/data.js?v=20261116-1',
   './domain/plan/plan_calculations.js?v=20260903-1',
   './views/views_asset.js?v=20261118-6',
-  './views/views_portfolio.js?v=20261115-3',
+  './views/views_portfolio.js?v=20261118-7',
   './views/views_div_asset.js?v=20261118-6',
   './views/views_plan.js?v=20260903-1',
   './views/views_plan_overview.js?v=20260903-1',
   './views/views_plan_export.js?v=20260903-1',
-  './views/views_plan_weights.js?v=20261118-1',
+  './views/views_plan_weights.js?v=20261118-7',
   './views/views_plan_tax.js?v=20261118-1',
   './views/views_plan_retirement.js?v=20261118-1',
   './views/views_plan_simulation.js?v=20261118-1',
-  './views/views_asset_schedule_data.js?v=20261118-1',
+  './views/views_asset_schedule_data.js?v=20261118-7',
   './views/views_system.js?v=20261118-1',
   './features/settings/settings_net.js?v=20261115-1',
   './features/settings/settings_perf_monitor.js?v=20261115-5',
@@ -44,7 +44,7 @@ const PRECACHE_URLS = [
   './features/settings/settings_sync.js?v=20261103-1',
   './features/settings/settings_tabsync.js?v=20261101-6',
   './features/settings/settings_fetch.js?v=20261118-3',
-  './features/trade/editor/mgmt_trade.js?v=20261027-2',
+  './features/trade/editor/mgmt_trade.js?v=20261118-7',
   './features/management/mgmt_editor.js?v=20261101-8',
   './features/dividend/mgmt_div.js?v=20261028-2',
   './domain/market/domestic_index_eod.js?v=20261030-1',
@@ -53,7 +53,7 @@ const PRECACHE_URLS = [
   './views/views_history_state.js?v=20261117-1',
   './views/views_history_pipeline.js?v=20261012-1',
   './views/views_history_render.js?v=20261117-3',
-  './views/views_history.js?v=20261118-1',
+  './views/views_history.js?v=20261118-7',
   './app/event_delegation.js?v=20261115-1',
 ];
 
