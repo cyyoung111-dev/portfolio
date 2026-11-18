@@ -744,17 +744,18 @@ assert.equal(fromInventory.releaseAuthorized,false);
 assert.ok(loadTrackedRuntimeSources().length>0,'read-only scan must see checked-out files');
 console.log('Issue507 GAS deployment inventory GET-only, pagination, redaction, fail-closed: PASS');
 
+{
  // Read-only inventory run 44326887105 failed before any deployment write.
  // One transient Google REST GET failure can recover; invalid responses
  // and exhausted retry remain fail-closed. No real network in these fixtures.
 const networkBase={scriptId,expectedDeploymentId,googleAccessToken:secret,delay:async()=>{}};
-const listed=()=>({ok:true,status:200,text:async()=>JSON.stringify({deployments:[item(expectedDeploymentId)]})});
+const mockInventoryListResponse=()=>({ok:true,status:200,text:async()=>JSON.stringify({deployments:[item(expectedDeploymentId)]})});
 let listAttempts=0;const retryReports=[],retryDelays=[];
 const recoveredList=await inspectGasDeploymentsReadOnly({...networkBase,
  delay:async ms=>retryDelays.push(ms),report:r=>retryReports.push(r),fetchImpl:async(_url,opt)=>{
   assert.equal(opt.method,'GET');
   if(++listAttempts===1)throw Error('PRIVATE_TRANSPORT_ERROR');
-  return listed();
+  return mockInventoryListResponse();
  }});
 assert.equal(listAttempts,2);
 assert.equal(recoveredList.status,'INVENTORY_ONLY');
@@ -775,7 +776,7 @@ await assert.rejects(inspectGasDeploymentsReadOnly({...networkBase,fetchImpl:asy
 assert.equal(exhaustCalls,2);
 let sharedCalls=0;
 const failedDetail=await inspectGasDeploymentsReadOnly({...networkBase,verifyDetails:true,
- fetchImpl:async()=>{sharedCalls++;if(sharedCalls===2)return listed();throw Error('PRIVATE_NETWORK');}});
+ fetchImpl:async()=>{sharedCalls++;if(sharedCalls===2)return mockInventoryListResponse();throw Error('PRIVATE_NETWORK');}});
 assert.equal(sharedCalls,3);
 assert.equal(failedDetail.transientReadRetries,1);
 assert.equal(failedDetail.status,'BLOCKED');
@@ -787,3 +788,4 @@ await assert.rejects(inspectGasDeploymentsReadOnly({...networkBase,
  fetchImpl:async()=>{invalidJsonCalls++;return {ok:true,status:200,text:async()=>'<html>PRIVATE</html>'};}}),/SCHEMA_UNVERIFIED/);
 assert.equal(invalidJsonCalls,1);
 console.log('PASS: inventory one bounded GET-only transport retry; no permission/schema/HTTP retry or release authorization');
+}
