@@ -1316,38 +1316,34 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
   }
 }
 
-/* Wide desktop: diagnostics occupy the unused center space without
-   moving controls or the right-aligned menus. Narrow desktops retain
-   a fully reachable stacked details panel. */
+/* Wide desktop: use the same normal-flow status card and menu tracks
+   in both states. The side diagnostics must not size any grid row or move
+   the view below. Longer drill-down lists scroll inside that panel. */
 @media(min-width:1360px) {
-  .action-bar.toolbar-stable:has(.price-lookup-summary[open]) {
-    grid-template-columns:minmax(0,1fr) max-content;
+  .action-bar.toolbar-stable {
+    grid-template-columns:minmax(332px,1fr) max-content;
+  }
+  .action-bar.toolbar-stable .action-update-card {
+    position:relative;
+    min-height:112px;
+    align-content:start;
   }
   .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) {
     width:100%;max-width:660px;
-    grid-template-columns:126px repeat(3,58px) minmax(0,1fr);
-    grid-template-rows:44px max-content max-content 1fr;
-    align-content:start;
   }
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) > #price-updated-label,
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) .price-status-content {
-    display:contents;
-  }
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) .price-status-primary,
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) .price-status-meta,
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) .price-status-note {
-    grid-column:1/5;min-width:0;align-self:start;
-  }
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) .price-status-primary {
-    grid-row:2;border-top:1px solid var(--ui-edge);padding:6px 2px 0;
-  }
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) .price-status-meta {grid-row:3;padding-inline:2px}
-  .action-bar.toolbar-stable .action-update-card:has(.price-lookup-summary[open]) .price-status-note {grid-row:4;padding-inline:2px}
   .action-bar.toolbar-stable .price-status-content > .price-lookup-summary[open] {
-    grid-column:5;grid-row:1/5;
-    align-self:start;min-width:0;margin:0;
+    position:absolute;
+    /* Ignore inherited grid-area lines when sizing an absolute panel. */
+    grid-column:auto;grid-row:auto;justify-self:stretch;align-self:stretch;
+    top:6px;bottom:6px;left:332px;right:6px;
+    box-sizing:border-box;
+    width:auto;min-width:0;max-width:none;
+    margin:0;
     border:0;border-left:1px solid var(--ui-edge);
     padding:0 0 0 8px;
+    overflow:auto;
+    overscroll-behavior:contain;
+    scrollbar-width:thin;
   }
 }
 
