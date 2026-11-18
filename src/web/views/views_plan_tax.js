@@ -28,65 +28,19 @@ function _buildTaxSection(totalCost) {
   const nowYear = _kstYear ? _kstYear() : new Date().getFullYear();
   const taxYear = _planSettings.taxYear || nowYear;
 
-  const _tradesByName = {};
-  rawTrades.forEach(t => {
-    if (!t.name) return;
-    (_tradesByName[t.name] = _tradesByName[t.name] || []).push(t);
-  });
-  Object.values(_tradesByName).forEach(arr => arr.sort((a,b) => (a.date||'').localeCompare(b.date||'')));
-
-  const _todayStr = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10);
-  function _qtyAtDateFast(name, dateStr, acct) {
-    if (dateStr > _todayStr) {
-      return rawHoldings.filter(h => h.name === name && !h.fund && (!acct || h.acct === acct))
-        .reduce((s, h) => s + (h.qty || 0), 0);
-    }
-    const arr = _tradesByName[name];
-    if (!arr) return 0;
-    let qty = 0;
-    for (let i = 0; i < arr.length; i++) {
-      const t = arr[i];
-      if (t.date > dateStr) break;
-      if (acct && t.acct !== acct) continue;
-      if (t.tradeType === 'buy')  qty += (t.qty || 0);
-      if (t.tradeType === 'sell') qty -= (t.qty || 0);
-    }
-    return Math.max(0, qty);
-  }
-
-  let totalDivAnnual = 0;
-  const divByAcct = {};
-  Object.keys(DIVDATA || {}).forEach(divKey => {
-    const dd = DIVDATA[divKey];
-    if (!dd || !dd.perShare || !Array.isArray(dd.months) || dd.months.length === 0) return;
-    const ep = (typeof getEPByCode === 'function') ? getEPByCode(divKey) : null;
-    const name = ep?.name || divKey;
-    const nameTradesArr = _tradesByName[name] || [];
-    const accts = [...new Set(nameTradesArr.map(t => t.acct).filter(Boolean))];
-    accts.forEach(acct => {
-      dd.months.forEach(month => {
-        const refDate = getDivRefDate(taxYear, month);
-        const qty = _qtyAtDateFast(name, refDate, acct);
-        if (qty > 0) {
-          const div = dd.perShare * qty;
-          divByAcct[acct] = (divByAcct[acct] || 0) + div;
-          totalDivAnnual += div;
-        }
-      });
-    });
-  });
-
-  function _divSum(accts) {
-    return accts.reduce((s,a) => s + (divByAcct[a] || 0), 0);
-  }
-
+  const _todayStr = typeof _kstTodayStr==='function'?_kstTodayStr():new Date().toISOString().slice(0,10);
+  if(typeof _refreshDividendCompanyCatalog==='function')_refreshDividendCompanyCatalog(taxYear);
+  const taxRows=calcDividends(taxYear),sharedSummary=_divTaxSummary(taxRows),sharedScenario=_divScenarioForSummary(sharedSummary,taxYear);
+  const divByAcct=Object.create(null);
+  for(const item of taxRows)for(const [acct,amount] of Object.entries(item.accountAnnualDiv||{}))divByAcct[acct]=(divByAcct[acct]||0)+Number(amount||0);
+  function _divSum(accts){return accts.reduce((s,a)=>s+(divByAcct[a]||0),0);}
   // ── ① 일반계좌
   const normalSum = _sumByAccts(acctGroups['일반']);
-  const normalDiv = _divSum(acctGroups['일반']);
+  const normalDiv = sharedSummary.normal.annual;
   const domesticTax = PlanCalculations.calculateDomesticStockTax({ saleValue: normalSum.evalAmt, year: taxYear });
   const sellTaxRate = domesticTax.saleTaxRate * 100;
   const estSellTax  = domesticTax.saleTaxReference;
-  const normalDivTax = Math.round(normalDiv * 0.154);
+  const normalDivTax = sharedScenario.withholdingReference;
   const enrichedTrades = rawTrades.map(trade => {
     const ep = getEP(trade.name);
     return { ...trade, market: String(ep?.market || '').toUpperCase(), taxType: ACCT_TAX_TYPES?.[trade.acct] || '' };
@@ -95,7 +49,7 @@ function _buildTaxSection(totalCost) {
 
   // ── ② ISA
   const isaSum = _sumByAccts(acctGroups['ISA']);
-  const isaDiv = _divSum(acctGroups['ISA']);
+  const isaDiv = sharedSummary.isa.annual;
   const isaRealizedResult = PlanCalculations.calculateRealizedGainFromTrades({ trades: enrichedTrades, year: taxYear, taxTypes: ['isa'] });
   const isaJoinYear = /^\d{4}-/.test(_planSettings.isaJoinDate || '') ? Number(_planSettings.isaJoinDate.slice(0,4)) : taxYear;
   let isaCumulativeRealized = 0;
@@ -121,7 +75,7 @@ function _buildTaxSection(totalCost) {
   const pensionDiv = _divSum(acctGroups['연금']);
 
   const FIN_INCOME_THRESHOLD = 20000000;
-  const isOverThreshold = normalDiv > FIN_INCOME_THRESHOLD;
+  const isOverThreshold = sharedScenario.ordinaryWithApplication > FIN_INCOME_THRESHOLD;
 
   function _acctListHtml(accts, emptyMsg) {
     if (accts.length === 0) return `<span class="caption-text">${emptyMsg}</span>`;
@@ -140,7 +94,7 @@ function _buildTaxSection(totalCost) {
       </div>
     </div>
     <div style="font-size:.65rem;color:var(--muted);margin-bottom:14px">
-      모든 금액은 거래내역 기반 추정치입니다. 국내주식 비과세에는 대주주 등 예외가 있으며 실제 신고·납부액은 증권사 원장과 세무 전문가에게 확인하세요. 배당소득은 거래이력 기준 ${taxYear}년 실제 보유수량으로 계산됩니다.
+      모든 금액은 거래내역 기반 추정치입니다. 국내주식 비과세에는 대주주 등 예외가 있으며 실제 신고·납부액은 증권사 원장과 세무 전문가에게 확인하세요. 배당 탭과 동일한 지급연도·계좌 귀속 기준. 과거연도는 등록·공시 이벤트만, 현재연도는 예상분 포함. 누락 원장 및 다른 금융기관 소득은 별도 확인.
     </div>
 
     <!-- ① 일반계좌 -->
@@ -170,17 +124,12 @@ function _buildTaxSection(totalCost) {
           <div style="font-size:.80rem;font-weight:700;color:var(--text)">${fmt(normalDiv)}</div>
         </div>
         <div class="s2-rounded" style="background:var(--s1)">
-          <div class="lbl-62-muted-3">배당소득세 (15.4% 원천징수)</div>
+          <div class="lbl-62-muted-3">배당 원천징수 참고 (15.4%)</div>
           <div style="font-size:.80rem;font-weight:700;color:var(--red-lt)">-${fmt(normalDivTax)}</div>
         </div>
       </div>
-      ${isOverThreshold ? `
-      <div style="margin-top:10px;padding:8px 10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;font-size:.68rem;color:var(--red-lt)">
-        ⚠️ 연간 금융소득(배당) ${fmt(normalDiv)}원이 2,000만원을 초과했습니다. 초과분은 다른 소득과 합산해 <b>금융소득종합과세</b> 대상이 될 수 있습니다 (누진세율 적용, 정확한 세액은 세무사 상담 필요).
-      </div>` : `
-      <div style="margin-top:10px;font-size:.65rem;color:var(--muted)">
-        금융소득종합과세 기준 2,000만원 중 ${fmt(normalDiv)}원 (${(normalDiv/FIN_INCOME_THRESHOLD*100).toFixed(1)}%) 사용 중
-      </div>`}
+      <div class="ui-status-meta" style="margin-top:10px">특례 신청 가정 합산 금융소득 ${fmt(sharedScenario.ordinaryWithApplication)}원 · ${isOverThreshold?'2,000만원 초과':'2,000만원 이하 (입력된 자료 기준)'} · ${sharedScenario.interestKnown?'이자 가정 포함':'이자 미확인'}</div>
+      ${_divTaxComparisonPanel(sharedSummary,taxYear,sharedScenario)}
     </div>
 
     <!-- ② ISA -->

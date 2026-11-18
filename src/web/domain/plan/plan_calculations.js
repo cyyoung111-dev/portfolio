@@ -145,24 +145,52 @@
     for(const [upper,rate] of bands){national+=Math.max(0,Math.min(value,upper)-lower)*rate;lower=upper;}
     return Math.round(national*1.1);
   }
-  function calculateDividendTaxScenario({normalGross=0,reviewedGross=0,pendingGross=0,candidateGross=0,interest=null,year=2026}={}) {
+  // 2026 reference, ordinary 14% financial income only. No final tax return.
+  function progressiveIncomeTax(base) {
+    const bands=[[14000000,.06],[50000000,.15],[88000000,.24],[150000000,.35],[300000000,.38],[500000000,.40],[1000000000,.42],[Infinity,.45]];
+    let tax=0,lower=0;
+    for(const [upper,rate] of bands){tax+=Math.max(0,Math.min(number(base),upper)-lower)*rate;lower=upper;}
+    return tax;
+  }
+  function estimateOrdinaryFinancialTax({financialGross,otherTaxBase,grossUpEligible=0}={}){
+    const f=number(financialGross),base=number(otherTaxBase),threshold=20000000,baseTax=progressiveIncomeTax(base);
+    const minimum=baseTax+f*.14;
+    const grossUp=f>threshold?Math.min(number(grossUpEligible),f-threshold)*.10:0;
+    const arithmetic=f>threshold?progressiveIncomeTax(base+f-threshold+grossUp)+threshold*.14:minimum;
+    const calculated=Math.max(minimum,arithmetic),credit=Math.min(grossUp,Math.max(0,calculated-minimum));
+    return {grossUp,dividendCredit:credit,incrementalTax:Math.round(Math.max(0,calculated-credit-baseTax)*1.1)};
+  }
+  const optionalMoney=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v))&&Number(v)>=0?Number(v):null;
+  function calculateDividendTaxScenario({normalGross=0,reviewedGross=0,pendingGross=0,candidateGross=0,interest=null,year=2026,taxDetails=null}={}) {
     const gross=number(normalGross),eligible=calculateSpecialDividendTax(0,year)!==null;
     const reviewed=eligible?Math.min(gross,number(reviewedGross)):0;
     const pending=eligible?Math.min(gross-reviewed,number(pendingGross)):0;
     const candidate=eligible?Math.min(pending,number(candidateGross)):0;
-    const knownInterest=interest!==null&&interest!==undefined&&interest!==''&&Number.isFinite(Number(interest))&&Number(interest)>=0;
-    const includedInterest=knownInterest?Number(interest):0;
-    const ordinary=gross-reviewed+includedInterest;
-    const specialTax=eligible?calculateSpecialDividendTax(reviewed,year):0;
-    return {normalGross:gross,reviewedGross:reviewed,pendingGross:pending,candidateGross:candidate,ordinaryIfCandidatesQualify:ordinary-candidate,interestKnown:knownInterest,
-      ordinaryWithoutApplication:gross+includedInterest,ordinaryWithApplication:ordinary,
-      threshold:20000000,headroom:20000000-ordinary,specialTax,
-      withholdingReference:Math.round(gross*.154),
-      afterApplicationReference:Math.round(gross-(gross-reviewed)*.154-specialTax),
-      finalTaxKnown:false,appliedRule:eligible?'2026-2029':'outside'};
+    const d=taxDetails||{},capital=optionalMoney(d.capitalExempt)||0,etf=optionalMoney(d.etfTaxDifference)||0;
+    const suppliedSpecial=optionalMoney(d.certificateSpecial),proposed=gross-capital-etf;
+    const valid=proposed>=0&&(suppliedSpecial===null?proposed>=reviewed:eligible&&suppliedSpecial<=proposed);
+    const taxable=valid?proposed:gross;
+    const special=eligible?(valid&&suppliedSpecial!==null?suppliedSpecial:reviewed):0;
+    const additionalCandidate=valid&&suppliedSpecial!==null?0:Math.min(Math.max(0,candidate-(valid?capital+etf:0)),Math.max(0,taxable-special));
+    const interestKnown=optionalMoney(interest)!==null, includedInterest=interestKnown?Number(interest):0;
+    const ordinary=taxable-special+includedInterest,specialTax=eligible?calculateSpecialDividendTax(special,year):0;
+    const base=optionalMoney(d.otherTaxBase),gOrd=optionalMoney(d.grossUpOrdinary),gSpecial=optionalMoney(d.grossUpSpecial);
+    const grossUpValid=(gOrd===null||gOrd<=taxable-special)&&(gSpecial===null||gSpecial<=special);
+    let comparison=null;
+    if(Number(year)===2026&&valid&&interestKnown&&base!==null&&grossUpValid){
+      const unapplied=estimateOrdinaryFinancialTax({financialGross:taxable+includedInterest,otherTaxBase:base,grossUpEligible:(gOrd||0)+(gSpecial||0)});
+      const applied=estimateOrdinaryFinancialTax({financialGross:ordinary,otherTaxBase:base,grossUpEligible:gOrd||0});
+      const withoutApplication=unapplied.incrementalTax,withApplication=applied.incrementalTax+specialTax;
+      comparison={withoutApplication,withApplication,savings:withoutApplication-withApplication,unapplied,applied,grossUpKnown:gOrd!==null&&gSpecial!==null};
+    }
+    return {normalGross:gross,taxableGross:taxable,reviewedGross:reviewed,pendingGross:pending,candidateGross:candidate,selectedSpecialGross:special,certificateSpecialUsed:valid&&suppliedSpecial!==null,
+      capitalExempt:valid?capital:0,etfTaxDifference:valid?etf:0,adjustmentValid:valid,grossUpValid,comparison,
+      ordinaryIfCandidatesQualify:ordinary-additionalCandidate,interestKnown,ordinaryWithoutApplication:taxable+includedInterest,ordinaryWithApplication:ordinary,
+      threshold:20000000,headroom:20000000-ordinary,specialTax,withholdingReference:Math.round(taxable*.154),
+      afterApplicationReference:Math.round(gross-(taxable-special)*.154-specialTax),finalTaxKnown:false,appliedRule:eligible?'2026-2029':'outside'};
   }
 
-  function calculateDividendCashflow({ dividends = [], year = 2026, otherFinancialIncome = null } = {}) {
+  function calculateDividendCashflow({ dividends = [], year = 2026, otherFinancialIncome = null, taxDetails = null } = {}) {
     const rules = rulesFor(year);
     const out = { totalGross: 0, normalGross: 0, normalAfterTax: 0, availableAnnual: 0, availableMonthly: 0, isaInternal: 0, pensionInternal: 0, pensionSavingsInternal: 0, irpInternal: 0, unclassified: 0, warnings: [], appliedRuleYear: rules.year };
     let reviewedGross=0,pendingGross=0,candidateGross=0;
@@ -176,8 +204,8 @@
       else if (type === 'irp') { out.irpInternal += amount; out.pensionInternal += amount; }
       else { out.unclassified += amount; out.warnings.push(`미분류 배당: ${String(item?.acct || item?.name || '이름 없음')}`); }
     });
-    out.specialTaxScenario=calculateDividendTaxScenario({normalGross:out.normalGross,reviewedGross,pendingGross,candidateGross,year,interest:otherFinancialIncome});
-    out.normalAfterTax = Math.round(out.normalGross * (1 - rules.normalDividendWithholdingRate));
+    out.specialTaxScenario=calculateDividendTaxScenario({normalGross:out.normalGross,reviewedGross,pendingGross,candidateGross,year,interest:otherFinancialIncome,taxDetails});
+    out.normalAfterTax = Math.round(out.normalGross - out.specialTaxScenario.taxableGross * rules.normalDividendWithholdingRate);
     out.availableAnnual = out.normalAfterTax;
     out.availableMonthly = Math.round(out.availableAnnual / 12);
     out.warnings = [...new Set(out.warnings)];
@@ -406,5 +434,5 @@
     return { code:'SUSTAINABLE', label:'은퇴 가능' };
   }
 
-  return { TAX_RULES_BY_YEAR, DIVIDEND_DISCLOSURE_AS_OF, DIVIDEND_SPECIAL_REFERENCE, setDividendCompanyCatalog, dividendCompanyCatalogStatus, dividendCompanyCandidate, specialDividendEvidence, calculateSpecialDividendTax, calculateDividendTaxScenario, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
+  return { TAX_RULES_BY_YEAR, DIVIDEND_DISCLOSURE_AS_OF, DIVIDEND_SPECIAL_REFERENCE, setDividendCompanyCatalog, dividendCompanyCatalogStatus, dividendCompanyCandidate, specialDividendEvidence, calculateSpecialDividendTax, progressiveIncomeTax, estimateOrdinaryFinancialTax, calculateDividendTaxScenario, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
 });

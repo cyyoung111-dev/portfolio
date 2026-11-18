@@ -411,3 +411,24 @@ console.log('PASS: disclosure correction precedence and payment-specific source 
  assert.equal(P.dividendCompanyCandidate('005930',2026).state,'reviewRequired');
 }
 console.log('PASS: public company list, candidate-only scenario and persistent correction hold');
+
+{
+ const input={normalGross:60000000,reviewedGross:30000000,interest:0,year:2026,taxDetails:{otherTaxBase:70000000,grossUpOrdinary:0,grossUpSpecial:0}};
+ const result=P.calculateDividendTaxScenario(input);
+ assert.equal(result.comparison.withoutApplication,16302000);assert.equal(result.comparison.withApplication,11000000);assert.equal(result.comparison.savings,5302000);
+ const low=P.calculateDividendTaxScenario({...input,taxDetails:{...input.taxDetails,otherTaxBase:10000000}});
+ assert.equal(low.comparison.withoutApplication,9284000);assert.equal(low.comparison.withApplication,9900000);assert.equal(low.comparison.savings,-616000);
+ const ex=P.calculateDividendTaxScenario({normalGross:28000000,reviewedGross:5000000,candidateGross:5000000,pendingGross:5000000,interest:2000000,year:2026,
+   taxDetails:{capitalExempt:2000000,etfTaxDifference:1000000,certificateSpecial:10000000,otherTaxBase:50000000,grossUpOrdinary:15000000,grossUpSpecial:10000000}});
+ assert.equal(ex.taxableGross,25000000);assert.equal(ex.selectedSpecialGross,10000000);assert.equal(ex.ordinaryWithApplication,17000000);assert.equal(ex.comparison.unapplied.grossUp,700000);assert.equal(ex.comparison.applied.grossUp,0);assert.equal(ex.ordinaryIfCandidatesQualify,17000000);assert.equal(ex.normalGross,28000000);
+ assert.equal(P.calculateDividendTaxScenario({...input,interest:null}).comparison,null);
+ assert.equal(P.calculateDividendTaxScenario({...input,taxDetails:{otherTaxBase:0,capitalExempt:70000000}}).adjustmentValid,false);
+ assert.equal(P.calculateDividendTaxScenario({...input,taxDetails:{otherTaxBase:0,grossUpOrdinary:90000000}}).comparison,null);
+ assert.equal(P.calculateDividendTaxScenario({...input,year:2027}).comparison,null);
+ assert.equal(P.estimateOrdinaryFinancialTax({financialGross:30000000,otherTaxBase:0,grossUpEligible:30000000}).incrementalTax,4620000);
+ assert.equal(P.progressiveIncomeTax(50000000),6240000);assert.equal(P.progressiveIncomeTax(88000000),15360000);
+ assert.equal(accountCtx.calcDividends(2025).reduce((n,x)=>n+x.annualDiv,0),0);
+ assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/과세 제외 감액배당/);
+ assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/다른 종합소득 과세표준/);
+}
+console.log('PASS: tax comparison, credit floor, non-tax cash adjustments and historical year');
