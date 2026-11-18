@@ -743,3 +743,47 @@ assert.equal(fromInventory.additionalRoutableDeploymentCount,1);
 assert.equal(fromInventory.releaseAuthorized,false);
 assert.ok(loadTrackedRuntimeSources().length>0,'read-only scan must see checked-out files');
 console.log('Issue507 GAS deployment inventory GET-only, pagination, redaction, fail-closed: PASS');
+
+ // Read-only inventory run 44326887105 failed before any deployment write.
+ // One transient Google REST GET failure can recover; invalid responses
+ // and exhausted retry remain fail-closed. No real network in these fixtures.
+const networkBase={scriptId,expectedDeploymentId,googleAccessToken:secret,delay:async()=>{}};
+const listed=()=>({ok:true,status:200,text:async()=>JSON.stringify({deployments:[item(expectedDeploymentId)]})});
+let listAttempts=0;const retryReports=[],retryDelays=[];
+const recoveredList=await inspectGasDeploymentsReadOnly({...networkBase,
+ delay:async ms=>retryDelays.push(ms),report:r=>retryReports.push(r),fetchImpl:async(_url,opt)=>{
+  assert.equal(opt.method,'GET');
+  if(++listAttempts===1)throw Error('PRIVATE_TRANSPORT_ERROR');
+  return listed();
+ }});
+assert.equal(listAttempts,2);
+assert.equal(recoveredList.status,'INVENTORY_ONLY');
+assert.equal(recoveredList.releaseAuthorized,false);
+assert.equal(recoveredList.transientReadRetries,1);
+assert.deepEqual(retryDelays,[2000]);
+assert.deepEqual(retryReports,[{kind:'GAS_INVENTORY_TRANSIENT_READ_RETRY',stage:'LIST',gasWrites:0,financeWrites:0}]);
+assert.doesNotMatch(JSON.stringify(retryReports),/PRIVATE_TRANSPORT_ERROR|PRIVATE_TOKEN/);
+for(const status of [401,403,429,502,503]){
+ let calls=0;
+ await assert.rejects(inspectGasDeploymentsReadOnly({...networkBase,
+  fetchImpl:async()=>{calls++;return {ok:false,status};}}),/ISSUE507_DEPLOYMENT_INVENTORY_(PERMISSION|HTTP)_UNVERIFIED/);
+ assert.equal(calls,1);
+}
+let exhaustCalls=0;
+await assert.rejects(inspectGasDeploymentsReadOnly({...networkBase,fetchImpl:async()=>{
+ exhaustCalls++;throw Error('PRIVATE_NETWORK');}}),/ISSUE507_DEPLOYMENT_INVENTORY_NETWORK_UNVERIFIED/);
+assert.equal(exhaustCalls,2);
+let sharedCalls=0;
+const failedDetail=await inspectGasDeploymentsReadOnly({...networkBase,verifyDetails:true,
+ fetchImpl:async()=>{sharedCalls++;if(sharedCalls===2)return listed();throw Error('PRIVATE_NETWORK');}});
+assert.equal(sharedCalls,3);
+assert.equal(failedDetail.transientReadRetries,1);
+assert.equal(failedDetail.status,'BLOCKED');
+assert.equal(failedDetail.detailGetUnverifiedCount,1);
+assert.equal(failedDetail.releaseAuthorized,false);
+assert.equal(failedDetail.gasWrites,0);
+let invalidJsonCalls=0;
+await assert.rejects(inspectGasDeploymentsReadOnly({...networkBase,
+ fetchImpl:async()=>{invalidJsonCalls++;return {ok:true,status:200,text:async()=>'<html>PRIVATE</html>'};}}),/SCHEMA_UNVERIFIED/);
+assert.equal(invalidJsonCalls,1);
+console.log('PASS: inventory one bounded GET-only transport retry; no permission/schema/HTTP retry or release authorization');
