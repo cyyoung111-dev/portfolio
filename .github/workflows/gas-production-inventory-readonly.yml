@@ -1,10 +1,16 @@
 name: GAS production deployment inventory (read-only)
 on:
   workflow_dispatch:
+  # One-shot dry-run on the protected main merge of THIS workflow only.
+  # Manual dispatch retains the original inventory-only behavior.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/gas-production-inventory-readonly.yml']
 permissions:
   contents: read
 jobs:
   inspect:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: portfolio-production-gas
@@ -25,3 +31,18 @@ jobs:
           node-version: '24'
       - name: Inspect all GAS deployments (GET only, no deployment or finance writes)
         run: node scripts/issue507-deployment-inventory-readonly.mjs
+
+      - name: Verify published 9.297 ledger and idle Writer Gate (read only)
+        id: finance_preflight
+        if: github.event_name == 'push'
+        run: node scripts/gas9298-release-readonly.mjs pre
+      - name: GAS 9.298 dry-run only (no production code write)
+        if: github.event_name == 'push'
+        env:
+          GAS_DEPLOY_DRY_RUN: 'true'
+          GAS_9298_NH_FINANCIAL_INCOME: 'true'
+          GAS_9298_RELEASE_APPROVAL: 'false'
+          GAS_9298_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
+          GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/deploy-gas.mjs
