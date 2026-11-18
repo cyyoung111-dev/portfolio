@@ -30,7 +30,7 @@ export async function runRegisteredNhReadOnly({url,token,fetchImpl=fetch,
  // future 9.x solely because its number is greater.
  // Forensic callers can require one exact GAS version.
  const versionOk=expectedGasVersion===null
-   ?['9.284','9.285','9.294','9.295','9.296','9.297'].includes(master?.gasVersion)
+   ?['9.284','9.285','9.294','9.295','9.296','9.297','9.298'].includes(master?.gasVersion)
    :master?.gasVersion===expectedGasVersion;
  if(master?.status!=='ok'||master?.readOnly!==true
     ||!versionOk||!Array.isArray(master.codes))

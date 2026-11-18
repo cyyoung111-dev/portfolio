@@ -13,7 +13,7 @@ const goodInt=(n,max)=>Number.isSafeInteger(n)&&n>=0&&n<=max;
 
 export function assessGas9295ReleaseState({ledger,gate,status,
  expectedVersion='9.294',requireIdle=true}={}){
- if(!['9.294','9.295','9.296','9.297'].includes(expectedVersion))fail('EXPECTED_VERSION_INVALID');
+ if(!['9.294','9.295','9.296','9.297','9.298'].includes(expectedVersion))fail('EXPECTED_VERSION_INVALID');
  if(gate?.status!=='ok'||gate.gasVersion!==expectedVersion
   ||status?.gasVersion!==expectedVersion)fail('VERSION_MISMATCH');
  if(ledger?.status!=='ok'||ledger.tradeLedgerProtocolVersion!==2
