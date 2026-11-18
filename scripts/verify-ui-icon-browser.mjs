@@ -153,17 +153,27 @@ function auditStableToolbar(d,c) {
   const nav=d.querySelector('#viewSwitcher').getBoundingClientRect();
   const navButtons=[...d.querySelectorAll('#viewSwitcher .vs-btn')];
   const first=navButtons[0]?.getBoundingClientRect();
-  const importBtn=sel('btn-trigger-import').getBoundingClientRect();
+  const managementEl=d.querySelector('.toolbar-btn-group');
+  const navEl=d.querySelector('#viewSwitcher');
+  const lastSection=managementEl.querySelector('.toolbar-section-settings').getBoundingClientRect();
+  const lastTab=navButtons.at(-1)?.getBoundingClientRect();
+  const menuFits=managementEl.scrollWidth<=managementEl.clientWidth+1;
+  const navFits=navEl.scrollWidth<=navEl.clientWidth+1;
+  // Check visible controls, not just two equally sized invisible containers.
+  // At the desktop width boundary overflow must still be reachable by scroll.
+  const rightAligned=Math.abs(menu.right-nav.right)<=1&&
+    (!menuFits||Math.abs(lastSection.right-menu.right)<=1)&&
+    (!navFits||Math.abs(lastTab.right-nav.right)<=1);
   if(navButtons.length!==9||!first||!navButtons[0].classList.contains('active')||
-     nav.top<menu.bottom-1||Math.abs(nav.left-menu.left)>1||
-     (desktop&&(menu.left<card.right-1||Math.abs(menu.top-card.top)>1||Math.abs(first.left-importBtn.left)>8))||
-     (!desktop&&menu.top<card.bottom-1)||
+     nav.top<menu.bottom-1||
+     (desktop&&(Math.min(menu.left,nav.left)<card.right-1||Math.abs(menu.top-card.top)>1||!rightAligned))||
+     (!desktop&&(Math.abs(nav.left-menu.left)>1||menu.top<card.bottom-1))||
      nav.right>c.width+1||menu.right>c.width+1)
-    failures.push({size,role:'menu stack geometry',desktop,card:[card.left,card.top,card.right,card.bottom],menu:[menu.left,menu.top,menu.right,menu.bottom],nav:[nav.left,nav.top,nav.right,nav.bottom],tabCount:navButtons.length});
+    failures.push({size,role:'menu stack geometry',desktop,card:[card.left,card.top,card.right,card.bottom],menu:[menu.left,menu.top,menu.right,menu.bottom],nav:[nav.left,nav.top,nav.right,nav.bottom],tabCount:navButtons.length,rightAligned,menuFits,navFits,lastSectionRight:lastSection.right,lastTabRight:lastTab?.right});
   const statusWidth=label.getBoundingClientRect().width;
   if(statusWidth<card.width-20)failures.push({size,role:'status uses card width',statusWidth,cardWidth:card.width});
   if(closed[0][2]!==126||closed.slice(1,4).some(b=>b[2]!==58||b[3]!==44)||closed[0][3]!==44||card.right>c.width+1)failures.push({size,role:'command dimensions',closed,cardRight:card.right});
-  cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:desktop,navBelowManagement:nav.top>=menu.bottom-1,tabCount:navButtons.length,geometry:!failures.some(f=>f.size===size)});
+  cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:desktop,navBelowManagement:nav.top>=menu.bottom-1,rightAligned:desktop?rightAligned:null,tabCount:navButtons.length,geometry:!failures.some(f=>f.size===size)});
  }
  return {ok:failures.length===0,cases,failures};
 }

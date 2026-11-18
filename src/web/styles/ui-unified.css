@@ -1270,7 +1270,7 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
 }
 
 /* Desktop header: status card and a compact, right-aligned two-row menu.
-   Keep both menu rows in normal flow and anchor them to the same start edge.
+   Keep both menu rows in normal flow and anchor them to the same right edge.
    Below desktop width keep the existing stacked mobile/tablet ordering. */
 .action-bar.toolbar-stable {
   display:grid;
@@ -1308,10 +1308,16 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
     justify-self:end;
     width:max-content;max-width:100%;
   }
+  /* Each row takes its own intrinsic width and shares the right edge.
+     Keep start-aligned scrollable content when the available width is smaller. */
+  .action-bar.toolbar-stable .action-menu-stack > .toolbar-btn-group,
+  .action-bar.toolbar-stable .action-menu-stack > #viewSwitcher {
+    justify-self:end;
+    width:max-content;
+    max-width:100%;
+    padding-inline:0;
+  }
   .action-bar.toolbar-stable .action-menu-stack > .toolbar-btn-group .toolbar-section-danger {
     margin-left:0;
-  }
-  .action-bar.toolbar-stable .action-menu-stack > #viewSwitcher {
-    padding-inline:4px;
   }
 }
