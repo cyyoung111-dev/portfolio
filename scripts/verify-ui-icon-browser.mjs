@@ -213,6 +213,12 @@ function auditStableToolbar(d,c) {
   const markup=w._priceStatusLayout('업데이트 완료 · 39/39개','거래 338건 · 보유 61건 · 미조회 0개','',lookup);
   w.setStatusLabel(markup,'ok');
   const closed=geometry(),detail=label.querySelector('details');
+  const headerGeometry=()=>[d.querySelector('.action-bar'),d.querySelector('.action-update-card'),label,label.querySelector('.price-status-primary'),d.querySelector('#view-area')].map(e=>{
+    const r=e.getBoundingClientRect();return [r.y,r.height];
+  });
+  const closedHeader=headerGeometry();
+  const stableHeader=()=>headerGeometry().slice(0,4).every((r,i)=>r.every((v,j)=>Math.abs(v-closedHeader[i][j])<=0.5))
+    &&Math.abs(headerGeometry()[4][0]-closedHeader[4][0])<=0.5;
   if(button.disabled||detail.open||button.getAttribute('aria-expanded')!=='false')failures.push({size,role:'closed state'});
   // Desktop right controls stay fixed too; on stacked mobile the second row
   // naturally moves downward so it never overlaps the expanded diagnostics.
@@ -225,18 +231,37 @@ function auditStableToolbar(d,c) {
   const command=button.getBoundingClientRect(), primary=label.querySelector('.price-status-primary').getBoundingClientRect();
   const side=c.width>=1360;
   const positionOk=side?(openDetail.left>=command.right-1&&Math.abs(openDetail.top-command.top)<=2&&openDetail.right<=openMenu.left+1&&openCard.right<=openMenu.left+1&&openDetail.width>=180):(openDetail.top>=primary.bottom-1&&openDetail.left>=openCard.left-1&&openDetail.right<=openCard.right+1);
+  if(side&&!stableHeader())failures.push({size,role:'open summary changes card/header/body height',closed:closedHeader,opened:headerGeometry()});
   if(!positionOk)failures.push({size,role:'lookup responsive placement',viewport:c.width,detail:[openDetail.left,openDetail.top,openDetail.right,openDetail.bottom],command:[command.left,command.top,command.right],menu:[openMenu.left,openMenu.right]});
   if(!detail.open||button.getAttribute('aria-expanded')!=='true'||!same(closed,opened,limit))failures.push({size,role:'open geometry',closed,opened});
   w._priceLookupDetail('timings');
   const nested=geometry();
   const nestedBox=sel('price-lookup-detail').getBoundingClientRect(), headerBottom=d.querySelector('.action-bar').getBoundingClientRect().bottom;
-  if(nestedBox.bottom>headerBottom+1)failures.push({size,role:'details stay in header flow',viewport:c.width,detailBottom:nestedBox.bottom,headerBottom});
+  if(side) {
+    const panel=detail.getBoundingClientRect();
+    if(!stableHeader()||panel.bottom>headerBottom+1)failures.push({size,role:'desktop drilldown must not resize header',closed:closedHeader,nested:headerGeometry()});
+    // Longer details can scroll within the panel rather than displacing the dashboard.
+    detail.scrollTop=detail.scrollHeight;
+    const last=sel('price-lookup-detail').querySelector('li:last-child')||sel('price-lookup-detail');
+    if(last.getBoundingClientRect().bottom>detail.getBoundingClientRect().bottom+1)
+      failures.push({size,role:'desktop drilldown last row not reachable'});
+    detail.scrollTop=0;
+  } else if(nestedBox.bottom>headerBottom+1)failures.push({size,role:'details stay in header flow',viewport:c.width,detailBottom:nestedBox.bottom,headerBottom});
   if(sel('price-lookup-detail').hidden||!same(closed,nested,limit))failures.push({size,role:'nested detail geometry'});
   w._priceLookupDetail('toggle-summary');
   const reclosed=geometry();
+  if(side&&!stableHeader())failures.push({size,role:'close summary changes header height',closed:closedHeader,reclosed:headerGeometry()});
   if(detail.open||button.getAttribute('aria-expanded')!=='false'||!same(closed,reclosed,limit))failures.push({size,role:'close geometry'});
   w.setStatusLabel(w._priceStatusLayout('현재가 갱신 · 39개 · 화면만 반영','','저장 이력/Snapshot 미변경',lookup,'info'),'ok');
   if(!same(closed,geometry(),limit))failures.push({size,role:'price-only geometry'});
+  if(side){
+    const base=headerGeometry();
+    w._priceLookupDetail('toggle-summary');
+    const expanded=headerGeometry();
+    if(!base.slice(0,4).every((r,i)=>r.every((v,j)=>Math.abs(v-expanded[i][j])<=0.5))||Math.abs(base[4][0]-expanded[4][0])>0.5)
+      failures.push({size,role:'price-only summary changes header height',base,expanded});
+    w._priceLookupDetail('toggle-summary');
+  }
   const card=d.querySelector('.action-update-card').getBoundingClientRect();
   const menu=d.querySelector('.toolbar-btn-group').getBoundingClientRect();
   const nav=d.querySelector('#viewSwitcher').getBoundingClientRect();
@@ -267,7 +292,7 @@ function auditStableToolbar(d,c) {
   const statusWidth=label.getBoundingClientRect().width;
   if(statusWidth<card.width-20)failures.push({size,role:'status uses card width',statusWidth,cardWidth:card.width});
   if(closed[0][2]!==126||closed.slice(1,4).some(b=>b[2]!==58||b[3]!==44)||closed[0][3]!==44||card.right>c.width+1)failures.push({size,role:'command dimensions',closed,cardRight:card.right});
-  cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:desktop,navBelowManagement:nav.top>=menu.bottom-1,rightAligned:desktop?rightAligned:null,tabCount:navButtons.length,geometry:!failures.some(f=>f.size===size)});
+  cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:desktop,stableWideHeader:side?true:null,headerHeight:closedHeader[0][1],navBelowManagement:nav.top>=menu.bottom-1,rightAligned:desktop?rightAligned:null,tabCount:navButtons.length,geometry:!failures.some(f=>f.size===size)});
  }
  return {ok:failures.length===0,cases,failures};
 }
