@@ -476,7 +476,7 @@ function buildTradeEditOverlayHTML() {
         <button data-te-action="close" class="btn-close-icon">✕</button>
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px">
-        <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:var(--type-body);color:var(--red-lt)"></div>
+        <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:var(--type-caption);color:var(--red-lt)"></div>
 
         <!-- 매수 / 매도 / 분할 / 병합 탭 -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">

@@ -1443,3 +1443,42 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
   font-weight:650;
   line-height:1.35;
 }
+
+/* Feedback is a caption role, not a headline or financial amount.
+   Keep state colors, warning text, and action controls unchanged.
+   Explicit status IDs cover diagnostics rendered outside normal views. */
+:is(.ui-status-text,#dividendLinkStatus,[id^="sync-badge-"],#histStatusMsg,#histFullRepairStatus,
+    #divFetchStatus,#automationStatusBody,#portfolioReceiptDiagnosis,#portfolioFailedReceiptRepairStatus,
+    #gsheetTestResult,#gsheetAccessTokenStatus,#legacyJournalStatus,#publicDataKeyStatus,#krxAuthKeyStatus,
+    #krxSourceStatus,#nhConfigStatus,#acctMgmtMsg,#smMgmtMsg,#secMgmtMsg,#perfGasStatus,
+    #te-error,#te-code-status,#bulkError,#bulkTabDesc,#bulkCSVHint,.fund-nav-status,
+    .fund-nav-import-warning,.retirement-cashflow-note,.hist-progress-copy,
+    #price-updated-label,.price-status-primary,.price-status-note) {
+  font-family:var(--font-ui);
+  font-size:var(--type-caption);
+  font-weight:500;
+  line-height:var(--line-reading);
+  overflow-wrap:anywhere;
+}
+#view-area[data-active-view] [role="alert"] {
+  font-size:var(--type-caption);
+  font-weight:500;
+  line-height:var(--line-reading);
+  overflow-wrap:anywhere;
+}
+:is(.ui-status-heading) {
+  font-size:var(--type-caption);
+  font-weight:600;
+  line-height:var(--line-reading);
+}
+:is(.ui-status-meta,#price-updated-label .price-status-meta,#price-updated-label .price-status-note.is-info) {
+  font-size:var(--type-caption);
+  font-weight:400;
+  line-height:var(--line-reading);
+}
+:is(.div-gas-link-badge,.status-badge,#automationStatusBadge,#publicDataConfiguredBadge,#krxConfiguredBadge) {
+  font-size:var(--type-caption);
+  font-weight:500;
+  line-height:var(--line-compact);
+}
+#histStatusMsg .hist-progress-copy b {font-size:var(--type-caption);font-weight:600}

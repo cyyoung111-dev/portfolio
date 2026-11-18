@@ -326,10 +326,10 @@ function renderDivView(area, skipFetch) {
   <div style="margin-bottom:14px">
     <div class="div-link-panel" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
       <div style="display:flex;flex-direction:column;gap:2px">
-        <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔗 배당 연동 상태</div>
-        <span id="dividendLinkStatus" data-state="${_dividendLinkState?.state || 'idle'}" style="font-size:.68rem">${_escapeHtml(_dividendLinkState?.message || (GSHEET_API_URL ? '자동 연동 대기 중' : 'GAS 연동 설정 필요'))}</span>
-        <span id="sync-badge-div" title="외부 배당 API 조회와 무관하게, GAS에 저장된 배당 데이터를 이 브라우저로 다시 받은 최근 실행 결과입니다." style="font-size:.64rem;color:var(--muted)">${typeof _tabSyncText === 'function' ? _tabSyncText('div').text : ''}</span>
-        <span title="현재 화면의 종목별 배당 데이터 updatedAt 중 가장 최근 시각입니다." style="font-size:.62rem;color:var(--muted)">📅 화면 배당 데이터 최근 갱신 · ${dividendUpdatedLabel}</span>
+        <div class="ui-status-heading" style="color:var(--text)">🔗 배당 연동 상태</div>
+        <span id="dividendLinkStatus" data-state="${_dividendLinkState?.state || 'idle'}" class="ui-status-text">${_escapeHtml(_dividendLinkState?.message || (GSHEET_API_URL ? '자동 연동 대기 중' : 'GAS 연동 설정 필요'))}</span>
+        <span id="sync-badge-div" class="ui-status-meta" title="외부 배당 API 조회와 무관하게, GAS에 저장된 배당 데이터를 이 브라우저로 다시 받은 최근 실행 결과입니다." style="font-size:.64rem;color:var(--muted)">${typeof _tabSyncText === 'function' ? _tabSyncText('div').text : ''}</span>
+        <span class="ui-status-meta" title="현재 화면의 종목별 배당 데이터 updatedAt 중 가장 최근 시각입니다." style="font-size:.62rem;color:var(--muted)">📅 화면 배당 데이터 최근 갱신 · ${dividendUpdatedLabel}</span>
       </div>
       <div class="div-link-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="div-gas-link-badge ${GSHEET_API_URL ? 'connected' : 'disconnected'}">${GSHEET_API_URL ? '☁️ GAS 연동 설정됨 · 저장 시 동기화' : '○ GAS 미연동'}</span>
@@ -344,7 +344,7 @@ function renderDivView(area, skipFetch) {
 
   <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div>
-      <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 배당 API 상태</div>
+      <div class="ui-status-heading" style="color:var(--text)">🧾 배당 API 상태</div>
       <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF는 배당 탭 진입 시 GAS가 SEIBro 이력을 자동 갱신합니다. 일반 종목은 공공데이터에서 조회하며, 조회·저장이 미확인인 자료는 기존 값을 유지하고 경고합니다.</div>
     </div>
     <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeyLabel}</span>

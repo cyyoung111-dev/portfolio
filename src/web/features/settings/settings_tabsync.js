@@ -25,8 +25,8 @@ function renderTabSyncPanel(tabId) {
   const disabled = !GSHEET_API_URL ? 'disabled' : '';
   return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
     <div style="display:flex;flex-direction:column;gap:2px">
-      <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔄 수동 재동기화</div>
-      <span id="sync-badge-${tabId}" style="font-size:.68rem;color:${st.color}">${st.text}</span>
+      <div class="ui-status-heading" style="color:var(--text)">🔄 수동 재동기화</div>
+      <span id="sync-badge-${tabId}" class="ui-status-text" style="color:${st.color}">${st.text}</span>
     </div>
     <button data-sync-tab="${tabId}" id="sync-btn-${tabId}" class="btn-purple-sm" ${disabled}>🔄 재동기화</button>
   </div>`;
