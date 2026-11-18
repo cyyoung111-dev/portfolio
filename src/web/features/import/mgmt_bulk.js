@@ -110,7 +110,7 @@ function closeBulkImport() {
 function buildBulkOverlayHTML() {
   const tabBtn = (mode, label, color) =>
     `<button id="bulkTab_${mode}" data-bulk-action="tab" data-mode="${mode}"
-      style="padding:4px 12px;border-radius:8px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:2px solid ${color};transition:all .15s"
+      style="padding:4px 12px;border-radius:8px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:2px solid ${color};transition:background-color .15s,color .15s,border-color .15s"
       >${label}</button>`;
   return `<div id="bulkImportOverlay"
     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9100;justify-content:center;align-items:flex-start;padding:8px;overflow-y:auto">

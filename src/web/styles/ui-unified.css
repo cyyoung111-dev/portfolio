@@ -1409,7 +1409,11 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
 #bulkImportOverlay [data-bulk-action="tab"] {
   box-sizing:border-box;
   min-height:var(--ui-filter-height);
-  font:600 var(--type-caption)/var(--line-compact) var(--font-ui);
+  font-family:var(--font-ui);
+  font-weight:600;
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+  transition:background-color .15s,color .15s,border-color .15s;
 }
 #bulkImportOverlay :is(label:has(input[type="file"]),a[data-bulk-action="download-template"]),
 #view-area[data-active-view] label.btn-amber-outline {

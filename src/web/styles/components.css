@@ -288,10 +288,11 @@ input[type="number"]{
     table-layout:fixed;
     width:100%;
   }
+  .sector-card th{font-size:var(--type-caption)!important}
+  .sector-card td{font-size:var(--type-body)!important}
   .sector-card th,
   .sector-card td{
     padding:7px 6px!important;
-    font-size:var(--type-body)!important;
     line-height:1.35;
     white-space:normal!important;
     overflow:hidden;

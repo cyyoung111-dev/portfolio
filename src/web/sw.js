@@ -11,7 +11,7 @@ const PRECACHE_URLS = [
   './manifest.json',
   './styles/tokens.css?v=20260903-1',
   './styles/base.css?v=20261115-1',
-  './styles/components.css?v=20261115-4',
+  './styles/components.css?v=20261118-7',
   './styles/layout.css?v=20261101-1',
   './styles/responsive.css?v=20261115-2',
   './styles/pages/plan.css?v=20261118-6',

@@ -481,10 +481,10 @@ function buildTradeEditOverlayHTML() {
         <!-- 매수 / 매도 / 분할 / 병합 탭 -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <button id="te-tradetype-buy" data-te-action="trade-type" data-value="buy"
-            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s"
+            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:background-color .15s,color .15s,border-color .15s"
             class="te-type-btn">📈 매수</button>
           <button id="te-tradetype-sell" data-te-action="trade-type" data-value="sell"
-            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:all .15s"
+            style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:background-color .15s,color .15s,border-color .15s"
             class="te-type-btn">📉 매도</button>
           <button id="te-tradetype-split" data-te-action="trade-type" data-value="split"
             style="padding:4px 6px;font-size:var(--type-caption);font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border)"
