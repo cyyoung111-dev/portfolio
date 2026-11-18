@@ -61,6 +61,8 @@ for(const [name,rows] of [['미래에셋',2],['미래에셋 (IRP)',3],['미래�
 }
 assert.match(css,/grid-template-columns:repeat\(var\(--acct-filter-count\),minmax\(30px,1fr\)\)/);
 assert.match(css,/overflow-x:auto/);
+assert.match(css,/\.acct-filter-track \.acct-filter-btn\.is-multiline\s*\{[^}]*height:44px;[^}]*min-height:44px;/);
+assert.match(css,/\.acct-filter-track \.acct-filter-type\s*\{[^}]*line-height:1\.05;/);
 assert.match(css,/#viewSwitcher\{margin-bottom:16px\}/);
 for (const rule of [
   /\.acct-filter-controls\{[^}]*margin-bottom:16px/,

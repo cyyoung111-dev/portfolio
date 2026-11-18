@@ -54,9 +54,9 @@ function renderAssetView(area) {
       ['💰 부동산 순자산', netRE!=null?fmt(netRE):'미입력', netRE!=null?`시가 ${fmt(val)} - 대출 ${fmt(bal)}`:'시가 미입력'],
       ['🏦 LTV', ltv?ltv+'%':'-', ltv?`대출 ${fmt(bal)} / 시가 ${fmt(val)}`:''],
       ['🏠 실거주 자기자본', equity!=null?fmt(equity):'미입력', equity!=null?`시가-대출`:''],
-    ].map(([l,v,s])=>`<div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    ].map(([l,v,s])=>`<div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:var(--space-sm) var(--space-md)">
       <div class="label-muted-68">${l}</div>
-      <div style="font-size:.95rem;font-weight:700;color:var(--amber)">${v}</div>
+      <div class="asset-summary-value" style="color:var(--amber)">${v}</div>
       ${s?`<div style="font-size:.65rem;color:var(--muted);margin-top:3px">${s}</div>`:''}
     </div>`).join('')}
   </div>`;

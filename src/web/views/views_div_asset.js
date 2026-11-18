@@ -390,7 +390,7 @@ function renderDivView(area, skipFetch) {
   <!-- ── Verified bank cashflow versus published gross dividend ── -->
   <section aria-label="배당 현금흐름 검증" style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:14px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:7px">
-      <strong style="font-size:.81rem">월별 배당 현금흐름 · 실입금 확인</strong>
+      <strong style="font-size:var(--type-body)">월별 배당 현금흐름 · 실입금 확인</strong>
       <span style="font-size:.66rem;color:var(--muted)">${cashTotal.netCount ? `은행 실입금 직접기록 ${cashTotal.netCount}건` : '은행 실입금 내역 미등록'}</span>
     </div>
     <div style="font-size:.64rem;color:var(--muted);margin-bottom:9px">공시 세전금액은 입금 증명이 아닙니다. 실제 세후 입금액·원천세는 사용자가 확인한 금액만 집계하며, 미등록은 0원으로 간주하지 않습니다. 아래 수치는 지급일 기준이며 지급일 미등록 건은 기준일을 사용한 참고값입니다.</div>
@@ -412,7 +412,7 @@ function renderDivView(area, skipFetch) {
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
       <div>
-        <div style="font-size:.85rem;font-weight:700">📅 ${nowYear}년 월별 배당</div>
+        <div style="font-size:var(--type-body);font-weight:650">📅 ${nowYear}년 월별 배당</div>
         <div style="font-size:.65rem;color:var(--muted);margin-top:2px">확정+예상 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
       </div>
       <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
@@ -490,7 +490,7 @@ function renderDivView(area, skipFetch) {
   html += `
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden" class="div-tbl-wrap">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)">
-      <h3 style="margin:0;font-size:.88rem;font-weight:700">💸 종목별 배당 상세${selectedMonth ? ` · ${selectedMonth}월` : ''}</h3>
+      <h3 style="margin:0;font-size:var(--type-body);font-weight:650">💸 종목별 배당 상세${selectedMonth ? ` · ${selectedMonth}월` : ''}</h3>
       <div style="font-size:.70rem;color:var(--cyan)">${selectedMonth ? `${selectedMonth}월` : '연간'} 합계 <b>${fmtW(Math.round(selectedMonthTotal))}</b></div>
     </div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -521,15 +521,15 @@ function renderDivView(area, skipFetch) {
 
     html += `<tr style="border-top:1px solid var(--border)">
       <td style="padding:9px 14px">
-        <div style="font-weight:600;font-size:.82rem">${r.name}</div>
+        <div style="font-weight:600;font-size:var(--type-body)">${r.name}</div>
         <div style="font-size:.63rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
       </td>
       <td style="padding:9px 8px;text-align:center"><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span></td>
       <td style="padding:9px 8px;text-align:center">
         <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:.63rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span>
       </td>
-      <td style="padding:9px 8px;text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums">${r.totalQty.toLocaleString()}</td>
-      <td style="padding:9px 8px;text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}</td>
+      <td style="padding:9px 8px;text-align:right;font-size:var(--type-body);font-variant-numeric:tabular-nums">${r.totalQty.toLocaleString()}</td>
+      <td style="padding:9px 8px;text-align:right;font-size:var(--type-body);font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}</td>
       <td style="padding:9px 8px">${monthBadges}</td>
       <td style="padding:9px 8px;text-align:right;color:var(--cyan);font-weight:600;font-variant-numeric:tabular-nums">${fmtW(Math.round(r.annualDiv))}</td>
       <td style="padding:9px 8px;text-align:right;color:var(--green);font-variant-numeric:tabular-nums">${fmtW(monthlyDiv)}</td>
@@ -553,12 +553,12 @@ function renderDivView(area, skipFetch) {
     <div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+          <div style="font-weight:700;font-size:var(--type-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
           <div style="font-size:.62rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
         </div>
         <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:8px"><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span><span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.62rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.75rem">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:var(--type-body)">
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">연간(세전)</div>
           <div style="font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums">${fmtW(Math.round(r.annualDiv))}</div>
@@ -611,7 +611,7 @@ function renderDivView(area, skipFetch) {
   <div id="divManualModal" style="display:none;position:fixed;inset:0;z-index:10020;background:rgba(2,6,23,.72);align-items:center;justify-content:center;padding:16px">
     <div style="width:min(440px,100%);background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.45)">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px">
-        <div id="divManualTitle" style="font-size:.90rem;font-weight:800;color:var(--text)">배당 수동 입력</div>
+        <div id="divManualTitle" style="font-size:var(--type-body);font-weight:650;color:var(--text)">배당 수동 입력</div>
         <button type="button" data-div-action="manual-close" class="btn-cancel-sm">✕</button>
       </div>
       <label class="lbl-62-muted-3" for="dv_amt_manual">주당 배당금 (원)</label>

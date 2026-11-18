@@ -542,8 +542,8 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   gap:0;
   width:100%;
   min-width:0;
-  height:54px;
-  min-height:54px;
+  height:44px;
+  min-height:44px;
   padding:2px 1px;
   border-radius:8px;
   text-align:center;
@@ -566,7 +566,8 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   max-width:100%;
   white-space:nowrap;
   font-size:inherit;
-  line-height:1.15;
+  line-height:1.05;
+  flex-shrink:0;
   overflow:hidden;
   text-overflow:clip;
 }
@@ -1320,4 +1321,37 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
   .action-bar.toolbar-stable .action-menu-stack > .toolbar-btn-group .toolbar-section-danger {
     margin-left:0;
   }
+}
+
+/* Detail pages: summary amounts are compact body-size, while labels and
+   explanations are captions. Global header/holdings KPI tiers stay intact. */
+#view-area:is([data-active-view="asset"],[data-active-view="plan"],[data-active-view="div"])
+  :is(.h3-card,.h3-section,.section-title,.card-title,.tbl-head h3) {
+  font-size:var(--type-body);
+  font-weight:650;
+  line-height:1.35;
+}
+#view-area[data-active-view="asset"] .asset-summary-grid .asset-summary-value,
+#view-area[data-active-view="asset"] .asset-detail-grid .s2-rounded>.fw-600,
+#view-area[data-active-view="div"] .div-stat-value,
+#view-area[data-active-view="plan"] .s2-rounded>.fw-600,
+#view-area[data-active-view="plan"] .s2-rounded>.c-amber {
+  font-size:var(--type-body);
+  font-weight:650;
+  line-height:1.35;
+  font-variant-numeric:tabular-nums;
+}
+#view-area:is([data-active-view="asset"],[data-active-view="plan"],[data-active-view="div"])
+  :is(.caption-text,.div-stat-sub,.div-stat-label,.lbl-62-muted-3,.label-muted-68) {
+  font-size:var(--type-caption);
+  font-weight:400;
+  line-height:var(--line-reading);
+}
+#view-area[data-active-view="plan"] .retirement-cashflow-table td {
+  font-size:var(--type-body);
+}
+#view-area[data-active-view="asset"] .asset-summary-grid>div,
+#view-area[data-active-view="asset"] .asset-detail-grid>.s2-rounded,
+#view-area[data-active-view="plan"] .s2-rounded {
+  padding:var(--space-sm) var(--space-md);
 }

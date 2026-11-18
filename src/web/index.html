@@ -22,14 +22,14 @@
 <link rel="stylesheet" href="styles/components.css?v=20261115-4">
 <link rel="stylesheet" href="styles/layout.css?v=20261101-1">
 <link rel="stylesheet" href="styles/responsive.css?v=20261115-2">
-<link rel="stylesheet" href="styles/pages/plan.css?v=20260903-1">
+<link rel="stylesheet" href="styles/pages/plan.css?v=20261118-6">
 <link rel="stylesheet" href="styles/pages/dividend.css?v=20260903-1">
 <link rel="stylesheet" href="styles/pages/asset.css?v=20260903-1">
 <link rel="stylesheet" href="styles/pages/history.css?v=20260904-4">
 <link rel="stylesheet" href="styles/pages/trade.css?v=20260903-1">
 <link rel="stylesheet" href="styles/typography-roles.css?v=20261028-1">
 <!-- Unified control + panel design; last stylesheet intentionally owns the visual layer -->
-<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-5">
+<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-6">
 
 </head>
 <body>
@@ -207,10 +207,10 @@
 <script defer src="views/views_portfolio.js?v=20261115-3"></script>
 <script defer src="views/views_trades.js?v=20261118-1"></script>
 <script defer src="views/views_tradegroup.js?v=20261118-1"></script>
-<script defer src="views/views_div_asset.js?v=20261028-3"></script>
+<script defer src="views/views_div_asset.js?v=20261118-6"></script>
 <script defer src="views/views_asset_loan.js?v=20260903-1"></script>
 
-<script defer src="views/views_asset.js?v=20260903-1"></script>
+<script defer src="views/views_asset.js?v=20261118-6"></script>
 <script defer src="views/views_plan.js?v=20260903-1"></script>
 <script defer src="views/views_plan_overview.js?v=20260903-1"></script>
 <script defer src="views/views_plan_export.js?v=20260903-1"></script>
@@ -417,7 +417,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261118-5', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261118-6', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>
