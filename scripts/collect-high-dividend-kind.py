@@ -149,7 +149,9 @@ def collect(year, out):
             def is_year_response(res):
                 req = res.request
                 u = urlparse(res.url)
-                return (u.hostname == "kind.krx.co.kr" and u.path == "/valueup/dividend.do"\n                        and "valueupHighDividendSub" in request_parameters(req).get("method", [])\n                        and value in request_parameters(req).get(year_field, []))
+                return (u.hostname == "kind.krx.co.kr" and u.path == "/valueup/dividend.do"
+                        and "valueupHighDividendSub" in request_parameters(req).get("method", [])
+                        and value in request_parameters(req).get(year_field, []))
             seen = []
             def observe(res):
                 u = urlparse(res.url)
@@ -216,7 +218,8 @@ def collect(year, out):
             (out / "candidate-source.json").write_text(json.dumps({"businessYear":year,"columns":header,"rows":entries,"classification":"CANDIDATE_ONLY"},ensure_ascii=False,indent=2),encoding="utf-8")
             print("KIND spreadsheet schema:",json.dumps(header,ensure_ascii=False),flush=True)
             metadata = {
-                "source": URL, "businessYear": year, "rowCount":len(entries), "screenCount":displayed_count,\n                "uniqueIssuerNames":unique_count, "reviewState":candidate_review["state"],
+                "source": URL, "businessYear": year, "rowCount":len(entries), "screenCount":displayed_count,
+                "uniqueIssuerNames":unique_count, "reviewState":candidate_review["state"],
                 "retrievedAt": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                 "fileName": filename, "bytes": len(data),
                 "sha256": hashlib.sha256(data).hexdigest(),
