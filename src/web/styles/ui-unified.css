@@ -1039,8 +1039,8 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   min-height:var(--ui-filter-height);
   padding:4px 9px;
 }
-:is(#view-area[data-active-view],.editor-box,.settings-dialog)
-  :is(.btn-amber,.btn-amber-sm,.btn-apply,.btn-purple-sm,.btn-purple-sm-700,.btn-purple-700,.btn-gold,.btn-add-green,.btn-add-purple,.btn-add-cyan) {
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(button.btn-amber,button.btn-amber-sm,button.btn-apply,button.btn-purple-sm,button.btn-purple-sm-700,button.btn-purple-700,button.btn-gold,button.btn-add-green,button.btn-add-purple,button.btn-add-cyan) {
   min-height:var(--ui-primary-height);
 }
 /* A compact row and a navigation tile are distinct control roles. */
@@ -1060,7 +1060,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 #view-area[data-active-view] .hist-mode-controls button {height:34px;min-height:34px;border-radius:var(--ui-command-radius);padding:3px 8px}
 #view-area[data-active-view] .hist-query-btn {border-radius:var(--ui-command-radius);font-size:var(--type-caption);font-weight:700}
 #view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {min-height:var(--ui-filter-height);border-radius:var(--ui-command-radius)}
-#view-area[data-active-view] .hist-controls :is(.hist-month-input,.hist-range-select,.hist-query-btn) {height:36px;min-height:36px}
+
 #view-area[data-active-view] .hist-controls>.hist-filter-details {min-height:36px;border-radius:var(--ui-command-radius)}
 #view-area[data-active-view] .hist-controls>.hist-filter-details>summary {min-height:34px;padding:4px 9px}
 #view-area[data-active-view] :is(.hist-detail-panel,.hist-benchmark-details,.hist-source-coverage)>summary {min-height:32px;padding:6px 10px}
@@ -1087,6 +1087,11 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   border-radius:var(--ui-command-radius);
   min-height:var(--ui-command-height);
   min-width:0;max-width:100%;
+}
+/* The history row shares a taller field/query height than ordinary inputs.
+   Declare this after the generic field rule and retain exact role dimensions. */
+#view-area[data-active-view] .hist-controls :is(input.hist-month-input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),select.hist-range-select,button.hist-query-btn) {
+  height:var(--ui-primary-height);min-height:var(--ui-primary-height);
 }
 :is(#view-area[data-active-view],.editor-box,.settings-dialog,.action-bar,.col-filter-dropdown) select option {
   font:inherit;
