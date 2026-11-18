@@ -232,7 +232,7 @@ function auditStableToolbar(d,c) {
   const side=c.width>=1360;
   const positionOk=side?(openDetail.left>=command.right-1&&Math.abs(openDetail.top-command.top)<=2&&openDetail.right<=openMenu.left+1&&openCard.right<=openMenu.left+1&&openDetail.width>=180):(openDetail.top>=primary.bottom-1&&openDetail.left>=openCard.left-1&&openDetail.right<=openCard.right+1);
   if(side&&!stableHeader())failures.push({size,role:'open summary changes card/header/body height',closed:closedHeader,opened:headerGeometry()});
-  if(!positionOk)failures.push({size,role:'lookup responsive placement',viewport:c.width,detail:[openDetail.left,openDetail.top,openDetail.right,openDetail.bottom],command:[command.left,command.top,command.right],menu:[openMenu.left,openMenu.right]});
+  if(!positionOk)failures.push({size,role:'lookup responsive placement',viewport:c.width,detail:[openDetail.left,openDetail.top,openDetail.right,openDetail.bottom],command:[command.left,command.top,command.right],menu:[openMenu.left,openMenu.right],card:[openCard.left,openCard.top,openCard.right,openCard.bottom],panelScrollWidth:detail.scrollWidth});
   if(!detail.open||button.getAttribute('aria-expanded')!=='true'||!same(closed,opened,limit))failures.push({size,role:'open geometry',closed,opened});
   w._priceLookupDetail('timings');
   const nested=geometry();
