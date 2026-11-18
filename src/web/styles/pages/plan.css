@@ -92,10 +92,10 @@
 [data-view-section="plan"] .retire-input-grid>div>div:first-child,
 [data-view-section="plan"] .plan-metric-grid>div>div:first-child{
   color:color-mix(in srgb,var(--text) 72%,var(--muted) 28%);
-  font-size:var(--type-label)!important;
-  font-weight:500;
-  line-height:1.45;
-  margin-bottom:5px;
+  font-size:var(--type-caption)!important;
+  font-weight:400;
+  line-height:var(--line-reading);
+  margin-bottom:3px;
 }
 [data-view-section="plan"] input,
 [data-view-section="plan"] select{
@@ -105,15 +105,24 @@
   font-weight:500;
 }
 [data-view-section="plan"] .s2-rounded{line-height:1.5}
-[data-view-section="plan"] .retire-metric-grid .s2-rounded>div:last-child{
-  font-size:var(--type-value)!important;
-  font-weight:700!important;
+/* The value follows the card's label. The optional final description is
+   a caption, never a second headline amount. */
+[data-view-section="plan"] .s2-rounded>.lbl-62-muted-3+div{
+  font-size:var(--type-body)!important;
+  font-weight:650!important;
+  line-height:1.35;
+  font-variant-numeric:tabular-nums;
+}
+[data-view-section="plan"] .s2-rounded>.caption-text{
+  font-size:var(--type-caption);
+  font-weight:400;
+  line-height:var(--line-reading);
 }
 .retirement-cashflow-heading{font-size:var(--type-title);line-height:1.4;margin:18px 0 7px}
 .retirement-cashflow-note{font-size:var(--type-caption);line-height:var(--line-reading);color:color-mix(in srgb,var(--text) 66%,var(--muted) 34%)}
-.retirement-cashflow-table{font-size:.8rem;line-height:1.45}
+.retirement-cashflow-table{font-size:var(--type-body);line-height:1.45}
 .retirement-cashflow-table th{font-size:var(--type-caption);font-weight:600;color:color-mix(in srgb,var(--text) 66%,var(--muted) 34%);padding:10px 11px}
-.retirement-cashflow-table td{font-size:.8rem;font-weight:500;padding:10px 11px}
+.retirement-cashflow-table td{font-size:var(--type-body);font-weight:500;padding:10px 11px}
 .retirement-cashflow-table .year-cell{font-weight:700}
 .retirement-cashflow-table .money-cell{font-weight:500}
 .retire-check-item{font-size:var(--type-label);line-height:1.5}

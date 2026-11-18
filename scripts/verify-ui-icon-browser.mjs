@@ -36,6 +36,23 @@ function documentWithStyles(includeUnified){
   .map(([,s])=>s).join('\n');
  return fixture.replace('</head>','<style>'+css+'</style></head>');
 }
+const acctSource=fs.readFileSync(path.join(root,'views/views_portfolio.js'),'utf8');
+const acctArea={innerHTML:''};
+const acctCtx=vm.createContext({
+ ACCT_ORDER:['전체','미래에셋','신한','우리 (연금)','LS','미래에셋 (IRP)','삼성','유진','우리','미래에셋 (ISA)','NH'],
+ lsGet:(_k,d)=>d,lsSave:()=>{},lsRemove:()=>{},document:{querySelector:()=>null},
+ renderView:()=>{},rows:[],EDITABLE_PRICES:[],window:{_tableData:new Map(),_tableExtra:new Map()},
+ _portfolioDataKey:()=> 'empty',_portfolioAssetType:r=>r.type,
+ _fBtnClass:active=>active?'f-btn active':'f-btn',_escapeHtml:v=>String(v),buildTableInner:()=>'<table></table>',
+ acctArea
+});
+vm.runInContext(acctSource.slice(acctSource.indexOf("let acctFilter = '전체';"),acctSource.indexOf('function _portfolioDataKey()'))+
+ acctSource.slice(acctSource.indexOf('function renderAcctView(area)'),acctSource.indexOf('function setAcctFilter(f)'))+';renderAcctView(acctArea);',acctCtx);
+assert.equal((acctArea.innerHTML.match(/data-portfolio-action="acct-filter"/g)||[]).length,11);
+const planSource=fs.readFileSync(path.join(root,'views/views_plan_overview.js'),'utf8');
+const itemSource=planSource.split('\n').find(l=>l.includes('const item = (label, value, sub'));
+assert(itemSource);
+const planMarkup=vm.runInNewContext(itemSource+";item('연간 예상 배당','2,810만','29개 종목');");
 const statusSource=fs.readFileSync(path.join(root,'features/settings/settings_fetch.js'),'utf8');
 const statusSlice=statusSource.slice(statusSource.indexOf('function _priceLookupDuration('),statusSource.indexOf('function _pricePortfolioSummary('));
 const setterSlice=statusSource.slice(statusSource.indexOf('function setStatusLabel('),statusSource.indexOf('function _resolvePriceDateLabel('));
@@ -178,6 +195,45 @@ function auditStableToolbar(d,c) {
  return {ok:failures.length===0,cases,failures};
 }
 
+
+/* Actual account markup from renderAcctView plus representative detail cards
+   using the production plan overview item template and view class names. */
+function auditCompactDetails(d,c,acctMarkup,planMarkup) {
+ if(!c.unified)return {ok:true,cases:[]};
+ const host=d.querySelector('#view-area'),prior=host.dataset.activeView,oldSize=d.documentElement.dataset.uiFontSize;
+ const box=d.createElement('section');host.appendChild(box);
+ const failures=[],cases=[],w=d.defaultView;
+ const px=e=>parseFloat(w.getComputedStyle(e).fontSize);
+ const check=(ok,info)=>{if(!ok)failures.push(info)};
+ for(const size of [8,9,10,11,12]){
+  d.documentElement.dataset.uiFontSize=String(size);
+  host.dataset.activeView='acct';box.innerHTML=acctMarkup;
+  const track=box.querySelector('.acct-filter-track'),buttons=[...track.querySelectorAll('.acct-filter-btn')];
+  const rects=buttons.map(b=>b.getBoundingClientRect());
+  check(buttons.length===11&&rects.every(b=>Math.abs(b.height-44)<=1&&Math.abs(b.y-rects[0].y)<=1),{size,role:'account height/row',heights:rects.map(b=>b.height)});
+  for(const b of buttons){
+   const r=b.getBoundingClientRect();
+   check([...b.children].every(e=>{const z=e.getBoundingClientRect();return z.top>=r.top&&z.bottom<=r.bottom+1&&e.scrollWidth<=e.clientWidth+1}),{size,role:'account label fit',account:b.getAttribute('aria-label')});
+  }
+  const sample=[];
+  for(const view of ['plan','asset','div']){
+   host.dataset.activeView=view;
+   box.innerHTML=view==='plan'?'<div data-view-section="plan"><h4 class="h3-card">투자계획</h4><div class="retire-metric-grid">'+planMarkup+'</div></div>':view==='asset'?'<h4 class="h3-card">부동산</h4><div class="asset-summary-grid"><div><div class="label-muted-68">시가</div><div class="asset-summary-value">12억</div></div></div><div class="asset-detail-grid"><div class="s2-rounded"><div class="lbl-62-muted-3">취득가</div><div class="fw-600">9억</div></div></div>':'<h4 class="h3-card">배당</h4><div class="div-stat-card"><div class="div-stat-label">연간 예상 배당</div><div class="div-stat-value">28,099,251</div><div class="div-stat-sub">확정 지급액</div></div>';
+   const value=box.querySelector(view==='plan'?'.lbl-62-muted-3+div':view==='asset'?'.asset-summary-value':'.div-stat-value');
+   const caption=box.querySelector(view==='plan'?'.caption-text':view==='asset'?'.label-muted-68':'.div-stat-sub');
+   const heading=box.querySelector('.h3-card');
+   const v=px(value),s=px(caption),h=px(heading),weight=Number(w.getComputedStyle(caption).fontWeight);
+   check(v===size+2&&s===size&&h===size+2&&weight<=500,{size,role:'detail typography',view,value:v,caption:s,heading:h,weight});
+   if(view==='asset')check(px(box.querySelector('.asset-detail-grid .fw-600'))===size+2,{size,role:'asset detail value'});
+   sample.push({view,value:v,caption:s,heading:h,captionWeight:weight});
+  }
+  cases.push({size,accountHeight:rects[0]?.height,metrics:sample});
+ }
+ box.remove();host.dataset.activeView=prior;
+ if(oldSize===undefined)delete d.documentElement.dataset.uiFontSize;else d.documentElement.dataset.uiFontSize=oldSize;
+ return {ok:failures.length===0,cases,failures};
+}
+
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'portfolio-ui-browser-'));
 try{
  const htmlPath=path.join(dir,'check.html');
@@ -185,6 +241,8 @@ try{
  'const cases='+JSON.stringify(cases).replace(/</g,'\\u003c')+';'+
  'const auditControlRoles='+auditControlRoles.toString()+';'+
  'const auditStableToolbar='+auditStableToolbar.toString()+';'+
+ 'const auditCompactDetails='+auditCompactDetails.toString()+';'+
+ 'const acctMarkup='+JSON.stringify(acctArea.innerHTML).replace(/</g,'\\u003c')+';const planMarkup='+JSON.stringify(planMarkup).replace(/</g,'\\u003c')+';'+
  'const results=[]; let done=0;'+
  'for(const c of cases){const f=document.createElement("iframe");f.style.cssText="width:"+c.width+"px;height:1100px;border:0";'+
  'f.onload=()=>{try{const d=f.contentDocument;const icons=[...d.querySelectorAll("svg.ui-brand-icon,svg.ui-label-icon,svg.hist-query-icon")];'+
@@ -193,8 +251,9 @@ try{
  'const header=d.querySelector(".hdr").getBoundingClientRect().height;const title=d.querySelector(".hist-view-title").getBoundingClientRect().height;'+
  'const controls=auditControlRoles(d,c);'+
  'const toolbar=auditStableToolbar(d,c);'+
- 'const ok=toolbar.ok&&controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
- 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls,toolbar});'+
+ 'const detail=auditCompactDetails(d,c,acctMarkup,planMarkup);'+
+ 'const ok=detail.ok&&toolbar.ok&&controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
+ 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls,toolbar,detail});'+
  '}catch(e){results.push({width:c.width,unified:c.unified,ok:false,error:String(e)});}'+
  'if(++done===cases.length)document.getElementById("result").textContent=JSON.stringify(results);};'+
  'f.srcdoc=c.html;document.body.appendChild(f);}</script>';
@@ -214,6 +273,6 @@ try{
  assert(report.every(r=>r.ok),JSON.stringify(report.filter(r=>!r.ok)));
  console.log('UI_REAL_BROWSER_LAYOUT_PASS '+JSON.stringify(report.map(r=>({
    viewport:r.width,unifiedCss:r.unified,maxIcon:Math.max(...r.boxes.map(b=>Math.max(b.w,b.h))),
-   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples,toolbar:r.toolbar.cases
+   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples,toolbar:r.toolbar.cases,detail:r.detail.cases
  }))));
 }finally{fs.rmSync(dir,{recursive:true,force:true});}
