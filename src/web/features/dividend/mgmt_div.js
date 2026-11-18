@@ -444,7 +444,26 @@ async function _fetchDividendSource(action, codeItems, extraParams, requestOptio
     error.errorCode = data.message === '인증 실패' ? 'GAS_AUTH_REJECTED' : data.errorCode;
     throw error;
   }
-  return data.dividends;
+  // Follow the same complete-response contract as the monthly collector.
+  // A positive amount from an incomplete page is not a verified dividend.
+  const dividends = {}, noEvents = new Set();
+  for (const item of codeItems) {
+    const code = _normDivCode(item.code), value = data.dividends[code];
+    const retry = data.diagnostics?.retry?.[code];
+    const source = retry?.returnedRows > 0 ? retry : data.diagnostics?.dividend?.[code];
+    const normalized = data.diagnostics?.normalized?.[code];
+    if (source?.status === 'OK' && value?.source === 'PUBLIC_DATA'
+        && Number(value.perShare) > 0 && Array.isArray(value.events) && value.events.length
+        && value.events.every(e => Number(e.amount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(String(e.date)))) {
+      dividends[code] = value;
+    } else if (['OK','NO_ROWS'].includes(source?.status)
+        && normalized?.acceptedEvents === 0
+        && normalized.inputRows === source.returnedRows
+        && normalized.rejected?.identity === 0 && normalized.rejected?.date === 0) {
+      noEvents.add(code);
+    }
+  }
+  return {dividends, noEvents};
 }
 
 function _mergeDividendResults(targetCodes, primary, fallback) {
@@ -469,9 +488,9 @@ function _hasSeibroDividend(code, name) {
 function _getLegacyDividendFetchItems() {
   return EDITABLE_PRICES.filter(ep => {
     const holding = rawHoldings.find(h => h.name === ep.name && !h.fund);
-    if (!holding || !ep.code) return false;
+    if (!holding || !/^\d{6}$/.test(_normDivCode(ep.code))) return false; // Korean public API only
     // SEIBro로 확정된 ETF는 Settings.DIVDATA를 그대로 사용하고 공공데이터/GF로 덮어쓰지 않습니다.
-    const isEtf = (ep.assetType || ep.type) === 'ETF';
+    const isEtf = String(ep.assetType || ep.type || '').toUpperCase() === 'ETF';
     const key = getDivKey(ep.name);
     const current = DIVDATA[_normDivCode(ep.code)] || DIVDATA[key];
     return !isEtf && !['TDF','펀드','FUND'].includes(String(ep.assetType || ep.type || '').toUpperCase())
@@ -483,12 +502,13 @@ let _seibroRefreshPromise = null;
 let _seibroRefreshDetail = '';
 let _dividendLinkState = { state: 'idle', message: '' };
 
-function _dividendUnverifiedMessage(seibroOk, items, dividends) {
+function _dividendUnverifiedMessage(seibroOk, items, dividends, noEvents = new Set()) {
   const parts = [];
   if (!seibroOk) parts.push(_seibroRefreshDetail || 'ETF 최신 갱신 결과 미확인');
-  const missing = items.filter(item => Number(dividends?.[_normDivCode(item.code)]?.perShare || 0) <= 0)
+  const missing = items.filter(item => !noEvents.has(_normDivCode(item.code)) && Number(dividends?.[_normDivCode(item.code)]?.perShare || 0) <= 0)
     .map(item => `${item.name || '종목명 미확인'} (${_normDivCode(item.code)})`);
   if (missing.length) parts.push(`일반 종목 배당 자료 미확인 ${missing.length}개: ${missing.join(', ')}`);
+  if (!parts.length) parts.push('종목별 저장 또는 출처 확인 필요');
   return `⚠️ 일부 배당 갱신 미확인 · ${parts.join(' · ')} · 기존 자료 유지 (자료 없음이 무배당 확정은 아닙니다)`;
 }
 
@@ -633,7 +653,7 @@ async function _autoFetchDivInner(area) {
     stage = 'public';
     const targetCodes = codes.split(',').filter(Boolean);
     const sourceStats = { public: 0, gf: 0 };
-    const publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
+    const {dividends: publicDividends, noEvents} = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
     if (!connectionCurrent()) throw new Error('연결 변경으로 오래된 배당 응답을 적용하지 않았습니다.');
     const divPatch = {};
     const patchBaselines = new Map();
@@ -673,12 +693,12 @@ async function _autoFetchDivInner(area) {
       }
     }
     const complete = refreshedSeibro && sourceConflicts.length === 0
-      && targetCodes.every(code => Object.prototype.hasOwnProperty.call(divPatch, code));
+      && targetCodes.every(code => noEvents.has(code) || Object.prototype.hasOwnProperty.call(divPatch, code));
     _setDividendLinkState(complete ? 'ok' : 'fail', sourceConflicts.length
       ? '공공데이터 주식 종류·기존 확인금액 충돌: '
         + sourceConflicts.join(', ') + ' · 기존 원본 유지'
-      : complete ? 'ETF·주식 배당 조회 및 저장 완료'
-      : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends));
+      : complete ? 'ETF·주식 배당 조회 완료' + (noEvents.size ? ` · 조회기간 내 배당 0건 ${noEvents.size}종목 (기존 자료 유지)` : ' · 저장 완료')
+      : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends, noEvents));
   } catch(e) {
     // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
     if (!connectionCurrent()) return false;
@@ -749,7 +769,7 @@ async function _startDivFetchInner() {
     stage = 'public';
     const targetCodes = codes.split(',').filter(Boolean);
     const sourceStats = { public: 0, gf: 0 };
-    const publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
+    const {dividends: publicDividends, noEvents} = await _fetchDividendSource('dividendPublic', codeItems, {}, { targetUrl: divTarget });
     if (!connectionCurrent()) throw new Error('연결 변경으로 오래된 배당 응답을 적용하지 않았습니다.');
     const divPatch = {};
     const patchBaselines = new Map();
@@ -775,12 +795,12 @@ async function _startDivFetchInner() {
         divPatch[storeKey] = _normalizeDividendResponse(obj, prev);
         sourceStats.public++;
         updated++;
-      } else {
+      } else if (!noEvents.has(code)) {
         skipped++;
       }
     });
 
-    const resultMsg = `${refreshedSeibro && skipped === 0 ? '✅' : '⚠️'} 일반 종목 ${updated}개 갱신 · ${skipped}개 미확인${sourceConflicts ? ` (주식 종류·기존 확인금액 충돌 ${sourceConflicts}건, 원본 유지)` : ''} · ETF ${refreshedSeibro ? '완료' : '일부 미확인'}`;
+    const resultMsg = `${refreshedSeibro && skipped === 0 ? '✅' : '⚠️'} 일반 종목 ${updated}개 갱신 · ${noEvents.size}개 기간 내 0건 · ${skipped}개 미확인${sourceConflicts ? ` (주식 종류·기존 확인금액 충돌 ${sourceConflicts}건, 원본 유지)` : ''} · ETF ${refreshedSeibro ? '완료' : '일부 미확인'}`;
     if (sourceConflicts && updated === 0) {
       if (status) { status.style.color = 'var(--amber)'; status.textContent = resultMsg; }
       const stoppedButton = $el('divFetchBtn');
@@ -804,7 +824,7 @@ async function _startDivFetchInner() {
     const _btn = $el('divFetchBtn');
     if (_btn) { _btn.disabled = false; _btn.textContent = '📥 배당 데이터 갱신'; }
     _setDividendLinkState(refreshedSeibro && skipped === 0 ? 'ok' : 'fail', refreshedSeibro && skipped === 0
-      ? '✅ ETF·주식 배당 조회 및 GAS 저장 완료' : _dividendUnverifiedMessage(refreshedSeibro, codeItems, dividends));
+      ? '✅ ETF·주식 배당 조회 완료' + (noEvents.size ? ` · 조회기간 내 배당 0건 ${noEvents.size}종목 (기존 자료 유지)` : ' · GAS 저장 완료') : resultMsg);
     if (!refreshedSeibro || skipped > 0) return false;
 
   } catch(e) {

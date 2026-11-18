@@ -59,7 +59,7 @@ async function run(mode='ok') {
     assert.ok(['getCodeListReadOnly','dividendPublic'].includes(action),'read-only allowlist');
     let r={status:'ok'};
     if(p.get('accessToken')==='DIVIDEND_BAD_AUTH_PROBE')r.status=mode==='auth'?'ok':'error';
-    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':'9.282';r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
+    else if(action==='getCodeListReadOnly') {r.status=mode==='unsupported'||mode.startsWith('catalog-')?'error':'ok';r.message=mode==='catalog-private'?'PRIVATE_KEY':mode.replace('catalog-','');r.gasVersion=mode==='version'?'9.266':mode==='current'?'9.297':'9.282';r.publicDataApiKeyConfigured=true;r.readOnly=mode!=='write-path';r.codes=[{code:'111111',name:'PRIVATE_NAME',assetType:'주식'},{code:'222222',assetType:'ETF'}, {code:'111111',assetType:'주식'}];}
     else if(action==='dividendPublic') {r=structuredClone(base);if(mode==='coverage')delete r.diagnostics.dividend['111111'];if(mode==='status')r.diagnostics.dividend['111111'].status='PRIVATE_KEY';}
     return {ok:true,json:async()=>r};
   };
@@ -68,6 +68,7 @@ async function run(mode='ok') {
 const {result,calls}=await run();assert.equal(result.targets,1);assert.equal(result.withoutAcceptedEvents,1);
 assert.equal(result.stages.dividend.providerCodes['30'],1);assert.equal(result.originalDataWritten,false);
 assert.ok(!/PRIVATE|111111|222222/.test(JSON.stringify(result)));assert.equal(calls.length,3);
+assert.equal((await run('current')).result.gasVersion,'9.297');
 for(const mode of ['auth','version','write-path','unsupported','coverage','status']) await assert.rejects(run(mode),/DIVIDEND_DIAG_/);
 for(const reason of ['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'])
   await assert.rejects(run('catalog-'+reason),new RegExp('^Error: DIVIDEND_DIAG_'+reason+'$'));
@@ -92,11 +93,14 @@ assert.match(isolateGasBusinessLogic(fs.readFileSync('src/gas/apps_script.gs','u
 const workflow=YAML.parse(fs.readFileSync('.github/workflows/stock-dividend-diagnosis.yml','utf8'));
 assert.equal(workflow.on.schedule,undefined);assert.deepEqual(workflow.permissions,{contents:'read'});
 assert.equal(workflow.jobs.diagnose.environment,'portfolio-production-gas');
-const steps=workflow.jobs.diagnose.steps;const gate=steps.find(s=>s.id==='gate');
-assert.equal(gate.env.APPROVED_PARENT,'406700afe5d0f808e3643b1f94d70ecb94884045');
-assert.match(gate.run,/git rev-parse HEAD\^/);assert.match(gate.run,/\|\| exit 0/);
+const steps=workflow.jobs.diagnose.steps;
+assert.ok(!steps.some(s=>s.id==='gate'),'retired commit pin must not silently skip diagnosis');
+assert.deepEqual(workflow.on.push,{branches:['main'],paths:['scripts/run-stock-dividend-diagnosis.mjs','.github/workflows/stock-dividend-diagnosis.yml']});
+assert.equal(workflow.on.workflow_run,undefined);
+assert.match(workflow.jobs.diagnose.if,/github\.repository == 'cyyoung111-dev\/portfolio'/);
 assert.equal(steps.at(-1).run,'node scripts/run-stock-dividend-diagnosis.mjs');
-assert.equal(steps.at(-1).if,"steps.gate.outputs.apply == 'true'");
+assert.equal(steps.at(-1).if,undefined);
+assert.equal(steps[0].with['persist-credentials'],false);
 console.log('PASS: actual public provider HTTP/JSON/API/zero/pagination/network classification, filter counts, read-only handler and private-safe operational diagnosis');
 
 // Exercise actual production pagination, not a duplicated implementation.

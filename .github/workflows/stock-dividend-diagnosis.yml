@@ -1,7 +1,13 @@
 name: stock-dividend-diagnosis
 on:
-  # Post-cutover: explicit manual recovery/diagnosis only. Never run on gas-deploy completion.
+  # Manual diagnosis, plus a read-only check only when its own implementation
+  # changes on protected main. No schedule or gas-deploy coupling.
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/run-stock-dividend-diagnosis.mjs'
+      - '.github/workflows/stock-dividend-diagnosis.yml'
 permissions:
   contents: read
 concurrency:
@@ -10,32 +16,21 @@ concurrency:
 jobs:
   diagnose:
     if: >-
+      github.repository == 'cyyoung111-dev/portfolio' &&
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'main' &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 2
-      - name: Gate the one-time read-only diagnosis
-        id: gate
-        env:
-          APPROVED_PARENT: 406700afe5d0f808e3643b1f94d70ecb94884045
-        run: |
-          echo 'apply=false' >> "$GITHUB_OUTPUT"
-          [ "$(git rev-parse HEAD^)" = "$APPROVED_PARENT" ] || exit 0
-          echo 'apply=true' >> "$GITHUB_OUTPUT"
+          persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Diagnose stock dividend sources without writing financial data
-        if: steps.gate.outputs.apply == 'true'
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}

@@ -129,14 +129,31 @@ function saveDividendSettings(_immediate, options) {
         generation: expectedGeneration,
         allowDuringRestore: options?.allowDuringRestore === true
       })) return false;
-      const data = await requestGsheetFormJson(
-        'saveDividendSettings',
-        { data: payload },
-        { timeoutMs: 15000, retry: 1, targetUrl }
+      // Never retry a financial writer merely because its acknowledgement
+      // was lost. On modern GAS verify the exact requested financial fields
+      // with a separate read-only request, even when ACK is missing.
+      let data = null;
+      try {
+        data = await requestGsheetFormJson(
+          'saveDividendSettings',
+          { data: payload },
+          { timeoutMs: 15000, retry: 0, targetUrl }
+        );
+      } catch (_) {}
+      if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+      if (options?.allowDuringRestore !== true && _gsSettingsLoadEpoch !== expectedLoadEpoch) return false;
+      if (!_isGasVersionAtLeast(window._lastGasVersion, '9.266')) return data?.status === 'ok';
+      const verified = await requestGsheetActionJson(
+        'getDividendSettings', {}, {timeoutMs: 10000, retry: 1, targetUrl}
       );
-      if (!data) throw new Error('네트워크 오류');
-      if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-      return true;
+      if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration) ||
+          (options?.allowDuringRestore !== true && _gsSettingsLoadEpoch !== expectedLoadEpoch)) return false;
+      if (verified?.status !== 'ok' || !verified.divData || typeof verified.divData !== 'object') return false;
+      const expected = _normalizeDivData(JSON.parse(payload));
+      const actual = _normalizeDivData(verified.divData);
+      const fields = row => JSON.stringify([row.source || '', row.perShare, row.freq, row.months, row.events || []]);
+      return Object.keys(expected).length > 0 &&
+        Object.keys(expected).every(key => actual[key] && fields(expected[key]) === fields(actual[key]));
     } catch(e) {
       // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
       logWarn('settings', 'saveDividendSettings 실패:', e);

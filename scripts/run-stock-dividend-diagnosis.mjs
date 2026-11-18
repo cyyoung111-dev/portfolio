@@ -1,26 +1,28 @@
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {pathToFileURL} from 'node:url';
+import {APPROVED_DIVIDEND_GAS} from './run-dividend-source-refresh.mjs';
 
 // Read-only production calls. Output deliberately contains counts, never holdings, codes, keys or raw responses.
 export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fetch}) {
   const url=validateWebAppUrl(rawUrl);
   if(!token) throw Error('DIVIDEND_DIAG_AUTH_REQUIRED');
-  async function call(action,args={},access=token) {
+  async function call(action,args={},access=token,stage=action) {
+    const fail=reason=>{const e=new Error(reason);e.dividendStage=stage;throw e;};
     let r;
     try { r=await fetchImpl(url,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded'},
       body:new URLSearchParams({action,...args,accessToken:access}),signal:AbortSignal.timeout(240000)}); }
-    catch { throw Error('DIVIDEND_DIAG_REQUEST_FAILED'); }
-    if(!r.ok) throw Error('DIVIDEND_DIAG_HTTP_FAILED');
-    try { return await r.json(); } catch { throw Error('DIVIDEND_DIAG_JSON_FAILED'); }
+    catch { fail('DIVIDEND_DIAG_REQUEST_FAILED'); }
+    if(!r.ok) fail('DIVIDEND_DIAG_HTTP_FAILED');
+    try { return await r.json(); } catch { fail('DIVIDEND_DIAG_JSON_FAILED'); }
   }
-  const denied=await call('getCodeListReadOnly',{},'DIVIDEND_BAD_AUTH_PROBE');
+  const denied=await call('getCodeListReadOnly',{},'DIVIDEND_BAD_AUTH_PROBE','authProbe');
   if(denied.status==='ok') throw Error('DIVIDEND_DIAG_AUTH_NOT_ENFORCED');
   const catalog=await call('getCodeListReadOnly');
   if(catalog.status!=='ok'||!Array.isArray(catalog.codes)) {
     const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'CATALOG';
     throw Error('DIVIDEND_DIAG_'+reason);
   }
-  if(catalog.readOnly!==true||!['9.281','9.282','9.283','9.284','9.285'].includes(catalog.gasVersion)) throw Error('DIVIDEND_DIAG_VERSION');
+  if(catalog.readOnly!==true||!APPROVED_DIVIDEND_GAS.has(catalog.gasVersion)) throw Error('DIVIDEND_DIAG_VERSION');
   const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&
     !['ETF','TDF','펀드','FUND'].includes(String(c.assetType||c.type||'').toUpperCase()));
   const unique=[...new Map(stocks.map(c=>[String(c.code),c])).values()];
@@ -56,10 +58,10 @@ export async function runStockDividendDiagnosis({url:rawUrl, token, fetchImpl=fe
     for(const k of Object.keys(normalized.rejected)) normalized.rejected[k]+=n.rejected[k];
     if(n.acceptedEvents>0) verified++;
   }
-  return {mode:'READ_ONLY_STOCK_DIVIDEND_DIAGNOSIS',targets:unique.length,withAcceptedEvents:verified,withoutAcceptedEvents:unique.length-verified,
+  return {mode:'READ_ONLY_STOCK_DIVIDEND_DIAGNOSIS',gasVersion:catalog.gasVersion,publicDataApiKeyConfigured:catalog.publicDataApiKeyConfigured===true,targets:unique.length,withAcceptedEvents:verified,withoutAcceptedEvents:unique.length-verified,
     stages,normalized,originalDataWritten:false};
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href) {
   try { console.log(JSON.stringify(await runStockDividendDiagnosis({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN}))); }
-  catch(e) { console.error(/^DIVIDEND_DIAG_[A-Z_]+$/.test(e?.message||'')?e.message:'DIVIDEND_DIAG_FAILED');process.exitCode=1; }
+  catch(e) { console.error(/^DIVIDEND_DIAG_[A-Z_]+$/.test(e?.message||'')?e.message:'DIVIDEND_DIAG_FAILED');if(['authProbe','getCodeListReadOnly','dividendPublic'].includes(e?.dividendStage)) console.error('DIVIDEND_DIAG_FAILED_STAGE='+e.dividendStage); process.exitCode=1; }
 }

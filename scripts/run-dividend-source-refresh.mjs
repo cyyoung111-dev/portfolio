@@ -1,7 +1,7 @@
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {pathToFileURL} from 'node:url';
 // Explicitly reviewed deployed sources. Do not accept unknown future GAS builds.
-const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292','9.293','9.294','9.295','9.296','9.297']);
+export const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292','9.293','9.294','9.295','9.296','9.297']);
 // An issuer-level public response may contain different share classes for
 // one payment. Reject conflicting company-level events without a verified
 // share identifier. Existing persisted settings are left unchanged.
@@ -57,17 +57,18 @@ async function call(action,args={},access=token,stage=action) {
  if(deny.status==='ok')throw Error('DIVIDEND_AUTH_NOT_ENFORCED');
  const state=await call('getAutomationStatus');
  if(state.status!=='ok'||!APPROVED_DIVIDEND_GAS.has(state.gasVersion))throw Error('DIVIDEND_VERSION');
+ const catalog=await call('getCodeListReadOnly');
+ if(catalog.status!=='ok'||catalog.readOnly!==true||!APPROVED_DIVIDEND_GAS.has(catalog.gasVersion)||!Array.isArray(catalog.codes)) {
+  const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'READ_FAILED';
+  throw Error('DIVIDEND_MASTER_'+reason);
+ }
  const refreshed=await call('refreshEtfDividends',{force:'1'});
  if(refreshed.status!=='ok'||(!(refreshed.saved===true&&refreshed.refreshed===true)&&!(refreshed.skipped===true&&refreshed.reason==='NO_TARGETS')))throw Error('DIVIDEND_ETF_REFRESH_FAILED');
  const etfCodes=refreshed.targetCodes;
  if(!Array.isArray(etfCodes)||etfCodes.length!==refreshed.targetCount||new Set(etfCodes).size!==etfCodes.length||etfCodes.some(code=>! /^[A-Z0-9]{6}$/.test(String(code))))throw Error('DIVIDEND_ETF_TARGETS_INVALID');
  let cached=await call('getDividendSettings',{},token,'etfReadback');
  if(cached.status!=='ok'||!cached.divData)throw Error('DIVIDEND_READBACK_FAILED');
- const catalog=await call('getCodeListReadOnly');
- if(catalog.status!=='ok'||catalog.readOnly!==true||!APPROVED_DIVIDEND_GAS.has(catalog.gasVersion)||!Array.isArray(catalog.codes)) {
-  const reason=['CODE_LIST_READ_ONLY_BUSY','CODE_LIST_READ_ONLY_PENDING','CODE_LIST_READ_ONLY_FAILED'].includes(catalog.message)?catalog.message:'READ_FAILED';
-  throw Error('DIVIDEND_MASTER_'+reason);
- }
+
  const checked=etfCodes.filter(code=>{const x=cached.divData[code];return x&&(String(x.updatedAt||'').slice(0,10)===date||String(x.providerCheckedAt||'').slice(0,10)===date);});
  if(checked.length!==etfCodes.length)throw Error('DIVIDEND_ETF_READBACK_INCOMPLETE');
  const stocks=catalog.codes.filter(c=>/^\d{6}$/.test(String(c.code))&&!['ETF','TDF','펀드','FUND'].includes(String(c.type||c.assetType).toUpperCase()));
@@ -94,12 +95,17 @@ async function call(action,args={},access=token,stage=action) {
   }
   stockUpdated=Object.keys(patch).length;stockUnverified=stocks.length-stockUpdated-stockNoEvents-stockManual;
   if(stockUpdated){
-   const saved=await call('saveDividendSettings',{data:JSON.stringify(patch)});
-   if(saved.status!=='ok'||saved.saved!==true)throw Error('DIVIDEND_STOCK_SAVE_FAILED');
+   // One writer invocation. A missing acknowledgement may follow a real
+   // commit: read back exact source, per-share amount, and events, never retry.
+   let uncertain=null;
+   try {
+    const saved=await call('saveDividendSettings',{data:JSON.stringify(patch)});
+    if(saved.status!=='ok'||saved.saved!==true)throw Error('DIVIDEND_STOCK_SAVE_FAILED');
+   } catch(e){uncertain=e;}
    const verified=await call('getDividendSettings',{},token,'stockReadback');
-   if(verified.status!=='ok'||Object.keys(patch).some(code=>verified.divData?.[code]?.source!=='PUBLIC_DATA'||JSON.stringify(verified.divData[code].events)!==JSON.stringify(patch[code].events)))throw Error('DIVIDEND_STOCK_READBACK_FAILED');
+   if(verified.status!=='ok'||Object.keys(patch).some(code=>verified.divData?.[code]?.source!=='PUBLIC_DATA'||Number(verified.divData[code].perShare)!==Number(patch[code].perShare)||JSON.stringify(verified.divData[code].events)!==JSON.stringify(patch[code].events)))throw uncertain||Error('DIVIDEND_STOCK_READBACK_FAILED');
   }
  }
  return {mode:'VERIFIED_DIVIDEND_REFRESH',etfTargets:etfCodes.length,etfChecked:checked.length,etfNoEventWindows:Number(refreshed.noEventCount||0),historyRows:Number(refreshed.historyRows||0),stockKeyConfigured,stockUpdated,stockNoEvents,stockManual,stockUnverified};
 }
-if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{console.log(JSON.stringify(await runDividendRefresh({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));}catch(e){console.error(/^DIVIDEND_[A-Z_]+$/.test(e?.message||'')?e.message:'DIVIDEND_REFRESH_FAILED');if(['authProbe','getAutomationStatus','refreshEtfDividends','etfReadback','getCodeListReadOnly','dividendPublic','saveDividendSettings','stockReadback'].includes(e?.dividendStage))console.error('DIVIDEND_FAILED_STAGE='+e.dividendStage);process.exitCode=1;}}
+if(import.meta.url===pathToFileURL(process.argv[1]||'').href){try{const result=await runDividendRefresh({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN});console.log(JSON.stringify(result));if(result.stockUnverified>0){console.error('DIVIDEND_STOCK_COVERAGE_UNVERIFIED');process.exitCode=2;}}catch(e){console.error(/^DIVIDEND_[A-Z_]+$/.test(e?.message||'')?e.message:'DIVIDEND_REFRESH_FAILED');if(['authProbe','getAutomationStatus','refreshEtfDividends','etfReadback','getCodeListReadOnly','dividendPublic','saveDividendSettings','stockReadback'].includes(e?.dividendStage))console.error('DIVIDEND_FAILED_STAGE='+e.dividendStage);process.exitCode=1;}}

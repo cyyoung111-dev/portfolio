@@ -39,13 +39,14 @@ function fixture(mode='normal') {
 }
 for(const mode of ['bad-zero','duplicate','invalid-pay']){const f=fixture(mode),r=f.run();assert.equal(r.status,'error');assert.equal(f.writes(),0,'provider contract errors fail before any backup/write');}
 {const f=fixture('readback-failure'),r=f.run();assert.equal(r.status,'error');assert.ok(f.marks.every(x=>x==='WRITE_FAILED'));assert.equal(f.settings().DIVDATA['111111'].perShare,7,'readback error must restore original settings');assert.equal(f.settings().DIVDATA['222222'].perShare,99);}
+const publicResult=(dividends={})=>({dividends,noEvents:new Set()});
 function ui({etf=true,save=true,stocks=false,publicOk=true}={}) {
  const labels=[],ctx=vm.createContext({console:{warn(){}},Date,setTimeout:()=>0,clearTimeout(){}});ctx.window=ctx;
  vm.runInContext(web,ctx);ctx.GSHEET_API_URL='https://script.google.com/macros/s/test/exec';ctx.GAS_API_KEY_STATUS={publicDataApiKeyConfigured:true};ctx.currentView='div';ctx.DIVDATA={};
  ctx.EDITABLE_PRICES=stocks?[{code:'111111',name:'A',type:'주식'}]:[];ctx.rawHoldings=stocks?[{code:'111111',name:'A',qty:1}]:[];
  ctx.getDivKey=n=>n==='A'?'111111':n;ctx._refreshSeibroEtfDividends=async()=>etf;ctx.loadDividendSettings=async()=>true;
  ctx._setDividendLinkState=(state,message)=>labels.push({state,message});ctx.$el=()=>null;ctx.renderDivView=()=>{};ctx.showToast=()=>{};
- ctx._fetchDividendSource=async action=>{assert.equal(action,'dividendPublic','no GF fallback');return publicOk?{'111111':{perShare:12,source:'PUBLIC_DATA',events:[{date:'2026-09-30',amount:12}]}}:{};};ctx.persistDividendSettings=async()=>save;
+ ctx._fetchDividendSource=async action=>{assert.equal(action,'dividendPublic','no GF fallback');return publicResult(publicOk?{'111111':{perShare:12,source:'PUBLIC_DATA',events:[{date:'2026-09-30',amount:12}]}}:{});};ctx.persistDividendSettings=async()=>save;
  return{ctx,labels};
 }
 for(const opts of [{etf:false},{etf:false,stocks:true},{stocks:true,save:false},{stocks:true,publicOk:false}]) {
@@ -62,7 +63,7 @@ for(const isManual of [false,true]){
    {date:'2026-01-01',payDate:'2026-01-10',amount:15,source:'PUBLIC_DATA'}
   ]};
  u.ctx.DIVDATA['111111']=structuredClone(prev);
- u.ctx._fetchDividendSource=async()=>({'111111':{
+ u.ctx._fetchDividendSource=async()=>publicResult({'111111':{
   source:'PUBLIC_DATA',perShare:6525,events:[
    {date:'2026-04-01',payDate:'2026-04-24',amount:6500},
    {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
@@ -92,7 +93,7 @@ for(const manual of [false,true]){
   ]
  };
  let writes=0;
- u.ctx._fetchDividendSource=async()=>({'111111':{
+ u.ctx._fetchDividendSource=async()=>publicResult({'111111':{
   source:'PUBLIC_DATA',perShare:6550,events:[
    {date:'2026-04-01',payDate:'2026-04-24',amount:6550}
   ]
@@ -149,7 +150,7 @@ async function collectorFixture(mode='ok') {
     ]}};
   }
   if(action==='dividendPublic'&&mode==='no-events'){out.dividends={};out.diagnostics.dividend['333333'].returnedRows=0;out.diagnostics.normalized={'333333':{inputRows:0,acceptedEvents:0,rejected:{identity:0,date:0}}};}
-  if(action==='saveDividendSettings'){const patch=JSON.parse(p.get('data'));assert.deepEqual(Object.keys(patch),['333333']);Object.assign(cache,patch);saved=true;out.saved=true;}
+  if(action==='saveDividendSettings'){const patch=JSON.parse(p.get('data'));assert.deepEqual(Object.keys(patch),['333333']);Object.assign(cache,patch);saved=true;out.saved=true;if(mode==='lost-stock-ack')return {ok:true,json:async()=>{throw Error('ACK LOST')}};}
   return{ok:true,json:async()=>out};
  };
  const run=()=>runDividendRefresh({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl,asOf:new Date('2026-10-25T12:00:00Z')});
@@ -181,7 +182,7 @@ for(const mode of ['auth-bad','version','readback-bad']){const f=await collector
 console.log('PASS: official-source collector auth/version/readback guards, exact patch, no manual/omitted-data overwrite');
 
 for(const manual of [false,true]) {
- const u=ui({stocks:true});let current=true;u.ctx.getGsheetConnectionGeneration=()=>1;u.ctx.isGsheetConnectionCurrent=()=>current;u.ctx._fetchDividendSource=async()=>{current=false;return {'111111':{source:'PUBLIC_DATA',perShare:99}};};u.ctx.persistDividendSettings=async()=>{throw Error('stale connection must not save');};
+ const u=ui({stocks:true});let current=true;u.ctx.getGsheetConnectionGeneration=()=>1;u.ctx.isGsheetConnectionCurrent=()=>current;u.ctx._fetchDividendSource=async()=>{current=false;return publicResult({'111111':{source:'PUBLIC_DATA',perShare:99}});};u.ctx.persistDividendSettings=async()=>{throw Error('stale connection must not save');};
  if(manual)assert.equal(await u.ctx.startDivFetch(),false);else await u.ctx._autoFetchDiv({});assert.deepEqual(u.ctx.DIVDATA,{});
 }
 
@@ -235,7 +236,7 @@ console.log('PASS: monthly official ETF dividend refresh requires protected envi
 // Re-render, polling and manual button must not start a second source writer.
 {
  const u=ui({stocks:true});let calls=0,writes=0,release;
- u.ctx._fetchDividendSource=async()=>{calls++;await new Promise(r=>release=r);return {'111111':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}};};
+ u.ctx._fetchDividendSource=async()=>{calls++;await new Promise(r=>release=r);return publicResult({'111111':{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}});};
  u.ctx.persistDividendSettings=async()=>{writes++;return true;};
  const a=u.ctx._autoFetchDiv({}),b=u.ctx._autoFetchDiv({}),c=u.ctx.startDivFetch();
  while(!release)await Promise.resolve();
@@ -292,9 +293,43 @@ for(const phase of ['authProbe','refreshEtfDividends']){
   calls.push(a);
   if((phase==='authProbe'&&a==='getDividendSettings')||a===phase)
    return {ok:true,json:async()=>{throw Error('PRIVATE_HTML_RESPONSE')}};
-  return {ok:true,json:async()=>a==='getAutomationStatus'?{status:'ok',gasVersion:'9.297'}:{status:'error'}};
+  return {ok:true,json:async()=>a==='getAutomationStatus'?{status:'ok',gasVersion:'9.297'}:a==='getCodeListReadOnly'?{status:'ok',readOnly:true,gasVersion:'9.297',codes:[]}:{status:'error'}};
  };
  await assert.rejects(runDividendRefresh({url:'https://script.google.com/macros/s/TEST/exec',token:'TEST',fetchImpl}),e=>e.message==='DIVIDEND_JSON_UNCERTAIN_VERIFY_BEFORE_RETRY'&&e.dividendStage===phase);
  assert.equal(calls.filter(a=>a===(phase==='authProbe'?'getDividendSettings':phase)).length,1);
 }
 console.log('PASS: preserve concurrent manual edits in both paths; sanitized exact batch failure stage; no retry');
+
+// Real provider adapter: complete positive rows only; explicit verified no-event
+// windows remain informational and partial pagination never reaches the writer.
+for(const manual of [false,true]) {
+ for(const mode of ['verified','partial','none','missing']){
+  const u=ui({stocks:true});let writes=0;
+  const c='111111';
+  const ctx=u.ctx;
+  const adapter=vm.createContext({console,Date,Intl,GSHEET_API_URL:'https://script.google.com/macros/s/test/exec'});
+  vm.runInContext(web,adapter);
+  adapter.requestGsheetActionJson=async()=>({status:'ok',
+   dividends:mode==='none'?{}:{[c]:{source:'PUBLIC_DATA',perShare:12,events:[{date:'2026-09-30',amount:12}]}},
+   diagnostics:mode==='missing'?{}:{dividend:{[c]:{status:mode==='partial'?'PARTIAL_PAGE':mode==='none'?'NO_ROWS':'OK',returnedRows:mode==='none'?0:1}},normalized:{[c]:{inputRows:0,acceptedEvents:0,rejected:{identity:0,date:0}}}}});
+  ctx._fetchDividendSource=(...args)=>adapter._fetchDividendSource(...args);
+  ctx.DIVDATA[c]={source:'PUBLIC_DATA',perShare:7,events:[]};
+  ctx.persistDividendSettings=async()=>{writes++;return true;};
+  await (manual?ctx.startDivFetch():ctx._autoFetchDiv({}));
+  assert.equal(writes,mode==='verified'?1:0);
+  assert.equal(ctx.DIVDATA[c].perShare,mode==='verified'?12:7);
+  assert.equal(u.labels.at(-1).state,['verified','none'].includes(mode)?'ok':'fail');
+ }
+}
+{
+ const u=ui({stocks:true});
+ u.ctx.EDITABLE_PRICES.push({code:'AAPL',name:'US',type:'주식'},{code:'222222',name:'ETF',assetType:'etf'});
+ u.ctx.rawHoldings.push({name:'US',qty:1},{name:'ETF',qty:1});
+ assert.deepEqual(Array.from(u.ctx._getLegacyDividendFetchItems(),x=>x.code),['111111']);
+}
+{
+ const f=await collectorFixture('lost-stock-ack'),result=await f.run();
+ assert.equal(result.stockUpdated,1);assert.equal(f.calls.filter(a=>a==='saveDividendSettings').length,1);
+ assert.equal(f.cache['333333'].perShare,12);
+}
+console.log('PASS: provider completeness, verified no-event classification, Korean source coverage, one-write uncertain ACK recovery');
