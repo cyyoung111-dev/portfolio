@@ -372,7 +372,7 @@ assert.match(accountCtx._divTaxPanel(hi,'normal',hiRows),/입력 가정 포함/)
 const withInterest=P.calculateDividendCashflow({dividends:planCtx._getPlanDividendEntries(hiRows),year:2026,otherFinancialIncome:accountCtx._getDivOtherIncome(2026)});
 assert.equal(withInterest.specialTaxScenario.ordinaryWithApplication,2000000);
 otherValue='';accountCtx._applyDivOtherIncome();assert.equal(accountCtx._getDivOtherIncome(2026),null);
-console.log('PASS: shared session-only non-dividend income scenario and missing identity protection');
+console.log('PASS: shared non-dividend income scenario and missing identity protection');
 
 // Quarterly/interim eligibility must not be limited to final dividends.
 // Official dates and class-specific amounts are required for exact matches.
@@ -438,3 +438,42 @@ assert.match(sharedTaxSource,/const taxRows=calcDividends\(taxYear\)/);
 for(const [name,group] of [['normalDiv','normal'],['isaDiv','isa'],['irpDiv','irp'],['pensionDiv','pension']])assert.ok(sharedTaxSource.includes('const '+name+' = sharedSummary.'+group+'.annual;'));
 assert.doesNotMatch(sharedTaxSource,/_qtyAtDateFast|_divSum\(/,'no second dividend entitlement engine');
 assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/계좌 귀속 미확인/);
+
+// Annual assumptions: persist separately, distinguish null from zero,
+// keep other years, reject malformed input, and fail visibly on quota errors.
+{
+ const disk=new Map();
+ const localStorage={getItem:k=>disk.get(k)||null,setItem:(k,v)=>disk.set(k,v)};
+ accountCtx.localStorage=localStorage;
+ const detail={otherTaxBase:70000000,capitalExempt:0,etfTaxDifference:null,certificateSpecial:null};
+ assert.equal(accountCtx._saveDivTaxRecord(2026,0,detail),true);
+ assert.equal(accountCtx._getDivOtherIncome(2026),0);
+ assert.equal(accountCtx._getDivTaxDetails(2026).otherTaxBase,70000000);
+ assert.equal(accountCtx._getDivOtherIncome(2027),null);
+ assert.equal(accountCtx._saveDivTaxRecord(2027,200000,{otherTaxBase:50000000}),true);
+ const reload=vm.createContext({localStorage,_kstYear:()=>2026});
+ vm.runInContext(source,reload);
+ assert.equal(reload._getDivOtherIncome(2026),0);
+ assert.equal(reload._getDivTaxDetails(2026).otherTaxBase,70000000);
+ assert.equal(reload._getDivOtherIncome(2027),200000);
+ assert.equal(reload._saveDivTaxRecord(2026,null,{}),true);
+ assert.equal(reload._getDivOtherIncome(2026),null);
+ assert.equal(reload._getDivTaxDetails(2026),null);
+ assert.equal(reload._getDivOtherIncome(2027),200000);
+ assert.equal(reload._saveDivTaxRecord(2027,null,{otherTaxBase:'<script>'}),true);
+ assert.equal(reload._getDivTaxDetails(2027),null);
+ reload.localStorage={getItem:()=>null,setItem:()=>{throw Error('quota');}};
+ assert.equal(reload._saveDivTaxRecord(2026,500,detail),false);
+ assert.equal(reload._getDivOtherIncome(2026),500);
+ const blocked=vm.createContext({_kstYear:()=>2026});
+ Object.defineProperty(blocked,'localStorage',{get(){throw Error('SecurityError');},configurable:true});
+ vm.runInContext(source,blocked);
+ assert.equal(blocked._getDivOtherIncome(2026),null);
+ assert.equal(blocked._saveDivTaxRecord(2026,700,detail),false);
+ assert.equal(blocked._getDivOtherIncome(2026),700);
+ assert.equal(P.financialIncomeRuleStatus(2026).comparisonReviewed,true);
+ assert.equal(P.financialIncomeRuleStatus(2027).comparisonReviewed,false);
+ assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/연간 세제 입력/);
+ assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/다른 기기와 자동 동기화하지 않음/);
+}
+console.log('PASS: annual private tax settings reload, explicit zero, clear, year isolation, quota and reviewed rules');

@@ -8,12 +8,15 @@ on:
       - 'scripts/test-high-dividend-universe.mjs'
       - 'scripts/publish-high-dividend-catalog.mjs'
       - 'scripts/test-high-dividend-catalog.mjs'
+      - 'scripts/nh-financial-income-public-schema.mjs'
+      - 'scripts/test-nh-financial-income-public-schema.mjs'
       - '.github/workflows/high-dividend-kind-source.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/collect-high-dividend-kind.py'
       - 'scripts/audit-high-dividend-universe.mjs'
+      - 'scripts/nh-financial-income-public-schema.mjs'
       - '.github/workflows/high-dividend-kind-source.yml'
   schedule:
     - cron: '9 0 * * 1' # Monday 09:09 KST, year round
@@ -58,6 +61,7 @@ jobs:
         run: |
           node scripts/test-high-dividend-universe.mjs
           node scripts/test-high-dividend-catalog.mjs
+          node scripts/test-nh-financial-income-public-schema.mjs
       - name: Collect official candidate list (read only)
         env:
           BUSINESS_YEAR: ${{ inputs.business_year || '2025' }}
@@ -149,3 +153,18 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/audit-high-dividend-universe.mjs kind-source/candidate-index.json
+
+  nh-tax-public-contract:
+    # Independent from KIND collection; a provider schema failure cannot
+    # suppress the existing valid public company master or change financial data.
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate NH public account inquiry specification only
+        run: node scripts/nh-financial-income-public-schema.mjs
