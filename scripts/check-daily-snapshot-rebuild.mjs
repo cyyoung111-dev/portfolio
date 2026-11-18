@@ -501,7 +501,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261103-1/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=\d{8}-\d+/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261118-7/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261115-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261118-11/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261118-8/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261115-1/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=\d{8}-\d+/,'현재가 연결 격리 로직 캐시 버전 갱신');
@@ -762,3 +762,24 @@ function ledgerSnippet(name) {
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');
 
 assert.doesNotMatch(gas,/openapi\.tossinvest\.com|function _tossRequest_/);
+
+// Dividend ACK loss: exercise the actual queued writer, not a second write.
+{
+ const fnStart=settings.indexOf('function saveDividendSettings(_immediate, options)');
+ const fnEnd=settings.indexOf('function saveRealEstateSettings(',fnStart);
+ assert.ok(fnStart>=0 && fnEnd>fnStart);
+ const normalizer=fs.readFileSync('src/web/features/settings/settings_persistence_utils.js','utf8');
+ const desired={'111111':{source:'MANUAL',perShare:12,freq:'연배당',months:[9],events:[{date:'2026-09-30',payDate:'2026-10-05',amount:12,source:'MANUAL',receivedConfirmed:true,netReceived:100,withheldTax:20}]}};
+ for(const mode of ['ok','lost-ack','mismatch','read-failed','stale']){
+  let writes=0,reads=0,generation=1;
+  const ctx=vm.createContext({GSHEET_API_URL:'https://script.google.com/macros/s/test/exec',window:{_lastGasVersion:'9.297'},
+   _gsSettingsLoadEpoch:1,_dividendSaveQueue:Promise.resolve(),DIVDATA:{},getGsheetConnectionGeneration:()=>generation,
+   isGsheetConnectionCurrent:(_url,g)=>g===generation,isGsheetPortfolioWriteReady:()=>true,_isGasVersionAtLeast:()=>true,getDivKey:k=>k,logWarn:()=>{},
+   requestGsheetFormJson:async(_action,params,opts)=>{writes++;assert.equal(opts.retry,0);assert.deepEqual(JSON.parse(params.data),desired);if(mode==='stale')generation++;if(mode==='lost-ack')throw Error('lost response');return {status:'ok',saved:true};},
+   requestGsheetActionJson:async()=>{reads++;if(mode==='read-failed')return null;const divData=structuredClone(desired);if(mode==='mismatch')divData['111111'].events[0].netReceived=99;return{status:'ok',divData};}});
+  vm.runInContext(normalizer+'\n'+settings.slice(fnStart,fnEnd),ctx);
+  assert.equal(await ctx.saveDividendSettings(true,{divDataPatch:desired}),['ok','lost-ack'].includes(mode));
+  assert.equal(writes,1);assert.equal(reads,mode==='stale'?0:1);
+ }
+}
+console.log('PASS: dividend browser exact financial readback on uncertain acknowledgement, one writer, stale connection guard');

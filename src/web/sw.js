@@ -2,7 +2,7 @@
 //  sw.js — 서비스워커 (PWA 오프라인 캐싱)
 //  정적 파일 배포 시 CACHE_NAME과 PRECACHE_URLS의 쿼리 버전을 함께 올립니다.
 // ════════════════════════════════════════════════════════════════
-const CACHE_NAME = 'portfolio-cache-20261118-10';
+const CACHE_NAME = 'portfolio-cache-20261118-11';
 
 // 오프라인에서도 최소한 앱 껍데기는 뜨도록 미리 저장해둘 파일들
 const PRECACHE_URLS = [
@@ -20,7 +20,7 @@ const PRECACHE_URLS = [
   './styles/pages/history.css?v=20260904-4',
   './styles/pages/trade.css?v=20260903-1',
   './styles/typography-roles.css?v=20261118-8',
-  './styles/ui-unified.css?v=20261118-10',
+  './styles/ui-unified.css?v=20261118-11',
   './shared/theme.js?v=20261115-1',
   './domain/portfolio/data.js?v=20261116-1',
   './domain/plan/plan_calculations.js?v=20260903-1',
@@ -38,7 +38,7 @@ const PRECACHE_URLS = [
   './views/views_system.js?v=20261118-1',
   './features/settings/settings_net.js?v=20261115-1',
   './features/settings/settings_perf_monitor.js?v=20261115-5',
-  './features/settings/settings.js?v=20261115-1',
+  './features/settings/settings.js?v=20261118-11',
   './features/settings/settings_legacy_recovery.js?v=20261103-1',
   './features/settings/settings_persistence_utils.js?v=20261025-2',
   './features/settings/settings_sync.js?v=20261103-1',
@@ -46,7 +46,7 @@ const PRECACHE_URLS = [
   './features/settings/settings_fetch.js?v=20261118-3',
   './features/trade/editor/mgmt_trade.js?v=20261118-8',
   './features/management/mgmt_editor.js?v=20261118-10',
-  './features/dividend/mgmt_div.js?v=20261028-2',
+  './features/dividend/mgmt_div.js?v=20261118-11',
   './domain/market/domestic_index_eod.js?v=20261030-1',
   './views/views_history_benchmark.js?v=20261030-1',
   './views/views_history_utils.js?v=20261012-1',
