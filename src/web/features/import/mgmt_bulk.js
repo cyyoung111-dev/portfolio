@@ -114,7 +114,7 @@ function buildBulkOverlayHTML() {
       >${label}</button>`;
   return `<div id="bulkImportOverlay"
     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9100;justify-content:center;align-items:flex-start;padding:8px;overflow-y:auto">
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;width:100%;max-width:960px;max-height:calc(100vh - 16px);display:flex;flex-direction:column;margin:auto">
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--ui-surface-radius);width:100%;max-width:960px;max-height:calc(100vh - 16px);display:flex;flex-direction:column;margin:auto">
       <!-- 헤더 -->
       <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px 12px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;gap:8px">
         <div>

@@ -1067,7 +1067,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 #view-area[data-active-view] :is(.hist-detail-panel,.hist-benchmark-details,.hist-source-coverage)>summary {min-height:32px;padding:6px 10px}
 .wrap :is(.sc,.sector-card,.chart-card,.trade-stat-card,.div-stat-card,.stat-card,
   .card-12,.card-12-mb16,.card-12-p20,.hist-kpi-card,.hist-extreme-card,.hist-benchmark-card),
-:is(.editor-box,#tradeEditOverlay,#bulkImportOverlay,.settings-dialog,.col-filter-dropdown) {border-radius:var(--ui-surface-radius)}
+:is(.editor-box,.settings-dialog,.col-filter-dropdown) {border-radius:var(--ui-surface-radius)}
 #view-area[data-active-view] :is(.plan-subtabs,.div-month-filter) {
   gap:6px;scroll-padding-inline:6px;max-width:100%;min-width:0;
 }
@@ -1431,3 +1431,11 @@ html:has(.toolbar-stable) {scrollbar-gutter:stable}
 }
 #bulkImportOverlay table th {font-size:var(--type-caption);line-height:var(--line-compact)}
 #bulkImportOverlay table td {font-size:var(--type-body);line-height:var(--line-compact)}
+
+/* Ordinary section headings share body-size hierarchy in every view.
+   The main page title, main history title and headline portfolio totals are separate roles. */
+#view-area[data-active-view] :is(.h3-section,.h3-card,.section-title,.card-title,.tbl-head h3) {
+  font-size:var(--type-body);
+  font-weight:650;
+  line-height:1.35;
+}
