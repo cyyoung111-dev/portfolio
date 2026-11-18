@@ -102,7 +102,8 @@ assert.match(css, /#view-area\[data-active-view\] table td\{font-size:var\(--typ
 assert.match(css, /#view-area\[data-active-view\] input,[\s\S]+min-height:36px/);
 assert.match(css, /\.div-monthly-matrix th,[\s\S]+font-size:var\(--type-caption\)/);
 assert.match(css, /\.retirement-cashflow-table th\{font-size:var\(--type-caption\)/);
-assert.match(css, /\.retirement-cashflow-table td\{font-size:\.8rem/);
+assert.match(planCss, /\.retirement-cashflow-table td\{font-size:var\(--type-body\)/, '은퇴 현금흐름 표는 고정 rem이 아니라 사용자 본문 크기를 따라야 합니다.');
+assert.doesNotMatch(planCss, /\.retire-metric-grid \.s2-rounded>div:last-child\{[^}]*font-size:var\(--type-value\)/,'카드의 보조 설명을 금액 글자 크기로 표시하면 안 됩니다.');
 assert.match(css, /--font-ui:'Pretendard Variable',Pretendard,'Apple SD Gothic Neo','Malgun Gothic',sans-serif/);
 assert.match(css, /table,button,input,select,textarea\{font-family:inherit\}/);
 for (const selector of ['.sc .lbl','.sc .sub','.f-btn','.f-btn-sm','.date-badge','.action-status-label','#price-updated-label','.btn-link-blue','.chart-card h4','.legend-label','.toolbar-btn','.vs-btn-label','.trade-stat-label','.div-stat-label','.div-stat-sub','.filter-badge','.editor-group-title','.btn-sm-purple','.div-month-filter button','.div-month-selection span','.div-month-selection small','.plan-subtab','#histModeDay','#histModeWeek','#histModeMonth']) {
