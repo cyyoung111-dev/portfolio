@@ -187,7 +187,7 @@
 <script defer src="domain/market/market_data_provider.js?v=20260929-1"></script>
 <script defer src="domain/portfolio/portfolio_service.js?v=20260903-1"></script>
 <script defer src="domain/portfolio/data.js?v=20261116-1"></script>
-<script defer src="domain/plan/plan_calculations.js?v=20261118-14"></script>
+<script defer src="domain/plan/plan_calculations.js?v=20261118-15"></script>
 <script defer src="domain/migration/backup_schema.js?v=20260903-1"></script>
 <script defer src="shared/table/views_table_state.js?v=20260903-1"></script>
 <script defer src="shared/table/views_table_filters.js?v=20260903-1"></script>
@@ -195,7 +195,7 @@
 <script defer src="views/views_portfolio.js?v=20261118-7"></script>
 <script defer src="views/views_trades.js?v=20261118-7"></script>
 <script defer src="views/views_tradegroup.js?v=20261118-7"></script>
-<script defer src="views/views_div_asset.js?v=20261118-14"></script>
+<script defer src="views/views_div_asset.js?v=20261118-15"></script>
 <script defer src="views/views_asset_loan.js?v=20260903-1"></script>
 
 <script defer src="views/views_asset.js?v=20261118-6"></script>
@@ -398,7 +398,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261118-14', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261118-15', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>

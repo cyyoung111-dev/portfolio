@@ -389,3 +389,8 @@ const conflict=P.calculateDividendCashflow({dividends:[{taxType:'NORMAL',amount:
 assert.equal(conflict.specialTaxScenario.reviewedGross,100);
 assert.equal(conflict.specialTaxScenario.pendingGross,0);
 console.log('PASS: quarterly cash dividends, date bounds, no overlapping reviewed and pending tax amounts');
+
+// Negative/review-required reference overrides earlier positive evidence.
+for(const status of ['revoked','reviewRequired','ineligible'])assert.equal(P.specialDividendEvidence(exact,[...P.DIVIDEND_SPECIAL_REFERENCE,{code:'005930',year:2026,status}]).status,'pending');
+assert.match(accountCtx._divSpecialEvidenceTable(hiRows,2026),/2026-09-30 배당/);
+console.log('PASS: disclosure correction precedence and payment-specific source links');

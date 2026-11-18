@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from playwright.sync_api import sync_playwright
@@ -53,6 +54,56 @@ def read_rows(data):
             continue
     raise RuntimeError("Spreadsheet encoding not recognized")
 
+# Exact workbook schema observed in the official 2025-business-year export.
+EXPECTED_COLUMNS = ["번호", "시장구분", "회사명", "공시제목", "사업연도", "결산월", "배당성향(%)", "이익배당금증가율(%)"]
+
+def validate_candidate_rows(header, entries, year, displayed_count):
+    compact = lambda s: re.sub(r"\s+", "", str(s))
+    if [compact(c) for c in header] != EXPECTED_COLUMNS:
+        raise RuntimeError("KIND source schema changed")
+    if len(entries) != displayed_count or displayed_count <= 0:
+        raise RuntimeError("KIND screen/export source counts disagree or are empty")
+    names = set()
+    for i, row in enumerate(entries, 1):
+        if len(row) != len(header) or not re.fullmatch(str(i)+r"(?:\.0)?",compact(row[0])):
+            raise RuntimeError("KIND export row order/schema mismatch")
+        market, name, title = row[1:4]
+        if market not in ("유가", "코스닥") or not name or "기업가치" not in compact(title):
+            raise RuntimeError("KIND issuer/market/disclosure missing")
+        if name in names:
+            raise RuntimeError("KIND duplicate issuer name; identity review required")
+        names.add(name)
+        if compact(row[4]) not in (str(year), str(year)+".0", str(year)+"년"):
+            raise RuntimeError("KIND business year mismatch")
+    return len(names)
+
+# These rows only serve as a change detector for the manually reviewed
+# candidate/reference layer. They do not establish security-level eligibility.
+WATCH_2025 = {
+    "삼성전자": ["유가", "기업가치 제고 계획(자율공시)", "12", "25.1", "13.2"],
+    "SK": ["유가", "기업가치 제고 계획(자율공시)(고배당기업 표시를 위한 재공시)", "12", "27.6", "14.3"],
+}
+
+def review_candidates(entries, year):
+    if year != 2025:
+        return {"state": "CANDIDATE_ONLY", "comparison": "NO_REVIEW_BASELINE", "changes": []}
+    by_name = {row[2]:row for row in entries}
+    changes = []
+    for name, expected in WATCH_2025.items():
+        row = by_name.get(name)
+        if row is None:
+            changes.append({"name":name,"state":"MISSING_FROM_CURRENT_LIST"})
+            continue
+        actual = [row[1],row[3],row[5],row[6],row[7]]
+        try:
+            same = actual[:2] == expected[:2] and all(Decimal(a) == Decimal(b) for a,b in zip(actual[2:],expected[2:]))
+        except InvalidOperation:
+            same = False
+        if not same:
+            changes.append({"name":name,"state":"DISCLOSURE_ROW_CHANGED"})
+    return {"state":"REVIEW_REQUIRED" if changes else "CANDIDATE_ONLY",
+            "comparison":"ROW_CHANGE_DETECTOR_ONLY", "changes":changes}
+
 def request_parameters(req):
     params = parse_qs(urlparse(req.url).query)
     params.update(parse_qs(req.post_data or ""))
@@ -98,7 +149,7 @@ def collect(year, out):
             def is_year_response(res):
                 req = res.request
                 u = urlparse(res.url)
-                return u.hostname == "kind.krx.co.kr" and u.path.endswith(".do") and value in request_parameters(req).get(year_field, [])
+                return (u.hostname == "kind.krx.co.kr" and u.path == "/valueup/dividend.do"\n                        and "valueupHighDividendSub" in request_parameters(req).get("method", [])\n                        and value in request_parameters(req).get(year_field, []))
             seen = []
             def observe(res):
                 u = urlparse(res.url)
@@ -151,10 +202,21 @@ def collect(year, out):
             if any(len(row)<=year_col or not re.fullmatch(str(year)+r"(?:\.0|년)?",compact(row[year_col])) for row in entries):
                 print("Business-year values:",json.dumps(sorted({row[year_col] if len(row)>year_col else "" for row in entries}),ensure_ascii=False),flush=True)
                 raise RuntimeError("Downloaded business-year rows do not match selected year")
+            # Independently validate the rendered total and the complete export.
+            # The source screen currently labels the count "전체 631건 : 1/43".
+            page.wait_for_function(r"""n => [...document.body.innerText.matchAll(/전체\s*([\d,]+)\s*건\s*:/g)].some(m => Number(m[1].replace(/,/g,'')) === n)""",
+                                   arg=len(entries), timeout=20000)
+            displayed_totals = re.findall(r"전체\s*([\d,]+)\s*건\s*:",page.locator("body").inner_text())
+            if len(displayed_totals)!=1:
+                raise RuntimeError("KIND rendered total ambiguous")
+            displayed_count = int(displayed_totals[0].replace(",",""))
+            unique_count = validate_candidate_rows(header, entries, year, displayed_count)
+            candidate_review = review_candidates(entries, year)
+            (out / "candidate-review.json").write_text(json.dumps(candidate_review,ensure_ascii=False,indent=2),encoding="utf-8")
             (out / "candidate-source.json").write_text(json.dumps({"businessYear":year,"columns":header,"rows":entries,"classification":"CANDIDATE_ONLY"},ensure_ascii=False,indent=2),encoding="utf-8")
             print("KIND spreadsheet schema:",json.dumps(header,ensure_ascii=False),flush=True)
             metadata = {
-                "source": URL, "businessYear": year, "rowCount":len(entries),
+                "source": URL, "businessYear": year, "rowCount":len(entries), "screenCount":displayed_count,\n                "uniqueIssuerNames":unique_count, "reviewState":candidate_review["state"],
                 "retrievedAt": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                 "fileName": filename, "bytes": len(data),
                 "sha256": hashlib.sha256(data).hexdigest(),
@@ -164,6 +226,9 @@ def collect(year, out):
             }
             (out / "source-metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps(metadata, ensure_ascii=False), flush=True)
+            print("KIND candidate review:",json.dumps(candidate_review,ensure_ascii=False),flush=True)
+            if candidate_review["state"] == "REVIEW_REQUIRED":
+                raise RuntimeError("Official candidate row changed; reviewed payment evidence must be checked")
         finally:
             page.screenshot(path=str(out / "kind-screen.png"), full_page=True)
             browser.close()

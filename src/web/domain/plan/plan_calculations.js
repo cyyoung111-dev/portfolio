@@ -84,6 +84,9 @@
     if(['ETF','TDF','펀드','FUND','REIT','리츠','ETN','해외주식','FOREIGN_STOCK'].includes(type))return {status:'ordinary'};
     if(type!=='주식'||!/^\d{5}[0-9A-Z]$/.test(symbol))return {status:'pending'};
     const matches=reference.filter(x=>x.code===symbol&&x.year===y);
+    // A separately recorded negative/corrected issuer or security status supersedes
+    // positive references. Never fall back to an older reviewed payment.
+    if(matches.some(x=>['revoked','reviewRequired','ineligible'].includes(x.status)))return {status:'pending',evidence:matches.find(x=>['revoked','reviewRequired','ineligible'].includes(x.status))};
     if(declared===true && /^\d{4}-\d{2}-\d{2}$/.test(String(payDate||'')) && Number(payDate.slice(0,4))===y && payDate>=recordDate){
       const exact=matches.filter(x=>x.status==='reviewed'&&['cashFinal','cashQuarterly','cashInterim'].includes(x.kind)&&x.recordDate===recordDate&&Number(x.amount)===Number(amount)&&(x.payDate?x.payDate===payDate:(x.paymentWindowStart&&x.paymentWindowEnd&&payDate>=x.paymentWindowStart&&payDate<=x.paymentWindowEnd)));
       if(exact.length===1 && exact[0].eligibilityUrl && exact[0].paymentUrl) return {status:'reviewed',evidence:exact[0]};
