@@ -465,6 +465,12 @@ assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/계좌 귀속 미확인
  reload.localStorage={getItem:()=>null,setItem:()=>{throw Error('quota');}};
  assert.equal(reload._saveDivTaxRecord(2026,500,detail),false);
  assert.equal(reload._getDivOtherIncome(2026),500);
+ const blocked=vm.createContext({_kstYear:()=>2026});
+ Object.defineProperty(blocked,'localStorage',{get(){throw Error('SecurityError');},configurable:true});
+ vm.runInContext(source,blocked);
+ assert.equal(blocked._getDivOtherIncome(2026),null);
+ assert.equal(blocked._saveDivTaxRecord(2026,700,detail),false);
+ assert.equal(blocked._getDivOtherIncome(2026),700);
  assert.equal(P.financialIncomeRuleStatus(2026).comparisonReviewed,true);
  assert.equal(P.financialIncomeRuleStatus(2027).comparisonReviewed,false);
  assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/연간 세제 입력/);

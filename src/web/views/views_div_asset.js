@@ -31,8 +31,8 @@ function _cleanDivTaxRecord(record){
   return {interest,details,updatedAt:typeof record.updatedAt==='string'&&Number.isFinite(Date.parse(record.updatedAt))?record.updatedAt:null};
 }
 function _readDivTaxStore(){
-  if(typeof localStorage==='undefined')return null;
   try{
+    if(typeof localStorage==='undefined'){_divTaxStorageState='unavailable';return null;}
     const raw=localStorage.getItem(DIV_TAX_SCENARIO_KEY);
     const data=raw?JSON.parse(raw):{};
     if(!data||typeof data!=='object'||Array.isArray(data))throw Error('invalid store');
