@@ -971,13 +971,12 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
    Fixed shape and minimum hit areas; text follows the chosen UI font/size.
    Keep table scroll, account grid, chart bars and financial colors intact. */
 :root {
-  --ui-command-height:36px;
+  --ui-command-height:32px;
+  --ui-filter-height:30px;
+  --ui-primary-height:36px;
   --ui-field-font:var(--type-body);
   --ui-command-radius:8px;
   --ui-surface-radius:12px;
-}
-@media(max-width:768px) {
-  :root {--ui-command-height:40px}
 }
 :is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
   :is(.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.hist-bench-btn,
@@ -992,7 +991,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   display:inline-flex;
   align-items:center;justify-content:center;gap:6px;
   min-height:var(--ui-command-height);
-  padding:6px 11px;
+  padding:4px 10px;
   border-radius:var(--ui-command-radius);
   font-family:var(--font-ui);
   font-size:var(--type-caption);
@@ -1033,17 +1032,38 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   background:var(--c-red-08);
   color:var(--red-lt);
 }
+/* Match the same role on desktop and mobile; preserve compact labels. */
+:is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
+  :is(.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.hist-bench-btn,
+    .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm,.settings-tab) {
+  min-height:var(--ui-filter-height);
+  padding:4px 9px;
+}
+:is(#view-area[data-active-view],.editor-box,.settings-dialog)
+  :is(.btn-amber,.btn-amber-sm,.btn-apply,.btn-purple-sm,.btn-purple-sm-700,.btn-purple-700,.btn-gold,.btn-add-green,.btn-add-purple,.btn-add-cyan) {
+  min-height:var(--ui-primary-height);
+}
 /* A compact row and a navigation tile are distinct control roles. */
 .action-bar .action-refresh-btn,.toolbar-section .toolbar-btn,#viewSwitcher .vs-btn {
   border-radius:var(--ui-command-radius);
 }
-@media(max-width:480px) {
-  .action-bar .action-update-card>.action-refresh-btn {height:40px;min-height:40px}
+.action-bar .action-update-card>.action-refresh-btn,
+.toolbar-section .toolbar-btn,#viewSwitcher .vs-btn {
+  height:44px;min-height:44px;gap:2px;padding:3px 6px;
 }
-#view-area[data-active-view] .hist-mode-controls button {border-radius:var(--ui-command-radius)}
+.action-bar .action-refresh-btn svg,.toolbar-section .toolbar-btn svg,
+#viewSwitcher .vs-btn-icon svg {width:16px;height:16px}
+@media(max-width:480px) {
+  .action-bar .action-update-card>.action-refresh-btn {height:var(--ui-primary-height);min-height:var(--ui-primary-height)}
+}
+#view-area[data-active-view] .hist-mode-controls {height:36px;min-height:36px}
+#view-area[data-active-view] .hist-mode-controls button {height:34px;min-height:34px;border-radius:var(--ui-command-radius);padding:3px 8px}
 #view-area[data-active-view] .hist-query-btn {border-radius:var(--ui-command-radius);font-size:var(--type-caption);font-weight:700}
-#view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {min-height:var(--ui-command-height);border-radius:var(--ui-command-radius)}
-#view-area[data-active-view] .hist-controls :is(.hist-month-input,.hist-range-select,.hist-query-btn) {min-height:42px}
+#view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {min-height:var(--ui-filter-height);border-radius:var(--ui-command-radius)}
+#view-area[data-active-view] .hist-controls :is(.hist-month-input,.hist-range-select,.hist-query-btn) {height:36px;min-height:36px}
+#view-area[data-active-view] .hist-controls>.hist-filter-details {min-height:36px;border-radius:var(--ui-command-radius)}
+#view-area[data-active-view] .hist-controls>.hist-filter-details>summary {min-height:34px;padding:4px 9px}
+#view-area[data-active-view] :is(.hist-detail-panel,.hist-benchmark-details,.hist-source-coverage)>summary {min-height:32px;padding:6px 10px}
 .wrap :is(.sc,.sector-card,.chart-card,.trade-stat-card,.div-stat-card,.stat-card,
   .card-12,.card-12-mb16,.card-12-p20,.hist-kpi-card,.hist-extreme-card,.hist-benchmark-card),
 :is(.editor-box,.settings-dialog,.col-filter-dropdown) {border-radius:var(--ui-surface-radius)}

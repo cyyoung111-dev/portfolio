@@ -68,10 +68,12 @@ function auditControlRoles(d,c) {
   d.documentElement.setAttribute('data-ui-font-size',String(size));
   const command=d.querySelector('.plan-subtab');
   const controls=[...fixture.querySelectorAll('button'),...settings.querySelectorAll('.settings-tab,.settings-dialog__footer button')];
-  const style=g(command),min=c.width<=768?40:36;
+  const style=g(command),min=32;
+  const expectedHeight=e=>e.matches('.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.settings-tab')?30:e.matches('.btn-purple-sm,.btn-amber,.btn-apply')?36:32;
   for(const e of controls){
    const cs=g(e);
-   if(Math.abs(parseFloat(cs.fontSize)-size)>.01||parseFloat(cs.borderRadius)!==8||parseFloat(cs.minHeight)<min||
+   if(Math.abs(parseFloat(cs.fontSize)-size)>.01||parseFloat(cs.borderRadius)!==8||parseFloat(cs.minHeight)!==expectedHeight(e)||
+      (e.getBoundingClientRect().height>0&&e.getBoundingClientRect().height>expectedHeight(e)+3)||
       !cs.fontFamily.includes('Pretendard'))
      failures.push({role:e.className,size,font:cs.fontSize,radius:cs.borderRadius,min:cs.minHeight});
   }
@@ -84,12 +86,16 @@ function auditControlRoles(d,c) {
    const cs=g(e);
    if(Math.abs(parseFloat(cs.fontSize)-size)>.01)failures.push({role:e.className,size,font:cs.fontSize});
   }
+  for(const e of [d.querySelector('#histRangeSelect'),d.querySelector('#histStartMonth'),d.querySelector('#btn-history-query')]){
+   const cs=g(e);if(parseFloat(cs.height)!==36||parseFloat(cs.minHeight)!==36)
+    failures.push({role:e.id,size,height:cs.height,min:cs.minHeight});
+  }
   const active=[...fixture.querySelectorAll('.plan-subtab.is-active,.div-month-filter button.active,.f-btn.active')];
   if(!active.every(e=>g(e).backgroundColor===g(active[0]).backgroundColor&&g(e).color===g(active[0]).color))
     failures.push({role:'active tab/filter',size,colors:active.map(e=>[g(e).color,g(e).backgroundColor])});
   const dlg=settings.querySelector('.settings-dialog');
   if(dlg.getBoundingClientRect().width>c.width+1)failures.push({role:'settings width',size});
-  samples.push({size,controls:controls.length,commandFont:style.fontSize,commandHeight:style.minHeight,fieldFont:g(d.querySelector('#histRangeSelect')).fontSize,lookupFont:g(status.querySelector('.price-lookup-detail')).fontSize});
+  samples.push({size,controls:controls.length,commandFont:style.fontSize,filterHeight:style.minHeight,commandHeight:g(fixture.querySelector('.btn-edit-sm')).minHeight,primaryHeight:g(fixture.querySelector('.btn-purple-sm')).minHeight,fieldFont:g(d.querySelector('#histRangeSelect')).fontSize,lookupFont:g(status.querySelector('.price-lookup-detail')).fontSize});
  }
  return {ok:failures.length===0,samples,failures};
 }
