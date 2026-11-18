@@ -990,7 +990,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
   box-sizing:border-box;
   display:inline-flex;
   align-items:center;justify-content:center;gap:6px;
-  min-height:var(--ui-command-height);
+  height:var(--ui-command-height);min-height:var(--ui-command-height);
   padding:4px 10px;
   border-radius:var(--ui-command-radius);
   font-family:var(--font-ui);
@@ -1036,12 +1036,12 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 :is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
   :is(.f-btn,.f-btn-sm,.plan-subtab,.div-month-filter button,.hist-bench-btn,
     .btn-trade-type,.btn-sort-toggle,.btn-toggle-purple,.btn-toggle-purple-sm,.settings-tab) {
-  min-height:var(--ui-filter-height);
+  height:var(--ui-filter-height);min-height:var(--ui-filter-height);
   padding:4px 9px;
 }
 :is(#view-area[data-active-view],.editor-box,.settings-dialog,.col-filter-dropdown)
   :is(button.btn-amber,button.btn-amber-sm,button.btn-apply,button.btn-purple-sm,button.btn-purple-sm-700,button.btn-purple-700,button.btn-gold,button.btn-add-green,button.btn-add-purple,button.btn-add-cyan) {
-  min-height:var(--ui-primary-height);
+  height:var(--ui-primary-height);min-height:var(--ui-primary-height);
 }
 /* A compact row and a navigation tile are distinct control roles. */
 .action-bar .action-refresh-btn,.toolbar-section .toolbar-btn,#viewSwitcher .vs-btn {
@@ -1059,7 +1059,7 @@ html[data-theme-mode="light"] input[type="date"]::-webkit-calendar-picker-indica
 #view-area[data-active-view] .hist-mode-controls {height:36px;min-height:36px}
 #view-area[data-active-view] .hist-mode-controls button {height:34px;min-height:34px;border-radius:var(--ui-command-radius);padding:3px 8px}
 #view-area[data-active-view] .hist-query-btn {border-radius:var(--ui-command-radius);font-size:var(--type-caption);font-weight:700}
-#view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {min-height:var(--ui-filter-height);border-radius:var(--ui-command-radius)}
+#view-area[data-active-view] .hist-benchmark-options .hist-bench-btn {height:var(--ui-filter-height);min-height:var(--ui-filter-height);border-radius:var(--ui-command-radius)}
 
 #view-area[data-active-view] .hist-controls>.hist-filter-details {min-height:36px;border-radius:var(--ui-command-radius)}
 #view-area[data-active-view] .hist-controls>.hist-filter-details>summary {min-height:34px;padding:4px 9px}

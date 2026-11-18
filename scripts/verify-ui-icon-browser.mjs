@@ -73,9 +73,9 @@ function auditControlRoles(d,c) {
   for(const e of controls){
    const cs=g(e);
    if(Math.abs(parseFloat(cs.fontSize)-size)>.01||parseFloat(cs.borderRadius)!==8||parseFloat(cs.minHeight)!==expectedHeight(e)||
-      (e.getBoundingClientRect().height>0&&e.getBoundingClientRect().height>expectedHeight(e)+3)||
+      (e.getBoundingClientRect().height>0&&Math.abs(e.getBoundingClientRect().height-expectedHeight(e))>1)||
       !cs.fontFamily.includes('Pretendard'))
-     failures.push({role:e.className,size,font:cs.fontSize,radius:cs.borderRadius,min:cs.minHeight});
+     failures.push({role:e.className,size,font:cs.fontSize,radius:cs.borderRadius,min:cs.minHeight,actualHeight:e.getBoundingClientRect().height});
   }
   for(const e of [d.querySelector('#histRangeSelect'),d.querySelector('#histStartMonth'),fixture.querySelector('.cfd-search'),editor.querySelector('#re-name')]){
    const cs=g(e);
