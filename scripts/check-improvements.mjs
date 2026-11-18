@@ -18,8 +18,11 @@ assert.match(plan, /panel\.hidden = !active/);
 assert.match(plan, /if \(area\._planClickHandler\) area\.removeEventListener/);
 assert.match(plan, /history\.replaceState\(null, '', `#plan-\$\{tab\}`\)/);
 const html = read('src/web/index.html');
-assert.match(html, /toolbar-section-danger/);
-assert.match(html, /aria-label="위험 작업"/);
+const toolbar = html.match(/<div class="toolbar-btn-group">([\s\S]*?)<!-- 주요 메뉴/)[1];
+assert.deepEqual([...toolbar.matchAll(/<button id="([^"]+)"/g)].map(m=>m[1]), ['btn-trigger-import','btn-export-data','btn-open-reset-dialog','fixed-btn-stocks','fixed-btn-gsheet','btn-open-tab-settings']);
+assert.match(toolbar, /toolbar-section-data[\s\S]*btn-trigger-import[\s\S]*btn-export-data[\s\S]*btn-open-reset-dialog[\s\S]*<\/div>\s*<div class="toolbar-section toolbar-section-settings"/);
+assert.match(toolbar, /toolbar-btn-danger[^>]+aria-label="초기화 · 위험 작업"/);
+assert.equal((toolbar.match(/class="toolbar-section /g)||[]).length,2);
 assert.ok(html.indexOf('id="viewSwitcher"') > html.indexOf('toolbar-section-settings'));
 
 const settingsFetch = read('src/web/features/settings/settings_fetch.js');

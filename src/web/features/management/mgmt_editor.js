@@ -16,7 +16,7 @@ let _fundUnitsStatus = '';
 let _fundRecoveryRetryTargets = [];
 let _fundRecoveryDetailsText = '';
 let _fundRecoveryDetailsOpen = false;
-let _editorMode = 'price';
+let _editorMode = 'fund-units';
 let _fundNavPasteTimer = 0;
 let _fundNavPasteRequestId = 0;
 const FUND_NAV_CHANGE_WARNING_RATE = 0.20;
@@ -681,51 +681,9 @@ function handleFundNavManualInput(field, value) {
   _fundNavImportState.warningsAcknowledged = false;
 }
 
-function openEditor() {
-  _editorMode = 'price';
-  _openEditorModal();
-}
-
 function _openEditorModal() {
-  const isFundUnits = _editorMode === 'fund-units';
-  const title = $el('priceEditorTitle');
-  const description = $el('priceEditorDescription');
-  const dateRow = $el('editorDateRow');
-  const applyBtn = $el('pe-panel-price-footer');
-  if (title) title.textContent = isFundUnits ? '좌수 설정' : '현재가 편집';
-  if (description) description.textContent = isFundUnits
-    ? '펀드 좌수와 적용 시작일을 등록해 일별 평가금액을 자동 반영합니다'
-    : '자동 조회가 안 되는 종목의 현재가를 수동 보정합니다';
-  if (dateRow) dateRow.style.display = isFundUnits ? 'none' : 'flex';
-  if (applyBtn) applyBtn.style.display = isFundUnits ? 'none' : '';
   buildEditorUI();
-  _resetEditorApplyButton();
-  // ★ 날짜 입력란 오늘 날짜로 초기화
-  const editorDateEl = $el('editorDate');
-  if (editorDateEl && !editorDateEl.value) {
-    editorDateEl.value = _kstTodayStr(); // ★ KST 기준 오늘 날짜
-  }
-  if (editorDateEl) {
-    _editorRefDate = editorDateEl.value || '';
-    if (!editorDateEl._editorDateBound) {
-      editorDateEl._editorDateBound = true;
-      editorDateEl.addEventListener('change', async () => {
-        await loadEditorPricesByDate(editorDateEl.value);
-      });
-    }
-  }
   $el('priceEditor').classList.add('open');
-  if (!isFundUnits && editorDateEl?.value) loadEditorPricesByDate(editorDateEl.value);
-}
-
-function _resetEditorApplyButton() {
-  const applyBtn = $el('pe-panel-price-footer')
-                || $el('priceEditor')?.querySelector('.btn-apply-prices');
-  if (!applyBtn) return;
-  if (!applyBtn.dataset.baseHtml) applyBtn.dataset.baseHtml = applyBtn.innerHTML;
-  applyBtn.disabled = false;
-  applyBtn.innerHTML = applyBtn.dataset.baseHtml;
-  applyBtn.style.background = '';
 }
 
 function closeEditor() {

@@ -237,6 +237,11 @@ function auditStableToolbar(d,c) {
   const first=navButtons[0]?.getBoundingClientRect();
   const managementEl=d.querySelector('.toolbar-btn-group');
   const navEl=d.querySelector('#viewSwitcher');
+  const groups=[...managementEl.querySelectorAll('.toolbar-section')];
+  const expectedGroups=[['btn-trigger-import','btn-export-data','btn-open-reset-dialog'],['fixed-btn-stocks','fixed-btn-gsheet','btn-open-tab-settings']];
+  const groupIds=groups.map(g=>[...g.querySelectorAll('button')].map(b=>b.id));
+  if(JSON.stringify(groupIds)!==JSON.stringify(expectedGroups))failures.push({size,role:'utility grouping',groupIds});
+  if(!sel('btn-open-reset-dialog')?.classList.contains('toolbar-btn-danger'))failures.push({size,role:'reset danger treatment'});
   const lastSection=managementEl.querySelector('.toolbar-section-settings').getBoundingClientRect();
   const lastTab=navButtons.at(-1)?.getBoundingClientRect();
   const menuFits=managementEl.scrollWidth<=managementEl.clientWidth+1;

@@ -29,7 +29,7 @@
 <link rel="stylesheet" href="styles/pages/trade.css?v=20260903-1">
 <link rel="stylesheet" href="styles/typography-roles.css?v=20261118-8">
 <!-- Unified control + panel design; last stylesheet intentionally owns the visual layer -->
-<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-9">
+<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-10">
 
 </head>
 <body>
@@ -84,37 +84,25 @@
 </button>
 <div id="price-updated-label" class="action-status-label sl-idle">⏳ 조회 중...</div>
 </div>
-<!-- 오른쪽: 보조 기능 버튼 통합 (좌수/현재가/내보내기/가져오기/초기화/기초정보/구글시트/탭설정) — 모두 동일한 스타일·크기 -->
+<!-- 오른쪽: 데이터 관리 / 시스템 관리 -->
 <div class="action-menu-stack">
 <div class="toolbar-btn-group">
-<div class="toolbar-section toolbar-section-secondary" aria-label="보조 작업">
-<button id="btn-open-fund-units" class="toolbar-btn" title="펀드 좌수 설정">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-<span>좌수 설정</span>
-</button>
-<button id="btn-open-editor" class="toolbar-btn" title="현재가 편집">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-<span>현재가 편집</span>
-</button>
-<button id="btn-export-data" class="toolbar-btn" title="내보내기">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-<span>내보내기</span>
-</button>
-</div>
-<div class="toolbar-section toolbar-section-primary" aria-label="주요 작업">
+<div class="toolbar-section toolbar-section-data" aria-label="데이터 관리">
 <button id="btn-trigger-import" class="toolbar-btn" title="가져오기">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
 <span>가져오기</span>
 </button>
 <input type="file" id="importFileInput" accept=".json" class="d-none">
-</div>
-<div class="toolbar-section toolbar-section-danger" aria-label="위험 작업">
-<button id="btn-open-reset-dialog" class="toolbar-btn toolbar-btn-danger" title="초기화">
+<button id="btn-export-data" class="toolbar-btn" title="내보내기">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+<span>내보내기</span>
+</button>
+<button id="btn-open-reset-dialog" class="toolbar-btn toolbar-btn-danger" title="초기화" aria-label="초기화 · 위험 작업">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
 <span>초기화</span>
 </button>
 </div>
-<div class="toolbar-section toolbar-section-settings" aria-label="설정 작업">
+<div class="toolbar-section toolbar-section-settings" aria-label="시스템 관리">
 <button id="fixed-btn-stocks" class="toolbar-btn v-stocks" title="기초정보">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07M8.46 8.46a5 5 0 000 7.07"/></svg>
 <span>기초정보</span>
@@ -228,7 +216,7 @@
 <script defer src="views/views_history_state.js?v=20261117-1"></script>
 <script defer src="views/views_history_pipeline.js?v=20261012-1"></script>
 <script defer src="views/views_history_render.js?v=20261117-3"></script>
-<script defer src="views/views_history.js?v=20261118-7"></script>
+<script defer src="views/views_history.js?v=20261118-10"></script>
 
 <script defer src="views/views_system.js?v=20261118-1"></script>
 <script defer src="views/views_system_tabsettings.js?v=20261118-7"></script>
@@ -240,7 +228,7 @@
 <script defer src="features/settings/settings_sync.js?v=20261103-1"></script>
 <script defer src="features/settings/settings_tabsync.js?v=20261118-8"></script>
 <script defer src="features/settings/settings_fetch.js?v=20261118-3"></script>
-<script defer src="features/management/mgmt_editor.js?v=20261101-8"></script>
+<script defer src="features/management/mgmt_editor.js?v=20261118-10"></script>
 <script defer src="features/master/account/mgmt_acct.js?v=20260903-1"></script>
 <script defer src="features/dividend/mgmt_div.js?v=20261028-2"></script>
 <script defer src="features/master/stock/mgmt_stock.js?v=20261014-5"></script>
@@ -248,7 +236,7 @@
 <script defer src="features/trade/editor/mgmt_trade.js?v=20261118-8"></script>
 <script defer src="features/import/mgmt_bulk.js?v=20261118-8"></script>
 <script defer src="domain/migration/mgmt_migration.js?v=20260903-1"></script>
-<script defer src="app/event_delegation.js?v=20261118-9"></script>
+<script defer src="app/event_delegation.js?v=20261118-10"></script>
 <script defer src="app/bootstrap.js?v=20261027-3"></script>
 <!-- HOLDING EDITOR MODAL -->
 
@@ -321,28 +309,21 @@
   </div>
 </div>
 
-<!-- PRICE EDITOR MODAL -->
+<!-- FUND NAV RECOVERY MODAL -->
 <div class="editor-overlay" id="priceEditor" role="dialog" aria-modal="true" aria-labelledby="priceEditorTitle">
   <div class="editor-box" style="max-width:500px">
     <div class="editor-header">
       <div>
-        <h3 id="priceEditorTitle">현재가 편집</h3>
-        <p id="priceEditorDescription">자동 조회가 안 되는 종목의 현재가를 수동 보정합니다</p>
+        <h3 id="priceEditorTitle">펀드 NAV 복구</h3>
+        <p id="priceEditorDescription">검증된 NAV 입력 및 예외적인 좌수·누락 평가 정정</p>
       </div>
-      <button id="btn-close-price-editor-top" class="editor-close" type="button" aria-label="현재가 편집 닫기">✕</button>
+      <button id="btn-close-price-editor-top" class="editor-close" type="button" aria-label="펀드 NAV 복구 닫기">✕</button>
     </div>
     <div id="pe-panel-price" class="editor-body">
-      <!-- 날짜 선택 -->
-      <div id="editorDateRow" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
-        <label style="font-size:.72rem;color:var(--muted);flex-shrink:0">기준일</label>
-        <input type="date" id="editorDate" style="background:var(--s2);border:1px solid var(--border);border-radius:var(--ui-command-radius,var(--radius-control));padding:5px 8px;color:var(--text);font-size:var(--ui-field-font,var(--type-body))">
-        <span style="font-size:.65rem;color:var(--muted)">미입력 시 오늘 기준</span>
-      </div>
       <div id="editorBody"></div>
     </div>
     <div class="editor-footer">
-      <button id="btn-close-price-editor-footer" class="btn-cancel">취소</button>
-      <button class="btn-apply" id="pe-panel-price-footer">✅ 적용하기</button>
+      <button id="btn-close-price-editor-footer" class="btn-cancel">닫기</button>
     </div>
   </div>
 </div>
@@ -417,7 +398,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261118-9', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261118-10', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>

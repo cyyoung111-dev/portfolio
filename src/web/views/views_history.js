@@ -885,6 +885,13 @@ function renderGsheetView(area) {
         </div>`;
       })() : ''}
 
+      <!-- Recovery tools are not routine toolbar commands. Opening this panel alone does not fetch NAV. -->
+      ${isLinked ? `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="font-size:var(--type-body);font-weight:650;margin-bottom:6px">펀드 NAV 복구</div>
+        <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px">자동 갱신이 기본입니다. 공식 NAV 수동 입력·엑셀 업로드, 과거 평가 누락이나 좌수 오류를 정정할 때만 사용합니다.</div>
+        <button id="btn-open-fund-nav-recovery" type="button" class="btn-purple-sm">펀드 NAV 복구</button>
+      </div>` : ''}
+
       <!-- Minimal lookup performance collector, disabled until consent. -->
       ${window.PortfolioPerfTelemetry?.renderSettingsHtml?.() || ''}
 

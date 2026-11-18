@@ -22,13 +22,18 @@ if (/console\.warn\(['"]\[batchSaveManualPrices\]/.test(editorSource)) {
 if (!/console\.warn\(`\[_syncManualPricesToGsheet\] GAS 저장 최종 실패/.test(editorSource)) {
   throw new Error('현재가 건별 fallback 최종 실패 경고가 누락됐습니다.');
 }
-if (!/id="btn-open-fund-units"/.test(indexSource) || !/id="btn-open-editor"/.test(indexSource)) {
-  throw new Error('좌수 설정과 현재가 편집 메뉴가 독립 버튼으로 분리되지 않았습니다.');
+if (/id="btn-open-fund-units"|id="btn-open-editor"|id="editorDateRow"|id="pe-panel-price-footer"/.test(indexSource) || /'btn-open-fund-units'|'btn-open-editor'|'pe-panel-price-footer'/.test(eventSource)) {
+  throw new Error('상단 레거시 편집 메뉴 또는 이벤트가 남아 있습니다.');
 }
-if (!/btn-open-fund-units[^\n]+openFundUnitsEditor/.test(eventSource)
-    || !/function openFundUnitsEditor\(\)/.test(editorSource)
-    || !/_editorMode === 'fund-units'/.test(editorSource)) {
-  throw new Error('좌수 설정 전용 편집 모드 연결이 누락됐습니다.');
+const integrationSource = fs.readFileSync('src/web/views/views_history.js', 'utf8');
+if (!/id="btn-open-fund-nav-recovery"/.test(integrationSource)
+    || !/btn-open-fund-nav-recovery[^\n]+openFundUnitsEditor/.test(eventSource)
+    || !/action === 'open-fund-nav'/.test(eventSource)
+    || !/function openFundUnitsEditor\(\)/.test(editorSource)) {
+  throw new Error('외부연동 또는 손익그래프의 NAV 복구 연결이 누락됐습니다.');
+}
+if (/function openEditor\(\)/.test(editorSource) || /_editorDateBound/.test(editorSource)) {
+  throw new Error('미사용 현재가 편집 팝업 초기화가 남아 있습니다.');
 }
 if (!/requestGsheetActionJson\(\s*action,\s*params,/.test(dividendSource)) {
   throw new Error('배당 외부소스 조회의 GAS 인증 공통 경로가 누락됐습니다.');
