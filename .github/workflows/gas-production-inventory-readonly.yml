@@ -1,8 +1,14 @@
 name: GAS production deployment inventory (read-only)
 on:
   workflow_dispatch:
-  # One-shot dry-run on the protected main merge of THIS workflow only.
-  # Manual dispatch retains the original inventory-only behavior.
+    inputs:
+      verify_9298:
+        description: '9.298 읽기 전용 배포 사전검증 (실제 배포 없음)'
+        type: boolean
+        required: true
+        default: false
+  # Initial dry-run on the protected main merge of THIS workflow only.
+  # An operator may re-run a failed read-only job at most twice. No schedule.
   push:
     branches: [main]
     paths: ['.github/workflows/gas-production-inventory-readonly.yml']
@@ -10,7 +16,7 @@ permissions:
   contents: read
 jobs:
   inspect:
-    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.run_attempt == 1))
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.run_attempt <= 3
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: portfolio-production-gas
@@ -26,19 +32,28 @@ jobs:
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      # The GET-only inventory now permits one bounded transient transport retry.
+      - name: Verify current main before release preflight or rerun
+        if: github.event_name == 'push' || inputs.verify_9298 == true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module -e 'import {assertCurrentMainRelease} from "./scripts/gas-release-gate.mjs"; await assertCurrentMainRelease({sha:process.env.GITHUB_SHA,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN}); console.log("GAS9298_CURRENT_MAIN_READONLY_VERIFIED")'
+      # The GET-only inventory permits one bounded transient transport retry.
       - name: Inspect all GAS deployments (GET only, no deployment or finance writes)
         run: node scripts/issue507-deployment-inventory-readonly.mjs
 
       - name: Verify published 9.297 ledger and idle Writer Gate (read only)
         id: finance_preflight
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.verify_9298 == true
         run: node scripts/gas9298-release-readonly.mjs pre
       - name: GAS 9.298 dry-run only (no production code write)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.verify_9298 == true
         env:
           GAS_DEPLOY_DRY_RUN: 'true'
           GAS_9298_NH_FINANCIAL_INCOME: 'true'

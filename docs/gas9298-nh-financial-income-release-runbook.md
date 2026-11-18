@@ -10,3 +10,6 @@
 - 수동 dispatch 연결 제한을 해소하기 위해 기존 inventory workflow의 자체 파일이 main에 변경된 최초 push에서만 동일한 읽기 전용 preflight와 9.298 dry-run을 실행. 실제 배포 승인값은 false 고정, 기존 수동 실배포 절차는 그대로 유지. 스케줄 추가 없음. 기존 inventory workflow 수동 실행은 inventory만 수행.
 
 - 11/18 23:41 KST, 읽기 전용 자동 실행 44326887105은 GAS REST 인벤토리 단계에서 NETWORK_UNVERIFIED로 중단. 배포 0, 금융 쓰기 0, dry-run 미실행. 모든 인벤토리 GET에서 공유하는 통신 오류 재시도 1회만 추가하며 HTTP·인증·JSON·스키마 실패는 기존처럼 차단. 이 변경 자체의 main 최초 push에서만 읽기 전용 재검증.
+
+- 11/18 23:53 KST run 44328928086: 배포 inventory 전체 검증 성공(추가 경로 0, 운영 exact reviewed source 1), 활성 Writer 감지 `GAS9295_READONLY_WRITER_ACTIVE`로 사전검증 종료. 활성 Writer를 해제하거나 원장 재수집하지 않음. 이 단계의 금융데이터 오류는 확인되지 않음.
+- 후속 운영 개선: 이 기존 읽기 전용 workflow는 최초 main push 및 명시적 실패 job 재실행(총 3회 한도)에 한해 전체 사전검증을 수행. 매 실행 현재 main SHA를 먼저 확인하고 동일 실행에서 inventory 및 Writer Gate/원장 해시 증명 요구. 별도 `verify_9298` 수동 입력 기본 false(기존 inventory 동작 유지). 활성 Writer 실패는 내부 자동 재시도하지 않으며 운영 배포 승인 false 고정. 스케줄 및 자동 실배포 없음.
