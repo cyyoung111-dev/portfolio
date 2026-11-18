@@ -29,7 +29,7 @@
 <link rel="stylesheet" href="styles/pages/trade.css?v=20260903-1">
 <link rel="stylesheet" href="styles/typography-roles.css?v=20261028-1">
 <!-- Unified control + panel design; last stylesheet intentionally owns the visual layer -->
-<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-2">
+<link rel="stylesheet" href="styles/ui-unified.css?v=20261118-3">
 
 </head>
 <body>
@@ -66,7 +66,7 @@
 </div>
 </div>
 <!-- ACTION BAR -->
-<div class="action-bar fade d3">
+<div class="action-bar toolbar-stable fade d3">
 <!-- 왼쪽: 날짜 + 업데이트 카드 (주요 동작) -->
 <div class="action-update-card">
 <input type="date" id="quickDateInput" class="action-date-input" title="기준일 직접 지정"/>
@@ -77,6 +77,10 @@
 <button id="quickPriceBtn" type="button" class="action-refresh-btn price-only" title="NH 현재가·환율만 갱신 (거래·보유·가격이력·Snapshot 저장 없음)" aria-label="현재가만 갱신">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M15 7h5v5"/></svg>
 <span>현재가</span>
+</button>
+<button id="btn-price-lookup-toggle" type="button" class="action-refresh-btn action-lookup-toggle" data-price-detail="toggle-summary" aria-expanded="false" aria-controls="price-updated-label" disabled>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+<span>조회 상세</span>
 </button>
 <div id="price-updated-label" class="action-status-label sl-idle">⏳ 조회 중...</div>
 </div>
@@ -233,7 +237,7 @@
 <script defer src="features/settings/settings_legacy_recovery.js?v=20261103-1"></script>
 <script defer src="features/settings/settings_sync.js?v=20261103-1"></script>
 <script defer src="features/settings/settings_tabsync.js?v=20261101-6"></script>
-<script defer src="features/settings/settings_fetch.js?v=20261117-1"></script>
+<script defer src="features/settings/settings_fetch.js?v=20261118-3"></script>
 <script defer src="features/management/mgmt_editor.js?v=20261101-8"></script>
 <script defer src="features/master/account/mgmt_acct.js?v=20260903-1"></script>
 <script defer src="features/dividend/mgmt_div.js?v=20261028-2"></script>
@@ -411,7 +415,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       // PR468: 자동화 상태·좌수 정정 UI 변경은 서비스워커 버전과 함께 배포합니다.
-      navigator.serviceWorker.register('sw.js?v=20261118-2', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20261118-3', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>

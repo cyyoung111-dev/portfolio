@@ -395,6 +395,16 @@ function _priceLookupSummary() {
 }
 
 function _priceLookupDetail(kind) {
+  // The fixed toolbar toggle changes only the native details open state.
+  // No request, recalculation or persistence is performed.
+  if (kind === 'toggle-summary') {
+    const button = $el('btn-price-lookup-toggle');
+    const detail = $el('price-updated-label')?.querySelector?.('details.price-lookup-summary');
+    if (!button || button.disabled || !detail) return;
+    detail.open = !detail.open;
+    button.setAttribute('aria-expanded', String(detail.open));
+    return;
+  }
   const wrap = document.getElementById('price-lookup-detail');
   const meta = window._lastPriceLookup;
   if (!wrap) return;
@@ -498,13 +508,22 @@ function setStatusLabel(html, type) {
   const nextClass = `action-status-label sl-${type in {idle:1,loading:1,ok:1,warn:1,error:1} ? type : 'idle'}${hasDetails ? ' has-price-details' : ''}`;
   // Repeated timer/visibility notifications must not unnecessarily replace a
   // live details DOM (or reset the user's open state).
-  if (el.className === nextClass && el.innerHTML === markup) return;
-  const priorDetailOpen = hasDetails && el.querySelector?.('details.price-lookup-summary')?.open === true;
-  el.className = nextClass;
-  el.innerHTML = markup;
-  if (priorDetailOpen) {
+  if (el.className !== nextClass || el.innerHTML !== markup) {
+    const priorDetailOpen = hasDetails && el.querySelector?.('details.price-lookup-summary')?.open === true;
+    el.className = nextClass;
+    el.innerHTML = markup;
+    if (priorDetailOpen) {
+      const detail = el.querySelector?.('details.price-lookup-summary');
+      if (detail) detail.open = true;
+    }
+  }
+  // Keep the command row stable even when no diagnostic metadata is available.
+  // Old cached HTML without this button retains the original native summary.
+  const button = $el('btn-price-lookup-toggle');
+  if (button && button !== el) {
     const detail = el.querySelector?.('details.price-lookup-summary');
-    if (detail) detail.open = true;
+    button.disabled = !detail;
+    button.setAttribute('aria-expanded', String(detail?.open === true));
   }
 }
 

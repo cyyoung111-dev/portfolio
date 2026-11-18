@@ -36,10 +36,15 @@ function documentWithStyles(includeUnified){
   .map(([,s])=>s).join('\n');
  return fixture.replace('</head>','<style>'+css+'</style></head>');
 }
+const statusSource=fs.readFileSync(path.join(root,'features/settings/settings_fetch.js'),'utf8');
+const statusSlice=statusSource.slice(statusSource.indexOf('function _priceLookupDuration('),statusSource.indexOf('function _pricePortfolioSummary('));
+const setterSlice=statusSource.slice(statusSource.indexOf('function setStatusLabel('),statusSource.indexOf('function _resolvePriceDateLabel('));
+assert(statusSlice.includes('function _priceLookupDetail(')&&setterSlice.includes('function setStatusLabel('));
+const toolbarFixtureScript='<script>const $el=id=>document.getElementById(id);const _escapeHtml=s=>String(s);'+statusSlice+setterSlice+'</'+'script>';
 const cases=[];
 for(const width of [1440,768,390,320]){
  for(const unified of [true,false]){
-  cases.push({width,unified,html:documentWithStyles(unified)});
+  cases.push({width,unified,html:documentWithStyles(unified).replace('</body>',toolbarFixtureScript+'</body>')});
  }
 }
 
@@ -100,12 +105,59 @@ function auditControlRoles(d,c) {
  return {ok:failures.length===0,samples,failures};
 }
 
+
+function auditStableToolbar(d,c) {
+ if(!c.unified)return {ok:true,cases:[]};
+ const w=d.defaultView,sel=id=>d.getElementById(id),button=sel('btn-price-lookup-toggle'),label=sel('price-updated-label');
+ const overlay=sel('tabSettingsOverlay');overlay.style.display='none';
+ const date=sel('quickDateInput');date.value='2026-11-18';
+ const geometry=()=>[date,sel('quickFetchBtn'),sel('quickPriceBtn'),button,...d.querySelectorAll('.toolbar-btn-group .toolbar-btn')].map(e=>{
+  const b=e.getBoundingClientRect();return [b.x,b.y,b.width,b.height];
+ });
+ const same=(a,b,limit)=>a.slice(0,limit).every((r,i)=>r.every((v,j)=>Math.abs(v-b[i][j])<=1));
+ const cases=[],failures=[];
+ for(const size of [8,11,12]){
+  d.documentElement.dataset.uiFontSize=String(size);
+  w._lastPriceLookup={tossResultCount:37,krxResultCount:0,recentHistoryFallbackCount:2,tossStatus:'SUCCESS',serverElapsedMs:71900,clientRoundTripMs:76200,recentHistoryFallbackItems:[{name:'합성 테스트 종목',code:'F00001',priceDate:'2026-11-17'}]};
+  const lookup=w._priceLookupSummary();
+  w.setStatusLabel('조회 중...','loading');
+  if(!button.disabled||button.getAttribute('aria-expanded')!=='false')failures.push({size,role:'loading button'});
+  const loading=geometry();
+  const markup=w._priceStatusLayout('업데이트 완료 · 39/39개','거래 338건 · 보유 61건 · 미조회 0개','',lookup);
+  w.setStatusLabel(markup,'ok');
+  const closed=geometry(),detail=label.querySelector('details');
+  if(button.disabled||detail.open||button.getAttribute('aria-expanded')!=='false')failures.push({size,role:'closed state'});
+  // Desktop right controls stay fixed too; on stacked mobile the second row
+  // naturally moves downward so it never overlaps the expanded diagnostics.
+  const limit=c.width>980?closed.length:4;
+  if(!same(loading,closed,limit))failures.push({size,role:'loading to complete geometry',loading,closed});
+  w._priceLookupDetail('toggle-summary');
+  const opened=geometry();
+  if(!detail.open||button.getAttribute('aria-expanded')!=='true'||!same(closed,opened,limit))failures.push({size,role:'open geometry',closed,opened});
+  w._priceLookupDetail('timings');
+  const nested=geometry();
+  if(sel('price-lookup-detail').hidden||!same(closed,nested,limit))failures.push({size,role:'nested detail geometry'});
+  w._priceLookupDetail('toggle-summary');
+  const reclosed=geometry();
+  if(detail.open||button.getAttribute('aria-expanded')!=='false'||!same(closed,reclosed,limit))failures.push({size,role:'close geometry'});
+  w.setStatusLabel(w._priceStatusLayout('현재가 갱신 · 39개 · 화면만 반영','','저장 이력/Snapshot 미변경',lookup,'info'),'ok');
+  if(!same(closed,geometry(),limit))failures.push({size,role:'price-only geometry'});
+  const card=d.querySelector('.action-update-card').getBoundingClientRect();
+  const statusWidth=label.getBoundingClientRect().width;
+  if(statusWidth<card.width-20)failures.push({size,role:'status uses card width',statusWidth,cardWidth:card.width});
+  if(closed[0][2]!==126||closed.slice(1,4).some(b=>b[2]!==58||b[3]!==44)||closed[0][3]!==44||card.right>c.width+1)failures.push({size,role:'command dimensions',closed,cardRight:card.right});
+  cases.push({size,dateWidth:closed[0][2],buttonWidth:closed[1][2],buttonHeight:closed[1][3],fixedDesktopToolbar:c.width>980,geometry:!failures.some(f=>f.size===size)});
+ }
+ return {ok:failures.length===0,cases,failures};
+}
+
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'portfolio-ui-browser-'));
 try{
  const htmlPath=path.join(dir,'check.html');
  const runner='<!DOCTYPE html><meta charset="utf-8"><pre id="result">PENDING</pre><script>'+
  'const cases='+JSON.stringify(cases).replace(/</g,'\\u003c')+';'+
  'const auditControlRoles='+auditControlRoles.toString()+';'+
+ 'const auditStableToolbar='+auditStableToolbar.toString()+';'+
  'const results=[]; let done=0;'+
  'for(const c of cases){const f=document.createElement("iframe");f.style.cssText="width:"+c.width+"px;height:1100px;border:0";'+
  'f.onload=()=>{try{const d=f.contentDocument;const icons=[...d.querySelectorAll("svg.ui-brand-icon,svg.ui-label-icon,svg.hist-query-icon")];'+
@@ -113,8 +165,9 @@ try{
  'const cards=[...d.querySelectorAll(".sum-row .sc")].map(e=>e.getBoundingClientRect().height);'+
  'const header=d.querySelector(".hdr").getBoundingClientRect().height;const title=d.querySelector(".hist-view-title").getBoundingClientRect().height;'+
  'const controls=auditControlRoles(d,c);'+
- 'const ok=controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
- 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls});'+
+ 'const toolbar=auditStableToolbar(d,c);'+
+ 'const ok=toolbar.ok&&controls.ok&&icons.length===9&&boxes.every(b=>b.w>=12&&b.w<=20&&b.h>=12&&b.h<=20)&&cards.length===6&&cards.every(h=>h>0&&h<=200)&&header<=120&&title<=60;'+
+ 'results.push({width:c.width,unified:c.unified,ok,boxes,maxCard:Math.max(...cards),header,title,controls,toolbar});'+
  '}catch(e){results.push({width:c.width,unified:c.unified,ok:false,error:String(e)});}'+
  'if(++done===cases.length)document.getElementById("result").textContent=JSON.stringify(results);};'+
  'f.srcdoc=c.html;document.body.appendChild(f);}</script>';
@@ -134,6 +187,6 @@ try{
  assert(report.every(r=>r.ok),JSON.stringify(report.filter(r=>!r.ok)));
  console.log('UI_REAL_BROWSER_LAYOUT_PASS '+JSON.stringify(report.map(r=>({
    viewport:r.width,unifiedCss:r.unified,maxIcon:Math.max(...r.boxes.map(b=>Math.max(b.w,b.h))),
-   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples
+   maxCard:r.maxCard,header:r.header,title:r.title,controls:r.controls.samples,toolbar:r.toolbar.cases
  }))));
 }finally{fs.rmSync(dir,{recursive:true,force:true});}

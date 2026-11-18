@@ -110,19 +110,25 @@ const statusEl={className:'action-status-label sl-idle',
   }
 };
 Object.defineProperty(statusEl,'innerHTML',{get:()=>markup,set:v=>{writes++;markup=v;detailOpen=false}});
-const statusCtx=vm.createContext({$el:()=>statusEl});
+const toggleState={disabled:true,expanded:'false',setAttribute(name,value){if(name==='aria-expanded')this.expanded=value;}};
+const statusCtx=vm.createContext({$el:id=>id==='btn-price-lookup-toggle'?toggleState:statusEl});
 vm.runInContext(statusFn,statusCtx);
 const setStatus=(html,type)=>vm.runInContext('setStatusLabel('+JSON.stringify(html)+','+JSON.stringify(type)+')',statusCtx);
 const detailMarkup='<div class="price-status-content"><details class="price-lookup-summary">A</details></div>';
 setStatus(detailMarkup,'ok');
 assert.equal(writes,1);
+assert.equal(toggleState.disabled,false,'fixed detail button available with diagnostic metadata');
+assert.equal(toggleState.expanded,'false');
 setStatus(detailMarkup,'ok');
 assert.equal(writes,1,'identical status must not recreate the detail DOM');
 detailOpen=true;
 setStatus(detailMarkup.replace('>A<','>B<'),'ok');
 assert.equal(detailOpen,true,'a price metadata update must keep the details panel expanded');
+assert.equal(toggleState.expanded,'true');
 setStatus('조회 중...','loading');
 assert.equal(detailOpen,false,'loading/error status must not preserve obsolete details');
+assert.equal(toggleState.disabled,true);
+assert.equal(toggleState.expanded,'false');
 const fullUpdate=fetch.slice(fetch.indexOf('async function quickFetchByDate()'),fetch.indexOf('function getDateStr(daysAgo)'));
 assert.ok(fullUpdate.includes('Delay the expensive full view repaint'));
 assert.ok(fullUpdate.includes('let results = await fetchFromGsheet(targetDate, { forceFresh: true, persist: true })'));
