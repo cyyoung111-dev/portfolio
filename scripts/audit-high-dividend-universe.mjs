@@ -70,23 +70,42 @@ export function auditHistoricalUniverse(candidateIndex,master,trades){
   noExactCandidateCode:unmatched,marketConflicts:marketConflict,otherSymbols:other,unresolvedTradeRows,
   taxEligibilityVerified:false,financialOriginalWritten:false};
 }
-export async function auditFromGas({url,token,candidateIndex,fetchImpl=fetch}){
+export async function auditFromGas({url,token,candidateIndex,fetchImpl=fetch,
+ delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),report=()=>{}}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<8)fail('AUTH_REQUIRED');
- async function call(action,accessToken=token){
+ // The whole audit may repeat at most one read, only on a transport
+ // failure or a temporary gateway response. Never retry auth/schema errors.
+ let retryRemaining=1;
+ async function call(stage,action,accessToken=token){
   if(!['getCodeListReadOnly','getTrades'].includes(action))fail('ACTION');
-  try {
-   const r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({action,accessToken}),signal:AbortSignal.timeout(60000)});
-   if(!r.ok)fail('HTTP');
-   return await r.json();
-  } catch {fail('READ_FAILED');}
+  for(let attempt=1;;attempt++){
+   let r,reason='',retryable=false;
+   try{
+    r=await fetchImpl(endpoint,{method:'POST',redirect:'follow',headers:{'content-type':'application/x-www-form-urlencoded'},
+       body:new URLSearchParams({action,accessToken}),signal:AbortSignal.timeout(60000)});
+   }catch{reason='NETWORK';retryable=true;}
+   if(!reason&&r?.ok!==true){
+    const status=r?.status;
+    reason=[401,403,429,502,503,504].includes(status)?'HTTP_'+status:'HTTP_UNVERIFIED';
+    retryable=[502,503,504].includes(status);
+   }
+   if(reason){
+    if(retryable&&retryRemaining>0){
+     retryRemaining--;
+     report({kind:'HIGH_DIVIDEND_AUDIT_READ_RETRY',stage,reason,financeWrites:0});
+     await delay(3000);continue;
+    }
+    fail(stage+'_'+reason);
+   }
+   try{return await r.json();}catch{fail(stage+'_JSON_UNVERIFIED');}
+  }
  }
- const denied=await call('getCodeListReadOnly',token==='HIGH_DIVIDEND_INVALID_PROBE'?'HIGH_DIVIDEND_INVALID_PROBE_X':'HIGH_DIVIDEND_INVALID_PROBE');
+ const denied=await call('AUTH_PROBE','getCodeListReadOnly',token==='HIGH_DIVIDEND_INVALID_PROBE'?'HIGH_DIVIDEND_INVALID_PROBE_X':'HIGH_DIVIDEND_INVALID_PROBE');
  if(denied?.status!=='error'||denied.message!=='인증 실패')fail('AUTH_NOT_PROVEN');
- const master=await call('getCodeListReadOnly');
+ const master=await call('MASTER','getCodeListReadOnly');
  if(master?.status!=='ok'||master.readOnly!==true||!APPROVED_DIVIDEND_GAS.has(master.gasVersion)||!Array.isArray(master.codes))fail('MASTER_UNAVAILABLE');
- const ledger=await call('getTrades');
+ const ledger=await call('LEDGER','getTrades');
  if(ledger?.status!=='ok'||!Array.isArray(ledger.trades))fail('LEDGER_UNAVAILABLE');
  // This is a read-only, non-atomic inspection of historical symbol coverage,
  // not a verified entitlement or balance snapshot. No holdings leave GAS
@@ -96,6 +115,6 @@ export async function auditFromGas({url,token,candidateIndex,fetchImpl=fetch}){
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  try{
   const candidateIndex=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-  console.log(JSON.stringify(await auditFromGas({candidateIndex,url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));
- }catch(e){console.error(/^HIGH_DIVIDEND_AUDIT_[A-Z_]+$/.test(e?.message||'')?e.message:'HIGH_DIVIDEND_AUDIT_FAILED');process.exitCode=1;}
+  console.log(JSON.stringify(await auditFromGas({candidateIndex,url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,report:row=>console.log(JSON.stringify(row))})));
+ }catch(e){console.error(/^HIGH_DIVIDEND_AUDIT_(?:[A-Z_]+|(?:AUTH_PROBE|MASTER|LEDGER)_HTTP_(?:401|403|429|502|503|504))$/.test(e?.message||'')?e.message:'HIGH_DIVIDEND_AUDIT_FAILED');process.exitCode=1;}
 }

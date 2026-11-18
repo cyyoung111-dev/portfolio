@@ -131,3 +131,25 @@ assert(deploySteps.indexOf(pre)<deploySteps.indexOf(dep)&&deploySteps.indexOf(de
 assert.match(probe.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
 assert.match(deploySteps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9298_NH_FINANCIAL_INCOME != 'true'/);
 console.log('PASS: 9.298 immutable manual release, exact ledger and NAV compatibility, no OAuth financial probe');
+
+const oneShot=YAML.parse(fs.readFileSync('.github/workflows/gas-production-inventory-readonly.yml','utf8'));
+const oneShotOn=oneShot.on??oneShot.true,job=oneShot.jobs.inspect;
+assert.deepEqual(oneShotOn.push.branches,['main']);
+assert.deepEqual(oneShotOn.push.paths,['.github/workflows/gas-production-inventory-readonly.yml']);
+assert.equal(oneShotOn.schedule,undefined);
+assert.match(job.if,/github\.run_attempt == 1/);
+assert.equal(job.environment,'portfolio-production-gas');
+assert.equal(job.concurrency.group,'gas-production-deploy');
+const preStep=job.steps.find(s=>s.id==='finance_preflight');
+const dryStep=job.steps.find(s=>s.name==='GAS 9.298 dry-run only (no production code write)');
+assert(preStep&&dryStep);
+assert.equal(preStep.if,"github.event_name == 'push'");
+assert.equal(dryStep.if,"github.event_name == 'push'");
+assert.equal(dryStep.env.GAS_DEPLOY_DRY_RUN,'true');
+assert.equal(dryStep.env.GAS_9298_RELEASE_APPROVAL,'false');
+assert.match(dryStep.env.GAS_9298_LIVE_PREFLIGHT_VERIFIED,/finance_preflight\.outputs\.verified/);
+assert.equal(dryStep.run,'node scripts/deploy-gas.mjs');
+assert.equal(preStep['continue-on-error'],undefined);
+assert(job.steps.findIndex(s=>s.run?.includes('issue507-deployment-inventory-readonly.mjs'))<job.steps.indexOf(preStep));
+assert(job.steps.indexOf(preStep)<job.steps.indexOf(dryStep));
+console.log('PASS: protected main one-shot 9.298 dry-run only; explicit production approval remains separate');
