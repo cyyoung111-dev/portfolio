@@ -15,8 +15,8 @@ let _divHideZeroQty = typeof lsGet === 'function' ? lsGet(DIV_HIDE_ZERO_KEY, fal
 let _divSelectedMonth = 0; // 0=연간 전체, 1~12=선택 월
 const DIV_TAX_LABELS=Object.freeze({all:'전체',normal:'일반계좌',isa:'ISA',pension:'연금저축',irp:'IRP',unclassified:'미분류'});
 let _divTaxFilter='all';
-// Annual tax assumptions are private browser settings, never a ledger write.
-// Deliberately separate from portfolio backups, public company catalogs and GAS.
+// Annual tax assumptions are private settings, never a ledger write.
+// Device-local fallback remains for older GAS. Private 9.300 sync is opt-in by exact server capability.
 const DIV_TAX_SCENARIO_KEY='pf_financial_tax_scenarios_v1';
 const DIV_TAX_DETAILS_FIELDS=Object.freeze(['capitalExempt','etfTaxDifference','certificateSpecial','otherTaxBase','grossUpOrdinary','grossUpSpecial']);
 const _divTaxSession=Object.create(null);
@@ -40,7 +40,7 @@ function _readDivTaxStore(){
     return data;
   }catch{_divTaxStorageState='unavailable';return null;}
 }
-function _getDivTaxRecord(year){
+function _getDivTaxLocalRecord(year){
   if(!_validDivTaxYear(year))return null;
   // Read the current device value on each render; other tabs may have updated it.
   const stored=_readDivTaxStore();
@@ -70,6 +70,119 @@ function _saveDivTaxRecord(year,interest,details){
   // A failed browser save stays session-only and is explicitly reported.
   _divTaxSession[year]=record;
   return false;
+}
+// Keep the connection generation and each year's revision together. No server
+// amounts are written to localStorage, the portfolio backup, or public data.
+let _divTaxRemoteScope=null;
+const _divTaxRemoteYears=new Map();
+function _divTaxSyncConnection(){
+  if(typeof window==='undefined'||window._lastGasVersion!=='9.300'
+    ||typeof GSHEET_API_URL==='undefined'||!String(GSHEET_API_URL||'').trim()
+    ||typeof getGsheetAccessToken!=='function'||!getGsheetAccessToken()
+    ||typeof getGsheetConnectionGeneration!=='function'
+    ||typeof requestGsheetFormJson!=='function')return null;
+  const url=String(GSHEET_API_URL).trim(),generation=getGsheetConnectionGeneration();
+  if(!_divTaxRemoteScope||_divTaxRemoteScope.url!==url||_divTaxRemoteScope.generation!==generation){
+    _divTaxRemoteYears.clear();_divTaxRemoteScope={url,generation};
+  }
+  return _divTaxRemoteScope;
+}
+function _divTaxRevisionValid(value){
+  return typeof value==='string'&&(value==='0'||/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value));
+}
+function _divTaxSyncPayload(record){
+  return {interest:record?.interest??null,details:Object.fromEntries(DIV_TAX_DETAILS_FIELDS.map(k=>[k,record?.details?.[k]??null]))};
+}
+function _divTaxSyncCanonical(record){
+  const value=_divTaxSyncPayload(record);
+  return value.interest===null&&Object.values(value.details).every(v=>v===null)?null:value;
+}
+function _divTaxDecodeRemote(reply,year){
+  if(reply?.status!=='ok'||reply.protocol!==1||reply.gasVersion!=='9.300'||reply.year!==Number(year)
+    ||!_divTaxRevisionValid(reply.revision)||!Object.prototype.hasOwnProperty.call(reply,'record'))return null;
+  if(reply.record!==null){
+    if(reply.revision==='0'||!reply.record||typeof reply.record!=='object'||!reply.record.details
+      ||[reply.record.interest,...DIV_TAX_DETAILS_FIELDS.map(k=>reply.record.details[k])]
+        .some(v=>v!==null&&(typeof v!=='number'||!Number.isSafeInteger(v)||v<0)))return null;
+    if(!_divTaxSyncCanonical(reply.record))return null;
+  }
+  return {revision:reply.revision,record:_divTaxSyncCanonical(reply.record),at:Date.now(),failed:false};
+}
+function _getDivTaxRecord(year){
+  if(!_validDivTaxYear(year))return null;
+  const scope=_divTaxSyncConnection(),state=scope?_divTaxRemoteYears.get(Number(year)):null;
+  return state&&state.revision!=='0'&&_divTaxRevisionValid(state.revision)?state.record:_getDivTaxLocalRecord(year);
+}
+function _divTaxRemoteStatus(year){
+  const scope=_divTaxSyncConnection();if(!scope)return null;
+  return _divTaxRemoteYears.get(Number(year))||{revision:null,record:null,at:0,failed:false};
+}
+function _divTaxFormSignature(year){
+  if(typeof $el!=='function')return null;
+  const interest=$el('div-other-income-scenario');
+  if(!interest||Number(interest.dataset?.taxYear)!==Number(year))return null;
+  return JSON.stringify([interest,...DIV_TAX_DETAILS_FIELDS.map(k=>$el('div-tax-'+k))]
+    .map(f=>String(f?.value??'').trim().replace(/,/g,'')));
+}
+function _divTaxRecordSignature(record){
+  const value=_divTaxSyncPayload(record);
+  return JSON.stringify([value.interest,...DIV_TAX_DETAILS_FIELDS.map(k=>value.details[k])].map(v=>v===null?'':String(v)));
+}
+function _rerenderDivTaxView(){
+  if(typeof currentView!=='undefined'&&['div','plan'].includes(currentView)&&typeof renderView==='function')renderView(true);
+}
+async function _readDivTaxRemote(year,force=false){
+  if(!_validDivTaxYear(year))return false;
+  year=Number(year);
+  const scope=_divTaxSyncConnection();if(!scope)return false;
+  const prior=_divTaxRemoteYears.get(year);
+  if(prior?.loading||prior?.saving)return false;
+  // Refresh when the panel renders, never on a recurring timer.
+  if(!force&&prior&&Date.now()-prior.at<60000)return !prior.failed;
+  const signature=force?_divTaxFormSignature(year):_divTaxRecordSignature(_getDivTaxRecord(year));
+  const state={...(prior||{revision:null,record:null}),loading:true,at:Date.now(),failed:false};
+  _divTaxRemoteYears.set(year,state);
+  let decoded=null;
+  try{
+    const reply=await requestGsheetFormJson('getFinancialTaxScenario',{year},{targetUrl:scope.url,timeoutMs:15000,retry:0,preserveError:true});
+    decoded=_divTaxDecodeRemote(reply,year);
+  }catch{}
+  if(_divTaxSyncConnection()!==scope||_divTaxRemoteYears.get(year)!==state)return false;
+  if(decoded)_divTaxRemoteYears.set(year,decoded);
+  else _divTaxRemoteYears.set(year,{...state,loading:false,failed:true});
+  const currentSignature=_divTaxFormSignature(year);
+  // Do not clear text typed during the request or silently switch its revision.
+  // A failed server read must never replace unsaved inputs with cached values.
+  if(decoded&&(currentSignature===null||currentSignature===signature))_rerenderDivTaxView();
+  if(force&&typeof showToast==='function')showToast(decoded?'서버 세제 가정 조회 완료':'서버 세제 가정 조회 실패',decoded?'success':'error');
+  return !!decoded;
+}
+async function _saveDivTaxRemote(year,interest,details,expectedRevision){
+  year=Number(year);
+  const scope=_divTaxSyncConnection(),state=scope?_divTaxRemoteYears.get(year):null;
+  if(!scope||!state||state.loading||state.saving||state.failed||!_divTaxRevisionValid(expectedRevision)||expectedRevision!==state.revision)
+    return {ok:false,reason:'RELOAD_REQUIRED'};
+  const requested=_divTaxSyncCanonical({interest,details});
+  state.saving=true;
+  let decoded=null,reply=null;
+  try{
+    reply=await requestGsheetFormJson('saveFinancialTaxScenario',{year,expectedRevision,data:JSON.stringify(requested)},
+      {targetUrl:scope.url,timeoutMs:20000,retry:0,preserveError:true});
+    decoded=_divTaxDecodeRemote(reply,year);
+  }catch{}
+  if(_divTaxSyncConnection()!==scope||_divTaxRemoteYears.get(year)!==state)return {ok:false,reason:'CONNECTION_CHANGED'};
+  state.saving=false;
+  if(!decoded||decoded.revision==='0'||JSON.stringify(decoded.record)!==JSON.stringify(requested)){
+    // A missing ACK may already be committed: require reading, never retry a write.
+    state.failed=true;state.at=Date.now();
+    return {ok:false,reason:reply?.errorCode==='TAX_SCENARIO_CONFLICT'?'CONFLICT':'RELOAD_REQUIRED'};
+  }
+  _divTaxRemoteYears.set(year,decoded);
+  return {ok:true};
+}
+function _reloadDivTaxRemoteFromUI(){
+  const field=typeof $el==='function'?$el('div-other-income-scenario'):null;
+  if(field)_readDivTaxRemote(Number(field.dataset?.taxYear||_kstYear()),true);
 }
 function _getDivTaxDetails(year){return _getDivTaxRecord(year)?.details||null;}
 // One public GET per session/year, shared by both tabs. No portfolio data is sent.
@@ -114,6 +227,16 @@ function _applyDivOtherIncome() {
     if(typeof showToast==='function')showToast('비과세·특례배당·배당가산 금액이 과세 대상 금액을 초과합니다. 중복 여부를 확인하세요.','error');
     return;
   }
+  if(_divTaxSyncConnection()){
+    const signature=_divTaxFormSignature(year);
+    _saveDivTaxRemote(year,interest,details,field.dataset?.taxRevision).then(result=>{
+      if(typeof showToast==='function')showToast(result.ok?'귀속연도별 서버 저장 확인 · PC/모바일 공유':
+        result.reason==='CONFLICT'?'다른 기기에서 변경됨 · 입력 보존, 서버값 불러온 뒤 다시 저장':
+        '서버 저장 미확인 · 자동 재저장 없음, 서버값 다시 조회 필요',result.ok?'success':'error');
+      if(result.ok&&_divTaxFormSignature(year)===signature)_rerenderDivTaxView();
+    });
+    return;
+  }
   const saved=_saveDivTaxRecord(year,interest,details);
   if(typeof showToast==='function')showToast(saved?'귀속연도별 세제 가정 저장 완료 (현재 기기)':'기기 저장 실패 · 현재 세션에만 반영',saved?'success':'error');
   const area=$el('view-area');
@@ -125,12 +248,17 @@ function _divScenarioForSummary(summary,year){
 function _divTaxComparisonPanel(summary,year,scenario=_divScenarioForSummary(summary,year)){
   const money=v=>Math.round(v).toLocaleString('ko-KR'),d=_getDivTaxDetails(year)||{},c=scenario.comparison;
   const saved=_getDivTaxRecord(year),rules=PlanCalculations.financialIncomeRuleStatus(year);
-  const saveLabel=Object.prototype.hasOwnProperty.call(_divTaxSession,year)?'기기 저장 실패 · 현재 세션만':saved?'이 기기에 저장됨'+(saved.updatedAt?' · '+saved.updatedAt.slice(0,10):''):'저장된 입력 없음';
-  const input=(id,label,value)=>'<label class="ui-status-meta" style="display:flex;flex-direction:column;gap:3px">'+label+'<input id="'+id+'" data-tax-year="'+year+'" type="text" inputmode="numeric" style="width:180px;max-width:100%" value="'+(value??'')+'" placeholder="미입력"></label>';
+  const remote=_divTaxRemoteStatus(year);
+  const saveLabel=remote?(remote.failed?'서버 조회/저장 미확인 · 재조회 필요':remote.loading?'서버 조회 중':
+    remote.revision==='0'?'서버 입력 없음 · 기존 기기값은 저장 시에만 공유':
+    remote.revision?'서버 확인 · PC/모바일 공유':'서버 조회 전'):
+    Object.prototype.hasOwnProperty.call(_divTaxSession,year)?'기기 저장 실패 · 현재 세션만':saved?'이 기기에 저장됨'+(saved.updatedAt?' · '+saved.updatedAt.slice(0,10):''):'저장된 입력 없음';
+  if(remote)_readDivTaxRemote(year);
+  const input=(id,label,value)=>'<label class="ui-status-meta" style="display:flex;flex-direction:column;gap:3px">'+label+'<input id="'+id+'" data-tax-year="'+year+'" data-tax-revision="'+(remote&&!remote.failed&&!remote.loading&&_divTaxRevisionValid(remote.revision)?remote.revision:'unverified')+'" type="text" inputmode="numeric" style="width:180px;max-width:100%" value="'+(value??'')+'" placeholder="미입력"></label>';
   const row=(label,v)=>'<tr><td>'+label+'</td><td>'+money(v)+'원</td></tr>';
   return '<section class="div-tax-panel" aria-label="금융소득 과세 비교"><h3 class="h3-card">금융소득 세액 비교 ('+year+'년)</h3>'+
     '<div class="ui-status-meta">연간 배당 기준 · 일반계좌 · 원 단위 · 과세자료 또는 시나리오 입력. 금융 원본 미변경. 계좌 귀속 미확인 '+money(summary.unclassified.annual)+'원은 비교 제외.</div>'+
-    '<div class="ui-status-meta">세법: '+rules.label+' · '+saveLabel+' · 다른 기기와 자동 동기화하지 않음.</div>'+
+    '<div class="ui-status-meta">세법: '+rules.label+' · '+saveLabel+(remote?'':' · 다른 기기와 자동 동기화하지 않음.')+'</div>'+
     '<div class="ui-status-meta">기업 명단·배당·계좌 분류는 자동 계산. NH 거래내역의 실제 과세 구분과 타 금융기관 소득은 아직 미연동.</div>'+
     '<details><summary>연간 세제 입력 (기본 2개 · 필요한 경우만)</summary>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
@@ -141,7 +269,7 @@ function _divTaxComparisonPanel(summary,year,scenario=_divScenarioForSummary(sum
     input('div-tax-certificateSpecial','과세자료상 특례배당 총액 (선택)',d.certificateSpecial)+
     input('div-tax-grossUpOrdinary','배당가산 대상 일반배당 (특례 제외)',d.grossUpOrdinary)+input('div-tax-grossUpSpecial','미신청 시 배당가산 대상 특례배당',d.grossUpSpecial)+
     '</div><div class="ui-status-meta">감액배당은 증권사 확인 과세제외액만 입력 (취득가액 제한 등 유의). 과표 차액과 중복 금지. 특례 총액 입력 시 공시 추정 대신 입력 총액 사용.</div></details>'+
-    '<button type="button" class="btn-ghost-sm" data-div-action="apply-other-income">귀속연도별 저장</button>'+
+    '<button type="button" class="btn-ghost-sm" data-div-action="apply-other-income">귀속연도별 저장</button>'+(remote?'<button type="button" class="btn-ghost-sm" data-div-action="reload-tax-scenario">서버값 다시 불러오기</button><div class="ui-status-meta">다시 불러오면 현재 입력칸은 서버 확인값으로 교체됩니다. 저장되지 않은 수정값은 먼저 확인하세요.</div>':'')+
     '<div class="ui-status-meta">빈칸은 미확인 (0과 구분). 기존 값을 지우고 저장하면 해당 금액 해제. 금융 원본 미변경.</div></details>'+
     (!scenario.adjustmentValid||!scenario.grossUpValid?'<div class="ui-status-text">입력 금액 재확인 필요 · 세액 비교 보류</div>':'')+
     '<div class="div-tax-table-scroll"><table class="div-tax-table"><tbody>'+row('현금 배당 총액',scenario.normalGross)+row('과세 제외 감액배당',scenario.capitalExempt)+row('ETF 과표 제외 차액',scenario.etfTaxDifference)+row('과세대상 배당 참고액',scenario.taxableGross)+row(scenario.certificateSpecialUsed?'입력 특례배당 총액':'공시 일치 특례배당',scenario.selectedSpecialGross)+row('특례 미신청 합산 금융소득',scenario.ordinaryWithoutApplication)+row('특례 신청 가정 합산 금융소득',scenario.ordinaryWithApplication)+
