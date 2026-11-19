@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import YAML from 'yaml';
 import {assertGasReleaseReady,assertIssue507ManualReleasePermission,assertGas9298Prerequisites} from './deploy-gas.mjs';
-import {readGas9298ReleaseProof} from './gas9298-release-readonly.mjs';
+import {readGas9298ReleaseProof,readReleaseVersionGate,assertReleaseVersionGateAfterHash} from './gas9298-release-readonly.mjs';
 import {assertPublishedReleaseFundNavSupport} from './issue860-fund-nav-release-compat.mjs';
 import {assessNhFinancialIncomeReadback,probeNhFinancialIncome} from './nh-financial-income-readback.mjs';
 import {composeGas9298NhFinancialIncomePreview} from './compose-gas9298-nh-financial-income-preview.mjs';
@@ -174,3 +174,36 @@ console.log('PASS: protected current-main 9.298 dry-run, bounded operator reruns
  assert.equal((deploySource.match(/await verifyGas9298ReleaseReadOnly\(/g)||[]).length,2);
 }
 console.log('PASS: 9.298 blocker evidence wired and existing in-deploy post-readback preserved');
+
+// getTrades omits gasVersion, whereas the authenticated gate reports it.
+{
+ const getTrades=candidate.slice(candidate.indexOf('function handleGetTrades('),candidate.indexOf('\n}',candidate.indexOf('function handleGetTrades('))+2);
+ const jsonOk=candidate.slice(candidate.indexOf('function jsonOk('),candidate.indexOf('\n}',candidate.indexOf('function jsonOk('))+2);
+ assert.doesNotMatch(getTrades,/gasVersion\s*:/);
+ assert.doesNotMatch(jsonOk,/gasVersion\s*:/);
+ const gate=version=>({status:'ok',gasVersion:version,writerGate:{mode:'OPEN',activeCount:0,activeOwners:[],repairAuthorized:false,timeoutRetirementCandidates:0}});
+ const readState=async v=>state(v),readHash=async()=>hashes('UNSPECIFIED');
+ for(const [mode,candidateVersion,version] of [['pre','9.298','9.297'],['post','9.298','9.298'],['pre','9.300','9.297'],['post','9.300','9.300']]){
+  let order=[];
+  const result=await readGas9298ReleaseProof({mode,candidateVersion,
+   readState:async v=>{order.push('state');assert.equal(v,version);return state(v)},
+   readHash:async()=>{order.push('hash');return hashes('UNSPECIFIED')},
+   readVersionGate:async v=>{order.push('gate');assert.equal(v,version);return gate(v)}});
+  assert.deepEqual(order,['state','hash','gate']);
+  assert.equal(result.version,version);assert.equal(result.tradeV2HashVerified,true);
+  assert.equal(result.ledgerVersionEvidence,'VERSIONED_GATE_AFTER_HASH');
+ }
+ await assert.rejects(()=>readGas9298ReleaseProof({readState,readHash}),/LEDGER_VERSION_UNVERIFIED/);
+ for(const patch of [{gasVersion:'9.298'},{status:'error'},{writerGate:{...gate('9.297').writerGate,activeCount:1}},{writerGate:{...gate('9.297').writerGate,timeoutRetirementCandidates:1}},{writerGate:{...gate('9.297').writerGate,activeOwners:[{}]}}]){
+  await assert.rejects(()=>readGas9298ReleaseProof({readState,readHash,readVersionGate:async()=>({...gate('9.297'),...patch})}),/LEDGER_VERSION_UNVERIFIED/);
+ }
+ await assert.rejects(()=>readGas9298ReleaseProof({readState,readHash:async()=>hashes('9.296'),readVersionGate:async()=>assert.fail('explicit mismatch cannot fall back')}),/LEDGER_INTEGRITY_UNVERIFIED/);
+ await assert.rejects(()=>readGas9298ReleaseProof({readState,readHash:async()=>({...hashes('UNSPECIFIED'),status:'MISMATCH'}),readVersionGate:async()=>assert.fail('hash mismatch cannot fall back')}),/FINANCIAL_INTEGRITY_UNVERIFIED/);
+ await assert.rejects(()=>readGas9298ReleaseProof({readState,readHash:async()=>({...hashes('UNSPECIFIED'),migrationPreview:{...hashes('UNSPECIFIED').migrationPreview,assignedIdsNeeded:1}}),readVersionGate:async()=>assert.fail('ID mismatch cannot fall back')}),/LEDGER_INTEGRITY_UNVERIFIED/);
+ const read=await readReleaseVersionGate({url:'https://script.google.com/macros/s/TEST_READ_ONLY/exec',token:'FAKE_GAS_ACCESS_TOKEN',fetchImpl:async(url,options)=>{
+  assert.equal(options.method,'GET');assert.equal(new URL(url).searchParams.get('action'),'getWriterGateStatus');
+  return {ok:true,json:async()=>gate('9.297')};
+ }});
+ assert.doesNotThrow(()=>assertReleaseVersionGateAfterHash(read,'9.297'));
+}
+console.log('PASS: versionless trade response uses independent exact version and idle gate after full ledger hash/ID proof; mismatch still blocks');

@@ -4,7 +4,8 @@ import {pathToFileURL} from 'node:url';
 import {verifyGas9295ReleaseReadOnly} from './issue734-gas9295-release-readonly.mjs';
 import {assertGas9297ReadOnlyProof} from './issue734-gas9297-release-readonly.mjs';
 import {probeTradeHash} from './issue734-trade-v2-hash-readonly.mjs';
-export async function readGas9298ReleaseProof({readState,readHash,mode='pre',candidateVersion='9.298',delay=ms=>new Promise(r=>setTimeout(r,ms))}={}){
+import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
+export async function readGas9298ReleaseProof({readState,readHash,readVersionGate,mode='pre',candidateVersion='9.298',delay=ms=>new Promise(r=>setTimeout(r,ms))}={}){
  if(!['pre','post'].includes(mode)||!['9.298','9.300'].includes(candidateVersion)||typeof readState!=='function'||typeof readHash!=='function')
   throw Error('GAS9298_PROOF_CONTRACT_INVALID');
  const version=mode==='pre'?'9.297':candidateVersion;
@@ -15,22 +16,53 @@ export async function readGas9298ReleaseProof({readState,readHash,mode='pre',can
    const state=await readState(version);
    const hash=await readHash();
    const proof=assertGas9297ReadOnlyProof(state,hash,version);
-   if(hash.gasVersion!==version||proof.tradeRows<0
+   if(proof.tradeRows<0
     ||hash.migrationPreview.rowCountMatchesApi!==true
     ||hash.migrationPreview.assignedIdsNeeded!==0
     ||hash.migrationPreview.existingIdsPreserved!==proof.tradeRows)
     throw Error('GAS9298_LEDGER_INTEGRITY_UNVERIFIED');
-   return {...proof,kind:candidateVersion==='9.300'?'GAS9300_RELEASE_READONLY':'GAS9298_RELEASE_READONLY',mode,readbackAttempts:attempt};
+   // getTrades on the reviewed v2 source returns the ledger revision but
+   // does not expose gasVersion. The independent status proof before this
+   // read has already checked the version. Recheck the versioned gate after
+   // physical/API/PC hash equality, never substitute an expected version.
+   let ledgerVersionEvidence='TRADE_RESPONSE';
+   if(hash.gasVersion==='UNSPECIFIED'){
+    if(typeof readVersionGate!=='function')throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED');
+    const gate=await readVersionGate(version);
+    assertReleaseVersionGateAfterHash(gate,version);
+    ledgerVersionEvidence='VERSIONED_GATE_AFTER_HASH';
+   }else if(hash.gasVersion!==version)throw Error('GAS9298_LEDGER_INTEGRITY_UNVERIFIED');
+   return {...proof,ledgerVersionEvidence,kind:candidateVersion==='9.300'?'GAS9300_RELEASE_READONLY':'GAS9298_RELEASE_READONLY',mode,readbackAttempts:attempt};
   }catch(e){
    if(!retryable.has(e?.message)||attempt===3)throw e;
    await delay(3000*attempt);
   }
  }
 }
+export function assertReleaseVersionGateAfterHash(response,expectedVersion){
+ const g=response?.writerGate;
+ if(!['9.297','9.298','9.300'].includes(expectedVersion)||response?.status!=='ok'
+  ||response.gasVersion!==expectedVersion||g?.mode!=='OPEN'||g.activeCount!==0
+  ||g.repairAuthorized!==false||g.timeoutRetirementCandidates!==0
+  ||!Array.isArray(g.activeOwners)||g.activeOwners.length!==0)
+  throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED');
+}
+export async function readReleaseVersionGate({url,token,fetchImpl=fetch}={}){
+ const endpoint=new URL(validateWebAppUrl(url));
+ if(typeof token!=='string'||token.length<12)throw Error('GAS9298_AUTH_MISSING');
+ endpoint.searchParams.set('action','getWriterGateStatus');
+ endpoint.searchParams.set('accessToken',token);
+ let response;
+ try{response=await fetchImpl(endpoint.toString(),{method:'GET',redirect:'follow',signal:AbortSignal.timeout(30000)})}
+ catch{throw Error('GAS9295_READONLY_NETWORK_UNVERIFIED')}
+ if(response?.ok!==true)throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED');
+ try{return await response.json()}catch{throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED')}
+}
 export async function verifyGas9298ReleaseReadOnly({url,token,mode='pre',candidateVersion='9.298',fetchImpl=fetch,reportBlockedAutomation=()=>{}}={}){
  return readGas9298ReleaseProof({mode,candidateVersion,
    readState:expectedVersion=>verifyGas9295ReleaseReadOnly({url,token,fetchImpl,expectedVersion,reportBlockedAutomation}),
-   readHash:()=>probeTradeHash({url,token,fetchImpl,includeMigrationPreview:true})});
+   readHash:()=>probeTradeHash({url,token,fetchImpl,includeMigrationPreview:true}),
+   readVersionGate:()=>readReleaseVersionGate({url,token,fetchImpl})});
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
