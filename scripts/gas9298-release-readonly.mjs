@@ -5,12 +5,13 @@ import {verifyGas9295ReleaseReadOnly} from './issue734-gas9295-release-readonly.
 import {assertGas9297ReadOnlyProof} from './issue734-gas9297-release-readonly.mjs';
 import {probeTradeHash} from './issue734-trade-v2-hash-readonly.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
-export async function readGas9298ReleaseProof({readState,readHash,readVersionGate,mode='pre',candidateVersion='9.298',delay=ms=>new Promise(r=>setTimeout(r,ms))}={}){
+export async function readGas9298ReleaseProof({readState,readHash,readVersionGate,mode='pre',candidateVersion='9.298',delay=ms=>new Promise(r=>setTimeout(r,ms)),reportWriterWait=()=>{}}={}){
  if(!['pre','post'].includes(mode)||!['9.298','9.300','9.301'].includes(candidateVersion)||typeof readState!=='function'||typeof readHash!=='function')
   throw Error('GAS9298_PROOF_CONTRACT_INVALID');
  const version=mode==='pre'?(candidateVersion==='9.301'?'9.300':'9.297'):candidateVersion;
  const retryable=new Set(['GAS9295_READONLY_NETWORK_UNVERIFIED','AUTOMATION_DIAG_NETWORK_FAILED','READBACK_NETWORK_UNVERIFIED']);
  if(mode==='post')retryable.add('GAS9295_READONLY_VERSION_MISMATCH');
+ let writerWaited=false;
  for(let attempt=1;attempt<=3;attempt++){
   try{
    const state=await readState(version);
@@ -34,6 +35,19 @@ export async function readGas9298ReleaseProof({readState,readHash,readVersionGat
    }else if(hash.gasVersion!==version)throw Error('GAS9298_LEDGER_INTEGRITY_UNVERIFIED');
    return {...proof,ledgerVersionEvidence,kind:candidateVersion==='9.301'?'GAS9301_RELEASE_READONLY':candidateVersion==='9.300'?'GAS9300_RELEASE_READONLY':'GAS9298_RELEASE_READONLY',mode,readbackAttempts:attempt};
   }catch(e){
+   // A genuine concurrent writer observed AFTER the ledger proof is not
+   // a failed write to retry. Discard all read evidence and recheck once,
+   // only for the current preflight. Never proceed solely on a later idle GET.
+   if(mode==='pre'&&candidateVersion==='9.301'&&!writerWaited&&attempt<3
+      &&e?.message==='GAS9298_LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER'
+      &&e.readonlyWaitSafe===true){
+    writerWaited=true;
+    reportWriterWait({kind:'GAS9301_READONLY_WRITER_WAIT',delaySeconds:45,
+      nextAttempt:attempt+1,activeCount:e.activeCount,writerClasses:e.writerClasses,
+      financeWrites:0,gasDeployments:0});
+    await delay(45000);
+    continue;
+   }
    if(!retryable.has(e?.message)||attempt===3)throw e;
    await delay(3000*attempt);
   }
@@ -41,7 +55,8 @@ export async function readGas9298ReleaseProof({readState,readHash,readVersionGat
 }
 // Distinguish sanitized blocker classes without printing private gate owners,
 // response bodies, version strings supplied by the server or credentials.
-// Every mismatch still blocks; active writers and version mismatch never retry.
+// Every mismatch still blocks. Only a structurally verified recent active writer
+// may cause one full read-only preflight recheck; never retry a writer or bypass a gate.
 const gateFail=reason=>{throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED_'+reason);};
 export function assertReleaseVersionGateAfterHash(response,expectedVersion){
  const g=response?.writerGate;
@@ -50,10 +65,22 @@ export function assertReleaseVersionGateAfterHash(response,expectedVersion){
  if(response.gasVersion!==expectedVersion)gateFail('VERSION_MISMATCH');
  if(g?.mode!=='OPEN')gateFail('MODE');
  if(!Number.isSafeInteger(g.activeCount)||g.activeCount<0||g.activeCount>24)gateFail('ACTIVE_COUNT_INVALID');
- if(g.activeCount!==0)gateFail('ACTIVE_WRITER');
  if(g.repairAuthorized!==false)gateFail('REPAIR_STATE');
  if(g.timeoutRetirementCandidates!==0)gateFail('RETIREMENT_STATE');
- if(!Array.isArray(g.activeOwners)||g.activeOwners.length!==0)gateFail('OWNER_STATE');
+ if(!Array.isArray(g.activeOwners)||g.activeOwners.length!==g.activeCount)gateFail('OWNER_STATE');
+ if(g.activeCount!==0){
+  const known=new Set(['doGet','doPost','runDailyPortfolioClose1900','runDailyFundValuations',
+   'runPortfolioCloseWatchdog2030','runPendingTradeSnapshotRebuild','runPortfolioHistoricalBackfill2240',
+   'runDeferredFundAfterPortfolioCloseFailure','refreshEtfDividends']);
+  const err=Error('GAS9298_LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER');
+  // Report only known code identifiers and aggregate count, never owner data.
+  err.activeCount=g.activeCount;
+  err.writerClasses=[...new Set(g.activeOwners.map(o=>known.has(o?.functionName)?o.functionName:'OTHER'))].sort();
+  err.readonlyWaitSafe=g.activeOwners.every(o=>o&&typeof o.functionName==='string'
+   &&Number.isSafeInteger(o.ageMinutes)&&o.ageMinutes>=0&&o.ageMinutes<6
+   &&o.terminalReceiptPresent===false&&o.retirementEligible===false);
+  throw err;
+ }
 }
 export async function readReleaseVersionGate({url,token,fetchImpl=fetch}={}){
  const endpoint=new URL(validateWebAppUrl(url));
@@ -73,7 +100,8 @@ export async function verifyGas9298ReleaseReadOnly({url,token,mode='pre',candida
  return readGas9298ReleaseProof({mode,candidateVersion,
    readState:expectedVersion=>verifyGas9295ReleaseReadOnly({url,token,fetchImpl,expectedVersion,reportBlockedAutomation}),
    readHash:()=>probeTradeHash({url,token,fetchImpl,includeMigrationPreview:true}),
-   readVersionGate:()=>readReleaseVersionGate({url,token,fetchImpl})});
+   readVersionGate:()=>readReleaseVersionGate({url,token,fetchImpl}),
+   reportWriterWait:reportBlockedAutomation});
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
