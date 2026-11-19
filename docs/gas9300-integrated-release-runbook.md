@@ -12,3 +12,7 @@
 3. 9.297→9.300 단일 후보(984f8e6db408b8803827205682610b457f1e82ca). 별도 9.298/9.299 배포 없음. 9.299 미승인 차단 유지. 다른 출발 버전은 별도 검토.
 4. 기존 protected inventory workflow main push에서 dry-run만 1회, 같은 inventory/원장 v2/idle gate 재사용. 실배포: gas-deploy, main, candidate_version=9.300, dry_run=false, approve_9300=true, 나머지 승인 false. 같은 실행 사전검증 및 9.300 원장 hash 후속 대사. NH 표본은 연간 집계 증거가 아님.
 5. CI/승인/dry-run/실배포/실운영 대사를 구분. 실제 마감 및 원본 NAV·평가 일치 증빙 필요. 신규 예약 없음, 금융 원본 변경 없음.
+
+## 11/19 10:12 KST 통합 사전검증 실패 원인
+- Run 44434983652: inventory pass, strict state check 및 기존 9.297 원장 proof(physical/API/PC hash 및 행수/ID) 통과 이후 추가 `GAS9298_LEDGER_INTEGRITY_UNVERIFIED`. 실제 getTrades v2 소스의 14열 응답은 gasVersion이 없고 jsonOk도 이를 삽입하지 않는다. 실제 로그에는 실패 조건별 값이 없으므로 다른 추가 조건 실패 여부까지 단정하지 않는다.
+- 원장/API/PC 해시, 행수, ID, pending/active 검증은 그대로. getTrades 버전 미제공 시 별도 인증된 versioned Writer Gate를 hash 대사 뒤 한 번 더 조회하여 정확한 expected version과 OPEN/idle/timeout retirement 0/recovery unauthorized를 확인한다. 명시 버전 불일치, hash 불일치, 누락 ID는 기존대로 차단. 후보 소스 pin/승인 불변; 기존 inventory one-shot 재사용. 실운영 dry-run으로 검증 필요.
