@@ -10,7 +10,7 @@ assert(candidate.includes(extension));
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(extractExpectedGasVersion(candidate),'9.302');
 assert.equal(assertGasReleaseReady(parent),'9.301');
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION: 9\.302/);
 assert.equal(candidate.replace(extension,composeGas9301NhDiagnosticPreview().extension).replace(/9\.302/g,'9.301'),parent);
 assert.doesNotMatch(extension,/\b(?:_nhAccessToken_|_nhForgetToken_)\s*\(|SpreadsheetApp|\.setProperty\s*\(/);
 const token='FAKE_PRIVATE_TOKEN',id='12345678901',marker='PRIVATE_UPSTREAM_CONTENT';
@@ -44,6 +44,7 @@ for(const msg of ['조회가 완료되었습니다.','정상적으로 조회되�
  const proof=assessNhFinancialIncomeReadback(r,'9.302');
  assert.equal(proof.contractStatus,'FIELDS_OBSERVED');
  assert.equal(proof.annualIncomeVerified,false);
+ assert.equal(Object.getPrototypeOf(proof.statusEvidence),Array.prototype);
  assert.deepEqual(proof.statusEvidence,[{code:'10000',envelope:'TOP',messageClass:'COMPLETE',outputClass:'NONEMPTY_ARRAY'}]);
 }
 for(const [body,reason,code,messageClass,outputClass] of [

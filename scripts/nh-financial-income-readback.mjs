@@ -47,7 +47,7 @@ export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
   if(!Array.isArray(rows)||rows.length>12||rows.length!==d.accountsSucceeded+rejectReasons.SUCCESS_MESSAGE_UNVERIFIED+rejectReasons.OUTPUT_MISSING+rejectReasons.OUTPUT_INVALID)fail('STATUS_EVIDENCE');
   const expected={success:d.accountsSucceeded,message:rejectReasons.SUCCESS_MESSAGE_UNVERIFIED,missing:rejectReasons.OUTPUT_MISSING,invalid:rejectReasons.OUTPUT_INVALID};
   const observed={success:0,message:0,missing:0,invalid:0};
-  statusEvidence=rows.map(r=>{
+  statusEvidence=Array.from(rows,r=>{
    if(!r||typeof r!=='object'||Array.isArray(r)||Object.keys(r).sort().join(',')!=='code,envelope,messageClass,outputClass'
     ||typeof r.code!=='string'||!/^(?:[0-9]{5}|IGW[0-9]{5}|ABSENT|UNRECOGNIZED|CONFLICT)$/.test(r.code)
     ||!['TOP','NESTED','BOTH','ABSENT'].includes(r.envelope)
