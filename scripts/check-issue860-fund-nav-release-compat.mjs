@@ -6,10 +6,10 @@ import {composeIssue860Gas9291Preview} from './compose-issue860-gas9291-preview.
 import {composeIssue860Gas9292CloseStatePreview} from './compose-issue860-gas9292-close-state-preview.mjs';
 import {assertGasReleaseReady} from './deploy-gas.mjs';
 for(const kind of ['KB','HANWHA']){
- for(const v of ['9.285','9.289','9.291','9.292','9.298','9.300','9.301'])
+ for(const v of ['9.285','9.289','9.291','9.292','9.298','9.300','9.301','9.302'])
   assert.equal(supportsPublishedFundNavGasVersion(kind,v),true,
    kind+' reviewed release '+v);
- for(const v of ['9.290','9.299','9.302','9.999',null,''])
+ for(const v of ['9.290','9.299','9.303','9.999',null,''])
   assert.equal(supportsPublishedFundNavGasVersion(kind,v),false,
    kind+' must reject unknown release '+v);
 }
