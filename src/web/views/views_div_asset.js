@@ -152,7 +152,8 @@ async function _readDivTaxRemote(year,force=false){
   else _divTaxRemoteYears.set(year,{...state,loading:false,failed:true});
   const currentSignature=_divTaxFormSignature(year);
   // Do not clear text typed during the request or silently switch its revision.
-  if(currentSignature===null||currentSignature===signature)_rerenderDivTaxView();
+  // A failed server read must never replace unsaved inputs with cached values.
+  if(decoded&&(currentSignature===null||currentSignature===signature))_rerenderDivTaxView();
   if(force&&typeof showToast==='function')showToast(decoded?'서버 세제 가정 조회 완료':'서버 세제 가정 조회 실패',decoded?'success':'error');
   return !!decoded;
 }

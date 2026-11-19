@@ -66,3 +66,22 @@ mobile.changeConnection();assert.equal(mobile.ctx._getDivOtherIncome(2028),50,'n
 assert.equal((await mobile.ctx._saveDivTaxRemote(2028,1,details,'0')).ok,false);
 assert.equal(manifest.productionDeploymentApproved,false);
 console.log('GAS9300_TAX_SCENARIO_SYNC_PREVIEW '+JSON.stringify({...manifest,deviceCasVerified:true,financeWrites:0}));
+
+{
+ const inputDevice=device(),ctx=inputDevice.ctx;
+ await ctx._readDivTaxRemote(2028,true);
+ const field={value:'123456',dataset:{taxYear:'2028'}};
+ const adjustments=Object.fromEntries(Object.keys(details).map(k=>[k,{value:k==='otherTaxBase'?'80000000':''}]));
+ let renders=0;
+ ctx.currentView='div';
+ ctx.$el=id=>id==='div-other-income-scenario'?field:adjustments[id.replace('div-tax-','')];
+ ctx.renderView=()=>{renders++;field.value='REPLACED';};
+ const originalRequest=ctx.requestGsheetFormJson;
+ ctx.requestGsheetFormJson=async()=>({status:'error',errorCode:'CLIENT_TIMEOUT'});
+ assert.equal(await ctx._readDivTaxRemote(2028,true),false);
+ assert.equal(renders,0);assert.equal(field.value,'123456');assert.equal(adjustments.otherTaxBase.value,'80000000');
+ ctx.requestGsheetFormJson=originalRequest;
+ assert.equal(await ctx._readDivTaxRemote(2028,true),true);
+ assert.equal(renders,1);assert.equal(field.value,'REPLACED');
+}
+console.log('PASS: failed tax scenario reload preserves unsaved input; successful explicit reload may replace it');
