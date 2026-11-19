@@ -26,38 +26,11 @@ on:
         default: true
         type: boolean
       candidate_version:
-        description: '수동 후보 선택 · 9.300 통합 개선 권장'
+        description: '현재 릴리스 후보 · 이전 버전 선택 불가'
         required: true
         default: '9.300'
         type: choice
-        options: ['9.294', '9.295', '9.296', '9.297', '9.298', '9.300']
-      approve_9294:
-        description: '9.294 운영 배포 승인 · dry_run을 끌 때만 켜기'
-        required: true
-        default: false
-        type: boolean
-      approve_9295:
-        description: '9.295 운영 배포 승인 · 독립 Writer Gate 선검증 필요'
-        required: true
-        default: false
-        type: boolean
-
-      approve_9296:
-        description: '9.296 거래원장 UTF-8 해시 수정 운영 배포 승인'
-        required: true
-        default: false
-        type: boolean
-      approve_9297:
-        description: '9.297 KB·한화 NAV 원본 저장/평가 분리 운영 배포 승인'
-        required: true
-        default: false
-        type: boolean
-
-      approve_9298:
-        description: '9.298 NH 금융소득 읽기 전용 진단 운영 배포 승인'
-        required: true
-        default: false
-        type: boolean
+        options: ['9.300']
       approve_9300:
         description: '9.300 펀드 마감·NH 진단·세제 동기화 통합 운영 배포 승인'
         required: true
@@ -139,16 +112,16 @@ jobs:
       # Historical release candidates are retired from the operator UI.
       GAS_9293_ORPHANED_CLOSE: 'false'
       GAS_9293_RELEASE_APPROVAL: 'false'
-      GAS_9294_CLOSE_OWNER_NAV: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.294' && 'true' || 'false' }}
-      GAS_9294_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.294' && inputs.approve_9294 && 'true' || 'false' }}
-      GAS_9295_PRICE_MASTER_REUSE: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.295' && 'true' || 'false' }}
-      GAS_9295_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.295' && inputs.approve_9295 && 'true' || 'false' }}
-      GAS_9296_TRADE_UTF8: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.296' && 'true' || 'false' }}
-      GAS_9296_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.296' && inputs.approve_9296 && 'true' || 'false' }}
-      GAS_9297_NAV_TWO_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.297' && 'true' || 'false' }}
-      GAS_9297_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.297' && inputs.approve_9297 && 'true' || 'false' }}
-      GAS_9298_NH_FINANCIAL_INCOME: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.298' && 'true' || 'false' }}
-      GAS_9298_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.298' && inputs.approve_9298 && 'true' || 'false' }}
+      GAS_9294_CLOSE_OWNER_NAV: 'false'
+      GAS_9294_RELEASE_APPROVAL: 'false'
+      GAS_9295_PRICE_MASTER_REUSE: 'false'
+      GAS_9295_RELEASE_APPROVAL: 'false'
+      GAS_9296_TRADE_UTF8: 'false'
+      GAS_9296_RELEASE_APPROVAL: 'false'
+      GAS_9297_NAV_TWO_STAGE: 'false'
+      GAS_9297_RELEASE_APPROVAL: 'false'
+      GAS_9298_NH_FINANCIAL_INCOME: 'false'
+      GAS_9298_RELEASE_APPROVAL: 'false'
       GAS_9300_INTEGRATED: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.300' && 'true' || 'false' }}
       GAS_9300_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.300' && inputs.approve_9300 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
@@ -173,92 +146,22 @@ jobs:
       - name: Require clean full GAS deployment inventory before real deploy
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Read-only full deployment inventory on 9.294 dry-run (advisory)
-        if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
-        continue-on-error: true
-        run: node scripts/issue507-deployment-inventory-readonly.mjs
-      # 9.295 dry-run is a RELEASE-READINESS check, not just a code preview.
-      # The production inventory gate is identical and mandatory. Catch
-      # blockers before anyone authorizes a financial GAS deployment.
-      - name: Require clean full GAS deployment inventory on 9.295 dry-run
-        if: env.GAS_9295_PRICE_MASTER_REUSE == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Require clean full GAS deployment inventory on 9.296 dry-run
-        if: env.GAS_9296_TRADE_UTF8 == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
-        run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Require clean full GAS deployment inventory on 9.297 dry-run
-        if: env.GAS_9297_NAV_TWO_STAGE == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
-        run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Require clean full GAS deployment inventory on 9.298 dry-run
-        if: (env.GAS_9298_NH_FINANCIAL_INCOME == 'true' || env.GAS_9300_INTEGRATED == 'true') && env.GAS_DEPLOY_DRY_RUN == 'true'
+      - name: Require clean full GAS deployment inventory on 9.300 dry-run
+        if: env.GAS_9300_INTEGRATED == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
       - name: Verify published 9.297 idle writer and exact ledger before integrated release
         id: gas9298_gate
-        if: (env.GAS_9298_NH_FINANCIAL_INCOME == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9298_RELEASE_APPROVAL == 'true')) || (env.GAS_9300_INTEGRATED == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9300_RELEASE_APPROVAL == 'true'))
-        run: node scripts/gas9298-release-readonly.mjs pre ${{ env.GAS_9300_INTEGRATED == 'true' && '9.300' || '9.298' }}
-      - name: Verify published 9.295 idle writer before UTF-8 correction
-        id: gas9296_gate
-        if: env.GAS_9296_TRADE_UTF8 == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9296_RELEASE_APPROVAL == 'true')
-        env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue734-gas9296-release-readonly.mjs pre
-      - name: Verify published 9.296 idle writer and ledger before NAV split
-        id: gas9297_gate
-        if: env.GAS_9297_NAV_TWO_STAGE == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9297_RELEASE_APPROVAL == 'true')
-        env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue734-gas9297-release-readonly.mjs pre
-      # Historical 9.287-9.292 manual release gates are no longer selectable.
-      - name: Verify existing 9.293 owner, 39/39 Snapshot and idle Gate before 9.294
-        id: gas9294_gate
-        if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_9294_RELEASE_APPROVAL == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue734-gas9294-predeploy-readonly.mjs
-      - name: Verify published 9.294 idle writer, ledger v2 and no pending recovery for 9.295
-        id: gas9295_gate
-        # Preview must prove the SAME safe state as an approved real deploy.
-        # A failed read-only gate must fail the run, never be hidden as green.
-        if: env.GAS_9295_PRICE_MASTER_REUSE == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9295_RELEASE_APPROVAL == 'true') && env.GAS_FIRST_GATE_PHASE == 'none'
-        env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue734-gas9295-release-readonly.mjs pre
+        if: env.GAS_9300_INTEGRATED == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9300_RELEASE_APPROVAL == 'true')
+        run: node scripts/gas9298-release-readonly.mjs pre 9.300
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         env:
-          GAS_9294_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9294_gate.outputs.verified || 'false' }}
-          GAS_9295_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9295_gate.outputs.verified || 'false' }}
-          GAS_9296_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9296_gate.outputs.verified || 'false' }}
-          GAS_9297_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9297_gate.outputs.verified || 'false' }}
-          GAS_9298_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9298_gate.outputs.verified || 'false' }}
           GAS_9300_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9298_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
-      - name: Verify real published 9.294 Gate and trade ledger (read-only)
-        if: env.GAS_9294_CLOSE_OWNER_NAV == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue734-gas9294-postdeploy-readonly.mjs
-      - name: Verify published 9.295 writer Gate and trade ledger (read-only)
-        if: env.GAS_9295_PRICE_MASTER_REUSE == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue734-gas9295-release-readonly.mjs post
-      - name: Verify published 9.297 NAV release and exact trade ledger (read-only)
-        if: env.GAS_9297_NAV_TWO_STAGE == 'true' && env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
-        env:
-          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
-          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-        run: node scripts/issue734-gas9297-release-readonly.mjs post
       - name: Verify NH financial income live sample (no token issuance)
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && ((env.GAS_9298_NH_FINANCIAL_INCOME == 'true' && env.GAS_9298_RELEASE_APPROVAL == 'true') || (env.GAS_9300_INTEGRATED == 'true' && env.GAS_9300_RELEASE_APPROVAL == 'true'))
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_9300_INTEGRATED == 'true' && env.GAS_9300_RELEASE_APPROVAL == 'true'
         env:
-          NH_FINANCE_EXPECTED_VERSION: ${{ env.GAS_9300_INTEGRATED == 'true' && '9.300' || '9.298' }}
+          NH_FINANCE_EXPECTED_VERSION: '9.300'
         run: node scripts/nh-financial-income-readback.mjs
       - name: Activate NH current prices after real GAS deployment
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none' && env.GAS_9298_NH_FINANCIAL_INCOME != 'true' && env.GAS_9300_INTEGRATED != 'true'
