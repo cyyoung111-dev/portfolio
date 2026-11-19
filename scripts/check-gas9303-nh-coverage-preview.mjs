@@ -3,12 +3,21 @@ import vm from 'node:vm';
 import {composeGas9302NhStatusPreview} from './compose-gas9302-nh-status-preview.mjs';
 import {composeGas9303NhCoveragePreview} from './compose-gas9303-nh-coverage-preview.mjs';
 import {assessNhFinancialCoverage} from './nh-financial-income-coverage-readback.mjs';
-import {assertGasReleaseReady,extractExpectedGasVersion} from './deploy-gas.mjs';
+import {assertGasReleaseReady,extractExpectedGasVersion,assertIssue507ManualReleasePermission,assertGas9303Prerequisites} from './deploy-gas.mjs';
 const {parent,candidate,extension,manifest}=composeGas9303NhCoveragePreview();
 new vm.Script(candidate);
 assert.equal(extractExpectedGasVersion(candidate),'9.303');
 assert.equal(assertGasReleaseReady(parent),'9.302');
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION: 9\.303/);
+assert.equal(manifest.candidateGitBlob,'fb0810c39f332d739214d31fbfe3876713a40c80');
+assert.equal(assertGasReleaseReady(candidate),'9.303');
+assert.throws(()=>assertGasReleaseReady(candidate+'\n// drift'),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+for(const eventName of ['push','workflow_run','workflow_dispatch'])
+ assert.throws(()=>assertIssue507ManualReleasePermission({version:'9.303',eventName,approved9303:eventName!=='workflow_dispatch'}),/GAS_9303_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.303',eventName:'workflow_dispatch',approved9303:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.303',eventName:'workflow_dispatch',dryRun:true}));
+for(const [publishedVersion,liveIdleVerified] of [['9.301',true],['9.303',true],['9.302',false]])
+ assert.throws(()=>assertGas9303Prerequisites({version:'9.303',publishedVersion,liveIdleVerified}),/GAS_9303_/);
+assert.doesNotThrow(()=>assertGas9303Prerequisites({version:'9.303',publishedVersion:'9.302',liveIdleVerified:true}));
 assert.equal(candidate.replace(extension,composeGas9302NhStatusPreview().extension).replace(/9\.303/g,'9.302'),parent);
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.doesNotMatch(extension,/\b(?:_nhAccessToken_|_nhForgetToken_)\s*\(|SpreadsheetApp|\.setProperty\s*\(/);
