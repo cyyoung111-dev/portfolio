@@ -110,7 +110,7 @@ assert.equal(inputs.dry_run.default,true);
 assert.equal(inputs.candidate_version.default,'9.300');
 assert.equal(inputs.approve_9294.default,false);
 assert.equal(inputs.approve_9295.default,false);
-assert.deepEqual(inputs.candidate_version.options,['9.294','9.295','9.296','9.297','9.298']);
+assert.deepEqual(inputs.candidate_version.options,['9.294','9.295','9.296','9.297','9.298','9.300']);
 assert.equal(wf.jobs.deploy.environment,'portfolio-production-gas');
 assert.equal(wf.jobs.deploy['concurrency']['cancel-in-progress'],false);
 const env=wf.jobs.deploy.env;
