@@ -151,8 +151,8 @@ assert.equal(job.concurrency.group,'gas-production-deploy');
 const preStep=job.steps.find(s=>s.id==='finance_preflight');
 const dryStep=job.steps.find(s=>s.name==='GAS 9.298 dry-run only (no production code write)');
 assert(preStep&&dryStep);
-assert.equal(preStep.if,"github.event_name == 'push' || inputs.verify_9298 == true");
-assert.equal(dryStep.if,preStep.if);
+assert.equal(preStep.if,"github.event_name == 'push' || inputs.verify_9298 == true || inputs.verify_9300 == true");
+assert.equal(dryStep.if,"github.event_name == 'workflow_dispatch' && inputs.verify_9298 == true");
 assert.equal(mainStep.if,preStep.if);
 assert.equal(job.steps[0].with.ref,'${{ github.sha }}');
 assert.equal(job.steps[0].with['persist-credentials'],false);
@@ -171,6 +171,6 @@ console.log('PASS: protected current-main 9.298 dry-run, bounded operator reruns
  assert.match(preflightSource,/reportBlockedAutomation:row=>console\.log\(JSON\.stringify\(row\)\)/);
  assert.match(preflightSource,/expectedVersion,reportBlockedAutomation/);
  assert.match(deploySource,/if\(expectedVersion==='9\.298'\)\{\s*const integrityReadback=await verifyGas9298ReleaseReadOnly\(\{url,token:accessToken,mode:'post'\}\)/);
- assert.equal((deploySource.match(/await verifyGas9298ReleaseReadOnly\(/g)||[]).length,1);
+ assert.equal((deploySource.match(/await verifyGas9298ReleaseReadOnly\(/g)||[]).length,2);
 }
 console.log('PASS: 9.298 blocker evidence wired and existing in-deploy post-readback preserved');
