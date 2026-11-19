@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {composeGas9301NhDiagnosticPreview} from './compose-gas9301-nh-diagnostic-preview.mjs';
 import {assessNhFinancialIncomeReadback} from './nh-financial-income-readback.mjs';
-import {assertGasReleaseReady,extractExpectedGasVersion} from './deploy-gas.mjs';
+import fs from 'node:fs';
+import YAML from 'yaml';
+import {assertGasReleaseReady,extractExpectedGasVersion,assertIssue507ManualReleasePermission,assertGas9301Prerequisites} from './deploy-gas.mjs';
 const {parent,candidate,extension,manifest}=composeGas9301NhDiagnosticPreview();
 new vm.Script(candidate);
 assert(candidate.includes(extension));
@@ -10,7 +12,19 @@ assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(extractExpectedGasVersion(candidate),'9.301');
 assert.equal(assertGasReleaseReady(parent),'9.300');
 assert.match(candidate,/gasVersion:'9\.301'/);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION: 9\.301/);
+assert.equal(manifest.candidateGitBlob,'d82ddb8fdf5893c61129ee533217de3c7637717a');
+assert.equal(assertGasReleaseReady(candidate),'9.301');
+assert.throws(()=>assertGasReleaseReady(candidate+'\n// drift'),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+// The only executable delta apart from version literals is the diagnostic handler.
+const original=fs.readFileSync('scripts/nh-financial-income-readonly-proposal.gs','utf8').replace("gasVersion: '9.298'","gasVersion: '9.300'");
+assert.equal(candidate.replace(extension,original).replace(/9\.301/g,'9.300'),parent);
+for(const eventName of ['push','workflow_run','workflow_dispatch'])
+ assert.throws(()=>assertIssue507ManualReleasePermission({version:'9.301',eventName,approved9301:eventName!=='workflow_dispatch'}),/GAS_9301_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.301',eventName:'workflow_dispatch',approved9301:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.301',eventName:'workflow_dispatch',dryRun:true}));
+for(const [publishedVersion,liveIdleVerified] of [['9.297',true],['9.301',true],['9.300',false]])
+ assert.throws(()=>assertGas9301Prerequisites({version:'9.301',publishedVersion,liveIdleVerified}),/GAS_9301_/);
+assert.doesNotThrow(()=>assertGas9301Prerequisites({version:'9.301',publishedVersion:'9.300',liveIdleVerified:true}));
 assert.doesNotMatch(extension,/\b(?:_nhAccessToken_|_nhForgetToken_)\s*\(|SpreadsheetApp|\.setProperty\s*\(/);
 const token='FAKE_PRIVATE_TOKEN',id='12345678901',marker='PRIVATE_UPSTREAM_CONTENT';
 function run(page){
@@ -58,3 +72,27 @@ assert.equal(assessNhFinancialIncomeReadback(empty,'9.301').contractStatus,'NO_S
 console.log('PASS: 9.301 preview preserves pinned 9.300, safe NH rejection categories, no retry, no production approval, no annual zero inference');
 
 console.log('GAS9301_SOURCE_PREVIEW '+JSON.stringify(manifest));
+
+const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
+const inputs=wf.on.workflow_dispatch.inputs;
+assert.deepEqual(Object.keys(inputs).sort(),['approve_9301','candidate_version','dry_run']);
+assert.deepEqual(inputs.candidate_version.options,['9.301']);
+assert.equal(inputs.candidate_version.default,'9.301');
+assert.equal(inputs.approve_9301.default,false);assert.equal(inputs.dry_run.default,true);
+const job=wf.jobs.deploy,steps=job.steps,pre=steps.find(s=>s.id==='gas9301_gate'),dep=steps.find(s=>s.name==='Deploy GAS');
+const dryInv=steps.find(s=>s.name==='Require clean full GAS deployment inventory on 9.301 dry-run');
+const liveInv=steps.find(s=>s.name==='Require clean full GAS deployment inventory before real deploy');
+const probe=steps.find(s=>s.name==='Verify NH financial income live sample (no token issuance)');
+assert(pre&&dep&&dryInv&&liveInv&&probe);
+assert.equal(pre.run,'node scripts/gas9298-release-readonly.mjs pre 9.301');
+assert.equal(dryInv.run,liveInv.run);assert.equal(dryInv['continue-on-error'],undefined);
+assert.match(dryInv.if,/GAS_9301_NH_DIAGNOSTIC == 'true'/);assert.match(dryInv.if,/GAS_DEPLOY_DRY_RUN == 'true'/);
+assert(steps.indexOf(dryInv)<steps.indexOf(pre)&&steps.indexOf(liveInv)<steps.indexOf(pre)&&steps.indexOf(pre)<steps.indexOf(dep)&&steps.indexOf(dep)<steps.indexOf(probe));
+assert.equal(pre['continue-on-error'],undefined);
+assert.match(pre.if,/GAS_9301_RELEASE_APPROVAL == 'true'/);assert.match(pre.if,/GAS_DEPLOY_DRY_RUN == 'true'/);
+assert.match(dep.env.GAS_9301_LIVE_PREFLIGHT_VERIFIED,/gas9301_gate/);
+assert.match(job.env.GAS_9301_RELEASE_APPROVAL,/workflow_dispatch.*inputs\.approve_9301/);
+assert.equal(probe.env.NH_FINANCE_EXPECTED_VERSION,'9.301');
+assert.match(probe.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
+assert.match(steps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9301_NH_DIAGNOSTIC != 'true'/);
+console.log('PASS: pinned 9.301 source and exact 9.300 predecessor, explicit approval, ordered live/dry-run read-only checks');

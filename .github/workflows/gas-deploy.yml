@@ -28,11 +28,11 @@ on:
       candidate_version:
         description: '현재 릴리스 후보 · 이전 버전 선택 불가'
         required: true
-        default: '9.300'
+        default: '9.301'
         type: choice
-        options: ['9.300']
-      approve_9300:
-        description: '9.300 펀드 마감·NH 진단·세제 동기화 통합 운영 배포 승인'
+        options: ['9.301']
+      approve_9301:
+        description: '9.301 NH 금융소득 진단 운영 배포 승인'
         required: true
         default: false
         type: boolean
@@ -122,8 +122,10 @@ jobs:
       GAS_9297_RELEASE_APPROVAL: 'false'
       GAS_9298_NH_FINANCIAL_INCOME: 'false'
       GAS_9298_RELEASE_APPROVAL: 'false'
-      GAS_9300_INTEGRATED: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.300' && 'true' || 'false' }}
-      GAS_9300_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.300' && inputs.approve_9300 && 'true' || 'false' }}
+      GAS_9300_INTEGRATED: 'false'
+      GAS_9300_RELEASE_APPROVAL: 'false'
+      GAS_9301_NH_DIAGNOSTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.301' && 'true' || 'false' }}
+      GAS_9301_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.301' && inputs.approve_9301 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -146,25 +148,25 @@ jobs:
       - name: Require clean full GAS deployment inventory before real deploy
         if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Require clean full GAS deployment inventory on 9.300 dry-run
-        if: env.GAS_9300_INTEGRATED == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
+      - name: Require clean full GAS deployment inventory on 9.301 dry-run
+        if: env.GAS_9301_NH_DIAGNOSTIC == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
         run: node scripts/issue507-deployment-inventory-readonly.mjs
-      - name: Verify published 9.297 idle writer and exact ledger before integrated release
-        id: gas9298_gate
-        if: env.GAS_9300_INTEGRATED == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9300_RELEASE_APPROVAL == 'true')
-        run: node scripts/gas9298-release-readonly.mjs pre 9.300
+      - name: Verify published 9.300 idle writer and exact ledger before NH diagnostic release
+        id: gas9301_gate
+        if: env.GAS_9301_NH_DIAGNOSTIC == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9301_RELEASE_APPROVAL == 'true')
+        run: node scripts/gas9298-release-readonly.mjs pre 9.301
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         env:
-          GAS_9300_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9298_gate.outputs.verified || 'false' }}
+          GAS_9301_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9301_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
       - name: Verify NH financial income live sample (no token issuance)
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_9300_INTEGRATED == 'true' && env.GAS_9300_RELEASE_APPROVAL == 'true'
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_9301_NH_DIAGNOSTIC == 'true' && env.GAS_9301_RELEASE_APPROVAL == 'true'
         env:
-          NH_FINANCE_EXPECTED_VERSION: '9.300'
+          NH_FINANCE_EXPECTED_VERSION: '9.301'
         run: node scripts/nh-financial-income-readback.mjs
       - name: Activate NH current prices after real GAS deployment
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none' && env.GAS_9298_NH_FINANCIAL_INCOME != 'true' && env.GAS_9300_INTEGRATED != 'true'
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none' && env.GAS_9298_NH_FINANCIAL_INCOME != 'true' && env.GAS_9301_NH_DIAGNOSTIC != 'true'
         env:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}

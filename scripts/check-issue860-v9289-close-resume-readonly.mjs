@@ -79,7 +79,7 @@ await assert.rejects(()=>resumeClose({url,token,readOnly:false,
 assert.equal(gasCalls,0,'modern versions without explicit 11/12 approval must never reach a financial writer');
 console.log('PASS v9.289 read-only persisted CLOSE; no PRICE/NAV replay, no preview, no GAS writes; manual deploy gate required');
 
-for(const v of ['9.294','9.295','9.296','9.297','9.298','9.300']){
+for(const v of ['9.294','9.295','9.296','9.297','9.298','9.300','9.301']){
  const close={state:'COMPLETE',stage:'COMPLETE',runDate:'2026-11-18',
    priceOk:true,fundOk:true,fundState:'DONE',fundAttemptDate:'2026-11-18',
    fundErrorCode:'NONE',fundErrorPresent:false,fundWarningPresent:true};

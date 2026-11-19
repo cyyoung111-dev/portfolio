@@ -390,7 +390,7 @@ assert.match(workflow,/name: Activate NH current prices after real GAS deploymen
 
 // Future GAS releases must not fail the activation step solely due to a
 // pinned 9.282 string; old, malformed and cross-version replies fail closed.
-for(const [version,allowed] of [['9.282',true],['9.282',true],['9.300',true],
+for(const [version,allowed] of [['9.282',true],['9.282',true],['9.300',true],['9.301',true],
   ['9.280',false],['9.0280',false],['10.0',false],['9.282-rc1',false],['',false],[null,false]])
   assert.equal(isCompatibleNhGasVersion(version),allowed,String(version));
 const versionRequest=(settingsVersion,masterVersion=settingsVersion,active=true)=>async(_url,options)=>{
