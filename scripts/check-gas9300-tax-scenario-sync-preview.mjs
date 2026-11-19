@@ -52,6 +52,11 @@ function device(version='9.300'){
 }
 const old=device('9.297');assert.equal(old.ctx._getDivOtherIncome(2026),100);assert.equal(await old.ctx._readDivTaxRemote(2026),false);
 assert.equal(requests.length,0);
+const updated=device('9.301');
+updated.ctx.requestGsheetFormJson=async(action,p)=>({...call(action,p),gasVersion:'9.301'});
+assert.equal(await updated.ctx._readDivTaxRemote(2026),true);
+assert.equal(updated.ctx._getDivOtherIncome(2026),null);
+assert.equal(await device('9.302').ctx._readDivTaxRemote(2026),false);
 const pc=device(),mobile=device();
 assert.equal(await pc.ctx._readDivTaxRemote(2026),true);assert.equal(pc.ctx._getDivOtherIncome(2026),null,'clear tombstone overrides local device draft');
 assert.equal(await pc.ctx._readDivTaxRemote(2028),true);assert.equal(pc.ctx._getDivOtherIncome(2028),50,'unregistered server year retains local value');
@@ -157,26 +162,10 @@ console.log('PASS: routine fund close uses both stored-only providers; exact NAV
  const sample={status:'ok',gasVersion:'9.300',provider:'NH',readOnly:true,diagnosticOnly:true,tokenIssued:false,bearerExposed:false,financialOriginalWritten:false,financialTaxClassificationVerified:false,accountTaxTypeVerified:false,fullYearCoverage:false,accountListVerified:true,ownLiveAccounts:1,otherAccountsSkipped:0,accountsProbed:1,accountsSucceeded:1,accountsRejected:0,rows:1,continuationPresent:0,validDatedRows:1,interestFieldRows:1,positiveInterestFieldRows:1,taxFieldRows:1,krwRows:1,nonKrwOrMissingCurrencyRows:0,descriptionPresentRows:1,stopped:'NONE'};
  const nh=assessNhFinancialIncomeReadback(sample,'9.300');assert.equal(nh.contractStatus,'FIELDS_OBSERVED');assert.equal(nh.annualIncomeVerified,false);
  const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
- const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
- assert.equal(inputs.approve_9300.default,false);assert.equal(inputs.dry_run.default,true);assert.equal(inputs.candidate_version.default,'9.300');
- const steps=wf.jobs.deploy.steps,pre=steps.find(s=>s.id==='gas9298_gate'),deploy=steps.find(s=>s.name==='Deploy GAS');
- const dryInventory=steps.find(s=>s.name==='Require clean full GAS deployment inventory on 9.300 dry-run');
- const liveInventory=steps.find(s=>s.name==='Require clean full GAS deployment inventory before real deploy');
- assert(dryInventory&&liveInventory&&pre&&deploy);
- assert.equal(dryInventory.run,liveInventory.run);
- assert.equal(dryInventory['continue-on-error'],undefined);
- assert.match(dryInventory.if,/GAS_9300_INTEGRATED == 'true'/);
- assert.match(dryInventory.if,/GAS_DEPLOY_DRY_RUN == 'true'/);
- assert(steps.indexOf(dryInventory)<steps.indexOf(pre)&&steps.indexOf(liveInventory)<steps.indexOf(pre));
- assert.equal(pre.run,'node scripts/gas9298-release-readonly.mjs pre 9.300');
- assert(steps.indexOf(pre)<steps.indexOf(deploy));assert.match(pre.if,/GAS_9300_INTEGRATED/);assert.match(deploy.env.GAS_9300_LIVE_PREFLIGHT_VERIFIED,/gas9298_gate/);assert.equal(pre['continue-on-error'],undefined);
- assert.match(wf.jobs.deploy.env.GAS_9300_RELEASE_APPROVAL,/workflow_dispatch.*inputs\.approve_9300/);
- assert.match(steps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9300_INTEGRATED != 'true'/);
- const inv=YAML.parse(fs.readFileSync('.github/workflows/gas-production-inventory-readonly.yml','utf8'));
- const oneShot=inv.on??inv.true;assert.equal(oneShot.schedule,undefined);
- const dry=inv.jobs.inspect.steps.find(s=>s.name==='GAS 9.300 integrated dry-run only (no production code write)');
- assert.equal(dry.env.GAS_DEPLOY_DRY_RUN,'true');assert.equal(dry.env.GAS_9300_RELEASE_APPROVAL,'false');assert.match(dry.env.GAS_9300_LIVE_PREFLIGHT_VERIFIED,/finance_preflight/);
- assert.equal(oneShot.workflow_dispatch.inputs.verify_9300.default,false);
- assert(inv.jobs.inspect.steps.some(s=>s.name==='Reject ambiguous manual release selection'&&s.run==='exit 1'));
+ const inputs=wf.on.workflow_dispatch.inputs;
+ assert.equal(Object.hasOwn(inputs,'approve_9300'),false);
+ assert(!inputs.candidate_version.options.includes('9.300'));
+ assert.equal(wf.jobs.deploy.env.GAS_9300_INTEGRATED,'false');
+ assert.equal(wf.jobs.deploy.env.GAS_9300_RELEASE_APPROVAL,'false');
  console.log('PASS: integrated 9.300 immutable source, direct 9.297 preflight, exact post-readback, NAV/NH compatibility, no automatic deployment');
 }
