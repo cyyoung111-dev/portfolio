@@ -6,9 +6,9 @@ import {assertGas9297ReadOnlyProof} from './issue734-gas9297-release-readonly.mj
 import {probeTradeHash} from './issue734-trade-v2-hash-readonly.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 export async function readGas9298ReleaseProof({readState,readHash,readVersionGate,mode='pre',candidateVersion='9.298',delay=ms=>new Promise(r=>setTimeout(r,ms))}={}){
- if(!['pre','post'].includes(mode)||!['9.298','9.300'].includes(candidateVersion)||typeof readState!=='function'||typeof readHash!=='function')
+ if(!['pre','post'].includes(mode)||!['9.298','9.300','9.301'].includes(candidateVersion)||typeof readState!=='function'||typeof readHash!=='function')
   throw Error('GAS9298_PROOF_CONTRACT_INVALID');
- const version=mode==='pre'?'9.297':candidateVersion;
+ const version=mode==='pre'?(candidateVersion==='9.301'?'9.300':'9.297'):candidateVersion;
  const retryable=new Set(['GAS9295_READONLY_NETWORK_UNVERIFIED','AUTOMATION_DIAG_NETWORK_FAILED','READBACK_NETWORK_UNVERIFIED']);
  if(mode==='post')retryable.add('GAS9295_READONLY_VERSION_MISMATCH');
  for(let attempt=1;attempt<=3;attempt++){
@@ -32,7 +32,7 @@ export async function readGas9298ReleaseProof({readState,readHash,readVersionGat
     assertReleaseVersionGateAfterHash(gate,version);
     ledgerVersionEvidence='VERSIONED_GATE_AFTER_HASH';
    }else if(hash.gasVersion!==version)throw Error('GAS9298_LEDGER_INTEGRITY_UNVERIFIED');
-   return {...proof,ledgerVersionEvidence,kind:candidateVersion==='9.300'?'GAS9300_RELEASE_READONLY':'GAS9298_RELEASE_READONLY',mode,readbackAttempts:attempt};
+   return {...proof,ledgerVersionEvidence,kind:candidateVersion==='9.301'?'GAS9301_RELEASE_READONLY':candidateVersion==='9.300'?'GAS9300_RELEASE_READONLY':'GAS9298_RELEASE_READONLY',mode,readbackAttempts:attempt};
   }catch(e){
    if(!retryable.has(e?.message)||attempt===3)throw e;
    await delay(3000*attempt);
@@ -41,7 +41,7 @@ export async function readGas9298ReleaseProof({readState,readHash,readVersionGat
 }
 export function assertReleaseVersionGateAfterHash(response,expectedVersion){
  const g=response?.writerGate;
- if(!['9.297','9.298','9.300'].includes(expectedVersion)||response?.status!=='ok'
+ if(!['9.297','9.298','9.300','9.301'].includes(expectedVersion)||response?.status!=='ok'
   ||response.gasVersion!==expectedVersion||g?.mode!=='OPEN'||g.activeCount!==0
   ||g.repairAuthorized!==false||g.timeoutRetirementCandidates!==0
   ||!Array.isArray(g.activeOwners)||g.activeOwners.length!==0)

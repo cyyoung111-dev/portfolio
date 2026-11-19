@@ -2,13 +2,8 @@ name: GAS production deployment inventory (read-only)
 on:
   workflow_dispatch:
     inputs:
-      verify_9298:
-        description: '9.298 이전 후보 읽기 전용 사전검증 (실제 배포 없음)'
-        type: boolean
-        required: true
-        default: false
-      verify_9300:
-        description: '9.300 통합 후보 읽기 전용 사전검증 (실제 배포 없음)'
+      verify_9301:
+        description: '9.301 NH 진단 후보 읽기 전용 사전검증 (실제 배포 없음)'
         type: boolean
         required: true
         default: false
@@ -43,11 +38,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Reject ambiguous manual release selection
-        if: inputs.verify_9298 == true && inputs.verify_9300 == true
-        run: exit 1
       - name: Verify current main before release preflight or rerun
-        if: github.event_name == 'push' || inputs.verify_9298 == true || inputs.verify_9300 == true
+        if: github.event_name == 'push' || inputs.verify_9301 == true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -56,29 +48,18 @@ jobs:
       - name: Inspect all GAS deployments (GET only, no deployment or finance writes)
         run: node scripts/issue507-deployment-inventory-readonly.mjs
 
-      - name: Verify published 9.297 ledger and idle Writer Gate (read only)
+      - name: Verify published 9.300 ledger and idle Writer Gate (read only)
         id: finance_preflight
-        if: github.event_name == 'push' || inputs.verify_9298 == true || inputs.verify_9300 == true
+        if: github.event_name == 'push' || inputs.verify_9301 == true
         # Emit sanitized blocker evidence; the versionless trade response also needs a versioned idle gate read after hash reconciliation.
-        run: node scripts/gas9298-release-readonly.mjs pre ${{ (github.event_name == 'push' || inputs.verify_9300 == true) && '9.300' || '9.298' }}
-      - name: GAS 9.298 dry-run only (no production code write)
-        if: github.event_name == 'workflow_dispatch' && inputs.verify_9298 == true
+        run: node scripts/gas9298-release-readonly.mjs pre 9.301
+      - name: GAS 9.301 NH diagnostic dry-run only (no production code write)
+        if: github.event_name == 'push' || inputs.verify_9301 == true
         env:
           GAS_DEPLOY_DRY_RUN: 'true'
-          GAS_9298_NH_FINANCIAL_INCOME: 'true'
-          GAS_9298_RELEASE_APPROVAL: 'false'
-          GAS_9298_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
-          GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/deploy-gas.mjs
-
-      - name: GAS 9.300 integrated dry-run only (no production code write)
-        if: github.event_name == 'push' || inputs.verify_9300 == true
-        env:
-          GAS_DEPLOY_DRY_RUN: 'true'
-          GAS_9300_INTEGRATED: 'true'
-          GAS_9300_RELEASE_APPROVAL: 'false'
-          GAS_9300_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
+          GAS_9301_NH_DIAGNOSTIC: 'true'
+          GAS_9301_RELEASE_APPROVAL: 'false'
+          GAS_9301_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
           GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/deploy-gas.mjs
