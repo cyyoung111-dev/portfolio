@@ -39,13 +39,21 @@ export async function readGas9298ReleaseProof({readState,readHash,readVersionGat
   }
  }
 }
+// Distinguish sanitized blocker classes without printing private gate owners,
+// response bodies, version strings supplied by the server or credentials.
+// Every mismatch still blocks; active writers and version mismatch never retry.
+const gateFail=reason=>{throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED_'+reason);};
 export function assertReleaseVersionGateAfterHash(response,expectedVersion){
  const g=response?.writerGate;
- if(!['9.297','9.298','9.300','9.301'].includes(expectedVersion)||response?.status!=='ok'
-  ||response.gasVersion!==expectedVersion||g?.mode!=='OPEN'||g.activeCount!==0
-  ||g.repairAuthorized!==false||g.timeoutRetirementCandidates!==0
-  ||!Array.isArray(g.activeOwners)||g.activeOwners.length!==0)
-  throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED');
+ if(!['9.297','9.298','9.300','9.301'].includes(expectedVersion))gateFail('EXPECTED_VERSION');
+ if(response?.status!=='ok')gateFail('RESPONSE_STATUS');
+ if(response.gasVersion!==expectedVersion)gateFail('VERSION_MISMATCH');
+ if(g?.mode!=='OPEN')gateFail('MODE');
+ if(!Number.isSafeInteger(g.activeCount)||g.activeCount<0||g.activeCount>24)gateFail('ACTIVE_COUNT_INVALID');
+ if(g.activeCount!==0)gateFail('ACTIVE_WRITER');
+ if(g.repairAuthorized!==false)gateFail('REPAIR_STATE');
+ if(g.timeoutRetirementCandidates!==0)gateFail('RETIREMENT_STATE');
+ if(!Array.isArray(g.activeOwners)||g.activeOwners.length!==0)gateFail('OWNER_STATE');
 }
 export async function readReleaseVersionGate({url,token,fetchImpl=fetch}={}){
  const endpoint=new URL(validateWebAppUrl(url));
@@ -55,8 +63,11 @@ export async function readReleaseVersionGate({url,token,fetchImpl=fetch}={}){
  let response;
  try{response=await fetchImpl(endpoint.toString(),{method:'GET',redirect:'follow',signal:AbortSignal.timeout(30000)})}
  catch{throw Error('GAS9295_READONLY_NETWORK_UNVERIFIED')}
- if(response?.ok!==true)throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED');
- try{return await response.json()}catch{throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED')}
+ if(response?.ok!==true){
+  const code=response?.status;
+  gateFail(code===401||code===403?'HTTP_AUTH':code===429?'HTTP_RATE_LIMIT':[502,503,504].includes(code)?'HTTP_GATEWAY':'HTTP_OTHER');
+ }
+ try{return await response.json()}catch{gateFail('JSON')}
 }
 export async function verifyGas9298ReleaseReadOnly({url,token,mode='pre',candidateVersion='9.298',fetchImpl=fetch,reportBlockedAutomation=()=>{}}={}){
  return readGas9298ReleaseProof({mode,candidateVersion,
