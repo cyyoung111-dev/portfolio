@@ -27,7 +27,7 @@ export function summarizeReleaseAutomationBlocker(status,expectedVersion) {
   ok:bool(v.ok),deferred:bool(v.deferred),remaining:count(v.remaining),
   failureClass:pick(v.failureClass,['DETAIL_NOT_EXPOSED','SAVED_SNAPSHOT_DATE_INVALID','SAVED_SNAPSHOT_INTEGRITY_FAILED','SAVED_KRX_OR_SNAPSHOT_PROOF_FAILED','CLOSE_RECONCILIATION_FAILED','BACKUP_SAFETY_FAILED','PRICE_WRITE_NOT_CONFIRMED','KRX_PRICE_SOURCE_OR_COVERAGE','SNAPSHOT_SAVE_OR_PROOF','LEASE_OR_WRITER_CONFLICT','FUND_OR_NAV_PRECONDITION','OTHER_UNCLASSIFIED'])
  }:null;
- return {kind:'GAS_RELEASE_AUTOMATION_BLOCKER_READONLY',version:pick(expectedVersion,['9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302']),
+ return {kind:'GAS_RELEASE_AUTOMATION_BLOCKER_READONLY',version:pick(expectedVersion,['9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303']),
   overallStatus:pick(status?.overallStatus,['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN']),
   closeState:pick(c.state,['COMPLETE','INCOMPLETE','ERROR','NEVER_RUN']),
   closeStage:pick(c.stage,['PRICE','FUND','FUND_PENDING','COMPLETE','ERROR']),
@@ -51,7 +51,7 @@ export function summarizeReleaseAutomationBlocker(status,expectedVersion) {
 }
 export function assessGas9295ReleaseState({ledger,gate,status,
  expectedVersion='9.294',requireIdle=true,reportBlockedAutomation=()=>{}}={}){
- if(!['9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302'].includes(expectedVersion))fail('EXPECTED_VERSION_INVALID');
+ if(!['9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303'].includes(expectedVersion))fail('EXPECTED_VERSION_INVALID');
  if(gate?.status!=='ok'||gate.gasVersion!==expectedVersion
   ||status?.gasVersion!==expectedVersion)fail('VERSION_MISMATCH');
  if(ledger?.status!=='ok'||ledger.tradeLedgerProtocolVersion!==2

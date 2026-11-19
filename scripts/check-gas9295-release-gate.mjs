@@ -104,10 +104,10 @@ await assert.rejects(verifyGas9295PostdeployWithRetry({
 
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
-assert.deepEqual(Object.keys(inputs).sort(),['approve_9302','candidate_version','dry_run']);
+assert.deepEqual(Object.keys(inputs).sort(),['approve_9303','candidate_version','dry_run']);
 assert.equal(inputs.dry_run.default,true);
-assert.equal(inputs.candidate_version.default,'9.302');
-assert.deepEqual(inputs.candidate_version.options,['9.302']);
+assert.equal(inputs.candidate_version.default,'9.303');
+assert.deepEqual(inputs.candidate_version.options,['9.303']);
 assert.equal(wf.jobs.deploy.environment,'portfolio-production-gas');
 assert.equal(wf.jobs.deploy.concurrency['cancel-in-progress'],false);
 const env=wf.jobs.deploy.env;
