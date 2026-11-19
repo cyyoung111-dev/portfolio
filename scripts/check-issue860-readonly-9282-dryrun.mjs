@@ -144,7 +144,8 @@ try {
   Object.assign(process.env,saved);
 }
 
-const workflow=YAML.parse(fs.readFileSync('.github/workflows/issue860-readonly-9282-dryrun.yml','utf8'));
+assert.equal(fs.existsSync('.github/workflows/issue860-readonly-9282-dryrun.yml'),false,'retired workflow must not be executable');
+const workflow=YAML.parse(fs.readFileSync('docs/archive/workflows/issue860-readonly-9282-dryrun.yml','utf8'));
 assert.deepEqual(Object.keys(workflow.on),['workflow_dispatch','push']);
 assert.deepEqual(workflow.on.push,{branches:['main'],paths:[
  '.github/workflows/issue860-readonly-9282-dryrun.yml',

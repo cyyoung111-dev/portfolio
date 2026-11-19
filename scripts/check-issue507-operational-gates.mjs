@@ -129,8 +129,10 @@ assert.ok(protectedWorkflowNames.includes('issue860-recent-snapshot-backup-reado
   'one-time recent backup owner inventory must use protected GAS Environment');
 assert.ok(protectedWorkflowNames.includes('nh-master-registered-readonly.yml'),
   'new domestic registered NH sample workflow must require protected production Environment');
-assert.ok(protectedWorkflowNames.includes('issue860-readonly-9282-dryrun.yml'),
-  'integrated v9.282 read-only dry-run must retain protected production Environment');
+assert.ok(!protectedWorkflowNames.includes('issue860-readonly-9282-dryrun.yml'),
+  'retired legacy dry-run must not consume production credentials');
+assert.ok(protectedWorkflowNames.includes('gas-production-inventory-readonly.yml'),
+  'current release inventory must retain protected production Environment');
 assert.ok(protectedWorkflowNames.includes('probe-standalone-performance-gas-20261103.yml'),
   'isolated GAS live probe must require protected Environment');
 const weeklyTelemetry=YAML.parse(fs.readFileSync(new URL(
@@ -319,7 +321,9 @@ for(const retired of [
  'issue-507-writer-ledger-provenance-contract.yml',
  // Expired post-merge audit targets two Oct 31 commits; hard 14-day gate.
  // It cannot be manually executed on/after Nov 15, 2026.
- 'issue507-postmerge-actions-readonly.yml'
+ 'issue507-postmerge-actions-readonly.yml',
+ 'issue860-readonly-9282-dryrun.yml',
+ 'nh-live-close-20261030.yml'
 ]){
  assert.equal(fs.existsSync(new URL(retired,dir)),false,
   'retired one-shot workflow unexpectedly returned: '+retired);
@@ -347,11 +351,15 @@ for(const script of [
  'scripts/check-issue507-snapshot-date-scoped.mjs',
  'scripts/check-issue507-writer-ledger-provenance.mjs',
  // Synthetic job-attempt audit remains in required CI after stale wrapper removal.
- 'scripts/check-issue507-postmerge-actions.mjs'
+ 'scripts/check-issue507-postmerge-actions.mjs',
+ 'scripts/check-issue860-readonly-9282-dryrun.mjs'
 ]){
  assert.ok(requiredCI.includes('node '+script),
   'retired workflow safety test must still be executed by required CI: '+script);
 }
+const ciScripts=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8')).scripts;
+assert.ok(requiredCI.includes('npm run check:nh-live-close'));
+assert.equal(ciScripts['check:nh-live-close'],'node scripts/check-nh-live-close-20261030.mjs');
 assert.ok(fs.existsSync(new URL('issue734-process-scope-audit-readonly.yml',dir)),
  'active protected OAuth scope audit must remain');
 assert.ok(fs.existsSync(new URL('issue-507-worker-execution-audit.yml',dir)),
