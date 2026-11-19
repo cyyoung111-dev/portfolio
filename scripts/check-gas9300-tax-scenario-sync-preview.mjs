@@ -92,6 +92,8 @@ console.log('PASS: failed tax scenario reload preserves unsaved input; successfu
  for(const name of ['handleCollectKbFundNav','handleRefreshFundValuations','_fetchMissingFundNavBatches','_refreshFundValuations','_fundDailyValues','_fundNavExpectedPublicationDate','_runPortfolioFundWithLease_','runDeferredFundAfterPortfolioCloseFailure']){
   assert.equal(block(candidate,name).replaceAll('9.300','VERSION'),block(parent,name).replaceAll('9.299','VERSION'));
  }
+ const daily=block(candidate,'runDailyFundValuations');
+ for(const stage of ['VALUATION_START','VALUATION_DONE'])assert(daily.includes("issue860FundMark('"+stage+"')"));
  const date='2026-11-18',store=new Map(),calls=[];
  const props={getProperty:k=>store.get(k)??null,setProperty:(k,v)=>store.set(k,v),deleteProperty:k=>store.delete(k)};
  let fixture={fundResults:{F00001:{status:'partial',inputRequiredDates:[date]},F00002:{status:'ok'}},snapshotWarnings:[],missingHoldings:[],continuation:false};

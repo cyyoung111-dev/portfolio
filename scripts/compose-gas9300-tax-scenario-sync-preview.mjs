@@ -10,9 +10,13 @@ export function composeGas9300TaxScenarioSyncPreview(){
  assert.equal(blob(parent),PIN,'TAX_SCENARIO_SYNC_UNREVIEWED_PARENT');
  let candidate=once(parent,"  if (params.action === 'diagnoseNhFinancialIncome') return handleDiagnoseNhFinancialIncome(params);",
   "  if (params.action === 'diagnoseNhFinancialIncome') return handleDiagnoseNhFinancialIncome(params);\n  if (params.action === 'getFinancialTaxScenario') return handleFinancialTaxScenarioSync(params,false);\n  if (params.action === 'saveFinancialTaxScenario') return handleFinancialTaxScenarioSync(params,true);");
+ // Change only the existing call; keep the 9.290 stage instrumentation.
  candidate=once(candidate,
-  '    // KB NAV is collected by the bounded GitHub worker; do not repeat its HTTP fetch in GAS.\n    // The existing stored-NAV carry/missing-publication rules remain authoritative.\n    var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate, undefined, false, recoveryDiagnostic || null, 1, {FUNETF:true});',
-  '    // The two exact-class collectors own external NAV collection. Daily CLOSE\n    // consumes stored official NAV only; no external HTTP in its writer lease.\n    // Keep the 32-day local reconciliation and the existing carry/pending flags.\n    var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate, undefined, false, recoveryDiagnostic || null, 1, {FUNETF:true,HANWHA:true});');
+  '    var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate, undefined, false, recoveryDiagnostic || null, 1, {FUNETF:true});',
+  '    var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate, undefined, false, recoveryDiagnostic || null, 1, {FUNETF:true,HANWHA:true});');
+ candidate=once(candidate,
+  '    // KB NAV is collected by the bounded GitHub worker; do not repeat its HTTP fetch in GAS.',
+  '    // Both exact-class NAV collectors own external fetching; CLOSE uses stored NAV only.');
  candidate=once(candidate,'//  📊 포트폴리오 대시보드 — Google Apps Script  v9.299','//  📊 포트폴리오 대시보드 — Google Apps Script  v9.300');
  assert(candidate.split("gasVersion: '9.299'").length>=6);
  candidate=candidate.replaceAll("gasVersion: '9.299'","gasVersion: '9.300'");
