@@ -1,0 +1,40 @@
+name: High dividend published candidate audit (read-only)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/high-dividend-published-audit-readonly.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: portfolio-production-gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify exact current main
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node --input-type=module -e 'import {assertCurrentMainRelease} from "./scripts/gas-release-gate.mjs"; await assertCurrentMainRelease({sha:process.env.GITHUB_SHA,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN})'
+      - name: Read published public catalog (no new collection or publication)
+        uses: actions/checkout@v7
+        with:
+          ref: high-dividend-companies
+          path: published-kind
+          persist-credentials: false
+      - name: Compare published candidate codes and historical portfolio (read only)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/audit-high-dividend-published.mjs
