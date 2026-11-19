@@ -10,8 +10,9 @@ const counts=['ownLiveAccounts','otherAccountsSkipped','accountsProbed','account
  'positiveInterestFieldRows','taxFieldRows','krwRows','nonKrwOrMissingCurrencyRows','descriptionPresentRows'];
 const goodInt=(n,max=1000000)=>Number.isSafeInteger(n)&&n>=0&&n<=max;
 const stopCodes=new Set(['NONE','ACCOUNT_LIMIT','TOKEN_EXPIRES','HTTP_401','HTTP_403','HTTP_429']);
+const rejectCodes=['TOKEN_EXPIRES','HTTP_401','HTTP_403','HTTP_429','HTTP_OTHER','NETWORK_UNVERIFIED','INVALID_JSON','SUCCESS_MESSAGE_UNVERIFIED','OUTPUT_MISSING','OUTPUT_INVALID'];
 export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
- if(!['9.298','9.300'].includes(expectedVersion))fail('VERSION_OR_PROVIDER');
+ if(!['9.298','9.300','9.301'].includes(expectedVersion))fail('VERSION_OR_PROVIDER');
  if(data?.status!=='ok')fail('PROVIDER_UNVERIFIED');
  if(data.gasVersion!==expectedVersion||data.provider!=='NH')fail('VERSION_OR_PROVIDER');
  if(data.readOnly!==true||data.diagnosticOnly!==true||data.tokenIssued!==false
@@ -29,6 +30,17 @@ export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
     ||(!d.accountsSucceeded&&d.rows)
     ||(d.stopped==='NONE'&&d.accountsProbed!==d.ownLiveAccounts)
     ||(d.stopped==='ACCOUNT_LIMIT'&&(d.ownLiveAccounts<=12||d.accountsProbed!==12)))fail('INCONSISTENT');
+ let rejectReasons;
+ if(expectedVersion==='9.301'){
+  const reasons=d.rejectReasons;
+  if(!reasons||typeof reasons!=='object'||Array.isArray(reasons)||Object.keys(reasons).length!==rejectCodes.length
+   ||!rejectCodes.every(k=>Object.hasOwn(reasons,k)&&goodInt(reasons[k]))
+   ||rejectCodes.reduce((sum,k)=>sum+reasons[k],0)!==d.accountsRejected)fail('REJECT_REASONS');
+  for(const k of ['TOKEN_EXPIRES','HTTP_401','HTTP_403','HTTP_429']){
+   if(reasons[k]!==Number(d.stopped===k))fail('REJECT_STOP_INCONSISTENT');
+  }
+  rejectReasons=Object.fromEntries(rejectCodes.map(k=>[k,reasons[k]]));
+ }
  const contractStatus=d.stopped!=='NONE'||d.accountsRejected>0?'PARTIAL_ACCOUNT_SAMPLE'
    :!d.ownLiveAccounts?'NO_SELF_OWNED_ACCOUNTS'
    :!d.rows?'NO_SAMPLE_ROWS'
@@ -37,6 +49,7 @@ export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
    :'FIELDS_OBSERVED';
  return {kind:'NH_FINANCIAL_INCOME_READONLY',gasVersion:expectedVersion,contractStatus,
    ...Object.fromEntries(counts.map(k=>[k,d[k]])),stopped:d.stopped,
+   ...(rejectReasons?{rejectReasons}:{}),
    sampleHasContinuation:d.continuationPresent>0,fullYearCoverage:false,
    financialTaxClassificationVerified:false,accountTaxTypeVerified:false,
    annualIncomeVerified:false,financeWrites:0,tokenIssued:false};

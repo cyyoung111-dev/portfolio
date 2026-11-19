@@ -16,3 +16,7 @@
 ## 11/19 10:12 KST 통합 사전검증 실패 원인
 - Run 44434983652: inventory pass, strict state check 및 기존 9.297 원장 proof(physical/API/PC hash 및 행수/ID) 통과 이후 추가 `GAS9298_LEDGER_INTEGRITY_UNVERIFIED`. 실제 getTrades v2 소스의 14열 응답은 gasVersion이 없고 jsonOk도 이를 삽입하지 않는다. 실제 로그에는 실패 조건별 값이 없으므로 다른 추가 조건 실패 여부까지 단정하지 않는다.
 - 원장/API/PC 해시, 행수, ID, pending/active 검증은 그대로. getTrades 버전 미제공 시 별도 인증된 versioned Writer Gate를 hash 대사 뒤 한 번 더 조회하여 정확한 expected version과 OPEN/idle/timeout retirement 0/recovery unauthorized를 확인한다. 명시 버전 불일치, hash 불일치, 누락 ID는 기존대로 차단. 후보 소스 pin/승인 불변; 기존 inventory one-shot 재사용. 실운영 dry-run으로 검증 필요.
+
+## 11/19 11:25 KST 실제 배포 및 NH 표본 실패
+- Run [44443624597](https://github.com/cyyoung111-dev/portfolio/actions/runs/44443624597): 9.300 (Apps Script 356) 웹앱 검증 성공, 원장 338건 physical/API/PC hash 일치, active/pending/deferred=0. 배포 단계 성공. 후속 NH 표본만 exit 2: 본인 운영계좌 1, 제외 3, 조회 성공 0/실패 1, stopped=NONE. 연간 0원 또는 배포 실패로 해석하지 않는다. 실제 거절 원인은 기존 코드가 HTTP_OTHER/INVALID_JSON/RESPONSE_UNVERIFIED를 반환하지 않아 미확정.
+- NH 공식 공통 명세의 종합거래내역 요청 7필드는 기존 값과 일치. 계좌 조회 후 오류 종류를 구분하는 9.301 미승인 소스 후보를 준비한다. 원본 9.300 pin/운영 배포/스케줄/토큰 정책 불변. HTTP, 통신, JSON, 응답메시지, 블록 누락/타입을 고정 집계로 구분하되 원문/계좌번호/금액 미출력, 재조회 없음. 누락 블록은 0건으로 해석하지 않음. 실제 9.301 배포 및 실조회는 별도 승인/검증 대상.
