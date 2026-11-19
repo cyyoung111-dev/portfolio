@@ -12,7 +12,7 @@ const goodInt=(n,max=1000000)=>Number.isSafeInteger(n)&&n>=0&&n<=max;
 const stopCodes=new Set(['NONE','ACCOUNT_LIMIT','TOKEN_EXPIRES','HTTP_401','HTTP_403','HTTP_429']);
 const rejectCodes=['TOKEN_EXPIRES','HTTP_401','HTTP_403','HTTP_429','HTTP_OTHER','NETWORK_UNVERIFIED','INVALID_JSON','SUCCESS_MESSAGE_UNVERIFIED','OUTPUT_MISSING','OUTPUT_INVALID'];
 export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
- if(!['9.298','9.300','9.301'].includes(expectedVersion))fail('VERSION_OR_PROVIDER');
+ if(!['9.298','9.300','9.301','9.302'].includes(expectedVersion))fail('VERSION_OR_PROVIDER');
  if(data?.status!=='ok')fail('PROVIDER_UNVERIFIED');
  if(data.gasVersion!==expectedVersion||data.provider!=='NH')fail('VERSION_OR_PROVIDER');
  if(data.readOnly!==true||data.diagnosticOnly!==true||data.tokenIssued!==false
@@ -31,7 +31,7 @@ export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
     ||(d.stopped==='NONE'&&d.accountsProbed!==d.ownLiveAccounts)
     ||(d.stopped==='ACCOUNT_LIMIT'&&(d.ownLiveAccounts<=12||d.accountsProbed!==12)))fail('INCONSISTENT');
  let rejectReasons;
- if(expectedVersion==='9.301'){
+ if(['9.301','9.302'].includes(expectedVersion)){
   const reasons=d.rejectReasons;
   if(!reasons||typeof reasons!=='object'||Array.isArray(reasons)||Object.keys(reasons).length!==rejectCodes.length
    ||!rejectCodes.every(k=>Object.hasOwn(reasons,k)&&goodInt(reasons[k]))
@@ -40,6 +40,24 @@ export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
    if(reasons[k]!==Number(d.stopped===k))fail('REJECT_STOP_INCONSISTENT');
   }
   rejectReasons=Object.fromEntries(rejectCodes.map(k=>[k,reasons[k]]));
+ }
+ let statusEvidence;
+ if(expectedVersion==='9.302'){
+  const rows=d.statusEvidence;
+  if(!Array.isArray(rows)||rows.length>12||rows.length!==d.accountsSucceeded+rejectReasons.SUCCESS_MESSAGE_UNVERIFIED+rejectReasons.OUTPUT_MISSING+rejectReasons.OUTPUT_INVALID)fail('STATUS_EVIDENCE');
+  const expected={success:d.accountsSucceeded,message:rejectReasons.SUCCESS_MESSAGE_UNVERIFIED,missing:rejectReasons.OUTPUT_MISSING,invalid:rejectReasons.OUTPUT_INVALID};
+  const observed={success:0,message:0,missing:0,invalid:0};
+  statusEvidence=Array.from(rows,r=>{
+   if(!r||typeof r!=='object'||Array.isArray(r)||Object.keys(r).sort().join(',')!=='code,envelope,messageClass,outputClass'
+    ||typeof r.code!=='string'||!/^(?:[0-9]{5}|IGW[0-9]{5}|ABSENT|UNRECOGNIZED|CONFLICT)$/.test(r.code)
+    ||!['TOP','NESTED','BOTH','ABSENT'].includes(r.envelope)
+    ||!['COMPLETE','NO_DATA_REPORTED','OTHER','ABSENT','CONFLICT'].includes(r.messageClass)
+    ||!['MISSING','INVALID','NONEMPTY_ARRAY','EMPTY_ARRAY'].includes(r.outputClass))fail('STATUS_EVIDENCE');
+   const outcome=r.messageClass!=='COMPLETE'||!/^[0-9]{5}$/.test(r.code)?'message':r.outputClass==='MISSING'?'missing':r.outputClass==='INVALID'?'invalid':'success';
+   observed[outcome]++;
+   return {code:r.code,envelope:r.envelope,messageClass:r.messageClass,outputClass:r.outputClass};
+  });
+  if(Object.keys(expected).some(k=>expected[k]!==observed[k]))fail('STATUS_EVIDENCE_COUNTS');
  }
  const contractStatus=d.stopped!=='NONE'||d.accountsRejected>0?'PARTIAL_ACCOUNT_SAMPLE'
    :!d.ownLiveAccounts?'NO_SELF_OWNED_ACCOUNTS'
@@ -50,6 +68,7 @@ export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
  return {kind:'NH_FINANCIAL_INCOME_READONLY',gasVersion:expectedVersion,contractStatus,
    ...Object.fromEntries(counts.map(k=>[k,d[k]])),stopped:d.stopped,
    ...(rejectReasons?{rejectReasons}:{}),
+   ...(statusEvidence?{statusEvidence}:{}),
    sampleHasContinuation:d.continuationPresent>0,fullYearCoverage:false,
    financialTaxClassificationVerified:false,accountTaxTypeVerified:false,
    annualIncomeVerified:false,financeWrites:0,tokenIssued:false};
