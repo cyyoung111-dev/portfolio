@@ -207,5 +207,28 @@ console.log('PASS: 9.298 blocker evidence wired and existing in-deploy post-read
   return {ok:true,json:async()=>gate('9.297')};
  }});
  assert.doesNotThrow(()=>assertReleaseVersionGateAfterHash(read,'9.297'));
+ const gate9300=gate('9.300'),g=gate9300.writerGate;
+ for(const [response,reason] of [
+  [{status:'error',message:'PRIVATE_RAW_RESPONSE'},'RESPONSE_STATUS'],
+  [{...gate9300,gasVersion:'PRIVATE_VERSION'},'VERSION_MISMATCH'],
+  [{...gate9300,writerGate:{...g,mode:'DRAINING'}},'MODE'],
+  [{...gate9300,writerGate:{...g,activeCount:null}},'ACTIVE_COUNT_INVALID'],
+  [{...gate9300,writerGate:{...g,activeCount:1,activeOwners:[{owner:'PRIVATE_OWNER'}]}},'ACTIVE_WRITER'],
+  [{...gate9300,writerGate:{...g,repairAuthorized:true}},'REPAIR_STATE'],
+  [{...gate9300,writerGate:{...g,timeoutRetirementCandidates:1}},'RETIREMENT_STATE'],
+  [{...gate9300,writerGate:{...g,activeOwners:[{owner:'PRIVATE_OWNER'}]}},'OWNER_STATE']
+ ]){
+  let reads=0;
+  await assert.rejects(()=>readGas9298ReleaseProof({candidateVersion:'9.301',readState:async v=>state(v),readHash,
+   readVersionGate:async()=>{reads++;return response;},delay:async()=>assert.fail('gate mismatch cannot retry')}),
+   e=>e.message==='GAS9298_LEDGER_VERSION_UNVERIFIED_'+reason);
+  assert.equal(reads,1);
+ }
+ for(const [status,reason] of [[401,'HTTP_AUTH'],[403,'HTTP_AUTH'],[429,'HTTP_RATE_LIMIT'],[502,'HTTP_GATEWAY'],[500,'HTTP_OTHER']]){
+  await assert.rejects(()=>readReleaseVersionGate({url:'https://script.google.com/macros/s/TEST_READ_ONLY/exec',token:'FAKE_GAS_ACCESS_TOKEN',
+   fetchImpl:async()=>({ok:false,status})}),e=>e.message==='GAS9298_LEDGER_VERSION_UNVERIFIED_'+reason);
+ }
+ await assert.rejects(()=>readReleaseVersionGate({url:'https://script.google.com/macros/s/TEST_READ_ONLY/exec',token:'FAKE_GAS_ACCESS_TOKEN',
+  fetchImpl:async()=>({ok:true,json:async()=>{throw Error('PRIVATE_RAW_RESPONSE')}})}),/LEDGER_VERSION_UNVERIFIED_JSON/);
 }
 console.log('PASS: versionless trade response uses independent exact version and idle gate after full ledger hash/ID proof; mismatch still blocks');
