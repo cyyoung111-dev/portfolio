@@ -78,3 +78,27 @@ await assert.rejects(()=>resumeClose({url,token,readOnly:false,
  fetchImpl,statusReader:read('9.293')}),/ISSUE734_ONCE_EXPLICIT_MANUAL_APPROVAL_REQUIRED/);
 assert.equal(gasCalls,0,'modern versions without explicit 11/12 approval must never reach a financial writer');
 console.log('PASS v9.289 read-only persisted CLOSE; no PRICE/NAV replay, no preview, no GAS writes; manual deploy gate required');
+
+for(const v of ['9.294','9.295','9.296','9.297','9.298']){
+ const close={state:'COMPLETE',stage:'COMPLETE',runDate:'2026-11-18',
+   priceOk:true,fundOk:true,fundState:'DONE',fundAttemptDate:'2026-11-18',
+   fundErrorCode:'NONE',fundErrorPresent:false,fundWarningPresent:true};
+ for(const [patch,want,marker] of [
+  [{},'PERSISTED_CLOSE_MARKER_COMPLETE_FUND_WARNING_RECHECK_REQUIRED',true],
+  [{fundWarningPresent:false},'PERSISTED_CLOSE_MARKER_COMPLETE_INDEPENDENT_PROOF_REQUIRED',true],
+  [{fundState:'TIMEOUT_SUSPECTED'},'BLOCKED_PERSISTED_CLOSE_INCOMPLETE',false],
+  [{fundAttemptDate:'2026-11-17'},'BLOCKED_PERSISTED_CLOSE_INCOMPLETE',false],
+  [{fundErrorCode:'TIMEOUT'},'BLOCKED_PERSISTED_CLOSE_INCOMPLETE',false],
+  [{state:'ERROR',fundOk:false},'BLOCKED_PERSISTED_CLOSE_INCOMPLETE',false]
+ ]){
+  let reads=0;
+  const got=await resumeClose({url,token,readOnly:true,fetchImpl,
+   statusReader:async()=>{reads++;return {gasVersion:v,close:{...close,...patch}}}});
+  assert.equal(reads,1);assert.equal(got.preflightState,want);assert.equal(got.closeMarkerComplete,marker);
+  assert.equal(got.complete,false);assert.equal(got.priceReplayAllowed,false);assert.equal(got.navReplayAllowed,false);
+ }
+ await assert.rejects(()=>resumeClose({url,token,readOnly:false,fetchImpl,statusReader:read(v)}),/RESUME_VERSION/);
+}
+await assert.rejects(()=>resumeClose({url,token,readOnly:true,fetchImpl,statusReader:read('9.299')}),/RESUME_VERSION/);
+assert.equal(gasCalls,0);
+console.log('PASS: exact 9.294–9.298 read-only close marker, fund warning recheck separate, no preview/apply/replay');

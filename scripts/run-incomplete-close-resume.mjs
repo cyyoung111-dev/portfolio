@@ -33,15 +33,22 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  }
  // Modern releases have an immutable persisted close marker, not the
  // legacy resumeIncompletePortfolioClose preview/apply protocol. Status is
- // safe to inspect on 9.293; financial replay is NEVER admitted from here.
- if(readOnly&&['9.291','9.292','9.293'].includes(initial.gasVersion)){
+ // safe to inspect on the exact reviewed 9.291–9.298 releases;
+ // financial replay is NEVER admitted from this READ_ONLY branch.
+ if(readOnly&&['9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298'].includes(initial.gasVersion)){
   const close=initial.close||{};
+  const current=['9.294','9.295','9.296','9.297','9.298'].includes(initial.gasVersion);
   const matching=close.state==='COMPLETE'&&close.stage==='COMPLETE'
     &&close.priceOk===true&&close.fundOk===true
+    &&typeof close.runDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(close.runDate)
     &&close.runDate===close.fundAttemptDate
-    &&close.fundErrorPresent===false&&close.fundWarningPresent===false;
+    &&close.fundErrorPresent===false
+    &&(current?close.fundState==='DONE'&&close.fundErrorCode==='NONE':close.fundWarningPresent===false);
+  // A completed fund evaluation is not proof of official NAV publication.
+  // Preserve the raw warning and require source/derived-row verification.
   const preflightState=matching
-    ?'PERSISTED_CLOSE_MARKER_COMPLETE_INDEPENDENT_PROOF_REQUIRED'
+    ?(close.fundWarningPresent===false?'PERSISTED_CLOSE_MARKER_COMPLETE_INDEPENDENT_PROOF_REQUIRED'
+      :'PERSISTED_CLOSE_MARKER_COMPLETE_FUND_WARNING_RECHECK_REQUIRED')
     :'BLOCKED_PERSISTED_CLOSE_INCOMPLETE';
   emit({phase:'MODERN_CLOSE_READ_ONLY_STATUS',requestState:'CHECKED',
     version:initial.gasVersion,preflightState,
