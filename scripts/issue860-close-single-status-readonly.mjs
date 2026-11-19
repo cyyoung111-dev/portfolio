@@ -69,7 +69,7 @@ export async function readIssue860Once({url,token,fetchImpl=fetch}={}){
  catch{throw Error('ISSUE860_STATUS_JSON');}
  const a=payload?.automation;
  if(payload?.status!=='ok'||!a||typeof a!=='object'
-    ||!['9.284','9.287','9.288','9.289','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303'].includes(payload.gasVersion)
+    ||!['9.284','9.287','9.288','9.289','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303','9.304'].includes(payload.gasVersion)
     ||a.gasVersion!==payload.gasVersion)
   throw Error('ISSUE860_STATUS_VERSION_OR_SCHEMA');
  let close,checkpoint;
