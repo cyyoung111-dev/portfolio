@@ -1,0 +1,7 @@
+# 2026-11-19 펀드 마감 프로세스 실운영 재점검
+
+- 11/18 19:35 주식 PRICE 39행 완료. 19:43·19:53·20:03 독립 FUND 시작 후 완료 미기록. 11/19 00:27 BACKFILL_OK 39행, 00:32 FUND 시작, 00:34 FUND_DEFERRED_DONE(운영 동기화로그 조회). 실제 9.297 야간 상태 08:30 KST [44421174949](https://github.com/cyyoung111-dev/portfolio/actions/runs/44421174949) CLOSE COMPLETE / FUND DONE / 가격·Snapshot 11/18 일치 / pending 0. 내부 타임아웃 발생 지점 미확정, 9.299 범위 저장 후보는 미배포.
+- 20:35 독립 fallback [44295983517](https://github.com/cyyoung111-dev/portfolio/actions/runs/44295983517) 정상 기동 및 [44296005939](https://github.com/cyyoung111-dev/portfolio/actions/runs/44296005939) 양 펀드 11/17 확정 NAV·파생 readback 일치. 11/18 당일 공표는 확인 대상에서 제외됨(COMPLETED_DAYS_ONLY); 이 결과로 11/18 확정 NAV를 저장했다고 판정하지 않음.
+- 정규 18:10·19:17 일정의 실제 익일 03:00·03:51 기동 [44364879592](https://github.com/cyyoung111-dev/portfolio/actions/runs/44364879592) / [44374237114](https://github.com/cyyoung111-dev/portfolio/actions/runs/44374237114): STALE_OR_WRONG_DAY_SCHEDULE, private GAS 호출 0. fallback 정상 완료를 확인했으므로 지연 회차를 재시도하거나 시간창을 넓히지 않음.
+- 09:25 KST 원본 확인: 최신 확정 NAV는 양 펀드 11/17. 11/18 확정 NAV 및 파생행은 당일 오전 정규 수집 및 10:20 독립 보완 결과로 별도 검증. 23:10 역사 백필 RUNNING 미종결 기록은 00:30 SUCCEEDED와 구분하여 보존; 실제 process 종료 증거 없이 삭제·성공 승격하지 않음.
+- 발견된 진단 결함: 기존 read-only resumeClose는 실제 운영 9.297에서 RESUME_VERSION으로 중단. exact 9.294~9.298 읽기 전용만 허용하고 완료 marker와 NAV 경고를 분리; 기존 replay/apply 금지, 금융 원본 쓰기 0, 신규 스케줄/워크플로 없음. CI와 운영 진단 결과는 별도 확인 필요.
