@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {composeGas9302NhStatusPreview} from './compose-gas9302-nh-status-preview.mjs';
+import {composeGas9303NhCoveragePreview} from './compose-gas9303-nh-coverage-preview.mjs';
+import {assessNhFinancialCoverage} from './nh-financial-income-coverage-readback.mjs';
+import {assertGasReleaseReady,extractExpectedGasVersion} from './deploy-gas.mjs';
+const {parent,candidate,extension,manifest}=composeGas9303NhCoveragePreview();
+new vm.Script(candidate);
+assert.equal(extractExpectedGasVersion(candidate),'9.303');
+assert.equal(assertGasReleaseReady(parent),'9.302');
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION: 9\.303/);
+assert.equal(candidate.replace(extension,composeGas9302NhStatusPreview().extension).replace(/9\.303/g,'9.302'),parent);
+assert.equal(manifest.productionDeploymentApproved,false);
+assert.doesNotMatch(extension,/\b(?:_nhAccessToken_|_nhForgetToken_)\s*\(|SpreadsheetApp|\.setProperty\s*\(/);
+const token='FAKE_PRIVATE_TOKEN',id='12345678901',marker='PRIVATE_UPSTREAM_CONTENT';
+const noData={rsp_cd:'13578',rsp_msg:'조회된 내역이 없습니다.',Output_0:[]};
+const ok=(rows=[])=>({rsp_cd:'00166',rsp_msg:'조회가 완료되었습니다.',Output_0:rows});
+function run(responder=()=>({body:noData}),count=1){
+ const calls=[];
+ class FixedDate extends Date{constructor(...a){super(...(a.length?a:['2026-11-19T03:00:00Z']));}static now(){return Date.parse('2026-11-19T03:00:00Z');}}
+ const ctx=vm.createContext({Date:FixedDate,_nhProxyAuthenticated_:()=>true,_nhCredentials_:()=>({key:'k',secret:'s'}),_nhEnabled_:()=>true,
+ _nhTokenScope_:()=> 'SCOPE',_nhValidTokenRecord_:()=>({token,expiresAt:Date.parse('2026-11-19T15:00:00Z')}),
+ PropertiesService:{getScriptProperties:()=>({getProperty:()=> 'FAKE'})},
+ Utilities:{formatDate:d=>new Date(d.getTime()+9*3600000).toISOString().slice(0,10).replace(/-/g,''),sleep:()=>{}},
+ UrlFetchApp:{fetch(url,opt){
+  assert.equal(opt.headers.Authorization,'Bearer '+token);
+  const input=JSON.parse(opt.payload).Input_0;
+  if(url.endsWith('/n2/acctinfo')){
+    assert.equal(calls.length,0);calls.push({route:'ACCOUNT'});
+    return response({body:ok([...Array.from({length:count},(_,i)=>({acct_no:String(BigInt(id)+BigInt(i)),acct_type:'01'})),{acct_no:'99999999999',acct_type:'03'}])});
+  }
+  const route=url.endsWith('/totalTransaction')?'TOTAL':url.endsWith('/depositWithdrawal')?'DEPOSIT':'INVALID';
+  assert.notEqual(route,'INVALID');assert.equal(input.iqr_tp_cd,'2');
+  assert.equal(input.act_trd_dtl_cd,route==='TOTAL'?'00':'01');
+  if(route==='TOTAL'){assert.equal(input.iqr_rge_cd,'2');assert.equal(input.iem_llf_cd,'00');}
+  else{assert.equal(Object.hasOwn(input,'iqr_rge_cd'),false);assert.equal(Object.hasOwn(input,'iem_llf_cd'),false);}
+  calls.push({route,from:input.iqr_sta_dt,to:input.iqr_end_dt});
+  const page=responder({route,input},calls.length-1);if(page.network)throw Error(marker);return response(page);
+ }},jsonError:message=>({status:'error',message}),jsonOk:out=>({status:'ok',...out})});
+ function response({body,headers={},http=200,raw}){return {getResponseCode:()=>http,getContentText:()=>raw??JSON.stringify(body),getAllHeaders:()=>headers};}
+ vm.runInContext(extension,ctx);
+ const result=ctx.handleDiagnoseNhFinancialIncome({mode:'coverage'});
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE_UPSTREAM_CONTENT|FAKE_PRIVATE_TOKEN|12345678901/);
+ const p=assessNhFinancialCoverage(result,{asOf:'20261119'});
+ assert.equal(p.annualIncomeVerified,false);assert.equal(p.fullYearCoverage,false);
+ assert.equal(p.queryCount,calls.length-1);return {p,result,calls};
+}
+const empty=run();
+assert.equal(empty.p.contractStatus,'NO_ROWS_REPORTED_YEAR_TO_DATE');
+assert.equal(empty.p.noDataWindows,12);assert.equal(empty.p.accountsSampled,1);
+assert.deepEqual(empty.calls[1],{route:'TOTAL',from:'20261101',to:'20261119'});
+assert.deepEqual(empty.calls[11],{route:'TOTAL',from:'20260101',to:'20260131'});
+assert.deepEqual(empty.calls[12],{route:'DEPOSIT',from:'20261021',to:'20261119'});
+const historical=run(({route,input})=>({body:route==='TOTAL'&&input.iqr_sta_dt==='20260901'?ok([{trd_dt:'20260915',int_amt:10,tax_sum:1,sps_cd_krl_anm:marker}]):noData}));
+assert.equal(historical.p.contractStatus,'TOTAL_ROWS_OBSERVED');assert.equal(historical.p.queryCount,11);assert.equal(historical.p.interestFieldRows,1);
+const deposit=run(({route})=>({body:route==='DEPOSIT'?ok([{trd_dt:'20261101',trd_amt:1000,act_trd_tp_nm:marker}]):noData}));
+assert.equal(deposit.p.contractStatus,'DEPOSIT_ROWS_ONLY');assert.equal(deposit.p.depositRows,1);assert.equal(deposit.p.interestFieldRows,0);
+const continued=run((_p,i)=>i===1?{body:ok([]),headers:{cts:'PRIVATE_UPSTREAM_CONTENT'}}:{body:noData});
+assert.equal(continued.p.contractStatus,'CONTINUATION_UNVERIFIED');assert.equal(continued.p.queryCount,11);
+for(const [page,reason] of [[{body:noData,headers:{cts:'PRIVATE_UPSTREAM_CONTENT'}},'SUCCESS_MESSAGE_UNVERIFIED'],[{body:{...noData,Output_0:[{}]}},'SUCCESS_MESSAGE_UNVERIFIED'],[{body:{...noData,rsp_msg:'조회가 완료되었습니다.'}},'SUCCESS_MESSAGE_UNVERIFIED'],[{http:429},'HTTP_429'],[{network:true},'NETWORK_UNVERIFIED']]){
+ const got=run(()=>page);assert.equal(got.p.stopped,reason);assert.equal(got.p.queryCount,1);assert.equal(got.p.contractStatus,'PARTIAL_COVERAGE_SAMPLE');
+}
+const capped=run(()=>({body:noData}),2);
+assert.equal(capped.p.stopped,'QUERY_LIMIT');assert.equal(capped.p.queryCount,16);assert.equal(capped.p.accountsSampled,1);
+for(const patch of [{windows:[]},{accountsSampled:0},{windows:[{...empty.result.windows[0],from:'20261102'},...empty.result.windows.slice(1)]},{windows:[{...empty.result.windows[0],rows:1},...empty.result.windows.slice(1)]}]){
+ assert.throws(()=>assessNhFinancialCoverage({...empty.result,...patch}),/NH_FINANCE_COVERAGE_UNVERIFIED/);
+}
+console.log('PASS: 9.303 separately scoped monthly YTD and independent deposit evidence, no amount/annual inference, bounded calls and stop policy');
+console.log('GAS9303_SOURCE_PREVIEW '+JSON.stringify(manifest));
