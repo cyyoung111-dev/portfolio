@@ -2,8 +2,8 @@ name: GAS production deployment inventory (read-only)
 on:
   workflow_dispatch:
     inputs:
-      verify_9303:
-        description: '9.303 NH 진단 후보 읽기 전용 사전검증 (실제 배포 없음)'
+      verify_9304:
+        description: '9.304 NH 진단 후보 읽기 전용 사전검증 (실제 배포 없음)'
         type: boolean
         required: true
         default: false
@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: '24'
       - name: Verify current main before release preflight or rerun
-        if: github.event_name == 'push' || inputs.verify_9303 == true
+        if: github.event_name == 'push' || inputs.verify_9304 == true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -48,19 +48,19 @@ jobs:
       - name: Inspect all GAS deployments (GET only, no deployment or finance writes)
         run: node scripts/issue507-deployment-inventory-readonly.mjs
 
-      - name: Verify published 9.302 ledger and idle Writer Gate (read only)
+      - name: Verify published 9.303 ledger and idle Writer Gate (read only)
         id: finance_preflight
-        if: github.event_name == 'push' || inputs.verify_9303 == true
+        if: github.event_name == 'push' || inputs.verify_9304 == true
         # One bounded, full read-only recheck for a recent structured active writer; never retry a write or version mismatch.
         # Relevant preflight correction triggers this single read-only push verification.
-        run: node scripts/gas9298-release-readonly.mjs pre 9.303
-      - name: GAS 9.303 NH diagnostic dry-run only (no production code write)
-        if: github.event_name == 'push' || inputs.verify_9303 == true
+        run: node scripts/gas9298-release-readonly.mjs pre 9.304
+      - name: GAS 9.304 NH diagnostic dry-run only (no production code write)
+        if: github.event_name == 'push' || inputs.verify_9304 == true
         env:
           GAS_DEPLOY_DRY_RUN: 'true'
-          GAS_9303_NH_DIAGNOSTIC: 'true'
-          GAS_9303_RELEASE_APPROVAL: 'false'
-          GAS_9303_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
+          GAS_9304_NH_DIAGNOSTIC: 'true'
+          GAS_9304_RELEASE_APPROVAL: 'false'
+          GAS_9304_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
           GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/deploy-gas.mjs
