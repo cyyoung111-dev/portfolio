@@ -3,12 +3,21 @@ import vm from 'node:vm';
 import {composeGas9303NhCoveragePreview} from './compose-gas9303-nh-coverage-preview.mjs';
 import {composeGas9304NhContinuationPreview} from './compose-gas9304-nh-continuation-preview.mjs';
 import {assessNhFinancialCoverage} from './nh-financial-income-coverage-readback.mjs';
-import {assertGasReleaseReady,extractExpectedGasVersion,assertIssue507ManualReleasePermission,assertGas9303Prerequisites} from './deploy-gas.mjs';
+import {assertGasReleaseReady,extractExpectedGasVersion,assertIssue507ManualReleasePermission,assertGas9304Prerequisites} from './deploy-gas.mjs';
 const {parent,candidate,extension,manifest}=composeGas9304NhContinuationPreview();
 new vm.Script(candidate);
 assert.equal(extractExpectedGasVersion(candidate),'9.304');
 assert.equal(assertGasReleaseReady(parent),'9.303');
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION: 9\.304/);
+assert.equal(manifest.candidateGitBlob,'5b69d6b96f6ec26edc0772b561cc12125af4ebc3');
+assert.equal(assertGasReleaseReady(candidate),'9.304');
+assert.throws(()=>assertGasReleaseReady(candidate+'\n// drift'),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+for(const eventName of ['push','workflow_run','workflow_dispatch'])
+ assert.throws(()=>assertIssue507ManualReleasePermission({version:'9.304',eventName,approved9304:eventName!=='workflow_dispatch'}),/GAS_9304_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.304',eventName:'workflow_dispatch',approved9304:true}));
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.304',eventName:'workflow_dispatch',dryRun:true}));
+for(const [publishedVersion,liveIdleVerified] of [['9.302',true],['9.304',true],['9.303',false]])
+ assert.throws(()=>assertGas9304Prerequisites({version:'9.304',publishedVersion,liveIdleVerified}),/GAS_9304_/);
+assert.doesNotThrow(()=>assertGas9304Prerequisites({version:'9.304',publishedVersion:'9.303',liveIdleVerified:true}));
 assert.equal(candidate.replace(extension,composeGas9303NhCoveragePreview().extension).replace(/9\.304/g,'9.303'),parent);
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.doesNotMatch(extension,/\b(?:_nhAccessToken_|_nhForgetToken_)\s*\(|SpreadsheetApp|\.setProperty\s*\(/);

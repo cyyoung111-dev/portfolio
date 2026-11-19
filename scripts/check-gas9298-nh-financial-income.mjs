@@ -124,11 +124,11 @@ assert(!inputs.candidate_version.options.includes('9.298'));
 assert.equal(wf.jobs.deploy.env.GAS_9298_NH_FINANCIAL_INCOME,'false');
 assert.equal(wf.jobs.deploy.env.GAS_9298_RELEASE_APPROVAL,'false');
 const deploySteps=wf.jobs.deploy.steps;
-const pre=deploySteps.find(s=>s.id==='gas9303_gate'),dep=deploySteps.find(s=>s.name==='Deploy GAS');
+const pre=deploySteps.find(s=>s.id==='gas9304_gate'),dep=deploySteps.find(s=>s.name==='Deploy GAS');
 const probe=deploySteps.find(s=>s.name==='Verify NH financial income live sample (no token issuance)');
 assert(pre&&dep&&probe);
 assert.equal(pre['continue-on-error'],undefined);
-assert.match(dep.env.GAS_9303_LIVE_PREFLIGHT_VERIFIED,/gas9303_gate/);
+assert.match(dep.env.GAS_9304_LIVE_PREFLIGHT_VERIFIED,/gas9304_gate/);
 assert(deploySteps.indexOf(pre)<deploySteps.indexOf(dep)&&deploySteps.indexOf(dep)<deploySteps.indexOf(probe));
 assert.match(probe.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
 assert.match(deploySteps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9298_NH_FINANCIAL_INCOME != 'true'/);
@@ -140,8 +140,8 @@ assert.deepEqual(oneShotOn.push.branches,['main']);
 assert.deepEqual(oneShotOn.push.paths,['.github/workflows/gas-production-inventory-readonly.yml']);
 assert.equal(oneShotOn.schedule,undefined);
 assert.equal(job.if,"github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.run_attempt <= 3");
-assert.equal(oneShotOn.workflow_dispatch.inputs.verify_9303.default,false);
-assert.equal(oneShotOn.workflow_dispatch.inputs.verify_9303.type,'boolean');
+assert.equal(oneShotOn.workflow_dispatch.inputs.verify_9304.default,false);
+assert.equal(oneShotOn.workflow_dispatch.inputs.verify_9304.type,'boolean');
 const mainStep=job.steps.find(s=>s.name==='Verify current main before release preflight or rerun');
 assert(mainStep);
 assert.match(mainStep.run,/assertCurrentMainRelease/);
@@ -151,16 +151,16 @@ assert(job.steps.indexOf(mainStep)<job.steps.findIndex(s=>s.run?.includes('issue
 assert.equal(job.environment,'portfolio-production-gas');
 assert.equal(job.concurrency.group,'gas-production-deploy');
 const preStep=job.steps.find(s=>s.id==='finance_preflight');
-const dryStep=job.steps.find(s=>s.name==='GAS 9.303 NH diagnostic dry-run only (no production code write)');
+const dryStep=job.steps.find(s=>s.name==='GAS 9.304 NH diagnostic dry-run only (no production code write)');
 assert(preStep&&dryStep);
-assert.equal(preStep.if,"github.event_name == 'push' || inputs.verify_9303 == true");
-assert.equal(dryStep.if,"github.event_name == 'push' || inputs.verify_9303 == true");
+assert.equal(preStep.if,"github.event_name == 'push' || inputs.verify_9304 == true");
+assert.equal(dryStep.if,"github.event_name == 'push' || inputs.verify_9304 == true");
 assert.equal(mainStep.if,preStep.if);
 assert.equal(job.steps[0].with.ref,'${{ github.sha }}');
 assert.equal(job.steps[0].with['persist-credentials'],false);
 assert.equal(dryStep.env.GAS_DEPLOY_DRY_RUN,'true');
-assert.equal(dryStep.env.GAS_9303_RELEASE_APPROVAL,'false');
-assert.match(dryStep.env.GAS_9303_LIVE_PREFLIGHT_VERIFIED,/finance_preflight\.outputs\.verified/);
+assert.equal(dryStep.env.GAS_9304_RELEASE_APPROVAL,'false');
+assert.match(dryStep.env.GAS_9304_LIVE_PREFLIGHT_VERIFIED,/finance_preflight\.outputs\.verified/);
 assert.equal(dryStep.run,'node scripts/deploy-gas.mjs');
 assert.equal(preStep['continue-on-error'],undefined);
 assert(job.steps.findIndex(s=>s.run?.includes('issue507-deployment-inventory-readonly.mjs'))<job.steps.indexOf(preStep));
@@ -185,7 +185,7 @@ console.log('PASS: 9.298 blocker evidence wired and existing in-deploy post-read
  assert.doesNotMatch(jsonOk,/gasVersion\s*:/);
  const gate=version=>({status:'ok',gasVersion:version,writerGate:{mode:'OPEN',activeCount:0,activeOwners:[],repairAuthorized:false,timeoutRetirementCandidates:0}});
  const readState=async v=>state(v),readHash=async()=>hashes('UNSPECIFIED');
- for(const [mode,candidateVersion,version] of [['pre','9.298','9.297'],['post','9.298','9.298'],['pre','9.300','9.297'],['post','9.300','9.300'],['pre','9.301','9.300'],['post','9.301','9.301'],['pre','9.302','9.301'],['post','9.302','9.302'],['pre','9.303','9.302'],['post','9.303','9.303']]){
+ for(const [mode,candidateVersion,version] of [['pre','9.298','9.297'],['post','9.298','9.298'],['pre','9.300','9.297'],['post','9.300','9.300'],['pre','9.301','9.300'],['post','9.301','9.301'],['pre','9.302','9.301'],['post','9.302','9.302'],['pre','9.303','9.302'],['post','9.303','9.303'],['pre','9.304','9.303'],['post','9.304','9.304']]){
   let order=[];
   const result=await readGas9298ReleaseProof({mode,candidateVersion,
    readState:async v=>{order.push('state');assert.equal(v,version);return state(v)},
@@ -260,6 +260,13 @@ console.log('PASS: 9.298 blocker evidence wired and existing in-deploy post-read
  assert.deepEqual(recovered9303.order,['state','hash','gate','wait','state','hash','gate']);
  assert.deepEqual(recovered9303.waits,[45000]);
  assert.equal(recovered9303.reports[0].kind,'GAS9303_READONLY_WRITER_WAIT');
+ const busy9303={...busy,gasVersion:'9.303'};
+ const recovered9304=await recheck({candidateVersion:'9.304',gates:[busy9303,gate('9.303')]});
+ const result9304=await recovered9304.promise;
+ assert.equal(result9304.kind,'GAS9304_RELEASE_READONLY');assert.equal(result9304.version,'9.303');
+ assert.deepEqual(recovered9304.order,['state','hash','gate','wait','state','hash','gate']);
+ assert.deepEqual(recovered9304.waits,[45000]);
+ assert.equal(recovered9304.reports[0].kind,'GAS9304_READONLY_WRITER_WAIT');
  const stillBusy=await recheck({gates:[busy,busy]});
  await assert.rejects(stillBusy.promise,/LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER/);
  assert.deepEqual(stillBusy.waits,[45000]);

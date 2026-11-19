@@ -35,9 +35,9 @@ export async function resumeClose({url,token,fetchImpl=fetch,emit=()=>{},readOnl
  // legacy resumeIncompletePortfolioClose preview/apply protocol. Status is
  // safe to inspect on the exact reviewed 9.291–9.298 releases;
  // financial replay is NEVER admitted from this READ_ONLY branch.
- if(readOnly&&['9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303'].includes(initial.gasVersion)){
+ if(readOnly&&['9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303','9.304'].includes(initial.gasVersion)){
   const close=initial.close||{};
-  const current=['9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303'].includes(initial.gasVersion);
+  const current=['9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303','9.304'].includes(initial.gasVersion);
   const matching=close.state==='COMPLETE'&&close.stage==='COMPLETE'
     &&close.priceOk===true&&close.fundOk===true
     &&typeof close.runDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(close.runDate)
