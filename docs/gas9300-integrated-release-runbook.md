@@ -33,3 +33,8 @@
 - Run 44454073610: 최신 main/배포 인벤토리 통과, 9.300 원장 검증 뒤 versioned gate 재조회에서 `GAS9298_LEDGER_VERSION_UNVERIFIED`; 실제 배포 없음. 기존 단일 오류코드만으로 active writer/HTTP/응답·버전 불일치 등 정확한 원인은 확인 불가. 동시 실행의 영향도 확정하지 않음.
 - 독립 펀드 대사 44454073507: 11/18 CLOSE COMPLETE, 32일 과거 확정일 NAV 누락/기한초과 0, 11/19 KB NAV 공표대기. 추가 금융 원본 수정 없음.
 - 최종 gate 재확인의 검증 기준 유지, 실패 세부 유형만 노출(고정 코드). 운영 데이터/토큰/원문/owner 정보 로그 금지. gate 불일치 및 active writer 자동 재시도 금지. 동일 기존 inventory workflow로 수정 이후 1회 읽기전용 재확인; 신규 일정 없음. 실제 원인은 후속 증빙 필요.
+
+## 11/19 13:02 KST 승인된 9.301 배포가 활성 Writer로 차단됨
+- Run 44455134803: 수동 승인·CI·inventory 통과, 최종 gate에서 `GAS9298_LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER`. Deploy GAS 단계 미실행, 운영 9.300 유지. 정확한 writer 함수는 기존 로그에서 미확인.
+- 같은 승인된 실행 내에서 검증된 최근 활성 owner(6분 미만, terminal receipt/retirement 없음)만 45초 후 상태·원장 해시·ID·최종 gate 전체를 최대 1회 새로 확인. 조회 이전 증빙 재사용 금지. 여전히 active/불일치면 중단. 초기 상태/버전 불일치, 오류·미확인 상태, post-deploy/구버전에서는 이 추가 대기를 하지 않음. 실제 writer 재시도/강제 종료/잠금 해제/금융 원본 쓰기 없음. 로그는 고정된 함수 분류와 건수만 사용.
+- #1395 구버전 전용 9.282~9.285 검증 및 10/30 NH 단발 점검 퇴역, 감사 원본/회귀 테스트 보존. 현행 배포 UI 승인 및 후보 9.301 hash 불변. 보호된 기존 inventory로 한 번 읽기 전용 재검증.

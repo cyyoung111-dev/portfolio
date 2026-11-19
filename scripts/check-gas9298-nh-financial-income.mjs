@@ -224,6 +224,46 @@ console.log('PASS: 9.298 blocker evidence wired and existing in-deploy post-read
    e=>e.message==='GAS9298_LEDGER_VERSION_UNVERIFIED_'+reason);
   assert.equal(reads,1);
  }
+ // Recent, well-formed concurrent owners can delay ONE current preflight;
+ // all prior status/hash evidence is discarded and the full proof is repeated.
+ const busy={...gate9300,writerGate:{...g,activeCount:1,activeOwners:[
+  {functionName:'doPost',ageMinutes:0,terminalReceiptPresent:false,retirementEligible:false,startedKst:'PRIVATE_OWNER'}
+ ]}};
+ async function recheck({gates,mode='pre',candidateVersion='9.301',hashVersion='UNSPECIFIED',secondHash}={}){
+  const order=[],waits=[],reports=[];let hashReads=0,gateReads=0;
+  const promise=readGas9298ReleaseProof({mode,candidateVersion,
+   readState:async v=>{order.push('state');return state(v)},
+   readHash:async()=>{order.push('hash');hashReads++;return hashReads===2&&secondHash?secondHash:hashes(hashVersion)},
+   readVersionGate:async()=>{order.push('gate');return gates[Math.min(gateReads++,gates.length-1)]},
+   delay:async ms=>{order.push('wait');waits.push(ms)},
+   reportWriterWait:row=>reports.push(row)});
+  return {promise,order,waits,reports};
+ }
+ const recovered=await recheck({gates:[busy,gate9300]});
+ assert.equal((await recovered.promise).readbackAttempts,2);
+ assert.deepEqual(recovered.order,['state','hash','gate','wait','state','hash','gate']);
+ assert.deepEqual(recovered.waits,[45000]);assert.equal(recovered.reports.length,1);
+ assert.deepEqual(recovered.reports[0].writerClasses,['doPost']);
+ assert.equal(recovered.reports[0].financeWrites,0);
+ assert(!JSON.stringify(recovered.reports).includes('PRIVATE_OWNER'));
+ const stillBusy=await recheck({gates:[busy,busy]});
+ await assert.rejects(stillBusy.promise,/LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER/);
+ assert.deepEqual(stillBusy.waits,[45000]);
+ const moved=await recheck({gates:[busy,gate9300],secondHash:{...hashes('UNSPECIFIED'),status:'MISMATCH'}});
+ await assert.rejects(moved.promise,/FINANCIAL_INTEGRITY_UNVERIFIED/);
+ assert.deepEqual(moved.waits,[45000]);
+ const stale=await recheck({gates:[{...busy,writerGate:{...busy.writerGate,activeOwners:[{...busy.writerGate.activeOwners[0],ageMinutes:6}]}}]});
+ await assert.rejects(stale.promise,/LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER/);
+ assert.deepEqual(stale.waits,[]);
+ const retirement=await recheck({gates:[{...busy,writerGate:{...busy.writerGate,timeoutRetirementCandidates:1}}]});
+ await assert.rejects(retirement.promise,/LEDGER_VERSION_UNVERIFIED_RETIREMENT_STATE/);
+ assert.deepEqual(retirement.waits,[]);
+ const post=await recheck({mode:'post',gates:[{...busy,gasVersion:'9.301'}]});
+ await assert.rejects(post.promise,/LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER/);
+ assert.deepEqual(post.waits,[]);
+ const legacy=await recheck({candidateVersion:'9.300',gates:[{...busy,gasVersion:'9.297'}]});
+ await assert.rejects(legacy.promise,/LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER/);
+ assert.deepEqual(legacy.waits,[]);
  for(const [status,reason] of [[401,'HTTP_AUTH'],[403,'HTTP_AUTH'],[429,'HTTP_RATE_LIMIT'],[502,'HTTP_GATEWAY'],[500,'HTTP_OTHER']]){
   await assert.rejects(()=>readReleaseVersionGate({url:'https://script.google.com/macros/s/TEST_READ_ONLY/exec',token:'FAKE_GAS_ACCESS_TOKEN',
    fetchImpl:async()=>({ok:false,status})}),e=>e.message==='GAS9298_LEDGER_VERSION_UNVERIFIED_'+reason);

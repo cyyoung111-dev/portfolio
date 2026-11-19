@@ -51,7 +51,7 @@ jobs:
       - name: Verify published 9.300 ledger and idle Writer Gate (read only)
         id: finance_preflight
         if: github.event_name == 'push' || inputs.verify_9301 == true
-        # Report the exact sanitized post-hash gate blocker class; no retry on active writer/version mismatch.
+        # One bounded, full read-only recheck for a recent structured active writer; never retry a write or version mismatch.
         # Relevant preflight correction triggers this single read-only push verification.
         run: node scripts/gas9298-release-readonly.mjs pre 9.301
       - name: GAS 9.301 NH diagnostic dry-run only (no production code write)
