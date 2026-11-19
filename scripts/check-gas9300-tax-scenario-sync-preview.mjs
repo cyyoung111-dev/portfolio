@@ -85,3 +85,41 @@ console.log('GAS9300_TAX_SCENARIO_SYNC_PREVIEW '+JSON.stringify({...manifest,dev
  assert.equal(renders,1);assert.equal(field.value,'REPLACED');
 }
 console.log('PASS: failed tax scenario reload preserves unsaved input; successful explicit reload may replace it');
+
+{
+ // Exercise the actual composed daily entrypoint, not a second copy of its logic.
+ // External sources remain available in the unchanged explicit recovery path.
+ for(const name of ['handleCollectKbFundNav','handleRefreshFundValuations','_fetchMissingFundNavBatches','_refreshFundValuations','_fundDailyValues','_fundNavExpectedPublicationDate','_runPortfolioFundWithLease_','runDeferredFundAfterPortfolioCloseFailure']){
+  assert.equal(block(candidate,name).replaceAll('9.300','VERSION'),block(parent,name).replaceAll('9.299','VERSION'));
+ }
+ const date='2026-11-18',store=new Map(),calls=[];
+ const props={getProperty:k=>store.get(k)??null,setProperty:(k,v)=>store.set(k,v),deleteProperty:k=>store.delete(k)};
+ let fixture={fundResults:{F00001:{status:'partial',inputRequiredDates:[date]},F00002:{status:'ok'}},snapshotWarnings:[],missingHoldings:[],continuation:false};
+ const ctx=vm.createContext({
+  _issue507GateInside_:true,PropertiesService:{getScriptProperties:()=>props},Utilities:{getUuid:()=>String(calls.length+1)},
+  _portfolioFundAtomic_:cb=>cb(props),_portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
+  _normalizeDate:v=>v||'',today:()=>date,_fundDateOffset:(d,n)=>new Date(Date.parse(d+'T00:00:00Z')+n*86400000).toISOString().slice(0,10),
+  getss:()=>({workbook:'mock'}),_compactFundDailyResultForProperty:(result,runDate)=>({runDate,lastDate:runDate}),
+  _fundPropertyText:v=>String(v),_refreshFundValuations:(...args)=>{calls.push(args);return fixture;}
+ });
+ vm.runInContext(block(candidate,'runDailyFundValuations'),ctx);
+ ctx.runDailyFundValuations(date);
+ assert.equal(calls.length,1);assert.equal(calls[0][1],'2026-10-18');assert.equal(calls[0][2],date);
+ assert.equal(calls[0][6],1);assert.equal(calls[0][7].FUNETF,true);assert.equal(calls[0][7].HANWHA,true);
+ assert.match(block(candidate,'_refreshFundValuations'),/!\(storedOnlyProviders && storedOnlyProviders\[providerSource\]\)/);
+ assert.match(store.get('fund_last_warning'),/F00001 NAV 미확보/);
+ assert.equal(JSON.parse(store.get('fund_last_attempt_completion_v1')).state,'DONE');
+ assert.equal(store.has('fund_last_error'),false);
+ fixture={...fixture,fundResults:{F00001:{status:'error'},F00002:{status:'ok'}}};
+ assert.throws(()=>ctx.runDailyFundValuations(date),/펀드 평가 오류/);
+ assert.equal(JSON.parse(store.get('fund_last_attempt_completion_v1')).state,'ERROR');
+ assert.equal(calls.length,2);
+ fixture={...fixture,fundResults:{F00001:{status:'ok'},F00002:{status:'ok'}},continuation:true};
+ assert.throws(()=>ctx.runDailyFundValuations(date),/FUND_CONTINUE/);
+ assert.notEqual(JSON.parse(store.get('fund_last_attempt_completion_v1')).state,'DONE');
+ assert.equal(calls.length,3);
+ assert.equal(manifest.dailyNavExternalFetchDisabled,true);
+ assert.equal(manifest.localLookbackDays,32);
+ assert.equal(manifest.productionDeploymentApproved,false);
+}
+console.log('PASS: routine fund close uses both stored-only providers; exact NAV collectors/manual source recovery unchanged; pending/real errors and continuation not suppressed');
