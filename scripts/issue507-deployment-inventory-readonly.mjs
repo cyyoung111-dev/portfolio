@@ -281,7 +281,7 @@ export async function inspectGasDeploymentsReadOnly({
        // Keep exact approved 9.295/9.296 pins synchronized with deploy-gas.mjs.
        // Never accept a header/version string alone.
        exactReviewedRelease=['9.283','9.284','9.285','9.287','9.288','9.289',
-         '9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298'].includes(approvedVersion);
+         '9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300'].includes(approvedVersion);
     }catch{}
     sourceAudit.successful++;
     if(classified.knownLegacyBaseline){

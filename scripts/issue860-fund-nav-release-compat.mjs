@@ -2,10 +2,10 @@
 // Never infer safety by numeric comparison or automatically approve future
 // versions; each new GAS release must verify the fund import/preview contract.
 const KB_PUBLISHED_GAS_VERSIONS=Object.freeze([
- '9.281','9.282','9.283','9.284','9.285','9.289','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298'
+ '9.281','9.282','9.283','9.284','9.285','9.289','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300'
 ]);
 const HANWHA_PUBLISHED_GAS_VERSIONS=Object.freeze([
- '9.282','9.283','9.284','9.285','9.289','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298'
+ '9.282','9.283','9.284','9.285','9.289','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300'
 ]);
 export function supportsPublishedFundNavGasVersion(kind,version){
  if(typeof version!=='string')return false;

@@ -123,7 +123,7 @@ for(const invalid of [{version:'9.297'},{financeWrites:1},{activeCount:1},
 const wf=YAML.parse(readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const input=(wf.on??wf.true).workflow_dispatch.inputs;
 assert.equal(input.dry_run.default,true);
-assert.deepEqual(input.candidate_version.options,['9.294','9.295','9.296','9.297','9.298']);
+assert.deepEqual(input.candidate_version.options,['9.294','9.295','9.296','9.297','9.298','9.300']);
 assert.equal(input.approve_9297.default,false);
 assert.equal(wf.jobs.deploy.environment,'portfolio-production-gas');
 assert.equal(wf.jobs.deploy.concurrency['cancel-in-progress'],false);

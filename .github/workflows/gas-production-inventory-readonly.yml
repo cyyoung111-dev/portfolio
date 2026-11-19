@@ -3,7 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       verify_9298:
-        description: '9.298 읽기 전용 배포 사전검증 (실제 배포 없음)'
+        description: '9.298 이전 후보 읽기 전용 사전검증 (실제 배포 없음)'
+        type: boolean
+        required: true
+        default: false
+      verify_9300:
+        description: '9.300 통합 후보 읽기 전용 사전검증 (실제 배포 없음)'
         type: boolean
         required: true
         default: false
@@ -38,8 +43,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Reject ambiguous manual release selection
+        if: inputs.verify_9298 == true && inputs.verify_9300 == true
+        run: exit 1
       - name: Verify current main before release preflight or rerun
-        if: github.event_name == 'push' || inputs.verify_9298 == true
+        if: github.event_name == 'push' || inputs.verify_9298 == true || inputs.verify_9300 == true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -50,16 +58,27 @@ jobs:
 
       - name: Verify published 9.297 ledger and idle Writer Gate (read only)
         id: finance_preflight
-        if: github.event_name == 'push' || inputs.verify_9298 == true
+        if: github.event_name == 'push' || inputs.verify_9298 == true || inputs.verify_9300 == true
         # Emit a fixed-field blocker receipt from the same read if automation is unstable.
-        run: node scripts/gas9298-release-readonly.mjs pre
+        run: node scripts/gas9298-release-readonly.mjs pre ${{ (github.event_name == 'push' || inputs.verify_9300 == true) && '9.300' || '9.298' }}
       - name: GAS 9.298 dry-run only (no production code write)
-        if: github.event_name == 'push' || inputs.verify_9298 == true
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_9298 == true
         env:
           GAS_DEPLOY_DRY_RUN: 'true'
           GAS_9298_NH_FINANCIAL_INCOME: 'true'
           GAS_9298_RELEASE_APPROVAL: 'false'
           GAS_9298_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
+          GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/deploy-gas.mjs
+
+      - name: GAS 9.300 integrated dry-run only (no production code write)
+        if: github.event_name == 'push' || inputs.verify_9300 == true
+        env:
+          GAS_DEPLOY_DRY_RUN: 'true'
+          GAS_9300_INTEGRATED: 'true'
+          GAS_9300_RELEASE_APPROVAL: 'false'
+          GAS_9300_LIVE_PREFLIGHT_VERIFIED: ${{ steps.finance_preflight.outputs.verified || 'false' }}
           GAS_EXPECTED_MAIN_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/deploy-gas.mjs

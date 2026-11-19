@@ -125,3 +125,49 @@ console.log('PASS: failed tax scenario reload preserves unsaved input; successfu
  assert.equal(manifest.productionDeploymentApproved,false);
 }
 console.log('PASS: routine fund close uses both stored-only providers; exact NAV collectors/manual source recovery unchanged; pending/real errors and continuation not suppressed');
+
+// Exact reviewed release pin, single preflight and independent manual approval.
+{
+ const {assertGasReleaseReady,assertIssue507ManualReleasePermission,assertGas9300Prerequisites}=await import('./deploy-gas.mjs');
+ const {readGas9298ReleaseProof}=await import('./gas9298-release-readonly.mjs');
+ const {assertPublishedReleaseFundNavSupport}=await import('./issue860-fund-nav-release-compat.mjs');
+ const {assessNhFinancialIncomeReadback}=await import('./nh-financial-income-readback.mjs');
+ const YAML=(await import('yaml')).default;
+ assert.equal(manifest.candidateGitBlob,'984f8e6db408b8803827205682610b457f1e82ca');
+ assert.equal(assertGasReleaseReady(candidate),'9.300');
+ assert.throws(()=>assertGasReleaseReady(candidate+'\n// tampered'),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+ assert.throws(()=>assertGasReleaseReady(parent),/GAS_RELEASE_UNREVIEWED_VERSION/);
+ assert.deepEqual(assertPublishedReleaseFundNavSupport('9.300'),{version:'9.300',kb:true,hanwha:true,financialWrites:0});
+ for(const eventName of ['push','workflow_run','workflow_dispatch'])assert.throws(()=>assertIssue507ManualReleasePermission({version:'9.300',eventName,approved9300:eventName!=='workflow_dispatch'}),/GAS_9300_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+ assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.300',eventName:'workflow_dispatch',approved9300:true}));
+ assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.300',eventName:'push',dryRun:true}));
+ for(const [publishedVersion,liveIdleVerified] of [['9.296',true],['9.298',true],['9.299',true],['9.300',true],['9.297',false]])
+  assert.throws(()=>assertGas9300Prerequisites({version:'9.300',publishedVersion,liveIdleVerified}),/GAS_9300_/);
+ assert.doesNotThrow(()=>assertGas9300Prerequisites({version:'9.300',publishedVersion:'9.297',liveIdleVerified:true}));
+ const state=v=>({status:'VERIFIED',version:v,tradeRows:2,writerGateMode:'OPEN',activeCount:0,tradeSnapshotDeferredCount:0,pendingCount:0,financeWrites:0});
+ const hash=v=>({status:'CONSISTENT',gasVersion:v,rows:2,uniqueIds:2,migrationPreview:{status:'VERIFIED',physicalRevisionMatchesGasGetTrades:true,physicalRevisionMatchesPcCanonical:true,rowCountMatchesApi:true,assignedIdsNeeded:0,existingIdsPreserved:2}});
+ for(const [mode,v] of [['pre','9.297'],['post','9.300']]){
+  const got=await readGas9298ReleaseProof({mode,candidateVersion:'9.300',readState:async version=>{assert.equal(version,v);return state(v)},readHash:async()=>hash(v)});
+  assert.equal(got.version,v);assert.equal(got.tradeV2HashVerified,true);assert.equal(got.financeWrites,0);
+  await assert.rejects(()=>readGas9298ReleaseProof({mode,candidateVersion:'9.300',readState:async()=>({...state(v),activeCount:1}),readHash:async()=>hash(v)}),/FINANCIAL_INTEGRITY_UNVERIFIED/);
+  await assert.rejects(()=>readGas9298ReleaseProof({mode,candidateVersion:'9.300',readState:async()=>state(v),readHash:async()=>hash('9.299')}),/LEDGER_INTEGRITY_UNVERIFIED/);
+ }
+ await assert.rejects(()=>readGas9298ReleaseProof({mode:'pre',candidateVersion:'9.299',readState:async()=>assert.fail(),readHash:async()=>assert.fail()}),/PROOF_CONTRACT_INVALID/);
+ assert.throws(()=>assessNhFinancialIncomeReadback({status:'ok',gasVersion:'9.298',provider:'NH'},'9.300'),/VERSION_OR_PROVIDER/);
+ const sample={status:'ok',gasVersion:'9.300',provider:'NH',readOnly:true,diagnosticOnly:true,tokenIssued:false,bearerExposed:false,financialOriginalWritten:false,financialTaxClassificationVerified:false,accountTaxTypeVerified:false,fullYearCoverage:false,accountListVerified:true,ownLiveAccounts:1,otherAccountsSkipped:0,accountsProbed:1,accountsSucceeded:1,accountsRejected:0,rows:1,continuationPresent:0,validDatedRows:1,interestFieldRows:1,positiveInterestFieldRows:1,taxFieldRows:1,krwRows:1,nonKrwOrMissingCurrencyRows:0,descriptionPresentRows:1,stopped:'NONE'};
+ const nh=assessNhFinancialIncomeReadback(sample,'9.300');assert.equal(nh.contractStatus,'FIELDS_OBSERVED');assert.equal(nh.annualIncomeVerified,false);
+ const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
+ const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
+ assert.equal(inputs.approve_9300.default,false);assert.equal(inputs.dry_run.default,true);assert.equal(inputs.candidate_version.default,'9.300');
+ const steps=wf.jobs.deploy.steps,pre=steps.find(s=>s.id==='gas9298_gate'),deploy=steps.find(s=>s.name==='Deploy GAS');
+ assert(steps.indexOf(pre)<steps.indexOf(deploy));assert.match(pre.if,/GAS_9300_INTEGRATED/);assert.match(deploy.env.GAS_9300_LIVE_PREFLIGHT_VERIFIED,/gas9298_gate/);assert.equal(pre['continue-on-error'],undefined);
+ assert.match(wf.jobs.deploy.env.GAS_9300_RELEASE_APPROVAL,/workflow_dispatch.*inputs\.approve_9300/);
+ assert.match(steps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9300_INTEGRATED != 'true'/);
+ const inv=YAML.parse(fs.readFileSync('.github/workflows/gas-production-inventory-readonly.yml','utf8'));
+ const oneShot=inv.on??inv.true;assert.equal(oneShot.schedule,undefined);
+ const dry=inv.jobs.inspect.steps.find(s=>s.name==='GAS 9.300 integrated dry-run only (no production code write)');
+ assert.equal(dry.env.GAS_DEPLOY_DRY_RUN,'true');assert.equal(dry.env.GAS_9300_RELEASE_APPROVAL,'false');assert.match(dry.env.GAS_9300_LIVE_PREFLIGHT_VERIFIED,/finance_preflight/);
+ assert.equal(oneShot.workflow_dispatch.inputs.verify_9300.default,false);
+ assert(inv.jobs.inspect.steps.some(s=>s.name==='Reject ambiguous manual release selection'&&s.run==='exit 1'));
+ console.log('PASS: integrated 9.300 immutable source, direct 9.297 preflight, exact post-readback, NAV/NH compatibility, no automatic deployment');
+}

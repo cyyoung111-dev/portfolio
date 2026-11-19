@@ -10,9 +10,10 @@ const counts=['ownLiveAccounts','otherAccountsSkipped','accountsProbed','account
  'positiveInterestFieldRows','taxFieldRows','krwRows','nonKrwOrMissingCurrencyRows','descriptionPresentRows'];
 const goodInt=(n,max=1000000)=>Number.isSafeInteger(n)&&n>=0&&n<=max;
 const stopCodes=new Set(['NONE','ACCOUNT_LIMIT','TOKEN_EXPIRES','HTTP_401','HTTP_403','HTTP_429']);
-export function assessNhFinancialIncomeReadback(data){
+export function assessNhFinancialIncomeReadback(data,expectedVersion='9.298'){
+ if(!['9.298','9.300'].includes(expectedVersion))fail('VERSION_OR_PROVIDER');
  if(data?.status!=='ok')fail('PROVIDER_UNVERIFIED');
- if(data.gasVersion!=='9.298'||data.provider!=='NH')fail('VERSION_OR_PROVIDER');
+ if(data.gasVersion!==expectedVersion||data.provider!=='NH')fail('VERSION_OR_PROVIDER');
  if(data.readOnly!==true||data.diagnosticOnly!==true||data.tokenIssued!==false
     ||data.bearerExposed!==false||data.financialOriginalWritten!==false
     ||data.financialTaxClassificationVerified!==false||data.accountTaxTypeVerified!==false
@@ -34,13 +35,13 @@ export function assessNhFinancialIncomeReadback(data){
    :d.validDatedRows!==d.rows||!d.interestFieldRows||!d.taxFieldRows?'FIELDS_UNVERIFIED'
    :!d.positiveInterestFieldRows?'NO_POSITIVE_INTEREST_OBSERVED'
    :'FIELDS_OBSERVED';
- return {kind:'NH_FINANCIAL_INCOME_READONLY',gasVersion:'9.298',contractStatus,
+ return {kind:'NH_FINANCIAL_INCOME_READONLY',gasVersion:expectedVersion,contractStatus,
    ...Object.fromEntries(counts.map(k=>[k,d[k]])),stopped:d.stopped,
    sampleHasContinuation:d.continuationPresent>0,fullYearCoverage:false,
    financialTaxClassificationVerified:false,accountTaxTypeVerified:false,
    annualIncomeVerified:false,financeWrites:0,tokenIssued:false};
 }
-export async function probeNhFinancialIncome({url,token,fetchImpl=fetch}={}){
+export async function probeNhFinancialIncome({url,token,fetchImpl=fetch,expectedVersion='9.298'}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)fail('AUTH_MISSING');
  let response;
@@ -52,12 +53,12 @@ export async function probeNhFinancialIncome({url,token,fetchImpl=fetch}={}){
  if(response?.ok!==true)fail('HTTP_UNVERIFIED');
  let data;
  try{data=await response.json();}catch{fail('JSON_UNVERIFIED');}
- return assessNhFinancialIncomeReadback(data);
+ return assessNhFinancialIncomeReadback(data,expectedVersion);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
   if(process.env.GITHUB_REF!=='refs/heads/main'||process.env.GITHUB_REPOSITORY!=='cyyoung111-dev/portfolio')fail('MAIN_ONLY');
-  const proof=await probeNhFinancialIncome({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN});
+  const proof=await probeNhFinancialIncome({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,expectedVersion:process.env.NH_FINANCE_EXPECTED_VERSION||'9.298'});
   console.log(JSON.stringify(proof));
   if(proof.contractStatus!=='FIELDS_OBSERVED')process.exitCode=2;
  }catch(e){
