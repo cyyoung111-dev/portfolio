@@ -160,6 +160,15 @@ console.log('PASS: routine fund close uses both stored-only providers; exact NAV
  const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
  assert.equal(inputs.approve_9300.default,false);assert.equal(inputs.dry_run.default,true);assert.equal(inputs.candidate_version.default,'9.300');
  const steps=wf.jobs.deploy.steps,pre=steps.find(s=>s.id==='gas9298_gate'),deploy=steps.find(s=>s.name==='Deploy GAS');
+ const dryInventory=steps.find(s=>s.name==='Require clean full GAS deployment inventory on 9.300 dry-run');
+ const liveInventory=steps.find(s=>s.name==='Require clean full GAS deployment inventory before real deploy');
+ assert(dryInventory&&liveInventory&&pre&&deploy);
+ assert.equal(dryInventory.run,liveInventory.run);
+ assert.equal(dryInventory['continue-on-error'],undefined);
+ assert.match(dryInventory.if,/GAS_9300_INTEGRATED == 'true'/);
+ assert.match(dryInventory.if,/GAS_DEPLOY_DRY_RUN == 'true'/);
+ assert(steps.indexOf(dryInventory)<steps.indexOf(pre)&&steps.indexOf(liveInventory)<steps.indexOf(pre));
+ assert.equal(pre.run,'node scripts/gas9298-release-readonly.mjs pre 9.300');
  assert(steps.indexOf(pre)<steps.indexOf(deploy));assert.match(pre.if,/GAS_9300_INTEGRATED/);assert.match(deploy.env.GAS_9300_LIVE_PREFLIGHT_VERIFIED,/gas9298_gate/);assert.equal(pre['continue-on-error'],undefined);
  assert.match(wf.jobs.deploy.env.GAS_9300_RELEASE_APPROVAL,/workflow_dispatch.*inputs\.approve_9300/);
  assert.match(steps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9300_INTEGRATED != 'true'/);

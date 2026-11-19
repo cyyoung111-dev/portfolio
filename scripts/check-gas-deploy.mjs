@@ -988,8 +988,12 @@ if (hasStackedKrxRecovery) {
 }
 
 const issue507ReleaseWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
-assert.match(issue507ReleaseWorkflow,/approve_9294:\s*\n(?:.|\n)*?default:\s*false/);
-assert.match(issue507ReleaseWorkflow,/GAS_9294_RELEASE_APPROVAL:\s*\$\{\{[^\n]*workflow_dispatch[^\n]*approve_9294/);
+const currentDispatch=YAML.parse(issue507ReleaseWorkflow);
+assert.deepEqual(Object.keys(currentDispatch.on.workflow_dispatch.inputs).sort(),['approve_9300','candidate_version','dry_run']);
+for(const version of ['9294','9295','9296','9297','9298']){
+ assert.equal(currentDispatch.jobs.deploy.env['GAS_'+version+'_RELEASE_APPROVAL'],'false');
+ if(version!=='9298')assert(!currentDispatch.jobs.deploy.steps.some(s=>s.id==='gas'+version+'_gate'));
+}
 assert.doesNotMatch(issue507ReleaseWorkflow,/approve_9282:/,'retired release must not appear in operator form');
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
 assert.match(deployScript,/assertIssue507ManualReleasePermission\(\{/);

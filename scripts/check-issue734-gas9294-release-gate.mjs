@@ -160,24 +160,16 @@ assert.equal(fresh.readbackAttempts,2);
 
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
-assert.deepEqual(Object.keys(inputs).sort(),['approve_9294','approve_9295','approve_9296','approve_9297','approve_9298','approve_9300','candidate_version','dry_run']);
+assert.deepEqual(Object.keys(inputs).sort(),['approve_9300','candidate_version','dry_run']);
 assert.equal(inputs.dry_run.default,true);
-assert.equal(inputs.approve_9294.default,false);
+assert.equal(inputs.approve_9300.default,false);
 const env=wf.jobs.deploy.env;
-assert.match(env.GAS_9294_CLOSE_OWNER_NAV,/workflow_dispatch/);
-assert.match(env.GAS_9294_RELEASE_APPROVAL,/approve_9294/);
+assert.equal(env.GAS_9294_CLOSE_OWNER_NAV,'false');
+assert.equal(env.GAS_9294_RELEASE_APPROVAL,'false');
 assert.equal(env.GAS_9293_ORPHANED_CLOSE,'false');
 assert.equal(wf.jobs.deploy.environment,'portfolio-production-gas');
-const steps=wf.jobs.deploy.steps;
-const pre=steps.find(s=>s.id==='gas9294_gate');
-assert(pre);
-assert.match(pre.if,/GAS_9294_RELEASE_APPROVAL/);
-assert.match(pre.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
-assert.match(pre.run,/issue734-gas9294-predeploy-readonly/);
-const deploy=steps.find(s=>s.name==='Deploy GAS');
-assert.match(deploy.env.GAS_9294_LIVE_PREFLIGHT_VERIFIED,/gas9294_gate/);
-assert(steps.some(s=>String(s.run||'').includes('issue734-gas9294-postdeploy-readonly')));
-assert.equal(wf.jobs.deploy['concurrency']['cancel-in-progress'],false);
+assert(!wf.jobs.deploy.steps.some(s=>s.id==='gas9294_gate'||String(s.run||'').includes('issue734-gas9294-postdeploy-readonly')));
+assert.equal(wf.jobs.deploy.concurrency['cancel-in-progress'],false);
 
 console.log(JSON.stringify({
  kind:'ISSUE734_GAS9294_RELEASE_GATE_PASS',pin:PIN,

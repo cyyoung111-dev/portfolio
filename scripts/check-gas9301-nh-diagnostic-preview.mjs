@@ -56,3 +56,5 @@ assert.throws(()=>assessNhFinancialIncomeReadback({...ok,rejectReasons:{...ok.re
 const empty=run({body:{rsp_msg:'조회가 완료되었습니다.',Output_0:[]}});
 assert.equal(assessNhFinancialIncomeReadback(empty,'9.301').contractStatus,'NO_SAMPLE_ROWS');
 console.log('PASS: 9.301 preview preserves pinned 9.300, safe NH rejection categories, no retry, no production approval, no annual zero inference');
+
+console.log('GAS9301_SOURCE_PREVIEW '+JSON.stringify(manifest));
