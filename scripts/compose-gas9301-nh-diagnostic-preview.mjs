@@ -20,7 +20,8 @@ export function composeGas9301NhDiagnosticPreview(){
  let candidate=once(parent,original,extension);
  candidate=once(candidate,'//  📊 포트폴리오 대시보드 — Google Apps Script  v9.300','//  📊 포트폴리오 대시보드 — Google Apps Script  v9.301');
  assert(candidate.split("gasVersion: '9.300'").length>=6);
- candidate=candidate.replaceAll("gasVersion: '9.300'","gasVersion: '9.301'");
+ // Match exactly the deployment parser's recognized response fields, including compact tax sync literals.
+ candidate=candidate.replace(/(gasVersion:\s*['"])9\.300(['"])/g,(_match,prefix,suffix)=>prefix+'9.301'+suffix);
  candidate=once(candidate,"var ISSUE507_GATE_API_VERSION='9.300'","var ISSUE507_GATE_API_VERSION='9.301'");
  return {parent,candidate,extension,manifest:{version:'9.301',parentGitBlob:PIN,candidateGitBlob:blob(candidate),mode:'SOURCE_PREVIEW_ONLY',productionDeploymentApproved:false,gasProjectWrites:0,financialWrites:0,oauthIssuance:false}};
 }

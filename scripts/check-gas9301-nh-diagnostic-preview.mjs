@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {composeGas9301NhDiagnosticPreview} from './compose-gas9301-nh-diagnostic-preview.mjs';
 import {assessNhFinancialIncomeReadback} from './nh-financial-income-readback.mjs';
-import {assertGasReleaseReady} from './deploy-gas.mjs';
-const {candidate,extension,manifest}=composeGas9301NhDiagnosticPreview();
+import {assertGasReleaseReady,extractExpectedGasVersion} from './deploy-gas.mjs';
+const {parent,candidate,extension,manifest}=composeGas9301NhDiagnosticPreview();
 new vm.Script(candidate);
 assert(candidate.includes(extension));
 assert.equal(manifest.productionDeploymentApproved,false);
-assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+assert.equal(extractExpectedGasVersion(candidate),'9.301');
+assert.equal(assertGasReleaseReady(parent),'9.300');
+assert.match(candidate,/gasVersion:'9\.301'/);
+assert.throws(()=>assertGasReleaseReady(candidate),/GAS_RELEASE_UNREVIEWED_VERSION: 9\.301/);
 assert.doesNotMatch(extension,/\b(?:_nhAccessToken_|_nhForgetToken_)\s*\(|SpreadsheetApp|\.setProperty\s*\(/);
 const token='FAKE_PRIVATE_TOKEN',id='12345678901',marker='PRIVATE_UPSTREAM_CONTENT';
 function run(page){
