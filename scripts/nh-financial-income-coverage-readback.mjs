@@ -94,6 +94,21 @@ export function assessNhFinancialCoverage(d,{expectedVersion='9.303',asOf}={}){
  queryCount:result.length,...totals,windows:result,sampleOnly:true,annualIncomeVerified:false,fullYearCoverage:false,
  accountTaxTypeVerified:false,financialTaxClassificationVerified:false,financeWrites:0,tokenIssued:false};
 }
+// A complete read-only no-data *sample* is not a failed GAS deployment.
+ // Never equate the sample with verified annual zero or tax eligibility.
+export function assessNhFinancialCoverageStep(p){
+ if(!p||p.kind!=='NH_FINANCIAL_COVERAGE_READONLY'||p.annualIncomeVerified!==false||
+    p.fullYearCoverage!==false||p.financialTaxClassificationVerified!==false||
+    p.accountTaxTypeVerified!==false||p.financeWrites!==0||p.tokenIssued!==false)fail();
+ if(p.contractStatus==='TOTAL_ROWS_OBSERVED'&&p.totalRows>0&&p.stopped==='NONE')
+  return {kind:'ROWS_OBSERVED_SAMPLE_ONLY',exitCode:0,annualIncomeVerified:false};
+ if(p.contractStatus==='NO_ROWS_REPORTED_YEAR_TO_DATE'&&p.stopped==='NONE'&&
+    p.ownLiveAccounts>0&&p.accountsSampled===p.ownLiveAccounts&&
+    p.rows===0&&p.totalRows===0&&p.depositRows===0&&p.queryCount>0)
+  return {kind:'NO_ROWS_REPORTED_WARNING',exitCode:0,annualIncomeVerified:false};
+ return {kind:'COVERAGE_UNVERIFIED',exitCode:2,annualIncomeVerified:false};
+}
+
 export async function probeNhFinancialCoverage({url,token,fetchImpl=fetch,asOf,expectedVersion='9.303'}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)fail();
@@ -108,6 +123,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const asOf=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()).replace(/-/g,'');
   const p=await probeNhFinancialCoverage({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,asOf,expectedVersion:process.env.NH_FINANCE_EXPECTED_VERSION||'9.303'});
   console.log(JSON.stringify(p));
-  if(p.contractStatus!=='TOTAL_ROWS_OBSERVED')process.exitCode=2;
+  const verdict=assessNhFinancialCoverageStep(p);
+  console.log(JSON.stringify({kind:'NH_FINANCIAL_COVERAGE_STEP',...verdict}));
+  if(verdict.kind==='NO_ROWS_REPORTED_WARNING')
+   console.warn('::warning::NH returned no rows in the bounded read-only sample. Annual financial income and tax classification remain UNVERIFIED; GAS deployment itself succeeded.');
+  if(verdict.exitCode)process.exitCode=verdict.exitCode;
  }catch{console.error('NH_FINANCE_COVERAGE_UNVERIFIED');process.exitCode=2;}
 }
