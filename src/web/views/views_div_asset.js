@@ -121,8 +121,16 @@ function _divTaxFormSignature(year){
   if(typeof $el!=='function')return null;
   const interest=$el('div-other-income-scenario');
   if(!interest||Number(interest.dataset?.taxYear)!==Number(year))return null;
-  return JSON.stringify([interest,...DIV_TAX_DETAILS_FIELDS.map(k=>$el('div-tax-'+k))]
-    .map(f=>String(f?.value??'').trim().replace(/,/g,'')));
+  const fields=[interest,...DIV_TAX_DETAILS_FIELDS.map(k=>$el('div-tax-'+k))];
+  // The source calculator uses temporary inputs. A remote tax scenario read
+  // must not erase values typed while the read is in flight. Keep the legacy
+  // signature unchanged when all temporary inputs are blank.
+  const sourceInputs=typeof document!=='undefined'&&typeof document.querySelectorAll==='function'
+    ?[...document.querySelectorAll('[data-div-income-source]')]:[];
+  const activeSourceValues=sourceInputs.map(f=>String(f?.value??'').trim().replace(/,/g,''));
+  const signature=fields.map(f=>String(f?.value??'').trim().replace(/,/g,''));
+  if(activeSourceValues.some(Boolean))signature.push('SOURCE_INPUTS',...activeSourceValues);
+  return JSON.stringify(signature);
 }
 function _divTaxRecordSignature(record){
   const value=_divTaxSyncPayload(record);
