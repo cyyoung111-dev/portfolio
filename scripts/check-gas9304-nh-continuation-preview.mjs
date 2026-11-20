@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {composeGas9303NhCoveragePreview} from './compose-gas9303-nh-coverage-preview.mjs';
 import {composeGas9304NhContinuationPreview} from './compose-gas9304-nh-continuation-preview.mjs';
-import {assessNhFinancialCoverage} from './nh-financial-income-coverage-readback.mjs';
+import {assessNhFinancialCoverage,assessNhFinancialCoverageStep} from './nh-financial-income-coverage-readback.mjs';
 import {assertGasReleaseReady,extractExpectedGasVersion,assertIssue507ManualReleasePermission,assertGas9304Prerequisites} from './deploy-gas.mjs';
 const {parent,candidate,extension,manifest}=composeGas9304NhContinuationPreview();
 new vm.Script(candidate);
@@ -55,19 +55,24 @@ function run(responder=()=>({body:noData}),count=1){
  assert.equal(p.queryCount,calls.length-1);return {p,result,calls};
 }
 const empty=run();
+assert.deepEqual(assessNhFinancialCoverageStep(empty.p),{kind:'NO_ROWS_REPORTED_WARNING',exitCode:0,annualIncomeVerified:false});
+assert.throws(()=>assessNhFinancialCoverageStep({...empty.p,annualIncomeVerified:true}),/NH_FINANCE_COVERAGE_UNVERIFIED/);
 assert.equal(empty.p.contractStatus,'NO_ROWS_REPORTED_YEAR_TO_DATE');
 assert.equal(empty.p.noDataWindows,12);assert.equal(empty.p.accountsSampled,1);
 assert.deepEqual(empty.calls[1],{route:'TOTAL',from:'20261101',to:'20261119'});
 assert.deepEqual(empty.calls[11],{route:'TOTAL',from:'20260101',to:'20260131'});
 assert.deepEqual(empty.calls[12],{route:'DEPOSIT',from:'20261021',to:'20261119'});
 const historical=run(({route,input})=>({body:route==='TOTAL'&&input.iqr_sta_dt==='20260901'?ok([{trd_dt:'20260915',int_amt:10,tax_sum:1,sps_cd_krl_anm:marker}]):noData}));
+assert.equal(assessNhFinancialCoverageStep(historical.p).exitCode,0);
 assert.equal(historical.p.contractStatus,'TOTAL_ROWS_OBSERVED');assert.equal(historical.p.queryCount,11);assert.equal(historical.p.interestFieldRows,1);
 const deposit=run(({route})=>({body:route==='DEPOSIT'?ok([{trd_dt:'20261101',trd_amt:1000,act_trd_tp_nm:marker}]):noData}));
+assert.equal(assessNhFinancialCoverageStep(deposit.p).exitCode,2);
 assert.equal(deposit.p.contractStatus,'DEPOSIT_ROWS_ONLY');assert.equal(deposit.p.depositRows,1);assert.equal(deposit.p.interestFieldRows,0);
 const continued=run((_p,i)=>i===1?{body:ok([]),headers:{cts:'PRIVATE_UPSTREAM_CONTENT',cts_flag:'Y'}}:{body:noData});
+assert.equal(assessNhFinancialCoverageStep(continued.p).exitCode,2);
 assert.equal(continued.p.contractStatus,'CONTINUATION_UNVERIFIED');assert.equal(continued.p.queryCount,11);
 for(const [page,reason] of [[{body:noData,headers:{cts:'PRIVATE_UPSTREAM_CONTENT',cts_flag:'Y'}},'CONTINUATION_UNVERIFIED'],[{body:noData,headers:{cts_flag:'Y'}},'CONTINUATION_UNVERIFIED'],[{body:noData,headers:{cts_flag:['Y','N']}},'CONTINUATION_UNVERIFIED'],[{body:{...noData,Output_0:[{}]}},'SUCCESS_MESSAGE_UNVERIFIED'],[{body:{...noData,rsp_msg:'조회가 완료되었습니다.'}},'SUCCESS_MESSAGE_UNVERIFIED'],[{http:429},'HTTP_429'],[{network:true},'NETWORK_UNVERIFIED']]){
- const got=run(()=>page);assert.equal(got.p.stopped,reason);assert.equal(got.p.queryCount,1);assert.equal(got.p.contractStatus,'PARTIAL_COVERAGE_SAMPLE');
+ const got=run(()=>page);assert.equal(assessNhFinancialCoverageStep(got.p).exitCode,2);assert.equal(got.p.stopped,reason);assert.equal(got.p.queryCount,1);assert.equal(got.p.contractStatus,'PARTIAL_COVERAGE_SAMPLE');
 }
 const capped=run(()=>({body:noData}),2);
 assert.equal(capped.p.stopped,'QUERY_LIMIT');assert.equal(capped.p.queryCount,16);assert.equal(capped.p.accountsSampled,1);
