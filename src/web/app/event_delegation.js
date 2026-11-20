@@ -144,6 +144,7 @@ function registerGlobalEventDelegation() {
       else if (action === 'save-public-key' && typeof savePublicDataApiKeyFromUI === 'function') savePublicDataApiKeyFromUI();
       else if (action === 'toggle-zero' && typeof _toggleDivHideZero === 'function') _toggleDivHideZero();
       else if (action === 'apply-other-income' && typeof _applyDivOtherIncome === 'function') _applyDivOtherIncome();
+      else if (action === 'sum-other-income' && typeof _copyDivOtherIncomeSourceSum === 'function') _copyDivOtherIncomeSourceSum();
       else if (action === 'reload-tax-scenario' && typeof _reloadDivTaxRemoteFromUI === 'function') _reloadDivTaxRemoteFromUI();
       else if (action === 'filter-tax' && typeof _setDivTaxFilter === 'function') _setDivTaxFilter(divAction.dataset.divTax);
       else if (action === 'filter-month' && typeof _setDivMonthFilter === 'function') _setDivMonthFilter(divAction.dataset.divMonth);
