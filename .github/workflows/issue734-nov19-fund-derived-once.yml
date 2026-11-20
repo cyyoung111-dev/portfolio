@@ -9,16 +9,12 @@ on:
         options: ['F00001', 'F00002']
         default: 'F00002'
         required: true
-      diagnose_only:
-        description: '읽기 전용: 원장·Writer·CLOSE·기준가격/평가 상태만 검사'
-        type: boolean
-        default: true
+      operation:
+        description: '실행 모드 선택 (기본은 읽기 전용)'
+        type: choice
+        options: ['진단만', '실제 복구 (1회)']
+        default: '진단만'
         required: true
-      confirm_recovery:
-        description: '실제 1회 갱신 시에만 APPLY_2026-11-19 입력'
-        type: string
-        default: ''
-        required: false
 permissions:
   contents: read
 jobs:
@@ -43,6 +39,8 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           ISSUE734_FUND_CODE: ${{ inputs.fund_code }}
-          ISSUE734_DIAGNOSE_ONLY: ${{ inputs.diagnose_only }}
-          ISSUE734_CONFIRM: ${{ inputs.confirm_recovery }}
+          # '실제 복구 (1회)' is the explicit manual approval.
+          # The internal approval token is generated here, not typed by users.
+          ISSUE734_DIAGNOSE_ONLY: ${{ inputs.operation == '진단만' && 'true' || 'false' }}
+          ISSUE734_CONFIRM: ${{ inputs.operation == '실제 복구 (1회)' && 'APPLY_2026-11-19' || '' }}
         run: node scripts/issue734-nov19-derived-once.mjs
