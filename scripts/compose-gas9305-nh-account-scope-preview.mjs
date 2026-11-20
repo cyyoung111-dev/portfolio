@@ -22,7 +22,7 @@ export function composeGas9305NhAccountScopePreview(){
   "    var seen={},ids=[],scopeCounts={operating01:0,operating02:0,simulation03:0};");
  extension=once(extension,
   "      if(a.acct_type!=='01'){out.otherAccountsSkipped++;continue;}",
-  "      if(a.acct_type!=='01'){\n        out.otherAccountsSkipped++;\n        scopeCounts[a.acct_type==='02'?'operating02':'simulation03']++;\n        continue;\n      }");
+  "      if(a.acct_type!=='01'){\n        out.otherAccountsSkipped++;\n        // For accountScope only, validate every account ID and its uniqueness.\n        // Existing contract/coverage behavior remains unchanged.\n        if(accountScope){\n          if(typeof a.acct_no!=='string'||!/^\\d{11}$/.test(a.acct_no)||seen[a.acct_no])return jsonError('NH_FINANCE_ACCOUNT_IDENTITY');\n          seen[a.acct_no]=true;\n        }\n        scopeCounts[a.acct_type==='02'?'operating02':'simulation03']++;\n        continue;\n      }");
  extension=once(extension,
   "      seen[a.acct_no]=true;ids.push(a.acct_no);",
   "      seen[a.acct_no]=true;ids.push(a.acct_no);scopeCounts.operating01++;");
