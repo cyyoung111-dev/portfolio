@@ -23,11 +23,13 @@ export function assessNov19DerivedRecovery({integrity,status,row,code}={}){
     ||status.tradeLedgerWriteUnverified!==false
     ||status.pendingTradeSnapshotRebuildFrom!=='-'
     ||(status.tradeSnapshotDeferredCount??0)!==0
-    ||status.pendingCount!==0||status.snapshotLastDate!==TARGET_DATE
-    ||status.priceHistoryLastDate!==TARGET_DATE
+    ||status.pendingCount!==0
+    ||typeof status.snapshotLastDate!=='string'||status.snapshotLastDate<TARGET_DATE
+    ||typeof status.priceHistoryLastDate!=='string'||status.priceHistoryLastDate<TARGET_DATE
     ||close?.state!=='COMPLETE'||close?.stage!=='COMPLETE'
-    ||close?.runDate!==TARGET_DATE||close.priceOk!==true||close.fundOk!==true
-    ||close?.fundState!=='DONE'||close?.fundAttemptDate!==TARGET_DATE
+    ||typeof close.runDate!=='string'||close.runDate<TARGET_DATE
+    ||close.priceOk!==true||close.fundOk!==true
+    ||close?.fundState!=='DONE'||close?.fundAttemptDate!==close.runDate
     ||close.closeErrorPresent!==false||close.fundErrorPresent!==false
     ||status.overallStatus!=='NORMAL')fail('CLOSE_OWNER_OR_DATE_UNVERIFIED');
  if(row?.date!==TARGET_DATE||row.code!==code
@@ -37,9 +39,15 @@ export function assessNov19DerivedRecovery({integrity,status,row,code}={}){
     ||!STATES.has(row.evaluationState)||!STATES.has(row.snapshotState)
     ||['NOT_REQUIRED'].includes(row.evaluationState)
     ||['NOT_REQUIRED'].includes(row.snapshotState))fail('EXACT_NAV_OR_UNITS_UNVERIFIED');
+ // A later completed close may already have restored this exact date.
+ // Report success as a read-only no-op, even if the current CLOSE is newer.
+ // NEVER allow a write to an older date after a newer CLOSE has committed.
  if(row.evaluationState==='EXISTING_VALID'&&row.snapshotState==='EXISTING_VALID')
   return {kind:'ISSUE734_NOV19_DERIVED',code,date:TARGET_DATE,state:'ALREADY_VERIFIED',
     recoveryRequired:false,financialWrites:0,navImportWrites:0};
+ if(status.snapshotLastDate!==TARGET_DATE
+    ||status.priceHistoryLastDate!==TARGET_DATE
+    ||close.runDate!==TARGET_DATE)fail('CLOSE_OWNER_OR_DATE_UNVERIFIED');
  if(!['WRITE_REQUIRED','NOT_CREATED','EXISTING_VALID'].includes(row.evaluationState)
     ||!['WRITE_REQUIRED','NOT_CREATED','EXISTING_VALID'].includes(row.snapshotState))
   fail('DERIVED_STATE_UNVERIFIED');
