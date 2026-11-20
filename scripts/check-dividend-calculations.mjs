@@ -374,6 +374,54 @@ assert.equal(withInterest.specialTaxScenario.ordinaryWithApplication,2000000);
 otherValue='';accountCtx._applyDivOtherIncome();assert.equal(accountCtx._getDivOtherIncome(2026),null);
 console.log('PASS: shared non-dividend income scenario and missing identity protection');
 
+// Manual source aggregation is only a calculator. Neither a bank statement
+// nor a proof of annual completeness may be inferred from typed values.
+{
+ const sum=accountCtx._sumDivOtherIncomeEntries(['1,200','300','']);
+ assert.equal(sum.valid,true);assert.equal(sum.total,1500);assert.equal(sum.count,2);
+ assert.equal(accountCtx._sumDivOtherIncomeEntries(['','']).total,null);
+ assert.equal(accountCtx._sumDivOtherIncomeEntries(['0','']).total,0);
+ for(const bad of ['-1','12.5','abc','9007199254740992'])
+   assert.equal(accountCtx._sumDivOtherIncomeEntries([bad]).valid,false);
+ assert.equal(accountCtx._sumDivOtherIncomeEntries(['9007199254740991','1']).valid,false);
+ const priorTrades=accountCtx.rawTrades,priorHoldings=accountCtx.rawHoldings;
+ const priorTypes=accountCtx.ACCT_TAX_TYPES,priorEl=accountCtx.$el,priorDoc=accountCtx.document,priorToast=accountCtx.showToast;
+ accountCtx.rawTrades=[{acct:'일반'},{acct:'ISA'},{acct:'일반'},{acct:'가짜<script>'}];
+ accountCtx.rawHoldings=[{acct:'연금'}];
+ accountCtx.ACCT_TAX_TYPES={'일반':'일반','ISA':'ISA','연금':'연금','가짜<script>':'일반'};
+ const names=accountCtx._divOtherIncomeSourceAccounts();
+ assert.equal(names.length,2);assert.ok(names.includes('일반'));assert.ok(!names.includes('ISA'));
+ const panel=accountCtx._divOtherIncomeSourceCalculator();
+ assert.match(panel,/sum-other-income/);assert.match(panel,/가짜&lt;script&gt;/);
+ assert.doesNotMatch(panel,/가짜<script>/);
+ const field={value:'9,999',dataset:{taxYear:'2026'}},entries=[{value:'1,200'},{value:'300'}],messages=[];
+ accountCtx.$el=id=>id==='div-other-income-scenario'?field:null;
+ accountCtx.document={querySelectorAll:()=>entries};
+ accountCtx.showToast=msg=>messages.push(msg);
+ const pendingSignature=accountCtx._divTaxFormSignature(2026);
+ entries[0].value='';entries[1].value='';
+ const blankSignature=accountCtx._divTaxFormSignature(2026);
+ assert.equal(blankSignature,accountCtx._divTaxRecordSignature({interest:9999,details:{}}),'blank source calculator must preserve ordinary remote signature');
+ assert.notEqual(pendingSignature,blankSignature,'temporary income edits must block stale remote rerender');
+ entries[0].value='1,200';entries[1].value='300';
+ accountCtx._copyDivOtherIncomeSourceSum();
+ assert.equal(field.value,'1,500');assert.equal(accountCtx._getDivOtherIncome(2026),null,'calculator must not save tax scenario');
+ entries[1].value='1.5';accountCtx._copyDivOtherIncomeSourceSum();
+ assert.equal(field.value,'1,500','invalid data must leave aggregate unchanged');
+ entries[0].value='0';entries[1].value='';
+ accountCtx._copyDivOtherIncomeSourceSum();assert.equal(field.value,'0','explicit zero is different from missing');
+ entries[0].value='';accountCtx._copyDivOtherIncomeSourceSum();
+ assert.equal(field.value,'','blank inputs must never become 0');
+ assert.ok(messages.some(s=>/저장/.test(s)));
+ accountCtx.rawTrades=priorTrades;accountCtx.rawHoldings=priorHoldings;
+ accountCtx.ACCT_TAX_TYPES=priorTypes;accountCtx.$el=priorEl;
+ accountCtx.document=priorDoc;accountCtx.showToast=priorToast;
+ const events=fs.readFileSync('src/web/app/event_delegation.js','utf8');
+ assert.match(events,/action === 'sum-other-income'.*_copyDivOtherIncomeSourceSum/);
+ assert.match(accountCtx._divTaxComparisonPanel(hi,2026),/금융기관별 소득 합산 도우미/);
+}
+console.log('PASS: account-scoped manual income calculator, no double counting assumption, no implicit save, zero/missing and overflow boundaries');
+
 // Quarterly/interim eligibility must not be limited to final dividends.
 // Official dates and class-specific amounts are required for exact matches.
 for(const code of ['005930','005935']){
