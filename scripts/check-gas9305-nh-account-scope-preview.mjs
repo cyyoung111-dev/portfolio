@@ -40,7 +40,7 @@ assert.equal(inventoryDry.run,inventoryLive.run);
 assert.equal(preflight.run,'node scripts/gas9298-release-readonly.mjs pre 9.305');
 assert.equal(preflight['continue-on-error'],undefined);
 assert(steps.indexOf(inventoryLive)<steps.indexOf(preflight)&&steps.indexOf(inventoryDry)<steps.indexOf(preflight)&&steps.indexOf(preflight)<steps.indexOf(deploy)&&steps.indexOf(deploy)<steps.indexOf(post));
-assert.match(job.env.GAS_9305_RELEASE_APPROVAL,/workflow_dispatch.*inputs\\.approve_9305/);
+assert.match(job.env.GAS_9305_RELEASE_APPROVAL,/workflow_dispatch.*inputs\.approve_9305/);
 assert.equal(job.env.GAS_9304_RELEASE_APPROVAL,'false');
 assert.equal(job.env.GAS_9304_NH_DIAGNOSTIC,'false');
 assert.match(deploy.env.GAS_9305_LIVE_PREFLIGHT_VERIFIED,/gas9305_gate/);
