@@ -28,11 +28,11 @@ on:
       candidate_version:
         description: '현재 릴리스 후보 · 이전 버전 선택 불가'
         required: true
-        default: '9.304'
+        default: '9.305'
         type: choice
-        options: ['9.304']
-      approve_9304:
-        description: '9.304 NH 금융소득 진단 운영 배포 승인'
+        options: ['9.305']
+      approve_9305:
+        description: '9.305 NH 계좌유형 읽기 전용 진단 운영 배포 승인'
         required: true
         default: false
         type: boolean
@@ -130,8 +130,10 @@ jobs:
       GAS_9302_RELEASE_APPROVAL: 'false'
       GAS_9303_NH_DIAGNOSTIC: 'false'
       GAS_9303_RELEASE_APPROVAL: 'false'
-      GAS_9304_NH_DIAGNOSTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.304' && 'true' || 'false' }}
-      GAS_9304_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.304' && inputs.approve_9304 && 'true' || 'false' }}
+      GAS_9304_NH_DIAGNOSTIC: 'false'
+      GAS_9305_ACCOUNT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.305' && 'true' || 'false' }}
+      GAS_9304_RELEASE_APPROVAL: 'false'
+      GAS_9305_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.305' && inputs.approve_9305 && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -161,9 +163,17 @@ jobs:
         id: gas9304_gate
         if: env.GAS_9304_NH_DIAGNOSTIC == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9304_RELEASE_APPROVAL == 'true')
         run: node scripts/gas9298-release-readonly.mjs pre 9.304
+      - name: Require clean full GAS deployment inventory on 9.305 dry-run
+        if: env.GAS_9305_ACCOUNT_SCOPE == 'true' && env.GAS_DEPLOY_DRY_RUN == 'true'
+        run: node scripts/issue507-deployment-inventory-readonly.mjs
+      - name: Verify published 9.304 idle writer and exact ledger before 9.305
+        id: gas9305_gate
+        if: env.GAS_9305_ACCOUNT_SCOPE == 'true' && (env.GAS_DEPLOY_DRY_RUN == 'true' || env.GAS_9305_RELEASE_APPROVAL == 'true')
+        run: node scripts/gas9298-release-readonly.mjs pre 9.305
       - name: Deploy GAS
         if: env.GAS_FIRST_GATE_PHASE == 'none'
         env:
+          GAS_9305_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9305_gate.outputs.verified || 'false' }}
           GAS_9304_LIVE_PREFLIGHT_VERIFIED: ${{ steps.gas9304_gate.outputs.verified || 'false' }}
         run: node scripts/deploy-gas.mjs
       - name: Verify NH financial income live sample (no token issuance)
@@ -171,8 +181,11 @@ jobs:
         env:
           NH_FINANCE_EXPECTED_VERSION: '9.304'
         run: node scripts/nh-financial-income-coverage-readback.mjs
+      - name: Verify NH account scope types after 9.305 deployment (no transaction inquiry)
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_9305_ACCOUNT_SCOPE == 'true' && env.GAS_9305_RELEASE_APPROVAL == 'true'
+        run: node scripts/nh-financial-account-scope-readback.mjs
       - name: Activate NH current prices after real GAS deployment
-        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none' && env.GAS_9298_NH_FINANCIAL_INCOME != 'true' && env.GAS_9304_NH_DIAGNOSTIC != 'true'
+        if: env.GAS_DEPLOY_DRY_RUN != 'true' && env.GAS_FIRST_GATE_PHASE == 'none' && env.GAS_9298_NH_FINANCIAL_INCOME != 'true' && env.GAS_9304_NH_DIAGNOSTIC != 'true' && env.GAS_9305_ACCOUNT_SCOPE != 'true'
         env:
           NHPLUG_APP_KEY: ${{ secrets.NHPLUG_APP_KEY }}
           NHPLUG_APP_SECRET: ${{ secrets.NHPLUG_APP_SECRET }}
