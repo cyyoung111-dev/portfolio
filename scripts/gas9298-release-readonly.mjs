@@ -6,9 +6,9 @@ import {assertGas9297ReadOnlyProof} from './issue734-gas9297-release-readonly.mj
 import {probeTradeHash} from './issue734-trade-v2-hash-readonly.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 export async function readGas9298ReleaseProof({readState,readHash,readVersionGate,mode='pre',candidateVersion='9.298',delay=ms=>new Promise(r=>setTimeout(r,ms)),reportWriterWait=()=>{}}={}){
- if(!['pre','post'].includes(mode)||!['9.298','9.300','9.301','9.302','9.303','9.304'].includes(candidateVersion)||typeof readState!=='function'||typeof readHash!=='function')
+ if(!['pre','post'].includes(mode)||!['9.298','9.300','9.301','9.302','9.303','9.304','9.305'].includes(candidateVersion)||typeof readState!=='function'||typeof readHash!=='function')
   throw Error('GAS9298_PROOF_CONTRACT_INVALID');
- const version=mode==='pre'?(candidateVersion==='9.304'?'9.303':candidateVersion==='9.303'?'9.302':candidateVersion==='9.302'?'9.301':candidateVersion==='9.301'?'9.300':'9.297'):candidateVersion;
+ const version=mode==='pre'?(candidateVersion==='9.305'?'9.304':candidateVersion==='9.304'?'9.303':candidateVersion==='9.303'?'9.302':candidateVersion==='9.302'?'9.301':candidateVersion==='9.301'?'9.300':'9.297'):candidateVersion;
  const retryable=new Set(['GAS9295_READONLY_NETWORK_UNVERIFIED','AUTOMATION_DIAG_NETWORK_FAILED','READBACK_NETWORK_UNVERIFIED']);
  if(mode==='post')retryable.add('GAS9295_READONLY_VERSION_MISMATCH');
  let writerWaited=false;
@@ -33,16 +33,16 @@ export async function readGas9298ReleaseProof({readState,readHash,readVersionGat
     assertReleaseVersionGateAfterHash(gate,version);
     ledgerVersionEvidence='VERSIONED_GATE_AFTER_HASH';
    }else if(hash.gasVersion!==version)throw Error('GAS9298_LEDGER_INTEGRITY_UNVERIFIED');
-   return {...proof,ledgerVersionEvidence,kind:candidateVersion==='9.304'?'GAS9304_RELEASE_READONLY':candidateVersion==='9.303'?'GAS9303_RELEASE_READONLY':candidateVersion==='9.302'?'GAS9302_RELEASE_READONLY':candidateVersion==='9.301'?'GAS9301_RELEASE_READONLY':candidateVersion==='9.300'?'GAS9300_RELEASE_READONLY':'GAS9298_RELEASE_READONLY',mode,readbackAttempts:attempt};
+   return {...proof,ledgerVersionEvidence,kind:candidateVersion==='9.305'?'GAS9305_RELEASE_READONLY':candidateVersion==='9.304'?'GAS9304_RELEASE_READONLY':candidateVersion==='9.303'?'GAS9303_RELEASE_READONLY':candidateVersion==='9.302'?'GAS9302_RELEASE_READONLY':candidateVersion==='9.301'?'GAS9301_RELEASE_READONLY':candidateVersion==='9.300'?'GAS9300_RELEASE_READONLY':'GAS9298_RELEASE_READONLY',mode,readbackAttempts:attempt};
   }catch(e){
    // A genuine concurrent writer observed AFTER the ledger proof is not
    // a failed write to retry. Discard all read evidence and recheck once,
    // only for the current preflight. Never proceed solely on a later idle GET.
-   if(mode==='pre'&&['9.301','9.302','9.303','9.304'].includes(candidateVersion)&&!writerWaited&&attempt<3
+   if(mode==='pre'&&['9.301','9.302','9.303','9.304','9.305'].includes(candidateVersion)&&!writerWaited&&attempt<3
       &&e?.message==='GAS9298_LEDGER_VERSION_UNVERIFIED_ACTIVE_WRITER'
       &&e.readonlyWaitSafe===true){
     writerWaited=true;
-    reportWriterWait({kind:candidateVersion==='9.304'?'GAS9304_READONLY_WRITER_WAIT':candidateVersion==='9.303'?'GAS9303_READONLY_WRITER_WAIT':candidateVersion==='9.302'?'GAS9302_READONLY_WRITER_WAIT':'GAS9301_READONLY_WRITER_WAIT',delaySeconds:45,
+    reportWriterWait({kind:candidateVersion==='9.305'?'GAS9305_READONLY_WRITER_WAIT':candidateVersion==='9.304'?'GAS9304_READONLY_WRITER_WAIT':candidateVersion==='9.303'?'GAS9303_READONLY_WRITER_WAIT':candidateVersion==='9.302'?'GAS9302_READONLY_WRITER_WAIT':'GAS9301_READONLY_WRITER_WAIT',delaySeconds:45,
       nextAttempt:attempt+1,activeCount:e.activeCount,writerClasses:e.writerClasses,
       financeWrites:0,gasDeployments:0});
     await delay(45000);
@@ -60,7 +60,7 @@ export async function readGas9298ReleaseProof({readState,readHash,readVersionGat
 const gateFail=reason=>{throw Error('GAS9298_LEDGER_VERSION_UNVERIFIED_'+reason);};
 export function assertReleaseVersionGateAfterHash(response,expectedVersion){
  const g=response?.writerGate;
- if(!['9.297','9.298','9.300','9.301','9.302','9.303','9.304'].includes(expectedVersion))gateFail('EXPECTED_VERSION');
+ if(!['9.297','9.298','9.300','9.301','9.302','9.303','9.304','9.305'].includes(expectedVersion))gateFail('EXPECTED_VERSION');
  if(response?.status!=='ok')gateFail('RESPONSE_STATUS');
  if(response.gasVersion!==expectedVersion)gateFail('VERSION_MISMATCH');
  if(g?.mode!=='OPEN')gateFail('MODE');
