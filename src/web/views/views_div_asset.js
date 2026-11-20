@@ -207,6 +207,58 @@ function _refreshDividendCompanyCatalog(year=_kstYear()) {
 function _getDivOtherIncome(year) {
   return _getDivTaxRecord(year)?.interest??null;
 }
+// Temporary broker/source calculator for income NOT already represented by
+// the dividend engine. Only the verified user-entered aggregate can be saved
+// through the existing tax-scenario field; individual inputs are never stored.
+function _divOtherIncomeSourceAccounts() {
+  const names=new Set();
+  for(const rows of [typeof rawTrades!=='undefined'?rawTrades:[],typeof rawHoldings!=='undefined'?rawHoldings:[]]){
+    for(const row of rows||[]){
+      const acct=typeof row?.acct==='string'?row.acct.trim():'';
+      if(acct&&_divAccountTaxType(acct)==='normal')names.add(acct);
+    }
+  }
+  return [...names].sort((a,b)=>a.localeCompare(b,'ko'));
+}
+function _sumDivOtherIncomeEntries(values){
+  let count=0,total=0;
+  for(const value of values){
+    const raw=String(value??'').trim().replace(/,/g,'');
+    if(!raw)continue;
+    if(!/^\\d+$/.test(raw))return {valid:false,total:null,count};
+    const n=Number(raw);
+    if(!Number.isSafeInteger(n)||!Number.isSafeInteger(total+n))return {valid:false,total:null,count};
+    count++;total+=n;
+  }
+  return {valid:true,total:count?total:null,count};
+}
+function _divOtherIncomeSourceCalculator(){
+  const escape=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const accts=_divOtherIncomeSourceAccounts();
+  const labels=[...accts.map(acct=>acct+' (일반계좌 참고)'), '은행·다른 금융기관·미반영 금융소득'];
+  return '<details><summary>금융기관별 소득 합산 도우미 (입력 시에만 사용)</summary>'+
+    '<div class="ui-status-meta">거래·보유 기록에서 발견된 일반계좌 이름만 표시합니다. 목록이 전체 금융기관을 보장하지 않으며 계좌 소유·과세유형·실제 이자/배당은 확인되지 않았습니다.</div>'+
+    '<div class="ui-status-meta">위 배당 집계에 이미 반영된 배당은 다시 입력하지 마세요. 증권사 과세자료에서 확인한 미반영 이자·배당소득만 입력하십시오. 빈칸은 미확인, 숫자 0은 사용자가 입력한 0원입니다.</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">'+labels.map((label,i)=>
+      '<label class="ui-status-meta" style="display:flex;flex-direction:column;gap:3px">'+escape(label)+
+      '<input type="text" inputmode="numeric" data-div-income-source="'+i+'" aria-label="'+escape(label)+'" placeholder="미입력" style="width:180px;max-width:100%"></label>'
+    ).join('')+'</div>'+
+    '<button type="button" class="btn-ghost-sm" data-div-action="sum-other-income">입력금액 합산 → 위 칸에 반영</button>'+
+    '<div class="ui-status-meta">계좌별 입력내역은 저장되지 않으며 위 합계 입력칸만 변경합니다. 기존 합계는 교체됩니다. 저장하려면 반드시 ‘귀속연도별 저장’을 눌러야 합니다.</div></details>';
+}
+function _copyDivOtherIncomeSourceSum(){
+  const target=typeof $el==='function'?$el('div-other-income-scenario'):null;
+  if(!target||typeof document==='undefined'||typeof document.querySelectorAll!=='function')return;
+  const inputs=[...document.querySelectorAll('[data-div-income-source]')];
+  if(!inputs.length)return;
+  const result=_sumDivOtherIncomeEntries(inputs.map(el=>el.value));
+  if(!result.valid){
+    if(typeof showToast==='function')showToast('입력금액은 0 이상의 정수(원)만 가능하며 합계가 안전 범위를 초과할 수 없습니다.','error');
+    return;
+  }
+  target.value=result.total===null?'':result.total.toLocaleString('ko-KR');
+  if(typeof showToast==='function')showToast(result.total===null?'입력된 금액이 없어 합계 칸을 비웠습니다. 0원으로 확정하지 않았습니다.':'합산 '+result.count+'개 금액을 반영했습니다. 귀속연도별 저장을 눌러야 보존됩니다.','info');
+}
 function _applyDivOtherIncome() {
   const field=$el('div-other-income-scenario');
   if(!field)return;
@@ -264,7 +316,7 @@ function _divTaxComparisonPanel(summary,year,scenario=_divScenarioForSummary(sum
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
     input('div-other-income-scenario','이자·기타 합산 금융소득 (배당 집계 외)',_getDivOtherIncome(year))+
     input('div-tax-otherTaxBase','다른 종합소득 과세표준 (총급여 아님)',d.otherTaxBase)+
-    '</div><details><summary>상세 조정 (증권사 과세자료가 있는 경우만)</summary><div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
+    '</div>'+_divOtherIncomeSourceCalculator()+'<details><summary>상세 조정 (증권사 과세자료가 있는 경우만)</summary><div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'+
     input('div-tax-capitalExempt','과세 제외 감액배당 금액',d.capitalExempt)+input('div-tax-etfTaxDifference','ETF 분배금 중 과표 제외 차액',d.etfTaxDifference)+
     input('div-tax-certificateSpecial','과세자료상 특례배당 총액 (선택)',d.certificateSpecial)+
     input('div-tax-grossUpOrdinary','배당가산 대상 일반배당 (특례 제외)',d.grossUpOrdinary)+input('div-tax-grossUpSpecial','미신청 시 배당가산 대상 특례배당',d.grossUpSpecial)+
