@@ -160,9 +160,9 @@ assert.equal(fresh.readbackAttempts,2);
 
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
-assert.deepEqual(Object.keys(inputs).sort(),['approve_9304','candidate_version','dry_run']);
+assert.deepEqual(Object.keys(inputs).sort(),['approve_9305','candidate_version','dry_run']);
 assert.equal(inputs.dry_run.default,true);
-assert.equal(inputs.approve_9304.default,false);
+assert.equal(inputs.approve_9305.default,false);
 const env=wf.jobs.deploy.env;
 assert.equal(env.GAS_9294_CLOSE_OWNER_NAV,'false');
 assert.equal(env.GAS_9294_RELEASE_APPROVAL,'false');

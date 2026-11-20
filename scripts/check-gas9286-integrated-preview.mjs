@@ -25,7 +25,7 @@ assert.equal(manifest.gasProjectWrites,0);
 const webFetch=fs.readFileSync('src/web/features/settings/settings_fetch.js','utf8');
 assert.ok(webFetch.includes("const EXPECTED_GAS_VERSION = '9.285';"),
  'web must retain main staged GAS 9.285 compatibility');
-assert.ok(webFetch.includes("const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287', '9.294', '9.295', '9.296', '9.297', '9.298', '9.300', '9.301', '9.302', '9.303', '9.304']);"),
+assert.ok(webFetch.includes("const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287', '9.294', '9.295', '9.296', '9.297', '9.298', '9.300', '9.301', '9.302', '9.303', '9.304','9.305']);"),
  'web must retain staged versions and recognize verified live GAS 9.294');
 const versionList=webFetch.match(/const COMPATIBLE_GAS_VERSIONS = Object\.freeze\(\[([^\]]+)\]\);/)?.[1];
 assert.ok(versionList,'version allowlist missing');
