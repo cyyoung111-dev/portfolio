@@ -103,15 +103,21 @@ const wf=YAML.parse(fs.readFileSync('.github/workflows/issue734-nov19-fund-deriv
 assert.equal(wf.on.schedule,undefined);
 assert.equal(wf.on.push,undefined);
 assert.equal(wf.on.workflow_run,undefined);
-assert.equal(wf.on.workflow_dispatch.inputs.diagnose_only.default,true);
+assert.deepEqual(Object.keys(wf.on.workflow_dispatch.inputs).sort(),['fund_code','operation']);
 assert.deepEqual(wf.on.workflow_dispatch.inputs.fund_code.options,['F00001','F00002']);
-assert.equal(wf.on.workflow_dispatch.inputs.confirm_recovery.default,'');
+assert.deepEqual(wf.on.workflow_dispatch.inputs.operation.options,['진단만','실제 복구 (1회)']);
+assert.equal(wf.on.workflow_dispatch.inputs.operation.default,'진단만');
+assert.equal(wf.on.workflow_dispatch.inputs.operation.type,'choice');
+assert.equal(wf.on.workflow_dispatch.inputs.operation.required,true);
 assert.equal(wf.jobs.repair.environment,'portfolio-production-gas');
 assert.equal(wf.jobs.repair.concurrency.group,'gas-production-deploy');
 const run=wf.jobs.repair.steps.find(s=>String(s.run||'').includes('node scripts/issue734-nov19-derived-once.mjs'));
 assert(run);
-assert.match(run.env.ISSUE734_CONFIRM,/inputs\.confirm_recovery/);
-assert.match(run.env.ISSUE734_DIAGNOSE_ONLY,/inputs\.diagnose_only/);
+assert.match(run.env.ISSUE734_CONFIRM,/inputs\.operation == '실제 복구 \(1회\)'/);
+assert.match(run.env.ISSUE734_CONFIRM,/&& 'APPLY_2026-11-19' \|\| ''/);
+assert.match(run.env.ISSUE734_DIAGNOSE_ONLY,/inputs\.operation == '진단만'/);
+assert.match(run.env.ISSUE734_DIAGNOSE_ONLY,/&& 'true' \|\| 'false'/);
+assert.doesNotMatch(JSON.stringify(wf),/inputs\.confirm_recovery|inputs\.diagnose_only/);
 assert.match(run.env.ISSUE734_FUND_CODE,/inputs\.fund_code/);
 assert.doesNotMatch(JSON.stringify(wf),/schedule:|workflow_run:|resumeIncompletePortfolioClose|importFundNav/);
 console.log(JSON.stringify({kind:'ISSUE734_NOV19_SINGLE_FUND_REPAIR_OFFLINE_PASS',
