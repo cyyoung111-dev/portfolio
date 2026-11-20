@@ -1,0 +1,48 @@
+name: Issue 734 2026-11-19 fund derived single-day repair
+on:
+  # Never scheduled, never triggered by source changes or CI completion.
+  workflow_dispatch:
+    inputs:
+      fund_code:
+        description: '복구 대상 펀드 1종 (정확한 11/19 NAV 사전 검증)'
+        type: choice
+        options: ['F00001', 'F00002']
+        default: 'F00002'
+        required: true
+      diagnose_only:
+        description: '읽기 전용: 원장·Writer·CLOSE·기준가격/평가 상태만 검사'
+        type: boolean
+        default: true
+        required: true
+      confirm_recovery:
+        description: '실제 1회 갱신 시에만 APPLY_2026-11-19 입력'
+        type: string
+        default: ''
+        required: false
+permissions:
+  contents: read
+jobs:
+  repair:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: portfolio-production-gas
+    timeout-minutes: 30
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Run exact-day read-only verification or one approved fund refresh
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          ISSUE734_FUND_CODE: ${{ inputs.fund_code }}
+          ISSUE734_DIAGNOSE_ONLY: ${{ inputs.diagnose_only }}
+          ISSUE734_CONFIRM: ${{ inputs.confirm_recovery }}
+        run: node scripts/issue734-nov19-derived-once.mjs
