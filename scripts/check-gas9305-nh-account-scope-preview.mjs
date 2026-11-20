@@ -1,12 +1,52 @@
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import fs from 'node:fs';
+import YAML from 'yaml';
 import {composeGas9304NhContinuationPreview} from './compose-gas9304-nh-continuation-preview.mjs';
 import {composeGas9305NhAccountScopePreview} from './compose-gas9305-nh-account-scope-preview.mjs';
-import {assessNhAccountScope} from './nh-financial-account-scope-readback.mjs';
+import {assessNhAccountScope,probeNhFinancialAccountScope} from './nh-financial-account-scope-readback.mjs';
+import {assertGasReleaseReady,assertGas9305Prerequisites,assertIssue507ManualReleasePermission} from './deploy-gas.mjs';
+import {assertPublishedReleaseFundNavSupport} from './issue860-fund-nav-release-compat.mjs';
 const {candidate:parent,extension:old}=composeGas9304NhContinuationPreview();
 const {parent:reviewed,candidate,extension,manifest}=composeGas9305NhAccountScopePreview();
 assert.equal(parent,reviewed,'published parent must remain exact');
 new vm.Script(candidate);
+assert.equal(manifest.candidateGitBlob,'ed000678f26f1c3018880b7a556d5fb033328342');
+assert.equal(assertGasReleaseReady(parent),'9.304');
+assert.equal(assertGasReleaseReady(candidate),'9.305');
+assert.throws(()=>assertGasReleaseReady(candidate+'\\n// unauthorized'),/GAS_RELEASE_SOURCE_NOT_APPROVED/);
+assert.deepEqual(assertPublishedReleaseFundNavSupport('9.305'),{version:'9.305',kb:true,hanwha:true,financialWrites:0});
+for(const eventName of ['push','workflow_run','workflow_dispatch'])
+ assert.throws(()=>assertIssue507ManualReleasePermission({version:'9.305',eventName,approved9305:eventName!=='workflow_dispatch'}),/GAS_9305_EXPLICIT_MANUAL_RELEASE_REQUIRED/);
+assert.doesNotThrow(()=>assertIssue507ManualReleasePermission({version:'9.305',eventName:'workflow_dispatch',approved9305:true}));
+for(const [publishedVersion,liveIdleVerified] of [['9.303',true],['9.305',true],['9.304',false]])
+ assert.throws(()=>assertGas9305Prerequisites({version:'9.305',publishedVersion,liveIdleVerified}),/GAS_9305_/);
+assert.doesNotThrow(()=>assertGas9305Prerequisites({version:'9.305',publishedVersion:'9.304',liveIdleVerified:true}));
+const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
+const inputs=wf.on.workflow_dispatch.inputs;
+assert.deepEqual(Object.keys(inputs).sort(),['approve_9305','candidate_version','dry_run']);
+assert.equal(inputs.candidate_version.default,'9.305');
+assert.deepEqual(inputs.candidate_version.options,['9.305']);
+assert.equal(inputs.approve_9305.default,false);
+assert.equal(inputs.dry_run.default,true);
+const job=wf.jobs.deploy,steps=job.steps;
+const inventoryLive=steps.find(s=>s.name==='Require clean full GAS deployment inventory before real deploy');
+const inventoryDry=steps.find(s=>s.name==='Require clean full GAS deployment inventory on 9.305 dry-run');
+const preflight=steps.find(s=>s.id==='gas9305_gate');
+const deploy=steps.find(s=>s.name==='Deploy GAS');
+const post=steps.find(s=>s.name==='Verify NH account scope types after 9.305 deployment (no transaction inquiry)');
+assert(inventoryLive&&inventoryDry&&preflight&&deploy&&post);
+assert.equal(inventoryDry.run,inventoryLive.run);
+assert.equal(preflight.run,'node scripts/gas9298-release-readonly.mjs pre 9.305');
+assert.equal(preflight['continue-on-error'],undefined);
+assert(steps.indexOf(inventoryLive)<steps.indexOf(preflight)&&steps.indexOf(inventoryDry)<steps.indexOf(preflight)&&steps.indexOf(preflight)<steps.indexOf(deploy)&&steps.indexOf(deploy)<steps.indexOf(post));
+assert.match(job.env.GAS_9305_RELEASE_APPROVAL,/workflow_dispatch.*inputs\\.approve_9305/);
+assert.equal(job.env.GAS_9304_RELEASE_APPROVAL,'false');
+assert.equal(job.env.GAS_9304_NH_DIAGNOSTIC,'false');
+assert.match(deploy.env.GAS_9305_LIVE_PREFLIGHT_VERIFIED,/gas9305_gate/);
+assert.match(post.if,/GAS_9305_RELEASE_APPROVAL == 'true'/);
+assert.equal(post.run,'node scripts/nh-financial-account-scope-readback.mjs');
+assert.match(steps.find(s=>s.name==='Activate NH current prices after real GAS deployment').if,/GAS_9305_ACCOUNT_SCOPE != 'true'/);
 assert.equal(manifest.mode,'SOURCE_PREVIEW_ONLY');
 assert.equal(manifest.productionDeploymentApproved,false);
 assert.equal(manifest.gasProjectWrites,0);
@@ -85,5 +125,18 @@ for(const bad of [
  {...normal.result,transactionQueries:1},
  {...normal.result,totalAccounts:99}
 ])assert.throws(()=>assessNhAccountScope(bad),/NH_ACCOUNT_SCOPE_UNVERIFIED/);
+let probeCount=0;
+const fakeFetch=async(_endpoint,options)=>{
+ probeCount++;
+ assert.equal(options.method,'POST');
+ assert.equal(options.body.get('action'),'diagnoseNhFinancialIncome');
+ assert.equal(options.body.get('mode'),'accountScope');
+ return {ok:true,json:async()=>normal.result};
+};
+const probed=await probeNhFinancialAccountScope({url:'https://script.google.com/macros/s/fake/exec',token:'FAKE_TEST_PRIVATE_TOKEN',fetchImpl:fakeFetch});
+assert.equal(probeCount,1);
+assert.equal(probed.transactionQueries,0);
+assert.equal(probed.operating02,1);
+await assert.rejects(()=>probeNhFinancialAccountScope({url:'https://script.google.com/macros/s/fake/exec',token:'FAKE_TEST_PRIVATE_TOKEN',fetchImpl:async()=>({ok:true,json:async()=>({...normal.result,acct_no:accountNo})})}),/NH_ACCOUNT_SCOPE_UNVERIFIED/);
 console.log('PASS: 9.305 candidate, account-types-only, no transaction routes, no token issuance, no identifiers or tax assertions');
 console.log('GAS9305_SOURCE_PREVIEW '+JSON.stringify(manifest));
