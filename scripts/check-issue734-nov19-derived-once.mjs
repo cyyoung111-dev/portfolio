@@ -21,6 +21,26 @@ const row=(fund,override={})=>({code:fund,date:TARGET_DATE,navState:'EXISTING_CO
 const pending=row(code);
 assert.equal(assessNov19DerivedRecovery({integrity:proof,status,row:pending,code}).state,'EXACT_DATE_PENDING');
 assert.equal(assessNov19DerivedRecovery({integrity:proof,status,row:row(code,{snapshotState:'EXISTING_VALID'}),code}).state,'ALREADY_VERIFIED');
+const laterClose={...status,snapshotLastDate:'2026-11-20',priceHistoryLastDate:'2026-11-20',
+ close:{...status.close,runDate:'2026-11-20',fundAttemptDate:'2026-11-20'}};
+for(const fund of [code,other]) {
+ assert.equal(assessNov19DerivedRecovery({integrity:proof,status:laterClose,
+  row:row(fund,{snapshotState:'EXISTING_VALID'}),code:fund}).state,'ALREADY_VERIFIED',
+  'existing exact-day NAV/Snapshot must be a no-write success despite later CLOSE');
+ assert.throws(()=>assessNov19DerivedRecovery({integrity:proof,status:laterClose,
+  row:row(fund),code:fund}),/ISSUE734_NOV19_CLOSE_OWNER_OR_DATE_UNVERIFIED/,
+  'never replay stale date after latest CLOSE advanced');
+}
+for(const broken of [
+ {...laterClose,close:{...laterClose.close,stage:'FUND_PENDING'}},
+ {...laterClose,close:{...laterClose.close,fundAttemptDate:'2026-11-19'}},
+ {...laterClose,overallStatus:'INCOMPLETE'},
+ {...laterClose,pendingCount:1},
+ {...laterClose,snapshotLastDate:'2026-11-18'}
+])assert.throws(()=>assessNov19DerivedRecovery({integrity:proof,status:broken,
+ row:row(code,{snapshotState:'EXISTING_VALID'}),code}),
+ /ISSUE734_NOV19_CLOSE_OWNER_OR_DATE_UNVERIFIED/);
+
 let denied=0;
 for(const bad of [
  {integrity:{...proof,version:'9.305'}},{integrity:{...proof,tradeRows:337}},
@@ -42,7 +62,8 @@ for(const bad of [
 }
 const url='https://script.google.com/macros/s/TEST_DEPLOYMENT_123/exec',token='MOCK_PRIVATE_ACCESS_TOKEN';
 function mocks({fund=code,confirm='APPLY_2026-11-19',diagnoseOnly=false,
- changed=false,alreadyValid=false,writeError='',afterInvalid=false}={}){
+ changed=false,alreadyValid=false,writeError='',afterInvalid=false,
+ statusState=status}={}){
  let reads=0,writes=0,verifyCalls=0,statusCalls=0;
  const post=async({action,args,write})=>{
   if(action==='getFundValuationStatus'){
@@ -64,7 +85,7 @@ function mocks({fund=code,confirm='APPLY_2026-11-19',diagnoseOnly=false,
  };
  const config={url,token,code:fund,confirm,diagnoseOnly,post,
   verify:async()=>{verifyCalls++;return proof;},
-  readStatus:async()=>{statusCalls++;return status;}};
+  readStatus:async()=>{statusCalls++;return statusState;}};
  return {config,get:()=>({reads,writes,verifyCalls,statusCalls})};
 }
 const diagnose=mocks({diagnoseOnly:true,confirm:''});
@@ -81,6 +102,20 @@ assert.equal(hanwha.get().writes,1);
 const noChanges=mocks({alreadyValid:true});
 assert.equal((await recoverNov19DerivedOnce(noChanges.config)).alreadyVerified,true);
 assert.equal(noChanges.get().writes,0);
+for(const fund of [code,other]) {
+ const alreadyNewer=mocks({fund,alreadyValid:true,statusState:laterClose});
+ const result=await recoverNov19DerivedOnce(alreadyNewer.config);
+ assert.equal(result.state,'ALREADY_VERIFIED');
+ assert.equal(result.mode,'READ_ONLY');
+ assert.equal(result.alreadyVerified,true);
+ assert.equal(alreadyNewer.get().writes,0);
+ assert.equal(alreadyNewer.get().verifyCalls,1);
+ assert.equal(alreadyNewer.get().reads,1);
+ const stalePending=mocks({fund,statusState:laterClose});
+ await assert.rejects(()=>recoverNov19DerivedOnce(stalePending.config),
+  /ISSUE734_NOV19_CLOSE_OWNER_OR_DATE_UNVERIFIED/);
+ assert.equal(stalePending.get().writes,0);
+}
 const noConsent=mocks({confirm:''});
 await assert.rejects(()=>recoverNov19DerivedOnce(noConsent.config),/ISSUE734_NOV19_MANUAL_APPROVAL_REQUIRED/);
 assert.equal(noConsent.get().verifyCalls,0);assert.equal(noConsent.get().writes,0);
