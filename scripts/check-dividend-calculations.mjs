@@ -398,6 +398,12 @@ console.log('PASS: shared non-dividend income scenario and missing identity prot
  accountCtx.$el=id=>id==='div-other-income-scenario'?field:null;
  accountCtx.document={querySelectorAll:()=>entries};
  accountCtx.showToast=msg=>messages.push(msg);
+ const pendingSignature=accountCtx._divTaxFormSignature(2026);
+ entries[0].value='';entries[1].value='';
+ const blankSignature=accountCtx._divTaxFormSignature(2026);
+ assert.equal(blankSignature,accountCtx._divTaxRecordSignature({interest:9999,details:{}}),'blank source calculator must preserve ordinary remote signature');
+ assert.notEqual(pendingSignature,blankSignature,'temporary income edits must block stale remote rerender');
+ entries[0].value='1,200';entries[1].value='300';
  accountCtx._copyDivOtherIncomeSourceSum();
  assert.equal(field.value,'1,500');assert.equal(accountCtx._getDivOtherIncome(2026),null,'calculator must not save tax scenario');
  entries[1].value='1.5';accountCtx._copyDivOtherIncomeSourceSum();
