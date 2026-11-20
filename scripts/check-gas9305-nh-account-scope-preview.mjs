@@ -60,6 +60,20 @@ const unknown=run([{acct_no:'12345678904',acct_type:'04'}]);
 assert.equal(unknown.result.status,'error');
 assert.equal(unknown.calls,1);
 const duplicate=run([self,self]);assert.equal(duplicate.result.status,'error');
+for(const invalidAccounts of [
+ [operating,operating],
+ [sim,sim],
+ [{acct_type:'02'}],
+ [{acct_type:'03'}],
+ [self,{acct_no:accountNo,acct_type:'02'}],
+ [operating,{acct_no:otherNo,acct_type:'03'}],
+ [{acct_no:'invalid',acct_type:'02'}]
+]) {
+ const rejection=run(invalidAccounts);
+ assert.equal(rejection.result.status,'error','malformed or duplicate 02/03 must be rejected');
+ assert.equal(rejection.calls,1);
+ assert.doesNotMatch(JSON.stringify(rejection.result),/1234567890|PRIVATE_CACHED_TEST_TOKEN/);
+}
 const denied=run([self],false);assert.equal(denied.calls,0);assert.equal(denied.result.status,'error');
 for(const bad of [
  {...normal.result,accountOwnershipVerified:true},
