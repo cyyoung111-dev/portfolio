@@ -225,7 +225,7 @@ function _sumDivOtherIncomeEntries(values){
   for(const value of values){
     const raw=String(value??'').trim().replace(/,/g,'');
     if(!raw)continue;
-    if(!/^\\d+$/.test(raw))return {valid:false,total:null,count};
+    if(!/^\d+$/.test(raw))return {valid:false,total:null,count};
     const n=Number(raw);
     if(!Number.isSafeInteger(n)||!Number.isSafeInteger(total+n))return {valid:false,total:null,count};
     count++;total+=n;
