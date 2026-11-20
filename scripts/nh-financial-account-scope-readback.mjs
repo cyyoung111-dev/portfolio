@@ -1,5 +1,7 @@
 // Local structural validation of the future 9.305 account-scope diagnostic.
 // No NH requests, financial data import, or tax calculation.
+import {pathToFileURL} from 'node:url';
+import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 const fail=()=>{throw Error('NH_ACCOUNT_SCOPE_UNVERIFIED');};
 const keys=[
  'status','provider','gasVersion','mode','readOnly','diagnosticOnly',
@@ -30,4 +32,29 @@ export function assessNhAccountScope(data){
   operating01:c.operating01,operating02:c.operating02,simulation03:c.simulation03,
   totalAccounts:data.totalAccounts,transactionQueries:0,accountOwnershipVerified:false,
   accountTaxTypeVerified:false,annualIncomeVerified:false,financialWrites:0,tokenIssued:false};
+}
+
+export async function probeNhFinancialAccountScope({url,token,fetchImpl=fetch}={}){
+ const endpoint=validateWebAppUrl(url);
+ if(typeof token!=='string'||token.length<12)fail();
+ let response;
+ try{
+  response=await fetchImpl(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+   redirect:'follow',signal:AbortSignal.timeout(60000),
+   body:new URLSearchParams({action:'diagnoseNhFinancialIncome',mode:'accountScope',accessToken:token})});
+ }catch{fail();}
+ if(response?.ok!==true)fail();
+ let data;try{data=await response.json();}catch{fail();}
+ return assessNhAccountScope(data);
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+ try{
+  if(process.env.GITHUB_REF!=='refs/heads/main'||process.env.GITHUB_REPOSITORY!=='cyyoung111-dev/portfolio')fail();
+  const proof=await probeNhFinancialAccountScope({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN});
+  console.log(JSON.stringify(proof));
+  if(proof.operating02>0)console.warn('::warning::NH operational type 02 exists. Ownership and tax attribution remain unverified; do not include in personal income.');
+ }catch{
+  console.error('NH_ACCOUNT_SCOPE_UNVERIFIED');
+  process.exitCode=2;
+ }
 }
