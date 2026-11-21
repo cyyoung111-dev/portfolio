@@ -386,6 +386,7 @@ console.log('PASS: shared non-dividend income scenario and missing identity prot
  assert.equal(accountCtx._sumDivOtherIncomeEntries(['9007199254740991','1']).valid,false);
  const priorTrades=accountCtx.rawTrades,priorHoldings=accountCtx.rawHoldings;
  const priorTypes=accountCtx.ACCT_TAX_TYPES,priorEl=accountCtx.$el,priorDoc=accountCtx.document,priorToast=accountCtx.showToast;
+ const priorMaster=accountCtx.ACCOUNTS_MASTER,priorOrder=accountCtx.ACCT_ORDER;
  accountCtx.rawTrades=[{acct:'일반'},{acct:'ISA'},{acct:'일반'},{acct:'가짜<script>'}];
  accountCtx.rawHoldings=[{acct:'연금'}];
  accountCtx.ACCT_TAX_TYPES={'일반':'일반','ISA':'ISA','연금':'연금','가짜<script>':'일반'};
@@ -394,6 +395,42 @@ console.log('PASS: shared non-dividend income scenario and missing identity prot
  const panel=accountCtx._divOtherIncomeSourceCalculator();
  assert.match(panel,/sum-other-income/);assert.match(panel,/가짜&lt;script&gt;/);
  assert.doesNotMatch(panel,/가짜<script>/);
+ // Registered but currently empty taxable brokerage accounts must be visible.
+ // Closed/no-history accounts, ISA/IRP, and explicitly unclassified accounts
+ // may not be silently treated as ordinary taxable financial income.
+ accountCtx.ACCOUNTS_MASTER=[
+   {displayName:'등록만 일반',taxType:'GENERAL',active:true},
+   {displayName:'등록만 ISA',taxType:'ISA',active:true},
+   {displayName:'마스터 미분류',taxType:'UNCLASSIFIED',active:true},
+   {displayName:'명시 미분류',taxType:'GENERAL',active:true},
+   {displayName:'등록만 IRP',taxType:'IRP',active:true},
+   {displayName:'비활성',taxType:'GENERAL',active:false}
+ ];
+ accountCtx.ACCT_ORDER=['전체','비활성','오래된 목록만'];
+ accountCtx.ACCT_TAX_TYPES['명시 미분류']='';
+ let audit=accountCtx._divOtherIncomeSourceAudit();
+ assert.deepEqual([...audit.normal],['가짜<script>','등록만 일반','일반'].sort((a,b)=>a.localeCompare(b,'ko')));
+ assert.equal(audit.registered,5);
+ assert.equal(audit.unclassified,2);
+ assert.equal(audit.isa,2);
+ assert.equal(audit.pension,1);
+ assert.equal(audit.irp,1);
+ assert(!audit.entries.some(row=>row.acct==='비활성'||row.acct==='오래된 목록만'));
+ const registeredPanel=accountCtx._divOtherIncomeSourceCalculator();
+ assert.match(registeredPanel,/등록만 일반/);
+ assert.match(registeredPanel,/미연동 은행·증권사 금융소득 1/);
+ assert.match(registeredPanel,/미연동 은행·증권사 금융소득 2/);
+ assert.match(registeredPanel,/미분류 2/);
+ assert(!registeredPanel.includes('비활성 (일반계좌 참고)'));
+ assert(!registeredPanel.includes('명시 미분류 (일반계좌 참고)'));
+ // Legacy installs without ACCOUNTS_MASTER use ACCT_ORDER, skipping '전체'.
+ accountCtx.ACCOUNTS_MASTER=[];
+ accountCtx.ACCT_ORDER=['전체','이전 일반'];
+ accountCtx.ACCT_TAX_TYPES['이전 일반']='일반';
+ audit=accountCtx._divOtherIncomeSourceAudit();
+ assert(audit.normal.includes('이전 일반'));
+ assert(!audit.entries.some(row=>row.acct==='전체'));
+
  const field={value:'9,999',dataset:{taxYear:'2026'}},entries=[{value:'1,200'},{value:'300'}],messages=[];
  accountCtx.$el=id=>id==='div-other-income-scenario'?field:null;
  accountCtx.document={querySelectorAll:()=>entries};
@@ -414,7 +451,7 @@ console.log('PASS: shared non-dividend income scenario and missing identity prot
  assert.equal(field.value,'','blank inputs must never become 0');
  assert.ok(messages.some(s=>/저장/.test(s)));
  accountCtx.rawTrades=priorTrades;accountCtx.rawHoldings=priorHoldings;
- accountCtx.ACCT_TAX_TYPES=priorTypes;accountCtx.$el=priorEl;
+ accountCtx.ACCT_TAX_TYPES=priorTypes;accountCtx.ACCOUNTS_MASTER=priorMaster;accountCtx.ACCT_ORDER=priorOrder;accountCtx.$el=priorEl;
  accountCtx.document=priorDoc;accountCtx.showToast=priorToast;
  const events=fs.readFileSync('src/web/app/event_delegation.js','utf8');
  assert.match(events,/action === 'sum-other-income'.*_copyDivOtherIncomeSourceSum/);
