@@ -120,7 +120,8 @@ await assert.rejects(()=>readGas9298ReleaseProof({readState:async()=>{throw Erro
 const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
 assert.equal(Object.hasOwn(inputs,'approve_9298'),false);
-assert(!inputs.candidate_version.options.includes('9.298'));
+assert(!inputs.operation.options.includes('9.298'));
+assert(!Object.hasOwn(inputs,'candidate_version'));
 assert.equal(wf.jobs.deploy.env.GAS_9298_NH_FINANCIAL_INCOME,'false');
 assert.equal(wf.jobs.deploy.env.GAS_9298_RELEASE_APPROVAL,'false');
 const deploySteps=wf.jobs.deploy.steps;
