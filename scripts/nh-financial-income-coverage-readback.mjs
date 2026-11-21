@@ -13,10 +13,11 @@ function date(s){
 }
 const fmt=v=>v.toISOString().slice(0,10).replace(/-/g,'');
 export function assessNhFinancialCoverage(d,{expectedVersion='9.303',asOf}={}){
- if(d?.status!=='ok'||d.provider!=='NH'||d.gasVersion!==expectedVersion||!['9.303','9.304'].includes(expectedVersion)||
+ if(d?.status!=='ok'||d.provider!=='NH'||d.gasVersion!==expectedVersion||!['9.303','9.304','9.305'].includes(expectedVersion)||
  d.readOnly!==true||d.diagnosticOnly!==true||d.accountListVerified!==true||
+ (d.annualIncomeVerified!==undefined&&d.annualIncomeVerified!==false)||
  ['tokenIssued','bearerExposed','financialOriginalWritten','financialTaxClassificationVerified','accountTaxTypeVerified','fullYearCoverage'].some(k=>d[k]!==false))fail();
- const newer=expectedVersion==='9.304';
+ const newer=expectedVersion==='9.304'||expectedVersion==='9.305';
  const rejectedForVersion=new Set([...rejected,...(newer?['CONTINUATION_UNVERIFIED']:[])]);
  const today=date(d.asOf);if(asOf!==undefined&&d.asOf!==asOf)fail();
  const month=today.getUTCMonth()+1,year=today.getUTCFullYear();
@@ -109,7 +110,7 @@ export function assessNhFinancialCoverageStep(p){
  return {kind:'COVERAGE_UNVERIFIED',exitCode:2,annualIncomeVerified:false};
 }
 
-export async function probeNhFinancialCoverage({url,token,fetchImpl=fetch,asOf,expectedVersion='9.303'}={}){
+export async function probeNhFinancialCoverage({url,token,fetchImpl=fetch,asOf,expectedVersion='9.305'}={}){
  const endpoint=validateWebAppUrl(url);
  if(typeof token!=='string'||token.length<12)fail();
  let r;try{r=await fetchImpl(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},redirect:'follow',
@@ -121,7 +122,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
   if(process.env.GITHUB_REF!=='refs/heads/main'||process.env.GITHUB_REPOSITORY!=='cyyoung111-dev/portfolio')fail();
   const asOf=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()).replace(/-/g,'');
-  const p=await probeNhFinancialCoverage({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,asOf,expectedVersion:process.env.NH_FINANCE_EXPECTED_VERSION||'9.303'});
+  const p=await probeNhFinancialCoverage({url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,asOf,expectedVersion:process.env.NH_FINANCE_EXPECTED_VERSION||'9.305'});
   console.log(JSON.stringify(p));
   const verdict=assessNhFinancialCoverageStep(p);
   console.log(JSON.stringify({kind:'NH_FINANCIAL_COVERAGE_STEP',...verdict}));
