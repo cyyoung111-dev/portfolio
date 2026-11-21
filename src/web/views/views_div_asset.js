@@ -282,7 +282,7 @@ function _divOtherIncomeSourceCalculator(){
   const labels=[...audit.normal.map(acct=>acct+' (일반계좌 참고)'),
     '미연동 은행·증권사 금융소득 1', '미연동 은행·증권사 금융소득 2',
     '그 밖의 미반영 금융소득 합계'];
-  return '<details><summary>전체 금융기관 소득 합산 도우미 (입력 시에만 사용)</summary>'+
+  return '<details><summary>금융기관별 소득 합산 도우미 (전체 계좌 점검 · 입력 시에만 사용)</summary>'+
     '<div class="ui-status-meta">기존 계좌 등록부·거래·보유 기록에서 '+audit.entries.length+
     '개 계좌 인식 (등록 '+audit.registered+' · 일반 '+audit.normal.length+
     ' · ISA '+audit.isa+' · 연금저축 '+audit.pension+' · IRP '+audit.irp+
