@@ -118,9 +118,9 @@ assert.equal(attempts,2);
 const flow=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const on=flow.on??flow.true;
 const opts=on.workflow_dispatch.inputs;
-assert.deepEqual(Object.keys(opts).sort(),['approve_9305','candidate_version','dry_run']);
-assert.equal(opts.dry_run.default,true);
-assert.equal(opts.approve_9305.default,false);
+assert.deepEqual(Object.keys(opts),['operation']);
+assert.equal(opts.operation.default,'진단만');
+assert.deepEqual(opts.operation.options,['진단만','9.305 실제 배포']);
 assert.equal(flow.jobs.deploy.env.GAS_9293_ORPHANED_CLOSE,'false');
 assert.equal(flow.jobs.deploy.env.GAS_9293_RELEASE_APPROVAL,'false');
 
