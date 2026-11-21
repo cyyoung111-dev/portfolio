@@ -20,22 +20,12 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: '검증만 실행 · 실제 배포 안 함 (권장)'
+      operation:
+        description: '9.305 NH 계좌유형 진단: 기본은 읽기 전용 검증'
         required: true
-        default: true
-        type: boolean
-      candidate_version:
-        description: '현재 릴리스 후보 · 이전 버전 선택 불가'
-        required: true
-        default: '9.305'
+        default: '진단만'
         type: choice
-        options: ['9.305']
-      approve_9305:
-        description: '9.305 NH 계좌유형 읽기 전용 진단 운영 배포 승인'
-        required: true
-        default: false
-        type: boolean
+        options: ['진단만', '9.305 실제 배포']
 
 permissions:
   contents: read
@@ -98,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'gas-deploy-dry-run' || 'gas-production-deploy' }}
+      group: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == '진단만' && 'gas-deploy-dry-run' || 'gas-production-deploy' }}
       cancel-in-progress: false
     env:
       GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
@@ -107,7 +97,7 @@ jobs:
       GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
       GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
-      GAS_DEPLOY_DRY_RUN: ${{ inputs.dry_run || false }}
+      GAS_DEPLOY_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == '진단만' && 'true' || 'false' }}
       GAS_FIRST_GATE_PHASE: none
       # Historical release candidates are retired from the operator UI.
       GAS_9293_ORPHANED_CLOSE: 'false'
@@ -131,9 +121,9 @@ jobs:
       GAS_9303_NH_DIAGNOSTIC: 'false'
       GAS_9303_RELEASE_APPROVAL: 'false'
       GAS_9304_NH_DIAGNOSTIC: 'false'
-      GAS_9305_ACCOUNT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.305' && 'true' || 'false' }}
+      GAS_9305_ACCOUNT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == '진단만' || inputs.operation == '9.305 실제 배포') && 'true' || 'false' }}
       GAS_9304_RELEASE_APPROVAL: 'false'
-      GAS_9305_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_version == '9.305' && inputs.approve_9305 && 'true' || 'false' }}
+      GAS_9305_RELEASE_APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == '9.305 실제 배포' && 'true' || 'false' }}
       GITHUB_SHA: ${{ needs.validate.outputs.sha }}
       GAS_EXPECTED_MAIN_SHA: ${{ needs.validate.outputs.sha }}
       GITHUB_TOKEN: ${{ github.token }}
