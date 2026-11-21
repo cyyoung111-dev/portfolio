@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import {composeGas9304NhContinuationPreview} from './compose-gas9304-nh-continuation-preview.mjs';
 import {composeGas9305NhAccountScopePreview} from './compose-gas9305-nh-account-scope-preview.mjs';
 import {assessNhAccountScope,probeNhFinancialAccountScope} from './nh-financial-account-scope-readback.mjs';
+import {assessNhFinancialCoverage,assessNhFinancialCoverageStep,probeNhFinancialCoverage} from './nh-financial-income-coverage-readback.mjs';
 import {assertGasReleaseReady,assertGas9305Prerequisites,assertIssue507ManualReleasePermission} from './deploy-gas.mjs';
 import {assertPublishedReleaseFundNavSupport} from './issue860-fund-nav-release-compat.mjs';
 const {candidate:parent,extension:old}=composeGas9304NhContinuationPreview();
@@ -141,5 +142,75 @@ assert.equal(probeCount,1);
 assert.equal(probed.transactionQueries,0);
 assert.equal(probed.operating02,1);
 await assert.rejects(()=>probeNhFinancialAccountScope({url:'https://script.google.com/macros/s/fake/exec',token:'FAKE_TEST_PRIVATE_TOKEN',fetchImpl:async()=>({ok:true,json:async()=>({...normal.result,acct_no:accountNo})})}),/NH_ACCOUNT_SCOPE_UNVERIFIED/);
+// 9.305 changes only accountScope: existing bounded coverage remains
+// compatible with the published version, without asserting annual zero.
+let coverageCalls=0,coverageTransactions=0;
+class CoverageDate extends Date{
+ constructor(...a){super(...(a.length?a:['2026-11-19T03:00:00Z']));}
+ static now(){return Date.parse('2026-11-19T03:00:00Z');}
+}
+const noData={rsp_cd:'13578',rsp_msg:'조회된 내역이 없습니다.',Output_0:[]};
+const coverageCtx=vm.createContext({
+ Date:CoverageDate,_nhProxyAuthenticated_:()=>true,
+ _nhCredentials_:()=>({key:'k',secret:'s'}),_nhEnabled_:()=>true,
+ _nhTokenScope_:()=> 'SCOPE',
+ _nhValidTokenRecord_:()=>({token,expiresAt:Date.parse('2026-11-19T15:00:00Z')}),
+ PropertiesService:{getScriptProperties:()=>({getProperty:()=> 'TOKEN_RECORD'})},
+ Utilities:{formatDate:d=>new Date(d.getTime()+9*3600000).toISOString().slice(0,10).replace(/-/g,''),sleep:()=>{}},
+ UrlFetchApp:{fetch(url,options){
+  coverageCalls++;
+  assert.equal(options.headers.Authorization,'Bearer '+token);
+  let body;
+  if(url.endsWith('/n2/acctinfo')){
+   body=ok([self,sim]);
+  }else{
+   assert(url.endsWith('/totalTransaction')||url.endsWith('/depositWithdrawal'));
+   coverageTransactions++;
+   body=noData;
+  }
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify(body),
+    getAllHeaders:()=>({cts_flag:'N'})};
+ }},
+ jsonError:message=>({status:'error',message}),
+ jsonOk:value=>({status:'ok',...value})
+});
+vm.runInContext(extension,coverageCtx);
+const liveCoverage=coverageCtx.handleDiagnoseNhFinancialIncome({mode:'coverage'});
+const coverage=assessNhFinancialCoverage(liveCoverage,{expectedVersion:'9.305',asOf:'20261119'});
+assert.equal(liveCoverage.gasVersion,'9.305');
+assert.equal(coverage.contractStatus,'NO_ROWS_REPORTED_YEAR_TO_DATE');
+assert.equal(coverage.ownLiveAccounts,1);
+assert.equal(coverage.otherAccountsSkipped,1);
+assert.equal(coverage.accountsSampled,1);
+assert.equal(coverage.noDataWindows,12);
+assert.equal(coverage.queryCount,12);
+assert.equal(coverageCalls,13);
+assert.equal(coverageTransactions,12);
+assert.equal(coverage.annualIncomeVerified,false);
+assert.equal(coverage.fullYearCoverage,false);
+assert.deepEqual(assessNhFinancialCoverageStep(coverage),{
+ kind:'NO_ROWS_REPORTED_WARNING',exitCode:0,annualIncomeVerified:false
+});
+assert.throws(()=>assessNhFinancialCoverage(liveCoverage,{expectedVersion:'9.304'}),
+ /NH_FINANCE_COVERAGE_UNVERIFIED/);
+assert.throws(()=>assessNhFinancialCoverage({...liveCoverage,annualIncomeVerified:true},
+ {expectedVersion:'9.305'}),/NH_FINANCE_COVERAGE_UNVERIFIED/);
+let coverageProbeCalls=0;
+const verifiedCoverage=await probeNhFinancialCoverage({
+ url:'https://script.google.com/macros/s/fake/exec',
+ token:'FAKE_TEST_PRIVATE_TOKEN',asOf:'20261119',
+ fetchImpl:async(_url,options)=>{
+  coverageProbeCalls++;
+  assert.equal(options.method,'POST');
+  assert.equal(options.body.get('mode'),'coverage');
+  return {ok:true,json:async()=>liveCoverage};
+ }
+});
+assert.equal(coverageProbeCalls,1);
+assert.equal(verifiedCoverage.gasVersion,'9.305');
+assert.equal(verifiedCoverage.annualIncomeVerified,false);
+assert.doesNotMatch(JSON.stringify(verifiedCoverage),/PRIVATE_CACHED_TEST_TOKEN|1234567890/);
+console.log('PASS: 9.305 NH coverage readback, bounded 01 scope, no-data warning, strict version and no annual-zero inference');
+
 console.log('PASS: 9.305 candidate, account-types-only, no transaction routes, no token issuance, no identifiers or tax assertions');
 console.log('GAS9305_SOURCE_PREVIEW '+JSON.stringify(manifest));
