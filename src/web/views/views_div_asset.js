@@ -218,15 +218,48 @@ function _getDivOtherIncome(year) {
 // Temporary broker/source calculator for income NOT already represented by
 // the dividend engine. Only the verified user-entered aggregate can be saved
 // through the existing tax-scenario field; individual inputs are never stored.
-function _divOtherIncomeSourceAccounts() {
-  const names=new Set();
-  for(const rows of [typeof rawTrades!=='undefined'?rawTrades:[],typeof rawHoldings!=='undefined'?rawHoldings:[]]){
-    for(const row of rows||[]){
-      const acct=typeof row?.acct==='string'?row.acct.trim():'';
-      if(acct&&_divAccountTaxType(acct)==='normal')names.add(acct);
+function _divOtherIncomeSourceAudit(){
+  const accounts=new Map();
+  const add=(value,source,taxHint='')=>{
+    const acct=typeof value==='string'?value.trim():'';
+    if(!acct||acct==='전체')return;
+    const row=accounts.get(acct)||{acct,registered:false,trades:false,holdings:false,taxHint:''};
+    row[source]=true;
+    if(taxHint&&!row.taxHint)row.taxHint=taxHint;
+    accounts.set(acct,row);
+  };
+  // Prefer the canonical registered-account list. Older installations may
+  // only have ACCT_ORDER; trades/holdings still cover historical accounts.
+  const master=typeof ACCOUNTS_MASTER!=='undefined'&&Array.isArray(ACCOUNTS_MASTER)?ACCOUNTS_MASTER:[];
+  if(master.length){
+    for(const item of master){
+      if(item&&item.active!==false)add(item.displayName,'registered',item.taxType);
     }
+  }else if(typeof ACCT_ORDER!=='undefined'&&Array.isArray(ACCT_ORDER)){
+    for(const name of ACCT_ORDER)add(name,'registered');
   }
-  return [...names].sort((a,b)=>a.localeCompare(b,'ko'));
+  for(const [source,rows] of [
+    ['trades',typeof rawTrades!=='undefined'?rawTrades:[]],
+    ['holdings',typeof rawHoldings!=='undefined'?rawHoldings:[]]
+  ]){
+    if(!Array.isArray(rows))continue;
+    for(const row of rows)add(row?.acct,source);
+  }
+  const entries=[...accounts.values()].map(row=>{
+    const configured=_divAccountTaxType(row.acct);
+    const taxType=configured!=='unclassified'?configured:
+      PlanCalculations.classifyTaxType(row.taxHint);
+    return {...row,taxType};
+  }).sort((a,b)=>a.acct.localeCompare(b.acct,'ko'));
+  const count=type=>entries.filter(row=>row.taxType===type).length;
+  return {entries,
+    normal:entries.filter(row=>row.taxType==='normal').map(row=>row.acct),
+    isa:count('isa'),pension:count('pension'),irp:count('irp'),
+    unclassified:count('unclassified'),
+    registered:entries.filter(row=>row.registered).length};
+}
+function _divOtherIncomeSourceAccounts(){
+  return _divOtherIncomeSourceAudit().normal;
 }
 function _sumDivOtherIncomeEntries(values){
   let count=0,total=0;
@@ -242,10 +275,17 @@ function _sumDivOtherIncomeEntries(values){
 }
 function _divOtherIncomeSourceCalculator(){
   const escape=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const accts=_divOtherIncomeSourceAccounts();
-  const labels=[...accts.map(acct=>acct+' (일반계좌 참고)'), '은행·다른 금융기관·미반영 금융소득'];
-  return '<details><summary>금융기관별 소득 합산 도우미 (입력 시에만 사용)</summary>'+
-    '<div class="ui-status-meta">거래·보유 기록에서 발견된 일반계좌 이름만 표시합니다. 목록이 전체 금융기관을 보장하지 않으며 계좌 소유·과세유형·실제 이자/배당은 확인되지 않았습니다.</div>'+
+  const audit=_divOtherIncomeSourceAudit();
+  const labels=[...audit.normal.map(acct=>acct+' (일반계좌 참고)'),
+    '미연동 은행·증권사 금융소득 1', '미연동 은행·증권사 금융소득 2',
+    '그 밖의 미반영 금융소득 합계'];
+  return '<details><summary>전체 금융기관 소득 합산 도우미 (입력 시에만 사용)</summary>'+
+    '<div class="ui-status-meta">기존 계좌 등록부·거래·보유 기록에서 '+audit.entries.length+
+    '개 계좌 인식 (등록 '+audit.registered+' · 일반 '+audit.normal.length+
+    ' · ISA '+audit.isa+' · 연금저축 '+audit.pension+' · IRP '+audit.irp+
+    ' · 미분류 '+audit.unclassified+'). 미분류·ISA·연금계좌는 일반 과세소득 입력 목록에서 제외합니다.</div>'+
+    '<div class="ui-status-meta">등록 계좌 목록은 전체 금융기관 연결이나 과세자료 확인을 증명하지 않습니다. 미연동 은행·증권사는 아래 별도 입력칸으로 보완하며, 해당 입력은 자동 조회가 아닙니다.'+
+    (audit.unclassified?' 미분류 '+audit.unclassified+'개 계좌는 설정에서 세제유형을 확인해 주세요.':'')+'</div>'+
     '<div class="ui-status-meta">위 배당 집계에 이미 반영된 배당은 다시 입력하지 마세요. 증권사 과세자료에서 확인한 미반영 이자·배당소득만 입력하십시오. 빈칸은 미확인, 숫자 0은 사용자가 입력한 0원입니다.</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">'+labels.map((label,i)=>
       '<label class="ui-status-meta" style="display:flex;flex-direction:column;gap:3px">'+escape(label)+
