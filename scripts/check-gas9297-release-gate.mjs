@@ -122,8 +122,9 @@ for(const invalid of [{version:'9.297'},{financeWrites:1},{activeCount:1},
 }
 const wf=YAML.parse(readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const input=(wf.on??wf.true).workflow_dispatch.inputs;
-assert.equal(input.dry_run.default,true);
-assert.deepEqual(input.candidate_version.options,['9.305']);
+assert.deepEqual(Object.keys(input),['operation']);
+assert.equal(input.operation.default,'진단만');
+assert.deepEqual(input.operation.options,['진단만','9.305 실제 배포']);
 assert.equal(Object.hasOwn(input,'approve_9297'),false);
 assert.equal(wf.jobs.deploy.environment,'portfolio-production-gas');
 assert.equal(wf.jobs.deploy.concurrency['cancel-in-progress'],false);
