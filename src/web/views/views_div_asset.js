@@ -246,8 +246,11 @@ function _divOtherIncomeSourceAudit(){
     for(const row of rows)add(row?.acct,source);
   }
   const entries=[...accounts.values()].map(row=>{
-    const configured=_divAccountTaxType(row.acct);
-    const taxType=configured!=='unclassified'?configured:
+    const configured=typeof ACCT_TAX_TYPES!=='undefined'&&ACCT_TAX_TYPES
+      &&Object.prototype.hasOwnProperty.call(ACCT_TAX_TYPES,row.acct);
+    // Explicit user classification always wins. A blank/unknown assignment
+    // cannot be silently promoted by a stale registry taxType hint.
+    const taxType=configured?_divAccountTaxType(row.acct):
       PlanCalculations.classifyTaxType(row.taxHint);
     return {...row,taxType};
   }).sort((a,b)=>a.acct.localeCompare(b.acct,'ko'));
