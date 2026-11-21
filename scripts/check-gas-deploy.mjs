@@ -989,7 +989,9 @@ if (hasStackedKrxRecovery) {
 
 const issue507ReleaseWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 const currentDispatch=YAML.parse(issue507ReleaseWorkflow);
-assert.deepEqual(Object.keys(currentDispatch.on.workflow_dispatch.inputs).sort(),['approve_9305','candidate_version','dry_run']);
+assert.deepEqual(Object.keys(currentDispatch.on.workflow_dispatch.inputs),['operation']);
+assert.equal(currentDispatch.on.workflow_dispatch.inputs.operation.default,'진단만');
+assert.deepEqual(currentDispatch.on.workflow_dispatch.inputs.operation.options,['진단만','9.305 실제 배포']);
 for(const version of ['9294','9295','9296','9297','9298']){
  assert.equal(currentDispatch.jobs.deploy.env['GAS_'+version+'_RELEASE_APPROVAL'],'false');
  if(version!=='9298')assert(!currentDispatch.jobs.deploy.steps.some(s=>s.id==='gas'+version+'_gate'));

@@ -176,7 +176,8 @@ console.log('PASS: routine fund close uses both stored-only providers; exact NAV
  const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
  const inputs=wf.on.workflow_dispatch.inputs;
  assert.equal(Object.hasOwn(inputs,'approve_9300'),false);
- assert(!inputs.candidate_version.options.includes('9.300'));
+ assert(!inputs.operation.options.includes('9.300'));
+assert(!Object.hasOwn(inputs,'candidate_version'));
  assert.equal(wf.jobs.deploy.env.GAS_9300_INTEGRATED,'false');
  assert.equal(wf.jobs.deploy.env.GAS_9300_RELEASE_APPROVAL,'false');
  console.log('PASS: integrated 9.300 immutable source, direct 9.297 preflight, exact post-readback, NAV/NH compatibility, no automatic deployment');

@@ -22,18 +22,20 @@ const deployWorkflow=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 const deployJob=deployWorkflow.split('\n  deploy:\n')[1];
 assert.ok(deployJob,'production deploy job must exist');
 assert.match(deployJob,/environment: portfolio-production-gas/);
-assert.match(deployJob,/concurrency:\s*\n\s+group: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.dry_run && 'gas-deploy-dry-run' \|\| 'gas-production-deploy' \}\}\s*\n\s+cancel-in-progress: false/);
+assert.match(deployJob,/concurrency:\s*\n\s+group: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.operation == '진단만' && 'gas-deploy-dry-run' \|\| 'gas-production-deploy' \}\}\s*\n\s+cancel-in-progress: false/);
 for(const scenario of [
- {event:'workflow_dispatch',dryRun:false},
- {event:'workflow_run',dryRun:false},
+ {event:'workflow_dispatch',operation:'9.305 실제 배포'},
+ {event:'workflow_run',operation:null},
 ]){
  // The production branch of the real deploy expression must hold the same
  // lock as the audit; otherwise the tested v9.282 blob can become stale.
- const deployGroup=scenario.event==='workflow_dispatch' && scenario.dryRun
+ const deployGroup=scenario.event==='workflow_dispatch' && scenario.operation==='진단만'
   ? 'gas-deploy-dry-run' : 'gas-production-deploy';
  assert.equal(auditGroup,deployGroup,
   'audit must not overlap a production deployment between source verification and runtime GET');
 }
+assert.equal('진단만'==='진단만'?'gas-deploy-dry-run':'gas-production-deploy','gas-deploy-dry-run',
+ 'diagnostic dry run must not contend with production writer lock');
 assert.match(wf,/node scripts\/audit-published-gas-gate-readonly\.mjs/);
 assert.doesNotMatch(wf,/deploy-gas\.mjs|GAS_DEPLOY_DRY_RUN|workflow_run:|push:|schedule:/);
 const real=fs.readFileSync('reference/gas-v9.282.gs','utf8');
