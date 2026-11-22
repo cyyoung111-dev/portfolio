@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {verifyLateScheduledMorningSent as verify} from './telegram-morning-late-sent-readonly.mjs';
+import {requiresLateMorningSentProof,mustFailLateMorningSend} from './telegram-morning-workflow.mjs';
 const repo='cyyoung111-dev/portfolio',date='2026-11-13',id=43319571808;
 const path='.github/workflows/telegram-morning-punctual-arm.yml';
 const name='telegram-morning-claim-'+date;
@@ -45,7 +46,24 @@ for(const patch of [
 await assert.rejects(verify({...base,repository:'other/repo',fetchImpl:async()=>assert.fail('must not GET')}),
  /TELEGRAM_SCHEDULE_LATE_UNVERIFIED/);
 const source=fs.readFileSync('scripts/telegram-morning-workflow.mjs','utf8');
-assert.match(source,/GITHUB_EVENT_NAME==='schedule'&&!clock.allowed/);
+for(const event of ['schedule','workflow_run']){
+ assert.equal(requiresLateMorningSentProof('prepare',event,false),true,
+  'late upstream or scheduled PREPARE must verify prior SENT before green');
+ assert.equal(requiresLateMorningSentProof('prepare',event,true),false);
+ assert.equal(requiresLateMorningSentProof('send',event,false),false,
+  'late SEND must not be converted to a proof-only successful no-op');
+}
+for(const event of ['workflow_dispatch','push','unknown']){
+ assert.equal(requiresLateMorningSentProof('prepare',event,false),false);
+}
+assert.equal(mustFailLateMorningSend('send',false),true);
+assert.equal(mustFailLateMorningSend('send',true),false);
+assert.equal(mustFailLateMorningSend('prepare',false),false);
+assert.match(source,/if\(requiresLateMorningSentProof\(process\.argv\[2\],/);
+assert.match(source,/if\(mustFailLateMorningSend\(process\.argv\[2\],clock\.allowed\)\)/);
+assert.match(source,/throw Error\('TELEGRAM_SEND_OUTSIDE_WINDOW'\)/);
+assert.doesNotMatch(source,/if\(process\.env\.GITHUB_EVENT_NAME==='schedule'&&!clock\.allowed\)/);
+
 assert.ok(source.includes('verifyLateScheduledMorningSent('));
 assert.match(source,/LATE_SCHEDULE_ALREADY_SENT/);
 assert.match(source,/ready=false/);
