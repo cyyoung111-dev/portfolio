@@ -534,4 +534,84 @@ console.log('KRX overnight health: read-only contract, queued/failed/mismatched/
 
  assert.doesNotMatch(JSON.stringify(healthyKrx),/PRIVATE_DETAIL|UNKNOWN_PRIVATE_USER_ACCOUNT/);
 }
+// #734: 2026-11-22 KST Sunday saved GAS state: official KRX 11/20
+// with a Saturday 11/21 all-asset Snapshot. Saturday CLOSE was PRICE
+// INCOMPLETE with no outstanding KRX recovery and both overnight slots
+// NO_WORK. A false red recovery incident may be downgraded ONLY with
+// fully sanitized, non-conflicting evidence. This does NOT mean CLOSE
+// complete, portfolio hash verified, or Sunday prices published.
+{
+ const at=new Date('2026-11-22T07:17:00+09:00');
+ const prior='2026-11-21',lastKrx='2026-11-20';
+ const weekendClose={
+  state:'INCOMPLETE',stage:'PRICE',runDate:prior,
+  summaryPresent:true,summaryRunDate:prior,
+  priceOk:false,fundOk:true,fundState:'DONE',fundAttemptDate:prior,
+  fundErrorPresent:false,fundErrorCode:'NONE',
+  closeErrorPresent:false,closeErrorCount:0,
+  runStale:false,snapshotStale:false,krxPublicationWaiting:false
+ };
+ const input={...good,gasVersion:'9.305',
+  overallStatus:'INCOMPLETE',fundWarningClass:'NAV_PUBLICATION_OR_INPUT_PENDING',
+  officialKrxPriceHistoryLastDate:lastKrx,snapshotLastDate:prior,
+  historical2310:slot(prior,'NO_WORK'),historical0030:slot('2026-11-22','NO_WORK'),
+  tradeSnapshotDeferredCount:0,
+  tradeSnapshotWorkerLastResult:{status:'IDLE'},
+  tradeSnapshotWorkerTriggerAudit:{clockReady:true},
+  latestBackfill:{attempted:false,ok:null},
+  latestHistoricalBackfill:{attempted:true,ok:true},
+  close:weekendClose
+ };
+ const read=x=>assessKrxOvernightHealth(x,{now:at});
+ const classified=read(input);
+ assert.equal(classified.status,'KRX_NONTRADING_CLOSE_FINALITY_UNVERIFIED');
+ assert.equal(classified.nonTradingCloseHold,true);
+ assert.equal(classified.rawOverallStatus,'INCOMPLETE');
+ assert.equal(classified.fundCloseCheckpointEvidence.closeState,'INCOMPLETE');
+ assert.equal(classified.fundCloseCheckpointEvidence.priceOk,false);
+ assert.deepEqual(classified.issues,['AUTOMATION_NOT_NORMAL']);
+ assert.equal(classified.alertFocus,'NO_KRX_SESSION_CLOSE_FINALITY_UNVERIFIED');
+ assert.equal(classified.pendingCount,0);
+ assert.equal(classified.snapshotDateAlignment,'SNAPSHOT_AHEAD_OF_KRX');
+ for(const change of [
+   {overallStatus:'ERROR'},
+   {overallStatus:'WARNING'},
+   {triggerReady:false},
+   {pendingCount:1,pendingDates:[prior]},
+   {tradeLedgerWriteUnverified:true},
+   {pendingTradeSnapshotRebuildFrom:prior},
+   {tradeSnapshotDeferredCount:1},
+   {tradeSnapshotWorkerLastResult:{status:'RUNNING'}},
+   {tradeSnapshotWorkerTriggerAudit:{clockReady:false}},
+   {officialKrxPriceHistoryLastDate:'2026-11-19'},
+   {snapshotLastDate:lastKrx},
+   {snapshotLastDate:'2026-11-22'},
+   {historical2310:slot(prior,'DEFERRED')},
+   {historical0030:slot('2026-11-22','FAILED')},
+   {latestBackfill:{attempted:true,ok:false}},
+   {latestHistoricalBackfill:{attempted:true,ok:false}},
+   ...[
+     {state:'COMPLETE'},{stage:'FUND'},{runDate:lastKrx},
+     {summaryPresent:false},{summaryRunDate:lastKrx},
+     {priceOk:true},{fundOk:false},{fundState:'ERROR'},
+     {fundAttemptDate:lastKrx},{fundErrorPresent:true},
+     {fundErrorCode:'NAV_CONFLICT'},{closeErrorPresent:true},
+     {closeErrorCount:1},{runStale:true},{snapshotStale:true},
+     {krxPublicationWaiting:true}
+   ].map(c=>({close:{...weekendClose,...c}}))
+ ]) {
+  const got=read({...input,...change});
+  assert.equal(got.status,'ACTION_REQUIRED',
+    'A real KRX, writer, close, fund or date warning must remain actionable: '+JSON.stringify(change));
+  assert.equal(got.nonTradingCloseHold,false);
+ }
+ assert.equal(assessKrxOvernightHealth(input,{
+  now:new Date('2026-11-21T07:17:00+09:00')}).status,
+  'ACTION_REQUIRED','Saturday morning is not eligible for Sunday-only evidence');
+ assert.equal(assessKrxOvernightHealth(input,{
+  now:new Date('2026-11-24T07:17:00+09:00')}).status,
+  'ACTION_REQUIRED','Monday open/Tuesday stale close cannot be waived');
+ console.log('KRX_NONTRADING_CLOSE_FINALITY_PROVENANCE_PASS strict 36 fail-closed gates');
+}
+
 console.log('KRX nightly known fund NAV warning split: 33 fail-closed gates PASS');
