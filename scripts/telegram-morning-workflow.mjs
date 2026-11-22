@@ -216,6 +216,12 @@ export async function deliverPrepared(payload,{now=()=>new Date(),token,chatId,a
     date:window.date,status:fearGreedDisplayStatus(payload.message)}));
   return {status:'SENT',date:window.date};
 }
+// A delayed downstream workflow is not proof a morning message was sent.
+// Late PREPAREs can succeed only with an independently verified, dated SENT
+// artifact; late SENDs are never allowed to become green no-ops.
+export const requiresLateMorningSentProof=(mode,event,allowed)=>
+ mode==='prepare'&&!allowed&&['schedule','workflow_run'].includes(event);
+export const mustFailLateMorningSend=(mode,allowed)=>mode==='send'&&!allowed;
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
   if(!['schedule','workflow_run','workflow_dispatch','push'].includes(process.env.GITHUB_EVENT_NAME))throw Error('TELEGRAM_EVENT_INVALID');
@@ -229,10 +235,13 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   // no-op; a missing provider-confirmed receipt remains a visible failure.
   const triggered=deliveryTrigger('morning',process.env,
     JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')),clock.allowed);
-  if(process.env.GITHUB_EVENT_NAME==='schedule'&&!clock.allowed){
+  if(mustFailLateMorningSend(process.argv[2],clock.allowed))
+    throw Error('TELEGRAM_SEND_OUTSIDE_WINDOW');
+  if(requiresLateMorningSentProof(process.argv[2],
+    process.env.GITHUB_EVENT_NAME,clock.allowed)){
    const proof=await verifyLateScheduledMorningSent({date:clock.date,
      repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN});
-   if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
+   fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
    console.log(JSON.stringify({status:'LATE_SCHEDULE_ALREADY_SENT',
      date:proof.date,verifiedSent:true,readOnly:true}));
    process.exit(0);
