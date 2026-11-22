@@ -56,11 +56,15 @@ for(const event of ['schedule','workflow_run']){
 for(const event of ['workflow_dispatch','push','unknown']){
  assert.equal(requiresLateMorningSentProof('prepare',event,false),false);
 }
-assert.equal(mustFailLateMorningSend('send',false),true);
-assert.equal(mustFailLateMorningSend('send',true),false);
-assert.equal(mustFailLateMorningSend('prepare',false),false);
+assert.equal(mustFailLateMorningSend('send','schedule',false),true);
+assert.equal(mustFailLateMorningSend('send','workflow_run',false),true);
+assert.equal(mustFailLateMorningSend('send','workflow_dispatch',false,'rescue'),true);
+assert.equal(mustFailLateMorningSend('send','workflow_dispatch',false,'late_test'),false,
+ 'explicit manual late_test uses its own guarded 08:10-12:00 window');
+assert.equal(mustFailLateMorningSend('send','schedule',true),false);
+assert.equal(mustFailLateMorningSend('prepare','schedule',false),false);
 assert.match(source,/if\(requiresLateMorningSentProof\(process\.argv\[2\],/);
-assert.match(source,/if\(mustFailLateMorningSend\(process\.argv\[2\],clock\.allowed\)\)/);
+assert.match(source,/if\(mustFailLateMorningSend\(process\.argv\[2\],/);
 assert.match(source,/throw Error\('TELEGRAM_SEND_OUTSIDE_WINDOW'\)/);
 assert.doesNotMatch(source,/if\(process\.env\.GITHUB_EVENT_NAME==='schedule'&&!clock\.allowed\)/);
 
