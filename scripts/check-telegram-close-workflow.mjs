@@ -7,7 +7,7 @@ import YAML from 'yaml';
 import {deliveryTrigger} from './telegram-delivery-trigger.mjs';
 import {buildAiFinancialEvidence} from './briefing-financial-evidence.mjs';
 import {parseReferenceCsv,fetchSecondaryIndexes} from './closing-secondary-index-sources.mjs';
-import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare,settleOptionalCloseFinance,
+import {closeWindow,verifiedNhCloseRows,verifiedDomesticCloseRows,formatClose,fetchDomesticCloseIndexes,prepareClose,deliverClose,skipLateClosePrepare,requiresLateCloseSentProof,settleOptionalCloseFinance,
  sanitizeCloseOptionalSourceReason,isKrxDailyPublicationEligible}
  from './telegram-close-workflow.mjs';
 import {isOfficialCloseWindow,selectOfficialDailyIndexRows,fetchOfficialDailyIndexes} from './krx-official-daily-index.mjs';
@@ -167,6 +167,23 @@ assert.equal(skipLateClosePrepare('prepare','workflow_run',lateClose),false,
  'workflow_run authority remains in deliveryTrigger');
 assert.equal(skipLateClosePrepare('prepare','push',lateClose),false,
  'sentinel/workflow-file pushes retain their own trust and time gates');
+// A late downstream workflow_run previously exited successfully with zero
+// Telegram sends and no SENT proof. The scheduled path was already strict;
+// both automatic delivery triggers now require the same read-only provenance.
+for(const event of ['schedule','workflow_run']){
+ assert.equal(requiresLateCloseSentProof('prepare',event,lateClose),true,
+  event+' late closing skip must read the prior SENT artifact');
+ assert.equal(requiresLateCloseSentProof('prepare',event,new Date(day+'T17:10:00+09:00')),false,
+  'on-time preparation must not invoke historical SENT audit');
+ assert.equal(requiresLateCloseSentProof('send',event,lateClose),false,
+  'late SEND is a hard failure, never a read-only skip');
+}
+assert.equal(requiresLateCloseSentProof('prepare','workflow_dispatch',lateClose),false,
+ 'manual out-of-window rescue stays a no-op');
+assert.equal(requiresLateCloseSentProof('prepare','push',lateClose),false);
+const closeSource=fs.readFileSync('scripts/telegram-close-workflow.mjs','utf8');
+assert.match(closeSource,/if\(requiresLateCloseSentProof\(process\.argv\[2\],/);
+assert.match(closeSource,/process\.exit\(proof\.verified\?0:1\)/);
 
 assert.equal(closeWindow(new Date(day+'T18:14:00+09:00')).allowed,false);
 assert.equal(closeWindow(new Date(day+'T19:17:00+09:00')).allowed,false);

@@ -591,6 +591,15 @@ export function skipLateClosePrepare(mode,event,instant){
   &&['schedule','workflow_dispatch'].includes(event)
   &&!closeWindow(instant).allowed;
 }
+// A downstream workflow_run can be queued hours after the KRX closing
+// window, just like a delayed cron. Never turn its 0-send skip into a green
+// delivery verdict without validating the existing dated SENT artifact.
+// Manual rescue remains a no-op outside the permitted window.
+export function requiresLateCloseSentProof(mode,event,instant){
+ return mode==='prepare'
+  &&['schedule','workflow_run'].includes(event)
+  &&!closeWindow(instant).allowed;
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     const invokedAt=new Date();
@@ -601,9 +610,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       process.env.GITHUB_EVENT_NAME,invokedAt);
     if(!eligible||latePrepare){
       if(process.argv[2]==='prepare')fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready=false\n');
-      if(latePrepare&&process.env.GITHUB_EVENT_NAME==='schedule'){
-        // GitHub may start cron hours late. A green skip is only honest
-        // when the authenticated SENT archive for the target close exists.
+      if(requiresLateCloseSentProof(process.argv[2],
+        process.env.GITHUB_EVENT_NAME,invokedAt)){
+        // Both delayed cron and downstream workflow_run can start after
+        // cutoff. Neither may report success without a verified prior SENT.
         // This gate NEVER sends or claims Telegram on a late execution.
         const proof=await verifyLateCloseSent({
           now:invokedAt,repository:process.env.GITHUB_REPOSITORY,
