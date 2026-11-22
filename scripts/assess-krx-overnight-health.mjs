@@ -188,6 +188,43 @@ function isolatedFundWarningAfterCompleteKrx(data,{now,issues,slots}) {
    &&['officialKrxPriceHistoryLastDate','snapshotLastDate',
       'priceHistoryLastDate'].every(k=>data[k]===date);
 }
+// Weekend/holiday recovery may leave a non-terminal KRX PRICE marker when
+// no Korean regular session existed. A later US close can legitimately create
+// an all-asset Snapshot dated Saturday. This is NOT evidence of a completed
+// financial CLOSE: expose the original INCOMPLETE status, but avoid a red KRX
+// recovery incident ONLY for this narrowly verified no-queue/no-error state.
+// Never suppress a weekday incomplete close, a missing KRX session, an
+// unresolved writer, a failed recovery slot, or unknown error provenance.
+function isolatedNonTradingKrxCloseHold(data,{now,issues,slots}){
+ const today=kstDay(now),prior=previousDay(today);
+ if(krxSessionStatus(today)!=='CLOSED'
+   ||krxSessionStatus(prior)!=='CLOSED')return false;
+ const lastOpen=previousOpenKrxDate(prior),c=data.close;
+ if(!lastOpen||!c||data.overallStatus!=='INCOMPLETE'
+   ||issues.length!==1||issues[0]!=='AUTOMATION_NOT_NORMAL'
+   ||data.triggerReady!==true||data.pendingCount!==0
+   ||data.tradeLedgerWriteUnverified!==false
+   ||data.pendingTradeSnapshotRebuildFrom!=='-'
+   ||data.tradeSnapshotDeferredCount!==0
+   ||data.tradeSnapshotWorkerLastResult?.status==='RUNNING'
+   ||data.tradeSnapshotWorkerTriggerAudit?.clockReady===false
+   ||data.officialKrxPriceHistoryLastDate!==lastOpen
+   ||data.snapshotLastDate!==prior
+   ||c.runDate!==prior||c.summaryPresent!==true
+   ||c.summaryRunDate!==prior||c.state!=='INCOMPLETE'
+   ||c.stage!=='PRICE'||c.priceOk!==false||c.fundOk!==true
+   ||c.fundState!=='DONE'||c.fundAttemptDate!==prior
+   ||c.fundErrorPresent!==false||c.fundErrorCode!=='NONE'
+   ||c.closeErrorPresent!==false||c.closeErrorCount!==0
+   ||c.runStale!==false||c.snapshotStale!==false
+   ||c.krxPublicationWaiting===true
+   ||!['NO_WORK','SUCCEEDED'].includes(slots['2310'])
+   ||!['NO_WORK','SUCCEEDED'].includes(slots['0030'])
+   ||(data.latestBackfill?.attempted===true&&data.latestBackfill.ok===false)
+   ||(data.latestHistoricalBackfill?.attempted===true
+      &&data.latestHistoricalBackfill.ok===false))return false;
+ return true;
+}
 // A complete stored CLOSE + matching KRX/Snapshot dates can coexist with
 // a non-normal GAS *overall* status. Diagnose that provenance separately,
 // but NEVER downgrade ACTION_REQUIRED without an independently classified,
@@ -318,11 +355,16 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   const isolatedFundWarning=isolatedFundWarningAfterCompleteKrx(data,{
     now,issues,slots:slotStates
   });
+  const nonTradingCloseHold=isolatedNonTradingKrxCloseHold(data,{
+    now,issues,slots:slotStates
+  });
   return {
     mode:'READ_ONLY',
     status:publicationWaiting?'AWAITING_PROVIDER_PUBLICATION'
       :isolatedFundWarning?'KRX_COMPLETE_FUND_NAV_WARNING_UNVERIFIED'
+      :nonTradingCloseHold?'KRX_NONTRADING_CLOSE_FINALITY_UNVERIFIED'
       :issues.length?'ACTION_REQUIRED':'HEALTHY',
+    nonTradingCloseHold,
     publicationWaitTargetDate:publicationWaiting?data.pendingDates[0]:null,
     gasVersion:String(data.gasVersion||''),
     rawOverallStatus:data.overallStatus,
@@ -333,7 +375,9 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
     issues,
     closeSavedCompleteButOverallNonNormal:completedButNonNormal,
     snapshotDateAlignment,alertFocus:isolatedFundWarning
-      ?'KRX_COMPLETE_FUND_NAV_WARNING_SEPARATE_REVIEW':alertFocus,
+      ?'KRX_COMPLETE_FUND_NAV_WARNING_SEPARATE_REVIEW'
+      :nonTradingCloseHold?'NO_KRX_SESSION_CLOSE_FINALITY_UNVERIFIED'
+      :alertFocus,
     historicalSlotStates:slotStates,
     // Supplemental provenance of a checkpoint, not Apps Script Executions.
     historicalSlotReasons,
@@ -376,6 +420,8 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| GAS 원본 전체 상태 | '+result.rawOverallStatus+' |',
         '| 펀드 경고 (민감정보 제외) | '+result.fundWarningClass+' |',
         '| KRX 점검과 펀드 경고 분리 | '+result.isolatedFundWarning+' |',
+        '| KRX 휴장·미완료 CLOSE 별도 표시 (정상 완료 증명 아님) | '
+          +result.nonTradingCloseHold+' |',
         '| 잔여 큐 | '+result.pendingCount+'건 |',
         '| KRX 개장일 대기 | '+result.pendingSessionCounts.open+'건 |',
         '| KRX 휴장일 대기 (전체 Snapshot 검증 필요) | '+result.pendingSessionCounts.closed+'건 |',
