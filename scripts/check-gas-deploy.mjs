@@ -15,6 +15,7 @@ import {
   assertGasCreatedVersionReady,
   gasSourceBlobSha,
   parseClaspCredentials,
+  exchangeClaspAccessToken,
   sanitizeFiles,
   selectServerFile,
   verifyDeploymentVersionWithRetry,
@@ -1044,6 +1045,36 @@ assert.throws(() => parseClaspCredentials(JSON.stringify({ tokens: {
   one: { client_id: '1', client_secret: 's1', refresh_token: 'r1' },
   two: { client_id: '2', client_secret: 's2', refresh_token: 'r2' },
 } })), /여러 clasp 사용자 토큰/);
+
+const oauthInput = JSON.stringify(claspV3);
+let exchanges = 0;
+assert.equal(await exchangeClaspAccessToken(oauthInput, async (url, options) => {
+  exchanges++;
+  assert.equal(url, 'https://oauth2.googleapis.com/token');
+  assert.equal(options.method, 'POST');
+  assert.equal(options.redirect, 'error');
+  assert.equal(options.body.get('grant_type'), 'refresh_token');
+  assert.equal(options.body.get('refresh_token'), 'clasp-refresh-token');
+  return Response.json({access_token:'fresh-access-token'});
+}), 'fresh-access-token');
+assert.equal(exchanges, 1);
+const privateDetail = 'private-response-fragment';
+for (const [status, code, expected] of [
+  [400, 'invalid_grant', /^GAS_OAUTH_REAUTH_REQUIRED/],
+  [401, 'invalid_client', /^GAS_OAUTH_CLIENT_REJECTED/],
+  [503, privateDetail, /^GAS_OAUTH_REFRESH_REJECTED_HTTP_503$/],
+]) {
+  let calls = 0;
+  await assert.rejects(() => exchangeClaspAccessToken(oauthInput, async () => {
+    calls++;
+    return Response.json({error:code,error_description:privateDetail}, {status});
+  }), error => expected.test(error.message) && !error.message.includes(privateDetail));
+  assert.equal(calls, 1);
+}
+await assert.rejects(() => exchangeClaspAccessToken(oauthInput,
+  async () => { throw new Error(privateDetail); }), {message:'GAS_OAUTH_REFRESH_NETWORK_UNVERIFIED'});
+await assert.rejects(() => exchangeClaspAccessToken(oauthInput,
+  async () => new Response(privateDetail)), {message:'GAS_OAUTH_ACCESS_TOKEN_UNVERIFIED'});
 
 const files = [
   { name: 'appsscript', type: 'JSON', source: '{"timeZone":"Asia/Seoul"}', updateTime: 'ignored' },

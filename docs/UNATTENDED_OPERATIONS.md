@@ -2,6 +2,15 @@
 
 2026-10-23 KST 점검. 이 문서는 활성화 완료 증명이 아니다. 새 GAS 배포·원본 복구는 이번 변경에 포함하지 않는다.
 
+## 9.306 운영 배포 인증 복구 (2026-11-23 KST)
+
+[실행 #45192091378](https://github.com/cyyoung111-dev/portfolio/actions/runs/45192091378)은 Google 토큰 교환에서 `invalid_grant`로 차단됐습니다. 배포 쓰기와 사후 대사는 시작되지 않았습니다. 현재 배포용 Secret과 실행 메뉴는 다음 절차를 적용합니다.
+
+1. 기존 운영 Apps Script 소유 계정으로 `npx @google/clasp@latest login`을 실행해 Google 동의를 다시 완료합니다. 기존 운영이 조직 승인 사용자 지정 OAuth 클라이언트를 요구하면 그 클라이언트의 인증 절차를 따릅니다. 사용자 지정 External/Testing 클라이언트라면, Apps Script 범위의 새 refresh token도 7일 만료됩니다. 실제 만료 사유는 응답만으로 단정할 수 없습니다. [Google OAuth 만료 정책](https://developers.google.com/identity/protocols/oauth2#expiration)
+2. 새 `.clasprc.json`을 **Settings → Environments → portfolio-production-gas → Environment secrets → CLASPRC_JSON**에 저장합니다. 웹앱 자체 인증인 `GAS_ACCESS_TOKEN`은 이번 장애와 별개입니다.
+3. [gas-deploy](https://github.com/cyyoung111-dev/portfolio/actions/workflows/gas-deploy.yml)에서 main의 **진단만**을 실행해 배포 대상과 거래원장 사전 검증을 확인합니다. 통과 후 main에서 **9.306 실제 배포**를 한 번 실행하고, 배포 버전·거래원장 해시·NAV/평가 사후 대사 결과를 확인합니다.
+4. NAV 수집의 `REFRESH HTTP 500` 장애는 운영 코드 배포 이후 검증합니다. 기존 Writer 실행을 수동 재실행하기 전에 최근 저장 결과를 읽기 전용으로 확인합니다.
+
 ## 확인된 현재 상태
 
 - 점검 기준 main `a9373ae7123d7fb1899f8b90a914c7d103fa4cc5`. 열린 PR #630은 23일 기대행 서명 **진단**이며 이 문서/프로세스 모니터와 파일 충돌이 없다. 병합하지 않았다.
