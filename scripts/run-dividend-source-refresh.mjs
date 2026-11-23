@@ -1,7 +1,7 @@
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {pathToFileURL} from 'node:url';
 // Explicitly reviewed deployed sources. Do not accept unknown future GAS builds.
-export const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303','9.304','9.305']);
+export const APPROVED_DIVIDEND_GAS = new Set(['9.281','9.282','9.283','9.284','9.285','9.291','9.292','9.293','9.294','9.295','9.296','9.297','9.298','9.300','9.301','9.302','9.303','9.304','9.305','9.306']);
 // An issuer-level public response may contain different share classes for
 // one payment. Reject conflicting company-level events without a verified
 // share identifier. Existing persisted settings are left unchanged.

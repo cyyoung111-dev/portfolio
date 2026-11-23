@@ -13,6 +13,7 @@ import {composeIssue734Gas9294OwnerNavPreview} from './compose-issue734-gas9294-
 import {composeGas9296TradeUtf8Preview} from './compose-gas9296-trade-utf8-preview.mjs';
 import {composeGas9304NhContinuationPreview} from './compose-gas9304-nh-continuation-preview.mjs';
 import {composeGas9305NhAccountScopePreview} from './compose-gas9305-nh-account-scope-preview.mjs';
+import {composeGas9306NavRefreshPreview} from './compose-gas9306-nav-refresh-preview.mjs';
 import {composeGas9303NhCoveragePreview} from './compose-gas9303-nh-coverage-preview.mjs';
 import {composeGas9302NhStatusPreview} from './compose-gas9302-nh-status-preview.mjs';
 import {composeGas9301NhDiagnosticPreview} from './compose-gas9301-nh-diagnostic-preview.mjs';
@@ -72,6 +73,7 @@ const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   // Full-source successor to verified 9.294; only a separately approved
   // manual dispatch with a same-run independent read-only idle gate may publish.
   '9.305': 'ed000678f26f1c3018880b7a556d5fb033328342',
+  '9.306': 'ec9f5894fdfede9130eebfde9c064996228112bc',
   '9.304': '5b69d6b96f6ec26edc0772b561cc12125af4ebc3',
   '9.303': 'fb0810c39f332d739214d31fbfe3876713a40c80',
   '9.302': '3ce5accf9289e5a156342f6a8ca4a89fae3c128d',
@@ -409,7 +411,7 @@ export async function verifyPortfolioReceiptReadOnly(url, accessToken, fetchImpl
 }
 
 async function verifyWebApp(url, accessToken, expectedVersion) {
-  if(['9.300','9.301','9.302','9.303','9.304','9.305'].includes(expectedVersion)){
+  if(['9.300','9.301','9.302','9.303','9.304','9.305','9.306'].includes(expectedVersion)){
     const integrityReadback=await verifyGas9298ReleaseReadOnly({url,token:accessToken,mode:'post',candidateVersion:expectedVersion});
     return {checked:true,ok:true,gasVersion:expectedVersion,integrityReadback};
   }
@@ -686,7 +688,7 @@ export function summarizeGasReleaseFailure(error,stage) {
 }
 
 // Deployment approval for first stateful gate release is separate from merge.
-export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,approved9289=false,approved9290=false,approved9291=false,approved9292=false,approved9293=false,approved9294=false,approved9295=false,approved9296=false,approved9297=false,approved9298=false,approved9300=false,approved9301=false,approved9302=false,approved9303=false,approved9304=false,approved9305=false,dryRun=false,diagnosticOnly=false}={}) {
+export function assertIssue507ManualReleasePermission({version,eventName,approved=false,approved9283=false,approved9284=false,approved9285=false,approved9286=false,approved9287=false,approved9288=false,approved9289=false,approved9290=false,approved9291=false,approved9292=false,approved9293=false,approved9294=false,approved9295=false,approved9296=false,approved9297=false,approved9298=false,approved9300=false,approved9301=false,approved9302=false,approved9303=false,approved9304=false,approved9305=false,approved9306=false,dryRun=false,diagnosticOnly=false}={}) {
   if(dryRun||diagnosticOnly)return;
   if(version==='9.282'&&(eventName!=='workflow_dispatch'||approved!==true))
     throw Error('GAS_9282_EXPLICIT_MANUAL_RELEASE_REQUIRED');
@@ -714,6 +716,8 @@ export function assertIssue507ManualReleasePermission({version,eventName,approve
     throw Error('GAS_9293_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.294'&&(eventName!=='workflow_dispatch'||approved9294!==true))
     throw Error('GAS_9294_EXPLICIT_MANUAL_RELEASE_REQUIRED');
+  if(version==='9.306'&&(eventName!=='workflow_dispatch'||approved9306!==true))
+    throw Error('GAS_9306_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.305'&&(eventName!=='workflow_dispatch'||approved9305!==true))
     throw Error('GAS_9305_EXPLICIT_MANUAL_RELEASE_REQUIRED');
   if(version==='9.304'&&(eventName!=='workflow_dispatch'||approved9304!==true))
@@ -796,6 +800,11 @@ export function assertGas9300Prerequisites({version,publishedVersion,liveIdleVer
  if(version!=='9.300'||diagnosticOnly)return;
  if(publishedVersion!=='9.297')throw Error('GAS_9300_REQUIRES_PUBLISHED_9297');
  if(liveIdleVerified!==true)throw Error('GAS_9300_REQUIRES_SAME_RUN_READONLY_WRITER_GATE');
+}
+export function assertGas9306Prerequisites({version,publishedVersion,liveIdleVerified=false,diagnosticOnly=false}={}) {
+ if(version!=='9.306'||diagnosticOnly)return;
+ if(publishedVersion!=='9.305')throw Error('GAS_9306_REQUIRES_PUBLISHED_9305');
+ if(liveIdleVerified!==true)throw Error('GAS_9306_REQUIRES_SAME_RUN_READONLY_WRITER_GATE');
 }
 export function assertGas9305Prerequisites({version,publishedVersion,liveIdleVerified=false,diagnosticOnly=false}={}) {
  if(version!=='9.305'||diagnosticOnly)return;
@@ -892,6 +901,7 @@ export async function deploy() {
   const perf9293 = process.env.GAS_9293_ORPHANED_CLOSE === 'true';
   const perf9294 = process.env.GAS_9294_CLOSE_OWNER_NAV === 'true';
   const perf9296 = process.env.GAS_9296_TRADE_UTF8 === 'true';
+  const nav9306 = process.env.GAS_9306_NAV_REFRESH === 'true';
   const diagnostic9305 = process.env.GAS_9305_ACCOUNT_SCOPE === 'true';
   const diagnostic9304 = process.env.GAS_9304_NH_DIAGNOSTIC === 'true';
   const diagnostic9303 = process.env.GAS_9303_NH_DIAGNOSTIC === 'true';
@@ -901,11 +911,13 @@ export async function deploy() {
   const finance9298 = process.env.GAS_9298_NH_FINANCIAL_INCOME === 'true';
   const perf9297 = process.env.GAS_9297_NAV_TWO_STAGE === 'true';
   const perf9295 = process.env.GAS_9295_PRICE_MASTER_REUSE === 'true';
-  if (Number(fund9287)+Number(trade9288)+Number(perf9289)+Number(perf9290)+Number(perf9291)+Number(perf9292)+Number(perf9293)+Number(perf9294)+Number(perf9295)+Number(perf9296)+Number(perf9297)+Number(finance9298)+Number(integrated9300)+Number(diagnostic9301)+Number(diagnostic9302)+Number(diagnostic9303)+Number(diagnostic9304)+Number(diagnostic9305)>1)
+  if (Number(fund9287)+Number(trade9288)+Number(perf9289)+Number(perf9290)+Number(perf9291)+Number(perf9292)+Number(perf9293)+Number(perf9294)+Number(perf9295)+Number(perf9296)+Number(perf9297)+Number(finance9298)+Number(integrated9300)+Number(diagnostic9301)+Number(diagnostic9302)+Number(diagnostic9303)+Number(diagnostic9304)+Number(diagnostic9305)+Number(nav9306)>1)
     throw Error('GAS_RELEASE_CANDIDATES_MUTUALLY_EXCLUSIVE');
   if (trade9288 && !dryRun && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch')
     throw Error('GAS_9288_EXPLICIT_MANUAL_RELEASE_REQUIRED');
-  const source = diagnostic9305
+  const source = nav9306
+    ? composeGas9306NavRefreshPreview().candidate
+    : diagnostic9305
     ? composeGas9305NhAccountScopePreview().candidate
     : diagnostic9304
     ? composeGas9304NhContinuationPreview().candidate
@@ -942,7 +954,7 @@ export async function deploy() {
     : fund9287
       ? composeFundSnapshot9287SourcePreview().candidate
       : fs.readFileSync(SOURCE_PATH, 'utf8');
-  if (fund9287 || trade9288 || perf9289 || perf9290 || perf9291 || perf9292 || perf9293 || perf9294 || perf9295 || perf9296 || perf9297 || finance9298 || integrated9300 || diagnostic9301 || diagnostic9302 || diagnostic9303 || diagnostic9304 || diagnostic9305) assertGasReleaseReady(source); // exact candidate blob even in dry-run
+  if (fund9287 || trade9288 || perf9289 || perf9290 || perf9291 || perf9292 || perf9293 || perf9294 || perf9295 || perf9296 || perf9297 || finance9298 || integrated9300 || diagnostic9301 || diagnostic9302 || diagnostic9303 || diagnostic9304 || diagnostic9305 || nav9306) assertGasReleaseReady(source); // exact candidate blob even in dry-run
   // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
@@ -970,7 +982,8 @@ export async function deploy() {
     approved9302:process.env.GAS_9302_RELEASE_APPROVAL==='true',
     approved9303:process.env.GAS_9303_RELEASE_APPROVAL==='true',
     approved9304:process.env.GAS_9304_RELEASE_APPROVAL==='true',
-    approved9305:process.env.GAS_9305_RELEASE_APPROVAL==='true',dryRun,
+    approved9305:process.env.GAS_9305_RELEASE_APPROVAL==='true',
+    approved9306:process.env.GAS_9306_RELEASE_APPROVAL==='true',dryRun,
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
@@ -1040,6 +1053,8 @@ export async function deploy() {
     liveCloseOwnerVerified:process.env.GAS_9294_LIVE_PREFLIGHT_VERIFIED==='true',
     dryRun,diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'
   });
+  assertGas9306Prerequisites({version:expectedVersion,publishedVersion:releaseState.published.version,
+    liveIdleVerified:process.env.GAS_9306_LIVE_PREFLIGHT_VERIFIED==='true',diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'});
   assertGas9305Prerequisites({version:expectedVersion,publishedVersion:releaseState.published.version,
     liveIdleVerified:process.env.GAS_9305_LIVE_PREFLIGHT_VERIFIED==='true',
     diagnosticOnly:process.env.GAS_DEPLOY_DIAGNOSTIC_ONLY==='true'});
@@ -1153,7 +1168,7 @@ export async function deploy() {
   stage='WEBAPP_VERIFY';
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
   stage='AUTOMATION_VERIFY';
-  if(['9.298','9.300','9.301','9.302','9.303','9.304','9.305'].includes(expectedVersion)){
+  if(['9.298','9.300','9.301','9.302','9.303','9.304','9.305','9.306'].includes(expectedVersion)){
    console.log(JSON.stringify(webAppCheck.integrityReadback));
   }else if(expectedVersion==='9.297'){
    console.log(JSON.stringify(webAppCheck.navReadback));

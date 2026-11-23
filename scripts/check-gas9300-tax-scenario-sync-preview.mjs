@@ -68,7 +68,7 @@ const continuationDevice=device('9.304');
 continuationDevice.ctx.requestGsheetFormJson=async(action,p)=>({...call(action,p),gasVersion:'9.304'});
 assert.equal(await continuationDevice.ctx._readDivTaxRemote(2026),true);
 assert.equal(continuationDevice.ctx._getDivOtherIncome(2026),null);
-assert.equal(await device('9.306').ctx._readDivTaxRemote(2026),false);
+assert.equal(await device('9.999').ctx._readDivTaxRemote(2026),false);
 const pc=device(),mobile=device();
 assert.equal(await pc.ctx._readDivTaxRemote(2026),true);assert.equal(pc.ctx._getDivOtherIncome(2026),null,'clear tombstone overrides local device draft');
 assert.equal(await pc.ctx._readDivTaxRemote(2028),true);assert.equal(pc.ctx._getDivOtherIncome(2028),50,'unregistered server year retains local value');

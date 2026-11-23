@@ -162,7 +162,7 @@ const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const inputs=(wf.on??wf.true).workflow_dispatch.inputs;
 assert.deepEqual(Object.keys(inputs),['operation']);
 assert.equal(inputs.operation.default,'진단만');
-assert.deepEqual(inputs.operation.options,['진단만','9.305 실제 배포']);
+assert.deepEqual(inputs.operation.options,['진단만','9.306 실제 배포']);
 const env=wf.jobs.deploy.env;
 assert.equal(env.GAS_9294_CLOSE_OWNER_NAV,'false');
 assert.equal(env.GAS_9294_RELEASE_APPROVAL,'false');

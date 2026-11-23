@@ -13,7 +13,7 @@ function date(s){
 }
 const fmt=v=>v.toISOString().slice(0,10).replace(/-/g,'');
 export function assessNhFinancialCoverage(d,{expectedVersion='9.303',asOf}={}){
- if(d?.status!=='ok'||d.provider!=='NH'||d.gasVersion!==expectedVersion||!['9.303','9.304','9.305'].includes(expectedVersion)||
+ if(d?.status!=='ok'||d.provider!=='NH'||d.gasVersion!==expectedVersion||!['9.303','9.304','9.305','9.306'].includes(expectedVersion)||
  d.readOnly!==true||d.diagnosticOnly!==true||d.accountListVerified!==true||
  (d.annualIncomeVerified!==undefined&&d.annualIncomeVerified!==false)||
  ['tokenIssued','bearerExposed','financialOriginalWritten','financialTaxClassificationVerified','accountTaxTypeVerified','fullYearCoverage'].some(k=>d[k]!==false))fail();
