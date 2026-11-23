@@ -53,7 +53,9 @@ export function composeGas9306NavRefreshPreview(){
   '      // The automatic collector owns one fund, not other historical valuations.',
   '      // The price close/backfill remains the owner of incomplete portfolio days.',
   '      combined = _mergeSnapshotRowsSafely(existing, byDate[date], true);',
-  '      if (existing.length !== rawExisting.length) {',
+  '      if (existing.length !== rawExisting.length || existing.some(function(row) {',
+  '        return !row[1] && row[2] === byDate[date][0][2];',
+  '      })) {',
   "        missingHoldings.push(date + ':FUND_DERIVED_LIFECYCLE_CONFLICT'); return;",
   '      }',
   '    } else {',
@@ -69,7 +71,58 @@ export function composeGas9306NavRefreshPreview(){
  refresh=replace(refresh,
   '  } finally { _snapshotBackupOperationId = previousSnapshotOperationId; }',
   '  } finally {\n    _snapshotBackupOperationId = previousSnapshotOperationId;\n    if (collectorSnapshotLocked) writeLock.releaseLock();\n  }');
+ refresh=replace(refresh,
+  "    if (fundRewritePlan.unsafe.length) {",
+  "    if (fundRewritePlan.unsafe.length || (collectorDerivedOnly && existing.length && fundRewritePlan.duplicateGroups.some(function(group) { return group.key !== onlyCode; }))) {");
+ refresh=replace(refresh,
+  '    writeSnapshotRows(ss, date, combined, true, null, configs);',
+  '    writeSnapshotRows(ss, date, combined, true, null, configs, false, collectorDerivedOnly && existing.length ? onlyCode : undefined);');
+ for(const target of [
+  "          _verifyWrittenRange(ph,first+2,1,batch,'펀드 가격이력 쓰기 후 검증 실패');",
+  "    if (scopedPriceWrite) _verifyWrittenRange(ph,appendAt,1,normalizedAppend,'펀드 가격이력 추가 후 검증 실패');"
+ ]){
+  refresh=replace(refresh,target,target.replace("검증 실패');","검증 실패', true);"));
+ }
  candidate=candidate.slice(0,start)+refresh+candidate.slice(end);
+ candidate=replace(candidate,
+  'function _verifyWrittenRange(sheet, row, column, values, message) {',
+  'function _verifyWrittenRange(sheet, row, column, values, message, priceHistoryDates) {');
+ candidate=replace(candidate,
+  "  if (JSON.stringify(actual) !== JSON.stringify(values)) throw new Error(message || '쓰기 후 read-back 검증 실패');",
+  [
+   '  if (priceHistoryDates) {',
+   '    actual = actual.map(function(found, index) {',
+   '      var expected = values[index], normalized = found.slice();',
+   '      if (!expected) return normalized;',
+   '      if (_normalizeDate(found[0]) && _normalizeDate(found[0]) === _normalizeDate(expected[0])) normalized[0] = expected[0];',
+   "      if (found[4] instanceof Date && typeof expected[4] === 'string' && found[4].getTime() === Date.parse(expected[4])) normalized[4] = expected[4];",
+   '      return normalized;',
+   '    });',
+   '  }',
+   "  if (JSON.stringify(actual) !== JSON.stringify(values)) throw new Error(message || '쓰기 후 read-back 검증 실패');"
+  ].join('\n'));
+ candidate=replace(candidate,
+  'function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite) {',
+  'function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite, onlyCode) {');
+ candidate=replace(candidate,
+  "      snapshotWriteTimingMark('date_write_start');\n      _writeSnapshotDateScoped_(ss, sh, normDate, existing, mergedDate, colSize);",
+  "      snapshotWriteTimingMark('date_write_start');\n      _writeSnapshotDateScoped_(ss, sh, normDate, existing, mergedDate, colSize, onlyCode);");
+ candidate=replace(candidate,
+  'function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {',
+  'function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width, onlyCode) {');
+ candidate=replace(candidate,
+  "    var replacement = candidates.length ? candidates.shift() : Array(width).fill('');",
+  [
+   "    var replacement = candidates.length ? candidates.shift() : Array(width).fill('');",
+   '    if (onlyCode && key !== onlyCode) {',
+   '      if (_snapshotComparableSignature(replacement) !== _snapshotComparableSignature(slot.before))',
+   "        throw new Error('FUND_SNAPSHOT_OUTSIDE_TARGET_UNVERIFIED');",
+   '      return;',
+   '    }'
+  ].join('\n'));
+ candidate=replace(candidate,
+  '  if (pending.length) {\n    var appendRow = originalLastRow + 1;',
+  "  if (pending.length) {\n    if (onlyCode && pending.some(function(row) { return _snapshotIntegrityKey(row) !== onlyCode; }))\n      throw new Error('FUND_SNAPSHOT_APPEND_OUTSIDE_TARGET_UNVERIFIED');\n    var appendRow = originalLastRow + 1;");
  candidate=replace(candidate,'//  📊 포트폴리오 대시보드 — Google Apps Script  v9.305',
   '//  📊 포트폴리오 대시보드 — Google Apps Script  v9.306');
  candidate=candidate.replace(/(gasVersion:\s*['"])9\.305(['"])/g,(_m,p,s)=>p+'9.306'+s);

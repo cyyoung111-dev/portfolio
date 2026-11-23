@@ -73,7 +73,7 @@ const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   // Full-source successor to verified 9.294; only a separately approved
   // manual dispatch with a same-run independent read-only idle gate may publish.
   '9.305': 'ed000678f26f1c3018880b7a556d5fb033328342',
-  '9.306': '6ed2b675bc7827542455980e76dfbbf3091f2a15',
+  '9.306': 'ec9f5894fdfede9130eebfde9c064996228112bc',
   '9.304': '5b69d6b96f6ec26edc0772b561cc12125af4ebc3',
   '9.303': 'fb0810c39f332d739214d31fbfe3876713a40c80',
   '9.302': '3ce5accf9289e5a156342f6a8ca4a89fae3c128d',

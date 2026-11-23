@@ -88,8 +88,8 @@ function simulate({existing=true,partial=false,storedUnits=2000,manual=false,col
   _mergeSnapshotRowsSafely:select,
   calcHoldingsAtDate:()=>({fund:{code,costAmt:100},stock:{code:stock,costAmt:200}}),
   _applyFundUnitLifecycleToSnapshotHoldings:()=>{},
-  _snapshotRewritePlan:()=>({unsafe:conflict?[{classification:'MANUAL_PROTECTED',reason:'duplicate'}]:[],needsRewrite:true}),
-  writeSnapshotRows:(ss,day,rows)=>writes.push({type:'snapshot',day,rows}),
+  _snapshotRewritePlan:()=>({unsafe:conflict?[{classification:'MANUAL_PROTECTED',reason:'duplicate'}]:[],duplicateGroups:[],needsRewrite:true}),
+  writeSnapshotRows:(ss,day,rows,overwrite,manualKeys,configs,allowEmpty,onlyCode)=>writes.push({type:'snapshot',day,rows,onlyCode}),
   _snapshotBackupOperationId:'',_settleSnapshotBackupOperation:()=>{},
   Utilities:{getUuid:()=>''},SpreadsheetApp:{flush:()=>{}},
   ss:{getSheetByName:name=>sheetsNow[name]||null},date,code,collector
@@ -103,6 +103,7 @@ assert.deepEqual(ordinary.writes.map(w=>w.type),['price','snapshot']);
 const [price,snap]=ordinary.writes;
 assert.equal(price.count,1);
 assert.equal(snap.day,date);
+assert.equal(snap.onlyCode,code);
 assert.deepEqual(JSON.parse(JSON.stringify(snap.rows.find(r=>r[1]===stock))),ordinary.stockRow);
 assert.equal(snap.rows.find(r=>r[1]===code)[7],200);
 for(const opts of [{partial:true},{conflict:true}]){
@@ -121,4 +122,42 @@ for(const opts of [{existing:false},{collector:false}]){
  full.invoke();
  assert(full.writes.some(w=>w.type==='whole-date-build'));
 }
+function gasFunction(name,runtime){
+ const begin=candidate.indexOf('function '+name+'(');
+ assert(begin>=0);
+ return vm.runInNewContext(candidate.slice(begin,candidate.indexOf('\n}',begin)+2)+'\n'+name,
+  {Date,...runtime});
+}
+const normalizeDate=value=>value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);
+const verifyPrice=gasFunction('_verifyWrittenRange',{_normalizeDate:normalizeDate,SpreadsheetApp:{flush(){}}});
+const timestamp='2026-11-20T00:12:13.123Z';
+const expectedPrice=[date,code,'Fund',200,timestamp,'FUND_NAV'];
+const sheetResponse=amount=>({getRange:()=>({getValues:()=>[[new Date(date),code,'Fund',amount,new Date(timestamp),'FUND_NAV']]})});
+assert.doesNotThrow(()=>verifyPrice(sheetResponse(200),2,1,[expectedPrice],'PRICE_VERIFY',true));
+assert.throws(()=>verifyPrice(sheetResponse(201),2,1,[expectedPrice],'PRICE_VERIFY',true),/PRICE_VERIFY/);
+
+const otherSnapshot=[new Date(date),stock,'Stock',1,200,200,230,230,30,15,'PRICE_HISTORY',''];
+const oldFundSnapshot=[new Date(date),code,'Fund',1,100,100,190,190,90,90,'FUND_NAV_CARRY',''];
+const changedFundSnapshot=[date,code,'Fund',1,100,100,200,200,100,100,'FUND_NAV',''];
+const rows=[otherSnapshot,oldFundSnapshot];
+const touchedRows=[];
+const sheet={
+ getLastRow:()=>rows.length+1,
+ getRange:(first,_col,count,width)=>({
+  getValues:()=>rows.slice(first-2,first-2+count).map(row=>row.slice(0,width)),
+  getFormulas:()=>Array.from({length:count},()=>Array(width).fill('')),
+  setValues:values=>{touchedRows.push(first);rows.splice(first-2,count,...values);}
+ })
+};
+const writeDate=gasFunction('_writeSnapshotDateScoped_',{
+ _normalizeDate:normalizeDate,_snapshotIntegrityKey:row=>row[1],
+ _snapshotComparableSignature:row=>JSON.stringify([normalizeDate(row[0]),...row.slice(1,11)]),
+ _readRawSnapshotRowsByDate:()=>rows,_normalizeCodeRows:r=>r,_setCodeColumnText:()=>{},
+ SpreadsheetApp:{flush(){}}
+});
+writeDate({},sheet,date,rows.slice(),[[date,...otherSnapshot.slice(1)],changedFundSnapshot],12,code);
+assert.deepEqual(touchedRows,[3]);
+assert.equal(rows[0],otherSnapshot);
+assert.equal(rows[1][7],200);
+
 console.log('GAS 9.306 NAV refresh scope, manual row, NAV source and release gate checks passed');
