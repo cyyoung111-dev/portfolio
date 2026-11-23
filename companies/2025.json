@@ -3,9 +3,9 @@
   "classification": "CANDIDATE_ONLY",
   "source": "https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain",
   "businessYear": 2025,
-  "retrievedAt": "2026-11-18T23:41:14.044020+09:00",
-  "sourceSha256": "f90626744dcd3f232f4dd7d128ffb7032c8bbb700a8aa0c7744f4d14f8100e49",
-  "masterSha256": "33d54c88b1f06f6538a409c5cdc2f3c78227b34b9d719eb5ba9a29bd3e1ee47a",
+  "retrievedAt": "2026-11-23T16:25:24.063715+09:00",
+  "sourceSha256": "1a7bbc8bee1edc99ece64790a707fe5c398f15e3e61860a47c6e30443935b831",
+  "masterSha256": "d6fc9dde062863e49fbc6c7ba380403770b1a006b2fb55dcb02f58f0b22d0064",
   "total": 631,
   "rows": [
     {
@@ -3301,7 +3301,7 @@
       "market": "KOSPI",
       "listedCode": "051910",
       "businessYear": 2025,
-      "disclosureTitle": "기업가치 제고 계획(자율공시)(고배당기업 표시를 위한 재공시)",
+      "disclosureTitle": "기업가치 제고 계획(자율공시)(2026년 이행현황)",
       "fiscalMonth": "12",
       "payoutRatio": "25",
       "growthRatio": "99.5",
@@ -7580,7 +7580,11 @@
   "changes": {
     "added": [],
     "removed": [],
-    "changed": []
+    "changed": [
+      "051910"
+    ]
   },
-  "recheckCodes": []
+  "recheckCodes": [
+    "051910"
+  ]
 }
