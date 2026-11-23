@@ -371,19 +371,45 @@ export function parseClaspCredentials(value) {
   throw new Error('CLASPRC_JSON에서 client_id/client_secret/refresh_token을 찾지 못했습니다. 최신 @google/clasp로 다시 로그인하세요.');
 }
 
+export async function exchangeClaspAccessToken(value, fetchImpl = fetch) {
+  const { clientId, clientSecret, refreshToken } = parseClaspCredentials(value);
+  let response;
+  try {
+    response = await fetchImpl(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(60000),
+    });
+  } catch {
+    throw new Error('GAS_OAUTH_REFRESH_NETWORK_UNVERIFIED');
+  }
+  let payload = null;
+  try { payload = JSON.parse(await response.text()); }
+  catch { /* Classify rejected and malformed responses using fixed messages. */ }
+  if (!response.ok) {
+    const status = Number.isInteger(response.status) ? response.status : 'UNKNOWN';
+    if (status === 400 && payload?.error === 'invalid_grant') {
+      throw new Error('GAS_OAUTH_REAUTH_REQUIRED (HTTP 400): Google 계정으로 다시 승인하고 portfolio-production-gas 환경의 CLASPRC_JSON을 갱신한 뒤 진단만 실행하세요.');
+    }
+    if ([400, 401].includes(status) && ['invalid_client', 'unauthorized_client'].includes(payload?.error)) {
+      throw new Error('GAS_OAUTH_CLIENT_REJECTED: CLASPRC_JSON의 OAuth 클라이언트 설정과 Google 계정 승인을 확인하세요.');
+    }
+    throw new Error('GAS_OAUTH_REFRESH_REJECTED_HTTP_' + status);
+  }
+  if (typeof payload?.access_token !== 'string' || !payload.access_token.trim())
+    throw new Error('GAS_OAUTH_ACCESS_TOKEN_UNVERIFIED');
+  return payload.access_token;
+}
+
 async function getAccessToken() {
-  const { clientId, clientSecret, refreshToken } = parseClaspCredentials(env('CLASPRC_JSON'));
-  const token = await requestJson(TOKEN_URL, {
-    method: 'POST',
-    form: {
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    },
-  });
-  if (!token.access_token) throw new Error('clasp OAuth refresh token으로 Google access token을 받지 못했습니다.');
-  return token.access_token;
+  return exchangeClaspAccessToken(env('CLASPRC_JSON'));
 }
 
 function sameSource(a, b) {
