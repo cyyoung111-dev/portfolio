@@ -91,7 +91,7 @@ assert.equal(pre['continue-on-error'],undefined);
 assert.match(pre.if,/GAS_9304_RELEASE_APPROVAL == 'true'/);assert.match(pre.if,/GAS_DEPLOY_DRY_RUN == 'true'/);
 assert.match(dep.env.GAS_9304_LIVE_PREFLIGHT_VERIFIED,/gas9304_gate/);
 assert.equal(job.env.GAS_9304_RELEASE_APPROVAL,'false');
-assert.match(job.env.GAS_9305_RELEASE_APPROVAL,/workflow_dispatch.*inputs\.operation == '9\.305 실제 배포'/);
+assert.equal(job.env.GAS_9305_RELEASE_APPROVAL,'false');
 assert.equal(probe.env.NH_FINANCE_EXPECTED_VERSION,'9.304');
 assert.equal(probe.run,'node scripts/nh-financial-income-coverage-readback.mjs');
 assert.match(probe.if,/GAS_DEPLOY_DRY_RUN != 'true'/);
