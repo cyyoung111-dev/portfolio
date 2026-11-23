@@ -77,7 +77,7 @@ const wf=YAML.parse(fs.readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const inputs=wf.on.workflow_dispatch.inputs;
 assert.deepEqual(Object.keys(inputs),['operation']);
 assert.equal(inputs.operation.default,'진단만');
-assert.deepEqual(inputs.operation.options,['진단만','9.305 실제 배포']);
+assert.deepEqual(inputs.operation.options,['진단만','9.306 실제 배포']);
 const job=wf.jobs.deploy,steps=job.steps,pre=steps.find(s=>s.id==='gas9304_gate'),dep=steps.find(s=>s.name==='Deploy GAS');
 const dryInv=steps.find(s=>s.name==='Require clean full GAS deployment inventory on 9.304 dry-run');
 const liveInv=steps.find(s=>s.name==='Require clean full GAS deployment inventory before real deploy');

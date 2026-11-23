@@ -24,7 +24,7 @@ assert.ok(deployJob,'production deploy job must exist');
 assert.match(deployJob,/environment: portfolio-production-gas/);
 assert.match(deployJob,/concurrency:\s*\n\s+group: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.operation == '진단만' && 'gas-deploy-dry-run' \|\| 'gas-production-deploy' \}\}\s*\n\s+cancel-in-progress: false/);
 for(const scenario of [
- {event:'workflow_dispatch',operation:'9.305 실제 배포'},
+ {event:'workflow_dispatch',operation:'9.306 실제 배포'},
  {event:'workflow_run',operation:null},
 ]){
  // The production branch of the real deploy expression must hold the same

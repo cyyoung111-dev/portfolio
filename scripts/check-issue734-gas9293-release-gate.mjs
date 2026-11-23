@@ -120,7 +120,7 @@ const on=flow.on??flow.true;
 const opts=on.workflow_dispatch.inputs;
 assert.deepEqual(Object.keys(opts),['operation']);
 assert.equal(opts.operation.default,'진단만');
-assert.deepEqual(opts.operation.options,['진단만','9.305 실제 배포']);
+assert.deepEqual(opts.operation.options,['진단만','9.306 실제 배포']);
 assert.equal(flow.jobs.deploy.env.GAS_9293_ORPHANED_CLOSE,'false');
 assert.equal(flow.jobs.deploy.env.GAS_9293_RELEASE_APPROVAL,'false');
 

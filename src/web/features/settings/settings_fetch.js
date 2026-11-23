@@ -731,7 +731,7 @@ const EXPECTED_GAS_VERSION = '9.285';
 // 2026-11-15 overnight read; it shares the current bootstrap response contract.
 // An explicitly approved live version must not trigger a spurious redeploy
 // warning. Unknown future versions still warn (no broad numeric >= match).
-const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287', '9.294', '9.295', '9.296', '9.297', '9.298', '9.300', '9.301', '9.302', '9.303', '9.304','9.305']);
+const COMPATIBLE_GAS_VERSIONS = Object.freeze(['9.281', '9.282', '9.283', '9.284', EXPECTED_GAS_VERSION, '9.286', '9.287', '9.294', '9.295', '9.296', '9.297', '9.298', '9.300', '9.301', '9.302', '9.303', '9.304','9.305','9.306']);
 
 
 async function autoLoadPrices() {

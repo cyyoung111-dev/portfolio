@@ -76,7 +76,7 @@ function _saveDivTaxRecord(year,interest,details){
 let _divTaxRemoteScope=null;
 const _divTaxRemoteYears=new Map();
 function _divTaxSyncConnection(){
-  if(typeof window==='undefined'||!['9.300','9.301','9.302','9.303','9.304','9.305'].includes(window._lastGasVersion)
+  if(typeof window==='undefined'||!['9.300','9.301','9.302','9.303','9.304','9.305','9.306'].includes(window._lastGasVersion)
     ||typeof GSHEET_API_URL==='undefined'||!String(GSHEET_API_URL||'').trim()
     ||typeof getGsheetAccessToken!=='function'||!getGsheetAccessToken()
     ||typeof getGsheetConnectionGeneration!=='function'
@@ -98,7 +98,7 @@ function _divTaxSyncCanonical(record){
   return value.interest===null&&Object.values(value.details).every(v=>v===null)?null:value;
 }
 function _divTaxDecodeRemote(reply,year){
-  if(reply?.status!=='ok'||reply.protocol!==1||!['9.300','9.301','9.302','9.303','9.304','9.305'].includes(reply.gasVersion)||reply.year!==Number(year)
+  if(reply?.status!=='ok'||reply.protocol!==1||!['9.300','9.301','9.302','9.303','9.304','9.305','9.306'].includes(reply.gasVersion)||reply.year!==Number(year)
     ||!_divTaxRevisionValid(reply.revision)||!Object.prototype.hasOwnProperty.call(reply,'record'))return null;
   if(reply.record!==null){
     if(reply.revision==='0'||!reply.record||typeof reply.record!=='object'||!reply.record.details

@@ -60,3 +60,19 @@
 5. 후속 수집이 같은 날 다시 실행되지 않았다는 증거가 남았는가?
 
 이 다섯 가지에 답할 수 있을 때만 다음 주의 슬롯 축소 PR을 작성한다.
+
+## 2026-11-23 KST 운영 분류 및 확인 결과
+
+`8306667`의 워크플로 파일은 89개이며, 정기 예약 16개에 cron 표현식 36개가 있습니다. 아래 분류는 주 용도 기준입니다. 한 워크플로 안에 운영 슬롯과 복구 슬롯이 함께 있는 경우가 있습니다.
+
+| 분류 | 경로와 역할 |
+| --- | --- |
+| 운영 필수 | `kb-fund-nav-collect`의 원천·검증·정규 저장, `nh-night-capture`, `telegram-morning-briefing`, `telegram-close-briefing`, `telegram-close-precompute`, `market-briefing-headless`, `ai-financial-evidence-prefetch`, `dividend-source-refresh`, `high-dividend-kind-source`, 품질 검사·웹 배포·보호된 GAS 릴리스. GAS 내부의 일일 PRICE/FUND/CLOSE 및 Snapshot 트리거는 GitHub cron 개수 밖입니다. |
+| 복구용 | NAV 독립 sentinel, Telegram 장전·마감 조기 기동 및 후속 예약, NH 자료 확보 보조 슬롯, `historical-checkpoint-reconcile`, `issue-507-*-finalize`·`*-reconcile`·`*-resume`·`*-maintenance`, `krx-targeted-recovery`, `krx-verified-pending-finalize`, 트리거 초기화 및 Runtime provisioning. 승인은 기존 운영 경로에 따릅니다. |
+| 진단용 | `portfolio-daily-ops-readonly`, `issue734-current-close-status-readonly`, `krx-nightly-health`, `krx-tplus1-morning-readonly`, `nh-night-capture-health`, 원천 공표시간 probe, 성능 probe 및 나머지 read-only audit·smoke·source-contract 워크플로. 정기 감시와 수동 조사 경로를 포함합니다. |
+| 퇴역 검토 | 52주 원시이력 수동 수집 및 날짜·릴리스가 고정된 과거 조사/복구. 특히 `issue734-nov19-fund-derived-once`는 9.304 전용이어서 9.305 이후에 실행 가능한 범용 복구 경로로 취급하지 않습니다. 실행 이력·의존관계·대체 경로를 확인한 뒤 종료 판단을 합니다. |
+
+- **NAV** [#45094258344](https://github.com/cyyoung111-dev/portfolio/actions/runs/45094258344)의 KB와 한화 import ACK는 모두 8초 이내였습니다. 후속 조회에서 11/20 공표 NAV의 날짜·값 일치가 확인됐지만 평가/Snapshot은 확인되지 않았습니다. REFRESH 비정상 HTTP 응답은 각각 약 108초와 88초에 발생했고 HTTP 코드·서버 내부 종료 단계는 기록되지 않았습니다. 직렬 job 및 GAS lease는 유지합니다. [#45134980051](https://github.com/cyyoung111-dev/portfolio/actions/runs/45134980051)은 09:30 KST 예약이 16:58에 들어와 private GAS 호출 전에 차단된 별건입니다.
+- **마감** 같은 실행의 읽기 전용 조회에서 11/22 달력일 CLOSE가 `ERROR`, `WRITE_VERIFICATION`, Snapshot stale로 기록됐습니다. 일요일의 미공표와 가격이력·Snapshot 저장 검증 오류를 따로 판정합니다. KRX 전용 휴장 판단을 미국 시장·채권·펀드 공표에 일괄 적용하지 않습니다.
+- **브리핑** 11/23 장전 [#45078031151](https://github.com/cyyoung111-dev/portfolio/actions/runs/45078031151)은 필수 21/21 및 실제 SENT를 확인했습니다. 선택 선물 4개는 원천 미확보였습니다. 마감 [#45130802456](https://github.com/cyyoung111-dev/portfolio/actions/runs/45130802456)은 핵심 6/6, 선물 4/4 및 CLAIM/SENT를 확인했습니다. 당일 VKOSPI와 거래대금은 KRX T+1 정상 미공표로 분리됐습니다. 당일 여러 정규 예약의 지연 실행이 관측됐으므로 복구 슬롯을 유지합니다.
+- **릴리스** [#44871790838](https://github.com/cyyoung111-dev/portfolio/actions/runs/44871790838)의 9.305 운영 배포 직후 거래 338행과 V2 해시 일치, Writer gate OPEN·active 0이 확인됐습니다. 신규 NAV 반영, 파생값, 정확한 Snapshot 일별 합계 및 화면은 각각 별도 근거가 필요합니다.

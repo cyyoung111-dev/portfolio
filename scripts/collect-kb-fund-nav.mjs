@@ -90,10 +90,11 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
       :action==='collectKbFundNav'?(args.mode==='import'?'IMPORT':'REFRESH')
       :'UNKNOWN';
     const startedMs=Date.now();
-    const stageAudit=outcome=>{
+    const stageAudit=(outcome,httpStatus)=>{
       if(!apply)return;
       console.error('FUND_NAV_STAGE code=F00002 phase='+phase+' outcome='+outcome
-        +' elapsedMs='+Math.max(0,Date.now()-startedMs));
+        +' elapsedMs='+Math.max(0,Date.now()-startedMs)
+       +(Number.isInteger(httpStatus)&&httpStatus>=400&&httpStatus<=599?' httpStatus='+httpStatus:''));
     };
     let r;
     try {
@@ -108,7 +109,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
       // Only a READ-ONLY preview may retry known transient upstream statuses.
       // Auth, invalid requests and all financial writes remain fail-closed.
       const transient=phase==='PREVIEW'&&[429,502,503,504].includes(r?.status);
-      stageAudit(transient?'HTTP_TRANSIENT_UNVERIFIED':'HTTP_UNVERIFIED');
+      stageAudit(transient?'HTTP_TRANSIENT_UNVERIFIED':'HTTP_UNVERIFIED',r?.status);
       throw Error('NAV_'+phase+'_'+(transient?'HTTP_TRANSIENT_UNVERIFIED':'HTTP_UNVERIFIED'));
     }
     try{

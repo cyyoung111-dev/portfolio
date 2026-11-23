@@ -124,7 +124,7 @@ const wf=YAML.parse(readFileSync('.github/workflows/gas-deploy.yml','utf8'));
 const input=(wf.on??wf.true).workflow_dispatch.inputs;
 assert.deepEqual(Object.keys(input),['operation']);
 assert.equal(input.operation.default,'진단만');
-assert.deepEqual(input.operation.options,['진단만','9.305 실제 배포']);
+assert.deepEqual(input.operation.options,['진단만','9.306 실제 배포']);
 assert.equal(Object.hasOwn(input,'approve_9297'),false);
 assert.equal(wf.jobs.deploy.environment,'portfolio-production-gas');
 assert.equal(wf.jobs.deploy.concurrency['cancel-in-progress'],false);
