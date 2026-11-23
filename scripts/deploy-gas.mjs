@@ -390,7 +390,9 @@ export async function exchangeClaspAccessToken(value, fetchImpl = fetch) {
   } catch {
     throw new Error('GAS_OAUTH_REFRESH_NETWORK_UNVERIFIED');
   }
-  const payload = await response.json().catch(() => null);
+  let payload = null;
+  try { payload = JSON.parse(await response.text()); }
+  catch { /* Classify rejected and malformed responses using fixed messages. */ }
   if (!response.ok) {
     const status = Number.isInteger(response.status) ? response.status : 'UNKNOWN';
     if (status === 400 && payload?.error === 'invalid_grant') {
