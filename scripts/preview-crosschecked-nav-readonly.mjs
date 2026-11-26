@@ -43,10 +43,10 @@ export async function previewCrosscheckedNav({archive,url,token,now=new Date(),f
     ||['updates','warnings','errors','duplicates','zeroUnits'].some(k=>p[k].length))
    throw Error('NAV_CANDIDATE_PREVIEW_BLOCKED');
   const covered=[...p.candidates.map(x=>({date:x.date,nav:x.nav})),
-   ...p.identical.map(x=>({date:x.date,nav:x.existingNav,uploadedNav:x.uploadedNav}))];
+   ...p.identical.map(x=>({date:x.date,nav:x.existingNav,uploadedNav:x.uploadedNav,identical:true}))];
   if(covered.length!==rows.length||new Set(covered.map(x=>x.date)).size!==rows.length
-    ||covered.some(x=>!rows.some(r=>r.date===x.date&&r.nav===Number(x.nav)
-      &&(x.uploadedNav===undefined||r.nav===Number(x.uploadedNav)))))
+    ||covered.some(x=>!rows.some(r=>r.date===x.date&&r.nav===x.nav
+      &&(!x.identical||r.nav===x.uploadedNav))))
    throw Error('NAV_CANDIDATE_PREVIEW_MISMATCH');
   // New source may not write before re-proving exact persisted historical overlap.
   if(!p.identical.length)throw Error('NAV_CANDIDATE_PERSISTED_OVERLAP_UNVERIFIED');
