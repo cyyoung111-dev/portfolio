@@ -351,6 +351,13 @@ assert.match(candidate.steps.at(-1).with.name,/public-nav-candidate-/);
 assert.doesNotMatch(JSON.stringify(candidate),/GAS_ACCESS_TOKEN|portfolio-production-gas|--apply|secrets\./);
 for(const name of ['collect','hanwha-collect','postflight-readonly'])
  assert.doesNotMatch(JSON.stringify(workflow.jobs[name]),/source-kofia-candidate|public-nav-candidate/);
+const candidatePreview=workflow.jobs['candidate-preview-readonly'];
+assert.deepEqual(candidatePreview.needs,['source-kofia-candidate']);
+assert.equal(candidatePreview.environment,'portfolio-production-gas');
+assert.match(candidatePreview.if,/github\.event_name == 'push'/);
+assert.match(candidatePreview.if,/needs\['source-kofia-candidate'\]\.result == 'success'/);
+assert.match(candidatePreview.steps.at(-1).run,/preview-crosschecked-nav-readonly[.]mjs/);
+assert.doesNotMatch(JSON.stringify(candidatePreview),/--apply|collectKbFundNav|collectHanwhaFundNav/);
 const privateCollector=workflow.jobs.collect;
 assert.equal(privateCollector.environment,'portfolio-production-gas');
 assert.match(privateCollector.if,/refs\/heads\/main/);
@@ -657,3 +664,45 @@ console.log('NAV_SCHEDULE_DELAYED_ADMISSION_PASS '+JSON.stringify({
  simulatedSaturday0910Started1505:true,slots:navSlots.length,
  staleScheduleCannotReachGas:true,postflightRequiresAdmittedCollector:true,sameRunContinuationCases:continuationCases.length,financialWrites:0
 }));
+
+ // Real adapter and GAS preview contract with a mock transport. No network.
+const {selectCrosscheckedCandidate}=await import('./nav-crosschecked-candidate.mjs');
+const {previewCrosscheckedNav}=await import('./preview-crosschecked-nav-readonly.mjs');
+const candidateToday='2026-11-27',candidateDates=['2026-11-20','2026-11-23','2026-11-24','2026-11-25','2026-11-26'];
+const exampleArchive={kind:'PUBLIC_NAV_CANDIDATE_ARCHIVE',asOfKst:candidateToday,importAuthorized:false,
+ financialWrites:0,gasCalls:0,requestedDates:candidateDates,
+ funds:[['F00002','KR5223AQ0185'],['F00001','K55213C50702']].map(([fund,standardCode])=>({
+  fund,standardCode,source:'https://dis.kofia.or.kr/proframeWeb/XMLSERVICES/',anchorState:'MATCH',secondaryState:'RETRIEVED',
+  rows:candidateDates.map((date,i)=>({date,nav:String(1000+i)})),
+  crosscheck:{state:'CROSSCHECK_MATCHED',conflictDates:[],matchedDates:candidateDates.slice(0,4)}
+ }))};
+assert.equal(selectCrosscheckedCandidate(exampleArchive,'F00002',candidateToday).rows.length,4);
+assert.deepEqual(selectCrosscheckedCandidate(exampleArchive,'F00001',candidateToday).unverifiedDates,['2026-11-26']);
+assert.throws(()=>selectCrosscheckedCandidate({...exampleArchive,asOfKst:'2026-11-26'},'F00002',candidateToday),/NAV_CANDIDATE_ARCHIVE_UNVERIFIED/);
+for(const mutate of [a=>a.funds[0].standardCode='WRONG',a=>a.funds[0].crosscheck.conflictDates=['2026-11-23'],
+ a=>a.funds[0].rows.push(a.funds[0].rows[0]),a=>a.funds[0].crosscheck.matchedDates=['2026-11-20']]){
+ const invalid=structuredClone(exampleArchive);mutate(invalid);
+ assert.throws(()=>selectCrosscheckedCandidate(invalid,'F00002',candidateToday),/NAV_CANDIDATE_/);
+}
+const candidateMock=({noOverlap=false,conflict=false}={})=>async(dest,opts)=>{
+ const action=opts.body.get('action');
+ assert.equal(new URL(dest).origin,'https://script.google.com');
+ assert.ok(['getAutomationStatus','previewFundNavImport'].includes(action));
+ if(action==='getAutomationStatus')return {ok:true,json:async()=>opts.body.get('accessToken')==='test-candidate-token'
+  ?{status:'ok',gasVersion:'9.305',automation:{closeRun:{runDate:'2026-11-26'}}}
+  :{status:'error',message:'인증 실패'}};
+ const input=JSON.parse(opts.body.get('data'));
+ assert.equal(input.appendOnly,true);assert.equal(input.ackWarnings,false);
+ assert.equal(input.rows.length,4);assert(!input.rows.some(r=>r.date==='2026-11-26'));
+ const identical=noOverlap?[]:[{date:input.rows[0].date,existingNav:input.rows[0].nav,uploadedNav:input.rows[0].nav}];
+ return {ok:true,json:async()=>({status:'ok',code:input.code,
+  candidates:input.rows.slice(noOverlap?0:1),identical,
+  updates:conflict?[{}]:[],warnings:[],errors:[],duplicates:[],zeroUnits:[]})};
+};
+const candidateOptions={archive:exampleArchive,url:'https://script.google.com/macros/s/TEST_CANDIDATE/exec',token:'test-candidate-token',now:new Date('2026-11-27T01:00:00+09:00')};
+const candidateResult=await previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock()});
+assert.equal(candidateResult.financialWrites,0);assert.equal(candidateResult.importAuthorized,false);
+assert.equal(candidateResult.results.length,2);
+await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({noOverlap:true})}),/NAV_CANDIDATE_PERSISTED_OVERLAP_UNVERIFIED/);
+await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({conflict:true})}),/NAV_CANDIDATE_PREVIEW_BLOCKED/);
+console.log('NAV crosschecked candidate exact-class and read-only GAS preview PASS');
