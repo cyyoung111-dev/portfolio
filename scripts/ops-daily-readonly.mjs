@@ -111,26 +111,36 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
 // Observing an admitted workflow run only says execution was attempted.
 // source-public on a push and skipped postflight are explicitly NOT NAV
 // success. Do not request GitHub job logs, private account values or artifacts.
-export function classifyNavRuns(runs,jobsByRunId,date){
- if(!Array.isArray(runs)||runs.length>100)return 'RUN_LIST_UNVERIFIED';
- const candidates=runs.filter(r=>
+function acceptedNavRuns(runs,date){
+ return runs.filter(r=>
   r?.head_branch==='main'&&r?.run_attempt===1
   &&['schedule','workflow_dispatch'].includes(r.event)
   &&Number.isSafeInteger(r.id)&&Number.isFinite(Date.parse(r.created_at))
   &&kstClock(new Date(r.created_at)).day===date);
+}
+export function classifyNavRuns(runs,jobsByRunId,date){
+ if(!Array.isArray(runs)||runs.length>100)return 'RUN_LIST_UNVERIFIED';
+ const candidates=acceptedNavRuns(runs,date);
  if(!candidates.length)return 'NO_ACCEPTED_EXECUTION_OBSERVED';
- let failing=false,completed=false;
+ let failing=false,completed=false,active=false;
  for(const run of candidates){
+  if(['queued','in_progress','waiting','requested','pending'].includes(run.status)){
+   active=true;continue;
+  }
   const jobs=jobsByRunId?.[run.id];
-  if(!Array.isArray(jobs)||!['completed'].includes(run.status))continue;
+  if(!Array.isArray(jobs)||run.status!=='completed')continue;
   const relevant=['collect','hanwha-collect','postflight-readonly'];
-  const mapped=relevant.map(name=>jobs.find(j=>j.name===name));
-  if(mapped.every(j=>j?.status==='completed'&&j.conclusion==='success')
-    &&run.conclusion==='success')completed=true;
-  else if(mapped.some(j=>j?.conclusion==='failure')||run.conclusion==='failure')
-    failing=true;
+  const mapped=relevant.map(name=>{
+   const matches=jobs.filter(j=>j.name===name);
+   return matches.length===1?matches[0]:null;
+  });
+  // Public-source failures may make the entire run red even when all
+  // three private jobs succeeded. This label certifies execution ONLY.
+  if(mapped.every(j=>j?.status==='completed'&&j.conclusion==='success'))completed=true;
+  else if(mapped.some(j=>j?.status==='completed'&&j.conclusion==='failure'))failing=true;
  }
  return completed?'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED'
+  :active?'NAV_EXECUTION_IN_PROGRESS'
   :failing?'NAV_EXECUTION_FAILED':'NAV_EXECUTION_UNVERIFIED';
 }
 async function navRunnerEvidence({token,date,fetchImpl=fetch}){
@@ -153,16 +163,18 @@ async function navRunnerEvidence({token,date,fetchImpl=fetch}){
     encodeURIComponent(created)+'&per_page=100');
   if(!Array.isArray(data?.workflow_runs)||data.workflow_runs.length>100
      ||Number(data.total_count)>100)return 'RUN_LIST_UNVERIFIED';
-  const interested=data.workflow_runs.filter(x=>Number.isFinite(Date.parse(x?.created_at))
-     &&kstClock(new Date(x.created_at)).day===date);
+  // Exclude public-only pushes, retired triggers, reruns and other
+  // branches before applying the bounded private-evidence read budget.
+  const interested=acceptedNavRuns(data.workflow_runs,date);
+  const terminal=interested.filter(r=>r.status==='completed');
+  if(terminal.length>12)return 'RUN_LIST_UNVERIFIED';
   const jobs={};
-  for(const r of interested.slice(0,6)){
+  for(const r of terminal){
    const d=await get('/actions/runs/'+r.id+'/jobs?per_page=100');
    if(!Array.isArray(d?.jobs)||d.total_count>100)
     return 'RUN_LIST_UNVERIFIED';
    jobs[r.id]=d.jobs;
   }
-  if(interested.length>6)return 'RUN_LIST_UNVERIFIED';
   return classifyNavRuns(data.workflow_runs,jobs,date);
  }catch{return 'RUN_LIST_UNVERIFIED';}
 }
