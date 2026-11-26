@@ -16,12 +16,20 @@ const evidence={
  officialNavMatched:true,storedNavConfirmed:true,derivedConfirmed:true,
  closeComplete:true,priceOk:true,fundOk:true
 };
+const hanwhaEvidence={...evidence,kind:'HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY',code:'F00001'};
 const now=at('2026-11-13T21:30:00+09:00');
 const proof=classifyDailyOperations({date:fri,now,morningProof:true,
  closeProof:true,navRuns:'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
- navReport:evidence});
+ navReport:evidence,hanwhaReport:hanwhaEvidence});
 assert.equal(proof.overall,'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED');
 assert.equal(proof.kbNav.state,'PASS');
+assert.equal(proof.hanwhaNav.state,'PASS');
+for(const missing of [undefined,evidence,{...hanwhaEvidence,code:'F00002'},{...hanwhaEvidence,officialReferenceDate:'2026-11-12'},{...hanwhaEvidence,derivedConfirmed:false}]){
+ const p=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,navReport:evidence,hanwhaReport:missing});
+ assert.equal(p.kbNav.state,'PASS');
+ assert.equal(p.hanwhaNav.state,'EVIDENCE_MISSING');
+ assert.equal(p.overall,'CORE_EVIDENCE_INCOMPLETE','KB alone cannot verify both funds');
+}
 assert.equal(proof.kbNav.execution,'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
 assert.equal(proof.savedClose.state,'PASS');
 assert.equal(proof.snapshot.state,'NOT_FULLY_AUDITED');
@@ -30,7 +38,7 @@ const exactSnapshot={date:fri,state:'VERIFIED',storedRows:39,
  exactWriterOwnerVerified:false,financialWrites:0};
 const withSnapshot=classifyDailyOperations({date:fri,now,morningProof:true,
  closeProof:true,navRuns:'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
- navReport:evidence,snapshotEvidence:exactSnapshot});
+ navReport:evidence,hanwhaReport:hanwhaEvidence,snapshotEvidence:exactSnapshot});
 assert.equal(withSnapshot.snapshot.state,'PASS');
 assert.equal(withSnapshot.snapshot.storedRows,39);
 assert.equal(withSnapshot.overall,'CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED');
@@ -59,6 +67,7 @@ const notDue=classifyDailyOperations({date:mon,now:at('2026-11-16T08:00:00+09:00
 assert.equal(notDue.morningTelegram.state,'WAITING');
 assert.equal(notDue.closeTelegram.state,'WAITING');
 assert.equal(notDue.kbNav.state,'WAITING');
+assert.equal(notDue.hanwhaNav.state,'WAITING');
 const publisherReport={
  ...evidence,navWorkflowStatus:'OFFICIAL_NAV_AWAITING_PUBLICATION',
  officiallyPublished:false,closeDateVerified:true,
@@ -68,6 +77,9 @@ const publisherReport={
 const publisher=classifyDailyOperations({date:fri,now,morningProof:true,
  closeProof:true,navRuns:'NAV_EXECUTION_FAILED',navReport:publisherReport});
 assert.equal(publisher.kbNav.state,'PUBLICATION_PENDING');
+const hanwhaPending=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,navReport:evidence,hanwhaReport:{...publisherReport,kind:hanwhaEvidence.kind,code:hanwhaEvidence.code}});
+assert.equal(hanwhaPending.hanwhaNav.state,'PUBLICATION_PENDING');
+assert.equal(hanwhaPending.overall,'CORE_EVIDENCE_INCOMPLETE');
 for(const bad of [
  {officiallyPublished:true},
  {officialReferenceDate:'2026-11-12'},
@@ -201,7 +213,7 @@ assert.equal(noisyAudit.kbNav.execution,'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED
 assert.equal(noisyAudit.kbNav.state,'EVIDENCE_MISSING','execution is not NAV storage proof');
 assert.equal(classifyNavRuns([run],{123:jobs[123].slice(0,1)},fri),
  'NAV_EXECUTION_UNVERIFIED');
-let observed=[];
+let observed=[],statusReads=0;
 const result=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
  repository:'cyyoung111-dev/portfolio',token:'test-read-only',
  gasUrl:'https://example.invalid',gasToken:'test',
@@ -210,7 +222,9 @@ const result=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
  closeReader:async args=>{observed.push('close:'+args.now.toISOString());
   return {date:fri,verified:true};},
  navRunReader:async()=>{observed.push('runs');return 'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED';},
- navReader:async()=>{observed.push('readback');return evidence;},
+ statusReader:async()=>{statusReads++;return {close:{runDate:fri}};},
+ navReader:async({statusReader})=>{await statusReader({});observed.push('readback');return evidence;},
+ hanwhaReader:async({statusReader})=>{await statusReader({});observed.push('hanwha');return hanwhaEvidence;},
  snapshotReader:async({date})=>{
   observed.push('snapshot:'+date);return exactSnapshot;
  }
@@ -219,7 +233,8 @@ assert.equal(result.overall,'CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITE
 assert.equal(result.date,fri);
 assert.equal(result.snapshot.verified,true);
 assert.deepEqual(observed[0],'morning:'+fri);
-assert.deepEqual(observed.slice(2),['runs','readback','snapshot:'+fri]);
+assert.deepEqual(observed.slice(2),['runs','readback','hanwha','snapshot:'+fri]);
+assert.equal(statusReads,1,'both fund audits share the read-only close checkpoint');
 const failedSnapshot=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
  repository:'cyyoung111-dev/portfolio',token:'test-read-only',
  gasUrl:'https://example.invalid',gasToken:'test',
@@ -227,17 +242,27 @@ const failedSnapshot=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00
  closeReader:async()=>({date:fri,verified:true}),
  navRunReader:async()=> 'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
  navReader:async()=>evidence,
+ hanwhaReader:async()=>hanwhaEvidence,
  snapshotReader:async()=>{throw Error('PRIVATE_SOURCE_ERROR')}
 });
 assert.equal(failedSnapshot.snapshot.state,'NOT_FULLY_AUDITED');
 assert.equal(failedSnapshot.overall,'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED');
+const independent=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
+ gasUrl:'https://example.invalid',gasToken:'test',
+ morningReader:async()=>({verifiedSent:true}),closeReader:async()=>({date:fri,verified:true}),
+ navRunReader:async()=> 'NAV_EXECUTION_FAILED',navReader:async()=>{throw Error('KB source failed');},
+ hanwhaReader:async()=>hanwhaEvidence,snapshotReader:async()=>{throw Error('must not read partial close');}});
+assert.equal(independent.kbNav.state,'EVIDENCE_MISSING');
+assert.equal(independent.hanwhaNav.state,'PASS');
+assert.equal(independent.overall,'CORE_EVIDENCE_INCOMPLETE');
 const noCredentials=await runDailyOperations({
  now:at('2026-11-14T23:01:00+09:00'),
  token:null,gasUrl:null,gasToken:null,
  morningReader:async()=>{throw Error('no signal')},
  closeReader:async()=>{throw Error('no signal')},
  navRunReader:async()=> 'RUN_LIST_UNVERIFIED',
- navReader:async()=>{throw Error('must not be invoked without credentials')}
+ navReader:async()=>{throw Error('must not be invoked without credentials')},
+ hanwhaReader:async()=>{throw Error('must not be invoked without credentials')}
 });
 assert.equal(noCredentials.overall,'CORE_EVIDENCE_INCOMPLETE');
 assert.equal(noCredentials.kbNav.state,'EVIDENCE_MISSING');
