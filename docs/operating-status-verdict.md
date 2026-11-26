@@ -104,3 +104,9 @@ production code change.
 - Only call when same-date GAS close is fully confirmed and daily NAV has reached the evidence window; do not race the 19:00 Writer, schedule a new cron or modify the original record. On missing/error responses preserve `NOT_FULLY_AUDITED`; never call a Writer, retry finance persist or claim an error-free transaction from a green workflow.
 - Only an independent external Writer exclusion and an independently validated price/NAV source can attest transaction isolation. A new result `CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED` means *internal stored-vs-recomputed reconciliation only*, not production writer-owner audit.
 - Fully sanitized output: no holdings, account strings, codes, monetary values, tokens, GAS errors or private source digests in CI/workflow logs. Required CI contract exercises live request wiring with synthetic fixtures and fail-closed incomplete/duplicate/changed-date/mismatched group cases.
+
+## 2026-11-27 — 양 자동수집 펀드 독립 운영감사
+
+- 기존 일일 판정은 KB F00002 단독 증빙으로 CORE 정상 판정이 가능했습니다. 한화 F00001의 정확한 공개 클래스/일자, 저장 NAV 및 파생평가 일치 증빙을 별도 `hanwhaNav`로 확인하며, 두 펀드 모두 검증돼야 CORE 정상입니다. F00003은 수동 NAV 대상이며 자동수집 성공 분모에 추가하지 않습니다. 동일 GAS 마감 상태 읽기는 공유하며 두 펀드별 원천/저장/파생 증빙은 독립입니다. 원천 실패나 공표 대기는 PASS가 아닙니다.
+- KOFIA 공개 기준가의 개인 비상업적 출처 명시 사용에 관한 근거: [2026-09-10 개정 규정 제8-8조·제8-9조](https://law.kofia.or.kr/service/law/lawFullScreenContent.do?historySeq=1811&seq=136). 상업적 사용에는 사전 승인 등 조건이 있으며 공개 DIS 웹 인터페이스의 자동조회 지원/허용 계약은 별도 확인 필요. 기존 후보의 실제 GAS preview는 읽기 전용 검증에 한정합니다. KOFIA/Naver 동일 날짜 교차대사 누락 행을 저장하거나 기존 Writer 보호를 우회하지 않습니다.
+- 기존 수동 운영감사 실행 계약, 예약, 금융 Writer 및 GAS 배포 불변. 실제 운영 검증은 CI와 별도입니다.
