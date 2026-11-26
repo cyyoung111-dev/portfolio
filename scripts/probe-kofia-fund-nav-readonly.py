@@ -15,6 +15,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
@@ -161,6 +162,107 @@ def run_probe():
     print(json.dumps(report, ensure_ascii=False))
     return 0 if report["feasibilityEvidence"] else 1
 
+# Independent candidate: documented observations from
+# https://github.com/dd3ok/naverstock-api-skill/blob/main/references/api-home-market-fund.md
+# The field meanings and identity still need real-response verification.
+NAVER_ORIGIN = "https://stock.naver.com"
+CANDIDATE_FIELDS = ("basePrice", "standardPrice", "stdPrice", "nav", "price", "closePrice")
+
+def naver_price_evidence(body, isin, day):
+    if len(body) > MAX_BYTES:
+        raise ValueError("JSON_TOO_LARGE")
+    try:
+        data = json.loads(body, parse_float=Decimal)
+    except (ValueError, UnicodeError) as exc:
+        raise ValueError("JSON_INVALID") from exc
+    if not isinstance(data, dict):
+        raise ValueError("JSON_NOT_OBJECT")
+    if "fundCode" in data and data["fundCode"] != isin:
+        raise ValueError("RESPONSE_CLASS_MISMATCH")
+    rows = data.get("prices")
+    if not isinstance(rows, list):
+        return {"status": "PRICES_STRUCTURE_UNVERIFIED",
+                "responseKeys": sorted(str(k)[:40] for k in data)[:25]}
+    matches = [row for row in rows if isinstance(row, dict) and
+               row.get("tradeDate") == day.isoformat()]
+    if len(matches) != 1:
+        return {"status": "EXACT_DATE_NOT_UNIQUE_OR_MISSING", "rowCount": len(rows)}
+    row = matches[0]
+    if "fundCode" in row and row["fundCode"] != isin:
+        raise ValueError("RESPONSE_CLASS_MISMATCH")
+    candidate = {}
+    for key in CANDIDATE_FIELDS:
+        value = row.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, Decimal, str)):
+            continue
+        raw = str(value).replace(",", "")
+        if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw):
+            number = Decimal(raw)
+            if number.is_finite() and number > 0:
+                candidate[key] = str(number)
+    return {"status": "EXACT_DATE_CANDIDATE" if candidate else "PRICE_FIELD_UNVERIFIED",
+            "identityEvidence": "RESPONSE_CODE_MATCH" if
+                (data.get("fundCode") == isin or row.get("fundCode") == isin)
+                else "REQUEST_CODE_ONLY",
+            "candidateValues": candidate,
+            "rowKeys": sorted(str(k)[:40] for k in row)[:35]}
+
+def naver_request(isin, day):
+    query = urllib.parse.urlencode({"date": day.isoformat(), "size": 10})
+    url = NAVER_ORIGIN + "/api/fund/funds/" + isin + "/prices/daily?" + query
+    request = urllib.request.Request(url, headers={
+        "Accept": "application/json",
+        "User-Agent": "portfolio-public-nav-readonly-probe/1.0"})
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=15) as response:
+            body = response.read(MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403, 429):
+            raise AccessDenied("HTTP_" + str(exc.code)) from exc
+        raise ValueError("HTTP_" + str(exc.code)) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ValueError("TRANSPORT_UNVERIFIED") from exc
+    if b"access denied" in body[:8192].lower() or b"request blocked" in body[:8192].lower():
+        raise AccessDenied("ACCESS_DENIED_BODY")
+    return naver_price_evidence(body, isin, day)
+
+def run_naver_probe():
+    today = dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
+    recent = previous_weekday(today)
+    report = {"kind": "NAVER_FUND_NAV_SOURCE_PROBE", "asOfKst": today.isoformat(),
+              "results": [], "financialWrites": 0, "gasCalls": 0,
+              "importAuthorized": False}
+    denied = False
+    for fund, isin, _, anchor_nav in FUNDS:
+        for label, day in (("anchor", ANCHOR), ("recent", recent)):
+            record = {"fund": fund, "standardCode": isin, "date": day.isoformat(), "check": label}
+            if denied:
+                record["status"] = "SKIPPED_AFTER_ACCESS_DENIAL"
+            else:
+                try:
+                    record.update(naver_request(isin, day))
+                    if label == "anchor":
+                        record["anchorMatchingFields"] = [
+                            key for key, value in record.get("candidateValues", {}).items()
+                            if Decimal(value) == anchor_nav]
+                except AccessDenied as exc:
+                    record["status"] = str(exc)
+                    denied = True
+                except ValueError as exc:
+                    record["status"] = str(exc)
+                time.sleep(1)
+            report["results"].append(record)
+    # A candidate field and response-code evidence must agree for both dates.
+    pairs = [report["results"][i:i+2] for i in range(0, len(report["results"]), 2)]
+    report["feasibilityEvidence"] = all(
+        all(x.get("identityEvidence") == "RESPONSE_CODE_MATCH" for x in pair)
+        and bool(set(pair[0].get("anchorMatchingFields", [])) &
+                 set(pair[1].get("candidateValues", {})))
+        for pair in pairs)
+    print(json.dumps(report, ensure_ascii=False))
+    return 0 if report["feasibilityEvidence"] else 1
+
+
 def self_test():
     day = ANCHOR
     isin = FUNDS[0][1]
@@ -191,13 +293,28 @@ def self_test():
     assert req.findtext("DISCondFuncDTO/tmpV12") == "A&B"
     assert req.findtext("DISCondFuncDTO/tmpV30") == "20261116"
     assert previous_weekday(dt.date(2026, 11, 23)) == dt.date(2026, 11, 20)
-    print("KOFIA_DIS_NAV_PROBE_SELF_TEST_PASS")
+    naver = lambda code, price: json.dumps({"fundCode": code, "prices": [
+        {"tradeDate": "2026-11-16", "basePrice": price, "taxPrice": 2000}]}).encode()
+    evidence = naver_price_evidence(naver(isin, "2,025.10"), isin, day)
+    assert evidence["candidateValues"] == {"basePrice": "2025.10"}
+    assert evidence["identityEvidence"] == "RESPONSE_CODE_MATCH"
+    try:
+        naver_price_evidence(naver("WRONG", "2025.10"), isin, day)
+    except ValueError as exc:
+        assert str(exc) == "RESPONSE_CLASS_MISMATCH"
+    else:
+        raise AssertionError("RESPONSE_CLASS_MISMATCH")
+    assert naver_price_evidence(b'{"prices":[]}', isin, day)["status"] == "EXACT_DATE_NOT_UNIQUE_OR_MISSING"
+    print("KOFIA_AND_NAVER_NAV_PROBE_SELF_TEST_PASS")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--naver", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         self_test()
+    elif args.naver:
+        sys.exit(run_naver_probe())
     else:
         sys.exit(run_probe())
