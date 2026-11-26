@@ -51,12 +51,18 @@ def extract_nav(body, isin, day):
         root = ET.fromstring(body)
     except ET.ParseError as exc:
         raise ValueError("XML_INVALID") from exc
-    if tag_name(root.tag) != "message":
-        raise ValueError("RESPONSE_NOT_MESSAGE")
+    # The transport may wrap the DIS grid differently across versions.
+    # Require the actual grid structure; log only a bounded root tag on
+    # unexpected responses, not the raw response or other funds' data.
+    nodes = [elem for elem in root.iter() if tag_name(elem.tag) == "selectMeta"]
+    if not nodes:
+        root_name = tag_name(root.tag)
+        if root_name.lower() in ("html", "error", "fault"):
+            raise ValueError("RESPONSE_NOT_MESSAGE")
+        safe_name = root_name if re.fullmatch(r"[A-Za-z0-9_:-]{1,64}", root_name) else "UNKNOWN"
+        raise ValueError("RESPONSE_NO_GRID_" + safe_name)
     values = []
-    for elem in root.iter():
-        if tag_name(elem.tag) != "selectMeta":
-            continue
+    for elem in nodes:
         row = {}
         for child in elem:
             name = tag_name(child.tag)
@@ -163,6 +169,7 @@ def self_test():
     def xml(*rows):
         return ("<message><DISCondFuncListDTO>" + "".join(rows) + "</DISCondFuncListDTO></message>").encode()
     assert extract_nav(xml(row("WRONG"), row()), isin, day) == Decimal("2025.10")
+    assert extract_nav(("<DISCondFuncListDTO>" + row() + "</DISCondFuncListDTO>").encode(), isin, day) == Decimal("2025.10")
     for body, error in (
         (xml(row("WRONG")), "EXACT_CLASS_NOT_FOUND"),
         (xml(row(stamp="20261113")), "EXACT_DATE_MISMATCH"),
@@ -171,6 +178,7 @@ def self_test():
         (xml(row(price="0")), "PRICE_INVALID"),
         (xml(row(price="NaN")), "PRICE_INVALID"),
         (b"<html/>", "RESPONSE_NOT_MESSAGE"),
+        (b"<response/>", "RESPONSE_NO_GRID_response"),
         (b"<!DOCTYPE message><message/>", "XML_UNSAFE_OR_TOO_LARGE"),
     ):
         try:
