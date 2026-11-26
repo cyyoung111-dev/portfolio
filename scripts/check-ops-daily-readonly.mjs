@@ -166,8 +166,39 @@ assert.equal(classifyNavRuns([{...run,event:'workflow_run'}],jobs,fri),
  'retired KRX-triggered collector is not evidence of allowed NAV execution');
 assert.equal(classifyNavRuns([{...run,head_branch:'feature'}],jobs,fri),
  'NO_ACCEPTED_EXECUTION_OBSERVED');
+// A public-only failure can mark the overall run red; private execution
+// and exact financial data verification are independent verdicts.
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],jobs,fri),
+ 'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
+const privateFailure={123:jobs[123].map(j=>j.name==='collect'?{...j,conclusion:'failure'}:j)};
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],privateFailure,fri),
  'NAV_EXECUTION_FAILED');
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],{123:[{name:'source-public',status:'completed',conclusion:'failure'}]},fri),
+ 'NAV_EXECUTION_UNVERIFIED');
+assert.equal(classifyNavRuns([{...run,status:'queued',conclusion:null}],{},fri),
+ 'NAV_EXECUTION_IN_PROGRESS');
+assert.equal(classifyNavRuns([run,{...run,id:124,status:'in_progress',conclusion:null}],privateFailure,fri),
+ 'NAV_EXECUTION_IN_PROGRESS');
+assert.equal(classifyNavRuns([run],{123:[...jobs[123],jobs[123][0]]},fri),
+ 'NAV_EXECUTION_UNVERIFIED');
+let jobReads=[];
+const pushRuns=Array.from({length:8},(_,i)=>({...run,id:200+i,event:'push'}));
+const retired={...run,id:300,event:'workflow_run'};
+const noisyAudit=await runDailyOperations({
+ now:at('2026-11-13T22:30:00+09:00'),token:'synthetic',
+ morningReader:async()=>({verifiedSent:true}),
+ closeReader:async()=>({date:fri,verified:true}),
+ fetchImpl:async url=>{
+  if(url.includes('/workflows/kb-fund-nav-collect.yml/runs?'))
+   return {ok:true,json:async()=>({total_count:10,workflow_runs:[...pushRuns,retired,run]})};
+  jobReads.push(url);
+  assert.match(url,/\/actions\/runs\/123\/jobs\?per_page=100$/);
+  return {ok:true,json:async()=>({total_count:3,jobs:jobs[123]})};
+ }
+});
+assert.equal(jobReads.length,1,'ineligible source-only runs must not exhaust private evidence budget');
+assert.equal(noisyAudit.kbNav.execution,'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
+assert.equal(noisyAudit.kbNav.state,'EVIDENCE_MISSING','execution is not NAV storage proof');
 assert.equal(classifyNavRuns([run],{123:jobs[123].slice(0,1)},fri),
  'NAV_EXECUTION_UNVERIFIED');
 let observed=[];
