@@ -15,7 +15,7 @@ jobs:
   source-probe:
     if: github.repository == 'cyyoung111-dev/portfolio'
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,8 +23,16 @@ jobs:
       - name: Validate exact class and quotation date parsers
         id: parser
         run: python3 scripts/probe-kofia-fund-nav-readonly.py --self-test
-      - name: Query public KOFIA reference and recent NAV, never import
-        run: python3 scripts/probe-kofia-fund-nav-readonly.py
-      - name: Query independent Naver daily fund price evidence, never import
-        if: ${{ !cancelled() && steps.parser.outcome == 'success' }}
-        run: python3 scripts/probe-kofia-fund-nav-readonly.py --naver
+      - name: Verify KOFIA and Naver multi-date candidate evidence
+        id: archive
+        run: |
+          python3 scripts/probe-kofia-fund-nav-readonly.py --archive > public-nav-candidate.json
+          cat public-nav-candidate.json
+      - name: Preserve candidate evidence even when validation fails
+        if: ${{ !cancelled() && steps.archive.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-nav-candidate-test-${{ github.run_id }}
+          path: public-nav-candidate.json
+          retention-days: 7
+          if-no-files-found: error
