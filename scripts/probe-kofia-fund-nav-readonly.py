@@ -263,6 +263,131 @@ def run_naver_probe():
     return 0 if report["feasibilityEvidence"] else 1
 
 
+def completed_weekdays(today, count=5):
+    days = []
+    day = today
+    for _ in range(count):
+        day = previous_weekday(day)
+        days.append(day)
+    return sorted(days)
+
+def naver_history(body, isin, requested_dates):
+    if len(body) > MAX_BYTES:
+        raise ValueError("JSON_TOO_LARGE")
+    try:
+        data = json.loads(body, parse_float=Decimal)
+    except (ValueError, UnicodeError) as exc:
+        raise ValueError("JSON_INVALID") from exc
+    if not isinstance(data, dict) or data.get("fundCode") != isin:
+        raise ValueError("RESPONSE_CLASS_MISMATCH")
+    if not isinstance(data.get("prices"), list):
+        raise ValueError("PRICES_STRUCTURE_UNVERIFIED")
+    dates = {d.isoformat() for d in requested_dates}
+    out = {}
+    for row in data["prices"]:
+        if not isinstance(row, dict):
+            raise ValueError("ROW_INVALID")
+        day = row.get("tradeDate")
+        if day not in dates:
+            continue
+        if "fundCode" in row and row["fundCode"] != isin:
+            raise ValueError("RESPONSE_CLASS_MISMATCH")
+        if day in out:
+            raise ValueError("DUPLICATE_DATE")
+        raw = str(row.get("basePrice", "")).replace(",", "")
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw):
+            raise ValueError("PRICE_INVALID")
+        val = Decimal(raw)
+        if not val.is_finite() or val <= 0:
+            raise ValueError("PRICE_INVALID")
+        out[day] = val
+    return out
+
+def read_naver_history(isin, today, requested_dates):
+    query = urllib.parse.urlencode({"date": today.isoformat(), "size": 10})
+    url = NAVER_ORIGIN + "/api/fund/funds/" + isin + "/prices/daily?" + query
+    req = urllib.request.Request(url, headers={"Accept": "application/json",
+        "User-Agent": "portfolio-public-nav-readonly-probe/1.0"})
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(req, timeout=15) as resp:
+            raw = resp.read(MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403, 429):
+            raise AccessDenied("HTTP_" + str(exc.code)) from exc
+        raise ValueError("HTTP_" + str(exc.code)) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ValueError("TRANSPORT_UNVERIFIED") from exc
+    if b"access denied" in raw[:8192].lower() or b"request blocked" in raw[:8192].lower():
+        raise AccessDenied("ACCESS_DENIED_BODY")
+    return naver_history(raw, isin, requested_dates)
+
+def reconcile_candidate(primary, secondary, latest_day):
+    overlap = sorted(set(primary) & set(secondary))
+    conflicts = [d for d in overlap if primary[d] != secondary[d]]
+    state = ("CONFLICT" if conflicts else "INSUFFICIENT_OVERLAP" if len(overlap) < 3
+             else "CROSSCHECK_MATCHED")
+    return {"state": state, "matchedDates": [d for d in overlap if d not in conflicts],
+            "conflictDates": conflicts,
+            "secondaryMissingDates": sorted(set(primary) - set(secondary)),
+            "latestRequestedWeekdayPresent": latest_day in primary}
+
+def run_archive():
+    # Candidate evidence only. No GAS, no private data, no authorization
+    # to import, and no inferred holidays or carried-forward prices.
+    today = dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
+    days = completed_weekdays(today)
+    report = {"kind": "PUBLIC_NAV_CANDIDATE_ARCHIVE", "asOfKst": today.isoformat(),
+              "requestedDates": [d.isoformat() for d in days], "funds": [],
+              "financialWrites": 0, "gasCalls": 0, "importAuthorized": False}
+    primary_denied = secondary_denied = False
+    for fund, isin, keyword, anchor_nav in FUNDS:
+        result = {"fund": fund, "standardCode": isin, "anchorDate": ANCHOR.isoformat(),
+                  "source": URL, "rows": [], "missing": [], "anchorState": "UNVERIFIED"}
+        primary = {}
+        for day in sorted(set([ANCHOR] + days)):
+            iso = day.isoformat()
+            if primary_denied:
+                result["missing"].append({"date": iso, "reason": "SKIPPED_AFTER_ACCESS_DENIAL"})
+                continue
+            try:
+                nav = fetch_nav(isin, keyword, day)
+                if day == ANCHOR:
+                    result["anchorState"] = "MATCH" if nav == anchor_nav else "MISMATCH"
+                if day in days:
+                    primary[iso] = nav
+            except AccessDenied as exc:
+                primary_denied = True
+                result["missing"].append({"date": iso, "reason": str(exc)})
+            except ValueError as exc:
+                result["missing"].append({"date": iso, "reason": str(exc)})
+            time.sleep(1)
+        secondary = {}
+        if not secondary_denied:
+            try:
+                secondary = read_naver_history(isin, today, days)
+                result["secondaryState"] = "RETRIEVED"
+            except AccessDenied as exc:
+                secondary_denied = True
+                result["secondaryState"] = str(exc)
+            except ValueError as exc:
+                result["secondaryState"] = str(exc)
+        else:
+            result["secondaryState"] = "SKIPPED_AFTER_ACCESS_DENIAL"
+        result["rows"] = [{"date": d, "nav": str(v)} for d, v in sorted(primary.items())]
+        result["crosscheck"] = reconcile_candidate(primary, secondary, days[-1].isoformat())
+        report["funds"].append(result)
+    # Even a successful archive is NOT an authorization to use its rows in
+    # a Writer. A missing recent weekday can be a holiday or publication lag;
+    # the report records it without declaring the portfolio complete.
+    report["archiveComplete"] = all(
+        f["anchorState"] == "MATCH"
+        and f["crosscheck"]["state"] == "CROSSCHECK_MATCHED"
+        and f["crosscheck"]["latestRequestedWeekdayPresent"]
+        for f in report["funds"])
+    print(json.dumps(report, ensure_ascii=False))
+    return 0 if report["archiveComplete"] else 1
+
+
 def self_test():
     day = ANCHOR
     isin = FUNDS[0][1]
@@ -305,15 +430,26 @@ def self_test():
     else:
         raise AssertionError("RESPONSE_CLASS_MISMATCH")
     assert naver_price_evidence(b'{"prices":[]}', isin, day)["status"] == "EXACT_DATE_NOT_UNIQUE_OR_MISSING"
+    assert completed_weekdays(dt.date(2026, 11, 23)) == [dt.date(2026, 11, d) for d in range(16, 21)]
+    history = naver_history(naver(isin, "2,025.10"), isin, [day])
+    assert history == {day.isoformat(): Decimal("2025.10")}
+    a = {"2026-11-16": Decimal("1"), "2026-11-17": Decimal("2"), "2026-11-18": Decimal("3")}
+    assert reconcile_candidate(a, a, "2026-11-18")["state"] == "CROSSCHECK_MATCHED"
+    assert reconcile_candidate(a, {"2026-11-16": Decimal("1")}, "2026-11-18")["state"] == "INSUFFICIENT_OVERLAP"
+    assert reconcile_candidate(a, {**a, "2026-11-17": Decimal("9")}, "2026-11-18")["state"] == "CONFLICT"
+    assert not reconcile_candidate(a, a, "2026-11-19")["latestRequestedWeekdayPresent"]
     print("KOFIA_AND_NAVER_NAV_PROBE_SELF_TEST_PASS")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--naver", action="store_true")
+    parser.add_argument("--archive", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         self_test()
+    elif args.archive:
+        sys.exit(run_archive())
     elif args.naver:
         sys.exit(run_naver_probe())
     else:
