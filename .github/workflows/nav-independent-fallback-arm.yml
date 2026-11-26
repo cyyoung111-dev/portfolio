@@ -50,6 +50,8 @@ jobs:
             echo 'NAV_FALLBACK_WEEKEND_NO_DISPATCH'; exit 0
           fi
           [[ "${armed:0:10}" == "$kst_day" ]] || { echo 'NAV_FALLBACK_WRONG_KST_DAY'; exit 1; }
+          [[ "$(jq -r '.head_commit.message // empty' "$GITHUB_EVENT_PATH")" == "ops: arm NAV fallback $kst_day KST" ]] || { echo 'NAV_FALLBACK_COMMIT_MESSAGE_INVALID'; exit 1; }
+          [[ "$(git log -1 --format=%B)" == "ops: arm NAV fallback $kst_day KST" ]] || { echo 'NAV_FALLBACK_GIT_MESSAGE_INVALID'; exit 1; }
           kst_clock="$(TZ=Asia/Seoul date +%H%M)"
           # Morning protects the missed 09:10/09:30 wake-up; evening
           # protects missed 18:10/19:17 publication catches. Evening begins
@@ -92,14 +94,42 @@ jobs:
             since="$(date -u -d "$kst_day 08:45:00 +0900" +%FT%TZ)"
             echo 'NAV_FALLBACK_MORNING_DEDUPE_SINCE_0845_KST'
           fi
-          recent="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/kb-fund-nav-collect.yml/runs?per_page=50" |
-            jq -r --arg since "$since" '[.workflow_runs[]
+          # Only schedule and dispatch can enter the current private collector.
+          # Retired workflow_run and source-only push cannot suppress recovery.
+          # Query every page within the current period; fail closed on API errors.
+          runs="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/workflows/kb-fund-nav-collect.yml/runs?per_page=100&branch=main&created=>=$since")"
+          candidates="$(jq -er --arg since "$since" '
+            if type != "array" or length == 0 or any(.[]; (.workflow_runs | type) != "array")
+            then error("NAV_FALLBACK_RUNS_UNVERIFIED")
+            else [.[].workflow_runs[]
               | select(.created_at >= $since)
               | select(.head_branch == "main")
-              | select(.event == "schedule" or .event == "workflow_dispatch")
-              | select(.status != "completed" or .conclusion == "success")
-            ] | length')"
-          [[ "$recent" =~ ^[0-9]+$ ]] || { echo 'NAV_FALLBACK_DEDUPE_UNVERIFIED'; exit 1; }
+              | select(.event == "schedule" or .event == "workflow_dispatch")]
+            end' <<< "$runs")"
+          recent=0
+          while IFS= read -r run; do
+            id="$(jq -er '.id | select(type == "number")' <<< "$run")"
+            status="$(jq -er '.status | select(type == "string")' <<< "$run")"
+            if [[ "$status" != 'completed' ]]; then
+              # Keep queued/running trusted writer attempts serialized.
+              recent=1
+              break
+            fi
+            jobs="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100&filter=latest")"
+            if jq -e '
+              if type != "array" or length == 0 or any(.[]; (.jobs | type) != "array")
+              then error("NAV_FALLBACK_JOBS_UNVERIFIED")
+              else [.[].jobs[]] as $jobs
+                | all(["collect","hanwha-collect","postflight-readonly"][];
+                    . as $name | ([ $jobs[] | select(.name == $name) ] | length == 1 and all(.[]; .status == "completed" and .conclusion == "success")))
+              end' <<< "$jobs" >/dev/null; then
+              recent=1
+              break
+            else
+              result=$?
+              [[ "$result" == 1 ]] || { echo 'NAV_FALLBACK_JOBS_UNVERIFIED'; exit 1; }
+            fi
+          done < <(jq -c '.[]' <<< "$candidates")
           if ((recent > 0)); then
             echo 'NAV_FALLBACK_TRUSTED_COLLECTION_ALREADY_ACTIVE_OR_DONE'
             echo 'dispatch=false' >> "$GITHUB_OUTPUT"

@@ -49,7 +49,16 @@ assert.match(check,/NAV_FALLBACK_MORNING_DEDUPE_SINCE_0845_KST/);
 assert.match(check,/date -u -d "\$kst_day 17:00:00 \+0900"/);
 assert.match(check,/date -u -d "\$kst_day 08:45:00 \+0900"/);
 assert.match(check,/select\(\.head_branch == "main"\)/);
-assert.match(check,/select\(\.status != "completed" or \.conclusion == "success"\)/);
+assert.match(guard,/NAV_FALLBACK_COMMIT_MESSAGE_INVALID/);
+assert.match(guard,/NAV_FALLBACK_GIT_MESSAGE_INVALID/);
+assert.match(guard,/ops: arm NAV fallback \$kst_day KST/);
+assert.match(check,/gh api --paginate --slurp/);
+assert.match(check,/actions\/runs\/\$id\/jobs/);
+assert.match(check,/\["collect","hanwha-collect","postflight-readonly"\]/);
+assert.match(check,/\.status == "completed" and \.conclusion == "success"/);
+assert.match(check,/NAV_FALLBACK_JOBS_UNVERIFIED/);
+assert.doesNotMatch(check,/\.conclusion == "success"\)\s*\]\s*\| length/);
+
 assert.match(dispatch,/gh workflow run kb-fund-nav-collect\.yml/);
 assert.match(dispatch,/NOT_NAV_COMMITTED/);
 for(const [label,script] of [['guard',guard],['dedupe',check],['dispatch',dispatch]]) {
@@ -102,3 +111,29 @@ assert.equal(Date.parse('2026-11-14T09:30:00+09:00')>=eveningSince,false);
 assert.equal(Date.parse('2026-11-14T18:10:00+09:00')>=eveningSince,true);
 console.log(JSON.stringify({kind:'NAV_MORNING_PERIOD_DEDUPE_OFFLINE_PASS',
  scenarios:10,financeWrites:0,dispatches:0}));
+
+ // Exercise the actual job evidence filter, rather than a parallel mock implementation.
+const jobFilter=check.match(/if jq -e '([\s\S]*?)' <<< "\$jobs"/)?.[1];
+assert(jobFilter,'private job evidence filter missing');
+const privateNames=['collect','hanwha-collect','postflight-readonly'];
+const completed=privateNames.map(name=>({name,status:'completed',conclusion:'success'}));
+const runFilter=jobs=>spawnSync('jq',['-e',jobFilter],{input:JSON.stringify(jobs),encoding:'utf8'});
+const jqProbe=spawnSync('jq',['--version'],{encoding:'utf8'});
+if(jqProbe.status===0){
+ for(const [label,data,expected] of [
+  ['all private verified',[{jobs:completed}],0],
+  ['public failure does not override private evidence',[{jobs:[...completed,{name:'source-public',status:'completed',conclusion:'failure'}]}],0],
+  ['source-only',[{jobs:[{name:'source-public',status:'completed',conclusion:'success'}]}],1],
+  ['postflight failed',[{jobs:completed.map(j=>j.name==='postflight-readonly'?{...j,conclusion:'failure'}:j)}],1],
+  ['private skipped',[{jobs:completed.map(j=>j.name==='collect'?{...j,conclusion:'skipped'}:j)}],1],
+  ['missing job',[{jobs:completed.slice(0,2)}],1],
+  ['duplicate job',[{jobs:[...completed,completed[0]]}],1],
+  ['malformed',[{wrong:[]}],5]
+ ]){
+  const result=runFilter(data);
+  assert.equal(result.status,expected,label+': '+result.stderr);
+ }
+ console.log('NAV_PRIVATE_JOB_EVIDENCE_OFFLINE_PASS');
+}else if(process.env.CI){
+ throw Error('jq required for CI NAV evidence regression');
+}
