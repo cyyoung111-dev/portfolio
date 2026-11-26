@@ -1,0 +1,26 @@
+name: KOFIA fund NAV source feasibility
+# Public read-only experiment, no production environment or GAS access.
+on:
+  pull_request:
+    paths:
+      - 'scripts/probe-kofia-fund-nav-readonly.py'
+      - '.github/workflows/kofia-fund-nav-probe-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: kofia-nav-probe-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  source-probe:
+    if: github.repository == 'cyyoung111-dev/portfolio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate exact class and quotation date parser
+        run: python3 scripts/probe-kofia-fund-nav-readonly.py --self-test
+      - name: Query public KOFIA reference and recent NAV, never import
+        run: python3 scripts/probe-kofia-fund-nav-readonly.py
