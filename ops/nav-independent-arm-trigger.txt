@@ -1,2 +1,2 @@
 kind=portfolio-nav-fallback-v1
-armed=2026-11-25T10:20:18+09:00
+armed=2026-11-26T10:20:17+09:00
