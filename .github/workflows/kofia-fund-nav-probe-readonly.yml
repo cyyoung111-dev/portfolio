@@ -1,4 +1,4 @@
-name: KOFIA fund NAV source feasibility
+name: Public fund NAV source feasibility
 # Public read-only experiment, no production environment or GAS access.
 on:
   pull_request:
@@ -20,7 +20,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Validate exact class and quotation date parser
+      - name: Validate exact class and quotation date parsers
+        id: parser
         run: python3 scripts/probe-kofia-fund-nav-readonly.py --self-test
       - name: Query public KOFIA reference and recent NAV, never import
         run: python3 scripts/probe-kofia-fund-nav-readonly.py
+      - name: Query independent Naver daily fund price evidence, never import
+        if: ${{ !cancelled() && steps.parser.outcome == 'success' }}
+        run: python3 scripts/probe-kofia-fund-nav-readonly.py --naver
