@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {FUTURES,validateCurrentFuturesQuote,readCurrentFutures,formatCurrentFutures}
  from './closing-current-futures.mjs';
-import {formatClose,prepareClose,deliverClose} from './telegram-close-workflow.mjs';
+import {formatClose,prepareClose,deliverClose,sanitizeCloseOptionalSourceReason} from './telegram-close-workflow.mjs';
 
 const date='2026-11-02', instant=new Date('2026-11-02T17:00:00+09:00');
 const ts=Math.floor(new Date('2026-11-02T16:52:00+09:00').getTime()/1000);
@@ -87,6 +87,43 @@ const empty=await readCurrentFutures(date,{now:()=>instant,fetchImpl:async()=>({
 assert.deepEqual(empty,[]);
 assert.deepEqual(await readCurrentFutures(date,{now:()=>new Date('2026-11-02T16:55:00+09:00'),
  fetchImpl:async()=>{throw Error('network called before 17:00')}}),[]);
+
+// Preserve the quote/fallback rules while distinguishing missing-source causes.
+// No additional provider call, financial data or raw error enters diagnostics.
+const diagnostics=[];
+let diagnosticCalls=0;
+const observed=await readCurrentFutures(date,{now:()=>instant,onDiagnostic:x=>diagnostics.push(x),fetchImpl:async url=>{
+ diagnosticCalls++;
+ const u=new URL(url),sym=decodeURIComponent(u.pathname.split('/').at(-1));
+ const primary=u.hostname.startsWith('query1.');
+ if(sym==='ES=F')return {ok:false,status:primary?403:429};
+ if(sym==='NQ=F')return {ok:true,json:async()=>chart(sym,primary?ts-30*60:ts)};
+ if(sym==='YM=F')return {ok:true,json:async()=>{if(primary)throw Error('SENSITIVE_BODY');return chart(sym,ts,null);}};
+ throw Error('SENSITIVE_NETWORK_DETAIL');
+}});
+assert.equal(diagnosticCalls,8);
+assert.deepEqual(observed.map(x=>x.id),['NQ']);
+for(const [id,expected] of Object.entries({
+ ES:['HTTP_ACCESS_DENIED','HTTP_RATE_LIMITED'],
+ NQ:['STALE_QUOTE','VERIFIED'],
+ YM:['JSON_UNVERIFIED','NO_VALID_LATEST_QUOTE'],
+ RTY:['NETWORK_UNAVAILABLE','NETWORK_UNAVAILABLE']
+})){
+ assert.deepEqual(diagnostics.filter(x=>x.id===id).map(x=>x.status),expected);
+ assert.deepEqual(diagnostics.filter(x=>x.id===id).map(x=>x.host),['PRIMARY','SECONDARY']);
+}
+assert.equal(diagnostics.length,8);
+assert.ok(diagnostics.every(x=>JSON.stringify(sanitizeCloseOptionalSourceReason(x))===JSON.stringify({kind:x.kind,status:x.status,id:x.id,host:x.host})));
+assert.doesNotMatch(JSON.stringify(diagnostics),/SENSITIVE|28000|finance\.yahoo/);
+assert.equal(sanitizeCloseOptionalSourceReason({kind:'US_FUTURES_READ',id:'UNKNOWN',host:'PRIMARY',status:'VERIFIED'}),null);
+assert.equal(sanitizeCloseOptionalSourceReason({kind:'US_FUTURES_READ',id:'ES',host:'PRIMARY',status:'private data'}).status,'OTHER_UNVERIFIED');
+const outOfWindow=[];
+assert.deepEqual(await readCurrentFutures(date,{now:()=>new Date('2026-11-02T16:59:00+09:00'),
+ onDiagnostic:x=>outOfWindow.push(x),fetchImpl:async()=>assert.fail('unexpected request')}),[]);
+assert.equal(outOfWindow.length,4);
+assert.ok(outOfWindow.every(x=>x.status==='OUTSIDE_DELIVERY_WINDOW'&&x.host==='NONE'));
+assert.equal((await readCurrentFutures(date,{now:()=>instant,onDiagnostic:()=>{throw Error('LOG_FAILURE');},
+ fetchImpl:async url=>({ok:true,json:async()=>chart(decodeURIComponent(new URL(url).pathname.split('/').at(-1)),ts)})})).length,4);
 
 const nh=[
  {label:'S&P 500',symbol:'^GSPC',source:'NH_INDEX_DAILY',date:'2026-10-30',value:7580.07,changePercent:-1.82},
