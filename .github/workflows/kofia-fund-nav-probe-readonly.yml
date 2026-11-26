@@ -26,8 +26,10 @@ jobs:
       - name: Verify KOFIA and Naver multi-date candidate evidence
         id: archive
         run: |
-          python3 scripts/probe-kofia-fund-nav-readonly.py --archive > public-nav-candidate.json
+          status=0
+          python3 scripts/probe-kofia-fund-nav-readonly.py --archive > public-nav-candidate.json || status=$?
           cat public-nav-candidate.json
+          exit "$status"
       - name: Preserve candidate evidence even when validation fails
         if: ${{ !cancelled() && steps.archive.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
