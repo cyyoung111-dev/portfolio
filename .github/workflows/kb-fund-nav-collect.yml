@@ -117,6 +117,36 @@ jobs:
           if [ "$incomplete" -ne 0 ]; then
             exit 1
           fi
+  # Preserve independently sourced evidence when the existing public
+  # collector is unavailable. This is deliberately NOT a Writer input:
+  # no GAS environment, token, import authorization or private dependency.
+  source-kofia-candidate:
+    needs: [source-public]
+    if: >-
+      always() && !cancelled() && github.repository == 'cyyoung111-dev/portfolio' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || needs['source-public'].result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Archive exact class/date candidate NAV and independent crosscheck
+        id: candidate
+        run: |
+          status=0
+          python3 scripts/probe-kofia-fund-nav-readonly.py --archive > public-nav-candidate.json || status=$?
+          cat public-nav-candidate.json
+          exit "$status"
+      - name: Preserve candidate evidence including missing or conflicting dates
+        if: ${{ !cancelled() && steps.candidate.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-nav-candidate-${{ github.run_id }}
+          path: public-nav-candidate.json
+          retention-days: 7
+          if-no-files-found: error
   # The private writer independently re-fetches and validates the public NAV.
   # A failed public archive must NEVER skip an otherwise valid import/repair.
   collect:

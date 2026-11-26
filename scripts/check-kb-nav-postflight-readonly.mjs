@@ -341,6 +341,16 @@ assert.doesNotMatch(workflow.jobs.collect.if,/github\.event_name == 'push'/,
 
 assert.equal(workflow.concurrency.group,'kb-fund-nav-collect');
 assert.equal(workflow.concurrency['cancel-in-progress'],false);
+const candidate=workflow.jobs['source-kofia-candidate'];
+assert.deepEqual(candidate.needs,['source-public']);
+assert.equal(candidate.environment,undefined);
+assert.match(candidate.if,/github\.ref == 'refs\/heads\/main'/);
+assert.match(candidate.if,/needs\['source-public'\]\.result == 'failure'/);
+assert.match(candidate.steps.find(x=>x.id==='candidate').run,/--archive/);
+assert.match(candidate.steps.at(-1).with.name,/public-nav-candidate-/);
+assert.doesNotMatch(JSON.stringify(candidate),/GAS_ACCESS_TOKEN|portfolio-production-gas|--apply|secrets\./);
+for(const name of ['collect','hanwha-collect','postflight-readonly'])
+ assert.doesNotMatch(JSON.stringify(workflow.jobs[name]),/source-kofia-candidate|public-nav-candidate/);
 const privateCollector=workflow.jobs.collect;
 assert.equal(privateCollector.environment,'portfolio-production-gas');
 assert.match(privateCollector.if,/refs\/heads\/main/);

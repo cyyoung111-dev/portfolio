@@ -1,0 +1,40 @@
+name: Public fund NAV source feasibility
+# Public read-only experiment, no production environment or GAS access.
+on:
+  pull_request:
+    paths:
+      - 'scripts/probe-kofia-fund-nav-readonly.py'
+      - '.github/workflows/kofia-fund-nav-probe-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: kofia-nav-probe-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  source-probe:
+    if: github.repository == 'cyyoung111-dev/portfolio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate exact class and quotation date parsers
+        id: parser
+        run: python3 scripts/probe-kofia-fund-nav-readonly.py --self-test
+      - name: Verify KOFIA and Naver multi-date candidate evidence
+        id: archive
+        run: |
+          status=0
+          python3 scripts/probe-kofia-fund-nav-readonly.py --archive > public-nav-candidate.json || status=$?
+          cat public-nav-candidate.json
+          exit "$status"
+      - name: Preserve candidate evidence even when validation fails
+        if: ${{ !cancelled() && steps.archive.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-nav-candidate-test-${{ github.run_id }}
+          path: public-nav-candidate.json
+          retention-days: 7
+          if-no-files-found: error
