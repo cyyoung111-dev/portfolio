@@ -14,25 +14,33 @@ const closeWindow=d=>{
   .formatToParts(d).map(x=>[x.type,x.value]));
  return {date:p.year+'-'+p.month+'-'+p.day,minute:Number(p.hour)*60+Number(p.minute)};
 };
-export function validateCurrentFuturesQuote(date,id,data,now){
+function inspectCurrentFuturesQuote(date,id,data,now){
+ const unavailable=status=>({row:null,status});
  const item=FUTURES.find(x=>x.id===id);
- if(!item||!(now instanceof Date)||!Number.isFinite(now.getTime()))return null;
+ if(!item||!(now instanceof Date)||!Number.isFinite(now.getTime()))return unavailable('INPUT_UNVERIFIED');
  const p=closeWindow(now);
- if(p.date!==date||p.minute<1020||p.minute>=1080)return null;
+ if(p.date!==date||p.minute<1020||p.minute>=1080)return unavailable('OUTSIDE_DELIVERY_WINDOW');
  const result=data?.chart?.result;
- if(data?.chart?.error||!Array.isArray(result)||result.length!==1)return null;
+ if(data?.chart?.error)return unavailable('PROVIDER_CHART_ERROR');
+ if(!Array.isArray(result)||result.length!==1)return unavailable('PAYLOAD_UNVERIFIED');
  const chart=result[0];
- if(chart?.meta?.symbol!==item.symbol||!Array.isArray(chart.timestamp)
+ if(chart?.meta?.symbol!==item.symbol)return unavailable('SYMBOL_MISMATCH');
+ if(!Array.isArray(chart.timestamp)
   ||!Array.isArray(chart.indicators?.quote)||chart.indicators.quote.length!==1
-  ||!Array.isArray(chart.indicators.quote[0]?.close))return null;
+  ||!Array.isArray(chart.indicators.quote[0]?.close))return unavailable('PAYLOAD_UNVERIFIED');
  const quotes=chart.indicators.quote[0].close;
- if(quotes.length!==chart.timestamp.length||quotes.length===0||quotes.length>1000)return null;
+ if(quotes.length!==chart.timestamp.length||quotes.length>1000)return unavailable('PAYLOAD_UNVERIFIED');
+ if(quotes.length===0)return unavailable('NO_QUOTE');
  // Latest reported candle only. An older candle in the same response must
  // never be substituted when the last one is stale, null or from another day.
  const i=quotes.length-1,stamp=chart.timestamp[i],value=quotes[i];
- if(!Number.isSafeInteger(stamp)||!Number.isFinite(value)||value<=0)return null;
+ if(!Number.isSafeInteger(stamp)||!Number.isFinite(value)||value<=0)return unavailable('NO_VALID_LATEST_QUOTE');
+ const observedAt=new Date(stamp*1000);
+ if(!Number.isFinite(observedAt.getTime()))return unavailable('PAYLOAD_UNVERIFIED');
  const age=now.getTime()-stamp*1000;
- if(age<0||age>25*60*1000||closeWindow(new Date(stamp*1000)).date!==date)return null;
+ if(age<0)return unavailable('FUTURE_QUOTE');
+ if(closeWindow(observedAt).date!==date)return unavailable('QUOTE_DATE_MISMATCH');
+ if(age>25*60*1000)return unavailable('STALE_QUOTE');
  const reference=chart.meta.chartPreviousClose;
  // The same symbol's provider-reported previous close, never a spot index
  // or CME official settlement claim. Conflicting reference fields are
@@ -43,31 +51,50 @@ export function validateCurrentFuturesQuote(date,id,data,now){
       ||(Number.isFinite(alternate)&&Math.abs(alternate-reference)<=0.000001));
  const movement=comparable?{previousClose:reference,
    changePercent:(value/reference-1)*100,changeBasis:'YAHOO_CHART_PREVIOUS_CLOSE'}:{};
- return {id,label:item.label,symbol:item.symbol,value,asOf:new Date(stamp*1000).toISOString(),
-   source:'YAHOO_DELAYED_FUTURES_REFERENCE',...movement};
+ return {status:'VERIFIED',row:{id,label:item.label,symbol:item.symbol,value,asOf:observedAt.toISOString(),
+   source:'YAHOO_DELAYED_FUTURES_REFERENCE',...movement}};
 }
-export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date()}={}){
+export function validateCurrentFuturesQuote(date,id,data,now){
+ return inspectCurrentFuturesQuote(date,id,data,now).row;
+}
+export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date(),onDiagnostic=()=>{}}={}){
+ // Emit only fixed enums and instrument IDs; diagnostics cannot affect quotes.
+ const emit=(id,host,status)=>{
+  try{onDiagnostic({kind:'US_FUTURES_READ',id,host,status});}catch{}
+ };
  const at=now();
- if(closeWindow(at).date!==date||closeWindow(at).minute<1020
-  ||closeWindow(at).minute>=1080)return [];
+ if(!(at instanceof Date)||!Number.isFinite(at.getTime())
+  ||closeWindow(at).date!==date||closeWindow(at).minute<1020||closeWindow(at).minute>=1080){
+  for(const item of FUTURES)emit(item.id,'NONE','OUTSIDE_DELIVERY_WINDOW');
+  return [];
+ }
  return (await Promise.all(FUTURES.map(async item=>{
   let best=null;
   for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
+   const hostId=host.startsWith('query1.')?'PRIMARY':'SECONDARY';
    try{
     const url=new URL('https://'+host+'/v8/finance/chart/'+encodeURIComponent(item.symbol));
     url.searchParams.set('interval','5m');
     url.searchParams.set('range','1d');
     const res=await fetchImpl(url.href,{headers:{accept:'application/json'},
       redirect:'error',signal:AbortSignal.timeout(6000)});
-    if(!res?.ok)continue;
-    const observed=now(),row=validateCurrentFuturesQuote(date,item.id,await res.json(),observed);
+    if(!res?.ok){
+     emit(item.id,hostId,[401,403].includes(res?.status)?'HTTP_ACCESS_DENIED':
+      res?.status===429?'HTTP_RATE_LIMITED':'HTTP_UNAVAILABLE');
+     continue;
+    }
+    const observed=now();
+    let data;
+    try{data=await res.json();}catch{emit(item.id,hostId,'JSON_UNVERIFIED');continue;}
+    const {row,status}=inspectCurrentFuturesQuote(date,item.id,data,observed);
+    emit(item.id,hostId,status);
     if(!row)continue;
     if(!best||row.asOf>best.asOf)best=row;
     // Avoid an unnecessary second request when already <=10m fresh.
     // If delayed by 10-25m, compare the backup provider's timestamp
     // and choose its latest *verified* same-session price.
     if(observed.getTime()-Date.parse(best.asOf)<=10*60*1000)break;
-   }catch{/* no stale or unverified current price */ }
+   }catch{emit(item.id,hostId,'NETWORK_UNAVAILABLE');}
   }
   return best;
  }))).filter(Boolean);

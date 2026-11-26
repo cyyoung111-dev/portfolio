@@ -37,6 +37,10 @@ import {readFearGreed,verifyFearGreed,formatFearGreed,fearGreedDisplayStatus} fr
 // Fixed-shape read-only source reasons for optional 17:00 market indicators.
 // Never propagate provider text, HTTP bodies, URLs, tokens or financial amounts.
 const CLOSE_OPTIONAL_READ_CODES=Object.freeze({
+ US_FUTURES_READ:new Set(['INPUT_UNVERIFIED','OUTSIDE_DELIVERY_WINDOW','PROVIDER_CHART_ERROR',
+  'PAYLOAD_UNVERIFIED','SYMBOL_MISMATCH','NO_QUOTE','NO_VALID_LATEST_QUOTE',
+  'FUTURE_QUOTE','QUOTE_DATE_MISMATCH','STALE_QUOTE','VERIFIED','HTTP_ACCESS_DENIED',
+  'HTTP_RATE_LIMITED','HTTP_UNAVAILABLE','JSON_UNVERIFIED','NETWORK_UNAVAILABLE']),
  FRED_TREASURY_READ:new Set(['SESSION_UNVERIFIED','HTTP_UNAVAILABLE',
   'CONTENT_TYPE_INVALID','NO_EXACT_VALID_ROW','PUBLISHED_PRIOR_SESSION',
   'VERIFIED','NETWORK_OR_PARSE_FAILED']),
@@ -60,6 +64,10 @@ export function sanitizeCloseOptionalSourceReason(raw){
    ?raw.status:'OTHER_UNVERIFIED'};
  if(raw.kind==='FRED_TREASURY_READ'&&
     ['UST2Y','UST3Y','UST10Y_FRED'].includes(raw.id))safe.id=raw.id;
+ if(raw.kind==='US_FUTURES_READ'){
+  if(!['ES','NQ','YM','RTY'].includes(raw.id)||!['PRIMARY','SECONDARY','NONE'].includes(raw.host))return null;
+  safe.id=raw.id;safe.host=raw.host;
+ }
  return safe;
 }
 
@@ -366,13 +374,18 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
   let futures=[],rates=[],vkospi=[],turnover=[],liquidity=null,investors=null,fearGreed=null;
   const usedCache=Boolean(cached&&Object.values(cached).some(x=>x.length));
   const failedGroups=[];
-  const sourceReasons=[];
+  const sourceReasons=[],futuresReasons=[];
   const krxDailyPublished=isKrxDailyPublicationEligible(window.date,now());
   // Only the built-in KRX Open API reader is skipped. Dependency-injected
   // sources in offline tests or later approved timely provider remain eligible.
   const onSourceReason=detail=>{
     const safe=sanitizeCloseOptionalSourceReason(detail);
-    if(safe&&sourceReasons.length<12)sourceReasons.push(safe);
+    if(!safe)return;
+    // Reserve all eight possible futures attempts without crowding out
+    // official KRX/Treasury publication diagnostics.
+    if(safe.kind==='US_FUTURES_READ'){
+     if(futuresReasons.length<8)futuresReasons.push(safe);
+    }else if(sourceReasons.length<12)sourceReasons.push(safe);
   };
   const combine=(oldRows,liveRows,key)=>{
    const byKey=new Map(oldRows.map(x=>[x[key],x]));
@@ -400,7 +413,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
    (async()=>{if(markets.length===5)return;try{markets=combine(markets,normalize('markets',
     await fetchMarkets(window.date,{fetchImpl,now})),'id');}
     catch{failedGroups.push('MARKETS');}})(),
-   (async()=>{try{futures=await fetchFutures(window.date,{fetchImpl,now});}
+   (async()=>{try{futures=await fetchFutures(window.date,{fetchImpl,now,onDiagnostic:onSourceReason});}
     catch{futures=[];}})(),
    (async()=>{try{rates=verifyTreasuryCurve(window.date,await fetchRates(window.date,{fetchImpl,onDiagnostic:onSourceReason}));}
     catch{rates=[];}})(),
@@ -446,7 +459,7 @@ export async function prepareClose({now=()=>new Date(),fetchImpl=fetch,githubTok
     futures:futures.length,treasury:rates.length,vkospi:vkospi.length,
     turnover:turnover.length,priorVkospi:priorVkospi.length,priorTurnover:priorTurnover.length,skhy:skhy.length,investorMarkets:investors?.markets?.length||0,
     kofiaDeposits:Boolean(liquidity?.deposits),kofiaMargin:Boolean(liquidity?.margin),
-    sourceReasons}));
+    sourceReasons:[...sourceReasons,...futuresReasons]}));
   const verified=verifiedNhCloseRows(window.date,rows);
   const domesticVerified=verifiedDomesticCloseRows(window.date,domestic);
   const coverage=summarizeCloseCoverage(window.date,{nh:verified,domestic:domesticVerified,
