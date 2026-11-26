@@ -7,7 +7,8 @@ import {appendFileSync} from 'node:fs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {verifyLateScheduledMorningSent} from './telegram-morning-late-sent-readonly.mjs';
 import {verifyLateCloseSent} from './telegram-close-late-verdict.mjs';
-import {auditKbNavPostflight} from './audit-kb-nav-postflight-readonly.mjs';
+import {auditKbNavPostflight,auditHanwhaNavPostflight} from './audit-kb-nav-postflight-readonly.mjs';
+import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {auditSnapshotExact} from './issue734-snapshot-exact-readonly.mjs';
 
 const REPO='cyyoung111-dev/portfolio',DAY=/^\d{4}-\d{2}-\d{2}$/;
@@ -37,7 +38,7 @@ function isDue(now,day,minute){
  return clock.day>day||(clock.day===day&&clock.minute>=minute);
 }
 function safeStatus(value){return /^[A-Z0-9_]{1,90}$/.test(String(value||''))?value:'UNVERIFIED';}
-export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,snapshotEvidence}){
+export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,snapshotEvidence}){
  if(!DAY.test(date)||krxSessionStatus(date)!=='OPEN'
     ||!(now instanceof Date)||!Number.isFinite(now.getTime())
     ||date>kstClock(now).day)throw Error('OPS_CLASSIFY_INVALID');
@@ -48,27 +49,28 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
  const morning=telegram(morningProof===true,isDue(now,date,490),'TRUSTED_CLAIM_AND_SENT');
  const close=telegram(closeProof===true,isDue(now,date,1080),'TRUSTED_CLAIM_AND_SENT');
  const navDue=isDue(now,date,21*60+10);
- const navExact=navReport?.closeDate===date
-   &&navReport?.officialReferenceDate===date
-   &&navReport?.navWorkflowStatus==='NAV_DATA_VERIFIED'
-   &&navReport?.officialNavMatched===true
-   &&navReport?.storedNavConfirmed===true
-   &&navReport?.derivedConfirmed===true;
- // A delayed or stale source must not turn a published-but-missing NAV
- // into a harmless publication delay. Both reference date and close date
- // must match the trading session with an explicit unpublished source.
- const navPublicationPending=navReport?.navWorkflowStatus==='OFFICIAL_NAV_AWAITING_PUBLICATION'
-   &&navReport?.officiallyPublished===false
-   &&navReport?.officialReferenceDate===date
-   &&navReport?.closeDate===date
-   &&navReport?.closeDateVerified===true
-   &&navReport?.runStale===false&&navReport?.snapshotStale===false;
- const nav={state:navExact?'PASS':
-   !navDue?'WAITING':
-   navPublicationPending?'PUBLICATION_PENDING':'EVIDENCE_MISSING',
-  scope:'KB_OFFICIAL_NAV_AND_DERIVED',verified:navExact,
-  // A green runner is execution evidence, not NAV data evidence.
-  execution:safeStatus(navRuns)};
+ const classifyFund=(report,scope)=>{
+  const exact=report?.closeDate===date
+   &&report?.officialReferenceDate===date
+   &&report?.navWorkflowStatus==='NAV_DATA_VERIFIED'
+   &&report?.officialNavMatched===true
+   &&report?.storedNavConfirmed===true
+   &&report?.derivedConfirmed===true;
+  // A delayed or stale source must not turn a published-but-missing NAV
+  // into a harmless publication delay.
+  const pending=report?.navWorkflowStatus==='OFFICIAL_NAV_AWAITING_PUBLICATION'
+   &&report?.officiallyPublished===false
+   &&report?.officialReferenceDate===date
+   &&report?.closeDate===date
+   &&report?.closeDateVerified===true
+   &&report?.runStale===false&&report?.snapshotStale===false;
+  return {state:exact?'PASS':!navDue?'WAITING':pending?'PUBLICATION_PENDING':'EVIDENCE_MISSING',
+   scope,verified:exact,execution:safeStatus(navRuns)};
+ };
+ const nav=classifyFund(navReport,'KB_OFFICIAL_NAV_AND_DERIVED');
+ // Never infer Hanwha from a green KB collector or from the shared close.
+ const hanwha=classifyFund(hanwhaReport?.kind==='HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY'
+   &&hanwhaReport.code==='F00001'?hanwhaReport:null,'HANWHA_OFFICIAL_NAV_AND_DERIVED');
  const closePersisted=navReport?.closeDate===date
   &&navReport?.closeComplete===true
   &&navReport?.priceOk===true&&navReport?.fundOk===true;
@@ -99,9 +101,9 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
  const snapshot={state:snapOk?'PASS':'NOT_FULLY_AUDITED',verified:snapOk,
   scope:'GAS_STORED_VS_RECOMPUTED_SNAPSHOT_NOT_EXTERNAL_WRITER_OR_OFFICIAL_PRICE',
   storedRows:snapOk?snapshotEvidence.storedRows:null};
- const coreVerified=morning.verified&&close.verified&&nav.verified&&savedClose.verified;
+ const coreVerified=morning.verified&&close.verified&&nav.verified&&hanwha.verified&&savedClose.verified;
  return {kind:'PORTFOLIO_DAILY_OPERATIONS_READ_ONLY',date,
-  morningTelegram:morning,closeTelegram:close,kbNav:nav,
+  morningTelegram:morning,closeTelegram:close,kbNav:nav,hanwhaNav:hanwha,
   savedClose,snapshot,
   overall:coreVerified?(snapOk?'CORE_AND_SNAPSHOT_INTERNAL_VERIFIED_WRITER_UNAUDITED'
     :'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED'):'CORE_EVIDENCE_INCOMPLETE',
@@ -180,15 +182,15 @@ async function navRunnerEvidence({token,date,fetchImpl=fetch}){
 }
 export async function runDailyOperations({
  now=new Date(),repository=REPO,token,gasUrl,gasToken,
- fetchImpl=fetch,navReader=auditKbNavPostflight,
- morningReader=verifyLateScheduledMorningSent,
+ fetchImpl=fetch,navReader=auditKbNavPostflight,hanwhaReader=auditHanwhaNavPostflight,
+ statusReader=runBackfillStatus,morningReader=verifyLateScheduledMorningSent,
  closeReader=verifyLateCloseSent,
  navRunReader=navRunnerEvidence,snapshotReader=auditSnapshotExact}={}){
  if(repository!==REPO)throw Error('OPS_REPOSITORY_UNVERIFIED');
  const date=operatingReferenceDate(now);
  const morningDue=isDue(now,date,490),closeDue=isDue(now,date,1080),
   navDue=isDue(now,date,21*60+10);
- let morningProof=false,closeProof=false,navReport=null,snapshotEvidence=null;
+ let morningProof=false,closeProof=false,navReport=null,hanwhaReport=null,snapshotEvidence=null;
  if(morningDue){
   try{const p=await morningReader({date,repository,token,fetchImpl});morningProof=p?.verifiedSent===true;}
   catch{morningProof=false;}
@@ -204,8 +206,13 @@ export async function runDailyOperations({
  }
  const navRuns=navDue?await navRunReader({date,token,fetchImpl}):'NOT_DUE';
  if(navDue&&gasUrl&&gasToken){
-  try{navReport=await navReader({now,url:gasUrl,token:gasToken,fetchImpl});}
-  catch{navReport=null;}
+  // Share the authenticated close checkpoint, not the fund-specific public
+  // source or exact NAV/derived readback. A failure in KB cannot skip Hanwha.
+  let sharedStatus;
+  const readStatus=args=>sharedStatus??=(Promise.resolve().then(()=>statusReader(args)));
+  const options={now,url:gasUrl,token:gasToken,fetchImpl,statusReader:readStatus};
+  try{navReport=await navReader(options);}catch{navReport=null;}
+  try{hanwhaReport=await hanwhaReader(options);}catch{hanwhaReport=null;}
  }
  // Only after the verified close checkpoint: never fetch a partial snapshot
  // while a financial Writer could still be in its closing window.
@@ -216,7 +223,7 @@ export async function runDailyOperations({
    catch{snapshotEvidence=null;}
  }
  return classifyDailyOperations({
-  date,now,morningProof,closeProof,navRuns,navReport,snapshotEvidence
+  date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,snapshotEvidence
  });
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
@@ -232,7 +239,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   });
   console.log(JSON.stringify(summary));
   if(process.env.GITHUB_STEP_SUMMARY){
-   const fields=['morningTelegram','closeTelegram','kbNav','savedClose','snapshot'];
+   const fields=['morningTelegram','closeTelegram','kbNav','hanwhaNav','savedClose','snapshot'];
    appendFileSync(process.env.GITHUB_STEP_SUMMARY,
     '### Daily portfolio evidence (read only)\n'+
     fields.map(k=>'- '+k+': **'+summary[k].state+'** ('+summary[k].scope+')').join('\n')+
