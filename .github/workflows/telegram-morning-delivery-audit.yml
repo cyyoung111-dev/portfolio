@@ -35,7 +35,12 @@ jobs:
           if(minute>=500){
             if(session==='CLOSED')proof={...proof,status:'MARKET_CLOSED',verified:true};
             else if(session!=='OPEN')proof={...proof,status:'CALENDAR_UNKNOWN'};
-            else proof=await verifyLateCloseSent({now,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,detailed:true});
+            else {
+              try {
+                const result=await verifyLateScheduledMorningSent({date,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,detailed:true});
+                proof={...result,verified:result.verifiedSent===true,status:result.verifiedSent?'PRIOR_SENT_ARTIFACT_VERIFIED':result.status};
+              } catch {proof={...proof,status:'SENT_PROOF_UNVERIFIED'};}
+            }
           }
           console.log(JSON.stringify(proof));
           fs.writeFileSync('morning-delivery-audit.json',JSON.stringify(proof,null,2));
