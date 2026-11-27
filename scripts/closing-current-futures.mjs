@@ -69,13 +69,21 @@ export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date(
   return [];
  }
  return (await Promise.all(FUTURES.map(async item=>{
-  let best=null;
+  let best=null,primaryStatus=null;
   for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
    const hostId=host.startsWith('query1.')?'PRIMARY':'SECONDARY';
    try{
     const url=new URL('https://'+host+'/v8/finance/chart/'+encodeURIComponent(item.symbol));
     url.searchParams.set('interval','5m');
-    url.searchParams.set('range','1d');
+    // A 1d chart may refer to the last provider session rather than the
+    // current KST day. On a proven stale/date mismatch, use the existing
+    // second request for a bounded explicit UTC time window instead.
+    const explicit=hostId==='SECONDARY'&&['QUOTE_DATE_MISMATCH','STALE_QUOTE'].includes(primaryStatus);
+    if(explicit){
+     const end=Math.floor(now().getTime()/1000);
+     url.searchParams.set('period1',String(end-24*60*60));
+     url.searchParams.set('period2',String(end));
+    }else url.searchParams.set('range','1d');
     const res=await fetchImpl(url.href,{headers:{accept:'application/json'},
       redirect:'error',signal:AbortSignal.timeout(6000)});
     if(!res?.ok){
@@ -87,8 +95,12 @@ export async function readCurrentFutures(date,{fetchImpl=fetch,now=()=>new Date(
     let data;
     try{data=await res.json();}catch{emit(item.id,hostId,'JSON_UNVERIFIED');continue;}
     const {row,status}=inspectCurrentFuturesQuote(date,item.id,data,observed);
+    if(hostId==='PRIMARY')primaryStatus=status;
     emit(item.id,hostId,status);
     if(!row)continue;
+    // Explicit-window chartPreviousClose may mean the prior range boundary,
+    // not the daily session close. Publish the verified price only.
+    if(explicit){delete row.previousClose;delete row.changePercent;delete row.changeBasis;}
     if(!best||row.asOf>best.asOf)best=row;
     // Avoid an unnecessary second request when already <=10m fresh.
     // If delayed by 10-25m, compare the backup provider's timestamp
