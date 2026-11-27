@@ -16,7 +16,7 @@ const iso=s=>{
  const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
  return m?iso(m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0')):null;
 };
-export function parseReferenceCsv(id,date,text){
+export function parseReferenceCsv(id,date,text,previousExpected=null){
  if(!SETTINGS[id]||!iso(date)||typeof text!=='string'||text.length>1900000||text.includes('\0'))return null;
  const lines=text.replace(/^\uFEFF/,'').trim().split(/\r?\n/);
  if(lines.length<3||lines.length>18000)return null;
@@ -36,10 +36,24 @@ export function parseReferenceCsv(id,date,text){
  }
  if(duplicates.size||!prices.has(date))return null;
  const previous=[...prices.keys()].filter(day=>day<date).sort().at(-1);
- if(!previous)return null;
+ if(!previous||(previousExpected!==null&&previous!==previousExpected))return null;
  return {id,label:SETTINGS[id].name,source:SETTINGS[id].source,
   date,value:prices.get(date),changePercent:(prices.get(date)/prices.get(previous)-1)*100,
   role:'NON_NH_REFERENCE_ONLY'};
+}
+// Exact CBOE date/previous session, reference only; never financial history.
+export async function readCboeVixReference(day,{fetchImpl=fetch}={}){
+ const expected=expectedMorningDate('VIX',day);
+ const previous=expected&&expectedMorningDate('VIX',expected);
+ if(!expected||!previous)return null;
+ try{
+  const response=await fetchImpl(SETTINGS.VIX.url,{redirect:'error',signal:AbortSignal.timeout(6000)});
+  if(!response?.ok)return null;
+  const ct=response.headers?.get?.('content-type')||'';
+  if(ct&&!/csv|plain|octet-stream/i.test(ct))return null;
+  const row=parseReferenceCsv('VIX',expected,await response.text(),previous);
+  return row?{...row,symbol:'^VIX'}:null;
+ }catch{return null;}
 }
 export async function fetchSecondaryIndexes(day,{fetchImpl=fetch,fetchDaily=fetchDatedDaily,now=()=>new Date()}={}){
  const expected=expectedMorningDate('SPX',day);
