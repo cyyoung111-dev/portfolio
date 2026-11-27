@@ -42,3 +42,19 @@ export function selectCrosscheckedCandidate(archive,code,today){
 export function loadCandidate(path,today,code){
  return selectCrosscheckedCandidate(JSON.parse(readFileSync(path,'utf8')),code,today);
 }
+
+export const NAV_CANDIDATE_CODES=Object.freeze(['F00002','F00001']);
+export function safeCandidateFailure(error){
+ const reason=typeof error?.message==='string'?error.message:'';
+ return /^NAV_CANDIDATE_[A-Z_]{1,60}$/.test(reason)?reason:'NAV_CANDIDATE_PREVIEW_UNVERIFIED';
+}
+// Evaluate each class independently. A missing or conflicting fund cannot
+// suppress eligible evidence for the other fund; neither authorizes writes.
+export function assessCandidateEligibility(archive,today){
+ const sources=[],failures=[];
+ for(const code of NAV_CANDIDATE_CODES){
+  try{sources.push(selectCrosscheckedCandidate(archive,code,today));}
+  catch(error){failures.push({code,reason:safeCandidateFailure(error)});}
+ }
+ return {sources,failures};
+}

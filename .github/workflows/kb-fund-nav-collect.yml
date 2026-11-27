@@ -138,6 +138,8 @@ jobs:
   # collector is unavailable. This is deliberately NOT a Writer input:
   # no GAS environment, token, import authorization or private dependency.
   source-kofia-candidate:
+    outputs:
+      preview_ready: ${{ steps.candidate_eligibility.outputs.has_eligible == 'true' && steps.candidate_archive.outcome == 'success' }}
     needs: [source-public]
     if: >-
       always() && !cancelled() && github.repository == 'cyyoung111-dev/portfolio' &&
@@ -150,6 +152,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - name: Archive exact class/date candidate NAV and independent crosscheck
         id: candidate
         run: |
@@ -157,7 +162,23 @@ jobs:
           python3 scripts/probe-kofia-fund-nav-readonly.py --archive > public-nav-candidate.json || status=$?
           cat public-nav-candidate.json
           exit "$status"
+      - name: Determine eligible funds independently before any private preview
+        id: candidate_eligibility
+        if: ${{ !cancelled() && steps.candidate.outcome != 'skipped' }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {assessCandidateEligibility} from './scripts/nav-crosschecked-candidate.mjs';
+          const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+          let result;
+          try{result=assessCandidateEligibility(JSON.parse(fs.readFileSync('public-nav-candidate.json','utf8')),today);}
+          catch{result={sources:[],failures:[{reason:'NAV_CANDIDATE_ARCHIVE_UNVERIFIED'}]};}
+          const eligible=result.sources.map(x=>x.code);
+          console.log(JSON.stringify({kind:'NAV_CANDIDATE_PREVIEW_ELIGIBILITY',eligible,failures:result.failures,financialWrites:0}));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'has_eligible='+String(eligible.length>0)+'\n');
+          JS
       - name: Preserve candidate evidence including missing or conflicting dates
+        id: candidate_archive
         if: ${{ !cancelled() && steps.candidate.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
@@ -173,7 +194,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.repository == 'cyyoung111-dev/portfolio' &&
       github.ref == 'refs/heads/main' &&
-      needs['source-kofia-candidate'].result == 'success' &&
+      needs['source-kofia-candidate'].outputs.preview_ready == 'true' &&
       (github.event_name == 'push' ||
         ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
           needs['postflight-readonly'].result == 'failure'))
