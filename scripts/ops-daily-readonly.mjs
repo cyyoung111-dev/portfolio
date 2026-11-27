@@ -38,7 +38,16 @@ function isDue(now,day,minute){
  return clock.day>day||(clock.day===day&&clock.minute>=minute);
 }
 function safeStatus(value){return /^[A-Z0-9_]{1,90}$/.test(String(value||''))?value:'UNVERIFIED';}
-export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,snapshotEvidence}){
+// The authenticated GAS close status is independent of public fund prices.
+export function verifiedPersistedClose(date,close){
+ return close?.runDate===date&&close.summaryRunDate===date
+  &&close.summaryPresent===true&&close.state==='COMPLETE'&&close.stage==='COMPLETE'
+  &&close.priceOk===true&&close.fundOk===true
+  &&close.runStale===false&&close.snapshotStale===false
+  &&DAY.test(close.expectedRunDate||'')&&close.expectedRunDate<=date
+  &&DAY.test(close.expectedSnapshotDate||'')&&close.expectedSnapshotDate<=date;
+}
+export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,closeStatus,snapshotEvidence}){
  if(!DAY.test(date)||krxSessionStatus(date)!=='OPEN'
     ||!(now instanceof Date)||!Number.isFinite(now.getTime())
     ||date>kstClock(now).day)throw Error('OPS_CLASSIFY_INVALID');
@@ -71,14 +80,18 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
  // Never infer Hanwha from a green KB collector or from the shared close.
  const hanwha=classifyFund(hanwhaReport?.kind==='HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY'
    &&hanwhaReport.code==='F00001'?hanwhaReport:null,'HANWHA_OFFICIAL_NAV_AND_DERIVED');
- const closePersisted=navReport?.closeDate===date
-  &&navReport?.closeComplete===true
+ // A supplied authenticated checkpoint must not be overridden by a fund
+ // report. Legacy fixture/caller evidence is accepted only when no direct
+ // checkpoint argument was supplied.
+ const closePersisted=closeStatus!==undefined?verifiedPersistedClose(date,closeStatus):
+  navReport?.closeDate===date&&navReport?.closeComplete===true
   &&navReport?.priceOk===true&&navReport?.fundOk===true;
  // An unpublished official NAV is not a failed price close. Distinguish
  // only the exact current KRX session's persisted FUND_PENDING checkpoint,
  // never a stale date, unrelated close error, or a published-but-missing NAV.
  // This is a pending label, NOT success or authorization to write data.
- const fundPublicationPending=nav.state==='PUBLICATION_PENDING'
+ const fundPublicationPending=(hanwha.state==='PASS'||hanwha.state==='PUBLICATION_PENDING')
+  &&nav.state==='PUBLICATION_PENDING'
   &&navReport?.closeDate===date
   &&navReport?.officialReferenceDate===date
   &&navReport?.officiallyPublished===false
@@ -190,7 +203,7 @@ export async function runDailyOperations({
  const date=operatingReferenceDate(now);
  const morningDue=isDue(now,date,490),closeDue=isDue(now,date,1080),
   navDue=isDue(now,date,21*60+10);
- let morningProof=false,closeProof=false,navReport=null,hanwhaReport=null,snapshotEvidence=null;
+ let morningProof=false,closeProof=false,navReport=null,hanwhaReport=null,snapshotEvidence=null,closeStatus=null;
  if(morningDue){
   try{const p=await morningReader({date,repository,token,fetchImpl});morningProof=p?.verifiedSent===true;}
   catch{morningProof=false;}
@@ -211,19 +224,18 @@ export async function runDailyOperations({
   let sharedStatus;
   const readStatus=args=>sharedStatus??=(Promise.resolve().then(()=>statusReader(args)));
   const options={now,url:gasUrl,token:gasToken,fetchImpl,statusReader:readStatus};
+  try{closeStatus=(await readStatus({url:gasUrl,token:gasToken,fetchImpl}))?.close??null;}catch{}
   try{navReport=await navReader(options);}catch{navReport=null;}
   try{hanwhaReport=await hanwhaReader(options);}catch{hanwhaReport=null;}
  }
  // Only after the verified close checkpoint: never fetch a partial snapshot
  // while a financial Writer could still be in its closing window.
- if(navDue&&gasUrl&&gasToken&&navReport?.closeDate===date
-   &&navReport?.closeComplete===true&&navReport?.priceOk===true
-   &&navReport?.fundOk===true) {
+ if(navDue&&gasUrl&&gasToken&&verifiedPersistedClose(date,closeStatus)) {
    try{snapshotEvidence=await snapshotReader({date,url:gasUrl,token:gasToken,fetchImpl});}
    catch{snapshotEvidence=null;}
  }
  return classifyDailyOperations({
-  date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,snapshotEvidence
+  date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,closeStatus,snapshotEvidence
  });
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
