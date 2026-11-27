@@ -352,9 +352,13 @@ assert.doesNotMatch(JSON.stringify(candidate),/GAS_ACCESS_TOKEN|portfolio-produc
 for(const name of ['collect','hanwha-collect','postflight-readonly'])
  assert.doesNotMatch(JSON.stringify(workflow.jobs[name]),/source-kofia-candidate|public-nav-candidate/);
 const candidatePreview=workflow.jobs['candidate-preview-readonly'];
-assert.deepEqual(candidatePreview.needs,['source-kofia-candidate']);
+assert.deepEqual(candidatePreview.needs,['source-kofia-candidate','postflight-readonly']);
 assert.equal(candidatePreview.environment,'portfolio-production-gas');
 assert.match(candidatePreview.if,/github\.event_name == 'push'/);
+assert.match(candidatePreview.if,/needs\['postflight-readonly'\]\.result == 'failure'/);
+assert.match(candidatePreview.if,/github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
+assert.match(candidatePreview.if,/!cancelled\(\)/);
+assert.doesNotMatch(candidatePreview.if,/postflight-readonly'\]\.result == 'skipped'/);
 assert.match(candidatePreview.if,/needs\['source-kofia-candidate'\]\.result == 'success'/);
 assert.match(candidatePreview.steps.at(-1).run,/preview-crosschecked-nav-readonly[.]mjs/);
 assert.doesNotMatch(JSON.stringify(candidatePreview),/--apply|collectKbFundNav|collectHanwhaFundNav/);
@@ -677,6 +681,10 @@ const exampleArchive={kind:'PUBLIC_NAV_CANDIDATE_ARCHIVE',asOfKst:candidateToday
   crosscheck:{state:'CROSSCHECK_MATCHED',conflictDates:[],matchedDates:candidateDates.slice(0,4)}
  }))};
 assert.equal(selectCrosscheckedCandidate(exampleArchive,'F00002',candidateToday).rows.length,4);
+const missingPrimary=structuredClone(exampleArchive);missingPrimary.funds[0].rows.pop();
+assert.deepEqual(selectCrosscheckedCandidate(missingPrimary,'F00002',candidateToday).unverifiedDates,['2026-11-26']);
+const staleRange=structuredClone(exampleArchive);staleRange.requestedDates=['2026-11-19',...candidateDates.slice(0,4)];
+assert.throws(()=>selectCrosscheckedCandidate(staleRange,'F00002',candidateToday),/NAV_CANDIDATE_RANGE_UNVERIFIED/);
 assert.deepEqual(selectCrosscheckedCandidate(exampleArchive,'F00001',candidateToday).unverifiedDates,['2026-11-26']);
 assert.throws(()=>selectCrosscheckedCandidate({...exampleArchive,asOfKst:'2026-11-26'},'F00002',candidateToday),/NAV_CANDIDATE_ARCHIVE_UNVERIFIED/);
 for(const mutate of [a=>a.funds[0].standardCode='WRONG',a=>a.funds[0].crosscheck.conflictDates=['2026-11-23'],
@@ -703,6 +711,18 @@ const candidateOptions={archive:exampleArchive,url:'https://script.google.com/ma
 const candidateResult=await previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock()});
 assert.equal(candidateResult.financialWrites,0);assert.equal(candidateResult.importAuthorized,false);
 assert.equal(candidateResult.results.length,2);
+assert.ok(candidateResult.results.every(r=>r.latestRequestedDateCrosschecked===false&&r.allRequestedDatesCrosschecked===false&&r.allCloseEligibleDatesPreviewed===false));
+assert.deepEqual(candidateResult.results[0].identicalDates,['2026-11-20']);
+assert.deepEqual(candidateResult.results[0].candidateDates,['2026-11-23','2026-11-24','2026-11-25']);
+const completeArchive=structuredClone(exampleArchive);for(const f of completeArchive.funds)f.crosscheck.matchedDates=[...candidateDates];
+const completeResult=await previewCrosscheckedNav({...candidateOptions,archive:completeArchive,fetchImpl:async(dest,opts)=>{
+ if(opts.body.get('action')==='getAutomationStatus')return candidateMock()(dest,opts);
+ assert.equal(opts.body.get('action'),'previewFundNavImport');
+ const input=JSON.parse(opts.body.get('data'));assert.equal(input.rows.length,5);
+ return {ok:true,json:async()=>({status:'ok',code:input.code,identical:[{date:input.rows[0].date,existingNav:input.rows[0].nav,uploadedNav:input.rows[0].nav}],candidates:input.rows.slice(1),updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:[]})};
+}});
+assert.ok(completeResult.results.every(r=>r.latestRequestedDateCrosschecked===true&&r.allRequestedDatesCrosschecked===true&&r.allCloseEligibleDatesPreviewed===true));
+assert.equal(completeResult.financialWrites,0);assert.equal(completeResult.importAuthorized,false);
 await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({noOverlap:true})}),/NAV_CANDIDATE_PERSISTED_OVERLAP_UNVERIFIED/);
 await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({conflict:true})}),/NAV_CANDIDATE_PREVIEW_BLOCKED/);
 console.log('NAV crosschecked candidate exact-class and read-only GAS preview PASS');
