@@ -1268,8 +1268,21 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
    'old KRX source run guards must not linger in the private NAV jobs');
  assert.ok(!nav.includes("workflows: ['KRX 252-session 52-week market breadth archive (source only)']"));
  const scheduleOrManual="github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'";
- assert.equal(nav.split(scheduleOrManual).length-1,4,
-  'all four NAV jobs must admit ONLY scheduled or manual guarded events');
+ // The fifth event guard is the existing read-only candidate preview, not
+ // a new write job. Check the individual guards instead of counting text.
+ const jobBlock=name=>nav.split('\n  '+name+':\n')[1]?.split(/\n  [a-z][a-z-]*:\n/)[0]||'';
+ for(const name of ['source-public','collect','hanwha-collect','postflight-readonly']){
+  const block=jobBlock(name);
+  assert.ok(block.includes(scheduleOrManual),name+' must retain scheduled/manual admission');
+  assert.ok(block.includes("github.ref == 'refs/heads/main'"),name+' must remain main-only');
+  if(name!=='source-public')assert.ok(!block.includes("github.event_name == 'push'"),name+' must not admit pushes');
+ }
+ const candidate=jobBlock('candidate-preview-readonly');
+ assert.ok(candidate.includes(scheduleOrManual)&&candidate.includes("github.event_name == 'push'"));
+ assert.ok(candidate.includes("needs['postflight-readonly'].result == 'failure'"));
+ assert.ok(candidate.includes("needs['source-kofia-candidate'].result == 'success'"));
+ assert.match(candidate,/preview-crosschecked-nav-readonly[.]mjs/);
+ assert.doesNotMatch(candidate,/--apply|collectKbFundNav|collectHanwhaFundNav/);
  const arm=fs.readFileSync('.github/workflows/nav-independent-fallback-arm.yml','utf8');
  assert.match(arm,/gh workflow run kb-fund-nav-collect\.yml/,
   'independent NAV fallback must preserve protected dispatch');
