@@ -2,6 +2,7 @@ import {pathToFileURL} from 'node:url';
 import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs';
 import {classifyFundError} from './diagnose-backfill-status.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
+import {validateAppendOnlyNavPreview} from './nav-append-only-preview-contract.mjs';
 export const sourceUrl='https://www.funetf.co.kr/api/public/product/view/fundnav';
 export function parseNav(data,from,to) {
   if(!Array.isArray(data)||!data.length)throw Error('NAV_SOURCE_EMPTY');
@@ -172,11 +173,9 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
       await retryDelay(1500);
     }
   }
-  if(preview.status!=='ok'||preview.errors?.length||preview.updates?.length||preview.warnings?.some(w=>w.reason!=='오늘 NAV는 공식 확정값인지 확인 필요'||w.date!==today)||!Array.isArray(preview.candidates))throw Error('NAV_PREVIEW_BLOCKED');
-  const candidates=preview.candidates.map(({date,nav})=>({date,nav}));
-  if(new Set(candidates.map(c=>c.date)).size!==candidates.length
-    ||candidates.some(c=>!rows.some(row=>row.date===c.date&&row.nav===c.nav)))
-    throw Error('NAV_PREVIEW_MISMATCH');
+  const verifiedPreview=validateAppendOnlyNavPreview(preview,'F00002',rows,{allowZeroUnits:true});
+  if(!verifiedPreview.ok)throw Error('NAV_PREVIEW_'+verifiedPreview.reason);
+  const candidates=verifiedPreview.candidates;
   if(!apply)return {mode:'DRY_RUN',sourceRows:rows.length,candidates:candidates.length,imported:0};
   let importAckRecovered=false;
   if(candidates.length){
@@ -215,12 +214,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
         await retryDelay(2000*(attempt+1));
       }
     }
-    if(check?.status!=='ok'||check.candidates?.length||check.updates?.length
-      ||check.errors?.length||check.warnings?.length||check.duplicates?.length
-      ||check.zeroUnits?.length||!Array.isArray(check.identical)
-      ||check.identical.length!==candidates.length
-      ||!candidates.every(row=>check.identical.some(item=>item.date===row.date
-        &&Number(item.existingNav)===row.nav&&Number(item.uploadedNav)===row.nav)))
+    if(!validateAppendOnlyNavPreview(check,'F00002',candidates,{readback:true}).ok)
       throw Error('NAV_READBACK_FAILED');
   }
   const valuation=async()=>{
