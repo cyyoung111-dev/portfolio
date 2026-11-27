@@ -253,6 +253,36 @@ export async function auditKbNavPostflight({url,token,now=new Date(),
    fundCloseCheckpointEvidence:describeFundCloseCheckpoint(status)};
 }
 
+// Only known, transport-safe source error codes may be recorded in
+// read-only postflight evidence. Unknown/private exception strings remain
+// fully redacted. No source fallback or writer authorization is implied.
+const KB_PUBLIC_FAILURES=new Set([
+ 'NAV_SOURCE_NETWORK_UNVERIFIED','NAV_SOURCE_JSON_UNVERIFIED',
+ 'NAV_SOURCE_EMPTY','NAV_SOURCE_SCHEMA','NAV_SOURCE_DATE',
+ 'NAV_SOURCE_CONFLICT','NAV_SOURCE_NO_RANGE_ROWS',
+ 'NAV_SOURCE_NO_PRIOR_DAY_ROWS'
+]);
+const HANWHA_PUBLIC_FAILURES=new Set([
+ 'HANWHA_SOURCE_HTTP_UNVERIFIED','HANWHA_SOURCE_JSON_UNVERIFIED',
+ 'HANWHA_SOURCE_NETWORK_UNVERIFIED','HANWHA_SOURCE_TIMEOUT_UNVERIFIED',
+ 'HANWHA_SOURCE_EMPTY','HANWHA_SOURCE_SCHEMA','HANWHA_SOURCE_DATE',
+ 'HANWHA_SOURCE_CONFLICT','HANWHA_SOURCE_NO_RANGE_ROWS',
+ 'HANWHA_SOURCE_NO_PRIOR_DAY_ROWS','HANWHA_SECONDARY_DATE_UNVERIFIED',
+ 'HANWHA_FUNETF_NETWORK_UNVERIFIED','HANWHA_FUNETF_HTTP_UNVERIFIED',
+ 'HANWHA_FUNETF_JSON_UNVERIFIED','HANWHA_FUNETF_SCHEMA_OR_RANGE_UNVERIFIED',
+ 'HANWHA_FUNETF_PRIOR_PUBLICATION_MISSING'
+]);
+export function safeNavPostflightFailureReason(code,error){
+ const reason=typeof error?.message==='string'?error.message:'';
+ if(/^(?:KB_POSTFLIGHT|HANWHA_POSTFLIGHT|FUND_AUDIT)_[A-Z_]+$/.test(reason))
+   return reason;
+ if(code==='F00002'&&(KB_PUBLIC_FAILURES.has(reason)
+   ||/^NAV_SOURCE_HTTP_(?:4[0-9]{2}|5[0-9]{2}|UNKNOWN)$/.test(reason)))
+   return reason;
+ if(code==='F00001'&&HANWHA_PUBLIC_FAILURES.has(reason))return reason;
+ return 'FUND_NAV_POSTFLIGHT_UNVERIFIED';
+}
+
 // Both funds share the same close status read. Each source and amount is
 // independently checked; a failure in one fund does not mask the other.
 export async function auditHanwhaNavPostflight({sourceReader=runPublicHanwhaSource,...options}={}) {
@@ -270,10 +300,8 @@ export async function auditBothNavPostflight({statusReader=runBackfillStatus,
      emit(code,result);
      if(!result.navWorkflowPass)complete=false;
    }catch(error){
-     const reason=String(error?.message||'');
      emit(code,{kind:'FUND_NAV_POSTFLIGHT_UNVERIFIED',code,navWorkflowPass:false,
-       reason:/^(?:KB_POSTFLIGHT|HANWHA_POSTFLIGHT|FUND_AUDIT)_[A-Z_]+$/.test(reason)
-         ?reason:'FUND_NAV_POSTFLIGHT_UNVERIFIED',financialWrites:0});
+       reason:safeNavPostflightFailureReason(code,error),financialWrites:0});
      complete=false;
    }
  }
