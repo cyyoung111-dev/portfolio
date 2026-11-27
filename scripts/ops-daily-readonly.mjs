@@ -7,7 +7,7 @@ import {appendFileSync} from 'node:fs';
 import {krxSessionStatus} from './krx-session-calendar.mjs';
 import {verifyLateScheduledMorningSent} from './telegram-morning-late-sent-readonly.mjs';
 import {verifyLateCloseSent} from './telegram-close-late-verdict.mjs';
-import {auditKbNavPostflight,auditHanwhaNavPostflight} from './audit-kb-nav-postflight-readonly.mjs';
+import {auditKbNavPostflight,auditHanwhaNavPostflight,safeNavPostflightFailureReason} from './audit-kb-nav-postflight-readonly.mjs';
 import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 import {auditSnapshotExact} from './issue734-snapshot-exact-readonly.mjs';
 
@@ -47,7 +47,7 @@ export function verifiedPersistedClose(date,close){
   &&DAY.test(close.expectedRunDate||'')&&close.expectedRunDate<=date
   &&DAY.test(close.expectedSnapshotDate||'')&&close.expectedSnapshotDate<=date;
 }
-export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,closeStatus,snapshotEvidence}){
+export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,navFailure,hanwhaFailure,closeStatus,snapshotEvidence}){
  if(!DAY.test(date)||krxSessionStatus(date)!=='OPEN'
     ||!(now instanceof Date)||!Number.isFinite(now.getTime())
     ||date>kstClock(now).day)throw Error('OPS_CLASSIFY_INVALID');
@@ -58,7 +58,7 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
  const morning=telegram(morningProof===true,isDue(now,date,490),'TRUSTED_CLAIM_AND_SENT');
  const close=telegram(closeProof===true,isDue(now,date,1080),'TRUSTED_CLAIM_AND_SENT');
  const navDue=isDue(now,date,21*60+10);
- const classifyFund=(report,scope)=>{
+ const classifyFund=(report,scope,failure)=>{
   const exact=report?.closeDate===date
    &&report?.officialReferenceDate===date
    &&report?.navWorkflowStatus==='NAV_DATA_VERIFIED'
@@ -74,12 +74,12 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
    &&report?.closeDateVerified===true
    &&report?.runStale===false&&report?.snapshotStale===false;
   return {state:exact?'PASS':!navDue?'WAITING':pending?'PUBLICATION_PENDING':'EVIDENCE_MISSING',
-   scope,verified:exact,execution:safeStatus(navRuns)};
+   scope,verified:exact,execution:safeStatus(navRuns),...(failure?{reason:safeStatus(failure)}:{})};
  };
- const nav=classifyFund(navReport,'KB_OFFICIAL_NAV_AND_DERIVED');
+ const nav=classifyFund(navReport,'KB_OFFICIAL_NAV_AND_DERIVED',navFailure);
  // Never infer Hanwha from a green KB collector or from the shared close.
  const hanwha=classifyFund(hanwhaReport?.kind==='HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY'
-   &&hanwhaReport.code==='F00001'?hanwhaReport:null,'HANWHA_OFFICIAL_NAV_AND_DERIVED');
+   &&hanwhaReport.code==='F00001'?hanwhaReport:null,'HANWHA_OFFICIAL_NAV_AND_DERIVED',hanwhaFailure);
  // A supplied authenticated checkpoint must not be overridden by a fund
  // report. Legacy fixture/caller evidence is accepted only when no direct
  // checkpoint argument was supplied.
@@ -236,7 +236,7 @@ export async function runDailyOperations({
  const date=operatingReferenceDate(now);
  const morningDue=isDue(now,date,490),closeDue=isDue(now,date,1080),
   navDue=isDue(now,date,21*60+10);
- let morningProof=false,closeProof=false,navReport=null,hanwhaReport=null,snapshotEvidence=null,closeStatus=null;
+ let morningProof=false,closeProof=false,navReport=null,hanwhaReport=null,snapshotEvidence=null,closeStatus=null,navFailure=null,hanwhaFailure=null;
  if(morningDue){
   try{const p=await morningReader({date,repository,token,fetchImpl});morningProof=p?.verifiedSent===true;}
   catch{morningProof=false;}
@@ -258,8 +258,8 @@ export async function runDailyOperations({
   const readStatus=args=>sharedStatus??=(Promise.resolve().then(()=>statusReader(args)));
   const options={now,url:gasUrl,token:gasToken,fetchImpl,statusReader:readStatus};
   try{closeStatus=(await readStatus({url:gasUrl,token:gasToken,fetchImpl}))?.close??null;}catch{}
-  try{navReport=await navReader(options);}catch{navReport=null;}
-  try{hanwhaReport=await hanwhaReader(options);}catch{hanwhaReport=null;}
+  try{navReport=await navReader(options);}catch(error){navFailure=safeNavPostflightFailureReason('F00002',error);}
+  try{hanwhaReport=await hanwhaReader(options);}catch(error){hanwhaFailure=safeNavPostflightFailureReason('F00001',error);}
  }
  // Only after the verified close checkpoint: never fetch a partial snapshot
  // while a financial Writer could still be in its closing window.
@@ -268,7 +268,7 @@ export async function runDailyOperations({
    catch{snapshotEvidence=null;}
  }
  return classifyDailyOperations({
-  date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,closeStatus,snapshotEvidence
+  date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,navFailure,hanwhaFailure,closeStatus,snapshotEvidence
  });
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
@@ -287,7 +287,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
    const fields=['morningTelegram','closeTelegram','kbNav','hanwhaNav','savedClose','snapshot'];
    appendFileSync(process.env.GITHUB_STEP_SUMMARY,
     '### Daily portfolio evidence (read only)\n'+
-    fields.map(k=>'- '+k+': **'+summary[k].state+'** ('+summary[k].scope+')').join('\n')+
+    fields.map(k=>'- '+k+': **'+summary[k].state+'** ('+summary[k].scope+')'+(summary[k].reason?' · '+summary[k].reason:'')).join('\n')+
     '\nOverall: **'+summary.overall+'**. Snapshot is internal reconciliation only; external writer exclusion and official price origin remain unverified.\n');
   }
   if(!['CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITED',
