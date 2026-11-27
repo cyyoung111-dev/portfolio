@@ -30,7 +30,7 @@ const PATHS=new Set([
  '.github/workflows/telegram-close-punctual-arm.yml'
 ]);
 export async function verifyLateCloseSent({
- now=new Date(),token,repository=REPO,fetchImpl=fetch}={}){
+ now=new Date(),token,repository=REPO,fetchImpl=fetch,detailed=false}={}){
  const date=lateCloseTargetDate(now);
  const base={kind:'TELEGRAM_CLOSE_LATE_SCHEDULE_READONLY',
   date:date||'-',telegramSends:0,financeWrites:0};
@@ -63,6 +63,7 @@ export async function verifyLateCloseSent({
    return {runId:a.workflow_run.id,created};
   }
   const sent=await artifact(claimName+'-sent');
+  if(!sent&&!detailed)return {...base,status:'NO_TRUSTED_SENT_PROOF',verified:false};
   const claim=await artifact(claimName);
   if(!sent&&!claim)return {...base,status:'NO_CLAIM_OR_SENT',verified:false,githubReads:2};
   if(!sent&&claim)return {...base,status:'CLAIM_WITHOUT_SENT',verified:false,githubReads:2,runId:claim.runId,runUrl:'https://github.com/'+REPO+'/actions/runs/'+claim.runId};
