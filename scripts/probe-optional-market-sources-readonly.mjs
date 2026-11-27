@@ -63,3 +63,11 @@ for(const code of ['ES=F','NQ=F','YM=F','RTY=F']){
  }
  console.log(JSON.stringify(log));
 }
+
+// Live bounded comparison of the production exact-window fallback (no send).
+const {readCurrentFutures}=await import('./closing-current-futures.mjs');
+const observedNow=new Date();
+const reportDate=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(observedNow);
+const currentReasons=[];
+const current=await readCurrentFutures(reportDate,{now:()=>new Date(),onDiagnostic:r=>currentReasons.push(r)});
+console.log(JSON.stringify({kind:'FUTURES_EXPLICIT_WINDOW_PROBE',date:reportDate,observedAt:observedNow.toISOString(),reasons:currentReasons,verified:current.map(r=>({id:r.id,asOf:r.asOf,returnAvailable:Number.isFinite(r.changePercent)})),financialWrites:0,telegramSends:0}));
