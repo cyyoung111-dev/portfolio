@@ -326,7 +326,7 @@ export async function readClosingMacros(date,{fetchImpl=fetch,now=()=>new Date()
    for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
      try{
        const row=await fetchDaily(definition.label,definition.symbol,date,
-         {fetchImpl,now:now(),host});
+         {fetchImpl,now:now(),host,expectedSessionDate:expectedMorningDate(definition.id,date)});
        result=validateClosingMacro(date,definition.id,row);
      }catch{result=null;}
      if(result)break;

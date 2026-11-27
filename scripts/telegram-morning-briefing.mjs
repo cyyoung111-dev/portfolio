@@ -80,7 +80,7 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
   const quote=chart?.indicators?.quote?.[0];
   if(chart?.meta?.symbol!==symbol||!chart.meta.exchangeTimezoneName
     ||!Array.isArray(chart.timestamp)||!Array.isArray(quote?.close))return null;
-  const rows=new Map(),annual=[];
+  const rows=new Map(),annual=[],duplicates=new Set();
   const closes=quote.close, highs=quote.high, lows=quote.low;
   // Never hide a missing OHLC candle when computing a 52-week extreme:
   // keep invalid historical rows so the range validator rejects the entire
@@ -103,20 +103,22 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
     low:Array.isArray(lows)?lows[i]:null});
    if(typeof value!=='number'||!Number.isFinite(value)||value<=0)continue;
    if(date<new Date(end-8*DAY).toISOString().slice(0,10))continue;
+   if(rows.has(date))duplicates.add(date);
    rows.set(date,value);
   }
   const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
   if(!list.length)return null;
-  // Yahoo KRW=X and ICE DXY (DX-Y.NYB) can carry a Sunday FX/index
-  // candle before Monday 07:40 KST. Both must select the exact completed
-  // Friday session. Preserve the original last-bar policy for unrelated
-  // stocks, rates and commodities; their existing session gates still apply.
-  const exactSessionIndex=(symbol==='KRW=X'||symbol==='DX-Y.NYB')
-    &&expectedSessionDate;
-  const selectedIndex=exactSessionIndex
+  // A provider may append a non-session bar or an unfinished holiday bar.
+  // Use exact-date selection for these public reference series only.
+  // Preserve the stock/index last-bar contract; its caller validates the date.
+  const exactReference=['KRW=X','DX-Y.NYB','^VIX','^TNX','CL=F','BZ=F','GC=F','HG=F','BTC-USD'].includes(symbol);
+  const selectedIndex=exactReference&&expectedSessionDate
     ?list.findIndex(row=>row[0]===expectedSessionDate):list.length-1;
   if(selectedIndex<0)return null;
-  const [date,value]=list[selectedIndex],prior=selectedIndex>0?list[selectedIndex-1][1]:null;
+  const [date,value]=list[selectedIndex];
+  if(duplicates.has(date))return null;
+  const priorDay=selectedIndex>0?list[selectedIndex-1]:null;
+  const prior=priorDay&&!duplicates.has(priorDay[0])?priorDay[1]:null;
   const result={label,symbol,date,value,changePercent:prior>0
     ?(value/prior-1)*100:null,source:'Yahoo Finance 일봉'};
   if(include52Week&&completeOhlcShape&&expectedSessionDate===date){

@@ -286,7 +286,8 @@ assert.equal(validateClosingMacro(date,'USDKRW',{...macrosPayload.USDKRW,value:0
 let attempts=[];
 const macros=await readClosingMacros(date,{
  now:()=>new Date(date+'T17:05:00+09:00'),
- fetchDaily:async(label,symbol,d,{host})=>{
+ fetchDaily:async(label,symbol,d,{host,expectedSessionDate})=>{
+  assert.equal(expectedSessionDate,us);
   attempts.push({label,symbol,host,d});
   const id=symbol==='KRW=X'?'USDKRW':symbol==='^TNX'?'UST10Y':'DXY';
   // Primary Yahoo host stale for DXY, query2 dated fallback proves recovery.
@@ -295,6 +296,15 @@ const macros=await readClosingMacros(date,{
  }
 });
 assert.equal(macros.length,3);assert.equal(attempts.length,4);
+const actualFx=await readClosingMacros(date,{now:()=>new Date(date+'T17:05:00+09:00'),
+ fetchImpl:async target=>{
+  const symbol=decodeURIComponent(new URL(target).pathname.split('/').at(-1));
+  return {ok:true,json:async()=>({chart:{result:[{meta:{symbol,exchangeTimezoneName:'America/New_York'},
+   timestamp:['2026-10-29T16:00:00-04:00','2026-10-30T16:00:00-04:00','2026-11-01T17:00:00-05:00'].map(x=>Date.parse(x)/1000),
+   indicators:{quote:[{close:symbol==='^TNX'?[4.2,4.3,4.4]:[100,101,102]}]}}]}})};
+ }});
+assert.equal(actualFx.length,3);
+assert.ok(actualFx.every(x=>x.date===us));
 assert.ok(attempts.some(x=>x.host==='query2.finance.yahoo.com'));
 assert.match(formatClosingExtra(date,stocks,macros),/삼성전자: 73,500 원.*\[2026-11-02\]/);
 assert.match(formatClosingExtra(date,stocks,macros),/엔비디아: 215 USD.*\[2026-10-30\]/);

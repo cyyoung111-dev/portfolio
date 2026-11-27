@@ -47,9 +47,10 @@ assert.equal(sanitizePreclose(date,{markets:[{...normalized[0],date}]}).markets.
 
 let attempts=[];
 const read=await readClosingMarketReferences(date,{now:()=>new Date(date+'T17:02:00+09:00'),
- fetchDaily:async (label,symbol,session,{host})=>{
+ fetchDaily:async (label,symbol,session,{host,expectedSessionDate})=>{
   attempts.push({label,symbol,host});
   const row=fixtures.find(x=>x.symbol===symbol);
+  assert.equal(expectedSessionDate,row.date);
   if(symbol==='CL=F'&&host==='query1.finance.yahoo.com')return {...row,date:'2026-10-29'};
   if(symbol==='BTC-USD'&&host==='query1.finance.yahoo.com')return {...row,date};
   return row;
