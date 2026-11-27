@@ -832,7 +832,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   if(params.action==='getAutomationStatus')result={...result,gasVersion:'9.297',automation:{closeRun:{state:'COMPLETE',runDate:closeDateToday?'2026-10-25':'2026-10-24'}}};
   if(params.action==='previewFundNavImport'){
    assert.ok(JSON.parse(params.data).rows.every(d=>d.date<='2026-10-24'));
-   result={...result,candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:writes?[{date:'2026-10-23',existingNav:2116.98,uploadedNav:2116.98}]:[]};
+   result={...result,code:'F00002',candidates:writes?[]:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],duplicates:[],zeroUnits:[],identical:writes?[{date:'2026-10-23',existingNav:2116.98,uploadedNav:2116.98}]:[]};
   }
   if(params.action==='getFundValuationStatus'){assert.equal(params.to,'2026-10-24','do not repair unclosed current day');}
   if(params.action==='getFundValuationStatus')result={status:'ok',fundResults:{F00002:{dates:[{date:'2026-10-23',code:'F00002',navState:'EXISTING_CONFIRMED',valuationRequired:true,unitsApplied:true,reconciled:true,evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}]}}};
@@ -877,7 +877,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    if(p.action==='getAutomationStatus')return {ok:true,json:async()=>({
      status:'ok',gasVersion:'9.282',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}})};
    if(p.action==='previewFundNavImport')return {ok:true,json:async()=>({
-     status:'ok',candidates:[],updates:[],warnings:[],errors:[],identical:[]})};
+     status:'ok',code:'F00002',candidates:[],updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:[],identical:[{date:'2026-10-23',existingNav:2116.98,uploadedNav:2116.98}]})};
    if(p.action==='getFundValuationStatus'){
      checks++;
      const first=row();
@@ -957,7 +957,8 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
        status:'ok',gasVersion:'9.293',automation:{
         closeRun:{state:'INCOMPLETE',runDate:'2026-11-12'}}})};
      if(p.action==='previewFundNavImport')return {ok:true,json:async()=>({
-       status:'ok',candidates:[],updates:[],warnings:[],errors:[]})};
+       status:'ok',code:'F00002',candidates:[],updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:[],
+       identical:JSON.parse(p.data).rows.map(r=>({date:r.date,existingNav:r.nav,uploadedNav:r.nav}))})};
      if(p.action==='getFundValuationStatus')return {ok:true,json:async()=>({
        status:'ok',fundResults:{F00002:{dates:[state]}}})};
      throw Error('MUST_NOT_CALL_FINANCE_WRITE');
@@ -1017,9 +1018,9 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    else if(p.action==='previewFundNavImport'){
      if(stored){readback++;
        if(transientReadback&&readback===1)return {ok:false,status:503};
-       response={status:'ok',candidates:[],updates:[],errors:[],
+       response={status:'ok',code:'F00002',candidates:[],updates:[],errors:[],warnings:[],duplicates:[],zeroUnits:[],
        identical:[{date:'2026-10-23',uploadedNav:2116.98,existingNav:badProof?2116.97:2116.98}]};}
-     else response={status:'ok',candidates:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],identical:[]};
+     else response={status:'ok',code:'F00002',candidates:[{date:'2026-10-23',nav:2116.98}],updates:[],errors:[],warnings:[],duplicates:[],zeroUnits:[],identical:[]};
    } else if(p.action==='collectKbFundNav'&&p.mode==='import'){
      writes++;if(committed)stored=true;
      if(bodyFailure)return {ok:true,json:async()=>{throw Object.assign(Error('PRIVATE'),{name:'SyntaxError'});}};
@@ -1084,7 +1085,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
    const p=Object.fromEntries(o.body);
    if(p.accessToken==='NAV_AUTH_PROBE')return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
    if(p.action==='getAutomationStatus')return {ok:true,json:async()=>({status:'ok',gasVersion:'9.281',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}})};
-   if(p.action==='previewFundNavImport'){readbacks++;return {ok:true,json:async()=>({status:'ok',candidates:[{date:'2026-10-23',nav:2116.98}],identical:[],updates:[],errors:[],warnings:[]})};}
+   if(p.action==='previewFundNavImport'){readbacks++;return {ok:true,json:async()=>({status:'ok',code:'F00002',candidates:[{date:'2026-10-23',nav:2116.98}],identical:[],updates:[],errors:[],warnings:[],duplicates:[],zeroUnits:[]})};}
    if(p.action==='collectKbFundNav'&&p.mode==='import'){imports++;return {ok:true,json:async()=>({status:'error',saveState:'partial'})};}
    throw Error('unexpected partial handler');
  }}),/NAV_READBACK_FAILED/);
@@ -1099,7 +1100,7 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   const p=Object.fromEntries(o.body);let r={status:'ok'};
   if(p.accessToken==='NAV_AUTH_PROBE')r={status:'error',message:'인증 실패'};
   else if(p.action==='getAutomationStatus')r={status:'ok',gasVersion:'9.282',automation:{closeRun:{state:'COMPLETE',runDate:'2026-10-24'}}};
-  else if(p.action==='previewFundNavImport')r={...r,candidates:[],identical:[{}],updates:[],warnings:[],errors:[]};
+  else if(p.action==='previewFundNavImport')r={...r,code:'F00002',candidates:[],identical:[{date:'2026-10-23',existingNav:2116.98,uploadedNav:2116.98}],updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:[]};
   else if(p.action==='getFundValuationStatus')r={...r,fundResults:{F00002:{dates:[{date:'2026-10-23',navState:'EXISTING_CONFIRMED',
     unitsApplied:true,reconciled:true,valuationRequired:true,evaluationState:repaired?'EXISTING_VALID':'WRITE_REQUIRED',snapshotState:repaired?'EXISTING_VALID':'WRITE_REQUIRED'}]}}};
   else if(p.action==='collectKbFundNav'&&p.mode==='refresh'){repairs++;repaired=true;}

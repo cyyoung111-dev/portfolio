@@ -47,9 +47,9 @@ function fixture(version,code,{sourceNetworkFailure=false,secondaryNetworkFailur
   }
   if(action==='previewFundNavImport'){
    return {ok:true,json:async()=>({status:'ok',code,
-     candidates:[],updates:[],warnings:[],errors:[],
-     duplicates:[],zeroUnits:[],identical:sourceNetworkFailure&&!secondaryNoOverlap
-      ?[{date:'2026-11-10',existingNav:1234.56,uploadedNav:1234.56}]:[]})};
+     candidates:secondaryNoOverlap?[{date:'2026-11-10',nav:1234.56}]:[],updates:[],warnings:[],errors:[],
+     duplicates:[],zeroUnits:[],identical:secondaryNoOverlap
+      ?[]:[{date:'2026-11-10',existingNav:1234.56,uploadedNav:1234.56}]})};
   }
   if(action==='getFundValuationStatus'){
    return {ok:true,json:async()=>({status:'ok',fundResults:{[code]:{dates:[]}}})};
@@ -237,15 +237,15 @@ function lostAckFixture({readbackFailures=0,explicitPartial=false,readbackReject
   if(action==='previewFundNavImport'){
    calls.preview++;
    if(calls.preview===1)
-    return {ok:true,json:async()=>({status:'ok',
-      candidates:[{date:exactDate,nav:exactNav}],updates:[],errors:[],warnings:[]})};
+    return {ok:true,json:async()=>({status:'ok',code:'F00002',
+      candidates:[{date:exactDate,nav:exactNav}],updates:[],errors:[],warnings:[],duplicates:[],zeroUnits:[],identical:[]})};
    if(readbackRejected)return {ok:false,status:401};
    if(calls.preview<=1+readbackFailures)
     throw Object.assign(Error('PRIVATE_TIMEOUT'),{name:'TimeoutError'});
    if(partialWithoutCommit)return {ok:true,json:async()=>({status:'ok',code:'F00002',
-     candidates:[{date:exactDate,nav:exactNav}],updates:[],errors:[],warnings:[],identical:[]})};
+     candidates:[{date:exactDate,nav:exactNav}],updates:[],errors:[],warnings:[],duplicates:[],zeroUnits:[],identical:[]})};
    return {ok:true,json:async()=>({status:'ok',code:'F00002',
-     candidates:[],updates:[],errors:[],warnings:[],
+     candidates:[],updates:[],errors:[],warnings:[],duplicates:[],zeroUnits:[],
      identical:[{date:exactDate,existingNav:exactNav,uploadedNav:exactNav}]})};
   }
   if(action==='collectKbFundNav'){
@@ -313,3 +313,33 @@ assert.deepEqual([denied.calls.import,denied.calls.preview,denied.calls.delay],
  [1,2,0],'HTTP/auth rejection must not be retried after lost import ACK');
 
 console.log('PASS: 9.291 KB/Hanwha private NAV preview/versions, official fallback 7/7 guard, unknown 9.290 refused, lost-ACK/partial exact readback 7 cases, no duplicate import');
+
+// Real collector admission: wrong class, missing/duplicate classifications,
+// omitted rows and mismatched stored NAV must never reach a writer.
+for(const [runner,code,prefix] of [[collectKb,'F00002','NAV'],[collectHanwha,'F00001','HANWHA']]){
+ for(const mutate of [
+   p=>{delete p.identical;},
+   p=>{p.code=code==='F00002'?'F00001':'F00002';},
+   p=>{p.identical=[];},
+   p=>{p.identical[0].existingNav+=0.01;},
+   p=>{p.candidates=[{date:exactDate,nav:exactNav}];},
+   p=>{p.duplicates=[{date:exactDate,nav:exactNav}];}
+ ]){
+  const normal=fixture('9.291',code);let writers=0;
+  await assert.rejects(()=>runner({url,token,now,apply:true,fetchImpl:async(dest,opts)=>{
+    if(opts?.body?.get('action')?.startsWith('collect')){writers++;assert.fail('unverified preview must not write');}
+    const response=await normal.fetchImpl(dest,opts);
+    if(opts?.body?.get('action')!=='previewFundNavImport')return response;
+    const payload=await response.json();mutate(payload);
+    return {ok:true,json:async()=>payload};
+  }}),new RegExp(prefix+'_PREVIEW_(?:BLOCKED|MISMATCH)'));
+  assert.equal(writers,0);
+ }
+}
+const {validateAppendOnlyNavPreview}=await import('./nav-append-only-preview-contract.mjs');
+const rows=[{date:exactDate,nav:exactNav}];
+const zero={status:'ok',code:'F00002',candidates:[],identical:[],updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:rows};
+assert.equal(validateAppendOnlyNavPreview(zero,'F00002',rows,{allowZeroUnits:true}).ok,true);
+assert.equal(validateAppendOnlyNavPreview(zero,'F00002',rows,{readback:true}).ok,false);
+assert.equal(validateAppendOnlyNavPreview({...zero,zeroUnits:[{...rows[0],nav:1}]},'F00002',rows,{allowZeroUnits:true}).ok,false);
+console.log('NAV_APPEND_ONLY_EXACT_COVERAGE_PASS both collectors, omitted or conflicting classifications blocked before writes');
