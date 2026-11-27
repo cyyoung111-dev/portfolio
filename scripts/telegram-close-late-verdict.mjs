@@ -73,7 +73,7 @@ export async function verifyLateCloseSent({
      ||!['schedule','workflow_dispatch','workflow_run','push'].includes(run.event))
    throw Error('CLOSE_LATE_RUN_UNVERIFIED');
   return {...base,status:'PRIOR_SENT_ARTIFACT_VERIFIED',verified:true,
-   githubReads:3};
+   githubReads:3,runId:sent.runId,runUrl:'https://github.com/'+REPO+'/actions/runs/'+sent.runId};
  }catch(e){return {...base,status:e?.message==='CLOSE_LATE_NO_SENT_PROOF'
   ?'NO_TRUSTED_SENT_PROOF':'SENT_PROOF_UNVERIFIED',verified:false};}
 }
