@@ -681,7 +681,8 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
  assert.deepEqual(uploads.map(x=>x.id),['kb-archive','hanwha-archive','fidelity-archive']);
  const coverage=job.steps.find(x=>x.name==='Record public source coverage without blocking private writer');
  assert.ok(coverage);
- assert.equal(coverage.if,'always()');
+ assert.equal(coverage.if,"always() && steps.public_admission.outputs.admitted == 'true'");
+ assert.ok(publicSteps.every(step=>step.if==="steps.public_admission.outputs.admitted == 'true'"));
  assert.equal(coverage.env.KB_ARCHIVE_STATUS,'${{ steps.kb-archive.outcome }}');
  assert.equal(coverage.env.HANWHA_ARCHIVE_STATUS,'${{ steps.hanwha-archive.outcome }}');
  assert.equal(coverage.env.FIDELITY_ARCHIVE_STATUS,'${{ steps.fidelity-archive.outcome }}');
