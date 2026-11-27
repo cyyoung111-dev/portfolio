@@ -63,7 +63,10 @@ const source=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
 function checkReleaseCoverage(quality){
   assert.deepEqual(quality.on.push.branches,['main']);
   assert.equal(quality.on.push.paths,undefined,'every main push needs a release check');
-  assert.equal(quality.on.push['paths-ignore'],undefined);
+  assert.deepEqual(quality.on.push['paths-ignore'],['ops/nav-independent-arm-trigger.txt'],
+    'only the non-code NAV sentinel may bypass main-push quality; real code must keep its release check');
+  assert.ok(Object.hasOwn(quality.on,'pull_request'), 'all PRs still require quality');
+  assert.equal(quality.on.pull_request,null,'PR quality may not be filtered');
 }
 function checkWorkflow(source){
   const doc=YAML.parseDocument(source,{uniqueKeys:true});assert.equal(doc.errors.length,0);
@@ -109,6 +112,13 @@ checkWorkflow(source);
   const quality=YAML.parse(fs.readFileSync('.github/workflows/quality-check.yml','utf8'));
   quality.on.push.paths=['src/gas/apps_script.gs'];
   assert.throws(()=>checkReleaseCoverage(quality));
+}
+for(const ignored of [['src/gas/apps_script.gs'],
+  ['ops/nav-independent-arm-trigger.txt','src/gas/apps_script.gs'],
+  ['ops/*.txt']]){
+  const quality=YAML.parse(fs.readFileSync('.github/workflows/quality-check.yml','utf8'));
+  quality.on.push['paths-ignore']=ignored;
+  assert.throws(()=>checkReleaseCoverage(quality),'unsafe release-check bypass must fail');
 }
 for(const [before,after] of [
   ["needs.validate.outputs.auto_source_changed == 'true'","true"],
