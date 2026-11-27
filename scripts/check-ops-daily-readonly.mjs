@@ -207,6 +207,19 @@ assert.equal(classifyNavRuns([{...run,head_branch:'feature'}],jobs,fri),
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],jobs,fri),
  'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
 const privateFailure={123:jobs[123].map(j=>j.name==='collect'?{...j,conclusion:'failure'}:j)};
+const staleGate=(name,writer)=>({name,status:'completed',conclusion:'failure',steps:[
+ {name:'Block stale scheduled NAV starts before private GAS',conclusion:'failure'},
+ {name:writer,conclusion:'skipped'}]});
+const rejectedJobs={123:[
+ staleGate('collect','Collect exact KB S-T published NAV and verify import'),
+ staleGate('hanwha-collect','Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease'),
+ {name:'postflight-readonly',status:'completed',conclusion:'skipped'}]};
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],rejectedJobs,fri),'NAV_ADMISSION_BLOCKED');
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],{123:[
+ ...rejectedJobs[123].slice(0,1),privateFailure[123][1],rejectedJobs[123][2]]},fri),'NAV_EXECUTION_FAILED');
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'},{...run,id:124,conclusion:'failure'}],
+ {...rejectedJobs,124:privateFailure[123]},fri),'NAV_EXECUTION_FAILED','actual failure must not be hidden by stale gate');
+
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],privateFailure,fri),
  'NAV_EXECUTION_FAILED');
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],{123:[{name:'source-public',status:'completed',conclusion:'failure'}]},fri),
