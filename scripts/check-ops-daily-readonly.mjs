@@ -148,7 +148,8 @@ assert.equal(awaiting.savedClose.state,'FUND_PUBLICATION_PENDING');
 assert.equal(awaiting.savedClose.verified,false);
 const missingOther=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,navReport:unpublishedClose});
 assert.equal(missingOther.savedClose.state,'EVIDENCE_MISSING','missing second fund cannot hide a failure as publication pending');
-const hanwhaAwaiting=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,navReport:evidence,
+const hanwhaAwaiting=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,
+ navReport:{...evidence,closeComplete:false,fundOk:false,closeState:'INCOMPLETE'},
  hanwhaReport:{...unpublishedClose,kind:hanwhaEvidence.kind,code:hanwhaEvidence.code}});
 assert.equal(hanwhaAwaiting.savedClose.state,'FUND_PUBLICATION_PENDING');
 const directPending={...persisted,state:'INCOMPLETE',stage:'FUND_PENDING',fundOk:false};
@@ -174,7 +175,7 @@ for(const unhealthy of [
 ]){
  const res=classifyDailyOperations({date:fri,now,morningProof:true,
   closeProof:true,navRuns:'NAV_EXECUTION_FAILED',
-  navReport:{...unpublishedClose,...unhealthy}});
+  navReport:{...unpublishedClose,...unhealthy},hanwhaReport:hanwhaEvidence});
  assert.equal(res.savedClose.state,'EVIDENCE_MISSING',
   'bad close must never be downgraded to publication pending: '
    +JSON.stringify(unhealthy));
