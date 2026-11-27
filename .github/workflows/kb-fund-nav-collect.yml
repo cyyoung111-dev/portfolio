@@ -48,8 +48,8 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import fs from 'node:fs';
-          import {assessNavScheduledAdmission} from './scripts/nav-schedule-admission.mjs';
-          const result=assessNavScheduledAdmission({eventName:process.env.GITHUB_EVENT_NAME,cron:process.env.NAV_SCHEDULE_CRON});
+          import {assessNavPublicAdmission} from './scripts/nav-schedule-admission.mjs';
+          const result=assessNavPublicAdmission({eventName:process.env.GITHUB_EVENT_NAME,cron:process.env.NAV_SCHEDULE_CRON});
           console.log(JSON.stringify({kind:'PUBLIC_NAV_ADMISSION',...result,gasCalls:0,financialWrites:0}));
           fs.appendFileSync(process.env.GITHUB_OUTPUT,'admitted='+String(result.admit)+'\n');
           JS
