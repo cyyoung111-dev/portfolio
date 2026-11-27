@@ -248,6 +248,21 @@ const noisyAudit=await runDailyOperations({
 assert.equal(jobReads.length,1,'ineligible source-only runs must not exhaust private evidence budget');
 assert.equal(noisyAudit.kbNav.execution,'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
 assert.equal(noisyAudit.kbNav.state,'EVIDENCE_MISSING','execution is not NAV storage proof');
+for(const [list,jobList] of [
+ [{total_count:2,workflow_runs:[run]},null],
+ [{total_count:2,workflow_runs:[run,run]},null],
+ [{total_count:'1',workflow_runs:[run]},null],
+ [{total_count:1,workflow_runs:[run]},{total_count:4,jobs:jobs[123]}]
+]){
+ const partial=await runDailyOperations({
+  now:at('2026-11-13T22:30:00+09:00'),token:'synthetic',
+  morningReader:async()=>({verifiedSent:true}),
+  closeReader:async()=>({date:fri,verified:true}),
+  fetchImpl:async url=>({ok:true,json:async()=>url.includes('/workflows/')?list:jobList})
+ });
+ assert.equal(partial.kbNav.execution,'RUN_LIST_UNVERIFIED');
+ assert.equal(partial.kbNav.state,'EVIDENCE_MISSING');
+}
 assert.equal(classifyNavRuns([run],{123:jobs[123].slice(0,1)},fri),
  'NAV_EXECUTION_UNVERIFIED');
 let observed=[],statusReads=0;
