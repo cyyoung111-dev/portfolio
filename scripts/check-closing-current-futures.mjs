@@ -125,6 +125,23 @@ assert.ok(outOfWindow.every(x=>x.status==='OUTSIDE_DELIVERY_WINDOW'&&x.host==='N
 assert.equal((await readCurrentFutures(date,{now:()=>instant,onDiagnostic:()=>{throw Error('LOG_FAILURE');},
  fetchImpl:async url=>({ok:true,json:async()=>chart(decodeURIComponent(new URL(url).pathname.split('/').at(-1)),ts)})})).length,4);
 
+// Exact UTC window replaces only the second stale/date-mismatched request.
+let explicitCalls=0;const recoveredExplicit=await readCurrentFutures(date,{now:()=>instant,fetchImpl:async url=>{
+ explicitCalls++;const u=new URL(url),symbol=decodeURIComponent(u.pathname.split('/').at(-1));
+ if(u.hostname.startsWith('query1.')){
+  assert.equal(u.searchParams.get('range'),'1d');
+  return {ok:true,json:async()=>chart(symbol,ts-86400)};
+ }
+ assert.equal(u.searchParams.has('range'),false);
+ assert.equal(Number(u.searchParams.get('period2')),Math.floor(instant.getTime()/1000));
+ assert.equal(Number(u.searchParams.get('period2'))-Number(u.searchParams.get('period1')),86400);
+ const value=chart(symbol,ts,28000);value.chart.result[0].meta.chartPreviousClose=27000;
+ return {ok:true,json:async()=>value};
+}});
+assert.equal(explicitCalls,8);assert.equal(recoveredExplicit.length,4);
+assert.ok(recoveredExplicit.every(x=>x.changePercent===undefined&&x.previousClose===undefined));
+const explicitStillStale=await readCurrentFutures(date,{now:()=>instant,fetchImpl:async url=>({ok:true,json:async()=>chart(decodeURIComponent(new URL(url).pathname.split('/').at(-1)),ts-86400)})});
+assert.deepEqual(explicitStillStale,[],'window retry cannot bypass date/freshness');
 const nh=[
  {label:'S&P 500',symbol:'^GSPC',source:'NH_INDEX_DAILY',date:'2026-10-30',value:7580.07,changePercent:-1.82},
  {label:'NASDAQ',symbol:'^IXIC',source:'NH_INDEX_DAILY',date:'2026-10-30',value:25437,changePercent:-2.86},
