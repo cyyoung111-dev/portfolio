@@ -347,6 +347,424 @@ assert.deepEqual(candidate.needs,['source-public']);
 assert.equal(candidate.environment,undefined);
 assert.match(candidate.if,/github\.ref == 'refs\/heads\/main'/);
 assert.match(candidate.if,/needs\['source-public'\]\.result == 'failure'/);
+assert.match(candidate.if,/needs\['source-public'\]\.outputs\.admitted == 'true'/);
+const publicJob=workflow.jobs['source-public'];
+assert.equal(publicJob.outputs.admitted,'
+assert.match(candidate.steps.find(x=>x.id==='candidate').run,/--archive/);
+assert.match(candidate.steps.at(-1).with.name,/public-nav-candidate-/);
+assert.doesNotMatch(JSON.stringify(candidate),/GAS_ACCESS_TOKEN|portfolio-production-gas|--apply|secrets\./);
+for(const name of ['collect','hanwha-collect','postflight-readonly'])
+ assert.doesNotMatch(JSON.stringify(workflow.jobs[name]),/source-kofia-candidate|public-nav-candidate/);
+const candidatePreview=workflow.jobs['candidate-preview-readonly'];
+assert.deepEqual(candidatePreview.needs,['source-kofia-candidate','postflight-readonly']);
+assert.equal(candidatePreview.environment,'portfolio-production-gas');
+assert.match(candidatePreview.if,/github\.event_name == 'push'/);
+assert.match(candidatePreview.if,/needs\['postflight-readonly'\]\.result == 'failure'/);
+assert.match(candidatePreview.if,/github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
+assert.match(candidatePreview.if,/!cancelled\(\)/);
+assert.doesNotMatch(candidatePreview.if,/postflight-readonly'\]\.result == 'skipped'/);
+assert.match(candidatePreview.if,/needs\['source-kofia-candidate'\]\.result == 'success'/);
+assert.match(candidatePreview.steps.at(-1).run,/preview-crosschecked-nav-readonly[.]mjs/);
+assert.doesNotMatch(JSON.stringify(candidatePreview),/--apply|collectKbFundNav|collectHanwhaFundNav/);
+const privateCollector=workflow.jobs.collect;
+assert.equal(privateCollector.environment,'portfolio-production-gas');
+assert.match(privateCollector.if,/refs\/heads\/main/);
+assert.match(privateCollector.if,/schedule/);
+assert.match(privateCollector.steps.at(-1).run,/collect-kb-fund-nav[.]mjs --apply/);
+const hanwhaCollector=workflow.jobs['hanwha-collect'];
+assert.deepEqual(hanwhaCollector.needs,['collect']);
+assert.equal(hanwhaCollector.environment,'portfolio-production-gas');
+assert.match(hanwhaCollector.if,/always\(\)/);
+assert.match(hanwhaCollector.steps.at(-1).run,/collect-hanwha-fund-nav[.]mjs --apply/);
+const kbCollectorCode=fs.readFileSync('scripts/collect-kb-fund-nav.mjs','utf8');
+assert.match(kbCollectorCode,/previewFundNavImport/);
+assert.match(kbCollectorCode,/NAV_READBACK_FAILED/);
+assert.match(kbCollectorCode,/if\s*\(candidates\.length\)/);
+assert.match(kbCollectorCode,/sameDayExcluded|row\.date<today/);
+const post=workflow.jobs['postflight-readonly'];
+assert.ok(post,'protected postflight must exist');
+assert.deepEqual(post.needs,['collect','hanwha-collect']);
+assert.equal(post.environment,'portfolio-production-gas');
+assert.match(post.if,/always\(\)/);
+assert.match(post.if,/&& \(needs\.collect\.outputs\.admitted == 'true' \|\| needs\['hanwha-collect'\]\.outputs\.admitted == 'true'\)$/);
+for(const name of ['collect','hanwha-collect']){
+ const job=workflow.jobs[name];
+ assert.equal(job.outputs.admitted,'$'+'{{ steps.nav_admission.outputs.admitted }}');
+ assert.equal(job.steps.find(step=>step.id==='nav_admission').run,
+   'node scripts/nav-schedule-admission.mjs');
+}
+assert.equal(post.steps.at(-1).run,'node scripts/audit-kb-nav-postflight-readonly.mjs --both');
+const publicStatus=workflow.jobs['source-public'].steps.find(s=>
+ s.name==='Record public source coverage without blocking private writer');
+assert.ok(publicStatus,'mandatory public NAV status audit must remain');
+assert.match(publicStatus.run,/PUBLIC_KB_NAV_UNAVAILABLE/);
+assert.match(publicStatus.run,/PUBLIC_HANWHA_NAV_UNAVAILABLE/);
+assert.match(publicStatus.run,/PUBLIC_FIDELITY_OPTIONAL_UNAVAILABLE/);
+assert.doesNotMatch(publicStatus.run,/PUBLIC_FIDELITY_NAV_UNAVAILABLE/,
+ 'optional Fidelity archive must not fail KB/Hanwha operations');
+const afterFidelity=publicStatus.run.split('PUBLIC_FIDELITY_OPTIONAL_UNAVAILABLE')[1]||'';
+assert.doesNotMatch(afterFidelity.split('fi')[0],/incomplete=1/,
+ 'optional source warning cannot flip mandatory held-fund result');
+assert.equal(post.steps.at(-1).env.GAS_ACCESS_TOKEN.includes('secrets.GAS_ACCESS_TOKEN'),true);
+const script=fs.readFileSync('scripts/audit-kb-nav-postflight-readonly.mjs','utf8');
+assert.doesNotMatch(script,/action:['"](?:collectKbFundNav|collectHanwhaFundNav|resumeIncompletePortfolioClose)['"]/);
+assert.match(script,/action:'getFundValuationStatus'/);
+assert.match(script,/action:'previewFundNavImport'/);
+assert.match(script,/if\(!result\.navWorkflowPass\)process\.exitCode=1/,
+ 'postflight exit must reflect NAV-only integrity, not unrelated CLOSE finality');
+// The public source may be submitted only to read-only GAS preview.
+let requestAction='';
+const preview=await readKbExactNavPreview({
+ url:'https://script.google.com/macros/s/EXAMPLE123/exec',token:'MOCK_TOKEN_1234',date,
+ nav:2100.55,fetchImpl:async (_url,opts)=>{
+   const body=Object.fromEntries(opts.body);
+   requestAction=body.action;
+   const input=JSON.parse(body.data);
+   assert.equal(input.code,'F00002');assert.equal(input.provider,'KB_VALUE_ST');
+   assert.equal(input.classCode,'AQ018');
+   assert.deepEqual(input.rows,[{date,nav:2100.55}]);
+   assert.equal(body.accessToken,'MOCK_TOKEN_1234');
+   return {ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(requestAction,'previewFundNavImport');
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,preview),true);
+// #734: the initial private collector has a bounded read-only preview retry;
+// postflight must not emit a false failure for one transient 200/HTML response.
+const readonlyOptions={url:'https://script.google.com/macros/s/EXAMPLE123/exec',
+ token:'MOCK_TOKEN_1234',date,nav:2100.55};
+let jsonCalls=0,delays=[];
+const afterHtml=await readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async delay=>{delays.push(delay);},
+ fetchImpl:async (_url,opts)=>{
+   assert.equal(opts.body.get('action'),'previewFundNavImport');
+   assert.equal(opts.body.get('accessToken'),'MOCK_TOKEN_1234');
+   jsonCalls++;
+   return jsonCalls===1
+     ?{ok:true,headers:{get:()=> 'text/html'},json:async()=>{throw Error('HTML');}}
+     :{ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(jsonCalls,2,'one invalid JSON read-only preview may retry once');
+assert.deepEqual(delays,[1500]);
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,afterHtml),true);
+let transientCalls=0;
+await readKbExactNavPreview({...readonlyOptions,retryDelay:async()=>{},
+ fetchImpl:async()=>{
+   transientCalls++;
+   return transientCalls===1?{ok:false,status:503}
+     :{ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(transientCalls,2,'a single 503 is retryable on a read-only preview');
+let networkCalls=0;
+await readKbExactNavPreview({...readonlyOptions,retryDelay:async()=>{},
+ fetchImpl:async()=>{
+   networkCalls++;
+   if(networkCalls===1)throw Error('transient network');
+   return {ok:true,json:async()=>exactPreview()};
+ }});
+assert.equal(networkCalls,2,'a single network failure can retry only the preview');
+let deniedCalls=0;
+await assert.rejects(()=>readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async()=>assert.fail('401/403 must not be retried'),
+ fetchImpl:async()=>{
+   deniedCalls++;
+   return {ok:false,status:403};
+ }}),/KB_POSTFLIGHT_PREVIEW_HTTP_UNVERIFIED/);
+assert.equal(deniedCalls,1);
+let malformedCalls=0;
+const malformed=await readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async()=>assert.fail('valid JSON schema mismatch must not retry'),
+ fetchImpl:async()=>{
+   malformedCalls++;
+   return {ok:true,json:async()=>exactPreview(2100.56)};
+ }});
+assert.equal(malformedCalls,1);
+assert.equal(verifyKbOfficialNavPreview(date,2100.55,malformed),false,
+ 'source vs persisted amount mismatch must fail closed');
+let persistentBadCalls=0;
+await assert.rejects(()=>readKbExactNavPreview({...readonlyOptions,
+ retryDelay:async()=>{},
+ fetchImpl:async()=>{
+   persistentBadCalls++;
+   return {ok:true,json:async()=>{throw Error('HTML');}};
+ }}),/KB_POSTFLIGHT_PREVIEW_JSON_UNVERIFIED/);
+assert.equal(persistentBadCalls,2,'transient retry is strictly bounded to one');
+const readonlyPreviewCode=fs.readFileSync(
+ 'scripts/audit-kb-nav-postflight-readonly.mjs','utf8').split(
+ 'export async function readKbExactNavPreview(')[1].split(
+ 'export async function auditKbNavPostflight(')[0];
+assert.doesNotMatch(readonlyPreviewCode,/collectKbFundNav|collectHanwhaFundNav|mode:'import'|mode:'refresh'/,
+ 'postflight must never call a financial writer');
+// Both funds get independent exact-date source and derived checks. Share
+// only the immutable close read, never a source or another fund's proof.
+const hanwhaSource={writerInvoked:false,code:'F00001',
+ provider:'HANWHA_2045_CRPE',classCode:'C-RPe',
+ sourceUsed:'HANWHA_PRIMARY',lookupCode:'008942',rows:source};
+const hProof={status:'ok',fundResults:{F00001:{code:'F00001',
+ dates:[{...verified,code:'F00001'}]}}};
+const hPreview={...exactPreview(),code:'F00001'};
+const hOptions={...mocks,completedDaysOnly:true,
+ sourceReader:async()=>hanwhaSource,
+ valuationReader:async({code,to})=>{
+  assert.equal(code,'F00001');assert.equal(to,date);return hProof;
+ },
+ previewReader:async({code,sourceUsed,nav,date:asked})=>{
+  assert.equal(code,'F00001');assert.equal(sourceUsed,'HANWHA_PRIMARY');
+  assert.equal(asked,date);assert.equal(nav,2100.55);return hPreview;
+ }};
+const hResult=await auditHanwhaNavPostflight(hOptions);
+assert.equal(hResult.kind,'HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY');
+assert.equal(hResult.navWorkflowStatus,'NAV_DATA_VERIFIED');
+assert.equal(hResult.navWorkflowPass,true);
+assert.equal(hResult.financialWrites,0);
+for(const change of [
+ {previewReader:async()=>exactPreview()},
+ {previewReader:async()=>({...exactPreview(2100.56),code:'F00001'})},
+ {valuationReader:async()=>({status:'ok',fundResults:{F00001:{code:'F00001',dates:[]}}})},
+ {valuationReader:async()=>({status:'ok',fundResults:{F00001:{code:'F00001',dates:[
+   {...verified,code:'F00001',snapshotState:'WRITE_REQUIRED'}]}}})}
+]){
+ const result=await auditHanwhaNavPostflight({...hOptions,...change});
+ assert.equal(result.navWorkflowPass,false);
+}
+for(const change of [{code:'F00002'},{classCode:'C-Pe'},
+ {lookupCode:'008943'},{provider:'KB_VALUE_ST'},{sourceUsed:'UNKNOWN'}]){
+ await assert.rejects(()=>auditHanwhaNavPostflight({...hOptions,
+  sourceReader:async()=>({...hanwhaSource,...change}),
+  valuationReader:async()=>assert.fail('unverified class must not reach GAS valuation')
+ }),/HANWHA_POSTFLIGHT_SOURCE_UNVERIFIED/);
+}
+for(const sourceUsed of ['HANWHA_PRIMARY','FUNETF_CRPE_SECONDARY']){
+ await readKbExactNavPreview({...readonlyOptions,code:'F00001',sourceUsed,
+  fetchImpl:async(_url,opts)=>{
+   const body=Object.fromEntries(opts.body);
+   assert.equal(body.action,'previewFundNavImport');
+   const input=JSON.parse(body.data);
+   assert.equal(input.code,'F00001');
+   assert.equal(input.provider,'HANWHA_2045_CRPE');
+   assert.equal(input.classCode,'C-RPe');
+   assert.equal(input.ackWarnings,false);
+   assert.match(input.sourceText,sourceUsed==='HANWHA_PRIMARY'?/^008942 /:/^K55213C50702 /);
+   assert.deepEqual(input.rows,[{date,nav:2100.55}]);
+   return {ok:true,json:async()=>hPreview};
+  }});
+}
+let sharedReads=0;const results=[];
+const bothOptions={now:mocks.now,statusReader:async()=>{sharedReads++;return {close};},
+ kbReader:args=>auditKbNavPostflight({...mocks,...args,
+  valuationReader:async()=>proof}),
+ hanwhaReader:args=>auditHanwhaNavPostflight({...hOptions,...args}),
+ emit:(code,result)=>results.push([code,result.navWorkflowPass])};
+assert.equal(await auditBothNavPostflight(bothOptions),true);
+assert.deepEqual(results,[['F00002',true],['F00001',true]]);
+assert.equal(sharedReads,1);
+results.length=0;sharedReads=0;
+assert.equal(await auditBothNavPostflight({...bothOptions,
+ kbReader:async()=>{throw Error('SENSITIVE');}}),false);
+assert.deepEqual(results,[['F00002',false],['F00001',true]]);
+assert.equal(sharedReads,1);
+// Real 2026-11-27 runner failures must retain actionable *sanitized*
+// source categories. No raw error body, token, NAV or holder data is logged.
+const failures=[];
+assert.equal(await auditBothNavPostflight({...bothOptions,
+ kbReader:async()=>{throw Error('NAV_SOURCE_HTTP_403');},
+ hanwhaReader:async()=>{throw Error('HANWHA_FUNETF_HTTP_UNVERIFIED');},
+ emit:(code,row)=>failures.push({code,kind:row.kind,pass:row.navWorkflowPass,reason:row.reason,writes:row.financialWrites})
+}),false);
+assert.deepEqual(failures,[
+ {code:'F00002',kind:'FUND_NAV_POSTFLIGHT_UNVERIFIED',pass:false,reason:'NAV_SOURCE_HTTP_403',writes:0},
+ {code:'F00001',kind:'FUND_NAV_POSTFLIGHT_UNVERIFIED',pass:false,reason:'HANWHA_FUNETF_HTTP_UNVERIFIED',writes:0}
+]);
+for(const [code,message,expected] of [
+ ['F00002','NAV_SOURCE_HTTP_429','NAV_SOURCE_HTTP_429'],
+ ['F00002','NAV_SOURCE_HTTP_403 PRIVATE_TOKEN','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00002','HANWHA_FUNETF_HTTP_UNVERIFIED','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00001','NAV_SOURCE_HTTP_403','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00001','SENSITIVE PRIVATE_FINANCE_DETAIL','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00001','HANWHA_SOURCE_NETWORK_UNVERIFIED','HANWHA_SOURCE_NETWORK_UNVERIFIED']
+])assert.equal(safeNavPostflightFailureReason(code,new Error(message)),expected);
+assert.equal(safeNavPostflightFailureReason('F00002',new Error('KB_POSTFLIGHT_GAS_NETWORK_UNVERIFIED')),'KB_POSTFLIGHT_GAS_NETWORK_UNVERIFIED');
+assert.ok(!JSON.stringify(failures).includes('PRIVATE_TOKEN'));
+console.log('BOTH_NAV_POSTFLIGHT_SAFE_SOURCE_REASONS_PASS no data writes, source errors preserved, untrusted details redacted');
+console.log('BOTH_NAV_POSTFLIGHT_EXACT_PASS same close read, exact fund/date/value proof, independent errors, no finance writer');
+console.log('KB NAV postflight: published-vs-persisted, close marker, transient read-only preview and workflow PASS');
+
+ // 2026-11-14: weekend 09:10 scheduled GitHub action actually started
+ // 15:05 KST, timed out on two GAS STATUS reads, while postflight proved
+ // already-complete NAV. A stale cron must never enter protected GAS.
+const navSlots=[
+ ['2026-11-14T00:10:00Z','10 0 * * 0,6',false],
+ ['2026-11-14T01:09:59Z','10 0 * * 0,6',false],
+ ['2026-11-16T00:30:00Z','30 0 * * 1-5',true],
+ ['2026-11-16T01:09:00Z','30 0 * * 1-5',true],
+ ['2026-11-14T00:30:00Z','30 0 * * 1-5',false],
+ ['2026-11-14T09:10:00Z','10 9 * * 1-5',false],
+ ['2026-11-16T09:10:00Z','10 9 * * 1-5',true],
+ ['2026-11-16T10:17:00Z','17 10 * * 1-5',true],
+ ['2026-11-14T10:17:00Z','17 10 * * 1-5',false]
+];
+for(const [instant,cron,admit] of navSlots){
+ const outcome=assessNavScheduledAdmission({
+  eventName:'schedule',cron,now:new Date(instant)
+ });
+ assert.equal(outcome.admit,admit,'schedule slot '+cron+' / '+instant);
+}
+assert.equal(assessNavScheduledAdmission({
+ eventName:'schedule',cron:'unknown',now:new Date('2026-11-14T00:10:00Z')
+}).admit,false,'unsupported NAV cron fails closed');
+assert.equal(assessNavScheduledAdmission({
+ eventName:'workflow_dispatch',now:new Date('2026-11-14T06:05:57Z')
+}).admit,true,'explicit manual run keeps existing GAS/lease safety checks');
+assert.equal(assessNavScheduledAdmission({
+ eventName:'workflow_run',now:new Date('2026-11-14T06:05:57Z')
+}).admit,true,'existing upstream-KRX workflow_run behavior is unchanged');
+assert.throws(()=>assessNavScheduledAdmission({
+ eventName:'schedule',cron:'10 0 * * 0,6',now:new Date(NaN)
+}),/NAV_ADMISSION_CLOCK_INVALID/);
+for(const [label,jobName,writerName] of [
+ ['KB','collect','Collect exact KB S-T published NAV and verify import'],
+ ['HANWHA','hanwha-collect','Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease']
+]){
+ const steps=workflow.jobs[jobName].steps;
+ const admission=steps.findIndex(x=>x.name==='Block stale scheduled NAV starts before private GAS');
+ const privateStep=steps.findIndex(x=>x.name===writerName);
+ assert.ok(admission>=0&&privateStep>admission,
+  label+' must check stale schedule before private GAS credentials/writer');
+ assert.equal(steps[admission].run,'node scripts/nav-schedule-admission.mjs');
+ assert.match(String(steps[admission].env.NAV_SCHEDULE_CRON),/github\.event\.schedule/);
+}
+// Execute the real admission CLI with no GAS credentials. A retired cron
+// must fail and export false; manual collection exports true. Downstream
+// reconciliation uses either admitted job, not its final success/failure.
+// Same-run continuation requires an actual earlier on-time start in the
+// SAME slot/day. The recovery-period deadline and elapsed time are bounded.
+const continuationCases=[
+ ['30 0 * * 1-5','2026-11-16T00:59:00Z','2026-11-16T01:15:00Z',true],
+ ['30 0 * * 1-5','2026-11-16T01:09:00Z','2026-11-16T02:59:00Z',true],
+ ['30 0 * * 1-5','2026-11-16T01:09:59Z','2026-11-16T03:10:00Z',false],
+ ['30 0 * * 1-5','2026-11-16T00:30:00Z','2026-11-16T02:30:00Z',true],
+ ['30 0 * * 1-5','2026-11-16T00:30:00Z','2026-11-16T02:30:01Z',false],
+ ['30 0 * * 1-5','2026-11-16T01:10:00Z','2026-11-16T01:15:00Z',false],
+ ['30 0 * * 1-5','2026-11-15T00:59:00Z','2026-11-16T01:15:00Z',false],
+ ['30 0 * * 1-5','2026-11-14T00:59:00Z','2026-11-14T01:15:00Z',false],
+ ['30 0 * * 1-5','2026-11-16T01:09:00Z','2026-11-16T00:20:00Z',false],
+ ['10 9 * * 1-5','2026-11-16T09:45:00Z','2026-11-16T10:20:00Z',true],
+ ['10 9 * * 1-5','2026-11-16T10:16:00Z','2026-11-16T12:10:00Z',true],
+ ['10 9 * * 1-5','2026-11-16T10:16:00Z','2026-11-16T12:11:00Z',false],
+ ['17 10 * * 1-5','2026-11-16T10:59:00Z','2026-11-16T11:35:00Z',true],
+ ['17 10 * * 1-5','2026-11-16T11:19:00Z','2026-11-16T12:10:00Z',true],
+ ['17 10 * * 1-5','2026-11-16T11:19:00Z','2026-11-16T12:11:00Z',false]
+];
+for(const [cron,prior,instant,expected] of continuationCases){
+ const o=assessNavScheduledAdmission({eventName:'schedule',cron,
+  priorAdmittedAt:new Date(prior).toISOString(),now:new Date(instant)});
+ assert.equal(o.admit,expected,cron+' '+prior+' -> '+instant);
+ if(expected)assert.equal(o.status,'ADMITTED_SAME_RUN_CONTINUATION');
+}
+for(const priorAdmittedAt of ['',undefined,'invalid','2026-11-16T00:59:00Z']){
+ assert.equal(assessNavScheduledAdmission({eventName:'schedule',
+  cron:'30 0 * * 1-5',priorAdmittedAt,now:new Date('2026-11-16T01:15:00Z')}).admit,false);
+}
+const kbAdmission=workflow.jobs.collect.steps.find(x=>x.id==='nav_admission');
+const hAdmission=workflow.jobs['hanwha-collect'].steps.find(x=>x.id==='nav_admission');
+assert.equal(kbAdmission.env.NAV_PRIOR_ADMITTED_AT,undefined,
+ 'initial KB may never receive continuation evidence');
+assert.equal(workflow.jobs.collect.outputs.admitted_at,'$'+'{{ steps.nav_admission.outputs.admitted_at }}');
+assert.equal(hAdmission.env.NAV_PRIOR_ADMITTED_AT,'$'+'{{ needs.collect.outputs.admitted_at }}');
+const admissionTmp=fs.mkdtempSync(join(tmpdir(),'nav-admission-'));
+try{
+ for(const [event,cron,expected,exit] of [
+  ['schedule','10 0 * * 0,6',false,1],
+  ['schedule','invalid',false,1],
+  ['workflow_dispatch','',true,0]
+ ]){
+  const output=join(admissionTmp,'out');
+  fs.writeFileSync(output,'');
+  const r=spawnSync(process.execPath,['scripts/nav-schedule-admission.mjs'],{
+   encoding:'utf8',env:{...process.env,GITHUB_EVENT_NAME:event,
+   NAV_SCHEDULE_CRON:cron,NAV_PRIOR_ADMITTED_AT:'',GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''}
+  });
+  assert.equal(r.status,exit,r.stderr);
+  const proof=fs.readFileSync(output,'utf8').trimEnd().split('\n');
+  assert.equal(proof[0],'admitted='+expected);
+  if(expected)assert.match(proof[1],/^admitted_at=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  else assert.equal(proof[1],'admitted_at=');
+  assert.match(r.stdout,/"gasCalls":0,"financialWrites":0/);
+ }
+}finally{fs.rmSync(admissionTmp,{recursive:true,force:true});}
+console.log('NAV_SCHEDULE_DELAYED_ADMISSION_PASS '+JSON.stringify({
+ simulatedSaturday0910Started1505:true,slots:navSlots.length,
+ staleScheduleCannotReachGas:true,postflightRequiresAdmittedCollector:true,sameRunContinuationCases:continuationCases.length,financialWrites:0
+}));
+
+ // Real adapter and GAS preview contract with a mock transport. No network.
+const {selectCrosscheckedCandidate}=await import('./nav-crosschecked-candidate.mjs');
+const {previewCrosscheckedNav}=await import('./preview-crosschecked-nav-readonly.mjs');
+const candidateToday='2026-11-27',candidateDates=['2026-11-20','2026-11-23','2026-11-24','2026-11-25','2026-11-26'];
+const exampleArchive={kind:'PUBLIC_NAV_CANDIDATE_ARCHIVE',asOfKst:candidateToday,importAuthorized:false,
+ financialWrites:0,gasCalls:0,requestedDates:candidateDates,
+ funds:[['F00002','KR5223AQ0185'],['F00001','K55213C50702']].map(([fund,standardCode])=>({
+  fund,standardCode,source:'https://dis.kofia.or.kr/proframeWeb/XMLSERVICES/',anchorState:'MATCH',secondaryState:'RETRIEVED',
+  rows:candidateDates.map((date,i)=>({date,nav:String(1000+i)})),
+  crosscheck:{state:'CROSSCHECK_MATCHED',conflictDates:[],matchedDates:candidateDates.slice(0,4)}
+ }))};
+assert.equal(selectCrosscheckedCandidate(exampleArchive,'F00002',candidateToday).rows.length,4);
+const missingPrimary=structuredClone(exampleArchive);missingPrimary.funds[0].rows.pop();
+assert.deepEqual(selectCrosscheckedCandidate(missingPrimary,'F00002',candidateToday).unverifiedDates,['2026-11-26']);
+const staleRange=structuredClone(exampleArchive);staleRange.requestedDates=['2026-11-19',...candidateDates.slice(0,4)];
+assert.throws(()=>selectCrosscheckedCandidate(staleRange,'F00002',candidateToday),/NAV_CANDIDATE_RANGE_UNVERIFIED/);
+assert.deepEqual(selectCrosscheckedCandidate(exampleArchive,'F00001',candidateToday).unverifiedDates,['2026-11-26']);
+assert.throws(()=>selectCrosscheckedCandidate({...exampleArchive,asOfKst:'2026-11-26'},'F00002',candidateToday),/NAV_CANDIDATE_ARCHIVE_UNVERIFIED/);
+for(const mutate of [a=>a.funds[0].standardCode='WRONG',a=>a.funds[0].crosscheck.conflictDates=['2026-11-23'],
+ a=>a.funds[0].rows.push(a.funds[0].rows[0]),a=>a.funds[0].crosscheck.matchedDates=['2026-11-20']]){
+ const invalid=structuredClone(exampleArchive);mutate(invalid);
+ assert.throws(()=>selectCrosscheckedCandidate(invalid,'F00002',candidateToday),/NAV_CANDIDATE_/);
+}
+const candidateMock=({noOverlap=false,conflict=false}={})=>async(dest,opts)=>{
+ const action=opts.body.get('action');
+ assert.equal(new URL(dest).origin,'https://script.google.com');
+ assert.ok(['getAutomationStatus','previewFundNavImport'].includes(action));
+ if(action==='getAutomationStatus')return {ok:true,json:async()=>opts.body.get('accessToken')==='test-candidate-token'
+  ?{status:'ok',gasVersion:'9.305',automation:{closeRun:{runDate:'2026-11-26'}}}
+  :{status:'error',message:'인증 실패'}};
+ const input=JSON.parse(opts.body.get('data'));
+ assert.equal(input.appendOnly,true);assert.equal(input.ackWarnings,false);
+ assert.equal(input.rows.length,4);assert(!input.rows.some(r=>r.date==='2026-11-26'));
+ const identical=noOverlap?[]:[{date:input.rows[0].date,existingNav:input.rows[0].nav,uploadedNav:input.rows[0].nav}];
+ return {ok:true,json:async()=>({status:'ok',code:input.code,
+  candidates:input.rows.slice(noOverlap?0:1),identical,
+  updates:conflict?[{}]:[],warnings:[],errors:[],duplicates:[],zeroUnits:[]})};
+};
+const candidateOptions={archive:exampleArchive,url:'https://script.google.com/macros/s/TEST_CANDIDATE/exec',token:'test-candidate-token',now:new Date('2026-11-27T01:00:00+09:00')};
+const candidateResult=await previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock()});
+assert.equal(candidateResult.financialWrites,0);assert.equal(candidateResult.importAuthorized,false);
+assert.equal(candidateResult.results.length,2);
+assert.ok(candidateResult.results.every(r=>r.latestRequestedDateCrosschecked===false&&r.allRequestedDatesCrosschecked===false&&r.allCloseEligibleDatesPreviewed===false));
+assert.deepEqual(candidateResult.results[0].identicalDates,['2026-11-20']);
+assert.deepEqual(candidateResult.results[0].candidateDates,['2026-11-23','2026-11-24','2026-11-25']);
+const completeArchive=structuredClone(exampleArchive);for(const f of completeArchive.funds)f.crosscheck.matchedDates=[...candidateDates];
+const completeResult=await previewCrosscheckedNav({...candidateOptions,archive:completeArchive,fetchImpl:async(dest,opts)=>{
+ if(opts.body.get('action')==='getAutomationStatus')return candidateMock()(dest,opts);
+ assert.equal(opts.body.get('action'),'previewFundNavImport');
+ const input=JSON.parse(opts.body.get('data'));assert.equal(input.rows.length,5);
+ return {ok:true,json:async()=>({status:'ok',code:input.code,identical:[{date:input.rows[0].date,existingNav:input.rows[0].nav,uploadedNav:input.rows[0].nav}],candidates:input.rows.slice(1),updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:[]})};
+}});
+assert.ok(completeResult.results.every(r=>r.latestRequestedDateCrosschecked===true&&r.allRequestedDatesCrosschecked===true&&r.allCloseEligibleDatesPreviewed===true));
+assert.equal(completeResult.financialWrites,0);assert.equal(completeResult.importAuthorized,false);
+await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({noOverlap:true})}),/NAV_CANDIDATE_PERSISTED_OVERLAP_UNVERIFIED/);
+await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({conflict:true})}),/NAV_CANDIDATE_PREVIEW_BLOCKED/);
+console.log('NAV crosschecked candidate exact-class and read-only GAS preview PASS');
++'{{ steps.public_admission.outputs.admitted }}');
+const publicAdmission=publicJob.steps.find(s=>s.id==='public_admission');
+assert.match(publicAdmission.run,/assessNavScheduledAdmission/);
+for(const id of ['public-nav','hanwha-public','fidelity-public']){
+ const step=publicJob.steps.find(x=>x.id===id);
+ assert.ok(publicJob.steps.indexOf(publicAdmission)<publicJob.steps.indexOf(step));
+ assert.equal(step.if,"steps.public_admission.outputs.admitted == 'true'");
+}
+assert.equal(publicJob.steps.at(-1).if,"always() && steps.public_admission.outputs.admitted == 'true'");
+assert.equal(assessNavScheduledAdmission({eventName:'schedule',cron:'10 9 * * 1-5',now:new Date('2026-11-28T03:55:00+09:00')}).admit,false);
+assert.equal(assessNavScheduledAdmission({eventName:'schedule',cron:'10 9 * * 1-5',now:new Date('2026-11-27T18:11:00+09:00')}).admit,true);
+
 assert.match(candidate.steps.find(x=>x.id==='candidate').run,/--archive/);
 assert.match(candidate.steps.at(-1).with.name,/public-nav-candidate-/);
 assert.doesNotMatch(JSON.stringify(candidate),/GAS_ACCESS_TOKEN|portfolio-production-gas|--apply|secrets\./);
