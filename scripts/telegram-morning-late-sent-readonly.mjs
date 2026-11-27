@@ -8,7 +8,7 @@ const MORNING_PATHS=new Set([
 ]);
 const fail=()=>{throw Error('TELEGRAM_SCHEDULE_LATE_UNVERIFIED');};
 export async function verifyLateScheduledMorningSent({
- date,repository,token,fetchImpl=fetch
+ date,repository,token,fetchImpl=fetch,detailed=false
 }={}){
  if(repository!==REPO||typeof token!=='string'||!token
     ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date||''))fail();
@@ -28,6 +28,7 @@ export async function verifyLateScheduledMorningSent({
  const claimName='telegram-morning-claim-'+date;
  async function oneArtifact(name){
   const data=await get(base+'/artifacts?name='+encodeURIComponent(name)+'&per_page=100');
+  if(detailed&&data?.total_count===0&&Array.isArray(data.artifacts)&&data.artifacts.length===0)return null;
   if(data?.total_count!==1||!Array.isArray(data.artifacts)||data.artifacts.length!==1)fail();
   const a=data.artifacts[0];
   if(a?.name!==name||a.expired!==false||!Number.isSafeInteger(a.id)
@@ -38,6 +39,7 @@ export async function verifyLateScheduledMorningSent({
  }
  const sent=await oneArtifact(claimName+'-sent');
  const claim=await oneArtifact(claimName);
+ if(detailed&&(!sent||!claim))return {date,status:!sent&&!claim?'NO_CLAIM_OR_SENT':!sent?'CLAIM_WITHOUT_SENT':'SENT_WITHOUT_CLAIM',verifiedSent:false,financeWrites:0,telegramSends:0,githubReads:2};
  if(sent.runId!==claim.runId||claim.created>sent.created)fail();
  const run=await get(base+'/runs/'+sent.runId);
  if(run?.id!==sent.runId||run.status!=='completed'||run.conclusion!=='success'
@@ -45,5 +47,5 @@ export async function verifyLateScheduledMorningSent({
   ||!MORNING_PATHS.has(run.path)||run.run_attempt!==1
   ||!['schedule','workflow_run','push','workflow_dispatch'].includes(run.event))fail();
  return {date,status:'LATE_SCHEDULE_ALREADY_SENT',verifiedSent:true,
-  financeWrites:0,telegramSends:0,githubReads:3};
+  financeWrites:0,telegramSends:0,githubReads:3,...(detailed?{runId:sent.runId,runUrl:'https://github.com/'+REPO+'/actions/runs/'+sent.runId}:{})};
 }
