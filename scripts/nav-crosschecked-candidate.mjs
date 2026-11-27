@@ -13,6 +13,9 @@ export function selectCrosscheckedCandidate(archive,code,today){
    ||!Array.isArray(archive.funds)||!Array.isArray(archive.requestedDates))
   throw Error('NAV_CANDIDATE_ARCHIVE_UNVERIFIED');
  const requested=archive.requestedDates;
+ const recent=[];const cursor=new Date(today+'T00:00:00Z');
+ while(recent.length<5){cursor.setUTCDate(cursor.getUTCDate()-1);if(![0,6].includes(cursor.getUTCDay()))recent.unshift(cursor.toISOString().slice(0,10));}
+ if(requested.length!==recent.length||requested.some((d,i)=>d!==recent[i]))throw Error('NAV_CANDIDATE_RANGE_UNVERIFIED');
  if(requested.length!==5||new Set(requested).size!==5||requested.some(d=>!day(d)||d>=today||[0,6].includes(new Date(d+'T00:00:00Z').getUTCDay())||(Date.parse(today)-Date.parse(d))/86400000>10)
    ||requested.some((d,i)=>i>0&&d<=requested[i-1]))throw Error('NAV_CANDIDATE_RANGE_UNVERIFIED');
  const items=archive.funds.filter(x=>x.fund===code);
@@ -32,7 +35,8 @@ export function selectCrosscheckedCandidate(archive,code,today){
  });
  if(check.matchedDates.some(d=>!seen.has(d)))throw Error('NAV_CANDIDATE_MATCH_MISSING');
  const rows=all.filter(r=>check.matchedDates.includes(r.date)).sort((a,b)=>a.date.localeCompare(b.date));
- return {...spec,code,rows,unverifiedDates:all.filter(r=>!check.matchedDates.includes(r.date)).map(r=>r.date),
+ return {...spec,code,rows,requestedDates:[...requested],
+   unverifiedDates:requested.filter(d=>!check.matchedDates.includes(d)),
    writerInvoked:false,importAuthorized:false};
 }
 export function loadCandidate(path,today,code){

@@ -147,14 +147,18 @@ jobs:
           path: public-nav-candidate.json
           retention-days: 7
           if-no-files-found: error
-  # One protected read-only compatibility check on the main push that
-  # introduces this connection. No new schedule, Writer or secret changes.
+  # Reuse the same-run public evidence after an admitted private postflight
+  # failure, never after a stale/denied run. A main push still verifies
+  # compatibility only. No new cron, Writer, retry or secret changes.
   candidate-preview-readonly:
-    needs: [source-kofia-candidate]
+    needs: [source-kofia-candidate, postflight-readonly]
     if: >-
       always() && !cancelled() && github.repository == 'cyyoung111-dev/portfolio' &&
-      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
-      needs['source-kofia-candidate'].result == 'success'
+      github.ref == 'refs/heads/main' &&
+      needs['source-kofia-candidate'].result == 'success' &&
+      (github.event_name == 'push' ||
+        ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          needs['postflight-readonly'].result == 'failure'))
     environment: portfolio-production-gas
     runs-on: ubuntu-latest
     timeout-minutes: 9
