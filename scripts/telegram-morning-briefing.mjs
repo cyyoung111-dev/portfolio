@@ -109,9 +109,10 @@ export async function fetchDatedDaily(label,symbol,tradingDate,{fetchImpl=fetch,
   const list=[...rows].sort((a,b)=>a[0].localeCompare(b[0]));
   if(!list.length)return null;
   // A provider may append a non-session bar or an unfinished holiday bar.
-  // If the caller has independently established the exact completed date,
-  // select ONLY that date. Never fall back to a different day's observation.
-  const selectedIndex=expectedSessionDate
+  // Use exact-date selection for these public reference series only.
+  // Preserve the stock/index last-bar contract; its caller validates the date.
+  const exactReference=['KRW=X','DX-Y.NYB','^VIX','^TNX','CL=F','BZ=F','GC=F','HG=F','BTC-USD'].includes(symbol);
+  const selectedIndex=exactReference&&expectedSessionDate
     ?list.findIndex(row=>row[0]===expectedSessionDate):list.length-1;
   if(selectedIndex<0)return null;
   const [date,value]=list[selectedIndex];
