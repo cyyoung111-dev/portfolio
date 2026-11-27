@@ -90,17 +90,26 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
  // only the exact current KRX session's persisted FUND_PENDING checkpoint,
  // never a stale date, unrelated close error, or a published-but-missing NAV.
  // This is a pending label, NOT success or authorization to write data.
- const fundPublicationPending=(hanwha.state==='PASS'||hanwha.state==='PUBLICATION_PENDING')
-  &&nav.state==='PUBLICATION_PENDING'
-  &&navReport?.closeDate===date
-  &&navReport?.officialReferenceDate===date
-  &&navReport?.officiallyPublished===false
-  &&navReport?.closeState==='INCOMPLETE'
-  &&navReport?.closeDateVerified===true
-  &&navReport?.runStale===false&&navReport?.snapshotStale===false
-  &&navReport?.fundCloseCheckpointEvidence?.closeStage==='FUND_PENDING'
-  &&navReport?.priceOk===true&&navReport?.fundOk===false
-  &&navReport?.closeComplete===false;
+ const pendingReport=nav.state==='PUBLICATION_PENDING'?navReport:
+  hanwha.state==='PUBLICATION_PENDING'?hanwhaReport:null;
+ const pendingStatusCompatible=closeStatus===undefined||(closeStatus?.runDate===date
+  &&closeStatus.summaryRunDate===date&&closeStatus.summaryPresent===true
+  &&closeStatus.state==='INCOMPLETE'&&closeStatus.stage==='FUND_PENDING'
+  &&closeStatus.priceOk===true&&closeStatus.fundOk===false
+  &&closeStatus.runStale===false&&closeStatus.snapshotStale===false);
+ const fundPublicationPending=pendingReport!==null
+  &&['PASS','PUBLICATION_PENDING'].includes(nav.state)
+  &&['PASS','PUBLICATION_PENDING'].includes(hanwha.state)
+  &&pendingStatusCompatible
+  &&pendingReport.closeDate===date
+  &&pendingReport.officialReferenceDate===date
+  &&pendingReport.officiallyPublished===false
+  &&pendingReport.closeState==='INCOMPLETE'
+  &&pendingReport.closeDateVerified===true
+  &&pendingReport.runStale===false&&pendingReport.snapshotStale===false
+  &&pendingReport.fundCloseCheckpointEvidence?.closeStage==='FUND_PENDING'
+  &&pendingReport.priceOk===true&&pendingReport.fundOk===false
+  &&pendingReport.closeComplete===false;
  const savedClose={state:closePersisted?'PASS':
    !isDue(now,date,21*60)?'WAITING':
    fundPublicationPending?'FUND_PUBLICATION_PENDING':'EVIDENCE_MISSING',
