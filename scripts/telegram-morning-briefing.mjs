@@ -8,7 +8,7 @@ import {formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {formatInvestorTrends} from './briefing-krx-investor-trends.mjs';
 import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
- formatMorningVkospi,formatMorningTurnover,formatMorningBreadth} from './telegram-morning-supplements.mjs';
+ formatMorningVkospi,formatMorningTurnover,formatMorningBreadth,morningFuturesExpectation} from './telegram-morning-supplements.mjs';
 import {MORNING_SERIES, expectedMorningDate, hasExpectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
 import {readCboeVixReference} from './closing-secondary-index-sources.mjs';
 import {verifiedYahoo52WeekRange} from './briefing-yahoo-52week-range.mjs';
@@ -193,9 +193,12 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   const values=await fillMissingMorningVix(first.date,
     mergeMorningSourceRows(quotes,masterRows,nhRows,domesticRows,nhStockRows),
     {now:now(),fetchImpl,onDiagnostic:onSourceDiagnostic});
+  const futuresExpectation=morningFuturesExpectation(first.date,now());
+  const futuresNotExpected=['HOLIDAY_HALT','WEEKEND_CLOSED'].includes(futuresExpectation);
+  try{onSourceDiagnostic({kind:'MORNING_FUTURES_SESSION',status:futuresExpectation});}catch{}
   const supplements={
     usReferences:supplementRows.usReferences||[],
-    futures:supplementRows.futures?.length
+    futures:supplementRows.futures?.length||futuresNotExpected
       ?formatMorningFutures(first.date,supplementRows.futures,now()):'',
     treasury:supplementRows.treasury?.length
       ?formatMorningTreasury(first.date,supplementRows.treasury):'',
@@ -245,7 +248,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     liquidity:Number(Boolean(supplementRows.liquidity?.deposits))
       +Number(Boolean(supplementRows.liquidity?.margin)),
     investors:(supplementRows.investors?.markets?.length||0)
-  },message);
+  },message,{futuresNotExpected});
   if(display)try{onSourceDiagnostic(display);}catch{}
   await send(token,chatId,message,{fetchImpl});
   return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,
