@@ -50,8 +50,14 @@ export async function previewCrosscheckedNav({archive,url,token,now=new Date(),f
    throw Error('NAV_CANDIDATE_PREVIEW_MISMATCH');
   // New source may not write before re-proving exact persisted historical overlap.
   if(!p.identical.length)throw Error('NAV_CANDIDATE_PERSISTED_OVERLAP_UNVERIFIED');
-  results.push({code:source.code,checkedDates:rows.map(r=>r.date),identicalCount:p.identical.length,
-   candidateCount:p.candidates.length,unverifiedDates:source.unverifiedDates});
+  const checkedDates=rows.map(r=>r.date);
+  const eligibleRequested=source.requestedDates.filter(d=>d<=close);
+  results.push({code:source.code,checkedDates,identicalCount:p.identical.length,
+   candidateCount:p.candidates.length,identicalDates:p.identical.map(x=>x.date).sort(),
+   candidateDates:p.candidates.map(x=>x.date).sort(),unverifiedDates:source.unverifiedDates,
+   latestRequestedDateCrosschecked:source.rows.some(r=>r.date===source.requestedDates.at(-1)),
+   allRequestedDatesCrosschecked:source.unverifiedDates.length===0,
+   allCloseEligibleDatesPreviewed:eligibleRequested.every(d=>checkedDates.includes(d))});
  }
  return {kind:'NAV_CANDIDATE_GAS_PREVIEW_READ_ONLY',gasVersion:status.gasVersion,
   results,financialWrites:0,importAuthorized:false,writerInvoked:false};
