@@ -349,7 +349,17 @@ assert.match(candidate.if,/github\.ref == 'refs\/heads\/main'/);
 assert.match(candidate.if,/needs\['source-public'\]\.result == 'failure'/);
 assert.match(candidate.if,/needs\['source-public'\]\.outputs\.admitted == 'true'/);
 const publicJob=workflow.jobs['source-public'];
-assert.equal(publicJob.outputs.admitted,'
+assert.equal(publicJob.outputs.admitted,'$'+'{{ steps.public_admission.outputs.admitted }}');
+const publicAdmission=publicJob.steps.find(s=>s.id==='public_admission');
+assert.match(publicAdmission.run,/assessNavScheduledAdmission/);
+for(const id of ['public-nav','hanwha-public','fidelity-public']){
+ const step=publicJob.steps.find(x=>x.id===id);
+ assert.ok(publicJob.steps.indexOf(publicAdmission)<publicJob.steps.indexOf(step));
+ assert.equal(step.if,"steps.public_admission.outputs.admitted == 'true'");
+}
+assert.equal(publicJob.steps.at(-1).if,"always() && steps.public_admission.outputs.admitted == 'true'");
+assert.equal(assessNavScheduledAdmission({eventName:'schedule',cron:'10 9 * * 1-5',now:new Date('2026-11-28T03:55:00+09:00')}).admit,false);
+assert.equal(assessNavScheduledAdmission({eventName:'schedule',cron:'10 9 * * 1-5',now:new Date('2026-11-27T18:11:00+09:00')}).admit,true);
 assert.match(candidate.steps.find(x=>x.id==='candidate').run,/--archive/);
 assert.match(candidate.steps.at(-1).with.name,/public-nav-candidate-/);
 assert.doesNotMatch(JSON.stringify(candidate),/GAS_ACCESS_TOKEN|portfolio-production-gas|--apply|secrets\./);
