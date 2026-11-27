@@ -9,6 +9,10 @@ on:
   pull_request:
   push:
     branches: [ main ]
+    # A trusted fallback push changes only this non-code signal. Full CI
+    # remains required for every PR and for main pushes with code changes.
+    paths-ignore:
+      - 'ops/nav-independent-arm-trigger.txt'
   workflow_dispatch:
 
 # Cancel only superseded checks on the SAME PR. Every main push and manual
