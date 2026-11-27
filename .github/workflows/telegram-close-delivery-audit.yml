@@ -35,7 +35,7 @@ jobs:
           if(minute>=1090){
             if(session==='CLOSED')proof={...proof,status:'MARKET_CLOSED',verified:true};
             else if(session!=='OPEN')proof={...proof,status:'CALENDAR_UNKNOWN'};
-            else proof=await verifyLateCloseSent({now,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN});
+            else proof=await verifyLateCloseSent({now,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,detailed:true});
           }
           console.log(JSON.stringify(proof));
           fs.writeFileSync('close-delivery-audit.json',JSON.stringify(proof,null,2));
