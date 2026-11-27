@@ -8,8 +8,9 @@ import {formatKofiaLiquidity} from './briefing-kofia-liquidity.mjs';
 import {formatInvestorTrends} from './briefing-krx-investor-trends.mjs';
 import {summarizeOptionalDelivery} from './briefing-optional-display-audit.mjs';
 import {readMorningSupplements,formatMorningFutures,formatMorningTreasury,
- formatMorningVkospi,formatMorningTurnover,formatMorningBreadth} from './telegram-morning-supplements.mjs';
-import {MORNING_SERIES, expectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
+ formatMorningVkospi,formatMorningTurnover,formatMorningBreadth,morningFuturesExpectation} from './telegram-morning-supplements.mjs';
+import {MORNING_SERIES, expectedMorningDate, hasExpectedMorningDate, collectMorningSeries, formatFullMorningBriefing} from './telegram-morning-report.mjs';
+import {readCboeVixReference} from './closing-secondary-index-sources.mjs';
 import {verifiedYahoo52WeekRange} from './briefing-yahoo-52week-range.mjs';
 import domesticIndexEod from '../src/web/domain/market/domestic_index_eod.js';
 import {loadMorningMaster,mergeMorningSourceRows,NH_ONLY_INDEX_SYMBOLS} from './telegram-morning-master.mjs';
@@ -141,6 +142,19 @@ export async function sendTelegram(token,chatId,message,{fetchImpl=fetch}={}) {
   } catch { throw new Error('TELEGRAM_SEND_UNCONFIRMED_DO_NOT_RETRY'); }
   return true;
 }
+// Use the existing CBOE public reference only after the verified merged VIX is absent.
+// No NH close, master price, holdings or other series can be changed here.
+export async function fillMissingMorningVix(date,rows,{now=new Date(),fetchImpl=fetch,reader=readCboeVixReference,onDiagnostic=()=>{}}={}){
+ const info=MORNING_SERIES.find(x=>x.id==='VIX');
+ if(rows.some(r=>hasExpectedMorningDate(info,date,r,now)))return rows;
+ let row;
+ try{row=await reader(date,{fetchImpl});}catch{}
+ const verified=hasExpectedMorningDate(info,date,row,now)&&row.id==='VIX'
+  &&row.source==='CBOE_VIX_DAILY'&&row.role==='NON_NH_REFERENCE_ONLY'
+  &&Number.isFinite(row.changePercent);
+ try{onDiagnostic({kind:'MORNING_VIX_FALLBACK',status:verified?'VERIFIED':'UNVERIFIED'});}catch{}
+ return verified?[...rows.filter(r=>r?.symbol!==info.symbol),row]:rows;
+}
 export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,token,chatId,event='schedule',attempt=1,allowLateTest=false,referenceFetch=async()=>null,send=sendTelegram,onSourceDiagnostic=()=>{},financialEvidence=null,financialEvidenceNow=null,watchEvidence=null}={}) {
   if(Number(attempt)!==1)throw new Error('TELEGRAM_RETRY_BLOCKED');
   if(event==='test') { await send(token,chatId,'텔레그램 브리핑 연결 시험입니다. 실제 시장 브리핑은 아닙니다.',{fetchImpl}); return {status:'TEST_SENT'}; }
@@ -176,10 +190,15 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
   // External telemetry errors may not delay the actual Telegram delivery.
   try{onSourceDiagnostic({kind:'YAHOO_MORNING_DAILY_COVERAGE',
     statuses:dailyReadStatuses});}catch{}
-  const values=mergeMorningSourceRows(quotes,masterRows,nhRows,domesticRows,nhStockRows);
+  const values=await fillMissingMorningVix(first.date,
+    mergeMorningSourceRows(quotes,masterRows,nhRows,domesticRows,nhStockRows),
+    {now:now(),fetchImpl,onDiagnostic:onSourceDiagnostic});
+  const futuresExpectation=morningFuturesExpectation(first.date,now());
+  const futuresNotExpected=['HOLIDAY_HALT','WEEKEND_CLOSED'].includes(futuresExpectation);
+  try{onSourceDiagnostic({kind:'MORNING_FUTURES_SESSION',status:futuresExpectation});}catch{}
   const supplements={
     usReferences:supplementRows.usReferences||[],
-    futures:supplementRows.futures?.length
+    futures:supplementRows.futures?.length||futuresNotExpected
       ?formatMorningFutures(first.date,supplementRows.futures,now()):'',
     treasury:supplementRows.treasury?.length
       ?formatMorningTreasury(first.date,supplementRows.treasury):'',
@@ -229,7 +248,7 @@ export async function runTelegramMorning({now=()=>new Date(),fetchImpl=fetch,tok
     liquidity:Number(Boolean(supplementRows.liquidity?.deposits))
       +Number(Boolean(supplementRows.liquidity?.margin)),
     investors:(supplementRows.investors?.markets?.length||0)
-  },message);
+  },message,{futuresNotExpected});
   if(display)try{onSourceDiagnostic(display);}catch{}
   await send(token,chatId,message,{fetchImpl});
   return {status:reference?'SENT_REFERENCE':'SENT_SOURCE_MISSING',seriesCount:values.length,

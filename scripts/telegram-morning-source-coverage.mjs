@@ -10,7 +10,8 @@ const SOURCE_LABELS=Object.freeze({
  'KRX':'KRX_OFFICIAL',
  '자료원장 참고':'MARKET_MASTER',
  'FDR 참고':'FDR_KRX_CACHE',
- 'Yahoo 참고':'YAHOO_DAILY_REFERENCE'
+ 'Yahoo 참고':'YAHOO_DAILY_REFERENCE',
+ 'CBOE 참고':'CBOE_VIX_DAILY'
 });
 const PRIMARY_SOURCE_BY_ID=Object.freeze({
  SPX:'NH_INDEX_DAILY',NASDAQ:'NH_INDEX_DAILY',NDX:'NH_INDEX_DAILY',
@@ -35,7 +36,7 @@ export function inspectMorningMessage(date,message,{now=new Date(date+'T07:40:00
   const line=fields[0];
   const bracket=/\[([0-9]{4}-[0-9]{2}-[0-9]{2})(?: · (.+))?\]$/.exec(line);
   const source=bracket?(bracket[2]?SOURCE_LABELS[bracket[2]]:PRIMARY_SOURCE_BY_ID[item.id]):null;
-  if(line.includes('미확보')||!bracket||bracket[1]!==expected||!source){
+  if(line.includes('미확보')||!bracket||bracket[1]!==expected||!source||(source==='CBOE_VIX_DAILY'&&item.id!=='VIX')){
    const reason=line.includes('미확보')?'NO_VERIFIED_ROW'
     :!bracket?'DATE_OR_SOURCE_MISSING'
     :bracket[1]!==expected?'SESSION_DATE_MISMATCH':'SOURCE_UNVERIFIED';

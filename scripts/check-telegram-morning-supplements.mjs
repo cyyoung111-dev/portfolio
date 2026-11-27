@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {validateMorningFuturesQuote,readMorningSupplements,formatMorningFutures,
+import {validateMorningFuturesQuote,readMorningFutures,morningFuturesExpectation,readMorningSupplements,formatMorningFutures,
  formatMorningTreasury,formatMorningVkospi,formatMorningTurnover}
  from './telegram-morning-supplements.mjs';
 import {formatFullMorningBriefing} from './telegram-morning-report.mjs';
@@ -62,6 +62,15 @@ assert.equal(validateMorningFuturesQuote(date,'ES',
 assert.equal(validateMorningFuturesQuote(date,'ES',
  chart('ES=F',stamp+7200),now),null,'future quote');
 
+const holidayDate='2026-11-27',holidayAt=new Date(holidayDate+'T07:40:00+09:00');
+assert.equal(morningFuturesExpectation(holidayDate,holidayAt),'HOLIDAY_HALT');
+assert.equal(morningFuturesExpectation(holidayDate,new Date(holidayDate+'T08:00:00+09:00')),'RECENT_QUOTE_EXPECTED');
+assert.equal(morningFuturesExpectation('2026-11-26',new Date('2026-11-26T07:40:00+09:00')),'RECENT_QUOTE_EXPECTED');
+assert.equal(morningFuturesExpectation('2026-11-30',new Date('2026-11-30T07:40:00+09:00')),'WEEKEND_CLOSED');
+assert.equal(morningFuturesExpectation('2026-07-06',new Date('2026-07-06T07:40:00+09:00')),'RECENT_QUOTE_EXPECTED');
+assert.deepEqual(await readMorningFutures(holidayDate,{now:()=>holidayAt,fetchImpl:async()=>assert.fail('known halt must not request quotes')}),[]);
+assert.match(formatMorningFutures(holidayDate,[],holidayAt),/휴일 거래 중단/);
+assert.match(formatMorningFutures(date,[],now),/미확보/);
 const gasUrl='https://script.google.com/macros/s/Example123456/exec';
 const calls=[];
 const fetchImpl=async(target,opts={})=>{

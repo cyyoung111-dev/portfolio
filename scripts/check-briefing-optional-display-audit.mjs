@@ -59,3 +59,7 @@ assert.equal(close.groups.liquidity.status,'NOT_DISPLAYED');
 assert.equal(close.displayed,4);
 assert.equal(summarizeOptionalDelivery('close',{...closeCounts,treasury:-1},closing),null);
 console.log('OPTIONAL_DISPLAY_AUDIT_PASS core_denom_separate source_vs_render partial_and_budget_omission privacy');
+
+const expectedNone=summarizeOptionalDelivery('morning',{futures:0,treasury:0,vkospi:0,turnover:0,breadth:0,liquidity:0,investors:0},'미국 선물 ES/NQ/YM/RTY: CME 휴일 거래 중단',{futuresNotExpected:true});
+assert.equal(expectedNone.groups.futures.status,'NOT_EXPECTED');
+assert.equal(expectedNone.groups.treasury.status,'SOURCE_UNAVAILABLE');

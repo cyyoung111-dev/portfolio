@@ -166,7 +166,8 @@ function entry(map,id,options={}){
   const change=Number.isFinite(r.changePercent)?' ('+(r.changePercent>=0?'+':'')+r.changePercent.toFixed(2)+'%)':'';
   const reference=r.source==='NH_INDEX_DAILY'||r.source==='NH_REGULAR_CLOSE'?'':
     r.source==='KRX_OFFICIAL'?' · KRX':r.source==='MARKET_MASTER'?' · 자료원장 참고':
-    r.source==='FDR_KRX_CACHE'?' · FDR 참고':' · Yahoo 참고';
+    r.source==='FDR_KRX_CACHE'?' · FDR 참고':
+    id==='VIX'&&r.source==='CBOE_VIX_DAILY'?' · CBOE 참고':' · Yahoo 참고';
   return info.label+': '+v+unit+change+' ['+r.date+reference+']';
 }
 function evidence(map,id){
