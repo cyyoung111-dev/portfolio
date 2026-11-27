@@ -379,7 +379,12 @@ assert.match(candidatePreview.if,/needs\['postflight-readonly'\]\.result == 'fai
 assert.match(candidatePreview.if,/github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
 assert.match(candidatePreview.if,/!cancelled\(\)/);
 assert.doesNotMatch(candidatePreview.if,/postflight-readonly'\]\.result == 'skipped'/);
-assert.match(candidatePreview.if,/needs\['source-kofia-candidate'\]\.result == 'success'/);
+assert.match(candidatePreview.if,/needs\['source-kofia-candidate'\]\.outputs\.preview_ready == 'true'/);
+assert.match(candidate.outputs.preview_ready,/steps\.candidate_eligibility\.outputs\.has_eligible == 'true'/);
+assert.match(candidate.outputs.preview_ready,/steps\.candidate_archive\.outcome == 'success'/);
+assert.match(candidate.steps.find(x=>x.id==='candidate_eligibility').run,/assessCandidateEligibility/);
+assert.match(candidate.steps.find(x=>x.id==='candidate_eligibility').if,/!cancelled\(\)/);
+assert.equal(candidate.steps.at(-1).id,'candidate_archive');
 assert.match(candidatePreview.steps.at(-1).run,/preview-crosschecked-nav-readonly[.]mjs/);
 assert.doesNotMatch(JSON.stringify(candidatePreview),/--apply|collectKbFundNav|collectHanwhaFundNav/);
 const privateCollector=workflow.jobs.collect;
@@ -713,7 +718,7 @@ console.log('NAV_SCHEDULE_DELAYED_ADMISSION_PASS '+JSON.stringify({
 }));
 
  // Real adapter and GAS preview contract with a mock transport. No network.
-const {selectCrosscheckedCandidate}=await import('./nav-crosschecked-candidate.mjs');
+const {selectCrosscheckedCandidate,assessCandidateEligibility}=await import('./nav-crosschecked-candidate.mjs');
 const {previewCrosscheckedNav}=await import('./preview-crosschecked-nav-readonly.mjs');
 const candidateToday='2026-11-27',candidateDates=['2026-11-20','2026-11-23','2026-11-24','2026-11-25','2026-11-26'];
 const exampleArchive={kind:'PUBLIC_NAV_CANDIDATE_ARCHIVE',asOfKst:candidateToday,importAuthorized:false,
@@ -754,6 +759,8 @@ const candidateOptions={archive:exampleArchive,url:'https://script.google.com/ma
 const candidateResult=await previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock()});
 assert.equal(candidateResult.financialWrites,0);assert.equal(candidateResult.importAuthorized,false);
 assert.equal(candidateResult.results.length,2);
+assert.equal(candidateResult.allFundsPreviewed,true);
+assert.deepEqual(candidateResult.failures,[]);
 assert.ok(candidateResult.results.every(r=>r.latestRequestedDateCrosschecked===false&&r.allRequestedDatesCrosschecked===false&&r.allCloseEligibleDatesPreviewed===false));
 assert.deepEqual(candidateResult.results[0].identicalDates,['2026-11-20']);
 assert.deepEqual(candidateResult.results[0].candidateDates,['2026-11-23','2026-11-24','2026-11-25']);
@@ -768,4 +775,44 @@ assert.ok(completeResult.results.every(r=>r.latestRequestedDateCrosschecked===tr
 assert.equal(completeResult.financialWrites,0);assert.equal(completeResult.importAuthorized,false);
 await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({noOverlap:true})}),/NAV_CANDIDATE_PERSISTED_OVERLAP_UNVERIFIED/);
 await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,fetchImpl:candidateMock({conflict:true})}),/NAV_CANDIDATE_PREVIEW_BLOCKED/);
+// One unavailable class cannot suppress the other class's verified
+// append-only preview. Conversely neither success nor availability gives
+// authority to import. Both unavailable must stop before any GAS request.
+for(const failedIndex of [0,1]){
+ const partial=structuredClone(exampleArchive);
+ const badCode=partial.funds[failedIndex].fund,goodCode=partial.funds[1-failedIndex].fund;
+ partial.funds[failedIndex].anchorState='UNVERIFIED';
+ const eligibility=assessCandidateEligibility(partial,candidateToday);
+ assert.deepEqual(eligibility.sources.map(r=>r.code),[goodCode]);
+ assert.deepEqual(eligibility.failures,[{code:badCode,reason:'NAV_CANDIDATE_CROSSCHECK_UNVERIFIED'}]);
+ let previews=[];
+ const report=await previewCrosscheckedNav({...candidateOptions,archive:partial,fetchImpl:async(dest,opts)=>{
+  if(opts.body.get('action')==='previewFundNavImport')previews.push(JSON.parse(opts.body.get('data')).code);
+  return candidateMock()(dest,opts);
+ }});
+ assert.deepEqual(previews,[goodCode]);
+ assert.deepEqual(report.results.map(r=>r.code),[goodCode]);
+ assert.deepEqual(report.failures,eligibility.failures);
+ assert.equal(report.allFundsPreviewed,false);
+ assert.equal(report.importAuthorized,false);
+ assert.equal(report.financialWrites,0);
+ // A valid source can still fail its individual GAS preview (e.g. conflict).
+ // Continue with the other fund regardless of their order.
+ let attempted=[];
+ const mixed=await previewCrosscheckedNav({...candidateOptions,fetchImpl:async(dest,opts)=>{
+  if(opts.body.get('action')==='previewFundNavImport'){
+   const code=JSON.parse(opts.body.get('data')).code;attempted.push(code);
+   return candidateMock({conflict:code===badCode})(dest,opts);
+  }
+  return candidateMock()(dest,opts);
+ }});
+ assert.deepEqual(attempted,['F00002','F00001']);
+ assert.deepEqual(mixed.results.map(r=>r.code),[goodCode]);
+ assert.deepEqual(mixed.failures,[{code:badCode,reason:'NAV_CANDIDATE_PREVIEW_BLOCKED'}]);
+ assert.equal(mixed.allFundsPreviewed,false);
+ assert.equal(mixed.writerInvoked,false);
+}
+const neither=structuredClone(exampleArchive);
+for(const f of neither.funds)f.anchorState='UNVERIFIED';
+await assert.rejects(()=>previewCrosscheckedNav({...candidateOptions,archive:neither,fetchImpl:async()=>assert.fail('no eligible fund must not call GAS')}),/NAV_CANDIDATE_CROSSCHECK_UNVERIFIED/);
 console.log('NAV crosschecked candidate exact-class and read-only GAS preview PASS');
