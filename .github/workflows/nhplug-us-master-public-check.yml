@@ -5,6 +5,8 @@ on:
       - '.github/workflows/nhplug-us-master-public-check.yml'
       - 'scripts/nhplug-us-master-public-check.mjs'
       - 'scripts/check-nhplug-public-master-exit.mjs'
+      - 'scripts/nh-market-data-public-contract.mjs'
+      - 'scripts/check-nh-market-data-public-contract.mjs'
 permissions:
   contents: read
 jobs:
@@ -22,3 +24,18 @@ jobs:
         run: node scripts/check-nhplug-public-master-exit.mjs
       - name: 공개 원천 접근 및 구조 진단
         run: node scripts/nhplug-us-master-public-check.mjs
+
+  quote-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Test market-only contract regression
+        run: node scripts/check-nh-market-data-public-contract.mjs
+      - name: Compare documented quote routes with current public OpenAPI schema
+        run: node scripts/nh-market-data-public-contract.mjs
