@@ -2,7 +2,7 @@ import {pathToFileURL} from 'node:url';
 import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-compat.mjs';
 import {classifyFundError} from './diagnose-backfill-status.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
-import {validateAppendOnlyNavPreview} from './nav-append-only-preview-contract.mjs';
+import {validateAppendOnlyNavPreview,hasCompleteFundDerivedProof} from './nav-append-only-preview-contract.mjs';
 export const sourceUrl='https://www.funetf.co.kr/api/public/product/view/fundnav';
 export function parseNav(data,from,to) {
   if(!Array.isArray(data)||!data.length)throw Error('NAV_SOURCE_EMPTY');
@@ -233,10 +233,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   const needsWrite=d=>d.valuationRequired!==false&&(
     ['WRITE_REQUIRED','NOT_CREATED'].includes(d.evaluationState)
     ||['WRITE_REQUIRED','NOT_CREATED'].includes(d.snapshotState));
-  const hasDerivedProof=d=>Boolean(d&&d.valuationRequired===true
-    &&d.unitsApplied===true&&d.reconciled===true
-    &&['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(d.navState)
-    &&d.evaluationState==='EXISTING_VALID'&&d.snapshotState==='EXISTING_VALID');
+  const hasDerivedProof=hasCompleteFundDerivedProof;
   const beforeDerived=await valuation();
   const candidateDates=new Set(candidates.map(d=>d.date));
   const confirmedCandidate=d=>d?.navState==='EXISTING_CONFIRMED'
@@ -283,11 +280,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
   }
   if(beforeDerived.some(d=>!final.some(f=>f.date===d.date)))
     throw Error('NAV_DERIVED_READBACK_UNVERIFIED');
-  if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||
-    (d.valuationRequired===false
-      ?d.evaluationState==='WRITE_REQUIRED'||d.snapshotState==='WRITE_REQUIRED'
-      :!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
-       ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState)))))
+  if(final.some(d=>!isWaiting(d)&&!hasDerivedProof(d)))
     throw Error('NAV_DERIVED_PENDING');
   const waiting=final.filter(d=>needsWrite(d)&&isWaiting(d));
   if(waiting.length)return {mode:'DEFERRED',complete:false,
