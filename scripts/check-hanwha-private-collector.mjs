@@ -280,3 +280,34 @@ console.log(JSON.stringify({kind:'HANWHA_RECENT_NAV_GRACE_OFFLINE_PASS',
  }finally{AbortSignal.timeout=original;}
 }
 console.log('ISSUE734_HANWHA_STATUS_READ_BUDGET_PASS 120s_readonly_no_finance_writes');
+
+// Already stored exact NAV and apparently complete derived states must
+// still prove both active-unit evaluation and Snapshot for each row.
+for(const fault of [
+ {valuationRequired:false,unitsApplied:false,evaluationState:'NOT_REQUIRED',snapshotState:'NOT_REQUIRED'},
+ {evaluationState:'NOT_REQUIRED'},
+ {snapshotState:'NOT_REQUIRED'},
+ {unitsApplied:false},
+ {reconciled:false},
+ {navState:'NAV_MISSING'}
+]){
+ let writes=0;
+ const f=fixture();
+ await assert.rejects(()=>run({...args(f),apply:true,fetchImpl:async(dest,opts)=>{
+  const action=opts.body?.get('action');
+  if(action==='collectHanwhaFundNav'){writes++;assert.fail('unverified proof must not write');}
+  if(action==='previewFundNavImport'){
+   const rows=JSON.parse(opts.body.get('data')).rows;
+   return {ok:true,json:async()=>({status:'ok',code:'F00001',
+    candidates:[],identical:rows.map(r=>({date:r.date,existingNav:r.nav,uploadedNav:r.nav})),
+    updates:[],warnings:[],errors:[],duplicates:[],zeroUnits:[]})};
+  }
+  if(action==='getFundValuationStatus')return {ok:true,json:async()=>({status:'ok',fundResults:{F00001:{code:'F00001',dates:sourceRows.map(r=>({
+   code:'F00001',date:r.date,publicationExpected:true,navState:'EXISTING_CONFIRMED',
+   valuationRequired:true,unitsApplied:true,reconciled:true,evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID',...fault
+  }))}}})};
+  return f.fetchImpl(dest,opts);
+ }}),/HANWHA_DERIVED_PENDING/);
+ assert.equal(writes,0);
+}
+console.log('HANWHA_ACTIVE_DERIVED_PROOF_PASS no false success from NOT_REQUIRED, missing units, missing NAV or unreconciled rows');

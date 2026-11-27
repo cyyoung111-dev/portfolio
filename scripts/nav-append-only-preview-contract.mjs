@@ -24,3 +24,12 @@ export function validateAppendOnlyNavPreview(preview,code,rows,{allowZeroUnits=f
  if(covered.size!==expected.size)return {ok:false,reason:'MISMATCH'};
  return {ok:true,candidates:preview.candidates.map(({date,nav})=>({date,nav}))};
 }
+
+// getFundValuationStatus only emits dates with positive configured units.
+// An emitted row with no calculated valuation is an unresolved active
+// position, not a successful "not required" row.
+export function hasCompleteFundDerivedProof(row){
+ return row?.valuationRequired===true&&row.unitsApplied===true&&row.reconciled===true
+  &&['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(row.navState)
+  &&row.evaluationState==='EXISTING_VALID'&&row.snapshotState==='EXISTING_VALID';
+}
