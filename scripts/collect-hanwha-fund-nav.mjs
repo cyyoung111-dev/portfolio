@@ -6,7 +6,7 @@ import {supportsPublishedFundNavGasVersion} from './issue860-fund-nav-release-co
 import {pathToFileURL} from 'node:url';
 import {runPublicHanwhaSource} from './collect-hanwha-public-nav.mjs';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
-import {validateAppendOnlyNavPreview} from './nav-append-only-preview-contract.mjs';
+import {validateAppendOnlyNavPreview,hasCompleteFundDerivedProof} from './nav-append-only-preview-contract.mjs';
 
 const CODE='F00001',PROVIDER='HANWHA_2045_CRPE',CLASS='C-RPe';
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
@@ -227,10 +227,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
  const candidateDates=new Set(candidates.map(d=>d.date));
  const confirmedCandidate=d=>d?.navState==='EXISTING_CONFIRMED'
    &&d.valuationRequired===true&&d.unitsApplied===true&&d.reconciled===true;
- const hasDerivedProof=d=>Boolean(d&&d.valuationRequired===true
-   &&d.unitsApplied===true&&d.reconciled===true
-   &&['EXISTING_CONFIRMED','NON_PUBLICATION_CARRY'].includes(d.navState)
-   &&d.evaluationState==='EXISTING_VALID'&&d.snapshotState==='EXISTING_VALID');
+ const hasDerivedProof=hasCompleteFundDerivedProof;
  if(candidates.some(c=>!confirmedCandidate(beforeDerived.find(d=>d.date===c.date))))
    throw Error('HANWHA_DERIVED_READBACK_UNVERIFIED');
  const pendingNow=beforeDerived.filter(needsWrite);
@@ -268,10 +265,7 @@ export async function run({url,token,now=new Date(),fetchImpl=fetch,apply=false,
  }
  if(beforeDerived.some(d=>!final.some(f=>f.date===d.date)))
    throw Error('HANWHA_DERIVED_READBACK_UNVERIFIED');
- if(final.some(d=>!isWaiting(d)&&(needsWrite(d)||(
-   d.valuationRequired===true &&
-   (!['EXISTING_VALID','NOT_REQUIRED'].includes(d.evaluationState)
-     ||!['EXISTING_VALID','NOT_REQUIRED'].includes(d.snapshotState))))))
+ if(final.some(d=>!isWaiting(d)&&!hasDerivedProof(d)))
     throw Error('HANWHA_DERIVED_PENDING');
  const waiting=final.filter(d=>needsWrite(d)&&isWaiting(d));
  if(waiting.length)return {mode:'DEFERRED',complete:false,code:CODE,
