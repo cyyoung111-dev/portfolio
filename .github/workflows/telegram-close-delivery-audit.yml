@@ -1,0 +1,52 @@
+name: Telegram close independent read-only delivery audit
+on:
+  schedule:
+    - cron: '10 9 * * 1-5' # 18:10 KST
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Audit current KRX session without sending or claiming
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {krxSessionStatus} from './scripts/krx-session-calendar.mjs';
+          import {verifyLateCloseSent} from './scripts/telegram-close-late-verdict.mjs';
+          const now=new Date();
+          const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(x=>[x.type,x.value]));
+          const date=p.year+'-'+p.month+'-'+p.day;
+          const minute=Number(p.hour)*60+Number(p.minute);
+          const session=krxSessionStatus(date);
+          let proof={date,status:'AUDIT_OUTSIDE_WINDOW',verified:false,telegramSends:0,financeWrites:0};
+          if(minute>=1090){
+            if(session==='CLOSED')proof={...proof,status:'MARKET_CLOSED',verified:true};
+            else if(session!=='OPEN')proof={...proof,status:'CALENDAR_UNKNOWN'};
+            else proof=await verifyLateCloseSent({now,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN});
+          }
+          console.log(JSON.stringify(proof));
+          fs.writeFileSync('close-delivery-audit.json',JSON.stringify(proof,null,2));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, 'Close audit: '+proof.date+' / '+proof.status+' / '+(proof.runUrl||'no verified run')+'\n');
+          if(!proof.verified)process.exitCode=1;
+          JS
+      - name: Archive read-only audit result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: close-delivery-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: close-delivery-audit.json
+          if-no-files-found: error
+          retention-days: 14
