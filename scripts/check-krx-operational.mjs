@@ -1281,7 +1281,7 @@ console.log('Close resume: pending PRICE plus verified DONE NAV remains incomple
  const candidate=jobBlock('candidate-preview-readonly');
  assert.ok(candidate.includes(scheduleOrManual)&&candidate.includes("github.event_name == 'push'"));
  assert.ok(candidate.includes("needs['postflight-readonly'].result == 'failure'"));
- assert.ok(candidate.includes("needs['source-kofia-candidate'].result == 'success'"));
+ assert.ok(candidate.includes("needs['source-kofia-candidate'].outputs.preview_ready == 'true'"));
  assert.match(candidate,/preview-crosschecked-nav-readonly[.]mjs/);
  assert.doesNotMatch(candidate,/--apply|collectKbFundNav|collectHanwhaFundNav/);
  const arm=fs.readFileSync('.github/workflows/nav-independent-fallback-arm.yml','utf8');
