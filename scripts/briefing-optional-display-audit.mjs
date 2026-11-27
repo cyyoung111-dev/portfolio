@@ -20,7 +20,7 @@ const CONF=Object.freeze({
   investors:{max:2,re:/^시장 수급 \[/m}
  })
 });
-export function summarizeOptionalDelivery(kind,counts,message){
+export function summarizeOptionalDelivery(kind,counts,message,{futuresNotExpected=false}={}){
  const defs=CONF[kind];
  if(!defs||typeof message!=='string'||message.length>4000)return null;
  const groups={};
@@ -30,7 +30,7 @@ export function summarizeOptionalDelivery(kind,counts,message){
   const present=re.test(message);
   groups[key]={
    sourced:available,total:max,
-   status:available===0?'SOURCE_UNAVAILABLE'
+   status:available===0?(kind==='morning'&&key==='futures'&&futuresNotExpected?'NOT_EXPECTED':'SOURCE_UNAVAILABLE')
     :!present?'NOT_DISPLAYED'
     :available===max?'DISPLAYED':'PARTIAL_DISPLAYED'
   };
