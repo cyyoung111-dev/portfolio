@@ -18,6 +18,19 @@ const evidence={
 };
 const hanwhaEvidence={...evidence,kind:'HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY',code:'F00001'};
 const now=at('2026-11-13T21:30:00+09:00');
+const persisted={runDate:fri,summaryRunDate:fri,summaryPresent:true,state:'COMPLETE',stage:'COMPLETE',
+ priceOk:true,fundOk:true,runStale:false,snapshotStale:false,expectedRunDate:fri,expectedSnapshotDate:fri};
+const savedOnly=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,closeStatus:persisted});
+assert.equal(savedOnly.savedClose.state,'PASS');assert.equal(savedOnly.kbNav.state,'EVIDENCE_MISSING');
+assert.equal(savedOnly.overall,'CORE_EVIDENCE_INCOMPLETE');
+for(const invalid of [null,{...persisted,runDate:'2026-11-12'},{...persisted,summaryRunDate:'2026-11-12'},
+ {...persisted,runStale:true},{...persisted,snapshotStale:true},{...persisted,stage:'FUND_PENDING'},
+ {...persisted,expectedSnapshotDate:'2026-11-16'},{...persisted,fundOk:false}]){
+ const result=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,navReport:evidence,
+   hanwhaReport:hanwhaEvidence,closeStatus:invalid});
+ assert.equal(result.savedClose.state,'EVIDENCE_MISSING','direct incomplete evidence cannot be overridden');
+ assert.equal(result.overall,'CORE_EVIDENCE_INCOMPLETE');
+}
 const proof=classifyDailyOperations({date:fri,now,morningProof:true,
  closeProof:true,navRuns:'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
  navReport:evidence,hanwhaReport:hanwhaEvidence});
@@ -129,10 +142,21 @@ const unpublishedClose={
  closeComplete:false,priceOk:true,fundOk:false
 };
 const awaiting=classifyDailyOperations({date:fri,now,morningProof:true,
- closeProof:true,navRuns:'NAV_EXECUTION_FAILED',navReport:unpublishedClose});
+ closeProof:true,navRuns:'NAV_EXECUTION_FAILED',navReport:unpublishedClose,hanwhaReport:hanwhaEvidence});
 assert.equal(awaiting.kbNav.state,'PUBLICATION_PENDING');
 assert.equal(awaiting.savedClose.state,'FUND_PUBLICATION_PENDING');
 assert.equal(awaiting.savedClose.verified,false);
+const missingOther=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,navReport:unpublishedClose});
+assert.equal(missingOther.savedClose.state,'EVIDENCE_MISSING','missing second fund cannot hide a failure as publication pending');
+const hanwhaAwaiting=classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,
+ navReport:{...evidence,closeComplete:false,fundOk:false,closeState:'INCOMPLETE'},
+ hanwhaReport:{...unpublishedClose,kind:hanwhaEvidence.kind,code:hanwhaEvidence.code}});
+assert.equal(hanwhaAwaiting.savedClose.state,'FUND_PUBLICATION_PENDING');
+const directPending={...persisted,state:'INCOMPLETE',stage:'FUND_PENDING',fundOk:false};
+assert.equal(classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,
+ navReport:unpublishedClose,hanwhaReport:hanwhaEvidence,closeStatus:directPending}).savedClose.state,'FUND_PUBLICATION_PENDING');
+assert.equal(classifyDailyOperations({date:fri,now,morningProof:true,closeProof:true,
+ navReport:unpublishedClose,hanwhaReport:hanwhaEvidence,closeStatus:{...directPending,state:'ERROR'}}).savedClose.state,'EVIDENCE_MISSING');
 assert.equal(awaiting.overall,'CORE_EVIDENCE_INCOMPLETE',
  'unpublished fund NAV is a pending item, never a certified close');
 for(const unhealthy of [
@@ -151,7 +175,7 @@ for(const unhealthy of [
 ]){
  const res=classifyDailyOperations({date:fri,now,morningProof:true,
   closeProof:true,navRuns:'NAV_EXECUTION_FAILED',
-  navReport:{...unpublishedClose,...unhealthy}});
+  navReport:{...unpublishedClose,...unhealthy},hanwhaReport:hanwhaEvidence});
  assert.equal(res.savedClose.state,'EVIDENCE_MISSING',
   'bad close must never be downgraded to publication pending: '
    +JSON.stringify(unhealthy));
@@ -183,6 +207,19 @@ assert.equal(classifyNavRuns([{...run,head_branch:'feature'}],jobs,fri),
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],jobs,fri),
  'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
 const privateFailure={123:jobs[123].map(j=>j.name==='collect'?{...j,conclusion:'failure'}:j)};
+const staleGate=(name,writer)=>({name,status:'completed',conclusion:'failure',steps:[
+ {name:'Block stale scheduled NAV starts before private GAS',conclusion:'failure'},
+ {name:writer,conclusion:'skipped'}]});
+const rejectedJobs={123:[
+ staleGate('collect','Collect exact KB S-T published NAV and verify import'),
+ staleGate('hanwha-collect','Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease'),
+ {name:'postflight-readonly',status:'completed',conclusion:'skipped'}]};
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],rejectedJobs,fri),'NAV_ADMISSION_BLOCKED');
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],{123:[
+ ...rejectedJobs[123].slice(0,1),privateFailure[123][1],rejectedJobs[123][2]]},fri),'NAV_EXECUTION_FAILED');
+assert.equal(classifyNavRuns([{...run,conclusion:'failure'},{...run,id:124,conclusion:'failure'}],
+ {...rejectedJobs,124:privateFailure[123]},fri),'NAV_EXECUTION_FAILED','actual failure must not be hidden by stale gate');
+
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],privateFailure,fri),
  'NAV_EXECUTION_FAILED');
 assert.equal(classifyNavRuns([{...run,conclusion:'failure'}],{123:[{name:'source-public',status:'completed',conclusion:'failure'}]},fri),
@@ -222,7 +259,7 @@ const result=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
  closeReader:async args=>{observed.push('close:'+args.now.toISOString());
   return {date:fri,verified:true};},
  navRunReader:async()=>{observed.push('runs');return 'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED';},
- statusReader:async()=>{statusReads++;return {close:{runDate:fri}};},
+ statusReader:async()=>{statusReads++;return {close:persisted};},
  navReader:async({statusReader})=>{await statusReader({});observed.push('readback');return evidence;},
  hanwhaReader:async({statusReader})=>{await statusReader({});observed.push('hanwha');return hanwhaEvidence;},
  snapshotReader:async({date})=>{
@@ -241,6 +278,7 @@ const failedSnapshot=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00
  morningReader:async()=>({verifiedSent:true}),
  closeReader:async()=>({date:fri,verified:true}),
  navRunReader:async()=> 'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED',
+ statusReader:async()=>({close:persisted}),
  navReader:async()=>evidence,
  hanwhaReader:async()=>hanwhaEvidence,
  snapshotReader:async()=>{throw Error('PRIVATE_SOURCE_ERROR')}
@@ -250,11 +288,23 @@ assert.equal(failedSnapshot.overall,'CORE_CHECKPOINTS_VERIFIED_SNAPSHOT_UNAUDITE
 const independent=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
  gasUrl:'https://example.invalid',gasToken:'test',
  morningReader:async()=>({verifiedSent:true}),closeReader:async()=>({date:fri,verified:true}),
- navRunReader:async()=> 'NAV_EXECUTION_FAILED',navReader:async()=>{throw Error('KB source failed');},
- hanwhaReader:async()=>hanwhaEvidence,snapshotReader:async()=>{throw Error('must not read partial close');}});
+ navRunReader:async()=> 'NAV_EXECUTION_FAILED',statusReader:async()=>({close:persisted}),
+ navReader:async()=>{throw Error('KB source failed');},
+ hanwhaReader:async()=>hanwhaEvidence,snapshotReader:async()=>exactSnapshot});
 assert.equal(independent.kbNav.state,'EVIDENCE_MISSING');
 assert.equal(independent.hanwhaNav.state,'PASS');
 assert.equal(independent.overall,'CORE_EVIDENCE_INCOMPLETE');
+assert.equal(independent.savedClose.state,'PASS');
+assert.equal(independent.snapshot.state,'PASS');
+let snapshotCalls=0;
+const partialClose=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),
+ gasUrl:'https://example.invalid',gasToken:'test',morningReader:async()=>({verifiedSent:true}),
+ closeReader:async()=>({date:fri,verified:true}),navRunReader:async()=> 'NAV_EXECUTION_FAILED',
+ statusReader:async()=>({close:{...persisted,state:'INCOMPLETE',stage:'FUND_PENDING',fundOk:false}}),
+ navReader:async()=>evidence,hanwhaReader:async()=>hanwhaEvidence,
+ snapshotReader:async()=>{snapshotCalls++;return exactSnapshot;}});
+assert.equal(snapshotCalls,0);
+assert.equal(partialClose.savedClose.state,'EVIDENCE_MISSING');
 const noCredentials=await runDailyOperations({
  now:at('2026-11-14T23:01:00+09:00'),
  token:null,gasUrl:null,gasToken:null,

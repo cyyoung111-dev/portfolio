@@ -38,7 +38,16 @@ function isDue(now,day,minute){
  return clock.day>day||(clock.day===day&&clock.minute>=minute);
 }
 function safeStatus(value){return /^[A-Z0-9_]{1,90}$/.test(String(value||''))?value:'UNVERIFIED';}
-export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,snapshotEvidence}){
+// The authenticated GAS close status is independent of public fund prices.
+export function verifiedPersistedClose(date,close){
+ return close?.runDate===date&&close.summaryRunDate===date
+  &&close.summaryPresent===true&&close.state==='COMPLETE'&&close.stage==='COMPLETE'
+  &&close.priceOk===true&&close.fundOk===true
+  &&close.runStale===false&&close.snapshotStale===false
+  &&DAY.test(close.expectedRunDate||'')&&close.expectedRunDate<=date
+  &&DAY.test(close.expectedSnapshotDate||'')&&close.expectedSnapshotDate<=date;
+}
+export function classifyDailyOperations({date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,closeStatus,snapshotEvidence}){
  if(!DAY.test(date)||krxSessionStatus(date)!=='OPEN'
     ||!(now instanceof Date)||!Number.isFinite(now.getTime())
     ||date>kstClock(now).day)throw Error('OPS_CLASSIFY_INVALID');
@@ -71,23 +80,36 @@ export function classifyDailyOperations({date,now,morningProof,closeProof,navRun
  // Never infer Hanwha from a green KB collector or from the shared close.
  const hanwha=classifyFund(hanwhaReport?.kind==='HANWHA_NAV_CLOSE_POSTFLIGHT_READ_ONLY'
    &&hanwhaReport.code==='F00001'?hanwhaReport:null,'HANWHA_OFFICIAL_NAV_AND_DERIVED');
- const closePersisted=navReport?.closeDate===date
-  &&navReport?.closeComplete===true
+ // A supplied authenticated checkpoint must not be overridden by a fund
+ // report. Legacy fixture/caller evidence is accepted only when no direct
+ // checkpoint argument was supplied.
+ const closePersisted=closeStatus!==undefined?verifiedPersistedClose(date,closeStatus):
+  navReport?.closeDate===date&&navReport?.closeComplete===true
   &&navReport?.priceOk===true&&navReport?.fundOk===true;
  // An unpublished official NAV is not a failed price close. Distinguish
  // only the exact current KRX session's persisted FUND_PENDING checkpoint,
  // never a stale date, unrelated close error, or a published-but-missing NAV.
  // This is a pending label, NOT success or authorization to write data.
- const fundPublicationPending=nav.state==='PUBLICATION_PENDING'
-  &&navReport?.closeDate===date
-  &&navReport?.officialReferenceDate===date
-  &&navReport?.officiallyPublished===false
-  &&navReport?.closeState==='INCOMPLETE'
-  &&navReport?.closeDateVerified===true
-  &&navReport?.runStale===false&&navReport?.snapshotStale===false
-  &&navReport?.fundCloseCheckpointEvidence?.closeStage==='FUND_PENDING'
-  &&navReport?.priceOk===true&&navReport?.fundOk===false
-  &&navReport?.closeComplete===false;
+ const pendingReport=nav.state==='PUBLICATION_PENDING'?navReport:
+  hanwha.state==='PUBLICATION_PENDING'?hanwhaReport:null;
+ const pendingStatusCompatible=closeStatus===undefined||(closeStatus?.runDate===date
+  &&closeStatus.summaryRunDate===date&&closeStatus.summaryPresent===true
+  &&closeStatus.state==='INCOMPLETE'&&closeStatus.stage==='FUND_PENDING'
+  &&closeStatus.priceOk===true&&closeStatus.fundOk===false
+  &&closeStatus.runStale===false&&closeStatus.snapshotStale===false);
+ const fundPublicationPending=pendingReport!==null
+  &&['PASS','PUBLICATION_PENDING'].includes(nav.state)
+  &&['PASS','PUBLICATION_PENDING'].includes(hanwha.state)
+  &&pendingStatusCompatible
+  &&pendingReport.closeDate===date
+  &&pendingReport.officialReferenceDate===date
+  &&pendingReport.officiallyPublished===false
+  &&pendingReport.closeState==='INCOMPLETE'
+  &&pendingReport.closeDateVerified===true
+  &&pendingReport.runStale===false&&pendingReport.snapshotStale===false
+  &&pendingReport.fundCloseCheckpointEvidence?.closeStage==='FUND_PENDING'
+  &&pendingReport.priceOk===true&&pendingReport.fundOk===false
+  &&pendingReport.closeComplete===false;
  const savedClose={state:closePersisted?'PASS':
    !isDue(now,date,21*60)?'WAITING':
    fundPublicationPending?'FUND_PUBLICATION_PENDING':'EVIDENCE_MISSING',
@@ -124,7 +146,7 @@ export function classifyNavRuns(runs,jobsByRunId,date){
  if(!Array.isArray(runs)||runs.length>100)return 'RUN_LIST_UNVERIFIED';
  const candidates=acceptedNavRuns(runs,date);
  if(!candidates.length)return 'NO_ACCEPTED_EXECUTION_OBSERVED';
- let failing=false,completed=false,active=false;
+ let failing=false,completed=false,active=false,admissionBlocked=false;
  for(const run of candidates){
   if(['queued','in_progress','waiting','requested','pending'].includes(run.status)){
    active=true;continue;
@@ -139,11 +161,26 @@ export function classifyNavRuns(runs,jobsByRunId,date){
   // Public-source failures may make the entire run red even when all
   // three private jobs succeeded. This label certifies execution ONLY.
   if(mapped.every(j=>j?.status==='completed'&&j.conclusion==='success'))completed=true;
-  else if(mapped.some(j=>j?.status==='completed'&&j.conclusion==='failure'))failing=true;
+  else {
+   const [kb,hanwha,post]=mapped;
+   const beforePrivateGas=job=>{
+    if(job?.status!=='completed'||job.conclusion!=='failure'||!Array.isArray(job.steps))return false;
+    const gate=job.steps.filter(s=>s.name==='Block stale scheduled NAV starts before private GAS');
+    const writer=job.steps.filter(s=>[
+     'Collect exact KB S-T published NAV and verify import',
+     'Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease'
+    ].includes(s.name));
+    return gate.length===1&&gate[0].conclusion==='failure'
+      &&writer.length===1&&writer[0].conclusion==='skipped';
+   };
+   if(beforePrivateGas(kb)&&beforePrivateGas(hanwha)&&post?.status==='completed'&&post.conclusion==='skipped')
+    admissionBlocked=true;
+   else if(mapped.some(j=>j?.status==='completed'&&j.conclusion==='failure'))failing=true;
+  }
  }
  return completed?'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED'
   :active?'NAV_EXECUTION_IN_PROGRESS'
-  :failing?'NAV_EXECUTION_FAILED':'NAV_EXECUTION_UNVERIFIED';
+  :failing?'NAV_EXECUTION_FAILED':admissionBlocked?'NAV_ADMISSION_BLOCKED':'NAV_EXECUTION_UNVERIFIED';
 }
 async function navRunnerEvidence({token,date,fetchImpl=fetch}){
  if(typeof token!=='string'||!token)return 'RUN_LIST_UNVERIFIED';
@@ -190,7 +227,7 @@ export async function runDailyOperations({
  const date=operatingReferenceDate(now);
  const morningDue=isDue(now,date,490),closeDue=isDue(now,date,1080),
   navDue=isDue(now,date,21*60+10);
- let morningProof=false,closeProof=false,navReport=null,hanwhaReport=null,snapshotEvidence=null;
+ let morningProof=false,closeProof=false,navReport=null,hanwhaReport=null,snapshotEvidence=null,closeStatus=null;
  if(morningDue){
   try{const p=await morningReader({date,repository,token,fetchImpl});morningProof=p?.verifiedSent===true;}
   catch{morningProof=false;}
@@ -211,19 +248,18 @@ export async function runDailyOperations({
   let sharedStatus;
   const readStatus=args=>sharedStatus??=(Promise.resolve().then(()=>statusReader(args)));
   const options={now,url:gasUrl,token:gasToken,fetchImpl,statusReader:readStatus};
+  try{closeStatus=(await readStatus({url:gasUrl,token:gasToken,fetchImpl}))?.close??null;}catch{}
   try{navReport=await navReader(options);}catch{navReport=null;}
   try{hanwhaReport=await hanwhaReader(options);}catch{hanwhaReport=null;}
  }
  // Only after the verified close checkpoint: never fetch a partial snapshot
  // while a financial Writer could still be in its closing window.
- if(navDue&&gasUrl&&gasToken&&navReport?.closeDate===date
-   &&navReport?.closeComplete===true&&navReport?.priceOk===true
-   &&navReport?.fundOk===true) {
+ if(navDue&&gasUrl&&gasToken&&verifiedPersistedClose(date,closeStatus)) {
    try{snapshotEvidence=await snapshotReader({date,url:gasUrl,token:gasToken,fetchImpl});}
    catch{snapshotEvidence=null;}
  }
  return classifyDailyOperations({
-  date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,snapshotEvidence
+  date,now,morningProof,closeProof,navRuns,navReport,hanwhaReport,closeStatus,snapshotEvidence
  });
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
