@@ -6,7 +6,8 @@ import {join} from 'node:path';
 import YAML from 'yaml';
 import {assessNavScheduledAdmission} from './nav-schedule-admission.mjs';
 import {assessKbNavPostflight,auditKbNavPostflight,auditHanwhaNavPostflight,auditBothNavPostflight,
- expectedKbOfficialReferenceDate,verifyKbOfficialNavPreview,readKbExactNavPreview}
+ expectedKbOfficialReferenceDate,verifyKbOfficialNavPreview,readKbExactNavPreview,
+ safeNavPostflightFailureReason}
  from './audit-kb-nav-postflight-readonly.mjs';
 
 const today='2026-11-07',date='2026-11-06';
@@ -558,6 +559,29 @@ assert.equal(await auditBothNavPostflight({...bothOptions,
  kbReader:async()=>{throw Error('SENSITIVE');}}),false);
 assert.deepEqual(results,[['F00002',false],['F00001',true]]);
 assert.equal(sharedReads,1);
+// Real 2026-11-27 runner failures must retain actionable *sanitized*
+// source categories. No raw error body, token, NAV or holder data is logged.
+const failures=[];
+assert.equal(await auditBothNavPostflight({...bothOptions,
+ kbReader:async()=>{throw Error('NAV_SOURCE_HTTP_403');},
+ hanwhaReader:async()=>{throw Error('HANWHA_FUNETF_HTTP_UNVERIFIED');},
+ emit:(code,row)=>failures.push({code,kind:row.kind,pass:row.navWorkflowPass,reason:row.reason,writes:row.financialWrites})
+}),false);
+assert.deepEqual(failures,[
+ {code:'F00002',kind:'FUND_NAV_POSTFLIGHT_UNVERIFIED',pass:false,reason:'NAV_SOURCE_HTTP_403',writes:0},
+ {code:'F00001',kind:'FUND_NAV_POSTFLIGHT_UNVERIFIED',pass:false,reason:'HANWHA_FUNETF_HTTP_UNVERIFIED',writes:0}
+]);
+for(const [code,message,expected] of [
+ ['F00002','NAV_SOURCE_HTTP_429','NAV_SOURCE_HTTP_429'],
+ ['F00002','NAV_SOURCE_HTTP_403 PRIVATE_TOKEN','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00002','HANWHA_FUNETF_HTTP_UNVERIFIED','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00001','NAV_SOURCE_HTTP_403','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00001','SENSITIVE PRIVATE_FINANCE_DETAIL','FUND_NAV_POSTFLIGHT_UNVERIFIED'],
+ ['F00001','HANWHA_SOURCE_NETWORK_UNVERIFIED','HANWHA_SOURCE_NETWORK_UNVERIFIED']
+])assert.equal(safeNavPostflightFailureReason(code,new Error(message)),expected);
+assert.equal(safeNavPostflightFailureReason('F00002',new Error('KB_POSTFLIGHT_GAS_NETWORK_UNVERIFIED')),'KB_POSTFLIGHT_GAS_NETWORK_UNVERIFIED');
+assert.ok(!JSON.stringify(failures).includes('PRIVATE_TOKEN'));
+console.log('BOTH_NAV_POSTFLIGHT_SAFE_SOURCE_REASONS_PASS no data writes, source errors preserved, untrusted details redacted');
 console.log('BOTH_NAV_POSTFLIGHT_EXACT_PASS same close read, exact fund/date/value proof, independent errors, no finance writer');
 console.log('KB NAV postflight: published-vs-persisted, close marker, transient read-only preview and workflow PASS');
 
