@@ -24,24 +24,8 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import fs from 'node:fs';
-          import {krxSessionStatus} from './scripts/krx-session-calendar.mjs';
-          import {verifyLateScheduledMorningSent} from './scripts/telegram-morning-late-sent-readonly.mjs';
-          const now=new Date();
-          const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(x=>[x.type,x.value]));
-          const date=p.year+'-'+p.month+'-'+p.day;
-          const minute=Number(p.hour)*60+Number(p.minute);
-          const session=krxSessionStatus(date);
-          let proof={date,status:'AUDIT_OUTSIDE_WINDOW',verified:false,telegramSends:0,financeWrites:0};
-          if(minute>=500){
-            if(session==='CLOSED')proof={...proof,status:'MARKET_CLOSED',verified:true};
-            else if(session!=='OPEN')proof={...proof,status:'CALENDAR_UNKNOWN'};
-            else {
-              try {
-                const result=await verifyLateScheduledMorningSent({date,repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN,detailed:true});
-                proof={...result,verified:result.verifiedSent===true,status:result.verifiedSent?'PRIOR_SENT_ARTIFACT_VERIFIED':result.status};
-              } catch {proof={...proof,status:'SENT_PROOF_UNVERIFIED'};}
-            }
-          }
+          import {auditScheduledDelivery} from './scripts/telegram-delivery-audit-readonly.mjs';
+          const proof=await auditScheduledDelivery({kind:'morning',repository:process.env.GITHUB_REPOSITORY,token:process.env.GITHUB_TOKEN});
           console.log(JSON.stringify(proof));
           fs.writeFileSync('morning-delivery-audit.json',JSON.stringify(proof,null,2));
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, 'Morning audit: '+proof.date+' / '+proof.status+' / '+(proof.runUrl||'no verified run')+'\n');

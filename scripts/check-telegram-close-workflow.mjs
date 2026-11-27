@@ -111,6 +111,48 @@ assert.deepEqual(sanitizeCloseOptionalSourceReason({
  console.log('TELEGRAM_CLOSE_LATE_SENT_OR_FAILURE_CONTRACT_PASS target date, archive provenance, GET only, no replay');
 }
 
+// Independent audit targets its most recent due weekday slot rather than
+// the wall-clock date of a delayed runner. The original production SENT
+// proof still determines success, including on weekends.
+{
+ const {deliveryAuditTarget,auditScheduledDelivery}=await import('./telegram-delivery-audit-readonly.mjs');
+ const at=x=>new Date(x);
+ for(const [kind,clock,date] of [
+  ['close','2026-11-28T03:54:25+09:00','2026-11-27'],
+  ['close','2026-11-28T19:00:00+09:00','2026-11-27'],
+  ['morning','2026-11-29T11:00:00+09:00','2026-11-27'],
+  ['morning','2026-11-30T08:19:59+09:00','2026-11-27'],
+  ['morning','2026-11-30T08:20:00+09:00','2026-11-30'],
+  ['close','2026-11-30T18:09:59+09:00','2026-11-27'],
+  ['close','2026-11-30T18:10:00+09:00','2026-11-30']
+ ])assert.equal(deliveryAuditTarget(kind,at(clock)).date,date);
+ const delayed=await auditScheduledDelivery({kind:'close',now:at('2026-11-28T03:54:25+09:00'),
+  closeReader:async({now,detailed})=>{
+   assert.equal(now.toISOString(),'2026-11-27T09:10:00.000Z');assert.equal(detailed,true);
+   return {date:'2026-11-27',verified:true,runId:45958056516};
+  }});
+ assert.equal(delayed.status,'PRIOR_SENT_ARTIFACT_VERIFIED');
+ assert.equal(delayed.observedKstDate,'2026-11-28');
+ assert.equal(delayed.date,'2026-11-27');assert.equal(delayed.verified,true);
+ assert.equal(delayed.telegramSends,0);assert.equal(delayed.financeWrites,0);
+ const missed=await auditScheduledDelivery({kind:'morning',now:at('2026-11-28T03:54:25+09:00'),
+  morningReader:async({date})=>({date,status:'CLAIM_WITHOUT_SENT',verifiedSent:false,runId:12})});
+ assert.equal(missed.verified,false);assert.equal(missed.status,'CLAIM_WITHOUT_SENT');
+ const wrong=await auditScheduledDelivery({kind:'close',now:at('2026-11-28T03:54:25+09:00'),
+  closeReader:async()=>({date:'2026-11-26',verified:true})});
+ assert.equal(wrong.verified,false);
+ const holiday=await auditScheduledDelivery({kind:'close',now:at('2026-10-09T18:11:00+09:00'),
+  closeReader:async()=>assert.fail('holiday must not request delivery evidence')});
+ assert.equal(holiday.status,'MARKET_CLOSED');assert.equal(holiday.verified,true);
+ for(const kind of ['morning','close']){
+  const w=YAML.parse(fs.readFileSync('.github/workflows/telegram-'+kind+'-delivery-audit.yml','utf8'));
+  assert.deepEqual(w.permissions,{contents:'read',actions:'read'});
+  assert.match(w.jobs.audit.steps[2].run,/auditScheduledDelivery/);
+  assert.doesNotMatch(w.jobs.audit.steps[2].run,/sendMessage|GAS_ACCESS_TOKEN/);
+ }
+ console.log('DELAYED_DELIVERY_AUDIT_TARGET_PASS');
+}
+
 // A duplicate claim may not be sent again, and only verified same-day
 // provider-confirmed SENT provenance can mark the skipped run successful.
 {

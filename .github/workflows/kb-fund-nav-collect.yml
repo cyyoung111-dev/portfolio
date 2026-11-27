@@ -31,6 +31,8 @@ jobs:
   # Public source has no GAS token, no private workbook or deployment access.
   # Its failure must not falsely mark the protected import as successful.
   source-public:
+    outputs:
+      admitted: ${{ steps.public_admission.outputs.admitted }}
     if: github.repository == 'cyyoung111-dev/portfolio' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -39,7 +41,20 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      - name: Skip stale public NAV source requests before network access
+        id: public_admission
+        env:
+          NAV_SCHEDULE_CRON: ${{ github.event.schedule }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {assessNavScheduledAdmission} from './scripts/nav-schedule-admission.mjs';
+          const result=assessNavScheduledAdmission({eventName:process.env.GITHUB_EVENT_NAME,cron:process.env.NAV_SCHEDULE_CRON});
+          console.log(JSON.stringify({kind:'PUBLIC_NAV_ADMISSION',...result,gasCalls:0,financialWrites:0}));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'admitted='+String(result.admit)+'\n');
+          JS
       - name: Collect public KB S-T NAV independently of GAS
+        if: steps.public_admission.outputs.admitted == 'true'
         id: public-nav
         continue-on-error: true
         run: node scripts/collect-kb-fund-nav.mjs --source-only > kb-public-nav.json
@@ -54,6 +69,7 @@ jobs:
           if-no-files-found: error
         continue-on-error: true
       - name: Collect public Hanwha C-RPe NAV independently of GAS
+        if: steps.public_admission.outputs.admitted == 'true'
         id: hanwha-public
         continue-on-error: true
         run: node scripts/collect-hanwha-public-nav.mjs > hanwha-public-nav.json
@@ -68,6 +84,7 @@ jobs:
           if-no-files-found: error
         continue-on-error: true
       - name: Collect public Fidelity Big4 S-class NAV independently of GAS
+        if: steps.public_admission.outputs.admitted == 'true'
         id: fidelity-public
         continue-on-error: true
         run: node scripts/collect-fidelity-public-nav.mjs > fidelity-public-nav.json
@@ -82,7 +99,7 @@ jobs:
           if-no-files-found: error
         continue-on-error: true
       - name: Record public source coverage without blocking private writer
-        if: always()
+        if: always() && steps.public_admission.outputs.admitted == 'true'
         env:
           KB_SOURCE_STATUS: ${{ steps.public-nav.outcome }}
           HANWHA_SOURCE_STATUS: ${{ steps.hanwha-public.outcome }}
@@ -125,6 +142,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.repository == 'cyyoung111-dev/portfolio' &&
       github.ref == 'refs/heads/main' &&
+      needs['source-public'].outputs.admitted == 'true' &&
       (github.event_name == 'push' || needs['source-public'].result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 7
