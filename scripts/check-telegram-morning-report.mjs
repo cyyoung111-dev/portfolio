@@ -95,6 +95,17 @@ const dxyMessage=formatMorningBriefing('2026-11-16',null,[dxyRead],
  {now:dxyMorning});
 assert.match(dxyMessage,/DXY: 103.41.*2026-11-13/);
 
+// An explicitly expected completed session applies to VIX and other daily
+// references too; an appended non-session bar cannot hide the exact close.
+const thanksgiving='2026-11-27',thanksgivingNow=new Date(thanksgiving+'T07:40:00+09:00');
+const vixDates=['2026-11-24T16:00:00-05:00','2026-11-25T16:00:00-05:00','2026-11-26T12:00:00-05:00'].map(x=>Date.parse(x)/1000);
+const vixChart={chart:{result:[{meta:{symbol:'^VIX',exchangeTimezoneName:'America/New_York'},timestamp:vixDates,indicators:{quote:[{close:[20,22,25]}]}}]}};
+const vixFetch=async()=>({ok:true,json:async()=>vixChart});
+const vix=await fetchDatedDaily('VIX','^VIX',thanksgiving,{now:thanksgivingNow,expectedSessionDate:'2026-11-25',fetchImpl:vixFetch});
+assert.equal(vix?.date,'2026-11-25');assert.equal(vix?.value,22);
+vixChart.chart.result[0].timestamp.push(vixDates[1]);
+vixChart.chart.result[0].indicators.quote[0].close.push(23);
+assert.equal(await fetchDatedDaily('VIX','^VIX',thanksgiving,{now:thanksgivingNow,expectedSessionDate:'2026-11-25',fetchImpl:vixFetch}),null,'duplicate expected session is ambiguous');
 const sundayCloseClock=new Date('2026-11-01T16:45:00+09:00');
 assert.equal(expectedMorningDate('BTC','2026-11-01',sundayCloseClock),'2026-10-31',
   'the Sunday close test retains the completed Saturday UTC candle');
