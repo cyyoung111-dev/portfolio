@@ -248,6 +248,21 @@ const noisyAudit=await runDailyOperations({
 assert.equal(jobReads.length,1,'ineligible source-only runs must not exhaust private evidence budget');
 assert.equal(noisyAudit.kbNav.execution,'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED');
 assert.equal(noisyAudit.kbNav.state,'EVIDENCE_MISSING','execution is not NAV storage proof');
+for(const [list,jobList] of [
+ [{total_count:2,workflow_runs:[run]},null],
+ [{total_count:2,workflow_runs:[run,run]},null],
+ [{total_count:'1',workflow_runs:[run]},null],
+ [{total_count:1,workflow_runs:[run]},{total_count:4,jobs:jobs[123]}]
+]){
+ const partial=await runDailyOperations({
+  now:at('2026-11-13T22:30:00+09:00'),token:'synthetic',
+  morningReader:async()=>({verifiedSent:true}),
+  closeReader:async()=>({date:fri,verified:true}),
+  fetchImpl:async url=>({ok:true,json:async()=>url.includes('/workflows/')?list:jobList})
+ });
+ assert.equal(partial.kbNav.execution,'RUN_LIST_UNVERIFIED');
+ assert.equal(partial.kbNav.state,'EVIDENCE_MISSING');
+}
 assert.equal(classifyNavRuns([run],{123:jobs[123].slice(0,1)},fri),
  'NAV_EXECUTION_UNVERIFIED');
 let observed=[],statusReads=0;
@@ -295,6 +310,21 @@ assert.equal(independent.kbNav.state,'EVIDENCE_MISSING');
 assert.equal(independent.hanwhaNav.state,'PASS');
 assert.equal(independent.overall,'CORE_EVIDENCE_INCOMPLETE');
 assert.equal(independent.savedClose.state,'PASS');
+assert.equal(independent.kbNav.reason,'FUND_NAV_POSTFLIGHT_UNVERIFIED');
+const failedSources=await runDailyOperations({
+ now:at('2026-11-14T23:01:00+09:00'),token:'synthetic',
+ gasUrl:'https://example.invalid',gasToken:'test',
+ morningReader:async()=>({verifiedSent:true}),closeReader:async()=>({date:fri,verified:true}),
+ navRunReader:async()=> 'NAV_EXECUTION_FAILED',statusReader:async()=>({close:persisted}),
+ navReader:async()=>{throw Error('NAV_SOURCE_HTTP_403');},
+ hanwhaReader:async()=>{throw Error('HANWHA_FUNETF_HTTP_UNVERIFIED');},
+ snapshotReader:async()=>exactSnapshot
+});
+assert.equal(failedSources.kbNav.reason,'NAV_SOURCE_HTTP_403');
+assert.equal(failedSources.hanwhaNav.reason,'HANWHA_FUNETF_HTTP_UNVERIFIED');
+assert.equal(failedSources.kbNav.verified,false);
+assert.equal(failedSources.savedClose.state,'PASS');
+assert.equal(failedSources.snapshot.state,'PASS');
 assert.equal(independent.snapshot.state,'PASS');
 let snapshotCalls=0;
 const partialClose=await runDailyOperations({now:at('2026-11-14T23:01:00+09:00'),

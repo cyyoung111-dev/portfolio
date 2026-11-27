@@ -49,6 +49,14 @@ export function assessNavScheduledAdmission({eventName,cron,now=new Date(),prior
  return {status:admit?'SCHEDULE_ON_TIME':'STALE_OR_WRONG_DAY_SCHEDULE',
   admit,slot:slot.name};
 }
+// Main pushes are compatibility checks, not an instruction to request
+// public fund prices on a weekend. Manual dispatch remains explicit.
+export function assessNavPublicAdmission({eventName,cron,now=new Date()}={}){
+ if(!(now instanceof Date)||!Number.isFinite(now.getTime()))throw Error('NAV_ADMISSION_CLOCK_INVALID');
+ if(eventName==='push'&&[0,6].includes(kstClock(now).weekday))
+  return {status:'WEEKEND_PUSH_SOURCE_NOT_EXPECTED',admit:false,slot:'NONE'};
+ return assessNavScheduledAdmission({eventName,cron,now});
+}
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){
  try{
   const now=new Date();

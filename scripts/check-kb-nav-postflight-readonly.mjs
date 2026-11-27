@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import YAML from 'yaml';
-import {assessNavScheduledAdmission} from './nav-schedule-admission.mjs';
+import {assessNavScheduledAdmission,assessNavPublicAdmission} from './nav-schedule-admission.mjs';
 import {assessKbNavPostflight,auditKbNavPostflight,auditHanwhaNavPostflight,auditBothNavPostflight,
  expectedKbOfficialReferenceDate,verifyKbOfficialNavPreview,readKbExactNavPreview,
  safeNavPostflightFailureReason}
@@ -351,7 +351,7 @@ assert.match(candidate.if,/needs\['source-public'\]\.outputs\.admitted == 'true'
 const publicJob=workflow.jobs['source-public'];
 assert.equal(publicJob.outputs.admitted,'$'+'{{ steps.public_admission.outputs.admitted }}');
 const publicAdmission=publicJob.steps.find(s=>s.id==='public_admission');
-assert.match(publicAdmission.run,/assessNavScheduledAdmission/);
+assert.match(publicAdmission.run,/assessNavPublicAdmission/);
 for(const id of ['public-nav','hanwha-public','fidelity-public']){
  const step=publicJob.steps.find(x=>x.id===id);
  assert.ok(publicJob.steps.indexOf(publicAdmission)<publicJob.steps.indexOf(step));
@@ -360,6 +360,11 @@ for(const id of ['public-nav','hanwha-public','fidelity-public']){
 assert.equal(publicJob.steps.at(-1).if,"always() && steps.public_admission.outputs.admitted == 'true'");
 assert.equal(assessNavScheduledAdmission({eventName:'schedule',cron:'10 9 * * 1-5',now:new Date('2026-11-28T03:55:00+09:00')}).admit,false);
 assert.equal(assessNavScheduledAdmission({eventName:'schedule',cron:'10 9 * * 1-5',now:new Date('2026-11-27T18:11:00+09:00')}).admit,true);
+assert.equal(assessNavPublicAdmission({eventName:'push',now:new Date('2026-11-28T06:44:00+09:00')}).status,'WEEKEND_PUSH_SOURCE_NOT_EXPECTED');
+assert.equal(assessNavPublicAdmission({eventName:'push',now:new Date('2026-11-28T06:44:00+09:00')}).admit,false);
+assert.equal(assessNavPublicAdmission({eventName:'push',now:new Date('2026-11-27T18:11:00+09:00')}).admit,true);
+assert.equal(assessNavPublicAdmission({eventName:'workflow_dispatch',now:new Date('2026-11-28T06:44:00+09:00')}).admit,true);
+assert.equal(assessNavPublicAdmission({eventName:'schedule',cron:'10 9 * * 1-5',now:new Date('2026-11-28T03:55:00+09:00')}).admit,false);
 
 assert.match(candidate.steps.find(x=>x.id==='candidate').run,/--archive/);
 assert.match(candidate.steps.at(-1).with.name,/public-nav-candidate-/);

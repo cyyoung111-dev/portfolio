@@ -292,5 +292,15 @@ assert.equal(expectedMorningDate('SPX','2026-04-06'),'2026-04-02');
 assert.equal(expectedMorningDate('UST10Y','2026-04-06'),'2026-04-03');
 assert.equal(expectedMorningDate('SPX','2026-11-16'),'2026-11-13');
 assert.equal(expectedMorningDate('UST10Y','2026-11-16'),'2026-11-13');
-assert.equal(expectedMorningDate('SPX','2027-01-05'),null,
+assert.equal(expectedMorningDate('SPX','2027-01-05'),'2027-01-04');
+assert.equal(expectedMorningDate('SPX','2027-01-04'),'2026-12-31');
+assert.equal(expectedMorningDate('SPX','2027-03-29'),'2027-03-25');
+assert.equal(expectedMorningDate('UST10Y','2027-03-29'),'2027-03-25');
+assert.equal(expectedMorningDate('SPX','2027-11-12'),'2027-11-11');
+assert.equal(expectedMorningDate('UST10Y','2027-11-12'),'2027-11-10');
+assert.equal(usSessionStatus('2027-11-26','EQUITY'),'OPEN');
+assert.equal(usSessionStatus('2027-11-26','BOND'),'OPEN');
+assert.equal(usSessionStatus('2027-06-18','EQUITY'),'CLOSED');
+assert.equal(usSessionStatus('2027-06-18','BOND'),'CLOSED');
+assert.equal(expectedMorningDate('SPX','2028-01-05'),null,
  'unverified future-year holidays must not be treated as trading sessions');
