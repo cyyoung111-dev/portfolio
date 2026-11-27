@@ -32,7 +32,7 @@ export async function readClosingMarketReferences(date,{fetchImpl=fetch,now=()=>
  const fetched=await Promise.all(CLOSE_MARKET_REFERENCES.map(async item=>{
   for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
    try{
-    const row=await fetchDaily(item.label,item.symbol,date,{fetchImpl,now:now(),host});
+    const row=await fetchDaily(item.label,item.symbol,date,{fetchImpl,now:now(),host,expectedSessionDate:expectedClosingMarketDate(item.id,date)});
     const verified=validateClosingMarketReference(date,item.id,row);
     if(verified)return verified;
    }catch{/* no unverified prices */}
