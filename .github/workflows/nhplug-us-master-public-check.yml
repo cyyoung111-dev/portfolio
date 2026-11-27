@@ -7,6 +7,7 @@ on:
       - 'scripts/check-nhplug-public-master-exit.mjs'
       - 'scripts/nh-market-data-public-contract.mjs'
       - 'scripts/check-nh-market-data-public-contract.mjs'
+      - 'scripts/nh-cme-lead-contracts.mjs'
 permissions:
   contents: read
 jobs:
@@ -39,3 +40,5 @@ jobs:
         run: node scripts/check-nh-market-data-public-contract.mjs
       - name: Compare documented quote routes with current public OpenAPI schema
         run: node scripts/nh-market-data-public-contract.mjs
+      - name: Verify official CME lead-contract master (public GET only)
+        run: node scripts/nh-cme-lead-contracts.mjs
