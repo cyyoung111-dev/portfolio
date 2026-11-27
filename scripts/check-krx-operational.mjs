@@ -900,8 +900,20 @@ console.log('Incomplete close client: authentication, explicit schedule, bounded
   assert.equal(f.checks,2,'fresh readback verifies derived rows after repair');
  }
  const noValuation=makeCase({valuationRequired:false,navState:'NON_PUBLICATION_CARRY'});
- assert.equal((await run({...args,fetchImpl:noValuation.fetchImpl})).derivedRepaired,0);
+ await assert.rejects(()=>run({...args,fetchImpl:noValuation.fetchImpl}),/NAV_DERIVED_PENDING/,
+  'active units with no calculated valuation cannot be completed');
  assert.equal(noValuation.refreshes,0,'non-required carry rows are not created');
+ for(const options of [
+   {evaluationState:'NOT_REQUIRED',snapshotState:'EXISTING_VALID'},
+   {evaluationState:'EXISTING_VALID',snapshotState:'NOT_REQUIRED'},
+   {evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID',unitsApplied:false},
+   {evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID',reconciled:false},
+   {evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID',navState:'NAV_MISSING'}
+ ]){
+  const f=makeCase(options);
+  await assert.rejects(()=>run({...args,fetchImpl:f.fetchImpl}),/NAV_DERIVED_PENDING/);
+  assert.equal(f.refreshes,0,'invalid final proof does not authorize unnecessary refresh');
+ }
  for(const [options,reason] of [
    [{navState:'UNPUBLISHED'},'NAV_DERIVED_NAV_STATE_UNVERIFIED'],
    [{navState:'NAV_MISSING'},'NAV_DERIVED_NAV_STATE_UNVERIFIED'],
