@@ -25,6 +25,19 @@ function validDay(date){return /^\d{4}-\d{2}-\d{2}$/.test(date)
  &&Number.isFinite(Date.parse(date+'T00:00:00Z'))
  &&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date;}
 function num(v){return Number.isFinite(v)&&v>0&&v<10000000;}
+// The 90-minute last-trade rule is intentional during ordinary daily maintenance.
+// Only confirmed prolonged closures can waive the expectation of a recent trade.
+// CME 2026 Thanksgiving ES/NQ/YM/RTY: 11/26 12:00–17:00 Chicago (18:00–23:00 UTC).
+// https://www.cmegroup.com/trading-hours.html ; https://www.discounttrading.com/futures-holiday-schedule.html
+export function morningFuturesExpectation(date,instant){
+ if(!(instant instanceof Date)||!Number.isFinite(instant.getTime())||!validDay(date)||kst(instant).date!==date)return 'UNVERIFIED';
+ const ms=instant.getTime(),halt=Date.parse('2026-11-26T18:00:00Z'),reopen=Date.parse('2026-11-26T23:00:00Z');
+ if(ms>halt+SESSION_MS&&ms<reopen)return 'HOLIDAY_HALT';
+ const p=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(instant).map(x=>[x.type,x.value]));
+ const minute=Number(p.hour)*60+Number(p.minute);
+ if(p.weekday==='Sat'||p.weekday==='Sun'&&minute<17*60||p.weekday==='Fri'&&minute>17*60+30)return 'WEEKEND_CLOSED';
+ return 'RECENT_QUOTE_EXPECTED';
+}
 export function validateMorningFuturesQuote(date,id,payload,now){
  const info=FUTURES.find(x=>x.id===id);
  if(!info||!(now instanceof Date)||!Number.isFinite(now.getTime())
@@ -62,7 +75,8 @@ export function validateMorningFuturesQuote(date,id,payload,now){
   source:'YAHOO_DELAYED_FUTURES_REFERENCE',...movement};
 }
 export async function readMorningFutures(date,{now=()=>new Date(),fetchImpl=fetch}={}){
- if(!validDay(date)||kst(now()).date!==date)return [];
+ const expectation=morningFuturesExpectation(date,now());
+ if(expectation!=='RECENT_QUOTE_EXPECTED')return [];
  return (await Promise.all(FUTURES.map(async info=>{
   for(const host of ['query1.finance.yahoo.com','query2.finance.yahoo.com']){
    try{
@@ -92,7 +106,12 @@ export function formatMorningFutures(date,rows=[],now=new Date(date+'T07:40:00+0
    &&Math.abs(changePercent-(v.value/previousClose-1)*100)<0.000001;
   return [{...quote,...(comparable?{changePercent}:{})}];
  });
- if(!safe.length)return '미국 선물 ES/NQ/YM/RTY: 최근 검증된 시세 미확보';
+ if(!safe.length){
+  const state=morningFuturesExpectation(date,now);
+  if(state==='HOLIDAY_HALT')return '미국 선물 ES/NQ/YM/RTY: CME 휴일 거래 중단 (최근 시세 비대상)';
+  if(state==='WEEKEND_CLOSED')return '미국 선물 ES/NQ/YM/RTY: CME 주말 거래 종료 (최근 시세 비대상)';
+  return '미국 선물 ES/NQ/YM/RTY: 최근 검증된 시세 미확보';
+ }
  return '미국 선물 참고: '+safe.map(r=>r.id+' '+r.value.toLocaleString('en-US',
   {maximumFractionDigits:2})+(Number.isFinite(r.changePercent)
     ?' ('+(r.changePercent>=0?'+':'')+r.changePercent.toFixed(2)+'%)':'')
