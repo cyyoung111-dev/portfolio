@@ -73,3 +73,5 @@ const master=await loadNhCmeLeadContracts({now:new Date('2026-11-28T06:44:00+09:
 assert.deepEqual(master.rows,parsed);assert.equal(master.quoteVerified,false);assert.equal(master.tokenIssued,false);
 assert.equal(master.financialWrites,0);assert.deepEqual(reads,['https://www.nhplug.com/instruments/fucode_h.h','https://www.nhplug.com/instruments/fucode_h.mst']);
 console.log('NH_CME_LEAD_MASTER_PASS exact identity, lead flag, expiry, record layout; no quote or credential claims');
+
+await import('./test-nh-cme-quote-readonly-proposal.mjs');
