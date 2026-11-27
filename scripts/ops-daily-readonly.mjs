@@ -146,7 +146,7 @@ export function classifyNavRuns(runs,jobsByRunId,date){
  if(!Array.isArray(runs)||runs.length>100)return 'RUN_LIST_UNVERIFIED';
  const candidates=acceptedNavRuns(runs,date);
  if(!candidates.length)return 'NO_ACCEPTED_EXECUTION_OBSERVED';
- let failing=false,completed=false,active=false;
+ let failing=false,completed=false,active=false,admissionBlocked=false;
  for(const run of candidates){
   if(['queued','in_progress','waiting','requested','pending'].includes(run.status)){
    active=true;continue;
@@ -161,11 +161,26 @@ export function classifyNavRuns(runs,jobsByRunId,date){
   // Public-source failures may make the entire run red even when all
   // three private jobs succeeded. This label certifies execution ONLY.
   if(mapped.every(j=>j?.status==='completed'&&j.conclusion==='success'))completed=true;
-  else if(mapped.some(j=>j?.status==='completed'&&j.conclusion==='failure'))failing=true;
+  else {
+   const [kb,hanwha,post]=mapped;
+   const beforePrivateGas=job=>{
+    if(job?.status!=='completed'||job.conclusion!=='failure'||!Array.isArray(job.steps))return false;
+    const gate=job.steps.filter(s=>s.name==='Block stale scheduled NAV starts before private GAS');
+    const writer=job.steps.filter(s=>[
+     'Collect exact KB S-T published NAV and verify import',
+     'Import exact Hanwha C-RPe NAV through shared GAS FUND/backfill lease'
+    ].includes(s.name));
+    return gate.length===1&&gate[0].conclusion==='failure'
+      &&writer.length===1&&writer[0].conclusion==='skipped';
+   };
+   if(beforePrivateGas(kb)&&beforePrivateGas(hanwha)&&post?.status==='completed'&&post.conclusion==='skipped')
+    admissionBlocked=true;
+   else if(mapped.some(j=>j?.status==='completed'&&j.conclusion==='failure'))failing=true;
+  }
  }
  return completed?'ALL_NAV_JOBS_EXECUTED_NOT_DATA_VERIFIED'
   :active?'NAV_EXECUTION_IN_PROGRESS'
-  :failing?'NAV_EXECUTION_FAILED':'NAV_EXECUTION_UNVERIFIED';
+  :failing?'NAV_EXECUTION_FAILED':admissionBlocked?'NAV_ADMISSION_BLOCKED':'NAV_EXECUTION_UNVERIFIED';
 }
 async function navRunnerEvidence({token,date,fetchImpl=fetch}){
  if(typeof token!=='string'||!token)return 'RUN_LIST_UNVERIFIED';
