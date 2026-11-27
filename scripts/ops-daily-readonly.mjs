@@ -182,6 +182,13 @@ export function classifyNavRuns(runs,jobsByRunId,date){
   :active?'NAV_EXECUTION_IN_PROGRESS'
   :failing?'NAV_EXECUTION_FAILED':admissionBlocked?'NAV_ADMISSION_BLOCKED':'NAV_EXECUTION_UNVERIFIED';
 }
+// A truncated, duplicate or inconsistent list cannot establish absence or
+// execution success. Do not silently accept a partial page as complete.
+function completeList(data,key,max=100){
+ const rows=data?.[key];
+ return Array.isArray(rows)&&Number.isSafeInteger(data.total_count)
+  &&data.total_count>=0&&data.total_count<=max&&rows.length===data.total_count;
+}
 async function navRunnerEvidence({token,date,fetchImpl=fetch}){
  if(typeof token!=='string'||!token)return 'RUN_LIST_UNVERIFIED';
  const headers={authorization:'Bearer '+token,accept:'application/vnd.github+json'};
@@ -200,8 +207,10 @@ async function navRunnerEvidence({token,date,fetchImpl=fetch}){
     until.toISOString().replace('.000Z','Z');
   const data=await get('/actions/workflows/kb-fund-nav-collect.yml/runs?branch=main&created='+
     encodeURIComponent(created)+'&per_page=100');
-  if(!Array.isArray(data?.workflow_runs)||data.workflow_runs.length>100
-     ||Number(data.total_count)>100)return 'RUN_LIST_UNVERIFIED';
+  if(!completeList(data,'workflow_runs')
+     ||data.workflow_runs.some(r=>!Number.isSafeInteger(r?.id))
+     ||new Set(data.workflow_runs.map(r=>r.id)).size!==data.workflow_runs.length)
+    return 'RUN_LIST_UNVERIFIED';
   // Exclude public-only pushes, retired triggers, reruns and other
   // branches before applying the bounded private-evidence read budget.
   const interested=acceptedNavRuns(data.workflow_runs,date);
@@ -210,7 +219,7 @@ async function navRunnerEvidence({token,date,fetchImpl=fetch}){
   const jobs={};
   for(const r of terminal){
    const d=await get('/actions/runs/'+r.id+'/jobs?per_page=100');
-   if(!Array.isArray(d?.jobs)||d.total_count>100)
+   if(!completeList(d,'jobs'))
     return 'RUN_LIST_UNVERIFIED';
    jobs[r.id]=d.jobs;
   }
