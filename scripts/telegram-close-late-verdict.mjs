@@ -50,9 +50,9 @@ export async function verifyLateCloseSent({
  try{
   async function artifact(name){
    const data=await get('/actions/artifacts?name='+encodeURIComponent(name)+'&per_page=100');
-   if(name===claimName+'-sent'&&data?.total_count===0&&
+   if(data?.total_count===0&&
       Array.isArray(data.artifacts)&&data.artifacts.length===0)
-    throw Error('CLOSE_LATE_NO_SENT_PROOF');
+    return null;
    if(!data||data.total_count!==1||!Array.isArray(data.artifacts)
      ||data.artifacts.length!==1)throw Error('CLOSE_LATE_ARTIFACT_UNVERIFIED');
    const a=data.artifacts[0],created=Date.parse(a?.created_at);
@@ -64,6 +64,9 @@ export async function verifyLateCloseSent({
   }
   const sent=await artifact(claimName+'-sent');
   const claim=await artifact(claimName);
+  if(!sent&&!claim)return {...base,status:'NO_CLAIM_OR_SENT',verified:false,githubReads:2};
+  if(!sent&&claim)return {...base,status:'CLAIM_WITHOUT_SENT',verified:false,githubReads:2,runId:claim.runId,runUrl:'https://github.com/'+REPO+'/actions/runs/'+claim.runId};
+  if(sent&&!claim)return {...base,status:'SENT_WITHOUT_CLAIM',verified:false,githubReads:2};
   if(sent.runId!==claim.runId||claim.created>sent.created)
    throw Error('CLOSE_LATE_CLAIM_UNVERIFIED');
   const run=await get('/actions/runs/'+sent.runId);
@@ -74,8 +77,7 @@ export async function verifyLateCloseSent({
    throw Error('CLOSE_LATE_RUN_UNVERIFIED');
   return {...base,status:'PRIOR_SENT_ARTIFACT_VERIFIED',verified:true,
    githubReads:3,runId:sent.runId,runUrl:'https://github.com/'+REPO+'/actions/runs/'+sent.runId};
- }catch(e){return {...base,status:e?.message==='CLOSE_LATE_NO_SENT_PROOF'
-  ?'NO_TRUSTED_SENT_PROOF':'SENT_PROOF_UNVERIFIED',verified:false};}
+ }catch{return {...base,status:'SENT_PROOF_UNVERIFIED',verified:false};}
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
