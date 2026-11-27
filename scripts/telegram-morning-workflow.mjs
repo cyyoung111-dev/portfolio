@@ -104,7 +104,7 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
       if(entry?.kind==='OPTIONAL_DISPLAY_AUDIT'&&entry.briefing==='morning'){
         const groups=entry.groups||{};
         const keys=['futures','treasury','vkospi','turnover','breadth','liquidity','investors'];
-        const states=['SOURCE_UNAVAILABLE','NOT_DISPLAYED','DISPLAYED','PARTIAL_DISPLAYED'];
+        const states=['SOURCE_UNAVAILABLE','NOT_DISPLAYED','DISPLAYED','PARTIAL_DISPLAYED','NOT_EXPECTED'];
         if(keys.every(k=>groups[k]&&states.includes(groups[k].status)
           &&Number.isInteger(groups[k].sourced)&&Number.isInteger(groups[k].total)
           &&groups[k].sourced>=0&&groups[k].sourced<=groups[k].total))
@@ -148,6 +148,14 @@ export async function prepareMorning({now=()=>new Date(),fetchImpl=fetch,githubT
           console.log(JSON.stringify({kind:'MORNING_OPTIONAL_COVERAGE',date:window.date,
             counts:Object.fromEntries(Object.keys(bounds).map(k=>[k,c[k]])),
             kofia:{deposits:c.kofiaDeposits,margin:c.kofiaMargin}}));
+        return;
+      }
+      if(entry?.kind==='MORNING_VIX_FALLBACK'){
+        if(['VERIFIED','UNVERIFIED'].includes(entry.status))console.log(JSON.stringify({kind:entry.kind,date:window.date,status:entry.status}));
+        return;
+      }
+      if(entry?.kind==='MORNING_FUTURES_SESSION'){
+        if(['HOLIDAY_HALT','WEEKEND_CLOSED','RECENT_QUOTE_EXPECTED','UNVERIFIED'].includes(entry.status))console.log(JSON.stringify({kind:entry.kind,date:window.date,status:entry.status}));
         return;
       }
       if(entry?.kind==='YAHOO_MORNING_DAILY_COVERAGE'){
